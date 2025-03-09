@@ -99,7 +99,39 @@ impl Stack for Python {
 ) @{FUNCTION_CALL}"
         )
     }
-    fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
+
+
+    fn endpoint_finders(&self) -> Vec<String> {
+        vec![format!(
+          r#"(decorated_definition
+    (decorator
+        (call
+            function: (attribute
+                attribute: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$")
+            )
+            arguments: (argument_list
+                (string) @{ENDPOINT}
+            )
+       )
+    ) @{ROUTE}
+    definition: (function_definition
+        name: (identifier) @{HANDLER}
+    )
+)"#
+        )]
+    }
+
+ fn data_model_query(&self) -> Option<String> {
+        Some(format!(
+            "(class_definition
+    name: (identifier) @{STRUCT_NAME}
+) @{STRUCT}"
+        ))
+    }
+
+     fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
         func_name.starts_with("test_")
     }
+
+
 }
