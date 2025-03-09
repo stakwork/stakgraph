@@ -76,7 +76,7 @@ async fn test_python() {
         .collect::<Vec<_>>();
 
     let end = endpoints[0].into_data();
-    assert_eq!(end.name, "/persons");
+    assert_eq!(end.name, "/greet/{name}");
     assert_eq!(end.file, "src/testing/python/routes.py");
     assert_eq!(end.meta.get("verb").unwrap(), "GET");
 
