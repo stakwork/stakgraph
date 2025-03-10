@@ -1,8 +1,14 @@
 use crate::lang::graph::{EdgeType, Node, NodeType};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+// use crate::testing::test_backend::test_backend;
 
 #[tokio::test]
+
+// async fn test_go(){
+//     let language = Lang::from_str("go").unwrap();
+//     test_backend(&language).await.unwrap();
+// }
 async fn test_go() {
     crate::utils::logger();
     let repo = Repo::new(

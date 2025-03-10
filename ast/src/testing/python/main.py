@@ -1,4 +1,4 @@
-from fastapi import FastAPI 
+from fastapi import FastAPI
 from . import routes
 from .db import engine, Base
 
@@ -10,9 +10,3 @@ app = FastAPI(
 )
 
 app.include_router(routes.router)
-
-@app.get("/")
-def root():
-    return {"message": "Welcome to StakGraph Python Example"}
-
-    

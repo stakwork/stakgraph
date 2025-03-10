@@ -1,8 +1,13 @@
 use crate::lang::graph::{EdgeType, Node, NodeType};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+// use crate::testing::test_backend::test_backend;
 
 #[tokio::test]
+// async fn test_python() {
+//     let language = Lang::from_str("python").unwrap();
+//     test_backend(&language).await.unwrap();
+// }
 async fn test_python() {
     crate::utils::logger();
 
@@ -36,7 +41,7 @@ async fn test_python() {
         .filter(|n| matches!(n, Node::File(_)))
         .collect::<Vec<_>>();
 
-    assert!(files.len() == 5);
+    assert!(files.len() == 7);
 
     let imports = graph
         .nodes
@@ -55,7 +60,7 @@ async fn test_python() {
     assert_eq!(classes.len(), 3);
 
     let class = classes[0].into_data();
-    assert_eq!(class.name, "User");
+    assert_eq!(class.name, "Person");
     assert_eq!(class.file, "src/testing/python/model.py");
 
     let methods = graph
@@ -79,17 +84,28 @@ async fn test_python() {
         .filter(|n| matches!(n, Node::Endpoint(_)))
         .collect::<Vec<_>>();
 
+<<<<<<< HEAD
     assert_eq!(endpoints.len(), 3);
 
     let endpoint = endpoints[0].into_data();
     assert_eq!(endpoint.name, "/");
     assert_eq!(endpoint.file, "src/testing/python/main.py");
+=======
+    assert_eq!(endpoints.len(), 2);
+
+    let endpoint = endpoints[0].into_data();
+    assert_eq!(endpoint.name, "/person/{id}");
+    assert_eq!(endpoint.file, "src/testing/python/routes.py");
+>>>>>>> bc2c129 (feature: created an agnostic server code parser)
 
     let endpoint = endpoints[1].into_data();
-    assert_eq!(endpoint.name, "/users/{user_id}");
+    assert_eq!(endpoint.name, "/person");
     assert_eq!(endpoint.file, "src/testing/python/routes.py");
+<<<<<<< HEAD
 
     let endpoint = endpoints[2].into_data();
     assert_eq!(endpoint.name, "/users/");
     assert_eq!(endpoint.file, "src/testing/python/routes.py");
+=======
+>>>>>>> bc2c129 (feature: created an agnostic server code parser)
 }
