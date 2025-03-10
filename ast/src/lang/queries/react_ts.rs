@@ -66,7 +66,7 @@ impl Stack for ReactTs {
     )
     (method_definition
         name: (property_identifier) @{FUNCTION_NAME} (#not-eq? @{FUNCTION_NAME} "render")
-        parameters: (formal_parameters) @{ARGUMENTS}   
+        parameters: (formal_parameters) @{ARGUMENTS}
     )
     (variable_declarator
         name: (identifier) @{FUNCTION_NAME}
@@ -152,7 +152,7 @@ impl Stack for ReactTs {
     declaration: [
         (type_alias_declaration
             name: (type_identifier) @{STRUCT_NAME}
-      	) 
+      	)
         (interface_declaration
             name: (type_identifier) @{STRUCT_NAME}
        	)
@@ -287,7 +287,7 @@ impl Stack for ReactTs {
             )
             (_)*   ; allow any children after
         )
-        [	
+        [
             (jsx_element(jsx_opening_element
                 name: (identifier) @{PAGE_COMPONENT}
             ))
@@ -335,4 +335,6 @@ impl Stack for ReactTs {
         };
         Ok(parent_of)
     }
+
+
 }
