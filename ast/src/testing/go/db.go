@@ -24,7 +24,7 @@ func (p *Person) TableName() string {
 	return "people"
 }
 
-func (db database) CreatePerson(p Person) error {
+func (db database) NewPerson(p Person) error {
 	return db.db.Create(&p).Error
 }
 
@@ -45,7 +45,7 @@ func (db database) UpdatePersonName(id uint, name string) {
 	})
 }
 
-func (db database) GetPerson(id uint) (Person, error) {
+func (db database) GetPersonById(id uint) (Person, error) {
 	var p Person
 	if err := db.db.First(&p, id).Error; err != nil {
 		return Person{}, err
