@@ -84,28 +84,13 @@ async fn test_python() {
         .filter(|n| matches!(n, Node::Endpoint(_)))
         .collect::<Vec<_>>();
 
-<<<<<<< HEAD
-    assert_eq!(endpoints.len(), 3);
-
-    let endpoint = endpoints[0].into_data();
-    assert_eq!(endpoint.name, "/");
-    assert_eq!(endpoint.file, "src/testing/python/main.py");
-=======
     assert_eq!(endpoints.len(), 2);
 
     let endpoint = endpoints[0].into_data();
     assert_eq!(endpoint.name, "/person/{id}");
     assert_eq!(endpoint.file, "src/testing/python/routes.py");
->>>>>>> bc2c129 (feature: created an agnostic server code parser)
 
     let endpoint = endpoints[1].into_data();
     assert_eq!(endpoint.name, "/person");
     assert_eq!(endpoint.file, "src/testing/python/routes.py");
-<<<<<<< HEAD
-
-    let endpoint = endpoints[2].into_data();
-    assert_eq!(endpoint.name, "/users/");
-    assert_eq!(endpoint.file, "src/testing/python/routes.py");
-=======
->>>>>>> bc2c129 (feature: created an agnostic server code parser)
 }
