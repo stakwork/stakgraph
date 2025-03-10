@@ -43,7 +43,7 @@ func NewRouter() *http.Server {
 func GetPerson(w http.ResponseWriter, r *http.Request) {
 	idstr := chi.URLParam(r, "id")
 	id, _ := strconv.Atoi(idstr)
-	p, err := DB.GetPersonById(uint(id))
+	p, err := DB.GetPerson(uint(id))
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(err)
@@ -66,7 +66,7 @@ func CreatePerson(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotAcceptable)
 		return
 	}
-	err = DB.NewPerson(p)
+	err = DB.CreatePerson(p)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(err)
