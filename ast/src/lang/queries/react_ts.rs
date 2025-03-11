@@ -147,19 +147,40 @@ impl Stack for ReactTs {
         )
     }
     fn data_model_query(&self) -> Option<String> {
-        Some(format!(
-            "(export_statement
-    declaration: [
-        (type_alias_declaration
-            name: (type_identifier) @{STRUCT_NAME}
-      	)
-        (interface_declaration
-            name: (type_identifier) @{STRUCT_NAME}
-       	)
-    ] @{STRUCT}
-)"
-        ))
-    }
+    Some(format!(
+        r#"
+        (export_statement
+            declaration: [
+                (type_alias_declaration
+                    name: (type_identifier) @{STRUCT_NAME}
+                )
+                (interface_declaration
+                    name: (type_identifier) @{STRUCT_NAME}
+                )
+                (class_declaration
+                    name: (type_identifier) @{STRUCT_NAME}
+                    body: (class_body
+                        (method_definition
+                            name: (property_identifier) @constructor (#eq? @constructor "constructor")
+                            body: (statement_block)
+                        )
+                    )
+                )
+            ] @{STRUCT}
+        )
+
+        [
+            (call_expression
+                function: (member_expression
+                    object: (identifier) @model (#eq? @model "sequelize")
+                    property: (property_identifier) @sync_method (#eq? @sync_method "sync")
+                )
+                arguments: (arguments)  ;; Capture arguments if needed
+            )
+        ]"#
+    ))
+}
+
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
             r#"(
@@ -334,6 +355,23 @@ impl Stack for ReactTs {
             None => None,
         };
         Ok(parent_of)
+    }
+
+    fn endpoint_finders(&self) -> Vec<String> {
+      vec![format!(
+          r#"(call_expression
+      function: [
+          (identifier) @route_method
+          (member_expression
+              object: (identifier) @app_object
+              property: (property_identifier) @route_method
+          )
+      ]
+      arguments: (arguments
+          (string) @endpoint
+      )
+    ) @route"#
+      )]
     }
 
 
