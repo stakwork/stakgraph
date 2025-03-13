@@ -12,11 +12,11 @@ pub enum Language {
     Ruby,
 }
 
-pub const PROGRAMMING_LANGUAGES: [Language; 4] = [
+pub const PROGRAMMING_LANGUAGES: [Language; 5] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
-    // Language::Python,
+    Language::Python,
     Language::Ruby,
 ];
 
@@ -37,7 +37,7 @@ impl Language {
             Self::Rust => vec!["rs"],
             Self::Go => vec!["go"],
             Self::Typescript => vec!["jsx", "tsx", "ts", "js"],
-            Self::Python => vec!["py", "ipynb", "txt"],
+            Self::Python => vec!["py", "ipynb"],
             Self::Ruby => vec!["rb"],
             Self::Bash => vec!["sh"],
             Self::Toml => vec!["toml"],

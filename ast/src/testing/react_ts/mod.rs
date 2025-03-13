@@ -1,10 +1,9 @@
-use crate::lang::graph::{EdgeType, Node, NodeType};
+use crate::lang::graph::{EdgeType, Node};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
 
 #[tokio::test]
 async fn test_react_typescript() {
-
     crate::utils::logger();
 
     let repo = Repo::new(
@@ -52,20 +51,29 @@ async fn test_react_typescript() {
         .collect::<Vec<_>>();
     assert_eq!(imports.len(), 5);
 
-    let functions = graph
+    let mut functions = graph
         .nodes
         .iter()
         .filter(|n| matches!(n, Node::Function(_)))
         .collect::<Vec<_>>();
+
+    functions.sort_by(|a, b| a.into_data().name.cmp(&b.into_data().name));
+
     assert_eq!(functions.len(), 4);
 
     let people_component = functions[0].into_data();
     assert_eq!(people_component.name, "App");
-    assert_eq!(normalize_path(&people_component.file), "src/testing/react_ts/App.tsx");
+    assert_eq!(
+        normalize_path(&people_component.file),
+        "src/testing/react_ts/App.tsx"
+    );
 
     let new_person_component = functions[1].into_data();
     assert_eq!(new_person_component.name, "NewPerson");
-    assert_eq!(normalize_path(&new_person_component.file), "src/testing/react_ts/components/NewPerson.tsx");
+    assert_eq!(
+        normalize_path(&new_person_component.file),
+        "src/testing/react_ts/components/NewPerson.tsx"
+    );
 
     let requests = graph
         .nodes
