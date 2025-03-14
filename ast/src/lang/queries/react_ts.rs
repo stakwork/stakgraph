@@ -148,16 +148,34 @@ impl Stack for ReactTs {
     }
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
-            "(export_statement
-    declaration: [
-        (type_alias_declaration
+            r#"[
+    (type_alias_declaration
+        name: (type_identifier) @{STRUCT_NAME}
+    ) @{STRUCT}
+    (interface_declaration
+        name: (type_identifier) @{STRUCT_NAME}
+    ) @{STRUCT}
+    ;; sequelize
+    (class_declaration
+        name: (type_identifier) @{STRUCT_NAME}
+        (class_heritage
+            (extends_clause
+                value: (identifier) @model (#eq? @model "Model")
+            )
+        )
+    ) @{STRUCT}
+    ;; typeorm
+    (
+        (decorator
+            (call_expression
+                function: (identifier) @entity (#eq? @entity "Entity")
+            )
+        )
+        (class_declaration
             name: (type_identifier) @{STRUCT_NAME}
-      	)
-        (interface_declaration
-            name: (type_identifier) @{STRUCT_NAME}
-       	)
-    ] @{STRUCT}
-)"
+        ) @{STRUCT}
+    )
+]"#
         ))
     }
     fn data_model_within_query(&self) -> Option<String> {
@@ -335,6 +353,4 @@ impl Stack for ReactTs {
         };
         Ok(parent_of)
     }
-
-
 }
