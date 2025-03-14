@@ -94,12 +94,14 @@ export function code_body(
       if (node && node.properties) {
         // Regular format for other nodes
         return [
+          `<snippet>`,
           `name: ${getNodeLabel(node)}`,
           `file: ${node.properties.file || "Not specified"}`,
           `start: ${node.properties.start || "N/A"}, end: ${
             node.properties.end || "N/A"
           }`,
           node.properties.body ? "```\n" + node.properties.body + "\n```" : "",
+          "</snippet>",
           "", // Empty line for spacing
         ].join("\n");
       }
