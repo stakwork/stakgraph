@@ -92,9 +92,6 @@ impl Stack for Ruby {
 ) @{FUNCTION_CALL}"
         )
     }
-    fn endpoint_handler_queries(&self) -> Vec<String> {
-        Vec::new()
-    }
     fn endpoint_finders(&self) -> Vec<String> {
         super::rails_routes::ruby_endpoint_finders_func()
     }

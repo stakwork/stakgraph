@@ -128,19 +128,19 @@ impl Stack for Go {
 ) @{FUNCTION_CALL}"
         )
     }
-    fn endpoint_handler_queries(&self) -> Vec<String> {
-        let q1 = r#"("func"
-    parameters: (parameter_list
-        (parameter_declaration
-            type: (qualified_type) @res (#eq? @res "http.ResponseWriter")
-        )
-        (parameter_declaration
-            type: (pointer_type) @req (#eq? @req "*http.Request")
-        )
-    )
-)"#;
-        vec![q1.to_string()]
-    }
+    //     fn endpoint_handler_queries(&self) -> Vec<String> {
+    //         let q1 = r#"("func"
+    //     parameters: (parameter_list
+    //         (parameter_declaration
+    //             type: (qualified_type) @res (#eq? @res "http.ResponseWriter")
+    //         )
+    //         (parameter_declaration
+    //             type: (pointer_type) @req (#eq? @req "*http.Request")
+    //         )
+    //     )
+    // )"#;
+    //         vec![q1.to_string()]
+    //     }
     fn endpoint_finders(&self) -> Vec<String> {
         vec![format!(
             r#"(call_expression
