@@ -54,6 +54,12 @@ impl Lang {
             lang: Box::new(go::Go::new()),
         }
     }
+    pub fn new_rust() -> Self {
+        Self {
+            kind: Language::Rust,
+            lang: Box::new(rust::Rust::new()),
+        }
+    }
     pub fn new_react_ts() -> Self {
         Self {
             kind: Language::Typescript,
@@ -252,7 +258,7 @@ impl Lang {
 impl Lang {
     pub fn from_language(l: Language) -> Lang {
         match l {
-            Language::Rust => unimplemented!(),
+            Language::Rust => Lang::new_rust(),
             Language::Python => Lang::new_python(),
             Language::Go => Lang::new_go(),
             Language::Typescript => Lang::new_react_ts(),
