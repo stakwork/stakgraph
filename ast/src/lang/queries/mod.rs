@@ -105,6 +105,9 @@ pub trait Stack {
     fn data_model_within_finder(&self, _dm: &NodeData, _graph: &Graph) -> Vec<Edge> {
         Vec::new()
     }
+    fn data_model_name(&self, dm_name: &str) -> String {
+        dm_name.to_string()
+    }
     fn find_function_parent(
         &self,
         _node: TreeNode,

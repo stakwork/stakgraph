@@ -1,4 +1,5 @@
 use super::consts::*;
+use inflection_rs::inflection;
 
 pub fn ruby_endpoint_finders_func() -> Vec<String> {
     // put 'request_center/:id', to: 'request_center#update'
@@ -234,13 +235,5 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
 
 // Helper function to convert plural to singular
 fn to_singular(plural: &str) -> String {
-    // This is a very basic implementation
-    // In a real app, you'd want to use a proper inflector library
-    if plural.ends_with("ies") {
-        return format!("{}y", &plural[..plural.len() - 3]);
-    }
-    if plural.ends_with('s') {
-        return plural[..plural.len() - 1].to_string();
-    }
-    plural.to_string()
+    inflection::singularize(plural)
 }

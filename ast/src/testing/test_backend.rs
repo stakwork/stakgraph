@@ -1,8 +1,7 @@
-use tracing::{error, info};
-
 use crate::lang::graph::{EdgeType, Graph, Node};
 use crate::lang::{linker::normalize_backend_path, Lang};
 use crate::repo::Repo;
+use tracing::{error, info};
 
 pub struct BackendTester {
     graph: Graph,
@@ -47,7 +46,7 @@ impl BackendTester {
     pub fn test_backend(&self) -> Result<(), anyhow::Error> {
         info!(
             "\n\nTesting backend for {} at src/testing/{}\n\n",
-            self.lang.kind.to_string(),
+            self.lang.kind.to_string().to_uppercase(),
             self.repo.as_ref().unwrap()
         );
 
@@ -56,9 +55,9 @@ impl BackendTester {
 
         let data_model = "Person";
 
-        self.test_data_model(data_model)?;
-
         let expected_endpoints = vec![("GET", "person/:param"), ("POST", "person")];
+
+        self.test_data_model(data_model)?;
 
         self.test_endpoints(expected_endpoints.clone())?;
 
@@ -172,6 +171,19 @@ impl BackendTester {
 
                     info!("✓ Found handler {}", formatted_handler);
 
+                    let handler_data = endpoint_handler.into_data();
+                    let handler_name = handler_data.name.clone();
+
+                    let direct_handler_connection = self.graph.edges.iter().any(|edge| {
+                        edge.edge == EdgeType::Contains
+                            && edge.target.node_data.name == data_model
+                            && edge.source.node_data.name == handler_name
+                    });
+
+                    if direct_handler_connection {
+                        continue;
+                    }
+
                     let triggered_functions = self
                         .graph
                         .find_functions_called_by_handler(&endpoint_handler);
@@ -182,7 +194,10 @@ impl BackendTester {
 
                     let mut data_model_found = false;
 
-                    for func in &triggered_functions {
+                    let mut functions_to_check = triggered_functions.clone();
+                    functions_to_check.push(endpoint_handler.clone());
+
+                    for func in &functions_to_check {
                         let func_name = func.into_data().name.clone();
 
                         let direction_connection = self.graph.edges.iter().any(|edge| {

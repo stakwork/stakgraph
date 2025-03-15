@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
-
 use super::super::*;
 use super::consts::*;
 use crate::builder::get_page_name;
 use crate::lang::parse::trim_quotes;
 use crate::lang::queries::rails_routes;
 use anyhow::{Context, Result};
+use inflection_rs::inflection;
+use std::collections::BTreeMap;
 use std::path::Path;
 use tracing::debug;
 use tree_sitter::{Language, Parser, Query, Tree};
@@ -129,6 +129,18 @@ impl Stack for Ruby {
     fn identifier_query(&self) -> String {
         format!("name: [(constant) (scope_resolution)] @identifier")
     }
+    fn data_model_name(&self, dm_name: &str) -> String {
+        let singular = inflection::singularize(dm_name);
+        if !singular.is_empty() {
+            let mut s = singular.to_string();
+            if let Some(r) = s.get_mut(0..1) {
+                r.make_ascii_uppercase();
+            }
+            s
+        } else {
+            dm_name.to_string()
+        }
+    }
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"(call
@@ -166,7 +178,9 @@ impl Stack for Ruby {
     fn data_model_within_finder(&self, data_model: &NodeData, graph: &Graph) -> Vec<Edge> {
         // file: app/controllers/api/advisor_groups_controller.rb
         let mut models = Vec::new();
-        let funcs = graph.find_funcs_by(|f| is_controller(&f, &data_model.name));
+        let singular_name = data_model.name.to_lowercase();
+        let plural_name = inflection::pluralize(&singular_name);
+        let funcs = graph.find_funcs_by(|f| is_controller(&f, &plural_name));
         for func in funcs {
             models.push(Edge::contains(
                 NodeType::Function,
