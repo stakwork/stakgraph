@@ -1,11 +1,10 @@
 use crate::lang::graph::{EdgeType, Node};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+use test_log::test;
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_react_typescript() {
-    crate::utils::logger();
-
     let repo = Repo::new(
         "src/testing/react_ts",
         Lang::from_str("tsx").unwrap(),

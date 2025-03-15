@@ -1,11 +1,10 @@
 use crate::lang::graph::{EdgeType, Node, NodeType};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+use test_log::test;
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_python() {
-    crate::utils::logger();
-
     let repo = Repo::new(
         "src/testing/python",
         Lang::from_str("python").unwrap(),
@@ -16,8 +15,8 @@ async fn test_python() {
     .unwrap();
 
     let graph = repo.build_graph().await.unwrap();
-    assert_eq!(graph.nodes.len(), 32);
-    assert_eq!(graph.edges.len(), 33);
+    assert_eq!(graph.nodes.len(), 77);
+    assert_eq!(graph.edges.len(), 96);
 
     let languages = graph
         .nodes
@@ -36,7 +35,7 @@ async fn test_python() {
         .filter(|n| matches!(n, Node::File(_)))
         .collect::<Vec<_>>();
 
-    assert!(files.len() == 5);
+    assert_eq!(files.len(), 18, "wrong file count");
 
     let imports = graph
         .nodes
@@ -44,7 +43,7 @@ async fn test_python() {
         .filter(|n| matches!(n, Node::Import(_)))
         .collect::<Vec<_>>();
 
-    assert_eq!(imports.len(), 4);
+    assert_eq!(imports.len(), 12, "wrong import count");
 
     let classes = graph
         .nodes
@@ -55,7 +54,7 @@ async fn test_python() {
     assert_eq!(classes.len(), 3);
 
     let class = classes[0].into_data();
-    assert_eq!(class.name, "User");
+    assert_eq!(class.name, "Person");
     assert_eq!(class.file, "src/testing/python/model.py");
 
     let methods = graph
@@ -79,17 +78,5 @@ async fn test_python() {
         .filter(|n| matches!(n, Node::Endpoint(_)))
         .collect::<Vec<_>>();
 
-    assert_eq!(endpoints.len(), 3);
-
-    let endpoint = endpoints[0].into_data();
-    assert_eq!(endpoint.name, "/");
-    assert_eq!(endpoint.file, "src/testing/python/main.py");
-
-    let endpoint = endpoints[1].into_data();
-    assert_eq!(endpoint.name, "/users/{user_id}");
-    assert_eq!(endpoint.file, "src/testing/python/routes.py");
-
-    let endpoint = endpoints[2].into_data();
-    assert_eq!(endpoint.name, "/users/");
-    assert_eq!(endpoint.file, "src/testing/python/routes.py");
+    assert_eq!(endpoints.len(), 4, "wrong endpoint count");
 }

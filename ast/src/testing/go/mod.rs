@@ -1,10 +1,10 @@
 use crate::lang::graph::{EdgeType, Node, NodeType};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+use test_log::test;
 
-#[tokio::test]
+#[test(tokio::test)]
 async fn test_go() {
-    crate::utils::logger();
     let repo = Repo::new(
         "src/testing/go",
         Lang::from_str("go").unwrap(),

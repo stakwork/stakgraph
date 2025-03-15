@@ -1,4 +1,3 @@
-use crate::utils::logger;
 use tracing::{error, info};
 
 use crate::lang::graph::{EdgeType, Graph, Node};
@@ -13,8 +12,6 @@ pub struct BackendTester {
 
 impl BackendTester {
     pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
-        logger();
-
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
         let return_repo = match &repo {
