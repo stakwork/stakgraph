@@ -97,53 +97,56 @@ impl Stack for Rust {
             r#"
             (call_expression
               function: (identifier) @{FUNCTION_NAME}
-              arguments: (argument_list) @{ARGUMENTS}) @{FUNCTION_CALL}
+              arguments: (arguments) @{ARGUMENTS}) @{FUNCTION_CALL}
             "#
         )
     }
 
     fn endpoint_finders(&self) -> Vec<String> {
         vec![
-            // Pattern 1: Router methods with handler - router.route("/path", get(handler))
-            r#"(call_expression
-  function: (field_expression
-    (field_identifier) @route_method (#eq? @route_method "route")
-  )
-  (argument_list
-    (string_literal) @route
-    (call_expression
-      function: (identifier) @verb (#match? @verb "^(get|post|put|delete|patch|options|head)$")
-      (argument_list
-        (identifier) @handler
-      )
+            format!(
+                r#"
+        (call_expression
+    (arguments
+        (string_literal) @endpoint
+        (call_expression
+            function: (identifier) @verb (#match? @verb "^get$|^post$|^put$|^delete$")
+            arguments: (arguments
+                (identifier) @handler
+            )
+        )
     )
-  )
-)"#
-            .to_string(),
-            // Pattern 2: Direct HTTP verb methods - router.get("/path", handler)
-            r#"(call_expression
-  function: (field_expression
-    (field_identifier) @verb (#match? @verb "^(get|post|put|delete|patch|options|head)$")
-  )
-  (argument_list
-    (string_literal) @route
-    (identifier) @handler
-  )
-)"#
-            .to_string(),
-            // Pattern 3: Rocket-style attribute macros
-            r#"(attribute_item
-  (meta_item
-    (identifier) @verb (#match? @verb "^(get|post|put|delete|patch|options|head)$")
-    (token_tree
-      (string_literal) @route
-    )
-  )
-)
-(function_item
-  name: (identifier) @handler
-)"#
-            .to_string(),
+) @route
+        "#
+            ),
+            // Method-specific routes (.get("/path", handler))
+            format!(
+                r#"
+        (call_expression
+            function: (field_expression
+                field: (field_identifier) @http_method (#match? @http_method "^get$|^post$|^put$|^delete$")
+            )
+            arguments: (arguments
+                (string_literal) @endpoint
+                (identifier) @handler
+            )
+        ) @direct_method_route
+        "#
+            ),
+            // Nested routes (.nest("/base", Router...))
+            format!(
+                r#"
+        (call_expression
+            function: (field_expression
+                field: (field_identifier) @nest_method (#eq? @nest_method "nest")
+            )
+            arguments: (arguments
+                (string_literal) @base_path
+                (_) @nested_router
+            )
+        ) @nested_route
+        "#
+            ),
         ]
     }
 

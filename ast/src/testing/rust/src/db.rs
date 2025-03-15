@@ -8,7 +8,7 @@ pub struct Database {
 
 static mut DB_INSTANCE: Option<Database> = None;
 
-pub fn get_db() -> &'static Database {
+pub async fn get_db() -> &'static Database {
     unsafe { DB_INSTANCE.as_ref().expect("Database not initialized") }
 }
 

@@ -130,6 +130,8 @@ impl BackendTester {
         for (method, path) in endpoints {
             let normalized_expected_path = normalize_backend_path(path).unwrap();
 
+            info!("Checking endpoint {} {}", method, path);
+
             let endpoint = self
                 .graph
                 .find_specific_endpoints(method, &normalized_expected_path);
@@ -274,11 +276,13 @@ impl BackendTester {
 }
 
 fn normalize_path(path: &str) -> String {
-    if path.starts_with("/") {
+    let path_with_slash = if path.starts_with("/") {
         path.to_string()
     } else {
         format!("/{}", path)
-    }
+    };
+
+    normalize_backend_path(&path_with_slash).unwrap_or(path_with_slash)
 }
 fn normalize_function_name(name: &str) -> String {
     name.replace('_', "").to_lowercase()
