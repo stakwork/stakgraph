@@ -113,7 +113,8 @@ impl Repo {
         //     info!("new files: {:?}", new_files);
         //     files_filter = new_files;
         // }
-        let repos = Self::new_multi_detect(&root, Some(url.into()), files_filter, revs).await?;
+        let repos =
+            Self::new_multi_detect(&root, Some(url.into()), files_filter, revs, true).await?;
         Ok(repos)
     }
     pub async fn new_multi_detect(
@@ -121,6 +122,7 @@ impl Repo {
         url: Option<String>,
         files_filter: Vec<String>,
         revs: Vec<String>,
+        use_lsp: bool,
     ) -> Result<Repos> {
         let mut repos: Vec<Repo> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
@@ -143,7 +145,7 @@ impl Repo {
                 for cmd in thelang.kind.post_clone_cmd() {
                     Self::run_cmd(&cmd, &root)?;
                 }
-                let lsp_tx = Self::start_lsp(&root, &thelang, thelang.kind.default_do_lsp())?;
+                let lsp_tx = Self::start_lsp(&root, &thelang, use_lsp)?;
                 repos.push(Repo {
                     url: url.clone().map(|u| u.into()).unwrap_or_default(),
                     root: root.into(),

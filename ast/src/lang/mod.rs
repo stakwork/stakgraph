@@ -85,6 +85,12 @@ impl Lang {
             lang: Box::new(typescript::TypeScript::new()),
         }
     }
+    pub fn new_prisma() -> Self {
+        Self {
+            kind: Language::Prisma,
+            lang: Box::new(prisma::Prisma::new()),
+        }
+    }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
@@ -280,6 +286,7 @@ impl Lang {
             Language::Bash => unimplemented!(),
             Language::Toml => unimplemented!(),
             Language::Kotlin => Lang::new_kotlin(),
+            Language::Prisma => Lang::new_prisma(),
         }
     }
 }
