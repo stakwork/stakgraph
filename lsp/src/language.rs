@@ -12,9 +12,10 @@ pub enum Language {
     Python,
     Ruby,
     Kotlin,
+    Prisma,
 }
 
-pub const PROGRAMMING_LANGUAGES: [Language; 7] = [
+pub const PROGRAMMING_LANGUAGES: [Language; 8] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
@@ -22,6 +23,7 @@ pub const PROGRAMMING_LANGUAGES: [Language; 7] = [
     Language::Python,
     Language::Ruby,
     Language::Kotlin,
+    Language::Prisma,
 ];
 
 impl Language {
@@ -29,12 +31,14 @@ impl Language {
         match self {
             Self::Rust => "Cargo.toml",
             Self::Go => "go.mod",
-            Self::Typescript | Self::React => "package.json",
+            Self::Typescript => "package.json",
+            Self::React => "package.json",
             Self::Python => "requirements.txt",
             Self::Ruby => "Gemfile",
             Self::Kotlin => "build.gradle.kts",
             Self::Bash => "",
             Self::Toml => "",
+            Self::Prisma => "",
         }
     }
 
@@ -48,6 +52,7 @@ impl Language {
             Self::Kotlin => vec!["kt", "kts"],
             Self::Bash => vec!["sh"],
             Self::Toml => vec!["toml"],
+            Self::Prisma => vec!["prisma"],
         }
     }
 
@@ -61,6 +66,7 @@ impl Language {
             Self::Kotlin => vec![".gradle", ".idea", "build", ".git"],
             Self::Bash => vec![".git"],
             Self::Toml => vec![".git"],
+            Self::Prisma => vec![".git", "node_modules"],
         }
     }
 
@@ -81,6 +87,7 @@ impl Language {
             Self::Kotlin => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
+            Self::Prisma => vec!["prisma/schema.prisma"],
         }
     }
 
@@ -94,6 +101,7 @@ impl Language {
             Self::Kotlin => true,
             Self::Bash => false,
             Self::Toml => false,
+            Self::Prisma => false,
         }
     }
 
@@ -107,6 +115,7 @@ impl Language {
             Self::Kotlin => "kotlin-language-server",
             Self::Bash => "",
             Self::Toml => "",
+            Self::Prisma => "",
         }
         .to_string()
     }
@@ -121,6 +130,7 @@ impl Language {
             Self::Kotlin => "--version",
             Self::Bash => "",
             Self::Toml => "",
+            Self::Prisma => "",
         }
         .to_string()
     }
@@ -135,6 +145,7 @@ impl Language {
             Self::Kotlin => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
+            Self::Prisma => Vec::new(),
         }
     }
 
@@ -149,6 +160,7 @@ impl Language {
             Self::Kotlin => "kotlin",
             Self::Bash => "bash",
             Self::Toml => "toml",
+            Self::Prisma => "prisma",
         }
         .to_string()
     }
@@ -160,13 +172,13 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            //Self::Typescript => vec!["npm install --force"],
             Self::Typescript | Self::React => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
+            Self::Prisma => Vec::new(),
         }
     }
 
@@ -211,6 +223,8 @@ impl FromStr for Language {
             "TypeScript" => Ok(Language::Typescript),
             "typescript" => Ok(Language::Typescript),
             "Typescript" => Ok(Language::Typescript),
+            "prisma" => Ok(Language::Prisma),
+            "Prisma" => Ok(Language::Prisma),
             _ => Err(anyhow::anyhow!("unsupported language")),
         }
     }
