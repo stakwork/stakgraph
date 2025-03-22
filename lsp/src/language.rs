@@ -8,20 +8,20 @@ pub enum Language {
     Rust,
     Go,
     Typescript,
-    React,
     Python,
     Ruby,
     Kotlin,
+    Swift,
 }
 
 pub const PROGRAMMING_LANGUAGES: [Language; 7] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
-    Language::React,
     Language::Python,
     Language::Ruby,
     Language::Kotlin,
+    Language:: Swift,
 ];
 
 impl Language {
@@ -29,10 +29,11 @@ impl Language {
         match self {
             Self::Rust => "Cargo.toml",
             Self::Go => "go.mod",
-            Self::Typescript | Self::React => "package.json",
+            Self::Typescript => "package.json",
             Self::Python => "requirements.txt",
             Self::Ruby => "Gemfile",
             Self::Kotlin => "build.gradle.kts",
+            Self::Swift => "Podfile",
             Self::Bash => "",
             Self::Toml => "",
         }
@@ -42,10 +43,11 @@ impl Language {
         match self {
             Self::Rust => vec!["rs"],
             Self::Go => vec!["go"],
-            Self::Typescript | Self::React => vec!["jsx", "tsx", "ts", "js"],
+            Self::Typescript => vec!["jsx", "tsx", "ts", "js"],
             Self::Python => vec!["py", "ipynb"],
             Self::Ruby => vec!["rb"],
             Self::Kotlin => vec!["kt", "kts"],
+            Self::Swift => vec!["swift", "xcodeproj", "xcworkspace"],
             Self::Bash => vec!["sh"],
             Self::Toml => vec!["toml"],
         }
@@ -55,10 +57,11 @@ impl Language {
         match self {
             Self::Rust => vec!["target", ".git"],
             Self::Go => vec!["vendor", ".git"],
-            Self::Typescript | Self::React => vec!["node_modules", ".git"],
+            Self::Typescript => vec!["node_modules", ".git"],
             Self::Python => vec!["__pycache__", ".git", ".venv", "venv"],
             Self::Ruby => vec!["migrate", "tmp", ".git"],
             Self::Kotlin => vec![".gradle", ".idea", "build", ".git"],
+            Self::Swift => vec![".git", "Pods"],
             Self::Bash => vec![".git"],
             Self::Toml => vec![".git"],
         }
@@ -66,7 +69,7 @@ impl Language {
 
     pub fn skip_file_ends(&self) -> Vec<&'static str> {
         match self {
-            Self::Typescript | Self::React => vec![".min.js"],
+            Self::Typescript => vec![".min.js"],
             _ => Vec::new(),
         }
     }
@@ -75,10 +78,11 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => Vec::new(),
+            Self::Typescript => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
+            Self::Swift => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
         }
@@ -88,10 +92,11 @@ impl Language {
         match self {
             Self::Rust => true,
             Self::Go => true,
-            Self::Typescript | Self::React => true,
+            Self::Typescript => true,
             Self::Python => false,
             Self::Ruby => false,
             Self::Kotlin => true,
+            Self::Swift => true,
             Self::Bash => false,
             Self::Toml => false,
         }
@@ -101,10 +106,11 @@ impl Language {
         match self {
             Self::Rust => "rust-analyzer",
             Self::Go => "gopls",
-            Self::Typescript | Self::React => "typescript-language-server",
+            Self::Typescript => "typescript-language-server",
             Self::Python => "pylsp",
             Self::Ruby => "ruby-lsp",
             Self::Kotlin => "kotlin-language-server",
+            Self::Swift => "sourcekit-lsp",
             Self::Bash => "",
             Self::Toml => "",
         }
@@ -115,10 +121,11 @@ impl Language {
         match self {
             Self::Rust => "--version",
             Self::Go => "version",
-            Self::Typescript | Self::React => "--version",
+            Self::Typescript => "--version",
             Self::Python => "--version",
             Self::Ruby => "--version",
             Self::Kotlin => "--version",
+            Self::Swift => "--version",
             Self::Bash => "",
             Self::Toml => "",
         }
@@ -129,10 +136,11 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["--stdio".to_string()],
+            Self::Typescript => vec!["--stdio".to_string()],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
+            Self::Swift => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
         }
@@ -143,10 +151,10 @@ impl Language {
             Self::Rust => "rust",
             Self::Go => "go",
             Self::Typescript => "typescript",
-            Self::React => "react",
             Self::Python => "python",
             Self::Ruby => "ruby",
             Self::Kotlin => "kotlin",
+            Self::Swift => "swift",
             Self::Bash => "bash",
             Self::Toml => "toml",
         }
@@ -160,11 +168,11 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            //Self::Typescript => vec!["npm install --force"],
-            Self::Typescript | Self::React => Vec::new(),
+            Self::Typescript => vec!["npm install --force"],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
+            Self::Swift => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
         }
@@ -172,9 +180,7 @@ impl Language {
 
     pub fn test_id_regex(&self) -> Option<&'static str> {
         match self {
-            Self::Typescript | Self::React => {
-                Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#)
-            }
+            Self::Typescript => Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#),
             Self::Python => Some("get_by_test_id"),
             Self::Ruby => Some(r#"get_by_test_id\(['"]([^'"]+)['"]\)"#),
             _ => None,
@@ -192,12 +198,10 @@ impl FromStr for Language {
             "Go" => Ok(Language::Go),
             "golang" => Ok(Language::Go),
             "Golang" => Ok(Language::Go),
-            "react" => Ok(Language::React),
-            "React" => Ok(Language::React),
-            "tsx" => Ok(Language::React),
-            "jsx" => Ok(Language::React),
+            "react" => Ok(Language::Typescript),
+            "React" => Ok(Language::Typescript),
+            "tsx" => Ok(Language::Typescript),
             "ts" => Ok(Language::Typescript),
-            "js" => Ok(Language::Typescript),
             "ruby" => Ok(Language::Ruby),
             "Ruby" => Ok(Language::Ruby),
             "RubyOnRails" => Ok(Language::Ruby),
@@ -208,9 +212,7 @@ impl FromStr for Language {
             "toml" => Ok(Language::Toml),
             "Toml" => Ok(Language::Toml),
             "kotlin" => Ok(Language::Kotlin),
-            "TypeScript" => Ok(Language::Typescript),
-            "typescript" => Ok(Language::Typescript),
-            "Typescript" => Ok(Language::Typescript),
+            "swift" => Ok(Language::Swift),
             _ => Err(anyhow::anyhow!("unsupported language")),
         }
     }

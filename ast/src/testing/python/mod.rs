@@ -2,9 +2,19 @@ use crate::lang::graph::{EdgeType, Node, NodeType};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
 use test_log::test;
+use tracing::{info, debug, error};
+use tracing_subscriber::{FmtSubscriber, EnvFilter};
+
+fn setup_tracing_logger() {
+    let subscriber = FmtSubscriber::builder()
+        .with_env_filter(EnvFilter::new("info"))
+        .finish();
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set global subscriber");
+}
 
 #[test(tokio::test)]
 async fn test_python() {
+    setup_tracing_logger();
     let repo = Repo::new(
         "src/testing/python",
         Lang::from_str("python").unwrap(),
