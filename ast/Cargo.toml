@@ -45,6 +45,7 @@ regex = "1.11.1"
 test-log = "0.2.17"
 inflection-rs = "0.2.0"
 url = "2.5.4"
+tree-sitter-prisma-io = "1.5.0"
 
 [[example]]
 name = "python"

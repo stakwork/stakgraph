@@ -1,6 +1,7 @@
 use crate::lang::graph::{EdgeType, Graph, Node};
 use crate::lang::{linker::normalize_backend_path, Lang};
 use crate::repo::Repo;
+use crate::utils::logger;
 use tracing::{error, info};
 
 pub struct BackendTester {
@@ -11,33 +12,42 @@ pub struct BackendTester {
 
 impl BackendTester {
     pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
+        logger();
+
         let language_name = lang.kind.clone();
-        let language_in_repository = Lang::from_language(language_name.clone());
+        let _language_in_repository = Lang::from_language(language_name.clone());
         let return_repo = match &repo {
             Some(repo) => repo.clone(),
             None => language_name.to_string(),
         };
-        let repository = match repo {
-            Some(repo) => Repo::new(
-                &format!("src/testing/{}", repo.clone()),
-                language_in_repository,
-                false,
-                Vec::new(),
-                Vec::new(),
-            )
-            .unwrap(),
-            None => Repo::new(
-                &format!("src/testing/{}", language_name.to_string()),
-                language_in_repository,
-                false,
-                Vec::new(),
-                Vec::new(),
-            )
-            .unwrap(),
-        };
+        let repository = Repo::new_multi_detect(
+            &format!("src/testing/{}", &language_name.to_string()),
+            None,
+            Vec::new(),
+            Vec::new(),
+        )
+        .await?;
+        // let repository = match repo {
+        //     Some(repo) => Repo::new(
+        //         &format!("src/testing/{}", repo.clone()),
+        //         language_in_repository,
+        //         false,
+        //         Vec::new(),
+        //         Vec::new(),
+        //     )
+        //     .unwrap(),
+        //     None => Repo::new(
+        //         &format!("src/testing/{}", language_name.to_string()),
+        //         language_in_repository,
+        //         false,
+        //         Vec::new(),
+        //         Vec::new(),
+        //     )
+        //     .unwrap(),
+        // };
 
         Ok(Self {
-            graph: repository.build_graph().await?,
+            graph: repository.build_graphs().await?,
             lang,
             repo: Some(return_repo),
         })
@@ -115,6 +125,15 @@ impl BackendTester {
         let data_model = self
             .graph
             .find_data_model_by(|node| node.name.contains(name));
+
+        self.graph
+            .nodes
+            .iter()
+            .filter(|node| matches!(node, Node::DataModel(_)))
+            .any(|node| {
+                info!("\nData model: {:?}\n", node.into_data().name);
+                false
+            });
 
         match data_model {
             Some(_) => {

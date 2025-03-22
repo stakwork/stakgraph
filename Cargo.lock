@@ -131,6 +131,7 @@ dependencies = [
  "tree-sitter-json",
  "tree-sitter-kotlin-sg",
  "tree-sitter-php",
+ "tree-sitter-prisma-io",
  "tree-sitter-python",
  "tree-sitter-ruby",
  "tree-sitter-rust",
@@ -3318,6 +3319,16 @@ checksum = "f066e94e9272cfe4f1dcb07a1c50c66097eca648f2d7233d299c8ae9ed8c130c"
 dependencies = [
  "cc",
  "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-prisma-io"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd3fe908ec15db6762bf099ceff09541b3b4733e445615874e072a6a1a8320bc"
+dependencies = [
+ "cc",
+ "tree-sitter",
 ]
 
 [[package]]

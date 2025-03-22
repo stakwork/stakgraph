@@ -4,6 +4,7 @@ pub mod erb;
 pub mod go;
 pub mod haml;
 pub mod kotlin;
+pub mod prisma;
 pub mod python;
 mod rails_routes;
 pub mod react;
