@@ -36,7 +36,7 @@ impl Stack for Prisma {
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
-        (model_declaration) @{STRUCT}
+        (model_declaration) @{STRUCT_NAME}
         "#
         ))
     }

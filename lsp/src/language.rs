@@ -71,7 +71,8 @@ impl Language {
         match self {
             Self::Rust => vec!["target", ".git"],
             Self::Go => vec!["vendor", ".git"],
-            Self::Typescript | Self::React => vec!["node_modules", ".git"],
+            Self::Typescript => vec!["node_modules", ".git"],
+            Self::React => vec!["node_modules", ".git"],
             Self::Python => vec!["__pycache__", ".git", ".venv", "venv"],
             Self::Ruby => vec!["migrate", "tmp", ".git"],
             Self::Kotlin => vec![".gradle", ".idea", "build", ".git"],
@@ -93,14 +94,15 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => Vec::new(),
+            Self::Typescript => Vec::new(),
+            Self::React => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
             Self::Swift => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
-            Self::Prisma => vec!["prisma/schema.prisma"],
+            Self::Prisma => Vec::new(),
         }
     }
 
@@ -108,7 +110,8 @@ impl Language {
         match self {
             Self::Rust => true,
             Self::Go => true,
-            Self::Typescript | Self::React => true,
+            Self::Typescript => true,
+            Self::React => true,
             Self::Python => false,
             Self::Ruby => false,
             Self::Kotlin => true,
@@ -123,7 +126,8 @@ impl Language {
         match self {
             Self::Rust => "rust-analyzer",
             Self::Go => "gopls",
-            Self::Typescript | Self::React => "typescript-language-server",
+            Self::Typescript => "typescript-language-server",
+            Self::React => "typescript-language-server",
             Self::Python => "pylsp",
             Self::Ruby => "ruby-lsp",
             Self::Kotlin => "kotlin-language-server",
@@ -139,7 +143,8 @@ impl Language {
         match self {
             Self::Rust => "--version",
             Self::Go => "version",
-            Self::Typescript | Self::React => "--version",
+            Self::Typescript => "--version",
+            Self::React => "--version",
             Self::Python => "--version",
             Self::Ruby => "--version",
             Self::Kotlin => "--version",
@@ -155,7 +160,8 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["--stdio".to_string()],
+            Self::Typescript => vec!["--stdio".to_string()],
+            Self::React => vec!["--stdio".to_string()],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -190,7 +196,8 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => Vec::new(),
+            Self::Typescript => Vec::new(),
+            Self::React => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
