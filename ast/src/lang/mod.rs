@@ -90,6 +90,12 @@ impl Lang {
             lang: Box::new(swift::Swift::new()),
         }
     }
+    pub fn new_java() -> Self {
+        Self {
+            kind: Language::Java,
+            lang: Box::new(java::Java::new()),
+        }
+    }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
@@ -286,6 +292,7 @@ impl Lang {
             Language::Toml => unimplemented!(),
             Language::Kotlin => Lang::new_kotlin(),
             Language::Swift => Lang::new_swift(),
+            Language::Java => Lang::new_java(),
         }
     }
 }

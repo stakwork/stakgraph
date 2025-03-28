@@ -3,6 +3,7 @@ pub mod consts;
 pub mod erb;
 pub mod go;
 pub mod haml;
+pub mod java;
 pub mod kotlin;
 pub mod python;
 mod rails_routes;
@@ -164,6 +165,7 @@ pub trait Stack {
         false
     }
     fn add_endpoint_verb(&self, _nd: &mut NodeData, _call: &Option<String>) {}
+    fn update_endpoint_verb(&self, _nd: &mut NodeData, _call: &Option<String>) {}
     // this one should be the same for all langs?
     fn filter_tests(&self, funcs: Vec<Function>) -> (Vec<Function>, Vec<Function>) {
         let mut fs = Vec::new();
@@ -241,7 +243,11 @@ pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {
         LspLanguage::Toml => tree_sitter_toml_ng::LANGUAGE.into(),
         LspLanguage::Kotlin => tree_sitter_kotlin_sg::LANGUAGE.into(),
         LspLanguage::Swift => tree_sitter_swift::LANGUAGE.into(),
-        _ => tree_sitter_bash::LANGUAGE.into(),
+        LspLanguage::Rust => tree_sitter_rust::LANGUAGE.into(),
+        LspLanguage::Java => tree_sitter_java::LANGUAGE.into(),
+        LspLanguage::Typescript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        LspLanguage::React => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        // _ => tree_sitter_bash::LANGUAGE.into(),
     }
 }
 
