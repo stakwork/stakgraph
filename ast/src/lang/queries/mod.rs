@@ -12,6 +12,7 @@ pub mod rust;
 pub mod swift;
 pub mod toml;
 pub mod typescript;
+pub mod svelte;
 
 use crate::lang::asg::Operand;
 use crate::lang::graph::{Edge, Graph};

@@ -9,6 +9,7 @@ pub mod kotlin;
 pub mod python;
 pub mod react;
 pub mod swift;
+pub mod svelte;
 pub mod test_backend;
 pub mod test_frontend;
 pub mod utils;

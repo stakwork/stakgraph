@@ -90,6 +90,12 @@ impl Lang {
             lang: Box::new(swift::Swift::new()),
         }
     }
+    pub fn new_svelte() -> Self {
+        Self {
+            kind: Language::Svelte,
+            lang: Box::new(svelte::Svelte::new()),
+        }
+    }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
@@ -286,6 +292,7 @@ impl Lang {
             Language::Toml => unimplemented!(),
             Language::Kotlin => Lang::new_kotlin(),
             Language::Swift => Lang::new_swift(),
+            Language::Svelte => Lang::new_svelte()
         }
     }
 }
