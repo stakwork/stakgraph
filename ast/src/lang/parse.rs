@@ -383,6 +383,52 @@ impl Lang {
         })?;
         Ok(inst)
     }
+
+    pub fn collect_data_models_with_different_format(
+        &self,
+        graph: &mut Graph,
+    ) -> Result<Vec<NodeData>> {
+        let mut additional_models = Vec::new();
+
+        if !self.lang.has_data_model_with_different_format() {
+            return Ok(additional_models);
+        }
+
+        let patterns = self.lang.data_model_other_formats_patterns();
+        if patterns.is_empty() {
+            return Ok(additional_models);
+        }
+
+        for node in &graph.nodes {
+            if let Node::File(file_data) = node {
+                let file_path = &file_data.name;
+
+                if patterns.iter().any(|pattern| {
+                    if pattern.starts_with("*.") {
+                        let ext = &pattern[2..];
+                        file_path.ends_with(ext)
+                    } else {
+                        file_path.ends_with(pattern)
+                    }
+                }) {
+                    if !file_data.body.is_empty() {
+                        match self
+                            .lang
+                            .parse_data_model_with_different_format(file_path, &file_data.body)
+                        {
+                            Ok(models) => additional_models.extend(models),
+                            Err(e) => {
+                                debug!("Error parsing file {}: {:?}", file_path, e);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(additional_models)
+    }
+
     pub fn collect_functions(
         &self,
         q: &Query,

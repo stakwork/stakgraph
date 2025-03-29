@@ -158,4 +158,58 @@ impl Stack for TypeScript {
             )"#
         ))
     }
+
+    fn has_data_model_with_different_format(&self) -> bool {
+        true
+    }
+
+    fn data_model_other_formats_patterns(&self) -> Vec<&str> {
+        vec!["*.prisma"]
+    }
+
+    fn parse_data_model_with_different_format(
+        &self,
+        file_path: &str,
+        content: &str,
+    ) -> Result<Vec<NodeData>> {
+        let prisma_parser = super::prisma::Prisma::new();
+        let mut models = Vec::new();
+
+        if let Ok(tree) = prisma_parser.parse(content, &NodeType::DataModel) {
+            if let Some(query_str) = prisma_parser.data_model_query() {
+                let query = prisma_parser.q(&query_str, &NodeType::DataModel);
+                let mut cursor = QueryCursor::new();
+                let mut matches = cursor.matches(&query, tree.root_node(), content.as_bytes());
+
+                while let Some(m) = matches.next() {
+                    let mut model = NodeData::in_file(file_path);
+
+                    for capture in m.captures {
+                        let capture_name = &query.capture_names()[capture.index as usize];
+                        if *capture_name == STRUCT_NAME {
+                            let model_name = capture
+                                .node
+                                .utf8_text(content.as_bytes())
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            model.name = model_name;
+                        } else if *capture_name == STRUCT {
+                            let model_body = capture
+                                .node
+                                .utf8_text(content.as_bytes())
+                                .unwrap_or("")
+                                .to_string();
+                            model.body = model_body;
+                            model.start = capture.node.start_position().row;
+                            model.end = capture.node.end_position().row;
+                        }
+                    }
+                    if !model.name.is_empty() {
+                        models.push(model);
+                    }
+                }
+            }
+        }
+        Ok(models)
+    }
 }

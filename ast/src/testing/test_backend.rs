@@ -13,28 +13,21 @@ impl BackendTester {
     pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
+
         let return_repo = match &repo {
             Some(repo) => repo.clone(),
             None => language_name.to_string(),
         };
-        let repository = match repo {
-            Some(repo) => Repo::new(
-                &format!("src/testing/{}", repo.clone()),
-                language_in_repository,
-                false,
-                Vec::new(),
-                Vec::new(),
-            )
-            .unwrap(),
-            None => Repo::new(
-                &format!("src/testing/{}", language_name.to_string()),
-                language_in_repository,
-                false,
-                Vec::new(),
-                Vec::new(),
-            )
-            .unwrap(),
-        };
+        let repo_path = format!("src/testing/{}", return_repo);
+
+        let repository = Repo::new(
+            &repo_path,
+            language_in_repository,
+            false,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
 
         Ok(Self {
             graph: repository.build_graph().await?,
