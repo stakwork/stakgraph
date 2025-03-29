@@ -163,6 +163,15 @@ impl Repo {
         }
         info!("=> got {} data models", i);
 
+        let additional_models = self
+            .lang
+            .collect_data_models_with_different_format(&mut graph)?;
+
+        if !additional_models.is_empty() {
+            info!("=> got {} additional data models", additional_models.len());
+            graph.add_structs(additional_models);
+        }
+
         // this also adds requests and data models inside
         i = 0;
         info!("=> get_functions_and_tests...");

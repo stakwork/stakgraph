@@ -1,7 +1,6 @@
 use crate::lang::graph::{EdgeType, Graph, Node};
 use crate::lang::{linker::normalize_backend_path, Lang};
 use crate::repo::Repo;
-use crate::utils::logger;
 use tracing::{error, info};
 
 pub struct BackendTester {
@@ -12,8 +11,6 @@ pub struct BackendTester {
 
 impl BackendTester {
     pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
-        logger();
-
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
 
@@ -111,15 +108,6 @@ impl BackendTester {
         let data_model = self
             .graph
             .find_data_model_by(|node| node.name.contains(name));
-
-        self.graph
-            .nodes
-            .iter()
-            .filter(|node| matches!(node, Node::DataModel(_)))
-            .any(|node| {
-                info!("\nData model: {:?}\n", node.into_data().name);
-                false
-            });
 
         match data_model {
             Some(_) => {

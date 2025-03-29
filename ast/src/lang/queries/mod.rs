@@ -113,6 +113,19 @@ pub trait Stack {
     fn data_model_name(&self, dm_name: &str) -> String {
         dm_name.to_string()
     }
+    fn has_data_model_with_different_format(&self) -> bool {
+        false
+    }
+    fn data_model_other_formats_patterns(&self) -> Vec<&str> {
+        Vec::new()
+    }
+    fn parse_data_model_with_different_format(
+        &self,
+        _file_path: &str,
+        _content: &str,
+    ) -> Result<Vec<NodeData>> {
+        Ok(Vec::new())
+    }
     fn find_function_parent(
         &self,
         _node: TreeNode,

@@ -54,7 +54,7 @@ impl Language {
         match self {
             Self::Rust => vec!["rs"],
             Self::Go => vec!["go"],
-            Self::Typescript => vec!["ts", "js"],
+            Self::Typescript => vec!["ts", "js", "prisma"], //Data Model
             Self::React => vec!["jsx", "tsx", "js", "ts"],
             Self::Python => vec!["py", "ipynb"],
             Self::Ruby => vec!["rb"],
