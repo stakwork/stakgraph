@@ -16,7 +16,7 @@ pub enum Language {
     Prisma,
 }
 
-pub const PROGRAMMING_LANGUAGES: [Language; 9] = [
+pub const PROGRAMMING_LANGUAGES: [Language; 8] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
@@ -25,7 +25,6 @@ pub const PROGRAMMING_LANGUAGES: [Language; 9] = [
     Language::Ruby,
     Language::Kotlin,
     Language::Swift,
-    Language::Prisma,
 ];
 
 impl Language {
@@ -56,7 +55,7 @@ impl Language {
             Self::Rust => vec!["rs"],
             Self::Go => vec!["go"],
             Self::Typescript => vec!["ts", "js"],
-            Self::React => vec!["jsx", "tsx", "ts", "js"],
+            Self::React => vec!["jsx", "tsx", "js", "ts"],
             Self::Python => vec!["py", "ipynb"],
             Self::Ruby => vec!["rb"],
             Self::Kotlin => vec!["kt", "kts"],
@@ -79,7 +78,7 @@ impl Language {
             Self::Swift => vec![".git", "Pods"],
             Self::Bash => vec![".git"],
             Self::Toml => vec![".git"],
-            Self::Prisma => vec![".git", "node_modules"],
+            Self::Prisma => vec![".git"],
         }
     }
 

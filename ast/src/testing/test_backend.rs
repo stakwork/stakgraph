@@ -15,42 +15,25 @@ impl BackendTester {
         logger();
 
         let language_name = lang.kind.clone();
-        let _language_in_repository = Lang::from_language(language_name.clone());
-
-        //let language_in_repository = Lang::from_language(language_name.clone());
+        let language_in_repository = Lang::from_language(language_name.clone());
 
         let return_repo = match &repo {
             Some(repo) => repo.clone(),
             None => language_name.to_string(),
         };
-        let repository = Repo::new_multi_detect(
-            &format!("src/testing/{}", &language_name.to_string()),
-            None,
+        let repo_path = format!("src/testing/{}", return_repo);
+
+        let repository = Repo::new(
+            &repo_path,
+            language_in_repository,
+            false,
             Vec::new(),
             Vec::new(),
         )
-        .await?;
-        // let repository = match repo {
-        //     Some(repo) => Repo::new(
-        //         &format!("src/testing/{}", repo.clone()),
-        //         language_in_repository,
-        //         false,
-        //         Vec::new(),
-        //         Vec::new(),
-        //     )
-        //     .unwrap(),
-        //     None => Repo::new(
-        //         &format!("src/testing/{}", language_name.to_string()),
-        //         language_in_repository,
-        //         false,
-        //         Vec::new(),
-        //         Vec::new(),
-        //     )
-        //     .unwrap(),
-        // };
+        .unwrap();
 
         Ok(Self {
-            graph: repository.build_graphs().await?,
+            graph: repository.build_graph().await?,
             lang,
             repo: Some(return_repo),
         })

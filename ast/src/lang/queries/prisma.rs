@@ -36,11 +36,13 @@ impl Stack for Prisma {
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
-        (model_declaration) @{STRUCT_NAME}
-        "#
+            (model_declaration
+                (identifier) @{STRUCT_NAME}
+            )@{STRUCT}
+            "#
         ))
     }
     fn data_model_path_filter(&self) -> Option<String> {
-        Some("\\.prisma$".to_string())
+        Some("prisma/schema.prisma".to_string())
     }
 }
