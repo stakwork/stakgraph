@@ -1,8 +1,9 @@
 import express from "express";
 import { Request, Response } from "express";
-import { getPersonById, newPerson, PersonData } from "./service.js";
+import { getPersonById, newPerson, PersonData } from "../shared/service.js";
 
-export function registerRoutes(app) {
+export function registerRoutes(app: any) {
+  app.use(express.urlencoded({ extended: true }));
   app.get("/person/:id", getPerson);
 
   app.post("/person", createPerson);
