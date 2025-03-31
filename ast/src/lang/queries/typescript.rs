@@ -90,10 +90,11 @@ impl Stack for TypeScript {
     }
 
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"(call_expression
+        vec![
+            format!(
+                r#"(call_expression
                 function: (member_expression
-                    object: (identifier)
+                    object: (identifier) @{OPERAND}
                     property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$")
                 )
                 arguments: (arguments
@@ -102,7 +103,26 @@ impl Stack for TypeScript {
                 )
                 ) @{ROUTE}
             "#
-        )]
+            ),
+            format!(
+                r#"
+              (
+                (decorator
+                    (call_expression
+                        function: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^Get$|^Post$|^Put$|^Delete$")
+                        arguments: (arguments
+                        (_)* @{ENDPOINT}
+                        ) 
+                    )
+                )@decorator
+                (method_definition
+                    name: (property_identifier)@{HANDLER}
+                        
+                )
+                )@{ROUTE}
+            "#
+            ),
+        ]
     }
     fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) {
         if let Some(c) = call {
