@@ -26,3 +26,4 @@ docs/*.txt
 src/pr/*.json
 src/pr/*.xml
 src/pr/*.txt
+.neo4j2

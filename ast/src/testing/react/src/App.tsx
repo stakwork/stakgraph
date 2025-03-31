@@ -12,7 +12,7 @@ function App() {
       </header>
       <Router>
         <Routes>
-          <Route path="/people" element={<People />} />
+          <Route path="/" element={<People />} />
           <Route path="/new-person" element={<NewPerson />} />
         </Routes>
       </Router>

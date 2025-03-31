@@ -90,6 +90,12 @@ impl Lang {
             lang: Box::new(swift::Swift::new()),
         }
     }
+    pub fn new_java() -> Self {
+        Self {
+            kind: Language::Java,
+            lang: Box::new(java::Java::new()),
+        }
+    }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
@@ -129,7 +135,7 @@ impl Lang {
         code: &str,
         file: &str,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<Vec<(NodeData, Option<Edge>)>> {
+    ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
         if let Some(qo) = self.lang.page_query() {
             let qo = self.q(&qo, &NodeType::Page);
             Ok(self.collect_pages(&qo, code, file, lsp_tx)?)
@@ -287,6 +293,8 @@ impl Lang {
             Language::Kotlin => Lang::new_kotlin(),
             Language::Swift => Lang::new_swift(),
             Language::Prisma => unimplemented!(),
+            Language::Java => Lang::new_java(),
+
         }
     }
 }

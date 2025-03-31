@@ -62,13 +62,131 @@ export function toNode(node: Neo4jNode, concise: boolean): any {
   return concise ? nameFileOnly(node) : toReturnNode(node);
 }
 
-export function toPage(rec: Record): any {
-  const page = rec.get("page");
+const DEFAULT_DEPTH = 7;
+
+interface MapParams {
+  node_type: string;
+  name: string;
+  ref_id: string;
+  tests: boolean;
+  depth: number;
+  direction: Direction;
+}
+
+function mapParams(req: Request): MapParams {
+  const node_type = req.query.node_type as string;
+  const name = req.query.name as string;
+  const ref_id = req.query.ref_id as string;
+  const name_and_type = node_type && name;
+  if (!name_and_type && !ref_id) {
+    throw new Error("either node_type+name or ref_id required");
+  }
+  const direction = req.query.direction as Direction;
+  const tests = !(req.query.tests === "false" || req.query.tests === "0");
+  const depth = parseInt(req.query.depth as string) || DEFAULT_DEPTH;
+  let default_direction = "down";
+  if (node_type === "Datamodel") {
+    default_direction = "up";
+  }
   return {
-    node_type: page.labels[0],
-    ...page.properties,
+    node_type: node_type || "",
+    name: name || "",
+    ref_id: ref_id || "",
+    tests,
+    depth,
+    direction: direction || default_direction,
   };
 }
+
+async function get_record_from_query(fn_name: string, req: Request) {
+  const { node_type, name, tests, depth, direction, ref_id } = mapParams(req);
+  console.log("=>", fn_name, node_type, name, tests, depth, direction);
+  const r = await db.get_subtree(
+    node_type,
+    name,
+    ref_id,
+    tests,
+    depth,
+    direction
+  );
+  return r.records[0];
+}
+
+export async function get_map(req: Request, res: Response) {
+  try {
+    const record = await get_record_from_query("get_map", req);
+    const { direction } = mapParams(req);
+    const pkg_files = await db.get_pkg_files();
+
+    const tree = await buildTree2(record, direction);
+    const text = archy(tree);
+    let html = `<pre>`;
+    html += text;
+    for (const file of pkg_files) {
+      html += `File: ${toNode(file, true).file}\n`;
+    }
+    html += `<pre>`;
+    res.send(html);
+    // res.send(`<pre>${text}</pre>`);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
+  }
+}
+
+export async function get_code(req: Request, res: Response) {
+  try {
+    const record = await get_record_from_query("get_code", req);
+    const pkg_files = await db.get_pkg_files();
+    const text = extractNodesFromRecord(record, pkg_files);
+    res.send(text);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
+  }
+}
+
+function toSnippets(path: any) {
+  let r = "";
+  for (const segment of path.segments) {
+    const snip = formatNode(segment.start);
+    r += snip;
+  }
+  const snip = formatNode(path.end);
+  r += snip;
+  return r;
+}
+
+export async function get_shortest_path(req: Request, res: Response) {
+  try {
+    const start_node_key = req.query.start_node_key as string;
+    const end_node_key = req.query.end_node_key as string;
+    const result = await db.get_shortest_path(start_node_key, end_node_key);
+    const path = result.records[0].get("path");
+    console.log(path);
+    res.send(toSnippets(path));
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
+  }
+}
+
+export async function get_shortest_path_ref_id(req: Request, res: Response) {
+  try {
+    const start_ref_id = req.query.start_ref_id as string;
+    const end_ref_id = req.query.end_ref_id as string;
+    const result = await db.get_shortest_path_ref_id(start_ref_id, end_ref_id);
+    const path = result.records[0].get("path");
+    res.send(toSnippets(path));
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
+  }
+}
+
+/*************************
+  DEPRECATED ROUTES  ↓↓↓
+ *************************/
 
 export async function get_pages(req: Request, res: Response) {
   try {
@@ -81,7 +199,13 @@ export async function get_pages(req: Request, res: Response) {
   }
 }
 
-const DEFAULT_DEPTH = 7;
+export function toPage(rec: Record): any {
+  const page = rec.get("page");
+  return {
+    node_type: page.labels[0],
+    ...page.properties,
+  };
+}
 
 interface Params {
   page_name: string | null;
@@ -137,117 +261,6 @@ export async function get_feature_code(req: Request, res: Response) {
     );
     const text = code_body(result.records[0], pkg_files);
     res.send(text);
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).send("Internal Server Error");
-  }
-}
-
-interface MapParams {
-  node_type: string;
-  name: string;
-  ref_id: string;
-  tests: boolean;
-  depth: number;
-  direction: Direction;
-}
-
-function mapParams(req: Request): MapParams {
-  const node_type = req.query.node_type as string;
-  const name = req.query.name as string;
-  const ref_id = req.query.ref_id as string;
-  const name_and_type = node_type && name;
-  if (!name_and_type && !ref_id) {
-    throw new Error("either node_type+name or ref_id required");
-  }
-  const direction = req.query.direction as Direction;
-  const tests = !(req.query.tests === "false" || req.query.tests === "0");
-  const depth = parseInt(req.query.depth as string) || DEFAULT_DEPTH;
-  let default_direction = "down";
-  if (node_type === "Datamodel") {
-    default_direction = "up";
-  }
-  return {
-    node_type: node_type || "",
-    name: name || "",
-    ref_id: ref_id || "",
-    tests,
-    depth,
-    direction: direction || default_direction,
-  };
-}
-
-async function get_record_from_query(fn_name: string, req: Request) {
-  const { node_type, name, tests, depth, direction, ref_id } = mapParams(req);
-  console.log("=>", fn_name, node_type, name, tests, depth, direction);
-  const r = await db.get_subtree(
-    node_type,
-    name,
-    ref_id,
-    tests,
-    depth,
-    direction
-  );
-  return r.records[0];
-}
-
-export async function get_map(req: Request, res: Response) {
-  try {
-    const record = await get_record_from_query("get_map", req);
-    const { direction } = mapParams(req);
-    const tree = await buildTree2(record, direction);
-    const text = archy(tree);
-    res.send(`<pre>${text}</pre>`);
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).send("Internal Server Error");
-  }
-}
-
-export async function get_code(req: Request, res: Response) {
-  try {
-    const record = await get_record_from_query("get_code", req);
-    const pkg_files = await db.get_pkg_files();
-    const text = extractNodesFromRecord(record, pkg_files);
-    res.send(text);
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).send("Internal Server Error");
-  }
-}
-
-function toSnippets(path: any) {
-  let r = "";
-  for (const segment of path.segments) {
-    const snip = formatNode(segment.start);
-    r += snip;
-  }
-  const snip = formatNode(path.end);
-  r += snip;
-  return r;
-}
-
-export async function get_shortest_path(req: Request, res: Response) {
-  try {
-    const start_node_key = req.query.start_node_key as string;
-    const end_node_key = req.query.end_node_key as string;
-    const result = await db.get_shortest_path(start_node_key, end_node_key);
-    const path = result.records[0].get("path");
-    console.log(path);
-    res.send(toSnippets(path));
-  } catch (error) {
-    console.error("Error:", error);
-    res.status(500).send("Internal Server Error");
-  }
-}
-
-export async function get_shortest_path_ref_id(req: Request, res: Response) {
-  try {
-    const start_ref_id = req.query.start_ref_id as string;
-    const end_ref_id = req.query.end_ref_id as string;
-    const result = await db.get_shortest_path_ref_id(start_ref_id, end_ref_id);
-    const path = result.records[0].get("path");
-    res.send(toSnippets(path));
   } catch (error) {
     console.error("Error:", error);
     res.status(500).send("Internal Server Error");

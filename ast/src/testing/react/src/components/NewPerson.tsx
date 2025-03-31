@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import styled from 'styled-components';
-
+import * as api from '../api';
 
 const FormContainer = styled.div`
   max-width: 400px;
@@ -63,7 +63,7 @@ function NewPerson() {
     };
 
     try {
-      const response = await fetch('http://localhost:5000/person', {
+      const response = await fetch(`${api.host}/person`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

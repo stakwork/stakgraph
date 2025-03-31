@@ -110,7 +110,7 @@ impl Lang {
         code: &str,
         file: &str,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<Vec<(NodeData, Option<Edge>)>> {
+    ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
         let tree = self.lang.parse(&code, &NodeType::Page)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
@@ -128,10 +128,10 @@ impl Lang {
         file: &str,
         q: &Query,
         lsp: &Option<CmdSender>,
-    ) -> Result<Vec<(NodeData, Option<Edge>)>> {
+    ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
         let mut pag = NodeData::in_file(file);
-        let mut component_position_name = None;
-        let mut page_renders = None;
+        let mut components_positions_names = Vec::new();
+        let mut page_renders = Vec::new();
         let mut page_names = Vec::new();
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == PAGE_PATHS {
@@ -148,11 +148,19 @@ impl Lang {
             } else if o == PAGE_COMPONENT {
                 let p = node.start_position();
                 let pos = Position::new(file, p.row as u32, p.column as u32)?;
-                component_position_name = Some((pos, body));
+                components_positions_names.push((pos, body));
+            } else if o == PAGE_CHILD {
+                let p = node.start_position();
+                let pos = Position::new(file, p.row as u32, p.column as u32)?;
+                components_positions_names.push((pos, body));
+            } else if o == PAGE_HEADER {
+                let p = node.start_position();
+                let pos = Position::new(file, p.row as u32, p.column as u32)?;
+                components_positions_names.push((pos, body));
             }
             Ok(())
         })?;
-        if let Some((pos, comp_name)) = component_position_name {
+        for (pos, comp_name) in components_positions_names {
             if let Some(lsp) = lsp {
                 // use lsp to find the component
                 log_cmd(format!("=> looking for component {:?}", comp_name));
@@ -160,7 +168,7 @@ impl Lang {
                 if let LspRes::GotoDefinition(Some(gt)) = res {
                     let target_file = gt.file.display().to_string();
                     let target = NodeData::name_file(&comp_name, &target_file);
-                    page_renders = Some(Edge::renders(&pag, &target));
+                    page_renders.push(Edge::renders(&pag, &target));
                 }
             }
         }
@@ -168,12 +176,13 @@ impl Lang {
             return Ok(Vec::new());
         }
         let mut pages = Vec::new();
+        // push one for each page name
         for pn in page_names {
             let mut p = pag.clone();
             p.name = pn.clone();
             let mut pr = page_renders.clone();
-            if let Some(er) = pr.as_mut() {
-                er.source.node_data.name = pn;
+            for er in pr.iter_mut() {
+                er.source.node_data.name = pn.clone();
             }
             pages.push((p, pr));
         }
@@ -323,6 +332,7 @@ impl Lang {
         if endp.meta.get("verb").is_none() {
             self.lang.add_endpoint_verb(&mut endp, &call);
         }
+        self.lang.update_endpoint_verb(&mut endp, &call);
         // for multi-handle endpoints with no "name:" (ENDPOINT)
         if endp.name.is_empty() {
             if let Some(handler) = endp.meta.get("handler") {
@@ -360,7 +370,7 @@ impl Lang {
                 }
             }
         }
-        // println!("<<< endpoint >>> {:?}", inst.name);
+        // println!("<<< endpoint >>> {:?}", endp.name);
         Ok(vec![(endp, handler)])
     }
     pub fn format_data_model(

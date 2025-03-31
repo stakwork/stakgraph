@@ -43,3 +43,5 @@ pub const STRUCT_NAME: &str = "struct-name";
 pub const PAGE: &str = "page";
 pub const PAGE_COMPONENT: &str = "page-component";
 pub const PAGE_PATHS: &str = "page-paths";
+pub const PAGE_HEADER: &str = "page-header";
+pub const PAGE_CHILD: &str = "page-child";

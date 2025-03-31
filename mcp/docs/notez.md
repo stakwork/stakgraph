@@ -29,6 +29,11 @@ curl -X POST \
  -F "edges=@./ast/examples/stak-edges.jsonl" \
  http://localhost:3000/upload
 
+curl -X POST \
+ -F "nodes=@./ast/examples/demo-repo-nodes.jsonl" \
+ -F "edges=@./ast/examples/demo-repo-edges.jsonl" \
+ http://localhost:3000/upload
+
 ### set up in cursor
 
 Cursor Settings -> Features -> MCP Servers -> Add New

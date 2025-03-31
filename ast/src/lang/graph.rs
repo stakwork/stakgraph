@@ -255,10 +255,10 @@ impl Graph {
             self.edges.push(edge);
         }
     }
-    pub fn add_pages(&mut self, pages: Vec<(NodeData, Option<Edge>)>) {
+    pub fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
         for (p, e) in pages {
             self.nodes.push(Node::Page(p));
-            if let Some(edge) = e {
+            for edge in e {
                 self.edges.push(edge);
             }
         }

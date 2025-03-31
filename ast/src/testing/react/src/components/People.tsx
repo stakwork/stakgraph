@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Person } from './Person';
+import * as api from '../api';
 
 function People() {
   const [people, setPeople] = useState<Person[]>([]);
 
   useEffect(() => {
     // Fetch people data
-    fetch('http://localhost:5000/people')
+    fetch(`${api.host}/people`)
       .then((response) => response.json())
       .then((data: Person[]) => setPeople(data))
       .catch((error) => console.error('Error fetching people:', error));

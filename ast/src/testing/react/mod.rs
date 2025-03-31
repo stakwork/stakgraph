@@ -48,7 +48,7 @@ async fn test_react_typescript() {
         .iter()
         .filter(|n| matches!(n, Node::Import(_)))
         .collect::<Vec<_>>();
-    assert_eq!(imports.len(), 5);
+    assert_eq!(imports.len(), 4);
 
     let mut functions = graph
         .nodes
@@ -64,14 +64,14 @@ async fn test_react_typescript() {
     assert_eq!(people_component.name, "App");
     assert_eq!(
         normalize_path(&people_component.file),
-        "src/testing/react/App.tsx"
+        "src/testing/react/src/App.tsx"
     );
 
     let new_person_component = functions[1].into_data();
     assert_eq!(new_person_component.name, "FormContainer");
     assert_eq!(
         normalize_path(&new_person_component.file),
-        "src/testing/react/components/NewPerson.tsx"
+        "src/testing/react/src/components/NewPerson.tsx"
     );
 
     let styled_components = graph
@@ -86,7 +86,7 @@ async fn test_react_typescript() {
     assert_eq!(styled_component.name, "SubmitButton");
     assert_eq!(
         normalize_path(&styled_component.file),
-        "src/testing/react/components/NewPerson.tsx"
+        "src/testing/react/src/components/NewPerson.tsx"
     );
 
     let requests = graph
@@ -111,6 +111,6 @@ async fn test_react_typescript() {
     assert_eq!(page_node.len(), 2);
 
     let page = page_node[0].into_data();
-    assert_eq!(page.name, "/people");
-    assert_eq!(normalize_path(&page.file), "src/testing/react/App.tsx");
+    assert_eq!(page.name, "/");
+    assert_eq!(normalize_path(&page.file), "src/testing/react/src/App.tsx");
 }

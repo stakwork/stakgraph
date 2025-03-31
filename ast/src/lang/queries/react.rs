@@ -287,6 +287,16 @@ impl Stack for ReactTs {
         file_name.contains("src/pages/") || code.contains("react-router-dom")
     }
     fn page_query(&self) -> Option<String> {
+        let component_attribute = format!(
+            r#"(jsx_attribute
+                    (property_identifier) @header-attr (#eq? @header-attr "header")
+                    (jsx_expression
+                        (jsx_self_closing_element
+                            name: (identifier) @{PAGE_HEADER}
+                        )
+                    )
+                )?"#
+        );
         Some(format!(
             r#"[
     (jsx_self_closing_element
@@ -319,9 +329,13 @@ impl Stack for ReactTs {
         [
             (jsx_element(jsx_opening_element
                 name: (identifier) @{PAGE_COMPONENT}
+                {component_attribute}
+            ) (jsx_self_closing_element
+                name: (identifier) @{PAGE_CHILD}
             ))
             (jsx_self_closing_element
                 name: (identifier) @{PAGE_COMPONENT}
+                {component_attribute}
             )
         ]
     )

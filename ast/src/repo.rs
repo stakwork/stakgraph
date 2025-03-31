@@ -1,7 +1,8 @@
 use crate::lang::{linker, Graph, Lang};
 use anyhow::{anyhow, Context, Result};
 use git_url_parse::GitUrl;
-use lsp::{git::git_clone, language::PROGRAMMING_LANGUAGES, spawn_analyzer, strip_root, CmdSender};
+use lsp::language::{Language, PROGRAMMING_LANGUAGES};
+use lsp::{git::git_clone, spawn_analyzer, strip_root, CmdSender};
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tracing::{info, warn};
@@ -148,7 +149,8 @@ impl Repo {
         files_filter: Vec<String>,
         revs: Vec<String>,
     ) -> Result<Repos> {
-        let mut repos: Vec<Repo> = Vec::new();
+        // First, collect all detected languages
+        let mut detected_langs: Vec<Language> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
             let conf = Config {
                 exts: stringy(l.exts()),
@@ -161,24 +163,42 @@ impl Repo {
                 l.pkg_file().is_empty() || fname.ends_with(l.pkg_file())
             });
             if has_pkg_file {
-                let thelang = Lang::from_language(l.clone());
-                // dont double?
-                if repos.iter().any(|r| r.lang.kind == thelang.kind) {
-                    continue;
+                // Don't add duplicate languages
+                if !detected_langs.iter().any(|lang| lang == &l) {
+                    detected_langs.push(l);
                 }
-                for cmd in thelang.kind.post_clone_cmd() {
-                    Self::run_cmd(&cmd, &root)?;
-                }
-                let lsp_tx = Self::start_lsp(&root, &thelang, thelang.kind.default_do_lsp())?;
-                repos.push(Repo {
-                    url: url.clone().map(|u| u.into()).unwrap_or_default(),
-                    root: root.into(),
-                    lang: thelang,
-                    lsp_tx,
-                    files_filter: files_filter.clone(),
-                    revs: revs.clone(),
-                });
             }
+        }
+        // Filter out overridden languages
+        let mut overridden_langs: Vec<Language> = Vec::new();
+        for lang in &detected_langs {
+            for overridden in lang.overrides() {
+                overridden_langs.push(overridden);
+            }
+        }
+        let filtered_langs: Vec<Language> = detected_langs
+            .into_iter()
+            .filter(|lang| !overridden_langs.contains(lang))
+            .collect();
+        // Then, set up each repository with LSP
+        let mut repos: Vec<Repo> = Vec::new();
+        for l in filtered_langs {
+            let thelang = Lang::from_language(l);
+            // Run post-clone commands
+            for cmd in thelang.kind.post_clone_cmd() {
+                Self::run_cmd(&cmd, &root)?;
+            }
+            // Start LSP server
+            let lsp_tx = Self::start_lsp(&root, &thelang, thelang.kind.default_do_lsp())?;
+            // Add to repositories
+            repos.push(Repo {
+                url: url.clone().map(|u| u.into()).unwrap_or_default(),
+                root: root.into(),
+                lang: thelang,
+                lsp_tx,
+                files_filter: files_filter.clone(),
+                revs: revs.clone(),
+            });
         }
         println!("REPOS!!! {:?}", repos);
         Ok(Repos(repos))
