@@ -1,13 +1,36 @@
 import { Sequelize } from "sequelize";
 import { DataSource } from "typeorm";
 import { PrismaClient } from "@prisma/client";
-import { TypeORMPerson } from "./model.js";
+import { TypeORMPerson, SequelizePerson } from "./model.js";
+import { DataTypes } from "sequelize";
 
 export const sequelize = new Sequelize({
   dialect: "sqlite",
   storage: "./database.sqlite",
   logging: false,
 });
+
+SequelizePerson.init(
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    email: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+  },
+  {
+    sequelize,
+    tableName: "people",
+  }
+);
 
 export const AppDataSource = new DataSource({
   type: "sqlite",

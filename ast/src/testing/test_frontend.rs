@@ -6,7 +6,6 @@ use lsp::Language as LspLanguage;
 use std::collections::HashMap;
 use std::result::Result;
 use tracing::info;
-use tree_sitter::Language;
 pub struct FrontendTester {
     graph: Graph,
     lang: Lang,

@@ -1,6 +1,5 @@
-import DataTypes, { Model } from "sequelize";
+import { Model } from "sequelize";
 import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";
-import { sequelize } from "./config.js";
 
 interface PersonAttributes {
   id?: number;
@@ -16,28 +15,6 @@ export class SequelizePerson
   public name!: string;
   public email!: string;
 }
-
-SequelizePerson.init(
-  {
-    id: {
-      type: DataTypes.INTEGER,
-      autoIncrement: true,
-      primaryKey: true,
-    },
-    name: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    email: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-  },
-  {
-    sequelize,
-    tableName: "people",
-  }
-);
 
 @Entity("persons")
 export class TypeORMPerson {
