@@ -292,7 +292,9 @@ impl Lang {
             Language::Toml => unimplemented!(),
             Language::Kotlin => Lang::new_kotlin(),
             Language::Swift => Lang::new_swift(),
+            Language::Prisma => unimplemented!(),
             Language::Java => Lang::new_java(),
+
         }
     }
 }

@@ -13,7 +13,9 @@ pub enum Language {
     Ruby,
     Kotlin,
     Swift,
+    Prisma,
     Java,
+
 }
 
 pub const PROGRAMMING_LANGUAGES: [Language; 9] = [
@@ -39,7 +41,8 @@ impl Language {
         match self {
             Self::Rust => "Cargo.toml",
             Self::Go => "go.mod",
-            Self::Typescript | Self::React => "package.json",
+            Self::Typescript => "package.json",
+            Self::React => "package.json",
             Self::Python => "requirements.txt",
             Self::Ruby => "Gemfile",
             Self::Kotlin => "build.gradle.kts",
@@ -47,6 +50,7 @@ impl Language {
             Self::Java => "pom.xml",
             Self::Bash => "",
             Self::Toml => "",
+            Self::Prisma => "",
         }
     }
 
@@ -54,7 +58,8 @@ impl Language {
         match self {
             Self::Rust => vec!["rs"],
             Self::Go => vec!["go"],
-            Self::Typescript | Self::React => vec!["jsx", "tsx", "ts", "js"],
+            Self::Typescript => vec!["ts", "js", "prisma"], //Data Model
+            Self::React => vec!["jsx", "tsx", "js", "ts"],
             Self::Python => vec!["py", "ipynb"],
             Self::Ruby => vec!["rb"],
             Self::Kotlin => vec!["kt", "kts"],
@@ -62,6 +67,7 @@ impl Language {
             Self::Java => vec!["java", "gradle", "gradlew"],
             Self::Bash => vec!["sh"],
             Self::Toml => vec!["toml"],
+            Self::Prisma => vec!["prisma"],
         }
     }
 
@@ -77,7 +83,8 @@ impl Language {
         match self {
             Self::Rust => vec!["target", ".git"],
             Self::Go => vec!["vendor", ".git"],
-            Self::Typescript | Self::React => vec!["node_modules", ".git"],
+            Self::Typescript => vec!["node_modules", ".git"],
+            Self::React => vec!["node_modules", ".git"],
             Self::Python => vec!["__pycache__", ".git", ".venv", "venv"],
             Self::Ruby => vec!["migrate", "tmp", ".git"],
             Self::Kotlin => vec![".gradle", ".idea", "build", ".git"],
@@ -85,6 +92,7 @@ impl Language {
             Self::Java => vec![".gradle", ".idea", "build", ".git"],
             Self::Bash => vec![".git"],
             Self::Toml => vec![".git"],
+            Self::Prisma => vec![".git"],
         }
     }
 
@@ -99,7 +107,8 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => Vec::new(),
+            Self::Typescript => Vec::new(),
+            Self::React => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -107,6 +116,7 @@ impl Language {
             Self::Java => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
+            Self::Prisma => Vec::new(),
         }
     }
 
@@ -114,7 +124,8 @@ impl Language {
         match self {
             Self::Rust => true,
             Self::Go => true,
-            Self::Typescript | Self::React => true,
+            Self::Typescript => true,
+            Self::React => true,
             Self::Python => false,
             Self::Ruby => false,
             Self::Kotlin => true,
@@ -122,6 +133,7 @@ impl Language {
             Self::Java => true,
             Self::Bash => false,
             Self::Toml => false,
+            Self::Prisma => false,
         }
     }
 
@@ -129,7 +141,8 @@ impl Language {
         match self {
             Self::Rust => "rust-analyzer",
             Self::Go => "gopls",
-            Self::Typescript | Self::React => "typescript-language-server",
+            Self::Typescript => "typescript-language-server",
+            Self::React => "typescript-language-server",
             Self::Python => "pylsp",
             Self::Ruby => "ruby-lsp",
             Self::Kotlin => "kotlin-language-server",
@@ -137,6 +150,7 @@ impl Language {
             Self::Java => "jdtls",
             Self::Bash => "",
             Self::Toml => "",
+            Self::Prisma => "",
         }
         .to_string()
     }
@@ -145,7 +159,8 @@ impl Language {
         match self {
             Self::Rust => "--version",
             Self::Go => "version",
-            Self::Typescript | Self::React => "--version",
+            Self::Typescript => "--version",
+            Self::React => "--version",
             Self::Python => "--version",
             Self::Ruby => "--version",
             Self::Kotlin => "--version",
@@ -153,6 +168,7 @@ impl Language {
             Self::Java => "--version",
             Self::Bash => "",
             Self::Toml => "",
+            Self::Prisma => "",
         }
         .to_string()
     }
@@ -161,7 +177,8 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["--stdio".to_string()],
+            Self::Typescript => vec!["--stdio".to_string()],
+            Self::React => vec!["--stdio".to_string()],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -169,6 +186,7 @@ impl Language {
             Self::Java => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
+            Self::Prisma => Vec::new(),
         }
     }
 
@@ -185,6 +203,7 @@ impl Language {
             Self::Java => "java",
             Self::Bash => "bash",
             Self::Toml => "toml",
+            Self::Prisma => "prisma",
         }
         .to_string()
     }
@@ -196,7 +215,8 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["npm install --force"],
+            Self::Typescript => Vec::new(),
+            Self::React => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -204,6 +224,7 @@ impl Language {
             Self::Java => Vec::new(),
             Self::Bash => Vec::new(),
             Self::Toml => Vec::new(),
+            Self::Prisma => Vec::new(),
         }
     }
 
@@ -239,6 +260,7 @@ impl FromStr for Language {
             "TypeScript" => Ok(Language::Typescript),
             "javascript" => Ok(Language::Typescript),
             "JavaScript" => Ok(Language::Typescript),
+            "Typescript" => Ok(Language::Typescript),
             "ruby" => Ok(Language::Ruby),
             "Ruby" => Ok(Language::Ruby),
             "RubyOnRails" => Ok(Language::Ruby),
@@ -252,6 +274,8 @@ impl FromStr for Language {
             "Kotlin" => Ok(Language::Kotlin),
             "swift" => Ok(Language::Swift),
             "Swift" => Ok(Language::Swift),
+            "prisma" => Ok(Language::Prisma),
+            "Prisma" => Ok(Language::Prisma),
             "java" => Ok(Language::Java),
             "Java" => Ok(Language::Java),
             _ => Err(anyhow::anyhow!("unsupported language")),
