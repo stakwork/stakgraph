@@ -1,4 +1,5 @@
-use crate::lang::graph::{Graph, Node};
+use crate::lang::graph::{ArrayGraph, Node};
+use crate::lang::graph_trait::GraphSearchOps;
 use crate::lang::Lang;
 use crate::repo::Repo;
 use anyhow::Context;
@@ -6,9 +7,8 @@ use lsp::Language as LspLanguage;
 use std::collections::HashMap;
 use std::result::Result;
 use tracing::info;
-
 pub struct FrontendTester {
-    graph: Graph,
+    graph: ArrayGraph,
     lang: Lang,
     repo: Option<String>,
 }

@@ -1,4 +1,4 @@
-use crate::lang::{linker, Graph, Lang};
+use crate::lang::{linker, ArrayGraph, Lang};
 use anyhow::{anyhow, Context, Result};
 use git_url_parse::GitUrl;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
@@ -31,8 +31,8 @@ pub struct Repo {
 pub struct Repos(pub Vec<Repo>);
 
 impl Repos {
-    pub async fn build_graphs(&self) -> Result<Graph> {
-        let mut graph = Graph::new();
+    pub async fn build_graphs(&self) -> Result<ArrayGraph> {
+        let mut graph = ArrayGraph::new();
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
             let subgraph = repo.build_graph().await?;

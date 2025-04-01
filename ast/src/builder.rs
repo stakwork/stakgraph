@@ -1,5 +1,6 @@
 use super::repo::{check_revs_files, Repo};
-use crate::lang::Graph;
+use crate::lang::graph_trait::*;
+use crate::lang::ArrayGraph;
 use crate::lang::{asg::NodeData, graph::Node, graph::NodeType};
 use anyhow::{Ok, Result};
 use git_url_parse::GitUrl;
@@ -12,8 +13,8 @@ use tracing::{debug, info};
 const MAX_FILE_SIZE: u64 = 100_000; // 100kb max file size
 
 impl Repo {
-    pub async fn build_graph(&self) -> Result<Graph> {
-        let mut graph = Graph::new();
+    pub async fn build_graph(&self) -> Result<ArrayGraph> {
+        let mut graph = ArrayGraph::new();
 
         println!("Root: {:?}", self.root);
         let commit_hash = get_commit_hash(&self.root.to_str().unwrap()).await?;
@@ -324,12 +325,12 @@ impl Repo {
     }
 }
 
-fn filter_by_revs(root: &str, revs: Vec<String>, graph: Graph) -> Graph {
+fn filter_by_revs(root: &str, revs: Vec<String>, graph: ArrayGraph) -> ArrayGraph {
     if revs.is_empty() {
         return graph;
     }
     if let Some(final_filter) = check_revs_files(root, revs) {
-        let mut new_graph = Graph::new();
+        let mut new_graph = ArrayGraph::new();
         // only add nodes that are in the final filter
         for node in graph.nodes {
             if matches!(node, Node::Repository(_)) {

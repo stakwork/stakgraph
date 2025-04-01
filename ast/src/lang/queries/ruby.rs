@@ -1,6 +1,7 @@
 use super::super::*;
 use super::consts::*;
 use crate::builder::get_page_name;
+use crate::lang::graph_trait::GraphSearchOps;
 use crate::lang::parse::trim_quotes;
 use crate::lang::queries::rails_routes;
 use anyhow::{Context, Result};
@@ -104,7 +105,7 @@ impl Stack for Ruby {
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -130,7 +131,7 @@ impl Stack for Ruby {
         format!("name: [(constant) (scope_resolution)] @identifier")
     }
     fn data_model_name(&self, dm_name: &str) -> String {
-      inflection::pluralize(dm_name).to_lowercase()
+        inflection::pluralize(dm_name).to_lowercase()
     }
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
@@ -166,7 +167,7 @@ impl Stack for Ruby {
     fn use_data_model_within_finder(&self) -> bool {
         true
     }
-    fn data_model_within_finder(&self, data_model: &NodeData, graph: &Graph) -> Vec<Edge> {
+    fn data_model_within_finder(&self, data_model: &NodeData, graph: &ArrayGraph) -> Vec<Edge> {
         // file: app/controllers/api/advisor_groups_controller.rb
         let mut models = Vec::new();
         let singular_name = data_model.name.to_lowercase();
@@ -200,7 +201,7 @@ impl Stack for Ruby {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        graph: &Graph,
+        graph: &ArrayGraph,
         params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if endpoint.meta.get("handler").is_none() {
@@ -307,7 +308,7 @@ impl Stack for Ruby {
         node: TreeNode,
         code: &str,
         _file: &str,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
     ) -> Result<Vec<HandlerItem>> {
         let mut parents = Vec::new();
         let mut parent = node.parent();
@@ -373,7 +374,7 @@ impl Stack for Ruby {
     fn integration_test_edge_finder(
         &self,
         nd: &NodeData,
-        graph: &Graph,
+        graph: &ArrayGraph,
         tt: NodeType,
     ) -> Option<Edge> {
         let cla = graph.find_class_by(|clnd| clnd.name == nd.name);
@@ -401,7 +402,7 @@ impl Stack for Ruby {
         let is_view = file_name.contains("/views/");
         is_view && is_good_ext && !is_underscore
     }
-    fn extra_page_finder(&self, file_path: &str, graph: &Graph) -> Option<Edge> {
+    fn extra_page_finder(&self, file_path: &str, graph: &ArrayGraph) -> Option<Edge> {
         let pagename = get_page_name(file_path);
         if pagename.is_none() {
             return None;

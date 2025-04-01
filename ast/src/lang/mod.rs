@@ -1,5 +1,6 @@
 pub mod asg;
 pub mod graph;
+pub mod graph_trait;
 pub mod linker;
 pub mod parse;
 pub mod queries;
@@ -8,7 +9,7 @@ use anyhow::{Context, Result};
 use asg::*;
 use consts::*;
 use graph::*;
-pub use graph::{Graph, NodeType};
+pub use graph::{ArrayGraph, NodeType};
 use lsp::{CmdSender, Language};
 use queries::*;
 use std::fmt;
@@ -181,7 +182,7 @@ impl Lang {
         &self,
         code: &str,
         file: &str,
-        graph: &Graph,
+        graph: &ArrayGraph,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<Function>, Vec<Function>)> {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
@@ -213,7 +214,7 @@ impl Lang {
         &self,
         code: &str,
         file: &str,
-        graph: &Graph,
+        graph: &ArrayGraph,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)> {
         trace!("get_function_calls");
@@ -239,7 +240,7 @@ impl Lang {
         q: &Query,
         code: &str,
         file: &str,
-        graph: &Graph,
+        graph: &ArrayGraph,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<()> {
         trace!("add_calls_for_function");

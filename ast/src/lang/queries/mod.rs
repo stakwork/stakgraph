@@ -17,7 +17,8 @@ pub mod svelte;
 pub mod angular;
 
 use crate::lang::asg::Operand;
-use crate::lang::graph::{Edge, Graph};
+use crate::lang::graph::{ArrayGraph, Edge};
+use crate::lang::graph_trait::GraphSearchOps;
 use crate::lang::{Function, Node, NodeData, NodeType};
 use anyhow::Result;
 use lsp::Language as LspLanguage;
@@ -109,7 +110,7 @@ pub trait Stack {
     fn use_data_model_within_finder(&self) -> bool {
         false
     }
-    fn data_model_within_finder(&self, _dm: &NodeData, _graph: &Graph) -> Vec<Edge> {
+    fn data_model_within_finder(&self, _dm: &NodeData, _graph: &ArrayGraph) -> Vec<Edge> {
         Vec::new()
     }
     fn data_model_name(&self, dm_name: &str) -> String {
@@ -121,7 +122,7 @@ pub trait Stack {
         _code: &str,
         _file: &str,
         _func_name: &str,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         Ok(None)
@@ -130,7 +131,7 @@ pub trait Stack {
         &self,
         _pos: Position,
         _nd: &NodeData,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
         _lsp_tx: &Option<CmdSender>,
     ) -> Result<Option<Edge>> {
         Ok(None)
@@ -147,7 +148,7 @@ pub trait Stack {
         _node: TreeNode,
         _code: &str,
         _file: &str,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
     ) -> Result<Vec<HandlerItem>> {
         Ok(Vec::new())
     }
@@ -190,7 +191,7 @@ pub trait Stack {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        graph: &Graph,
+        graph: &ArrayGraph,
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(handler) = endpoint.meta.get("handler") {
@@ -210,7 +211,7 @@ pub trait Stack {
     fn integration_test_edge_finder(
         &self,
         _nd: &NodeData,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
         _tt: NodeType,
     ) -> Option<Edge> {
         None
@@ -227,11 +228,11 @@ pub trait Stack {
     fn is_extra_page(&self, _file_name: &str) -> bool {
         false
     }
-    fn extra_page_finder(&self, _file_name: &str, _graph: &Graph) -> Option<Edge> {
+    fn extra_page_finder(&self, _file_name: &str, _graph: &ArrayGraph) -> Option<Edge> {
         None
     }
 
-    fn clean_graph(&self, _graph: &mut Graph) -> bool {
+    fn clean_graph(&self, _graph: &mut ArrayGraph) -> bool {
         false
     }
 }
@@ -277,7 +278,7 @@ impl HandlerItem {
 }
 
 use std::collections::BTreeMap;
-pub fn filter_out_classes_without_methods(graph: &mut Graph) -> bool {
+pub fn filter_out_classes_without_methods(graph: &mut ArrayGraph) -> bool {
     let mut assumed_class: BTreeMap<String, bool> = BTreeMap::new();
     let mut actual_class: BTreeMap<String, bool> = BTreeMap::new();
 

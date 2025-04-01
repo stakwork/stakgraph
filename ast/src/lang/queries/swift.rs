@@ -68,7 +68,7 @@ impl Stack for Swift {
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &Graph,
+        _graph: &ArrayGraph,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();

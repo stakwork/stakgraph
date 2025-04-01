@@ -1,10 +1,11 @@
-use crate::lang::graph::{EdgeType, Graph, Node};
+use crate::lang::graph::{ArrayGraph, EdgeType, Node};
+use crate::lang::graph_trait::GraphSearchOps;
 use crate::lang::{linker::normalize_backend_path, Lang};
 use crate::repo::Repo;
 use tracing::{error, info};
 
 pub struct BackendTester {
-    graph: Graph,
+    graph: ArrayGraph,
     lang: Lang,
     repo: Option<String>,
 }

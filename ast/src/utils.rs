@@ -1,9 +1,9 @@
-use crate::lang::Graph;
+use crate::lang::ArrayGraph;
 use anyhow::Result;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-pub fn print_json(graph: &Graph, name: &str) -> Result<()> {
+pub fn print_json(graph: &ArrayGraph, name: &str) -> Result<()> {
     use serde_jsonlines::write_json_lines;
     match std::env::var("OUTPUT_FORMAT")
         .unwrap_or_else(|_| "json".to_string())

@@ -1,11 +1,11 @@
-use crate::lang::graph::{Graph, Node, NodeType};
+use crate::lang::graph::{ArrayGraph, Node, NodeType};
 use crate::lang::{CallsMeta, Edge, Language, NodeData};
 use anyhow::{Context, Result};
 use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
 use std::path::PathBuf;
 use tracing::info;
-pub fn link_e2e_tests(graph: &mut Graph) -> Result<()> {
+pub fn link_e2e_tests(graph: &mut ArrayGraph) -> Result<()> {
     // First collect functions and tests in a single pass
     let mut e2e_tests = Vec::new();
     let mut frontend_functions = Vec::new();
@@ -77,7 +77,7 @@ fn extract_test_ids(content: &str, lang: &Language) -> Result<Vec<String>> {
     Ok(test_ids)
 }
 
-pub fn link_api_nodes(graph: &mut Graph) -> Result<()> {
+pub fn link_api_nodes(graph: &mut ArrayGraph) -> Result<()> {
     // Collect requests and endpoints in a single pass
     let mut frontend_requests = Vec::new();
     let mut backend_endpoints = Vec::new();
@@ -279,7 +279,7 @@ mod tests {
 
     #[test]
     fn test_link_api_nodes() -> Result<()> {
-        let mut graph = Graph::new();
+        let mut graph = ArrayGraph::new();
 
         // Valid matching pair
         let mut req1 = NodeData::name_file("api/user/${id}", "src/components/User.tsx");

@@ -1,9 +1,10 @@
 use super::{linker::normalize_backend_path, *};
+use crate::lang::graph_trait::*;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Graph {
+pub struct ArrayGraph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub errors: Vec<String>,
@@ -114,15 +115,71 @@ impl NodeRef {
     }
 }
 
-impl Graph {
+impl ArrayGraph {
     pub fn new() -> Self {
-        Graph {
+        ArrayGraph {
             nodes: Vec::new(),
             edges: Vec::new(),
             errors: Vec::new(),
         }
     }
-    pub fn add_repository(&mut self, url: &str, org: &str, name: &str, hash: &str) {
+
+    //Common node operations for this Graph Implementation
+    fn add_node_with_file_edge(&mut self, node: Node, file: &str) {
+        if let Some(ff) = self.file_data(file) {
+            let edge = Edge::contains(NodeType::File, &ff, node.to_node_type(), &node.into_data());
+            self.edges.push(edge);
+        }
+        self.nodes.push(node);
+    }
+    fn add_node_with_edges(&mut self, node: Node, edges: Vec<Edge>) {
+        self.nodes.push(node);
+        self.edges.extend(edges);
+    }
+
+    fn add_node_with_parent(&mut self, node: Node, parent_type: NodeType, parent: &NodeData) {
+        let edge = Edge::contains(parent_type, parent, node.to_node_type(), &node.into_data());
+        self.edges.push(edge);
+        self.nodes.push(node);
+    }
+}
+impl Graph for ArrayGraph {
+    fn add_node(&mut self, node: NodeData) {
+        self.nodes.push(Node::File(node));
+    }
+
+    fn add_edge(&mut self, edge: Edge) {
+        self.edges.push(edge);
+    }
+
+    fn get_nodes(&self) -> Vec<NodeData> {
+        self.nodes
+            .iter()
+            .map(|n| n.into_data())
+            .collect::<Vec<NodeData>>()
+    }
+
+    fn get_edges(&self) -> Vec<Edge> {
+        self.edges.clone()
+    }
+
+     fn find_node<F>(&self, predicate: F) -> Option<&Node>
+    where
+        F: Fn(&Node) -> bool,
+    {
+        self.nodes.iter().find(|n| predicate(n))
+    }
+
+    fn find_nodes<F>(&self, predicate: F) -> Vec<&Node>
+    where
+        F: Fn(&Node) -> bool,
+    {
+        self.nodes.iter().filter(|n| predicate(n)).collect()
+    }
+}
+
+impl GraphRepositoryOps for ArrayGraph {
+    fn add_repository(&mut self, url: &str, org: &str, name: &str, hash: &str) {
         let mut repo = NodeData {
             name: format!("{}/{}", org, name),
             // FIXME find main file or repo
@@ -133,7 +190,8 @@ impl Graph {
         repo.add_source_link(url);
         self.nodes.push(Node::Repository(repo));
     }
-    pub fn add_language(&mut self, lang: &str) {
+
+    fn add_language(&mut self, lang: &str) {
         let l = NodeData {
             name: lang.to_string(),
             file: "".to_string(),
@@ -144,25 +202,16 @@ impl Graph {
         self.edges.push(edge);
         self.nodes.push(Node::Language(l));
     }
-    pub fn get_repository(&self) -> NodeData {
-        self.nodes
-            .iter()
-            .filter_map(|n| match n {
-                Node::Repository(r) => Some(r.clone()),
-                _ => None,
-            })
-            .next()
-            .unwrap()
-    }
-    pub fn add_directory(&mut self, path: &str) {
+}
+
+impl GraphDirectoryOps for ArrayGraph {
+    fn add_directory(&mut self, path: &str) {
         // "file" is actually the path
         let mut d = NodeData::in_file(path);
         d.name = path.to_string();
-        let edge = self.parent_edge(path, &mut d, NodeType::Directory);
-        self.nodes.push(Node::Directory(d));
-        self.edges.push(edge);
+        self.add_node_with_parent(Node::Directory(d.clone()), NodeType::Directory, &d);
     }
-    pub fn add_file(&mut self, path: &str, code: &str) {
+    fn add_file(&mut self, path: &str, code: &str) {
         if self.file_data(path).is_some() {
             return;
         }
@@ -173,97 +222,41 @@ impl Graph {
             f.body = code.to_string();
         }
         f.hash = Some(sha256::digest(&f.body));
-        let edge = self.parent_edge(path, &mut f, NodeType::File);
-        self.edges.push(edge);
-        self.nodes.push(Node::File(f));
+        self.add_node_with_parent(Node::File(f.clone()), NodeType::File, &f);
     }
-    fn parent_edge(&self, path: &str, nd: &mut NodeData, nt: NodeType) -> Edge {
-        if path.contains("/") {
-            let mut paths = path.split("/").collect::<Vec<&str>>();
-            let file_name = paths.pop().unwrap();
-            nd.name = file_name.to_string();
-            let parent_name = paths.get(paths.len() - 1).unwrap();
-            let mut parent_node = NodeData::in_file(&paths.join("/"));
-            parent_node.name = parent_name.to_string();
-            Edge::contains(NodeType::Directory, &parent_node, nt, nd)
-        } else {
-            let repo = self.get_repository();
-            Edge::contains(NodeType::Repository, &repo, nt, nd)
-        }
-    }
-    pub fn repo_data(&self, filename: &str) -> Option<NodeData> {
-        self.nodes
-            .iter()
-            .filter_map(|n| match n {
-                Node::Repository(r) => Some(r.clone()),
-                _ => None,
-            })
-            .find(|r| r.name == filename)
-    }
-    pub fn file_data(&self, filename: &str) -> Option<NodeData> {
-        let mut f = None;
-        for n in self.nodes.iter() {
-            if let Node::File(ff) = n {
-                if ff.file == filename {
-                    f = Some(ff.clone());
-                    break;
-                }
-            }
-        }
-        f
-    }
-    pub fn add_classes(&mut self, classes: Vec<NodeData>) {
+}
+
+impl CodeEntityOps for ArrayGraph {
+    fn add_classes(&mut self, classes: Vec<NodeData>) {
         for c in classes {
-            if let Some(ff) = self.file_data(&c.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::Class, &c);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::Class(c));
+            self.add_node_with_file_edge(Node::Class(c.clone()), &c.file);
         }
     }
-    pub fn add_imports(&mut self, imports: Vec<NodeData>) {
+    fn add_imports(&mut self, imports: Vec<NodeData>) {
         for i in imports {
-            if let Some(ff) = self.file_data(&i.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::Import, &i);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::Import(i));
+            self.add_node_with_file_edge(Node::Import(i.clone()), &i.file);
         }
     }
-    pub fn add_traits(&mut self, traits: Vec<NodeData>) {
+    fn add_traits(&mut self, traits: Vec<NodeData>) {
         for t in traits {
-            if let Some(ff) = self.file_data(&t.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::Trait, &t);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::Trait(t));
+            self.add_node_with_file_edge(Node::Trait(t.clone()), &t.file);
         }
     }
-    pub fn add_libs(&mut self, libs: Vec<NodeData>) {
+    fn add_libs(&mut self, libs: Vec<NodeData>) {
         for l in libs {
-            if let Some(ff) = self.file_data(&l.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::Library, &l);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::Library(l));
+            self.add_node_with_file_edge(Node::Library(l.clone()), &l.file);
         }
     }
-    pub fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
+    fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
         let (p, e) = page;
-        self.nodes.push(Node::Page(p));
-        if let Some(edge) = e {
-            self.edges.push(edge);
-        }
+        self.add_node_with_edges(Node::Page(p), e.into_iter().collect());
     }
-    pub fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
         for (p, e) in pages {
-            self.nodes.push(Node::Page(p));
-            for edge in e {
-                self.edges.push(edge);
-            }
+            self.add_node_with_edges(Node::Page(p), e);
         }
     }
-    pub fn add_instances(&mut self, instances: Vec<NodeData>) {
+    fn add_instances(&mut self, instances: Vec<NodeData>) {
         for inst in instances {
             if let Some(of) = &inst.data_type {
                 if let Some(cl) = self.find_by_name(NodeType::Class, &of) {
@@ -278,16 +271,12 @@ impl Graph {
             }
         }
     }
-    pub fn add_structs(&mut self, structs: Vec<NodeData>) {
+    fn add_structs(&mut self, structs: Vec<NodeData>) {
         for s in structs {
-            if let Some(ff) = self.file_data(&s.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::DataModel, &s);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::DataModel(s));
+            self.add_node_with_file_edge(Node::DataModel(s.clone()), &s.file);
         }
     }
-    pub fn add_functions(&mut self, functions: Vec<Function>) {
+    fn add_functions(&mut self, functions: Vec<Function>) {
         for f in functions {
             // HERE return_types
             let (node, method_of, args, reqs, dms, trait_operand, return_types) = f;
@@ -330,7 +319,7 @@ impl Graph {
             }
         }
     }
-    pub fn add_tests(&mut self, tests: Vec<Function>) {
+    fn add_tests(&mut self, tests: Vec<Function>) {
         for t in tests {
             if let Some(ff) = self.file_data(&t.0.file) {
                 let edge = Edge::contains(NodeType::File, &ff, NodeType::Test, &t.0);
@@ -339,17 +328,7 @@ impl Graph {
             self.nodes.push(Node::Test(t.0));
         }
     }
-    pub fn filter_functions(&self) -> Vec<NodeData> {
-        self.nodes
-            .iter()
-            .filter_map(|n| match n {
-                Node::Function(f) => Some(f.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-    // funcs, tests, integration tests
-    pub fn add_calls(
+    fn add_calls(
         &mut self,
         (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
     ) {
@@ -381,7 +360,7 @@ impl Graph {
         }
     }
     // one endpoint can have multiple handlers like in Ruby on Rails (resources)
-    pub fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
         for (e, h) in endpoints {
             if let Some(_handler) = e.meta.get("handler") {
                 if self
@@ -399,7 +378,7 @@ impl Graph {
             }
         }
     }
-    pub fn add_integration_test(&mut self, t: NodeData, tt: NodeType, e: Option<Edge>) {
+    fn add_integration_test(&mut self, t: NodeData, tt: NodeType, e: Option<Edge>) {
         if let Some(ff) = self.file_data(&t.file) {
             let edge = Edge::contains(NodeType::File, &ff, tt.clone(), &t);
             self.edges.push(edge);
@@ -414,7 +393,10 @@ impl Graph {
             self.edges.push(e);
         }
     }
-    pub fn class_inherits(&mut self) {
+}
+
+impl GraphHelperOps for ArrayGraph {
+    fn class_inherits(&mut self) {
         for n in self.nodes.iter() {
             match n {
                 Node::Class(c) => {
@@ -429,7 +411,7 @@ impl Graph {
             }
         }
     }
-    pub fn class_includes(&mut self) {
+    fn class_includes(&mut self) {
         for n in self.nodes.iter() {
             match n {
                 Node::Class(c) => {
@@ -447,6 +429,288 @@ impl Graph {
             }
         }
     }
+    fn get_repository(&self) -> NodeData {
+        self.nodes
+            .iter()
+            .filter_map(|n| match n {
+                Node::Repository(r) => Some(r.clone()),
+                _ => None,
+            })
+            .next()
+            .unwrap()
+    }
+    fn repo_data(&self, filename: &str) -> Option<NodeData> {
+        self.nodes
+            .iter()
+            .filter_map(|n| match n {
+                Node::Repository(r) => Some(r.clone()),
+                _ => None,
+            })
+            .find(|r| r.name == filename)
+    }
+    fn file_data(&self, filename: &str) -> Option<NodeData> {
+        let mut f = None;
+        for n in self.nodes.iter() {
+            if let Node::File(ff) = n {
+                if ff.file == filename {
+                    f = Some(ff.clone());
+                    break;
+                }
+            }
+        }
+        f
+    }
+    fn parent_edge(&self, path: &str, nd: &mut NodeData, nt: NodeType) -> Edge {
+        if path.contains("/") {
+            let mut paths = path.split("/").collect::<Vec<&str>>();
+            let file_name = paths.pop().unwrap();
+            nd.name = file_name.to_string();
+            let parent_name = paths.get(paths.len() - 1).unwrap();
+            let mut parent_node = NodeData::in_file(&paths.join("/"));
+            parent_node.name = parent_name.to_string();
+            Edge::contains(NodeType::Directory, &parent_node, nt, nd)
+        } else {
+            let repo = self.get_repository();
+            Edge::contains(NodeType::Repository, &repo, nt, nd)
+        }
+    }
+    fn filter_functions(&self) -> Vec<NodeData> {
+        self.nodes
+            .iter()
+            .filter_map(|n| match n {
+                Node::Function(f) => Some(f.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+}
+
+impl GraphSearchOps for ArrayGraph {
+    fn find_by_name(&self, nt: NodeType, name: &str) -> Option<NodeData> {
+        self.find_node(|n| n.to_node_type() == nt && n.into_data().name == name)
+            .map(|n| n.into_data())
+    }
+    fn find_exact_func(&self, name: &str, file: &str) -> Option<NodeData> {
+        self.find_node(|n| matches!(n, Node::Function(f) if f.name == name && f.file == file))
+            .map(|n| n.into_data())
+    }
+    fn find_exact_endpoint(&self, name: &str, file: &str, verb: Option<&String>) -> Option<NodeData> {
+        self.find_node(|n| {
+            matches!(n, Node::Endpoint(e) if e.name == name && 
+                                           e.file == file && 
+                                           e.meta.get("verb") == verb)
+        }).map(|n| n.into_data())
+    }
+
+fn find_index_by_name(&self, nt: NodeType, name: &str) -> Option<usize> {
+        self.nodes.iter().enumerate().find_map(|(i, node)| {
+            match node {
+                Node::Class(n) | Node::Function(n) | Node::Endpoint(n) |
+                Node::Instance(n) | Node::Request(n) | Node::DataModel(n)
+                    if n.name == name && node.to_node_type() == nt => Some(i),
+                _ => None
+            }
+        })
+    }
+
+    fn find_trait_range(&self, row: u32, file: &str) -> Option<NodeData> {
+        for n in self.nodes.iter() {
+            if let Node::Trait(t) = n {
+                if t.file == file && t.start as u32 <= row && t.end as u32 >= row {
+                    return Some(t.clone());
+                }
+            }
+        }
+        None
+    }
+    fn find_edge_index_by_src(&self, name: &str, file: &str) -> Option<usize> {
+        for (i, n) in self.edges.iter().enumerate() {
+            if n.source.node_data.name == name && n.source.node_data.file == file {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    fn find_func_by<F>(&self, predicate: F) -> Option<NodeData>
+    where
+        F: Fn(&NodeData) -> bool,
+    {
+        let mut f = None;
+        for n in self.nodes.iter() {
+            match n {
+                Node::Function(ff) => {
+                    if predicate(&ff) {
+                        f = Some(ff.clone());
+                        break;
+                    }
+                }
+                _ => (),
+            }
+        }
+        f
+    }
+
+fn find_funcs_by<F>(&self, predicate: F) -> Vec<NodeData>
+    where
+        F: Fn(&NodeData) -> bool,
+    {
+        self.nodes.iter()
+            .filter_map(|n| match n {
+                Node::Function(f) if predicate(f) => Some(f.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn find_edges_by<F>(&self, predicate: F) -> Vec<Edge>
+    where
+        F: Fn(&Edge) -> bool,
+    {
+        let mut es = Vec::new();
+        for n in self.edges.iter() {
+            if predicate(&n) {
+                es.push(n.clone());
+            }
+        }
+        es
+    }
+
+    fn find_data_model_by<F>(&self, predicate: F) -> Option<NodeData>
+    where
+        F: Fn(&NodeData) -> bool,
+    {
+        let mut f = None;
+        for n in self.nodes.iter() {
+            match n {
+                Node::DataModel(dm) => {
+                    if predicate(&dm) {
+                        f = Some(dm.clone());
+                        break;
+                    }
+                }
+                _ => (),
+            }
+        }
+        f
+    }
+
+    fn find_class_by<F>(&self, predicate: F) -> Option<NodeData>
+    where
+        F: Fn(&NodeData) -> bool,
+    {
+        let mut f = None;
+        for n in self.nodes.iter() {
+            match n {
+                Node::Class(ff) => {
+                    if predicate(&ff) {
+                        f = Some(ff.clone());
+                        break;
+                    }
+                }
+                _ => (),
+            }
+        }
+        f
+    }
+    fn find_data_model_at(&self, file: &str, line: u32) -> Option<NodeData> {
+        for n in self.nodes.iter() {
+            match n {
+                Node::DataModel(dm) => {
+                    if dm.file == file && dm.start == line as usize {
+                        return Some(dm.clone());
+                    }
+                }
+                _ => (),
+            }
+        }
+        None
+    }
+
+    fn find_languages(&self) -> Vec<Node> {
+        self.find_nodes(|n| matches!(n, Node::Language(_)))
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    fn find_specific_endpoints(&self, verb: &str, path: &str) -> Option<Node> {
+        let endpoints_nodes = self
+            .nodes
+            .iter()
+            .filter(|n| matches!(n, Node::Endpoint(_)))
+            .cloned()
+            .collect::<Vec<_>>();
+
+        endpoints_nodes
+            .iter()
+            .find(|node| {
+                if let Node::Endpoint(data) = node {
+                    let normalized_actual_path =
+                        normalize_backend_path(&data.name).unwrap_or_default();
+
+                    let actual_verb = match data.meta.get("verb") {
+                        Some(v) => v.trim_matches('\''),
+                        None => "",
+                    };
+
+                    normalized_actual_path == path
+                        && actual_verb.to_uppercase() == verb.to_uppercase()
+                } else {
+                    false
+                }
+            })
+            .cloned()
+    }
+
+    fn find_target_by_edge_type(&self, source: &Node, edge_type: EdgeType) -> Option<Node> {
+        let source_data = source.into_data();
+
+        for edge in &self.edges {
+            if edge.edge == edge_type
+                && source_data.name == edge.source.node_data.name
+                && source_data.file == edge.source.node_data.file
+            {
+                for node in &self.nodes {
+                    let node_data = node.into_data();
+                    if node_data.name == edge.target.node_data.name
+                        && node_data.file == edge.target.node_data.file
+                        && node.to_node_type() == edge.target.node_type
+                    {
+                        return Some(node.clone());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+    fn find_functions_called_by_handler(&self, handler: &Node) -> Vec<Node> {
+        let handler_data = handler.into_data();
+        let mut called_functions = Vec::new();
+
+        for edge in &self.edges {
+            if let EdgeType::Calls(_) = &edge.edge {
+                let source_data = &handler_data;
+                if edge.source.node_data.name == source_data.name
+                    && edge.source.node_data.file == source_data.file
+                {
+                    for node in &self.nodes {
+                        let node_data = node.into_data();
+                        if node_data.name == edge.target.node_data.name
+                            && node_data.file == edge.target.node_data.file
+                        {
+                            called_functions.push(node.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        called_functions
+    }
+}
+impl ArrayGraph {
     // NOTE does this need to be per lang on the trait?
     pub fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
         // the group "name" needs to be added to the beginning of the names of the endpoints in the group
@@ -484,291 +748,6 @@ impl Graph {
             }
         }
         Ok(())
-    }
-    pub fn find_by_name(&self, nt: NodeType, name: &str) -> Option<NodeData> {
-        match self.find_index_by_name(nt, name) {
-            Some(idx) => Some(self.nodes[idx].into_data()),
-            None => None,
-        }
-    }
-    pub fn find_exact_func(&self, name: &str, file: &str) -> Option<NodeData> {
-        let mut f = None;
-        for n in self.nodes.iter() {
-            match n {
-                Node::Function(ff) => {
-                    if ff.name == name && ff.file == file {
-                        f = Some(ff.clone());
-                        break;
-                    }
-                }
-                _ => (),
-            }
-        }
-        f
-    }
-    pub fn find_exact_endpoint(
-        &self,
-        name: &str,
-        file: &str,
-        verb: Option<&String>,
-    ) -> Option<NodeData> {
-        let mut f = None;
-        for n in self.nodes.iter() {
-            match n {
-                Node::Endpoint(ff) => {
-                    if ff.name == name && ff.file == file && ff.meta.get("verb") == verb {
-                        f = Some(ff.clone());
-                        break;
-                    }
-                }
-                _ => (),
-            }
-        }
-        f
-    }
-    pub fn find_index_by_name(&self, nt: NodeType, name: &str) -> Option<usize> {
-        let mut f = None;
-        for (i, n) in self.nodes.iter().enumerate() {
-            match n {
-                Node::Class(ff) => {
-                    if ff.name == name && nt == NodeType::Class {
-                        f = Some(i);
-                        break;
-                    }
-                }
-                Node::Function(ff) => {
-                    if ff.name == name && nt == NodeType::Function {
-                        f = Some(i);
-                        break;
-                    }
-                }
-                Node::Endpoint(ff) => {
-                    if ff.name == name && nt == NodeType::Endpoint {
-                        f = Some(i);
-                        break;
-                    }
-                }
-                Node::Instance(ff) => {
-                    if ff.name == name && nt == NodeType::Instance {
-                        f = Some(i);
-                        break;
-                    }
-                }
-                Node::Request(ff) => {
-                    if ff.name == name && nt == NodeType::Request {
-                        f = Some(i);
-                        break;
-                    }
-                }
-                Node::DataModel(dm) => {
-                    if dm.name == name && nt == NodeType::DataModel {
-                        f = Some(i);
-                        break;
-                    }
-                }
-                _ => (),
-            }
-        }
-        f
-    }
-    pub fn find_trait_range(&self, row: u32, file: &str) -> Option<NodeData> {
-        for n in self.nodes.iter() {
-            if let Node::Trait(t) = n {
-                if t.file == file && t.start as u32 <= row && t.end as u32 >= row {
-                    return Some(t.clone());
-                }
-            }
-        }
-        None
-    }
-    pub fn find_edge_index_by_src(&self, name: &str, file: &str) -> Option<usize> {
-        for (i, n) in self.edges.iter().enumerate() {
-            if n.source.node_data.name == name && n.source.node_data.file == file {
-                return Some(i);
-            }
-        }
-        None
-    }
-    pub fn find_func_by<F>(&self, predicate: F) -> Option<NodeData>
-    where
-        F: Fn(&NodeData) -> bool,
-    {
-        let mut f = None;
-        for n in self.nodes.iter() {
-            match n {
-                Node::Function(ff) => {
-                    if predicate(&ff) {
-                        f = Some(ff.clone());
-                        break;
-                    }
-                }
-                _ => (),
-            }
-        }
-        f
-    }
-    pub fn find_funcs_by<F>(&self, predicate: F) -> Vec<NodeData>
-    where
-        F: Fn(&NodeData) -> bool,
-    {
-        let mut fs = Vec::new();
-        for n in self.nodes.iter() {
-            match n {
-                Node::Function(ff) => {
-                    if predicate(&ff) {
-                        fs.push(ff.clone());
-                    }
-                }
-                _ => (),
-            }
-        }
-        fs
-    }
-    pub fn find_edges_by<F>(&self, predicate: F) -> Vec<Edge>
-    where
-        F: Fn(&Edge) -> bool,
-    {
-        let mut es = Vec::new();
-        for n in self.edges.iter() {
-            if predicate(&n) {
-                es.push(n.clone());
-            }
-        }
-        es
-    }
-    pub fn find_class_by<F>(&self, predicate: F) -> Option<NodeData>
-    where
-        F: Fn(&NodeData) -> bool,
-    {
-        let mut f = None;
-        for n in self.nodes.iter() {
-            match n {
-                Node::Class(ff) => {
-                    if predicate(&ff) {
-                        f = Some(ff.clone());
-                        break;
-                    }
-                }
-                _ => (),
-            }
-        }
-        f
-    }
-    pub fn find_data_model_by<F>(&self, predicate: F) -> Option<NodeData>
-    where
-        F: Fn(&NodeData) -> bool,
-    {
-        let mut f = None;
-        for n in self.nodes.iter() {
-            match n {
-                Node::DataModel(dm) => {
-                    if predicate(&dm) {
-                        f = Some(dm.clone());
-                        break;
-                    }
-                }
-                _ => (),
-            }
-        }
-        f
-    }
-    pub fn find_data_model_at(&self, file: &str, line: u32) -> Option<NodeData> {
-        for n in self.nodes.iter() {
-            match n {
-                Node::DataModel(dm) => {
-                    if dm.file == file && dm.start == line as usize {
-                        return Some(dm.clone());
-                    }
-                }
-                _ => (),
-            }
-        }
-        None
-    }
-
-    pub fn find_languages(&self) -> Vec<Node> {
-        self.nodes
-            .iter()
-            .filter(|n| matches!(n, Node::Language(_)))
-            .cloned()
-            .collect::<Vec<_>>()
-    }
-
-    pub fn find_specific_endpoints(&self, verb: &str, path: &str) -> Option<Node> {
-        let endpoints_nodes = self
-            .nodes
-            .iter()
-            .filter(|n| matches!(n, Node::Endpoint(_)))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        endpoints_nodes
-            .iter()
-            .find(|node| {
-                if let Node::Endpoint(data) = node {
-                    let normalized_actual_path =
-                        normalize_backend_path(&data.name).unwrap_or_default();
-
-                    let actual_verb = match data.meta.get("verb") {
-                        Some(v) => v.trim_matches('\''),
-                        None => "",
-                    };
-
-                    normalized_actual_path == path
-                        && actual_verb.to_uppercase() == verb.to_uppercase()
-                } else {
-                    false
-                }
-            })
-            .cloned()
-    }
-
-    pub fn find_target_by_edge_type(&self, source: &Node, edge_type: EdgeType) -> Option<Node> {
-        let source_data = source.into_data();
-
-        for edge in &self.edges {
-            if edge.edge == edge_type
-                && source_data.name == edge.source.node_data.name
-                && source_data.file == edge.source.node_data.file
-            {
-                for node in &self.nodes {
-                    let node_data = node.into_data();
-                    if node_data.name == edge.target.node_data.name
-                        && node_data.file == edge.target.node_data.file
-                        && node.to_node_type() == edge.target.node_type
-                    {
-                        return Some(node.clone());
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    pub fn find_functions_called_by_handler(&self, handler: &Node) -> Vec<Node> {
-        let handler_data = handler.into_data();
-        let mut called_functions = Vec::new();
-
-        for edge in &self.edges {
-            if let EdgeType::Calls(_) = &edge.edge {
-                let source_data = &handler_data;
-                if edge.source.node_data.name == source_data.name
-                    && edge.source.node_data.file == source_data.file
-                {
-                    for node in &self.nodes {
-                        let node_data = node.into_data();
-                        if node_data.name == edge.target.node_data.name
-                            && node_data.file == edge.target.node_data.file
-                        {
-                            called_functions.push(node.clone());
-                        }
-                    }
-                }
-            }
-        }
-
-        called_functions
     }
 }
 
