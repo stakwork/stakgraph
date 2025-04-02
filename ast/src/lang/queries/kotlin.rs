@@ -200,19 +200,16 @@ impl Stack for Kotlin {
     }
 }
 
-impl StackGraphOperations for Kotlin {
-    fn find_function_parent<G>(
+impl StackGraphOperations<ArrayGraph> for Kotlin {
+    fn find_function_parent(
         &self,
         node: TreeNode,
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &G,
+        _graph: &ArrayGraph,
         _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while parent.is_some() && parent.unwrap().kind().to_string() != "class_declaration" {
             parent = parent.unwrap().parent();
@@ -233,6 +230,9 @@ impl StackGraphOperations for Kotlin {
         Ok(parent_of)
     }
 }
+
+impl LangOperations for Kotlin {}
+
 fn extract_path_from_url(url: &str) -> String {
     if url == "url" {
         return "/person".to_string();

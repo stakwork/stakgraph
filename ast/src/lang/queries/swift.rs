@@ -141,19 +141,16 @@ impl Stack for Swift {
     }
 }
 
-impl StackGraphOperations for Swift {
-    fn find_function_parent<G>(
+impl StackGraphOperations<ArrayGraph> for Swift {
+    fn find_function_parent(
         &self,
         node: TreeNode,
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &G,
+        _graph: &ArrayGraph,
         _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while parent.is_some() {
             if parent.unwrap().kind().to_string() == "class_declaration" {
@@ -178,3 +175,5 @@ impl StackGraphOperations for Swift {
         Ok(parent_of)
     }
 }
+
+impl LangOperations for Swift {}

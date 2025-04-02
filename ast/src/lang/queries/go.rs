@@ -232,19 +232,16 @@ impl Stack for Go {
     }
 }
 
-impl StackGraphOperations for Go {
-    fn find_function_parent<G>(
+impl StackGraphOperations<ArrayGraph> for Go {
+    fn find_function_parent(
         &self,
         _node: TreeNode,
         _code: &str,
         file: &str,
         func_name: &str,
-        graph: &G,
+        graph: &ArrayGraph,
         parent_type: Option<&str>,
-    ) -> Result<Option<Operand>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Operand>> {
         if parent_type.is_none() {
             return Ok(None);
         }
@@ -257,16 +254,13 @@ impl StackGraphOperations for Go {
             None => None,
         })
     }
-    fn find_trait_operand<G>(
+    fn find_trait_operand(
         &self,
         pos: Position,
         nd: &NodeData,
-        graph: &G,
+        graph: &ArrayGraph,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<Option<Edge>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Edge>> {
         if let Some(lsp) = lsp_tx {
             let res = LspCmd::GotoImplementations(pos.clone()).send(&lsp)?;
             if let LspRes::GotoImplementations(Some(imp)) = res {
@@ -280,14 +274,12 @@ impl StackGraphOperations for Go {
         Ok(None)
     }
     // in Go a Class is really just a struct
-    fn clean_graph<G>(&self, graph: &mut G) -> bool
-    where
-        G: Graph,
-    {
+    fn clean_graph(&self, graph: &mut ArrayGraph) -> bool {
         filter_out_classes_without_methods(graph)
     }
 }
 
+impl LangOperations for Go {}
 /*
 
 fn endpoint_finder(&self) -> Option<String> {

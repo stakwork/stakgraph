@@ -195,3 +195,6 @@ impl Stack for Java {
         ))
     }
 }
+
+impl StackGraphOperations for Java {}
+impl LangOperations for Java {}

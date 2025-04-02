@@ -160,3 +160,6 @@ impl Stack for TypeScript {
         ))
     }
 }
+
+impl StackGraphOperations for TypeScript {}
+impl LangOperations for TypeScript {}

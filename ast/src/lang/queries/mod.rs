@@ -180,52 +180,37 @@ pub trait Stack {
     }
 }
 
-pub trait StackGraphOperations {
-    fn extra_page_finder<G>(&self, _file_name: &str, _graph: &G) -> Option<Edge>
-    where
-        G: Graph,
-    {
+pub trait StackGraphOperations<G: Graph = ArrayGraph> {
+    fn extra_page_finder(&self, _file_name: &str, _graph: &G) -> Option<Edge> {
         None
     }
-    fn find_endpoint_parents<G>(
+    fn find_endpoint_parents(
         &self,
         _node: TreeNode,
         _code: &str,
         _file: &str,
         _graph: &G,
-    ) -> Result<Vec<HandlerItem>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Vec<HandlerItem>> {
         Ok(Vec::new())
     }
 
-    fn clean_graph<G>(&self, _graph: &mut G) -> bool
-    where
-        G: Graph,
-    {
+    fn clean_graph(&self, _graph: &mut G) -> bool {
         false
     }
-    fn integration_test_edge_finder<G>(
+    fn integration_test_edge_finder(
         &self,
         _nd: &NodeData,
         _graph: &G,
         _tt: NodeType,
-    ) -> Option<Edge>
-    where
-        G: Graph,
-    {
+    ) -> Option<Edge> {
         None
     }
-    fn handler_finder<G>(
+    fn handler_finder(
         &self,
         endpoint: NodeData,
         graph: &G,
         _handler_params: HandlerParams,
-    ) -> Vec<(NodeData, Option<Edge>)>
-    where
-        G: Graph,
-    {
+    ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(handler) = endpoint.meta.get("handler") {
             if let Some(nd) = graph.find_exact_func(handler, &endpoint.file) {
                 let edge = Edge::handler(&endpoint, &nd);
@@ -234,7 +219,7 @@ pub trait StackGraphOperations {
         }
         Vec::new()
     }
-    fn find_function_parent<G>(
+    fn find_function_parent(
         &self,
         _node: TreeNode,
         _code: &str,
@@ -242,28 +227,19 @@ pub trait StackGraphOperations {
         _func_name: &str,
         _graph: &G,
         _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Operand>> {
         Ok(None)
     }
-    fn find_trait_operand<G>(
+    fn find_trait_operand(
         &self,
         _pos: Position,
         _nd: &NodeData,
         _graph: &G,
         _lsp_tx: &Option<CmdSender>,
-    ) -> Result<Option<Edge>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Edge>> {
         Ok(None)
     }
-    fn data_model_within_finder<G>(&self, _dm: &NodeData, _graph: &G) -> Vec<Edge>
-    where
-        G: Graph,
-    {
+    fn data_model_within_finder(&self, _dm: &NodeData, _graph: &G) -> Vec<Edge> {
         Vec::new()
     }
 }
@@ -309,6 +285,8 @@ impl HandlerItem {
 }
 
 use std::collections::BTreeMap;
+
+use super::ArrayGraph;
 pub fn filter_out_classes_without_methods<G>(graph: &mut G) -> bool
 where
     G: Graph,

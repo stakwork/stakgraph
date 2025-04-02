@@ -1,5 +1,6 @@
 use super::repo::{check_revs_files, Repo};
 use crate::lang::graph_trait::Graph;
+use crate::lang::ArrayGraph;
 use crate::lang::{asg::NodeData, graph::Node, graph::NodeType};
 use anyhow::{Ok, Result};
 use git_url_parse::GitUrl;
@@ -12,10 +13,7 @@ use tracing::{debug, info};
 const MAX_FILE_SIZE: u64 = 100_000; // 100kb max file size
 
 impl Repo {
-    pub async fn build_graph<G>(&self) -> Result<G>
-    where
-        G: Graph + Default,
-    {
+    pub async fn build_graph<G: Graph>(&self) -> Result<G> {
         let mut graph = G::new();
 
         println!("Root: {:?}", self.root);
@@ -327,10 +325,7 @@ impl Repo {
     }
 }
 
-fn filter_by_revs<G>(root: &str, revs: Vec<String>, graph: G) -> G
-where
-    G: Graph + Default,
-{
+fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
     if revs.is_empty() {
         return graph;
     }

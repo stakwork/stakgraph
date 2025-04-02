@@ -193,11 +193,8 @@ impl Stack for Ruby {
     }
 }
 
-impl StackGraphOperations for Ruby {
-    fn extra_page_finder<G>(&self, file_path: &str, graph: &G) -> Option<Edge>
-    where
-        G: Graph,
-    {
+impl StackGraphOperations<ArrayGraph> for Ruby {
+    fn extra_page_finder(&self, file_path: &str, graph: &ArrayGraph) -> Option<Edge> {
         let pagename = get_page_name(file_path);
         if pagename.is_none() {
             return None;
@@ -217,15 +214,12 @@ impl StackGraphOperations for Ruby {
             None
         }
     }
-    fn integration_test_edge_finder<G>(
+    fn integration_test_edge_finder(
         &self,
         nd: &NodeData,
-        graph: &G,
+        graph: &ArrayGraph,
         tt: NodeType,
-    ) -> Option<Edge>
-    where
-        G: Graph,
-    {
+    ) -> Option<Edge> {
         let cla = graph.find_class_by(|clnd| clnd.name == nd.name);
         if let Some(cl) = cla {
             let meta = CallsMeta {
@@ -238,15 +232,12 @@ impl StackGraphOperations for Ruby {
             None
         }
     }
-    fn handler_finder<G>(
+    fn handler_finder(
         &self,
         endpoint: NodeData,
-        graph: &G,
+        graph: &ArrayGraph,
         params: HandlerParams,
-    ) -> Vec<(NodeData, Option<Edge>)>
-    where
-        G: Graph,
-    {
+    ) -> Vec<(NodeData, Option<Edge>)> {
         if endpoint.meta.get("handler").is_none() {
             return Vec::new();
         }
@@ -346,16 +337,13 @@ impl StackGraphOperations for Ruby {
 
         ret
     }
-    fn find_endpoint_parents<G>(
+    fn find_endpoint_parents(
         &self,
         node: TreeNode,
         code: &str,
         _file: &str,
-        _graph: &G,
-    ) -> Result<Vec<HandlerItem>>
-    where
-        G: Graph,
-    {
+        _graph: &ArrayGraph,
+    ) -> Result<Vec<HandlerItem>> {
         let mut parents = Vec::new();
         let mut parent = node.parent();
 
@@ -395,10 +383,7 @@ impl StackGraphOperations for Ruby {
         parents.reverse();
         Ok(parents)
     }
-    fn data_model_within_finder<G>(&self, data_model: &NodeData, graph: &G) -> Vec<Edge>
-    where
-        G: Graph,
-    {
+    fn data_model_within_finder(&self, data_model: &NodeData, graph: &ArrayGraph) -> Vec<Edge> {
         // file: app/controllers/api/advisor_groups_controller.rb
         let mut models = Vec::new();
         let singular_name = data_model.name.to_lowercase();
@@ -417,18 +402,15 @@ impl StackGraphOperations for Ruby {
         // "advisor_groups"
         models
     }
-    fn find_function_parent<G>(
+    fn find_function_parent(
         &self,
         node: TreeNode,
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &G,
+        _graph: &ArrayGraph,
         _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while parent.is_some() && parent.unwrap().kind().to_string() != "class" {
             parent = parent.unwrap().parent();
@@ -449,6 +431,9 @@ impl StackGraphOperations for Ruby {
         Ok(parent_of)
     }
 }
+
+impl LangOperations for Ruby {}
+
 fn remove_all_extensions(path: &Path) -> String {
     let mut stem = path
         .file_stem()

@@ -19,9 +19,11 @@ use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
 use tree_sitter::{Node as TreeNode, Query, QueryCursor, QueryMatch};
 
+pub trait LangOperations: StackGraphOperations + Stack {}
+
 pub struct Lang {
     pub kind: Language,
-    lang: Box<dyn Stack>,
+    lang: Box<dyn LangOperations>,
 }
 
 impl fmt::Display for Lang {
@@ -110,7 +112,8 @@ impl Lang {
             lang: Box::new(angular::Angular::new()),
         }
     }
-    pub fn lang(&self) -> &dyn Stack {
+
+    pub fn lang(&self) -> &dyn LangOperations {
         self.lang.as_ref()
     }
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {

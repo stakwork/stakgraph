@@ -246,11 +246,10 @@ impl Stack for Rust {
         }
     }
 }
-impl StackGraphOperations for Rust {
-    fn clean_graph<G>(&self, graph: &mut G) -> bool
-    where
-        G: Graph,
-    {
+impl StackGraphOperations<ArrayGraph> for Rust {
+    fn clean_graph(&self, graph: &mut ArrayGraph) -> bool {
         filter_out_classes_without_methods(graph)
     }
 }
+
+impl LangOperations for Rust {}
