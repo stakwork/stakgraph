@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         .unwrap_or_default();
 
     let repos = Repo::new_clone_multi_detect(&url, None, None, Vec::new(), revs).await?;
-    let graph = repos.build_graphs::<ArrayGraph>().await?;
+    let graph = repos.build_graphs().await?;
     println!(
         "Final Graph => {} nodes and {} edges",
         graph.nodes.len(),

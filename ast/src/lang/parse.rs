@@ -6,16 +6,13 @@ use streaming_iterator::StreamingIterator;
 use tracing::debug;
 use tree_sitter::{Node as TreeNode, QueryMatch};
 impl Lang {
-    pub fn collect<G>(
+    pub fn collect<G: Graph>(
         &self,
         q: &Query,
         code: &str,
         file: &str,
         nt: NodeType,
-    ) -> Result<Vec<NodeData>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Vec<NodeData>> {
         let tree = self.lang.parse(&code, &nt)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
@@ -247,16 +244,13 @@ impl Lang {
         })?;
         Ok(inst)
     }
-    pub fn collect_endpoints<G>(
+    pub fn collect_endpoints<G: Graph>(
         &self,
         code: &str,
         file: &str,
         graph: Option<&G>,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<Vec<(NodeData, Option<Edge>)>>
-    where
-        G: Graph,
-    {
+    ) -> Result<Vec<(NodeData, Option<Edge>)>> {
         if self.lang.endpoint_finders().is_empty() {
             return Ok(Vec::new());
         }
