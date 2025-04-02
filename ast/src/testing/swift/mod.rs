@@ -1,4 +1,5 @@
 use crate::lang::graph::Node;
+use crate::lang::ArrayGraph;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
 use test_log::test;
@@ -14,7 +15,7 @@ async fn test_swift() {
     )
     .unwrap();
 
-    let graph = repo.build_graph().await.unwrap();
+    let graph: ArrayGraph = repo.build_graph().await.unwrap();
     assert_eq!(graph.nodes.len(), 55);
     assert_eq!(graph.edges.len(), 81);
 

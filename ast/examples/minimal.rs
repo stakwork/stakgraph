@@ -1,7 +1,11 @@
 use anyhow::Result;
-use ast::{self, lang::Lang, repo::Repo};
-use std::str::FromStr;
 use ast::utils::logger;
+use ast::{
+    self,
+    lang::{ArrayGraph, Lang},
+    repo::Repo,
+};
+use std::str::FromStr;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -17,7 +21,7 @@ async fn main() -> Result<()> {
     let lang = Lang::from_str(&language)?;
     let repo = Repo::new("ast/examples/minimal", lang, true, files_filter, Vec::new())?;
     println!("building graph...");
-    let graph = repo.build_graph().await?;
+    let graph = repo.build_graph::<ArrayGraph>().await?;
     let pretty = serde_json::to_string_pretty(&graph)?;
     let final_path = format!("ast/examples/minimal/{}.json", language);
     std::fs::write(final_path, pretty)?;

@@ -2,7 +2,7 @@ use super::super::*;
 use super::consts::*;
 use anyhow::{Context, Result};
 use tree_sitter::{Language, Parser, Query, Tree};
-
+#[derive(Clone, Debug)]
 pub struct ReactTs(Language);
 
 impl ReactTs {
@@ -345,15 +345,21 @@ impl Stack for ReactTs {
 ] @{PAGE}"#
         ))
     }
-    fn find_function_parent(
+}
+
+impl StackGraphOperations for ReactTs {
+    fn find_function_parent<G>(
         &self,
         node: TreeNode,
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &ArrayGraph,
+        _graph: &G,
         _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>> {
+    ) -> Result<Option<Operand>>
+    where
+        G: Graph,
+    {
         let mut parent = node.parent();
         while parent.is_some() {
             if parent.unwrap().kind().to_string() == "method_definition" {

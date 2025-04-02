@@ -17,8 +17,8 @@ pub mod svelte;
 pub mod angular;
 
 use crate::lang::asg::Operand;
-use crate::lang::graph::{ArrayGraph, Edge};
-use crate::lang::graph_trait::GraphSearchOps;
+use crate::lang::graph::Edge;
+use crate::lang::graph_trait::Graph;
 use crate::lang::{Function, Node, NodeData, NodeType};
 use anyhow::Result;
 use lsp::Language as LspLanguage;
@@ -110,47 +110,17 @@ pub trait Stack {
     fn use_data_model_within_finder(&self) -> bool {
         false
     }
-    fn data_model_within_finder(&self, _dm: &NodeData, _graph: &ArrayGraph) -> Vec<Edge> {
-        Vec::new()
-    }
+
     fn data_model_name(&self, dm_name: &str) -> String {
         dm_name.to_string()
     }
-    fn find_function_parent(
-        &self,
-        _node: TreeNode,
-        _code: &str,
-        _file: &str,
-        _func_name: &str,
-        _graph: &ArrayGraph,
-        _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>> {
-        Ok(None)
-    }
-    fn find_trait_operand(
-        &self,
-        _pos: Position,
-        _nd: &NodeData,
-        _graph: &ArrayGraph,
-        _lsp_tx: &Option<CmdSender>,
-    ) -> Result<Option<Edge>> {
-        Ok(None)
-    }
+
     // not used:
     // fn endpoint_handler_queries(&self) -> Vec<String> {
     //     Vec::new()
     // }
     fn endpoint_finders(&self) -> Vec<String> {
         Vec::new()
-    }
-    fn find_endpoint_parents(
-        &self,
-        _node: TreeNode,
-        _code: &str,
-        _file: &str,
-        _graph: &ArrayGraph,
-    ) -> Result<Vec<HandlerItem>> {
-        Ok(Vec::new())
     }
     fn endpoint_group_find(&self) -> Option<String> {
         None
@@ -188,34 +158,14 @@ pub trait Stack {
     fn use_handler_finder(&self) -> bool {
         false
     }
-    fn handler_finder(
-        &self,
-        endpoint: NodeData,
-        graph: &ArrayGraph,
-        _handler_params: HandlerParams,
-    ) -> Vec<(NodeData, Option<Edge>)> {
-        if let Some(handler) = endpoint.meta.get("handler") {
-            if let Some(nd) = graph.find_exact_func(handler, &endpoint.file) {
-                let edge = Edge::handler(&endpoint, &nd);
-                return vec![(endpoint, Some(edge))];
-            }
-        }
-        Vec::new()
-    }
+
     fn integration_test_query(&self) -> Option<String> {
         None
     }
     fn use_integration_test_finder(&self) -> bool {
         false
     }
-    fn integration_test_edge_finder(
-        &self,
-        _nd: &NodeData,
-        _graph: &ArrayGraph,
-        _tt: NodeType,
-    ) -> Option<Edge> {
-        None
-    }
+
     fn is_router_file(&self, _file_name: &str, _code: &str) -> bool {
         false
     }
@@ -228,12 +178,93 @@ pub trait Stack {
     fn is_extra_page(&self, _file_name: &str) -> bool {
         false
     }
-    fn extra_page_finder(&self, _file_name: &str, _graph: &ArrayGraph) -> Option<Edge> {
+}
+
+pub trait StackGraphOperations {
+    fn extra_page_finder<G>(&self, _file_name: &str, _graph: &G) -> Option<Edge>
+    where
+        G: Graph,
+    {
         None
     }
+    fn find_endpoint_parents<G>(
+        &self,
+        _node: TreeNode,
+        _code: &str,
+        _file: &str,
+        _graph: &G,
+    ) -> Result<Vec<HandlerItem>>
+    where
+        G: Graph,
+    {
+        Ok(Vec::new())
+    }
 
-    fn clean_graph(&self, _graph: &mut ArrayGraph) -> bool {
+    fn clean_graph<G>(&self, _graph: &mut G) -> bool
+    where
+        G: Graph,
+    {
         false
+    }
+    fn integration_test_edge_finder<G>(
+        &self,
+        _nd: &NodeData,
+        _graph: &G,
+        _tt: NodeType,
+    ) -> Option<Edge>
+    where
+        G: Graph,
+    {
+        None
+    }
+    fn handler_finder<G>(
+        &self,
+        endpoint: NodeData,
+        graph: &G,
+        _handler_params: HandlerParams,
+    ) -> Vec<(NodeData, Option<Edge>)>
+    where
+        G: Graph,
+    {
+        if let Some(handler) = endpoint.meta.get("handler") {
+            if let Some(nd) = graph.find_exact_func(handler, &endpoint.file) {
+                let edge = Edge::handler(&endpoint, &nd);
+                return vec![(endpoint, Some(edge))];
+            }
+        }
+        Vec::new()
+    }
+    fn find_function_parent<G>(
+        &self,
+        _node: TreeNode,
+        _code: &str,
+        _file: &str,
+        _func_name: &str,
+        _graph: &G,
+        _parent_type: Option<&str>,
+    ) -> Result<Option<Operand>>
+    where
+        G: Graph,
+    {
+        Ok(None)
+    }
+    fn find_trait_operand<G>(
+        &self,
+        _pos: Position,
+        _nd: &NodeData,
+        _graph: &G,
+        _lsp_tx: &Option<CmdSender>,
+    ) -> Result<Option<Edge>>
+    where
+        G: Graph,
+    {
+        Ok(None)
+    }
+    fn data_model_within_finder<G>(&self, _dm: &NodeData, _graph: &G) -> Vec<Edge>
+    where
+        G: Graph,
+    {
+        Vec::new()
     }
 }
 
@@ -278,11 +309,14 @@ impl HandlerItem {
 }
 
 use std::collections::BTreeMap;
-pub fn filter_out_classes_without_methods(graph: &mut ArrayGraph) -> bool {
+pub fn filter_out_classes_without_methods<G>(graph: &mut G) -> bool
+where
+    G: Graph,
+{
     let mut assumed_class: BTreeMap<String, bool> = BTreeMap::new();
     let mut actual_class: BTreeMap<String, bool> = BTreeMap::new();
 
-    for node in &graph.nodes {
+    for node in graph.nodes() {
         match node {
             Node::Function(func) => {
                 if let Some(operand) = func.meta.get("operand") {
@@ -302,12 +336,19 @@ pub fn filter_out_classes_without_methods(graph: &mut ArrayGraph) -> bool {
         }
     }
 
-    for (key, value) in assumed_class {
-        if !value {
-            if let Some(index) = graph.find_index_by_name(NodeType::Class, &key) {
-                graph.nodes.remove(index);
-            }
+    let classes_to_remove: Vec<_> = assumed_class
+        .iter()
+        .filter(|(_, &has_methods)| !has_methods)
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    graph.remove_node_by_predicate(|node| {
+        if let Node::Class(class_data) = node {
+            classes_to_remove.contains(&class_data.name)
+        } else {
+            false
         }
-    }
+    });
+
     true
 }

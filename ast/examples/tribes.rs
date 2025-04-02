@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ast::lang::ArrayGraph;
 use ast::utils::{logger, print_json};
 use ast::{self, lang::Lang, repo::Repo, repo::Repos};
 use std::str::FromStr;
@@ -25,7 +26,7 @@ async fn main() -> Result<()> {
     )?;
     println!("building graph...");
     let repos = Repos(vec![repo1, repo2]);
-    let graph = repos.build_graphs().await?;
+    let graph = repos.build_graphs::<ArrayGraph>().await?;
     print_json(&graph, "tribes")?;
     Ok(())
 }

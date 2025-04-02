@@ -1,7 +1,11 @@
 use anyhow::Result;
-use ast::{self, lang::Lang, repo::Repo};
-use std::str::FromStr;
 use ast::utils::{logger, print_json};
+use ast::{
+    self,
+    lang::{ArrayGraph, Lang},
+    repo::Repo,
+};
+use std::str::FromStr;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
@@ -18,7 +22,7 @@ async fn main() -> Result<()> {
         Vec::new(),
     )?;
     println!("building graph...");
-    let graph = repo.build_graph().await?;
+    let graph = repo.build_graph::<ArrayGraph>().await?;
     print_json(&graph, "tribes-front")?;
     Ok(())
 }

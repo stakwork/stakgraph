@@ -1,31 +1,49 @@
 use crate::lang::asg::*;
 use crate::lang::graph::*;
-use crate::lang::{Function, FunctionCall};
+use crate::lang::{Function, FunctionCall, Lang};
+use anyhow::Result;
+use std::fmt::Debug;
 
-pub trait Graph {
+pub trait Graph: Default + Debug {
+    fn new() -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
+    fn with_capacity(_nodes: usize, _edges: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
+    fn nodes(&self) -> &[Node];
+    fn edges(&self) -> Vec<Edge>;
+    fn errors(&self) -> &[String];
+    fn add_error(&mut self, error: String);
+    fn errors_mut(&mut self) -> &mut Vec<String>;
     fn add_node(&mut self, node: NodeData);
+    fn add_node_type(&mut self, node: Node);
     fn add_edge(&mut self, edge: Edge);
     fn get_nodes(&self) -> Vec<NodeData>;
     fn get_edges(&self) -> Vec<Edge>;
+    fn get_errors(&self) -> Vec<String>;
+    fn nodes_mut(&mut self) -> &mut Vec<Node>;
+    fn edges_mut(&mut self) -> &mut Vec<Edge>;
     fn find_node<F>(&self, predicate: F) -> Option<&Node>
     where
         F: Fn(&Node) -> bool;
     fn find_nodes<F>(&self, predicate: F) -> Vec<&Node>
     where
         F: Fn(&Node) -> bool;
-}
-
-pub trait GraphRepositoryOps {
+    fn remove_node(&mut self, index: usize) -> Option<Node>;
+    fn remove_node_by_predicate<F>(&mut self, predicate: F) -> Vec<Node>
+    where
+        F: Fn(&Node) -> bool;
     fn add_repository(&mut self, url: &str, org: &str, name: &str, hash: &str);
     fn add_language(&mut self, lang: &str);
-}
-
-pub trait GraphDirectoryOps {
     fn add_directory(&mut self, path: &str);
     fn add_file(&mut self, path: &str, code: &str);
-}
-
-pub trait CodeEntityOps {
     fn add_classes(&mut self, classes: Vec<NodeData>);
     fn add_traits(&mut self, traits: Vec<NodeData>);
     fn add_functions(&mut self, functions: Vec<Function>);
@@ -39,9 +57,6 @@ pub trait CodeEntityOps {
     fn add_imports(&mut self, imports: Vec<NodeData>);
     fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>);
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>));
-}
-
-pub trait GraphHelperOps {
     fn class_inherits(&mut self);
     fn class_includes(&mut self);
     fn file_data(&self, filename: &str) -> Option<NodeData>;
@@ -49,8 +64,6 @@ pub trait GraphHelperOps {
     fn get_repository(&self) -> NodeData;
     fn parent_edge(&self, path: &str, nd: &mut NodeData, nt: NodeType) -> Edge;
     fn filter_functions(&self) -> Vec<NodeData>;
-}
-pub trait GraphSearchOps {
     fn find_by_name(&self, nt: NodeType, name: &str) -> Option<NodeData>;
     fn find_exact_func(&self, name: &str, file: &str) -> Option<NodeData>;
     fn find_exact_endpoint(
@@ -82,4 +95,5 @@ pub trait GraphSearchOps {
     fn find_specific_endpoints(&self, verb: &str, path: &str) -> Option<Node>;
     fn find_target_by_edge_type(&self, source: &Node, edge_type: EdgeType) -> Option<Node>;
     fn find_functions_called_by_handler(&self, handler: &Node) -> Vec<Node>;
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()>;
 }

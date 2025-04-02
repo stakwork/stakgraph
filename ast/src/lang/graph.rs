@@ -3,7 +3,7 @@ use crate::lang::graph_trait::*;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize,Default)]
 pub struct ArrayGraph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
@@ -116,13 +116,7 @@ impl NodeRef {
 }
 
 impl ArrayGraph {
-    pub fn new() -> Self {
-        ArrayGraph {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            errors: Vec::new(),
-        }
-    }
+  
 
     //Common node operations for this Graph Implementation
     fn add_node_with_file_edge(&mut self, node: Node, file: &str) {
@@ -144,8 +138,45 @@ impl ArrayGraph {
     }
 }
 impl Graph for ArrayGraph {
+      fn new() -> Self {
+        ArrayGraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+    fn with_capacity(_nodes: usize, _edges: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
+
+    fn nodes(&self) -> &[Node] {
+        &self.nodes
+    }
+
+    fn edges(&self) -> Vec<Edge> {
+        self.edges.clone()
+    }
+    fn errors(&self) -> &[String] {
+        &self.errors
+    }
+    fn add_error(&mut self, error: String) {
+        self.errors.push(error);
+    }
+    fn errors_mut(&mut self) -> &mut Vec<String> {
+        &mut self.errors
+    }
+    fn get_errors(&self) -> Vec<String> {
+        self.errors.clone()
+    }
+    
     fn add_node(&mut self, node: NodeData) {
         self.nodes.push(Node::File(node));
+    }
+    fn add_node_type(&mut self, node: Node) {
+        self.nodes.push(node);
     }
 
     fn add_edge(&mut self, edge: Edge) {
@@ -158,11 +189,16 @@ impl Graph for ArrayGraph {
             .map(|n| n.into_data())
             .collect::<Vec<NodeData>>()
     }
-
     fn get_edges(&self) -> Vec<Edge> {
         self.edges.clone()
     }
+    fn nodes_mut(&mut self) -> &mut Vec<Node> {
+        &mut self.nodes
+    }
 
+    fn edges_mut(&mut self) -> &mut Vec<Edge> {
+        &mut self.edges
+    }
      fn find_node<F>(&self, predicate: F) -> Option<&Node>
     where
         F: Fn(&Node) -> bool,
@@ -176,9 +212,46 @@ impl Graph for ArrayGraph {
     {
         self.nodes.iter().filter(|n| predicate(n)).collect()
     }
-}
+     fn remove_node(&mut self, index: usize) -> Option<Node> {
+        if index < self.nodes.len() {
+            // Remove the node
+            let node = self.nodes.remove(index);
+            
+            // Remove any associated edges
+            self.edges.retain(|edge| {
+                edge.source.node_data.name != node.into_data().name ||
+                edge.target.node_data.name != node.into_data().name
+            });
+            
+            Some(node)
+        } else {
+            None
+        }
+    }
+    fn remove_node_by_predicate<F>(&mut self, predicate: F) -> Vec<Node>
+    where
+        F: Fn(&Node) -> bool,
+    {
+        let mut removed = Vec::new();
+        
+        // Collect indices to remove (in reverse order to maintain validity)
+        let indices: Vec<_> = self.nodes.iter()
+            .enumerate()
+            .filter(|(_, node)| predicate(node))
+            .map(|(i, _)| i)
+            .rev()
+            .collect();
+        
+        // Remove nodes and collect them
+        for index in indices {
+            if let Some(node) = self.remove_node(index) {
+                removed.push(node);
+            }
+        }
+        
+        removed
+    }
 
-impl GraphRepositoryOps for ArrayGraph {
     fn add_repository(&mut self, url: &str, org: &str, name: &str, hash: &str) {
         let mut repo = NodeData {
             name: format!("{}/{}", org, name),
@@ -202,9 +275,7 @@ impl GraphRepositoryOps for ArrayGraph {
         self.edges.push(edge);
         self.nodes.push(Node::Language(l));
     }
-}
 
-impl GraphDirectoryOps for ArrayGraph {
     fn add_directory(&mut self, path: &str) {
         // "file" is actually the path
         let mut d = NodeData::in_file(path);
@@ -224,9 +295,7 @@ impl GraphDirectoryOps for ArrayGraph {
         f.hash = Some(sha256::digest(&f.body));
         self.add_node_with_parent(Node::File(f.clone()), NodeType::File, &f);
     }
-}
 
-impl CodeEntityOps for ArrayGraph {
     fn add_classes(&mut self, classes: Vec<NodeData>) {
         for c in classes {
             self.add_node_with_file_edge(Node::Class(c.clone()), &c.file);
@@ -393,9 +462,7 @@ impl CodeEntityOps for ArrayGraph {
             self.edges.push(e);
         }
     }
-}
 
-impl GraphHelperOps for ArrayGraph {
     fn class_inherits(&mut self) {
         for n in self.nodes.iter() {
             match n {
@@ -483,9 +550,7 @@ impl GraphHelperOps for ArrayGraph {
             })
             .collect()
     }
-}
 
-impl GraphSearchOps for ArrayGraph {
     fn find_by_name(&self, nt: NodeType, name: &str) -> Option<NodeData> {
         self.find_node(|n| n.to_node_type() == nt && n.into_data().name == name)
             .map(|n| n.into_data())
@@ -709,10 +774,9 @@ fn find_funcs_by<F>(&self, predicate: F) -> Vec<NodeData>
 
         called_functions
     }
-}
-impl ArrayGraph {
+
     // NOTE does this need to be per lang on the trait?
-    pub fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
         // the group "name" needs to be added to the beginning of the names of the endpoints in the group
         for group in eg {
             // group name (like TribesHandlers)
@@ -722,7 +786,7 @@ impl ArrayGraph {
                     // each individual endpoint in the group code
                     for q in lang.lang().endpoint_finders() {
                         let endpoints_in_group =
-                            lang.get_query_opt(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
+                            lang.get_query_opt::<ArrayGraph>(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
                         // find the endpoint in the graph
                         for end in endpoints_in_group {
                             if let Some(idx) =

@@ -10,6 +10,7 @@ use asg::*;
 use consts::*;
 use graph::*;
 pub use graph::{ArrayGraph, NodeType};
+use graph_trait::Graph;
 use lsp::{CmdSender, Language};
 use queries::*;
 use std::fmt;
@@ -115,30 +116,42 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
-    pub fn get_libs(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_libs<G>(&self, code: &str, file: &str) -> Result<Vec<NodeData>>
+    where
+        G: Graph,
+    {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);
-            Ok(self.collect(&qo, code, file, NodeType::Library)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Library)?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_classes(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_classes<G>(&self, code: &str, file: &str) -> Result<Vec<NodeData>>
+    where
+        G: Graph,
+    {
         let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
-        Ok(self.collect(&qo, code, file, NodeType::Class)?)
+        Ok(self.collect::<G>(&qo, code, file, NodeType::Class)?)
     }
-    pub fn get_traits(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_traits<G>(&self, code: &str, file: &str) -> Result<Vec<NodeData>>
+    where
+        G: Graph,
+    {
         if let Some(qo) = self.lang.trait_query() {
             let qo = self.q(&qo, &NodeType::Trait);
-            Ok(self.collect(&qo, code, file, NodeType::Trait)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Trait)?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_imports(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_imports<G>(&self, code: &str, file: &str) -> Result<Vec<NodeData>>
+    where
+        G: Graph,
+    {
         if let Some(qo) = self.lang.imports_query() {
             let qo = self.q(&qo, &NodeType::Import);
-            Ok(self.collect(&qo, code, file, NodeType::Import)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Import)?)
         } else {
             Ok(Vec::new())
         }
@@ -178,13 +191,16 @@ impl Lang {
         Ok(Some(name.to_string()))
     }
     // returns (Vec<Function>, Vec<Test>)
-    pub fn get_functions_and_tests(
+    pub fn get_functions_and_tests<G>(
         &self,
         code: &str,
         file: &str,
-        graph: &ArrayGraph,
+        graph: &G,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<(Vec<Function>, Vec<Function>)> {
+    ) -> Result<(Vec<Function>, Vec<Function>)>
+    where
+        G: Graph,
+    {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx)?;
         let (funcs, mut tests) = self.lang.filter_tests(funcs1);
@@ -195,28 +211,34 @@ impl Lang {
         }
         Ok((funcs, tests))
     }
-    pub fn get_query_opt(
+    pub fn get_query_opt<G>(
         &self,
         q: Option<String>,
         code: &str,
         file: &str,
         fmtr: NodeType,
-    ) -> Result<Vec<NodeData>> {
+    ) -> Result<Vec<NodeData>>
+    where
+        G: Graph,
+    {
         if let Some(qo) = q {
-            let insts = self.collect(&self.q(&qo, &fmtr), code, file, fmtr)?;
+            let insts = self.collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr)?;
             Ok(insts)
         } else {
             Ok(Vec::new())
         }
     }
     // returns (Vec<CallsFromFunctions>, Vec<CallsFromTests>)
-    pub async fn get_function_calls(
+    pub async fn get_function_calls<G>(
         &self,
         code: &str,
         file: &str,
-        graph: &ArrayGraph,
+        graph: &G,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)> {
+    ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)>
+    where
+        G: Graph,
+    {
         trace!("get_function_calls");
         let tree = self.lang.parse(&code, &NodeType::Function)?;
         // get each function
@@ -233,16 +255,19 @@ impl Lang {
         }
         Ok(res)
     }
-    pub async fn add_calls_for_function<'a, 'b>(
+    pub async fn add_calls_for_function<'a, 'b, G>(
         &self,
         res: &mut (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>), // funcs, tests, integration tests
         m: &QueryMatch<'a, 'b>,
         q: &Query,
         code: &str,
         file: &str,
-        graph: &ArrayGraph,
+        graph: &G,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<()> {
+    ) -> Result<()>
+    where
+        G: Graph,
+    {
         trace!("add_calls_for_function");
         let mut caller_name = "".to_string();
         Self::loop_captures(q, &m, code, |body, node, o| {

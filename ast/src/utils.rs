@@ -1,9 +1,13 @@
-use crate::lang::ArrayGraph;
+use crate::lang::graph_trait::Graph;
+
 use anyhow::Result;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-pub fn print_json(graph: &ArrayGraph, name: &str) -> Result<()> {
+pub fn print_json<G>(graph: &G, name: &str) -> Result<()>
+where
+    G: Graph + serde::Serialize,
+{
     use serde_jsonlines::write_json_lines;
     match std::env::var("OUTPUT_FORMAT")
         .unwrap_or_else(|_| "json".to_string())
@@ -11,9 +15,9 @@ pub fn print_json(graph: &ArrayGraph, name: &str) -> Result<()> {
     {
         "jsonl" => {
             let nodepath = format!("ast/examples/{}-nodes.jsonl", name);
-            write_json_lines(nodepath, &graph.nodes)?;
+            write_json_lines(nodepath, &graph.get_nodes())?;
             let edgepath = format!("ast/examples/{}-edges.jsonl", name);
-            write_json_lines(edgepath, &graph.edges)?;
+            write_json_lines(edgepath, &graph.get_edges())?;
         }
         _ => {
             let pretty = serde_json::to_string_pretty(&graph)?;

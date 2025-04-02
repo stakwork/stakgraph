@@ -3,6 +3,7 @@ use super::consts::*;
 use anyhow::{Context, Result};
 use tree_sitter::{Language, Parser, Query, Tree};
 
+#[derive(Clone, Debug)]
 pub struct Java(Language);
 
 impl Java {

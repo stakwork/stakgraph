@@ -3,6 +3,8 @@ use super::consts::*;
 use anyhow::{Context, Result};
 use toml::Toml;
 use tree_sitter::{Language, Parser, Query, Tree};
+
+#[derive(Clone, Debug)]
 pub struct Rust(Language);
 
 impl Rust {
@@ -243,7 +245,12 @@ impl Stack for Rust {
             endpoint.add_verb("GET");
         }
     }
-    fn clean_graph(&self, graph: &mut ArrayGraph) -> bool {
+}
+impl StackGraphOperations for Rust {
+    fn clean_graph<G>(&self, graph: &mut G) -> bool
+    where
+        G: Graph,
+    {
         filter_out_classes_without_methods(graph)
     }
 }

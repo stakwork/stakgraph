@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ast::lang::ArrayGraph;
 use ast::utils::{logger, print_json};
 use ast::{self, repo::Repo};
 
@@ -16,7 +17,7 @@ async fn main() -> Result<()> {
         .unwrap_or_default();
 
     let repos = Repo::new_clone_multi_detect(&url, None, None, Vec::new(), revs).await?;
-    let graph = repos.build_graphs().await?;
+    let graph = repos.build_graphs::<ArrayGraph>().await?;
     println!(
         "Final Graph => {} nodes and {} edges",
         graph.nodes.len(),

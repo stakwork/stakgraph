@@ -1,10 +1,10 @@
 use super::super::*;
 use super::consts::*;
-use crate::lang::graph_trait::GraphSearchOps;
+use crate::lang::graph_trait::Graph;
 use anyhow::{Context, Result};
 use lsp::{Cmd as LspCmd, CmdSender, Position, Res as LspRes};
 use tree_sitter::{Language, Parser, Query, Tree};
-
+#[derive(Clone, Debug)]
 pub struct Go(Language);
 
 impl Go {
@@ -175,46 +175,7 @@ impl Stack for Go {
         ) @{ROUTE}"#
         ))
     }
-    fn find_function_parent(
-        &self,
-        _node: TreeNode,
-        _code: &str,
-        file: &str,
-        func_name: &str,
-        graph: &ArrayGraph,
-        parent_type: Option<&str>,
-    ) -> Result<Option<Operand>> {
-        if parent_type.is_none() {
-            return Ok(None);
-        }
-        let parent_type = parent_type.unwrap();
-        Ok(match graph.find_class_by(|f| f.name == parent_type) {
-            Some(class) => Some(Operand {
-                source: NodeKeys::new(&class.name, &class.file),
-                target: NodeKeys::new(func_name, file),
-            }),
-            None => None,
-        })
-    }
-    fn find_trait_operand(
-        &self,
-        pos: Position,
-        nd: &NodeData,
-        graph: &ArrayGraph,
-        lsp_tx: &Option<CmdSender>,
-    ) -> Result<Option<Edge>> {
-        if let Some(lsp) = lsp_tx {
-            let res = LspCmd::GotoImplementations(pos.clone()).send(&lsp)?;
-            if let LspRes::GotoImplementations(Some(imp)) = res {
-                let tr = graph.find_trait_range(imp.line, &imp.file.display().to_string());
-                if let Some(tr) = tr {
-                    let edge = Edge::trait_operand(&tr, &nd);
-                    return Ok(Some(edge));
-                }
-            }
-        }
-        Ok(None)
-    }
+
     //     fn data_model_query(&self) -> Option<String> {
     //         Some(format!(
     //             "(type_declaration
@@ -269,9 +230,60 @@ impl Stack for Go {
 )"#
         ))
     }
+}
 
+impl StackGraphOperations for Go {
+    fn find_function_parent<G>(
+        &self,
+        _node: TreeNode,
+        _code: &str,
+        file: &str,
+        func_name: &str,
+        graph: &G,
+        parent_type: Option<&str>,
+    ) -> Result<Option<Operand>>
+    where
+        G: Graph,
+    {
+        if parent_type.is_none() {
+            return Ok(None);
+        }
+        let parent_type = parent_type.unwrap();
+        Ok(match graph.find_class_by(|f| f.name == parent_type) {
+            Some(class) => Some(Operand {
+                source: NodeKeys::new(&class.name, &class.file),
+                target: NodeKeys::new(func_name, file),
+            }),
+            None => None,
+        })
+    }
+    fn find_trait_operand<G>(
+        &self,
+        pos: Position,
+        nd: &NodeData,
+        graph: &G,
+        lsp_tx: &Option<CmdSender>,
+    ) -> Result<Option<Edge>>
+    where
+        G: Graph,
+    {
+        if let Some(lsp) = lsp_tx {
+            let res = LspCmd::GotoImplementations(pos.clone()).send(&lsp)?;
+            if let LspRes::GotoImplementations(Some(imp)) = res {
+                let tr = graph.find_trait_range(imp.line, &imp.file.display().to_string());
+                if let Some(tr) = tr {
+                    let edge = Edge::trait_operand(&tr, &nd);
+                    return Ok(Some(edge));
+                }
+            }
+        }
+        Ok(None)
+    }
     // in Go a Class is really just a struct
-    fn clean_graph(&self, graph: &mut ArrayGraph) -> bool {
+    fn clean_graph<G>(&self, graph: &mut G) -> bool
+    where
+        G: Graph,
+    {
         filter_out_classes_without_methods(graph)
     }
 }

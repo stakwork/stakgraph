@@ -1,4 +1,5 @@
-use crate::lang::{linker, ArrayGraph, Lang};
+use crate::lang::graph_trait::Graph;
+use crate::lang::{linker, Lang};
 use anyhow::{anyhow, Context, Result};
 use git_url_parse::GitUrl;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
@@ -31,14 +32,17 @@ pub struct Repo {
 pub struct Repos(pub Vec<Repo>);
 
 impl Repos {
-    pub async fn build_graphs(&self) -> Result<ArrayGraph> {
-        let mut graph = ArrayGraph::new();
+    pub async fn build_graphs<G>(&self) -> Result<G>
+    where
+        G: Graph + Default,
+    {
+        let mut graph = G::new();
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
-            let subgraph = repo.build_graph().await?;
-            graph.nodes.extend(subgraph.nodes);
-            graph.edges.extend(subgraph.edges);
-            graph.errors.extend(subgraph.errors);
+            let subgraph: G = repo.build_graph().await?;
+            graph.nodes_mut().extend(subgraph.nodes().to_owned());
+            graph.edges_mut().extend(subgraph.get_edges());
+            graph.errors_mut().extend(subgraph.get_errors());
         }
         info!("linking e2e tests");
         linker::link_e2e_tests(&mut graph)?;
@@ -47,8 +51,8 @@ impl Repos {
 
         println!(
             "Final Graph: {} nodes and {} edges",
-            graph.nodes.len(),
-            graph.edges.len()
+            graph.nodes().len(),
+            graph.edges().len()
         );
         Ok(graph)
     }

@@ -1,16 +1,22 @@
-use crate::lang::graph::{ArrayGraph, EdgeType, Node};
-use crate::lang::graph_trait::GraphSearchOps;
+use crate::lang::graph::{EdgeType, Node};
+use crate::lang::graph_trait::Graph;
 use crate::lang::{linker::normalize_backend_path, Lang};
 use crate::repo::Repo;
 use tracing::{error, info};
 
-pub struct BackendTester {
-    graph: ArrayGraph,
+pub struct BackendTester<G>
+where
+    G: Graph,
+{
+    graph: G,
     lang: Lang,
     repo: Option<String>,
 }
 
-impl BackendTester {
+impl<G> BackendTester<G>
+where
+    G: Graph,
+{
     pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
@@ -88,7 +94,7 @@ impl BackendTester {
 
         let file_nodes = self
             .graph
-            .nodes
+            .nodes()
             .iter()
             .filter(|n| matches!(n, Node::File(_)))
             .collect::<Vec<_>>();
@@ -177,7 +183,7 @@ impl BackendTester {
                     let handler_data = endpoint_handler.into_data();
                     let handler_name = handler_data.name.clone();
 
-                    let direct_handler_connection = self.graph.edges.iter().any(|edge| {
+                    let direct_handler_connection = self.graph.get_edges().iter().any(|edge| {
                         edge.edge == EdgeType::Contains
                             && edge.target.node_data.name.contains(data_model)
                             && edge.source.node_data.name.contains(&handler_name)
@@ -203,7 +209,7 @@ impl BackendTester {
                     for func in &functions_to_check {
                         let func_name = func.into_data().name.clone();
 
-                        let direction_connection = self.graph.edges.iter().any(|edge| {
+                        let direction_connection = self.graph.get_edges().iter().any(|edge| {
                             edge.edge == EdgeType::Contains
                                 && edge.target.node_data.name.contains(data_model)
                                 && edge.source.node_data.name.contains(&func_name)
@@ -269,7 +275,7 @@ impl BackendTester {
 
         visited.push(func_name.clone());
 
-        let direct_connection = self.graph.edges.iter().any(|edge| {
+        let direct_connection = self.graph.get_edges().iter().any(|edge| {
             edge.edge == EdgeType::Contains
                 && edge.target.node_data.name == data_model
                 && edge.source.node_data.name == func_name

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use ast::lang::ArrayGraph;
 use ast::utils::print_json;
 use ast::{self};
 #[tokio::main(flavor = "multi_thread")]
@@ -16,7 +17,7 @@ async fn main() -> Result<()> {
         Vec::new(),
     )
     .await?;
-    let graph = repo.build_graph().await?;
+    let graph = repo.build_graph::<ArrayGraph>().await?;
 
     print_json(&graph, "python")?;
 

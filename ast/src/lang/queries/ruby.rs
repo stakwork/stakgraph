@@ -1,7 +1,7 @@
 use super::super::*;
 use super::consts::*;
 use crate::builder::get_page_name;
-use crate::lang::graph_trait::GraphSearchOps;
+use crate::lang::graph_trait::Graph;
 use crate::lang::parse::trim_quotes;
 use crate::lang::queries::rails_routes;
 use anyhow::{Context, Result};
@@ -11,6 +11,7 @@ use std::path::Path;
 use tracing::debug;
 use tree_sitter::{Language, Parser, Query, Tree};
 
+#[derive(Clone, Debug)]
 pub struct Ruby(Language);
 
 impl Ruby {
@@ -99,34 +100,7 @@ impl Stack for Ruby {
     fn endpoint_path_filter(&self) -> Option<String> {
         Some("routes.rb".to_string())
     }
-    fn find_function_parent(
-        &self,
-        node: TreeNode,
-        code: &str,
-        file: &str,
-        func_name: &str,
-        _graph: &ArrayGraph,
-        _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>> {
-        let mut parent = node.parent();
-        while parent.is_some() && parent.unwrap().kind().to_string() != "class" {
-            parent = parent.unwrap().parent();
-        }
-        let parent_of = match parent {
-            Some(p) => {
-                let query = self.q(&self.identifier_query(), &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file),
-                        target: NodeKeys::new(func_name, file),
-                    }),
-                    None => None,
-                }
-            }
-            None => None,
-        };
-        Ok(parent_of)
-    }
+
     fn identifier_query(&self) -> String {
         format!("name: [(constant) (scope_resolution)] @identifier")
     }
@@ -167,25 +141,7 @@ impl Stack for Ruby {
     fn use_data_model_within_finder(&self) -> bool {
         true
     }
-    fn data_model_within_finder(&self, data_model: &NodeData, graph: &ArrayGraph) -> Vec<Edge> {
-        // file: app/controllers/api/advisor_groups_controller.rb
-        let mut models = Vec::new();
-        let singular_name = data_model.name.to_lowercase();
-        let plural_name = inflection::pluralize(&singular_name);
-        let funcs = graph.find_funcs_by(|f| is_controller(&f, &plural_name));
-        for func in funcs {
-            models.push(Edge::contains(
-                NodeType::Function,
-                &func,
-                NodeType::DataModel,
-                data_model,
-            ));
-        }
-        // without: Returning Graph with 12726 nodes and 13283 edges
-        // if edge:Handler with source.node_data.name == name, then the target -> Contains this data model
-        // "advisor_groups"
-        models
-    }
+
     fn is_test(&self, _func_name: &str, func_file: &str) -> bool {
         self.is_test_file(func_file)
     }
@@ -198,12 +154,99 @@ impl Stack for Ruby {
     fn use_handler_finder(&self) -> bool {
         true
     }
-    fn handler_finder(
+
+    fn integration_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"(call
+    method: (identifier) @describe (#eq? @describe "describe")
+    arguments: [
+        (argument_list
+            [
+                (constant)
+                (scope_resolution)
+            ] @{HANDLER}
+        )
+        (argument_list
+            (string) @{E2E_TEST_NAME}
+            (pair) @js-true (#eq? @js-true "js: true")
+        )
+    ]
+) @{INTEGRATION_TEST}"#
+        ))
+    }
+    fn use_integration_test_finder(&self) -> bool {
+        true
+    }
+
+    fn use_extra_page_finder(&self) -> bool {
+        true
+    }
+    fn is_extra_page(&self, file_name: &str) -> bool {
+        let is_good_ext = file_name.ends_with(".erb") || file_name.ends_with(".haml");
+        let pagename = get_page_name(file_name);
+        if pagename.is_none() {
+            return false;
+        }
+        let is_underscore = pagename.as_ref().unwrap().starts_with("_");
+        let is_view = file_name.contains("/views/");
+        is_view && is_good_ext && !is_underscore
+    }
+}
+
+impl StackGraphOperations for Ruby {
+    fn extra_page_finder<G>(&self, file_path: &str, graph: &G) -> Option<Edge>
+    where
+        G: Graph,
+    {
+        let pagename = get_page_name(file_path);
+        if pagename.is_none() {
+            return None;
+        }
+        let pagename = pagename.unwrap();
+        let page = NodeData::name_file(&pagename, file_path);
+        // get the handler name
+        let p = std::path::Path::new(file_path);
+        let func_name = remove_all_extensions(p);
+        let controller_name = p.parent()?.file_name()?.to_str()?;
+        // println!("func_name: {}, controller_name: {}", func_name, controller_name);
+        let handler =
+            graph.find_func_by(|nd| nd.name == func_name && is_controller(nd, controller_name));
+        if let Some(handler) = handler {
+            Some(Edge::renders(&page, &handler))
+        } else {
+            None
+        }
+    }
+    fn integration_test_edge_finder<G>(
+        &self,
+        nd: &NodeData,
+        graph: &G,
+        tt: NodeType,
+    ) -> Option<Edge>
+    where
+        G: Graph,
+    {
+        let cla = graph.find_class_by(|clnd| clnd.name == nd.name);
+        if let Some(cl) = cla {
+            let meta = CallsMeta {
+                call_start: nd.start,
+                call_end: nd.end,
+                operand: None,
+            };
+            Some(Edge::calls(tt, nd, NodeType::Class, &cl, meta))
+        } else {
+            None
+        }
+    }
+    fn handler_finder<G>(
         &self,
         endpoint: NodeData,
-        graph: &ArrayGraph,
+        graph: &G,
         params: HandlerParams,
-    ) -> Vec<(NodeData, Option<Edge>)> {
+    ) -> Vec<(NodeData, Option<Edge>)>
+    where
+        G: Graph,
+    {
         if endpoint.meta.get("handler").is_none() {
             return Vec::new();
         }
@@ -303,13 +346,16 @@ impl Stack for Ruby {
 
         ret
     }
-    fn find_endpoint_parents(
+    fn find_endpoint_parents<G>(
         &self,
         node: TreeNode,
         code: &str,
         _file: &str,
-        _graph: &ArrayGraph,
-    ) -> Result<Vec<HandlerItem>> {
+        _graph: &G,
+    ) -> Result<Vec<HandlerItem>>
+    where
+        G: Graph,
+    {
         let mut parents = Vec::new();
         let mut parent = node.parent();
 
@@ -349,81 +395,60 @@ impl Stack for Ruby {
         parents.reverse();
         Ok(parents)
     }
-    fn integration_test_query(&self) -> Option<String> {
-        Some(format!(
-            r#"(call
-    method: (identifier) @describe (#eq? @describe "describe")
-    arguments: [
-        (argument_list
-            [
-                (constant)
-                (scope_resolution)
-            ] @{HANDLER}
-        )
-        (argument_list
-            (string) @{E2E_TEST_NAME}
-            (pair) @js-true (#eq? @js-true "js: true")
-        )
-    ]
-) @{INTEGRATION_TEST}"#
-        ))
+    fn data_model_within_finder<G>(&self, data_model: &NodeData, graph: &G) -> Vec<Edge>
+    where
+        G: Graph,
+    {
+        // file: app/controllers/api/advisor_groups_controller.rb
+        let mut models = Vec::new();
+        let singular_name = data_model.name.to_lowercase();
+        let plural_name = inflection::pluralize(&singular_name);
+        let funcs = graph.find_funcs_by(|f| is_controller(&f, &plural_name));
+        for func in funcs {
+            models.push(Edge::contains(
+                NodeType::Function,
+                &func,
+                NodeType::DataModel,
+                data_model,
+            ));
+        }
+        // without: Returning Graph with 12726 nodes and 13283 edges
+        // if edge:Handler with source.node_data.name == name, then the target -> Contains this data model
+        // "advisor_groups"
+        models
     }
-    fn use_integration_test_finder(&self) -> bool {
-        true
-    }
-    fn integration_test_edge_finder(
+    fn find_function_parent<G>(
         &self,
-        nd: &NodeData,
-        graph: &ArrayGraph,
-        tt: NodeType,
-    ) -> Option<Edge> {
-        let cla = graph.find_class_by(|clnd| clnd.name == nd.name);
-        if let Some(cl) = cla {
-            let meta = CallsMeta {
-                call_start: nd.start,
-                call_end: nd.end,
-                operand: None,
-            };
-            Some(Edge::calls(tt, nd, NodeType::Class, &cl, meta))
-        } else {
-            None
+        node: TreeNode,
+        code: &str,
+        file: &str,
+        func_name: &str,
+        _graph: &G,
+        _parent_type: Option<&str>,
+    ) -> Result<Option<Operand>>
+    where
+        G: Graph,
+    {
+        let mut parent = node.parent();
+        while parent.is_some() && parent.unwrap().kind().to_string() != "class" {
+            parent = parent.unwrap().parent();
         }
-    }
-    fn use_extra_page_finder(&self) -> bool {
-        true
-    }
-    fn is_extra_page(&self, file_name: &str) -> bool {
-        let is_good_ext = file_name.ends_with(".erb") || file_name.ends_with(".haml");
-        let pagename = get_page_name(file_name);
-        if pagename.is_none() {
-            return false;
-        }
-        let is_underscore = pagename.as_ref().unwrap().starts_with("_");
-        let is_view = file_name.contains("/views/");
-        is_view && is_good_ext && !is_underscore
-    }
-    fn extra_page_finder(&self, file_path: &str, graph: &ArrayGraph) -> Option<Edge> {
-        let pagename = get_page_name(file_path);
-        if pagename.is_none() {
-            return None;
-        }
-        let pagename = pagename.unwrap();
-        let page = NodeData::name_file(&pagename, file_path);
-        // get the handler name
-        let p = std::path::Path::new(file_path);
-        let func_name = remove_all_extensions(p);
-        let controller_name = p.parent()?.file_name()?.to_str()?;
-        // println!("func_name: {}, controller_name: {}", func_name, controller_name);
-        let handler =
-            graph.find_func_by(|nd| nd.name == func_name && is_controller(nd, controller_name));
-        if let Some(handler) = handler {
-            Some(Edge::renders(&page, &handler))
-        } else {
-            None
-        }
+        let parent_of = match parent {
+            Some(p) => {
+                let query = self.q(&self.identifier_query(), &NodeType::Class);
+                match query_to_ident(query, p, code)? {
+                    Some(parent_name) => Some(Operand {
+                        source: NodeKeys::new(&parent_name, file),
+                        target: NodeKeys::new(func_name, file),
+                    }),
+                    None => None,
+                }
+            }
+            None => None,
+        };
+        Ok(parent_of)
     }
 }
-
 fn remove_all_extensions(path: &Path) -> String {
     let mut stem = path
         .file_stem()

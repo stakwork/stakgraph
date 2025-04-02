@@ -1,4 +1,4 @@
-use crate::lang::Lang;
+use crate::lang::{ArrayGraph, Lang};
 use lsp::Language;
 use std::env;
 use std::str::FromStr;
@@ -28,7 +28,7 @@ async fn run_server_tests() {
         let repo = Some(server.to_string());
         let language = Lang::from_language(Language::from_str(server).unwrap());
 
-        let tester = test_backend::BackendTester::new(language, repo)
+        let tester = test_backend::BackendTester::<ArrayGraph>::new(language, repo)
             .await
             .unwrap();
         tester.test_backend().unwrap();
@@ -44,7 +44,7 @@ async fn run_client_tests() {
         let repo = Some(server.to_string());
         let language = Lang::from_language(Language::from_str(server).unwrap());
 
-        let tester = test_frontend::FrontendTester::new(language, repo)
+        let tester = test_frontend::FrontendTester::<ArrayGraph>::new(language, repo)
             .await
             .unwrap();
         tester.test_frontend().unwrap();

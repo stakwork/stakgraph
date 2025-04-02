@@ -3,6 +3,7 @@ use super::consts::*;
 use anyhow::{Context, Result};
 use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 
+#[derive(Clone, Debug)]
 pub struct Swift(Language);
 
 impl Swift {
@@ -60,39 +61,6 @@ impl Stack for Swift {
             ) @{FUNCTION_CALL}
             "#
         )
-    }
-
-    fn find_function_parent(
-        &self,
-        node: TreeNode,
-        code: &str,
-        file: &str,
-        func_name: &str,
-        _graph: &ArrayGraph,
-        _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>> {
-        let mut parent = node.parent();
-        while parent.is_some() {
-            if parent.unwrap().kind().to_string() == "class_declaration" {
-                // found it!
-                break;
-            }
-            parent = parent.unwrap().parent();
-        }
-        let parent_of = match parent {
-            Some(p) => {
-                let query = self.q("(type_identifier) @class-name", &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file),
-                        target: NodeKeys::new(func_name, file),
-                    }),
-                    None => None,
-                }
-            }
-            None => None,
-        };
-        Ok(parent_of)
     }
 
     fn request_finder(&self) -> Option<String> {
@@ -170,5 +138,43 @@ impl Stack for Swift {
 
     fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
         func_name.starts_with("test")
+    }
+}
+
+impl StackGraphOperations for Swift {
+    fn find_function_parent<G>(
+        &self,
+        node: TreeNode,
+        code: &str,
+        file: &str,
+        func_name: &str,
+        _graph: &G,
+        _parent_type: Option<&str>,
+    ) -> Result<Option<Operand>>
+    where
+        G: Graph,
+    {
+        let mut parent = node.parent();
+        while parent.is_some() {
+            if parent.unwrap().kind().to_string() == "class_declaration" {
+                // found it!
+                break;
+            }
+            parent = parent.unwrap().parent();
+        }
+        let parent_of = match parent {
+            Some(p) => {
+                let query = self.q("(type_identifier) @class-name", &NodeType::Class);
+                match query_to_ident(query, p, code)? {
+                    Some(parent_name) => Some(Operand {
+                        source: NodeKeys::new(&parent_name, file),
+                        target: NodeKeys::new(func_name, file),
+                    }),
+                    None => None,
+                }
+            }
+            None => None,
+        };
+        Ok(parent_of)
     }
 }

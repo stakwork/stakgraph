@@ -1,5 +1,5 @@
-use crate::lang::graph::{ArrayGraph, Node};
-use crate::lang::graph_trait::GraphSearchOps;
+use crate::lang::graph::Node;
+use crate::lang::graph_trait::Graph;
 use crate::lang::Lang;
 use crate::repo::Repo;
 use anyhow::Context;
@@ -7,8 +7,11 @@ use lsp::Language as LspLanguage;
 use std::collections::HashMap;
 use std::result::Result;
 use tracing::info;
-pub struct FrontendTester {
-    graph: ArrayGraph,
+pub struct FrontendTester<G>
+where
+    G: Graph,
+{
+    graph: G,
     lang: Lang,
     repo: Option<String>,
 }
@@ -32,7 +35,10 @@ impl FrontendArtefact<'_> {
         }
     }
 }
-impl FrontendTester {
+impl<G> FrontendTester<G>
+where
+    G: Graph,
+{
     pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
@@ -102,7 +108,7 @@ impl FrontendTester {
 
         let file_nodes = self
             .graph
-            .nodes
+            .nodes()
             .iter()
             .filter(|node| matches!(node, Node::File(_)))
             .collect::<Vec<_>>();
@@ -163,7 +169,7 @@ impl FrontendTester {
     fn test_requests(&self, expected_requests: Vec<(&str, &str)>) -> Result<(), anyhow::Error> {
         let requests = self
             .graph
-            .nodes
+            .nodes()
             .iter()
             .filter(|node| matches!(node, Node::Request(_)))
             .collect::<Vec<_>>();
@@ -211,7 +217,7 @@ impl FrontendTester {
     {
         let nodes = self
             .graph
-            .nodes
+            .nodes()
             .iter()
             .filter(filter_fn)
             .collect::<Vec<_>>();

@@ -1,9 +1,9 @@
 use anyhow::Result;
+use ast::lang::ArrayGraph;
+use ast::utils::logger;
 use ast::Lang;
 use ast::{self, repo::Repo};
 use lsp::language;
-use ast::utils::logger;
-
 /*
 FILE=routes.rb cargo run --example file
 FILE=db/schema.rb cargo run --example file
@@ -34,7 +34,8 @@ async fn main() -> Result<()> {
         files_filter,
         Vec::new(),
     )?;
-    let graph = repo.build_graph().await?;
+
+    let graph = repo.build_graph::<ArrayGraph>().await?;
     println!(
         "Final Graph => {} nodes and {} edges",
         graph.nodes.len(),

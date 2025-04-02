@@ -1,6 +1,9 @@
 use anyhow::Result;
-use ast::{lang::Lang, repo::{Repo, Repos}};
 use ast::utils::{logger, print_json};
+use ast::{
+    lang::{ArrayGraph, Lang},
+    repo::{Repo, Repos},
+};
 use std::str::FromStr;
 
 /*
@@ -28,7 +31,7 @@ async fn main() -> Result<()> {
 
     let repos = Repos(vec![repo1, repo2]);
     // let repos = Repos(vec![repo2]);
-    let graph = repos.build_graphs().await?;
+    let graph = repos.build_graphs::<ArrayGraph>().await?;
     print_json(&graph, "stak")?;
     Ok(())
 }

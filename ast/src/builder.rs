@@ -1,6 +1,5 @@
 use super::repo::{check_revs_files, Repo};
-use crate::lang::graph_trait::*;
-use crate::lang::ArrayGraph;
+use crate::lang::graph_trait::Graph;
 use crate::lang::{asg::NodeData, graph::Node, graph::NodeType};
 use anyhow::{Ok, Result};
 use git_url_parse::GitUrl;
@@ -13,8 +12,11 @@ use tracing::{debug, info};
 const MAX_FILE_SIZE: u64 = 100_000; // 100kb max file size
 
 impl Repo {
-    pub async fn build_graph(&self) -> Result<ArrayGraph> {
-        let mut graph = ArrayGraph::new();
+    pub async fn build_graph<G>(&self) -> Result<G>
+    where
+        G: Graph + Default,
+    {
+        let mut graph = G::new();
 
         println!("Root: {:?}", self.root);
         let commit_hash = get_commit_hash(&self.root.to_str().unwrap()).await?;
@@ -247,11 +249,11 @@ impl Repo {
         // try again on the endpoints to add data models, if manual
         if self.lang.lang().use_data_model_within_finder() {
             info!("=> get_data_models_within...");
-            for n in &graph.nodes {
+            for n in graph.nodes().into_iter() {
                 match n {
                     crate::lang::graph::Node::DataModel(nd) => {
                         let edges = self.lang.lang().data_model_within_finder(nd, &graph);
-                        graph.edges.extend(edges);
+                        graph.edges_mut().extend(edges);
                     }
                     _ => {}
                 }
@@ -299,18 +301,18 @@ impl Repo {
         graph = filter_by_revs(&self.root.to_str().unwrap(), self.revs.clone(), graph);
 
         // prefix the "file" of each node and edge with the root
-        for node in &mut graph.nodes {
+        for node in &mut graph.nodes_mut().iter_mut() {
             node.add_root(&self.root_less_tmp());
         }
-        for edge in &mut graph.edges {
+        for edge in &mut graph.edges_mut().iter_mut() {
             edge.add_root(&self.root_less_tmp());
         }
 
         println!("done!");
         println!(
             "Returning Graph with {} nodes and {} edges",
-            graph.nodes.len(),
-            graph.edges.len()
+            graph.get_nodes().len(),
+            graph.get_edges().len()
         );
         Ok(graph)
     }
@@ -325,29 +327,32 @@ impl Repo {
     }
 }
 
-fn filter_by_revs(root: &str, revs: Vec<String>, graph: ArrayGraph) -> ArrayGraph {
+fn filter_by_revs<G>(root: &str, revs: Vec<String>, graph: G) -> G
+where
+    G: Graph + Default,
+{
     if revs.is_empty() {
         return graph;
     }
     if let Some(final_filter) = check_revs_files(root, revs) {
-        let mut new_graph = ArrayGraph::new();
+        let mut new_graph = G::new();
         // only add nodes that are in the final filter
-        for node in graph.nodes {
+        for node in graph.nodes() {
             if matches!(node, Node::Repository(_)) {
-                new_graph.nodes.push(node);
+                new_graph.add_node_type(node.clone());
                 continue;
             }
             let node_data = node.into_data();
             if final_filter.contains(&node_data.file) {
-                new_graph.nodes.push(node);
+                new_graph.add_node_type(node.clone());
             }
         }
         // and edges incoming/outgoing from them
-        for edge in graph.edges {
+        for edge in graph.edges() {
             if final_filter.contains(&edge.source.node_data.file) {
-                new_graph.edges.push(edge);
+                new_graph.add_edge(edge.to_owned());
             } else if final_filter.contains(&edge.target.node_data.file) {
-                new_graph.edges.push(edge);
+                new_graph.add_edge(edge.to_owned());
             }
         }
         new_graph
