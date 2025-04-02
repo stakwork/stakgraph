@@ -39,7 +39,7 @@ impl Repos {
         let mut graph = G::new();
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
-            let subgraph: G = repo.build_graph().await?;
+            let subgraph = repo.build_graph().await?;
             graph.nodes_mut().extend(subgraph.nodes().to_owned());
             graph.edges_mut().extend(subgraph.get_edges());
             graph.errors_mut().extend(subgraph.get_errors());

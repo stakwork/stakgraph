@@ -1,16 +1,13 @@
 use crate::lang::graph::Node;
 use crate::lang::graph_trait::Graph;
-use crate::lang::Lang;
+use crate::lang::{ArrayGraph, Lang};
 use crate::repo::Repo;
 use anyhow::Context;
 use lsp::Language as LspLanguage;
 use std::collections::HashMap;
 use std::result::Result;
 use tracing::info;
-pub struct FrontendTester<G>
-where
-    G: Graph,
-{
+pub struct FrontendTester<G: Graph> {
     graph: G,
     lang: Lang,
     repo: Option<String>,
@@ -35,11 +32,11 @@ impl FrontendArtefact<'_> {
         }
     }
 }
-impl<G> FrontendTester<G>
-where
-    G: Graph,
-{
-    pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
+impl<G: Graph> FrontendTester<G> {
+    pub async fn new(
+        lang: Lang,
+        repo: Option<String>,
+    ) -> Result<FrontendTester<ArrayGraph>, anyhow::Error> {
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
 
@@ -52,7 +49,7 @@ where
             Vec::new(),
         )?;
 
-        Ok(Self {
+        Ok(FrontendTester::<ArrayGraph> {
             graph: repository
                 .build_graph()
                 .await

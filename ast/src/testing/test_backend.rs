@@ -1,23 +1,21 @@
 use crate::lang::graph::{EdgeType, Node};
 use crate::lang::graph_trait::Graph;
+use crate::lang::ArrayGraph;
 use crate::lang::{linker::normalize_backend_path, Lang};
 use crate::repo::Repo;
 use tracing::{error, info};
 
-pub struct BackendTester<G>
-where
-    G: Graph,
-{
+pub struct BackendTester<G: Graph> {
     graph: G,
     lang: Lang,
     repo: Option<String>,
 }
 
-impl<G> BackendTester<G>
-where
-    G: Graph,
-{
-    pub async fn new(lang: Lang, repo: Option<String>) -> Result<Self, anyhow::Error> {
+impl<G: Graph> BackendTester<G> {
+    pub async fn new(
+        lang: Lang,
+        repo: Option<String>,
+    ) -> Result<BackendTester<ArrayGraph>, anyhow::Error> {
         let language_name = lang.kind.clone();
         let language_in_repository = Lang::from_language(language_name.clone());
         let return_repo = match &repo {
@@ -43,7 +41,7 @@ where
             .unwrap(),
         };
 
-        Ok(Self {
+        Ok(BackendTester::<ArrayGraph> {
             graph: repository.build_graph().await?,
             lang,
             repo: Some(return_repo),

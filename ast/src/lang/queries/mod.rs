@@ -1,3 +1,4 @@
+pub mod angular;
 pub mod bash;
 pub mod consts;
 pub mod erb;
@@ -10,11 +11,10 @@ mod rails_routes;
 pub mod react;
 pub mod ruby;
 pub mod rust;
+pub mod svelte;
 pub mod swift;
 pub mod toml;
 pub mod typescript;
-pub mod svelte;
-pub mod angular;
 
 use crate::lang::asg::Operand;
 use crate::lang::graph::Edge;
@@ -180,11 +180,14 @@ pub trait Stack {
     }
 }
 
-pub trait StackGraphOperations<G: Graph = ArrayGraph> {
-    fn extra_page_finder(&self, _file_name: &str, _graph: &G) -> Option<Edge> {
+pub trait StackGraphOperations {
+    fn handle_graph<G: Graph>(&self, _graph: &G) -> bool {
+        true
+    }
+    fn extra_page_finder<G: Graph>(&self, _file_name: &str, _graph: &G) -> Option<Edge> {
         None
     }
-    fn find_endpoint_parents(
+    fn find_endpoint_parents<G: Graph>(
         &self,
         _node: TreeNode,
         _code: &str,
@@ -194,10 +197,10 @@ pub trait StackGraphOperations<G: Graph = ArrayGraph> {
         Ok(Vec::new())
     }
 
-    fn clean_graph(&self, _graph: &mut G) -> bool {
+    fn clean_graph<G: Graph>(&self, _graph: &mut G) -> bool {
         false
     }
-    fn integration_test_edge_finder(
+    fn integration_test_edge_finder<G: Graph>(
         &self,
         _nd: &NodeData,
         _graph: &G,
@@ -205,7 +208,7 @@ pub trait StackGraphOperations<G: Graph = ArrayGraph> {
     ) -> Option<Edge> {
         None
     }
-    fn handler_finder(
+    fn handler_finder<G: Graph>(
         &self,
         endpoint: NodeData,
         graph: &G,
@@ -219,7 +222,7 @@ pub trait StackGraphOperations<G: Graph = ArrayGraph> {
         }
         Vec::new()
     }
-    fn find_function_parent(
+    fn find_function_parent<G: Graph>(
         &self,
         _node: TreeNode,
         _code: &str,
@@ -230,7 +233,7 @@ pub trait StackGraphOperations<G: Graph = ArrayGraph> {
     ) -> Result<Option<Operand>> {
         Ok(None)
     }
-    fn find_trait_operand(
+    fn find_trait_operand<G: Graph>(
         &self,
         _pos: Position,
         _nd: &NodeData,
@@ -239,7 +242,7 @@ pub trait StackGraphOperations<G: Graph = ArrayGraph> {
     ) -> Result<Option<Edge>> {
         Ok(None)
     }
-    fn data_model_within_finder(&self, _dm: &NodeData, _graph: &G) -> Vec<Edge> {
+    fn data_model_within_finder<G: Graph>(&self, _dm: &NodeData, _graph: &G) -> Vec<Edge> {
         Vec::new()
     }
 }
@@ -286,7 +289,6 @@ impl HandlerItem {
 
 use std::collections::BTreeMap;
 
-use super::ArrayGraph;
 pub fn filter_out_classes_without_methods<G>(graph: &mut G) -> bool
 where
     G: Graph,

@@ -1,5 +1,6 @@
 use super::repo::{check_revs_files, Repo};
 use crate::lang::graph_trait::Graph;
+use crate::lang::ArrayGraph;
 use crate::lang::{asg::NodeData, graph::Node, graph::NodeType};
 use anyhow::{Ok, Result};
 use git_url_parse::GitUrl;
@@ -12,7 +13,10 @@ use tracing::{debug, info};
 const MAX_FILE_SIZE: u64 = 100_000; // 100kb max file size
 
 impl Repo {
-    pub async fn build_graph<G: Graph + Default>(&self) -> Result<G> {
+    pub async fn build_graph(&self) -> Result<ArrayGraph> {
+        self.build_graph_with::<ArrayGraph>().await
+    }
+    pub async fn build_graph_with<G: Graph>(&self) -> Result<G> {
         let mut graph = G::new();
 
         println!("Root: {:?}", self.root);
@@ -295,7 +299,7 @@ impl Repo {
         self.lang.lang().clean_graph(&mut graph);
 
         // filter by revs
-        graph = filter_by_revs(&self.root.to_str().unwrap(), self.revs.clone(), graph);
+        graph = filter_by_revs_with(&self.root.to_str().unwrap(), self.revs.clone(), graph);
 
         // prefix the "file" of each node and edge with the root
         for node in &mut graph.nodes_mut().iter_mut() {
@@ -324,7 +328,10 @@ impl Repo {
     }
 }
 
-fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
+fn filter_by_revs(root: &str, revs: Vec<String>, graph: ArrayGraph) -> ArrayGraph {
+    filter_by_revs_with(root, revs, graph)
+}
+fn filter_by_revs_with<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
     if revs.is_empty() {
         return graph;
     }

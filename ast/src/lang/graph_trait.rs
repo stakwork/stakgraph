@@ -4,7 +4,7 @@ use crate::lang::{Function, FunctionCall, Lang};
 use anyhow::Result;
 use std::fmt::Debug;
 
-pub trait Graph<G = ArrayGraph>: Default + Debug {
+pub trait Graph: Default + Debug {
     fn new() -> Self
     where
         Self: Sized,
