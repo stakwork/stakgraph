@@ -121,3 +121,5 @@ impl Stack for Angular {
         ))
     }
 }
+impl StackGraphOperations<ArrayGraph> for Angular {}
+impl LangOperations for Angular {}
