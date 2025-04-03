@@ -90,7 +90,8 @@ jobs:
 
       - name: Start Node Server
         working-directory: ./mcp
-        run: yarn run dev &
+        # run: yarn run dev &
+        run: yarn run dev
 
       # - name: Wait for the server
       #   run: npx wait-on http://localhost:3000
