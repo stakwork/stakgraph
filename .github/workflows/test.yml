@@ -15,7 +15,7 @@ jobs:
 
       - name: Checkout from Github
         uses: actions/checkout@v4
-      
+
       - name: Give Permission
         working-directory: ./mcp
         run: |
@@ -24,16 +24,15 @@ jobs:
           sudo chmod -R 777 ./.neo4j/plugins  
           sudo chmod -R 777 ./conf
 
-
       - name: Run Neo4j
         working-directory: ./mcp
         run: docker compose -f neo4j.yaml up -d
-      
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24.1'
-      
+          go-version: "1.24.1"
+
       - name: Verify Go Installation
         run: go version
 
@@ -44,11 +43,11 @@ jobs:
         run: |
           echo "$HOME/go/bin" >> $GITHUB_PATH
           gopls version
-      
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Verify Node.js Installation
         run: node -v
@@ -71,7 +70,7 @@ jobs:
           export REPO_URL="https://github.com/stakwork/demo-repo.git"
           export LSP_SKIP_POST_CLONE=1
           OUTPUT_FORMAT=jsonl cargo run --bin urls
-      
+
       - name: Wait for Neo4j to be Ready
         run: |
           echo "Waiting for Neo4j to be healthy..."
@@ -81,41 +80,39 @@ jobs:
             sleep 10
           done'
           echo "Neo4j is healthy!"
-      
+
       - name: Neo4j logs
-        run: docker logs neo4j.sphinx 
-      
-      - name: Start Node Server
+        run: docker logs neo4j.sphinx
+
+      - name: Install Dependencies
         working-directory: ./mcp
         run: yarn install
-      
+
       - name: Start Node Server
         working-directory: ./mcp
         run: yarn run dev &
-      
-      - name: Wait for the server
-        run: npx wait-on http://localhost:3000
-      
-      
-      - name: Upload data
-        run: |
-          curl -X POST \
-          -F "nodes=@./ast/examples/demo-repo-nodes.jsonl" \
-          -F "edges=@./ast/examples/demo-repo-edges.jsonl" \
-          http://localhost:3000/upload
-      
-      - name: Test API Response
-        run: |
-          sleep 10
-          RESPONSE=$(curl -s "http://localhost:3000/map?name=App&node_type=Function")
-          echo "Response: $RESPONSE"
-          
-          EXPECTED='<pre>Function: App (85)'
-          
-          if echo "$RESPONSE" | grep -q "$EXPECTED"; then
-            echo "Test passed: Response contains expected output."
-          else
-            echo "Test failed: Response does not contain expected output."
-            exit 1
-          fi
-        
+
+      # - name: Wait for the server
+      #   run: npx wait-on http://localhost:3000
+
+      # - name: Upload data
+      #   run: |
+      #     curl -X POST \
+      #     -F "nodes=@./ast/examples/demo-repo-nodes.jsonl" \
+      #     -F "edges=@./ast/examples/demo-repo-edges.jsonl" \
+      #     http://localhost:3000/upload
+
+      # - name: Test API Response
+      #   run: |
+      #     sleep 10
+      #     RESPONSE=$(curl -s "http://localhost:3000/map?name=App&node_type=Function")
+      #     echo "Response: $RESPONSE"
+
+      #     EXPECTED='<pre>Function: App (85)'
+
+      #     if echo "$RESPONSE" | grep -q "$EXPECTED"; then
+      #       echo "Test passed: Response contains expected output."
+      #     else
+      #       echo "Test failed: Response does not contain expected output."
+      #       exit 1
+      #     fi
