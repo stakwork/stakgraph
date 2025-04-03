@@ -1,5 +1,5 @@
 use crate::lang::graph_trait::Graph;
-use crate::lang::{linker, Lang};
+use crate::lang::{linker, ArrayGraph, Lang};
 use anyhow::{anyhow, Context, Result};
 use git_url_parse::GitUrl;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
@@ -39,7 +39,7 @@ impl Repos {
         let mut graph = G::new();
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
-            let subgraph = repo.build_graph().await?;
+            let subgraph = repo.build_graph::<ArrayGraph>().await?;
             graph.nodes_mut().extend(subgraph.nodes().to_owned());
             graph.edges_mut().extend(subgraph.get_edges());
             graph.errors_mut().extend(subgraph.get_errors());

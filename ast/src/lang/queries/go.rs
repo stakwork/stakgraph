@@ -1,6 +1,5 @@
 use super::super::*;
 use super::consts::*;
-use crate::lang::graph_trait::Graph;
 use anyhow::{Context, Result};
 use lsp::{Cmd as LspCmd, CmdSender, Position, Res as LspRes};
 use tree_sitter::{Language, Parser, Query, Tree};
@@ -230,25 +229,29 @@ impl Stack for Go {
 )"#
         ))
     }
-}
-
-impl StackGraphOperations<ArrayGraph> for Go {
+    // in Go a Class is really just a struct
+    fn clean_graph(&self, nodes: &mut Vec<Node>) -> bool {
+        filter_out_classes_without_methods(nodes)
+    }
     fn find_function_parent(
         &self,
         _node: TreeNode,
         _code: &str,
         file: &str,
         func_name: &str,
-        graph: &ArrayGraph,
+        nodes: &[Node],
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         if parent_type.is_none() {
             return Ok(None);
         }
         let parent_type = parent_type.unwrap();
-        Ok(match graph.find_class_by(|f| f.name == parent_type) {
+        let parent_class = nodes.iter().find(
+            |n| matches!(n, Node::Class(c) if c.name.contains(parent_type) && c.file == file),
+        );
+        Ok(match parent_class {
             Some(class) => Some(Operand {
-                source: NodeKeys::new(&class.name, &class.file),
+                source: NodeKeys::new(&class.into_data().name, &class.into_data().file),
                 target: NodeKeys::new(func_name, file),
             }),
             None => None,
@@ -258,28 +261,29 @@ impl StackGraphOperations<ArrayGraph> for Go {
         &self,
         pos: Position,
         nd: &NodeData,
-        graph: &ArrayGraph,
+        nodes: &[Node],
         lsp_tx: &Option<CmdSender>,
     ) -> Result<Option<Edge>> {
         if let Some(lsp) = lsp_tx {
             let res = LspCmd::GotoImplementations(pos.clone()).send(&lsp)?;
             if let LspRes::GotoImplementations(Some(imp)) = res {
-                let tr = graph.find_trait_range(imp.line, &imp.file.display().to_string());
+                let tr = nodes.iter().find(|n| {
+                    matches!(n, Node::Trait(t) if
+                        t.start as u32 <= imp.line &&
+                        t.end as u32 >= imp.line
+                    )
+                });
+
                 if let Some(tr) = tr {
-                    let edge = Edge::trait_operand(&tr, &nd);
+                    let edge = Edge::trait_operand(&tr.into_data(), nd);
                     return Ok(Some(edge));
                 }
             }
         }
         Ok(None)
     }
-    // in Go a Class is really just a struct
-    fn clean_graph(&self, graph: &mut ArrayGraph) -> bool {
-        filter_out_classes_without_methods(graph)
-    }
 }
 
-impl LangOperations for Go {}
 /*
 
 fn endpoint_finder(&self) -> Option<String> {

@@ -18,7 +18,6 @@ pub mod typescript;
 
 use crate::lang::asg::Operand;
 use crate::lang::graph::Edge;
-use crate::lang::graph_trait::Graph;
 use crate::lang::{Function, Node, NodeData, NodeType};
 use anyhow::Result;
 use lsp::Language as LspLanguage;
@@ -178,72 +177,69 @@ pub trait Stack {
     fn is_extra_page(&self, _file_name: &str) -> bool {
         false
     }
-}
-
-pub trait StackGraphOperations {
-    fn handle_graph<G: Graph>(&self, _graph: &G) -> bool {
-        true
-    }
-    fn extra_page_finder<G: Graph>(&self, _file_name: &str, _graph: &G) -> Option<Edge> {
-        None
-    }
-    fn find_endpoint_parents<G: Graph>(
+    fn find_endpoint_parents(
         &self,
         _node: TreeNode,
         _code: &str,
         _file: &str,
-        _graph: &G,
+        _nodes: &[Node],
     ) -> Result<Vec<HandlerItem>> {
         Ok(Vec::new())
     }
-
-    fn clean_graph<G: Graph>(&self, _graph: &mut G) -> bool {
-        false
+    fn clean_graph(&self, nodes: &mut Vec<Node>) -> bool {
+        filter_out_classes_without_methods(nodes)
     }
-    fn integration_test_edge_finder<G: Graph>(
+    fn integration_test_edge_finder(
         &self,
         _nd: &NodeData,
-        _graph: &G,
+        _nodes: &[Node],
         _tt: NodeType,
     ) -> Option<Edge> {
         None
     }
-    fn handler_finder<G: Graph>(
+    fn handler_finder(
         &self,
         endpoint: NodeData,
-        graph: &G,
+        nodes: &[Node],
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(handler) = endpoint.meta.get("handler") {
-            if let Some(nd) = graph.find_exact_func(handler, &endpoint.file) {
-                let edge = Edge::handler(&endpoint, &nd);
+            let handler_node = nodes.iter().find(|n|{
+                matches!(n, Node::Function(f) if f.name.contains(handler) && f.file == endpoint.file)
+            });
+
+            if let Some(h) = handler_node {
+                let edge = Edge::handler(&endpoint, &h.into_data());
                 return vec![(endpoint, Some(edge))];
             }
         }
         Vec::new()
     }
-    fn find_function_parent<G: Graph>(
+    fn find_function_parent(
         &self,
         _node: TreeNode,
         _code: &str,
         _file: &str,
         _func_name: &str,
-        _graph: &G,
+        _nodes: &[Node],
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         Ok(None)
     }
-    fn find_trait_operand<G: Graph>(
+    fn extra_page_finder(&self, _file_name: &str, _nodes: &[Node]) -> Option<Edge> {
+        None
+    }
+    fn data_model_within_finder(&self, _dm: &NodeData, _nodes: &[Node]) -> Vec<Edge> {
+        Vec::new()
+    }
+    fn find_trait_operand(
         &self,
         _pos: Position,
         _nd: &NodeData,
-        _graph: &G,
+        _nodes: &[Node],
         _lsp_tx: &Option<CmdSender>,
     ) -> Result<Option<Edge>> {
         Ok(None)
-    }
-    fn data_model_within_finder<G: Graph>(&self, _dm: &NodeData, _graph: &G) -> Vec<Edge> {
-        Vec::new()
     }
 }
 
@@ -289,14 +285,11 @@ impl HandlerItem {
 
 use std::collections::BTreeMap;
 
-pub fn filter_out_classes_without_methods<G>(graph: &mut G) -> bool
-where
-    G: Graph,
-{
+pub fn filter_out_classes_without_methods(nodes: &mut Vec<Node>) -> bool {
     let mut assumed_class: BTreeMap<String, bool> = BTreeMap::new();
     let mut actual_class: BTreeMap<String, bool> = BTreeMap::new();
 
-    for node in graph.nodes() {
+    for node in nodes.iter() {
         match node {
             Node::Function(func) => {
                 if let Some(operand) = func.meta.get("operand") {
@@ -322,11 +315,11 @@ where
         .map(|(name, _)| name.clone())
         .collect();
 
-    graph.remove_node_by_predicate(|node| {
+    nodes.retain(|node| {
         if let Node::Class(class_data) = node {
-            classes_to_remove.contains(&class_data.name)
+            !classes_to_remove.contains(&class_data.name)
         } else {
-            false
+            true
         }
     });
 

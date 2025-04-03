@@ -786,7 +786,7 @@ fn find_funcs_by<F>(&self, predicate: F) -> Vec<NodeData>
                     // each individual endpoint in the group code
                     for q in lang.lang().endpoint_finders() {
                         let endpoints_in_group =
-                            lang.get_query_opt::<ArrayGraph>(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
+                            lang.get_query_opt(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
                         // find the endpoint in the graph
                         for end in endpoints_in_group {
                             if let Some(idx) =

@@ -345,16 +345,14 @@ impl Stack for ReactTs {
 ] @{PAGE}"#
         ))
     }
-}
 
-impl StackGraphOperations<ArrayGraph> for ReactTs {
     fn find_function_parent(
         &self,
         node: TreeNode,
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &ArrayGraph,
+        _nodes: &[Node],
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -385,5 +383,3 @@ impl StackGraphOperations<ArrayGraph> for ReactTs {
         Ok(parent_of)
     }
 }
-
-impl LangOperations for ReactTs {}

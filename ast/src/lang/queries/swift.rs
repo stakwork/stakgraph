@@ -139,16 +139,13 @@ impl Stack for Swift {
     fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
         func_name.starts_with("test")
     }
-}
-
-impl StackGraphOperations<ArrayGraph> for Swift {
     fn find_function_parent(
         &self,
         node: TreeNode,
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &ArrayGraph,
+        _nodes: &[Node],
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -175,5 +172,3 @@ impl StackGraphOperations<ArrayGraph> for Swift {
         Ok(parent_of)
     }
 }
-
-impl LangOperations for Swift {}

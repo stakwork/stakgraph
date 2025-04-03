@@ -1,7 +1,6 @@
 use super::super::*;
 use super::consts::*;
 use crate::builder::get_page_name;
-use crate::lang::graph_trait::Graph;
 use crate::lang::parse::trim_quotes;
 use crate::lang::queries::rails_routes;
 use anyhow::{Context, Result};
@@ -191,158 +190,12 @@ impl Stack for Ruby {
         let is_view = file_name.contains("/views/");
         is_view && is_good_ext && !is_underscore
     }
-}
-
-impl StackGraphOperations<ArrayGraph> for Ruby {
-    fn extra_page_finder(&self, file_path: &str, graph: &ArrayGraph) -> Option<Edge> {
-        let pagename = get_page_name(file_path);
-        if pagename.is_none() {
-            return None;
-        }
-        let pagename = pagename.unwrap();
-        let page = NodeData::name_file(&pagename, file_path);
-        // get the handler name
-        let p = std::path::Path::new(file_path);
-        let func_name = remove_all_extensions(p);
-        let controller_name = p.parent()?.file_name()?.to_str()?;
-        // println!("func_name: {}, controller_name: {}", func_name, controller_name);
-        let handler =
-            graph.find_func_by(|nd| nd.name == func_name && is_controller(nd, controller_name));
-        if let Some(handler) = handler {
-            Some(Edge::renders(&page, &handler))
-        } else {
-            None
-        }
-    }
-    fn integration_test_edge_finder(
-        &self,
-        nd: &NodeData,
-        graph: &ArrayGraph,
-        tt: NodeType,
-    ) -> Option<Edge> {
-        let cla = graph.find_class_by(|clnd| clnd.name == nd.name);
-        if let Some(cl) = cla {
-            let meta = CallsMeta {
-                call_start: nd.start,
-                call_end: nd.end,
-                operand: None,
-            };
-            Some(Edge::calls(tt, nd, NodeType::Class, &cl, meta))
-        } else {
-            None
-        }
-    }
-    fn handler_finder(
-        &self,
-        endpoint: NodeData,
-        graph: &ArrayGraph,
-        params: HandlerParams,
-    ) -> Vec<(NodeData, Option<Edge>)> {
-        if endpoint.meta.get("handler").is_none() {
-            return Vec::new();
-        }
-        let handler_string = endpoint.meta.get("handler").unwrap();
-        // tracing::info!("handler_finder: {} {:?}", handler_string, params);
-        let mut explicit_path = false;
-        // intermediate nodes (src/target)
-        let mut inter = Vec::new();
-        // let mut targets = Vec::new();
-        if let Some(item) = &params.item {
-            if let Some(nd) = graph.find_func_by(|nd: &NodeData| {
-                is_controller(nd, handler_string) && nd.name == item.name
-            }) {
-                inter.push((endpoint, nd));
-            }
-        } else if handler_string.contains("#") {
-            // put 'request_center/:id', to: 'request_center#update'
-            let arr = handler_string.split("#").collect::<Vec<&str>>();
-            if arr.len() != 2 {
-                return Vec::new();
-            }
-            let controller = arr[0];
-            let name = arr[1];
-            // debug!("controller: {}, name: {}", controller, name);
-            if let Some(nd) =
-                graph.find_func_by(|nd: &NodeData| nd.name == name && is_controller(nd, controller))
-            {
-                inter.push((endpoint, nd));
-                explicit_path = true;
-            }
-        } else {
-            // https://guides.rubyonrails.org/routing.html  section 2.2 CRUD, Verbs, and Actions
-            let ror_actions = vec![
-                "index", "show", "new", "create", "edit", "update", "destroy",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-            let verb_mapping = vec![
-                ("GET", "index"),
-                ("GET", "show"),
-                ("GET", "new"),
-                ("POST", "create"),
-                ("GET", "edit"),
-                ("PUT", "update"),
-                ("DELETE", "destroy"),
-            ];
-            let mut verb_map = BTreeMap::new();
-            for (verb, action) in verb_mapping {
-                verb_map.insert(action.to_string(), verb.to_string());
-            }
-            let actions = match &params.actions_array {
-                Some(aa) => {
-                    let aaa = trim_array_string(aa);
-                    // split on commas, and trim_quotes
-                    aaa.split(",")
-                        .map(|s| trim_quotes(s).to_string())
-                        .collect::<Vec<String>>()
-                }
-                None => ror_actions,
-            };
-            // resources :request_center
-            let controllers =
-                graph.find_funcs_by(|nd: &NodeData| is_controller(nd, handler_string));
-            debug!(
-                "ror endpoint controllers for {}: {:?}",
-                handler_string,
-                controllers.len()
-            );
-            for nd in controllers {
-                debug!("checking controller: {}", nd.name);
-                if actions.contains(&nd.name) {
-                    debug!("===> found action: {}", nd.name);
-                    let mut endp_ = endpoint.clone();
-                    endp_.add_action(&nd.name);
-                    if let Some(verb) = verb_map.get(&nd.name) {
-                        endp_.add_verb(verb);
-                    }
-                    inter.push((endp_, nd));
-                }
-            }
-        }
-
-        let ret = inter
-            .iter()
-            .map(|(src, target)| {
-                let mut src = src.clone();
-                if !explicit_path {
-                    if let Some(pathy) = rails_routes::generate_endpoint_path(&src, &params) {
-                        src.name = pathy;
-                    }
-                }
-                let edge = Edge::handler(&src, &target);
-                (src.clone(), Some(edge))
-            })
-            .collect::<Vec<(NodeData, Option<Edge>)>>();
-
-        ret
-    }
     fn find_endpoint_parents(
         &self,
         node: TreeNode,
         code: &str,
         _file: &str,
-        _graph: &ArrayGraph,
+        _nodes: &[Node],
     ) -> Result<Vec<HandlerItem>> {
         let mut parents = Vec::new();
         let mut parent = node.parent();
@@ -383,24 +236,144 @@ impl StackGraphOperations<ArrayGraph> for Ruby {
         parents.reverse();
         Ok(parents)
     }
-    fn data_model_within_finder(&self, data_model: &NodeData, graph: &ArrayGraph) -> Vec<Edge> {
-        // file: app/controllers/api/advisor_groups_controller.rb
-        let mut models = Vec::new();
-        let singular_name = data_model.name.to_lowercase();
-        let plural_name = inflection::pluralize(&singular_name);
-        let funcs = graph.find_funcs_by(|f| is_controller(&f, &plural_name));
-        for func in funcs {
-            models.push(Edge::contains(
-                NodeType::Function,
-                &func,
-                NodeType::DataModel,
-                data_model,
-            ));
+    fn integration_test_edge_finder(
+        &self,
+        nd: &NodeData,
+        nodes: &[Node],
+        tt: NodeType,
+    ) -> Option<Edge> {
+        let class = nodes
+            .iter()
+            .find(|n| matches!(n, Node::Class(c) if c.name == nd.name));
+        class.map(|c| {
+            Edge::calls(
+                tt,
+                nd,
+                NodeType::Class,
+                &c.into_data(),
+                CallsMeta::default(),
+            )
+        })
+    }
+    fn handler_finder(
+        &self,
+        endpoint: NodeData,
+        nodes: &[Node],
+        params: HandlerParams,
+    ) -> Vec<(NodeData, Option<Edge>)> {
+        if endpoint.meta.get("handler").is_none() {
+            return Vec::new();
         }
-        // without: Returning Graph with 12726 nodes and 13283 edges
-        // if edge:Handler with source.node_data.name == name, then the target -> Contains this data model
-        // "advisor_groups"
-        models
+        let handler_string = endpoint.meta.get("handler").unwrap();
+        // tracing::info!("handler_finder: {} {:?}", handler_string, params);
+        let mut explicit_path = false;
+        // intermediate nodes (src/target)
+        let mut inter = Vec::new();
+        // let mut targets = Vec::new();
+        if let Some(item) = &params.item {
+            let found_node = nodes
+                .iter()
+                .filter_map(|n| match n {
+                    Node::Function(f)
+                        if is_controller(f, handler_string) && f.name == item.name =>
+                    {
+                        Some(f.clone())
+                    }
+                    _ => None,
+                })
+                .next();
+
+            if let Some(nd) = found_node {
+                inter.push((endpoint, nd));
+            }
+        } else if handler_string.contains("#") {
+            // put 'request_center/:id', to: 'request_center#update'
+            let arr = handler_string.split("#").collect::<Vec<&str>>();
+            if arr.len() != 2 {
+                return Vec::new();
+            }
+            let controller = arr[0];
+            let name = arr[1];
+            // debug!("controller: {}, name: {}", controller, name);
+            if let Some(nd) = nodes.iter().find(|nd| {
+                nd.into_data().name.contains(name) && is_controller(&nd.into_data(), controller)
+            }) {
+                inter.push((endpoint, nd.into_data()));
+                explicit_path = true;
+            }
+        } else {
+            // https://guides.rubyonrails.org/routing.html  section 2.2 CRUD, Verbs, and Actions
+            let ror_actions = vec![
+                "index", "show", "new", "create", "edit", "update", "destroy",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+            let verb_mapping = vec![
+                ("GET", "index"),
+                ("GET", "show"),
+                ("GET", "new"),
+                ("POST", "create"),
+                ("GET", "edit"),
+                ("PUT", "update"),
+                ("DELETE", "destroy"),
+            ];
+            let mut verb_map = BTreeMap::new();
+            for (verb, action) in verb_mapping {
+                verb_map.insert(action.to_string(), verb.to_string());
+            }
+            let actions = match &params.actions_array {
+                Some(aa) => {
+                    let aaa = trim_array_string(aa);
+                    // split on commas, and trim_quotes
+                    aaa.split(",")
+                        .map(|s| trim_quotes(s).to_string())
+                        .collect::<Vec<String>>()
+                }
+                None => ror_actions,
+            };
+            // resources :request_center
+            let controllers = nodes
+                .iter()
+                .filter_map(|n| match n {
+                    Node::Function(f) if is_controller(f, handler_string) => Some(f.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<NodeData>>();
+            debug!(
+                "ror endpoint controllers for {}: {:?}",
+                handler_string,
+                controllers.len()
+            );
+            for nd in controllers {
+                debug!("checking controller: {}", nd.name);
+                if actions.contains(&nd.name) {
+                    debug!("===> found action: {}", nd.name);
+                    let mut endp_ = endpoint.clone();
+                    endp_.add_action(&nd.name);
+                    if let Some(verb) = verb_map.get(&nd.name) {
+                        endp_.add_verb(verb);
+                    }
+                    inter.push((endp_, nd));
+                }
+            }
+        }
+
+        let ret = inter
+            .iter()
+            .map(|(src, target)| {
+                let mut src = src.clone();
+                if !explicit_path {
+                    if let Some(pathy) = rails_routes::generate_endpoint_path(&src, &params) {
+                        src.name = pathy;
+                    }
+                }
+                let edge = Edge::handler(&src, &target);
+                (src.clone(), Some(edge))
+            })
+            .collect::<Vec<(NodeData, Option<Edge>)>>();
+
+        ret
     }
     fn find_function_parent(
         &self,
@@ -408,7 +381,7 @@ impl StackGraphOperations<ArrayGraph> for Ruby {
         code: &str,
         file: &str,
         func_name: &str,
-        _graph: &ArrayGraph,
+        _nodes: &[Node],
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -430,9 +403,53 @@ impl StackGraphOperations<ArrayGraph> for Ruby {
         };
         Ok(parent_of)
     }
+    fn extra_page_finder(&self, file_path: &str, nodes: &[Node]) -> Option<Edge> {
+        let pagename = get_page_name(file_path);
+        if pagename.is_none() {
+            return None;
+        }
+        let pagename = pagename.unwrap();
+        let page = NodeData::name_file(&pagename, file_path);
+        // get the handler name
+        let p = std::path::Path::new(file_path);
+        let func_name = remove_all_extensions(p);
+        let controller_name = p.parent()?.file_name()?.to_str()?;
+        // println!("func_name: {}, controller_name: {}", func_name, controller_name);
+        let handler = nodes.iter().find(|nd| { 
+            matches!(nd, Node::Function(f) if f.name.contains(&func_name) && is_controller(&f, controller_name))
+        }
+        );
+        if let Some(handler) = handler {
+            Some(Edge::renders(&page, &handler.into_data()))
+        } else {
+            None
+        }
+    }
+     fn data_model_within_finder(&self, data_model: &NodeData, nodes: &[Node]) -> Vec<Edge> {
+        // file: app/controllers/api/advisor_groups_controller.rb
+        let mut models = Vec::new();
+        let singular_name = data_model.name.to_lowercase();
+        let plural_name = inflection::pluralize(&singular_name);
+        let funcs = nodes.iter().filter(|nodes| {
+            matches!(nodes, Node::Function(f) if is_controller(f, &plural_name))
+        });
+       
+        for func in funcs {
+            models.push(Edge::contains(
+                NodeType::Function,
+                &func.into_data(),
+                NodeType::DataModel,
+                data_model,
+            ));
+        }
+        // without: Returning Graph with 12726 nodes and 13283 edges
+        // if edge:Handler with source.node_data.name == name, then the target -> Contains this data model
+        // "advisor_groups"
+        models
+    }
 }
 
-impl LangOperations for Ruby {}
+
 
 fn remove_all_extensions(path: &Path) -> String {
     let mut stem = path

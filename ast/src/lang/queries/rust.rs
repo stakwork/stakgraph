@@ -245,11 +245,7 @@ impl Stack for Rust {
             endpoint.add_verb("GET");
         }
     }
-}
-impl StackGraphOperations<ArrayGraph> for Rust {
-    fn clean_graph(&self, graph: &mut ArrayGraph) -> bool {
-        filter_out_classes_without_methods(graph)
+    fn clean_graph(&self, nodes: &mut Vec<Node>) -> bool {
+        filter_out_classes_without_methods(nodes)
     }
 }
-
-impl LangOperations for Rust {}

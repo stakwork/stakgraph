@@ -1,6 +1,5 @@
 use super::repo::{check_revs_files, Repo};
 use crate::lang::graph_trait::Graph;
-use crate::lang::ArrayGraph;
 use crate::lang::{asg::NodeData, graph::Node, graph::NodeType};
 use anyhow::{Ok, Result};
 use git_url_parse::GitUrl;
@@ -13,10 +12,7 @@ use tracing::{debug, info};
 const MAX_FILE_SIZE: u64 = 100_000; // 100kb max file size
 
 impl Repo {
-    pub async fn build_graph(&self) -> Result<ArrayGraph> {
-        self.build_graph_with::<ArrayGraph>().await
-    }
-    pub async fn build_graph_with<G: Graph>(&self) -> Result<G> {
+    pub async fn build_graph<G: Graph>(&self) -> Result<G> {
         let mut graph = G::new();
 
         println!("Root: {:?}", self.root);
@@ -208,7 +204,7 @@ impl Repo {
             for pagepath in extra_pages {
                 if let Some(pagename) = get_page_name(&pagepath) {
                     let nd = NodeData::name_file(&pagename, &pagepath);
-                    let edge = self.lang.lang().extra_page_finder(&pagepath, &graph);
+                    let edge = self.lang.lang().extra_page_finder(&pagepath, graph.nodes());
                     graph.add_page((nd, edge));
                 }
             }
@@ -250,10 +246,11 @@ impl Repo {
         // try again on the endpoints to add data models, if manual
         if self.lang.lang().use_data_model_within_finder() {
             info!("=> get_data_models_within...");
-            for n in graph.nodes().into_iter() {
+            let nodes = graph.nodes().to_vec();
+            for n in nodes.iter() {
                 match n {
-                    crate::lang::graph::Node::DataModel(nd) => {
-                        let edges = self.lang.lang().data_model_within_finder(nd, &graph);
+                    Node::DataModel(nd) => {
+                        let edges = self.lang.lang().data_model_within_finder(&nd, &nodes);
                         graph.edges_mut().extend(edges);
                     }
                     _ => {}
@@ -295,11 +292,10 @@ impl Repo {
             }
             info!("=> got {} function calls", i);
         }
-
-        self.lang.lang().clean_graph(&mut graph);
+        self.lang.lang().clean_graph(graph.nodes_mut());
 
         // filter by revs
-        graph = filter_by_revs_with(&self.root.to_str().unwrap(), self.revs.clone(), graph);
+        graph = filter_by_revs(&self.root.to_str().unwrap(), self.revs.clone(), graph);
 
         // prefix the "file" of each node and edge with the root
         for node in &mut graph.nodes_mut().iter_mut() {
@@ -328,10 +324,7 @@ impl Repo {
     }
 }
 
-fn filter_by_revs(root: &str, revs: Vec<String>, graph: ArrayGraph) -> ArrayGraph {
-    filter_by_revs_with(root, revs, graph)
-}
-fn filter_by_revs_with<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
+fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
     if revs.is_empty() {
         return graph;
     }

@@ -26,7 +26,7 @@ impl Lang {
                 NodeType::Trait => vec![self.format_trait(&m, code, file, q)?],
                 // req and endpoint are the same format in the query templates
                 NodeType::Endpoint | NodeType::Request => self
-                    .format_endpoint(&m, code, file, q, None, &None)?
+                    .format_endpoint(&m, code, file, q, &[], &None)?
                     .into_iter()
                     .map(|(nd, _e)| nd)
                     .collect(),
@@ -262,21 +262,24 @@ impl Lang {
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
-                let endys =
-                    self.format_endpoint::<ArrayGraph>(&m, code, file, &q, graph, lsp_tx)?;
+                let endys = if let Some(graph) = graph {
+                    self.format_endpoint(&m, code, file, &q, graph.nodes(), lsp_tx)?
+                } else {
+                    Vec::new()
+                };
                 res.extend(endys);
             }
         }
         Ok(res)
     }
     // endpoint, handlers
-    pub fn format_endpoint<G: Graph>(
+    pub fn format_endpoint(
         &self,
         m: &QueryMatch,
         code: &str,
         file: &str,
         q: &Query,
-        graph: Option<&G>,
+        nodes: &[Node],
         lsp_tx: &Option<CmdSender>,
     ) -> Result<Vec<(NodeData, Option<Edge>)>> {
         // println!("FORMAT ENDPOINT");
@@ -309,10 +312,8 @@ impl Lang {
                 endp.add_handler(&handler_name);
                 let p = node.start_position();
                 handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
-                if let Some(graph) = graph {
-                    // collect parents
-                    params.parents = self.lang.find_endpoint_parents(node, code, file, graph)?;
-                }
+                // collect parents
+                params.parents = self.lang.find_endpoint_parents(node, code, file, nodes)?;
             } else if o == HANDLER_ACTIONS_ARRAY {
                 // [:destroy, :index]
                 params.actions_array = Some(body);
@@ -341,34 +342,33 @@ impl Lang {
                 endp.name = handler.to_string();
             }
         }
-        if let Some(graph) = graph {
-            if self.lang().use_handler_finder() {
-                // find handler manually (not LSP)
-                return Ok(self.lang().handler_finder(endp, graph, params));
-            } else {
-                // here find the handler using LSP!
-                if let Some(handler_name) = endp.meta.get("handler") {
-                    if let Some(lsp) = lsp_tx {
-                        if let Some(pos) = handler_position {
-                            log_cmd(format!("=> looking for HANDLER {:?}", handler_name));
-                            let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
-                            if let LspRes::GotoDefinition(Some(gt)) = res {
-                                let target_file = gt.file.display().to_string();
-                                if let Some(_t_file) =
-                                    func_file_finder(&handler_name, &target_file, graph)
-                                {
-                                    log_cmd(format!("HANDLER def, in graph: {:?}", handler_name));
-                                } else {
-                                    log_cmd(format!("HANDLER def, not found: {:?}", handler_name));
-                                }
-                                let target = NodeData::name_file(&handler_name, &target_file);
-                                handler = Some(Edge::handler(&endp, &target));
+
+        if self.lang().use_handler_finder() {
+            // find handler manually (not LSP)
+            return Ok(self.lang().handler_finder(endp, nodes, params));
+        } else {
+            // here find the handler using LSP!
+            if let Some(handler_name) = endp.meta.get("handler") {
+                if let Some(lsp) = lsp_tx {
+                    if let Some(pos) = handler_position {
+                        log_cmd(format!("=> looking for HANDLER {:?}", handler_name));
+                        let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+                        if let LspRes::GotoDefinition(Some(gt)) = res {
+                            let target_file = gt.file.display().to_string();
+                            if let Some(_t_file) =
+                                func_file_finder(&handler_name, &target_file, nodes)
+                            {
+                                log_cmd(format!("HANDLER def, in graph: {:?}", handler_name));
+                            } else {
+                                log_cmd(format!("HANDLER def, not found: {:?}", handler_name));
                             }
+                            let target = NodeData::name_file(&handler_name, &target_file);
+                            handler = Some(Edge::handler(&endp, &target));
                         }
-                    } else {
-                        // FALLBACK to find?
-                        return Ok(self.lang().handler_finder(endp, graph, params));
                     }
+                } else {
+                    // FALLBACK to find?
+                    return Ok(self.lang().handler_finder(endp, nodes, params));
                 }
             }
         }
@@ -464,7 +464,7 @@ impl Lang {
                     code,
                     file,
                     &func.name,
-                    graph,
+                    graph.nodes(),
                     parent_type.as_deref(),
                 )?;
                 if let Some(pp) = &parent {
@@ -481,7 +481,7 @@ impl Lang {
                             code,
                             file,
                             &self.q(&rq, &NodeType::Endpoint),
-                            None,
+                            graph.nodes(),
                             &None,
                         )?;
                         if !reqs.is_empty() {
@@ -492,7 +492,7 @@ impl Lang {
                 // data models
                 if self.lang.use_data_model_within_finder() {
                     // do this later actually
-                    // models = self.lang.data_model_within_finder(&func.name, file, graph);
+                    // models = self.lang.data_model_within_finder(&func.name, file, nodes);
                 } else if let Some(dmq) = self.lang.data_model_within_query() {
                     let mut cursor = QueryCursor::new();
                     let qqq = self.q(&dmq, &NodeType::DataModel);
@@ -564,7 +564,9 @@ impl Lang {
             return Ok(None);
         }
         if let Some(pos) = name_pos {
-            trait_operand = self.lang.find_trait_operand(pos, &func, graph, lsp_tx)?;
+            trait_operand = self
+                .lang
+                .find_trait_operand(pos, &func, graph.nodes(), lsp_tx)?;
         }
         log_cmd(format!("found function {:?}", func.name));
         Ok(Some((
@@ -750,7 +752,7 @@ impl Lang {
                                         log_cmd(format!("==> ? impls {} {:?}", called, gt2));
                                         let target_file = gt2.file.display().to_string();
                                         if let Some(t_file) =
-                                            func_file_finder(&called, &target_file, graph)
+                                            func_file_finder(&called, &target_file, graph.nodes())
                                         {
                                             log_cmd(format!(
                                                 "==> ! found target for impl {:?} {}!!!",
@@ -817,15 +819,9 @@ impl Lang {
         let mut matches = cursor.matches(&q, caller_node, code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            if let Some(fc) = self.format_integration_test_call::<ArrayGraph>(
-                &m,
-                code,
-                file,
-                &q,
-                caller_name,
-                graph,
-                lsp_tx,
-            )? {
+            if let Some(fc) =
+                self.format_integration_test_call(&m, code, file, &q, caller_name, graph, lsp_tx)?
+            {
                 res.push(fc);
             }
         }
@@ -853,9 +849,9 @@ impl Lang {
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             let (nd, tt) = self.format_integration_test(&m, code, file, &q)?;
-            let test_edge_opt = self
-                .lang
-                .integration_test_edge_finder(&nd, &graph, tt.clone());
+            let test_edge_opt =
+                self.lang
+                    .integration_test_edge_finder(&nd, &graph.nodes(), tt.clone());
             res.push((nd, tt, test_edge_opt));
         }
         Ok(res)
@@ -940,7 +936,7 @@ impl Lang {
         let res = LspCmd::GotoDefinition(pos).send(&lsp_tx)?;
         if let LspRes::GotoDefinition(Some(gt)) = res {
             let target_file = gt.file.display().to_string();
-            if let Some(t_file) = func_file_finder(&handler_name, &target_file, graph) {
+            if let Some(t_file) = func_file_finder(&handler_name, &target_file, graph.nodes()) {
                 log_cmd(format!(
                     "==> {} ! found integration test target for {:?} {}!!!",
                     caller_name, handler_name, &t_file
@@ -992,10 +988,10 @@ pub fn exact_func_finder<G: Graph>(func_name: &str, file: &str, graph: &G) -> Op
     }
     target_file
 }
-pub fn func_file_finder<G: Graph>(func_name: &str, file: &str, graph: &G) -> Option<String> {
+pub fn func_file_finder(func_name: &str, file: &str, nodes: &[Node]) -> Option<String> {
     let mut target_file = None;
     // println!("finder {:?} {:?}", func_name, file);
-    for node in graph.nodes().iter() {
+    for node in nodes.iter() {
         match node {
             Node::Function(f) => {
                 if f.name == func_name && f.file == file {

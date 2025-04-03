@@ -19,11 +19,9 @@ use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
 use tree_sitter::{Node as TreeNode, Query, QueryCursor, QueryMatch};
 
-pub trait LangOperations: StackGraphOperations + Stack {}
-
 pub struct Lang {
     pub kind: Language,
-    lang: Box<dyn LangOperations>,
+    lang: Box<dyn Stack>,
 }
 
 impl fmt::Display for Lang {
@@ -113,14 +111,14 @@ impl Lang {
         }
     }
 
-    pub fn lang(&self) -> &dyn LangOperations {
+    pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
 
-    pub fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_libs(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);
             Ok(self.collect(&qo, code, file, NodeType::Library)?)
@@ -128,11 +126,11 @@ impl Lang {
             Ok(Vec::new())
         }
     }
-    pub fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_classes(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
         Ok(self.collect(&qo, code, file, NodeType::Class)?)
     }
-    pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_traits(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.trait_query() {
             let qo = self.q(&qo, &NodeType::Trait);
             Ok(self.collect(&qo, code, file, NodeType::Trait)?)
@@ -140,7 +138,7 @@ impl Lang {
             Ok(Vec::new())
         }
     }
-    pub fn get_imports<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_imports(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.imports_query() {
             let qo = self.q(&qo, &NodeType::Import);
             Ok(self.collect(&qo, code, file, NodeType::Import)?)
