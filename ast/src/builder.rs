@@ -329,7 +329,7 @@ impl Repo {
                 self.lang
                     .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx)?;
             i += endpoints.len();
-            //TODO: Handle Endpoints specially
+
             graph.add_endpoints(endpoints);
         }
         info!("=> got {} endpoints", i);
@@ -372,8 +372,7 @@ impl Repo {
                     .collect_integration_tests(code, filename, &graph)?;
                 i += int_tests.len();
                 for (nd, tt, edge_opt) in int_tests {
-                    //TODO: Handle Integration Tests specially
-                    graph.add_integration_test(nd, tt, edge_opt);
+                    graph.add_test_node(nd, tt, edge_opt);
                 }
             }
         }
@@ -391,7 +390,7 @@ impl Repo {
                     .get_function_calls(&code, &filename, &graph, &self.lsp_tx)
                     .await?;
                 i += all_calls.0.len();
-                //TODO: Handle Function Calls specially
+
                 graph.add_calls(all_calls);
             }
             info!("=> got {} function calls", i);

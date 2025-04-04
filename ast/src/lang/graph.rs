@@ -299,6 +299,82 @@ impl Graph for ArrayGraph {
             }
         }
     }
+    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
+        self.nodes.iter().find_map(|n| {
+            if n.node_type == NodeType::Endpoint
+                && n.node_data.name == name
+                && n.node_data.file == file
+                && n.node_data.meta.get("verb") == Some(&verb.to_string())
+            {
+                Some(n.node_data.clone())
+            } else {
+                None
+            }
+        })
+    }
+    // one endpoint can have multiple handlers like in Ruby on Rails (resources)
+    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+        for (e, h) in endpoints {
+            if let Some(_handler) = e.meta.get("handler") {
+                let default_verb = "".to_string();
+                let verb = e.meta.get("verb").unwrap_or(&default_verb);
+
+                if self.find_endpoint(&e.name, &e.file, verb).is_some() {
+                    continue;
+                }
+                self.nodes.push(Node::new(NodeType::Endpoint, e));
+                if let Some(edge) = h {
+                    self.edges.push(edge);
+                }
+            } else {
+                debug!("err missing handler on endpoint!");
+            }
+        }
+    }
+    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
+        self.add_node_with_parent(
+            test_type,
+            test_data.clone(),
+            NodeType::File,
+            &test_data.file,
+        );
+
+        if let Some(edge) = test_edge {
+            self.edges.push(edge);
+        }
+    }
+    // funcs, tests, integration tests
+    fn add_calls(
+        &mut self,
+        (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
+    ) {
+        // add lib funcs first
+        for (fc, ext_func) in funcs {
+            if let Some(ext_nd) = ext_func {
+                self.edges.push(Edge::uses(fc.source, &ext_nd));
+                // don't add if it's already in the graph
+                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
+                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
+                }
+            } else {
+                self.edges.push(fc.into())
+            }
+        }
+        for (tc, ext_func) in tests {
+            if let Some(ext_nd) = ext_func {
+                self.edges.push(Edge::uses(tc.source, &ext_nd));
+                // don't add if it's already in the graph
+                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
+                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
+                }
+            } else {
+                self.edges.push(Edge::new_test_call(tc));
+            }
+        }
+        for edg in int_tests {
+            self.edges.push(edg);
+        }
+    }
     fn find_node_by_name_in_file(
         &self,
         node_type: NodeType,
@@ -540,57 +616,7 @@ impl ArrayGraph {
             })
             .collect()
     }
-    // funcs, tests, integration tests
-    pub fn add_calls(
-        &mut self,
-        (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
-    ) {
-        // add lib funcs first
-        for (fc, ext_func) in funcs {
-            if let Some(ext_nd) = ext_func {
-                self.edges.push(Edge::uses(fc.source, &ext_nd));
-                // don't add if it's already in the graph
-                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
-                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
-                }
-            } else {
-                self.edges.push(fc.into())
-            }
-        }
-        for (tc, ext_func) in tests {
-            if let Some(ext_nd) = ext_func {
-                self.edges.push(Edge::uses(tc.source, &ext_nd));
-                // don't add if it's already in the graph
-                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
-                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
-                }
-            } else {
-                self.edges.push(Edge::new_test_call(tc));
-            }
-        }
-        for edg in int_tests {
-            self.edges.push(edg);
-        }
-    }
-    // one endpoint can have multiple handlers like in Ruby on Rails (resources)
-    pub fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
-        for (e, h) in endpoints {
-            if let Some(_handler) = e.meta.get("handler") {
-                if self
-                    .find_exact_endpoint(&e.name, &e.file, e.meta.get("verb"))
-                    .is_some()
-                {
-                    continue;
-                }
-                self.nodes.push(Node::new(NodeType::Endpoint, e));
-                if let Some(edge) = h {
-                    self.edges.push(edge);
-                }
-            } else {
-                debug!("err missing handler on endpoint!");
-            }
-        }
-    }
+
     pub fn add_integration_test(&mut self, t: NodeData, tt: NodeType, e: Option<Edge>) {
         if let Some(ff) = self.file_data(&t.file) {
             let edge = Edge::contains(NodeType::File, &ff, tt.clone(), &t);

@@ -1,5 +1,5 @@
-use crate::lang::Function;
 use crate::lang::{Edge, Lang, Node, NodeType};
+use crate::lang::{Function, FunctionCall};
 use anyhow::Result;
 use std::fmt::Debug;
 
@@ -61,4 +61,10 @@ pub trait Graph: Default + Debug {
     fn add_functions(&mut self, functions: Vec<Function>);
     fn add_page(&mut self, page: (NodeData, Option<Edge>));
     fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>);
+    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>);
+    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>);
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>));
+
+    //Specific
+    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData>;
 }
