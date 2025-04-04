@@ -1,3 +1,4 @@
+use crate::lang::Function;
 use crate::lang::{Edge, Lang, Node, NodeType};
 use anyhow::Result;
 use std::fmt::Debug;
@@ -30,7 +31,6 @@ pub trait Graph: Default + Debug {
         parent_type: NodeType,
         parent_file: &str,
     ) -> Option<Edge>;
-    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()>;
     fn find_node_by_name_in_file(
         &self,
         node_type: NodeType,
@@ -53,6 +53,12 @@ pub trait Graph: Default + Debug {
         target_file: &str,
     ) -> Option<NodeKeys>;
 
-    // fn extend_node(&mut self, node: Node, parent_file: Option<&str>);
-    // fn extend_edge(&mut self, edge: Edge, parent_file: Option<&str>);
+    //Special cases
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()>;
+    fn class_inherits(&mut self);
+    fn class_includes(&mut self);
+    fn add_instances(&mut self, nodes: Vec<NodeData>);
+    fn add_functions(&mut self, functions: Vec<Function>);
+    fn add_page(&mut self, page: (NodeData, Option<Edge>));
+    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>);
 }

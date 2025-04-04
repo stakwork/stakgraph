@@ -203,6 +203,102 @@ impl Graph for ArrayGraph {
         }
         Ok(())
     }
+    fn class_inherits(&mut self) {
+        for n in self.nodes.iter() {
+            if n.node_type == NodeType::Class {
+                if let Some(parent) = n.node_data.meta.get("parent") {
+                    if let Some(parent_node) = self.find_by_name(NodeType::Class, parent) {
+                        let edge = Edge::parent_of(&parent_node, &n.node_data);
+                        self.edges.push(edge);
+                    }
+                }
+            }
+        }
+    }
+    fn class_includes(&mut self) {
+        for n in self.nodes.iter() {
+            if n.node_type == NodeType::Class {
+                if let Some(includes) = n.node_data.meta.get("includes") {
+                    let modules = includes.split(",").map(|m| m.trim()).collect::<Vec<&str>>();
+                    for m in modules {
+                        if let Some(m_node) = self.find_by_name(NodeType::Class, m) {
+                            let edge = Edge::class_imports(&n.node_data, &m_node);
+                            self.edges.push(edge);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn add_instances(&mut self, instances: Vec<NodeData>) {
+        for inst in instances {
+            if let Some(of) = &inst.data_type {
+                if let Some(cl) = self.find_nodes_by_name(NodeType::Class, &of).first() {
+                    if let Some(ff) = self.file_data(&inst.file) {
+                        let edge = Edge::contains(NodeType::File, &ff, NodeType::Instance, &inst);
+                        self.edges.push(edge);
+                    }
+                    let of_edge = Edge::of(&inst, &cl);
+                    self.edges.push(of_edge);
+                    self.nodes.push(Node::new(NodeType::Instance, inst));
+                }
+            }
+        }
+    }
+    fn add_functions(&mut self, functions: Vec<Function>) {
+        for f in functions {
+            // HERE return_types
+            let (node, method_of, reqs, dms, trait_operand, return_types) = f;
+            if let Some(ff) = self.file_data(&node.file) {
+                let edge = Edge::contains(NodeType::File, &ff, NodeType::Function, &node);
+                self.edges.push(edge);
+            }
+            self.nodes.push(Node::new(NodeType::Function, node.clone()));
+            if let Some(p) = method_of {
+                self.edges.push(p.into());
+            }
+            if let Some(to) = trait_operand {
+                self.edges.push(to.into());
+            }
+            for rt in return_types {
+                self.edges.push(rt);
+            }
+            for r in reqs {
+                // FIXME add operand on calls (axios, api, etc)
+                self.edges.push(Edge::calls(
+                    NodeType::Function,
+                    &node,
+                    NodeType::Request,
+                    &r,
+                    CallsMeta {
+                        call_start: r.start,
+                        call_end: r.end,
+                        operand: None,
+                    },
+                ));
+                self.nodes.push(Node::new(NodeType::Request, r));
+            }
+            for dm in dms {
+                self.edges.push(dm);
+            }
+        }
+    }
+    fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
+        let (p, e) = page;
+        self.nodes.push(Node::new(NodeType::Page, p));
+        if let Some(edge) = e {
+            self.edges.push(edge);
+        }
+    }
+    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+        for (p, e) in pages {
+            self.nodes.push(Node::new(NodeType::Page, p));
+            for edge in e {
+                self.edges.push(edge);
+            }
+        }
+    }
     fn find_node_by_name_in_file(
         &self,
         node_type: NodeType,
@@ -413,21 +509,7 @@ impl ArrayGraph {
             }
         }
     }
-    pub fn add_instances(&mut self, instances: Vec<NodeData>) {
-        for inst in instances {
-            if let Some(of) = &inst.data_type {
-                if let Some(cl) = self.find_by_name(NodeType::Class, &of) {
-                    if let Some(ff) = self.file_data(&inst.file) {
-                        let edge = Edge::contains(NodeType::File, &ff, NodeType::Instance, &inst);
-                        self.edges.push(edge);
-                    }
-                    let of_edge = Edge::of(&inst, &cl);
-                    self.edges.push(of_edge);
-                    self.nodes.push(Node::new(NodeType::Instance, inst));
-                }
-            }
-        }
-    }
+
     pub fn add_structs(&mut self, structs: Vec<NodeData>) {
         for s in structs {
             if let Some(ff) = self.file_data(&s.file) {
@@ -435,44 +517,6 @@ impl ArrayGraph {
                 self.edges.push(edge);
             }
             self.nodes.push(Node::new(NodeType::DataModel, s));
-        }
-    }
-    pub fn add_functions(&mut self, functions: Vec<Function>) {
-        for f in functions {
-            // HERE return_types
-            let (node, method_of, reqs, dms, trait_operand, return_types) = f;
-            if let Some(ff) = self.file_data(&node.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::Function, &node);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::new(NodeType::Function, node.clone()));
-            if let Some(p) = method_of {
-                self.edges.push(p.into());
-            }
-            if let Some(to) = trait_operand {
-                self.edges.push(to.into());
-            }
-            for rt in return_types {
-                self.edges.push(rt);
-            }
-            for r in reqs {
-                // FIXME add operand on calls (axios, api, etc)
-                self.edges.push(Edge::calls(
-                    NodeType::Function,
-                    &node,
-                    NodeType::Request,
-                    &r,
-                    CallsMeta {
-                        call_start: r.start,
-                        call_end: r.end,
-                        operand: None,
-                    },
-                ));
-                self.nodes.push(Node::new(NodeType::Request, r));
-            }
-            for dm in dms {
-                self.edges.push(dm);
-            }
         }
     }
     pub fn add_tests(&mut self, tests: Vec<Function>) {
@@ -560,33 +604,6 @@ impl ArrayGraph {
         self.nodes.push(node);
         if let Some(e) = e {
             self.edges.push(e);
-        }
-    }
-    pub fn class_inherits(&mut self) {
-        for n in self.nodes.iter() {
-            if n.node_type == NodeType::Class {
-                if let Some(parent) = n.node_data.meta.get("parent") {
-                    if let Some(parent_node) = self.find_by_name(NodeType::Class, parent) {
-                        let edge = Edge::parent_of(&parent_node, &n.node_data);
-                        self.edges.push(edge);
-                    }
-                }
-            }
-        }
-    }
-    pub fn class_includes(&mut self) {
-        for n in self.nodes.iter() {
-            if n.node_type == NodeType::Class {
-                if let Some(includes) = n.node_data.meta.get("includes") {
-                    let modules = includes.split(",").map(|m| m.trim()).collect::<Vec<&str>>();
-                    for m in modules {
-                        if let Some(m_node) = self.find_by_name(NodeType::Class, m) {
-                            let edge = Edge::class_imports(&n.node_data, &m_node);
-                            self.edges.push(edge);
-                        }
-                    }
-                }
-            }
         }
     }
 

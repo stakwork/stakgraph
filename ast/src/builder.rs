@@ -209,7 +209,6 @@ impl Repo {
             //graph.add_classes(classes);
         }
         info!("=> got {} classes", i);
-        //TODO: add node inheritances to the graph trait
         graph.class_inherits();
         graph.class_includes();
 
@@ -220,15 +219,6 @@ impl Repo {
                 .lang
                 .get_query_opt(q, &code, &filename, NodeType::Instance)?;
 
-            // for instance in instaces {
-            //     graph.add_node_with_parent(
-            //         NodeType::Instance,
-            //         instance.clone(),
-            //         NodeType::File,
-            //         &instance.file,
-            //     );
-            // }
-            //TODO: needs special handling
             graph.add_instances(instances);
         }
 
@@ -279,7 +269,7 @@ impl Repo {
                 self.lang
                     .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)?;
             i += funcs.len();
-            //TODO: handle specially
+
             graph.add_functions(funcs);
             i += tests.len();
 
@@ -303,7 +293,6 @@ impl Repo {
                 let pages = self.lang.get_pages(&code, &filename, &self.lsp_tx)?;
                 i += pages.len();
 
-                //TODO:: Handle Pages specially
                 graph.add_pages(pages);
             }
         }
@@ -318,7 +307,6 @@ impl Repo {
                 if let Some(pagename) = get_page_name(&pagepath) {
                     let nd = NodeData::name_file(&pagename, &pagepath);
                     let edge = self.lang.lang().extra_page_finder(&pagepath, &graph);
-                    //TODO: Handle Page specially
                     graph.add_page((nd, edge));
                 }
             }
