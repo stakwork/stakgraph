@@ -93,6 +93,19 @@ impl NodeRef {
 }
 
 impl Graph for ArrayGraph {
+    fn new() -> Self {
+        ArrayGraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+    fn with_capacity(_nodes: usize, _edges: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         self.nodes
             .iter()
@@ -125,6 +138,70 @@ impl Graph for ArrayGraph {
                 None
             }
         })
+    }
+
+    fn add_node_with_parent(
+        &mut self,
+        node_type: NodeType,
+        node_data: NodeData,
+        parent_type: NodeType,
+        parent_file: &str,
+    ) -> Option<Edge> {
+        if let Some(parent) = self
+            .nodes
+            .iter()
+            .find(|n| n.node_type == parent_type && n.node_data.file == parent_file)
+            .map(|n| n.node_data.clone())
+        {
+            let edge = Edge::contains(parent_type, &parent, node_type.clone(), &node_data);
+
+            self.nodes.push(Node::new(node_type, node_data.clone()));
+            self.edges.push(edge.clone());
+
+            Some(edge)
+        } else {
+            self.nodes.push(Node::new(node_type, node_data));
+            None
+        }
+    }
+    // NOTE does this need to be per lang on the trait?
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
+        // the group "name" needs to be added to the beginning of the names of the endpoints in the group
+        for group in eg {
+            // group name (like TribesHandlers)
+            if let Some(g) = group.meta.get("group") {
+                // function (handler) for the group
+                if let Some(gf) = self.find_by_name(NodeType::Function, &g) {
+                    // each individual endpoint in the group code
+                    for q in lang.lang().endpoint_finders() {
+                        let endpoints_in_group =
+                            lang.get_query_opt(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
+                        // find the endpoint in the graph
+                        for end in endpoints_in_group {
+                            if let Some(idx) =
+                                self.find_index_by_name(NodeType::Endpoint, &end.name)
+                            {
+                                let end_node = self.nodes.get_mut(idx).unwrap();
+                                if end_node.node_type == NodeType::Endpoint {
+                                    let new_endpoint =
+                                        format!("{}{}", group.name, end_node.node_data.name);
+                                    end_node.node_data.name = new_endpoint.clone();
+                                    if let Some(ei) =
+                                        self.find_edge_index_by_src(&end.name, &end.file)
+                                    {
+                                        let edge = self.edges.get_mut(ei).unwrap();
+                                        edge.source.node_data.name = new_endpoint;
+                                    } else {
+                                        println!("missing edge for endpoint: {:?}", end);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
     fn find_node_by_name_in_file(
         &self,
@@ -512,45 +589,7 @@ impl ArrayGraph {
             }
         }
     }
-    // NOTE does this need to be per lang on the trait?
-    pub fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
-        // the group "name" needs to be added to the beginning of the names of the endpoints in the group
-        for group in eg {
-            // group name (like TribesHandlers)
-            if let Some(g) = group.meta.get("group") {
-                // function (handler) for the group
-                if let Some(gf) = self.find_by_name(NodeType::Function, &g) {
-                    // each individual endpoint in the group code
-                    for q in lang.lang().endpoint_finders() {
-                        let endpoints_in_group =
-                            lang.get_query_opt(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
-                        // find the endpoint in the graph
-                        for end in endpoints_in_group {
-                            if let Some(idx) =
-                                self.find_index_by_name(NodeType::Endpoint, &end.name)
-                            {
-                                let end_node = self.nodes.get_mut(idx).unwrap();
-                                if end_node.node_type == NodeType::Endpoint {
-                                    let new_endpoint =
-                                        format!("{}{}", group.name, end_node.node_data.name);
-                                    end_node.node_data.name = new_endpoint.clone();
-                                    if let Some(ei) =
-                                        self.find_edge_index_by_src(&end.name, &end.file)
-                                    {
-                                        let edge = self.edges.get_mut(ei).unwrap();
-                                        edge.source.node_data.name = new_endpoint;
-                                    } else {
-                                        println!("missing edge for endpoint: {:?}", end);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
+
     pub fn find_by_name(&self, nt: NodeType, name: &str) -> Option<NodeData> {
         match self.find_index_by_name(nt, name) {
             Some(idx) => Some(self.nodes[idx].into_data()),
@@ -785,6 +824,15 @@ impl ArrayGraph {
     }
 }
 
+impl Default for ArrayGraph {
+    fn default() -> Self {
+        ArrayGraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+}
 impl Edge {
     pub fn new(edge: EdgeType, source: NodeRef, target: NodeRef) -> Self {
         Self {
