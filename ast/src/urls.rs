@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use ast::lang::ArrayGraph;
 use ast::utils::{logger, print_json};
 use ast::{self, repo::Repo};
 use std::env;
@@ -49,7 +50,7 @@ async fn main() -> Result<()> {
     });
     println!("{}", name);
 
-    let graph = repos.build_graphs().await?;
+    let graph = repos.build_graphs::<ArrayGraph>().await?;
 
     if std::env::var("OUTPUT_FORMAT")
         .unwrap_or_else(|_| "json".to_string())

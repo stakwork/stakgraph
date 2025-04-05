@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::{graph_trait::Graph, linker::normalize_backend_path, *};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -93,6 +95,65 @@ impl NodeRef {
 }
 
 impl Graph for ArrayGraph {
+    fn new() -> Self {
+        ArrayGraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+    fn with_capacity(_nodes: usize, _edges: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
+
+    fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
+        let mut new_graph = Self::new();
+
+        for node in &self.nodes {
+            if node.node_type == NodeType::Repository {
+                new_graph.nodes.push(node.clone());
+                continue;
+            }
+            if final_filter.contains(&node.node_data.file) {
+                new_graph.nodes.push(node.clone());
+            }
+        }
+
+        for edge in &self.edges {
+            if final_filter.contains(&edge.source.node_data.file)
+                || final_filter.contains(&edge.target.node_data.file)
+            {
+                new_graph.edges.push(edge.clone());
+            }
+        }
+        //TODO: handler linker
+        // info!("linking e2e tests");
+        // linker::link_e2e_tests(&mut graph)?;
+        // info!("linking api nodes");
+        // linker::link_api_nodes(&mut graph)?;
+
+        println!(
+            "Final Graph: {} nodes and {} edges",
+            &self.nodes.len(),
+            &self.edges.len()
+        );
+
+        new_graph
+    }
+
+    fn extend_graph(&mut self, other: Self) {
+        self.nodes.extend(other.nodes);
+        self.edges.extend(other.edges);
+        self.errors.extend(other.errors);
+    }
+
+    fn get_graph_size(&self) -> (u32, u32) {
+        ((self.nodes.len() as u32), (self.edges.len() as u32))
+    }
+
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         self.nodes
             .iter()
@@ -125,6 +186,243 @@ impl Graph for ArrayGraph {
                 None
             }
         })
+    }
+
+    fn add_node_with_parent(
+        &mut self,
+        node_type: NodeType,
+        node_data: NodeData,
+        parent_type: NodeType,
+        parent_file: &str,
+    ) {
+        if let Some(parent) = self
+            .nodes
+            .iter()
+            .find(|n| n.node_type == parent_type && n.node_data.file == parent_file)
+            .map(|n| n.node_data.clone())
+        {
+            let edge = Edge::contains(parent_type, &parent, node_type.clone(), &node_data);
+
+            self.nodes.push(Node::new(node_type, node_data.clone()));
+            self.edges.push(edge.clone());
+        } else {
+            self.nodes.push(Node::new(node_type, node_data));
+        }
+    }
+    // NOTE does this need to be per lang on the trait?
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
+        // the group "name" needs to be added to the beginning of the names of the endpoints in the group
+        for group in eg {
+            // group name (like TribesHandlers)
+            if let Some(g) = group.meta.get("group") {
+                // function (handler) for the group
+                if let Some(gf) = self.find_by_name(NodeType::Function, &g) {
+                    // each individual endpoint in the group code
+                    for q in lang.lang().endpoint_finders() {
+                        let endpoints_in_group = lang.get_query_opt::<Self>(
+                            Some(q),
+                            &gf.body,
+                            &gf.file,
+                            NodeType::Endpoint,
+                        )?;
+                        // find the endpoint in the graph
+                        for end in endpoints_in_group {
+                            if let Some(idx) =
+                                self.find_index_by_name(NodeType::Endpoint, &end.name)
+                            {
+                                let end_node = self.nodes.get_mut(idx).unwrap();
+                                if end_node.node_type == NodeType::Endpoint {
+                                    let new_endpoint =
+                                        format!("{}{}", group.name, end_node.node_data.name);
+                                    end_node.node_data.name = new_endpoint.clone();
+                                    if let Some(ei) =
+                                        self.find_edge_index_by_src(&end.name, &end.file)
+                                    {
+                                        let edge = self.edges.get_mut(ei).unwrap();
+                                        edge.source.node_data.name = new_endpoint;
+                                    } else {
+                                        println!("missing edge for endpoint: {:?}", end);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+    fn class_inherits(&mut self) {
+        for n in self.nodes.iter() {
+            if n.node_type == NodeType::Class {
+                if let Some(parent) = n.node_data.meta.get("parent") {
+                    if let Some(parent_node) = self.find_by_name(NodeType::Class, parent) {
+                        let edge = Edge::parent_of(&parent_node, &n.node_data);
+                        self.edges.push(edge);
+                    }
+                }
+            }
+        }
+    }
+    fn class_includes(&mut self) {
+        for n in self.nodes.iter() {
+            if n.node_type == NodeType::Class {
+                if let Some(includes) = n.node_data.meta.get("includes") {
+                    let modules = includes.split(",").map(|m| m.trim()).collect::<Vec<&str>>();
+                    for m in modules {
+                        if let Some(m_node) = self.find_by_name(NodeType::Class, m) {
+                            let edge = Edge::class_imports(&n.node_data, &m_node);
+                            self.edges.push(edge);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn add_instances(&mut self, instances: Vec<NodeData>) {
+        for inst in instances {
+            if let Some(of) = &inst.data_type {
+                if let Some(cl) = self.find_nodes_by_name(NodeType::Class, &of).first() {
+                    if let Some(ff) = self.file_data(&inst.file) {
+                        let edge = Edge::contains(NodeType::File, &ff, NodeType::Instance, &inst);
+                        self.edges.push(edge);
+                    }
+                    let of_edge = Edge::of(&inst, &cl);
+                    self.edges.push(of_edge);
+                    self.nodes.push(Node::new(NodeType::Instance, inst));
+                }
+            }
+        }
+    }
+    fn add_functions(&mut self, functions: Vec<Function>) {
+        for f in functions {
+            // HERE return_types
+            let (node, method_of, reqs, dms, trait_operand, return_types) = f;
+            if let Some(ff) = self.file_data(&node.file) {
+                let edge = Edge::contains(NodeType::File, &ff, NodeType::Function, &node);
+                self.edges.push(edge);
+            }
+            self.nodes.push(Node::new(NodeType::Function, node.clone()));
+            if let Some(p) = method_of {
+                self.edges.push(p.into());
+            }
+            if let Some(to) = trait_operand {
+                self.edges.push(to.into());
+            }
+            for rt in return_types {
+                self.edges.push(rt);
+            }
+            for r in reqs {
+                // FIXME add operand on calls (axios, api, etc)
+                self.edges.push(Edge::calls(
+                    NodeType::Function,
+                    &node,
+                    NodeType::Request,
+                    &r,
+                    CallsMeta {
+                        call_start: r.start,
+                        call_end: r.end,
+                        operand: None,
+                    },
+                ));
+                self.nodes.push(Node::new(NodeType::Request, r));
+            }
+            for dm in dms {
+                self.edges.push(dm);
+            }
+        }
+    }
+    fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
+        let (p, e) = page;
+        self.nodes.push(Node::new(NodeType::Page, p));
+        if let Some(edge) = e {
+            self.edges.push(edge);
+        }
+    }
+    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+        for (p, e) in pages {
+            self.nodes.push(Node::new(NodeType::Page, p));
+            for edge in e {
+                self.edges.push(edge);
+            }
+        }
+    }
+    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
+        self.nodes.iter().find_map(|n| {
+            if n.node_type == NodeType::Endpoint
+                && n.node_data.name == name
+                && n.node_data.file == file
+                && n.node_data.meta.get("verb") == Some(&verb.to_string())
+            {
+                Some(n.node_data.clone())
+            } else {
+                None
+            }
+        })
+    }
+    // one endpoint can have multiple handlers like in Ruby on Rails (resources)
+    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+        for (e, h) in endpoints {
+            if let Some(_handler) = e.meta.get("handler") {
+                let default_verb = "".to_string();
+                let verb = e.meta.get("verb").unwrap_or(&default_verb);
+
+                if self.find_endpoint(&e.name, &e.file, verb).is_some() {
+                    continue;
+                }
+                self.nodes.push(Node::new(NodeType::Endpoint, e));
+                if let Some(edge) = h {
+                    self.edges.push(edge);
+                }
+            } else {
+                debug!("err missing handler on endpoint!");
+            }
+        }
+    }
+    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
+        self.add_node_with_parent(
+            test_type,
+            test_data.clone(),
+            NodeType::File,
+            &test_data.file,
+        );
+
+        if let Some(edge) = test_edge {
+            self.edges.push(edge);
+        }
+    }
+    // funcs, tests, integration tests
+    fn add_calls(
+        &mut self,
+        (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
+    ) {
+        // add lib funcs first
+        for (fc, ext_func) in funcs {
+            if let Some(ext_nd) = ext_func {
+                self.edges.push(Edge::uses(fc.source, &ext_nd));
+                // don't add if it's already in the graph
+                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
+                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
+                }
+            } else {
+                self.edges.push(fc.into())
+            }
+        }
+        for (tc, ext_func) in tests {
+            if let Some(ext_nd) = ext_func {
+                self.edges.push(Edge::uses(tc.source, &ext_nd));
+                // don't add if it's already in the graph
+                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
+                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
+                }
+            } else {
+                self.edges.push(Edge::new_test_call(tc));
+            }
+        }
+        for edg in int_tests {
+            self.edges.push(edg);
+        }
     }
     fn find_node_by_name_in_file(
         &self,
@@ -181,6 +479,63 @@ impl Graph for ArrayGraph {
                     && edge.target.node_data.file == target_file
             })
             .map(|edge| edge.source.node_data.clone())
+    }
+    fn filter_out_nodes_without_children(
+        &mut self,
+        parent_type: NodeType,
+        child_type: NodeType,
+        child_meta_key: &str,
+    ) {
+        let mut has_children: BTreeMap<String, bool> = BTreeMap::new();
+
+        //all parents have no children
+        for node in &self.nodes {
+            if node.node_type == parent_type {
+                has_children.insert(node.node_data.name.clone(), false);
+            }
+        }
+
+        //nodes that have children
+        for node in &self.nodes {
+            if node.node_type == child_type {
+                if let Some(parent_name) = node.node_data.meta.get(child_meta_key) {
+                    if let Some(entry) = has_children.get_mut(parent_name) {
+                        *entry = true;
+                    }
+                }
+            }
+        }
+
+        //now remove nodes without children
+        self.nodes.retain(|node| {
+            node.node_type != parent_type
+                || *has_children.get(&node.node_data.name).unwrap_or(&true)
+        });
+    }
+    fn get_data_models_within(&mut self, lang: &Lang) {
+        let data_model_nodes: Vec<NodeData> = self
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == NodeType::DataModel)
+            .map(|n| n.node_data.clone())
+            .collect();
+
+        for data_model in data_model_nodes {
+            let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
+                self.find_nodes_by_file_ends_with(NodeType::DataModel, file)
+            });
+
+            self.edges.extend(edges);
+        }
+    }
+    fn prefix_paths(&mut self, root: &str) {
+        for node in &mut self.nodes {
+            node.add_root(root);
+        }
+
+        for edge in &mut self.edges {
+            edge.add_root(root);
+        }
     }
 }
 
@@ -336,21 +691,7 @@ impl ArrayGraph {
             }
         }
     }
-    pub fn add_instances(&mut self, instances: Vec<NodeData>) {
-        for inst in instances {
-            if let Some(of) = &inst.data_type {
-                if let Some(cl) = self.find_by_name(NodeType::Class, &of) {
-                    if let Some(ff) = self.file_data(&inst.file) {
-                        let edge = Edge::contains(NodeType::File, &ff, NodeType::Instance, &inst);
-                        self.edges.push(edge);
-                    }
-                    let of_edge = Edge::of(&inst, &cl);
-                    self.edges.push(of_edge);
-                    self.nodes.push(Node::new(NodeType::Instance, inst));
-                }
-            }
-        }
-    }
+
     pub fn add_structs(&mut self, structs: Vec<NodeData>) {
         for s in structs {
             if let Some(ff) = self.file_data(&s.file) {
@@ -358,44 +699,6 @@ impl ArrayGraph {
                 self.edges.push(edge);
             }
             self.nodes.push(Node::new(NodeType::DataModel, s));
-        }
-    }
-    pub fn add_functions(&mut self, functions: Vec<Function>) {
-        for f in functions {
-            // HERE return_types
-            let (node, method_of, reqs, dms, trait_operand, return_types) = f;
-            if let Some(ff) = self.file_data(&node.file) {
-                let edge = Edge::contains(NodeType::File, &ff, NodeType::Function, &node);
-                self.edges.push(edge);
-            }
-            self.nodes.push(Node::new(NodeType::Function, node.clone()));
-            if let Some(p) = method_of {
-                self.edges.push(p.into());
-            }
-            if let Some(to) = trait_operand {
-                self.edges.push(to.into());
-            }
-            for rt in return_types {
-                self.edges.push(rt);
-            }
-            for r in reqs {
-                // FIXME add operand on calls (axios, api, etc)
-                self.edges.push(Edge::calls(
-                    NodeType::Function,
-                    &node,
-                    NodeType::Request,
-                    &r,
-                    CallsMeta {
-                        call_start: r.start,
-                        call_end: r.end,
-                        operand: None,
-                    },
-                ));
-                self.nodes.push(Node::new(NodeType::Request, r));
-            }
-            for dm in dms {
-                self.edges.push(dm);
-            }
         }
     }
     pub fn add_tests(&mut self, tests: Vec<Function>) {
@@ -419,57 +722,7 @@ impl ArrayGraph {
             })
             .collect()
     }
-    // funcs, tests, integration tests
-    pub fn add_calls(
-        &mut self,
-        (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
-    ) {
-        // add lib funcs first
-        for (fc, ext_func) in funcs {
-            if let Some(ext_nd) = ext_func {
-                self.edges.push(Edge::uses(fc.source, &ext_nd));
-                // don't add if it's already in the graph
-                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
-                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
-                }
-            } else {
-                self.edges.push(fc.into())
-            }
-        }
-        for (tc, ext_func) in tests {
-            if let Some(ext_nd) = ext_func {
-                self.edges.push(Edge::uses(tc.source, &ext_nd));
-                // don't add if it's already in the graph
-                if let None = self.find_exact_func(&ext_nd.name, &ext_nd.file) {
-                    self.nodes.push(Node::new(NodeType::Function, ext_nd));
-                }
-            } else {
-                self.edges.push(Edge::new_test_call(tc));
-            }
-        }
-        for edg in int_tests {
-            self.edges.push(edg);
-        }
-    }
-    // one endpoint can have multiple handlers like in Ruby on Rails (resources)
-    pub fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
-        for (e, h) in endpoints {
-            if let Some(_handler) = e.meta.get("handler") {
-                if self
-                    .find_exact_endpoint(&e.name, &e.file, e.meta.get("verb"))
-                    .is_some()
-                {
-                    continue;
-                }
-                self.nodes.push(Node::new(NodeType::Endpoint, e));
-                if let Some(edge) = h {
-                    self.edges.push(edge);
-                }
-            } else {
-                debug!("err missing handler on endpoint!");
-            }
-        }
-    }
+
     pub fn add_integration_test(&mut self, t: NodeData, tt: NodeType, e: Option<Edge>) {
         if let Some(ff) = self.file_data(&t.file) {
             let edge = Edge::contains(NodeType::File, &ff, tt.clone(), &t);
@@ -485,72 +738,7 @@ impl ArrayGraph {
             self.edges.push(e);
         }
     }
-    pub fn class_inherits(&mut self) {
-        for n in self.nodes.iter() {
-            if n.node_type == NodeType::Class {
-                if let Some(parent) = n.node_data.meta.get("parent") {
-                    if let Some(parent_node) = self.find_by_name(NodeType::Class, parent) {
-                        let edge = Edge::parent_of(&parent_node, &n.node_data);
-                        self.edges.push(edge);
-                    }
-                }
-            }
-        }
-    }
-    pub fn class_includes(&mut self) {
-        for n in self.nodes.iter() {
-            if n.node_type == NodeType::Class {
-                if let Some(includes) = n.node_data.meta.get("includes") {
-                    let modules = includes.split(",").map(|m| m.trim()).collect::<Vec<&str>>();
-                    for m in modules {
-                        if let Some(m_node) = self.find_by_name(NodeType::Class, m) {
-                            let edge = Edge::class_imports(&n.node_data, &m_node);
-                            self.edges.push(edge);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // NOTE does this need to be per lang on the trait?
-    pub fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
-        // the group "name" needs to be added to the beginning of the names of the endpoints in the group
-        for group in eg {
-            // group name (like TribesHandlers)
-            if let Some(g) = group.meta.get("group") {
-                // function (handler) for the group
-                if let Some(gf) = self.find_by_name(NodeType::Function, &g) {
-                    // each individual endpoint in the group code
-                    for q in lang.lang().endpoint_finders() {
-                        let endpoints_in_group =
-                            lang.get_query_opt(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
-                        // find the endpoint in the graph
-                        for end in endpoints_in_group {
-                            if let Some(idx) =
-                                self.find_index_by_name(NodeType::Endpoint, &end.name)
-                            {
-                                let end_node = self.nodes.get_mut(idx).unwrap();
-                                if end_node.node_type == NodeType::Endpoint {
-                                    let new_endpoint =
-                                        format!("{}{}", group.name, end_node.node_data.name);
-                                    end_node.node_data.name = new_endpoint.clone();
-                                    if let Some(ei) =
-                                        self.find_edge_index_by_src(&end.name, &end.file)
-                                    {
-                                        let edge = self.edges.get_mut(ei).unwrap();
-                                        edge.source.node_data.name = new_endpoint;
-                                    } else {
-                                        println!("missing edge for endpoint: {:?}", end);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
+
     pub fn find_by_name(&self, nt: NodeType, name: &str) -> Option<NodeData> {
         match self.find_index_by_name(nt, name) {
             Some(idx) => Some(self.nodes[idx].into_data()),
@@ -785,6 +973,15 @@ impl ArrayGraph {
     }
 }
 
+impl Default for ArrayGraph {
+    fn default() -> Self {
+        ArrayGraph {
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            errors: Vec::new(),
+        }
+    }
+}
 impl Edge {
     pub fn new(edge: EdgeType, source: NodeRef, target: NodeRef) -> Self {
         Self {

@@ -12,6 +12,8 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Ruby(Language);
 
+const CONTROLLER_FILE_SUFFIX: &str = "_controller.rb";
+
 impl Ruby {
     pub fn new() -> Self {
         Ruby(tree_sitter_ruby::LANGUAGE.into())
@@ -166,12 +168,20 @@ impl Stack for Ruby {
     fn use_data_model_within_finder(&self) -> bool {
         true
     }
-    fn data_model_within_finder(&self, data_model: &NodeData, graph: &ArrayGraph) -> Vec<Edge> {
+    fn data_model_within_finder(
+        &self,
+        data_model: &NodeData,
+        find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
+    ) -> Vec<Edge> {
         // file: app/controllers/api/advisor_groups_controller.rb
         let mut models = Vec::new();
         let singular_name = data_model.name.to_lowercase();
         let plural_name = inflection::pluralize(&singular_name);
-        let funcs = graph.find_funcs_by(|f| is_controller(&f, &plural_name));
+
+        println!("{:?}", &data_model);
+
+        let funcs = find_fns_in(format!("{}{}", &data_model.name, CONTROLLER_FILE_SUFFIX).as_str());
+        println!("{} funcs: {:?}", plural_name, funcs);
         for func in funcs {
             models.push(Edge::contains(
                 NodeType::Function,
@@ -180,6 +190,7 @@ impl Stack for Ruby {
                 data_model,
             ));
         }
+
         // without: Returning Graph with 12726 nodes and 13283 edges
         // if edge:Handler with source.node_data.name == name, then the target -> Contains this data model
         // "advisor_groups"
@@ -207,7 +218,7 @@ impl Stack for Ruby {
         if endpoint.meta.get("handler").is_none() {
             return Vec::new();
         }
-        const CONTROLLER_FILE_SUFFIX: &str = "_controller.rb";
+
         let handler_string = endpoint.meta.get("handler").unwrap();
         // tracing::info!("handler_finder: {} {:?}", handler_string, params);
         let mut explicit_path = false;
@@ -406,7 +417,11 @@ impl Stack for Ruby {
         let is_view = file_name.contains("/views/");
         is_view && is_good_ext && !is_underscore
     }
-    fn extra_page_finder(&self, file_path: &str, graph: &ArrayGraph) -> Option<Edge> {
+    fn extra_page_finder(
+        &self,
+        file_path: &str,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+    ) -> Option<Edge> {
         let pagename = get_page_name(file_path);
         if pagename.is_none() {
             return None;
@@ -418,8 +433,10 @@ impl Stack for Ruby {
         let func_name = remove_all_extensions(p);
         let controller_name = p.parent()?.file_name()?.to_str()?;
         // println!("func_name: {}, controller_name: {}", func_name, controller_name);
-        let handler =
-            graph.find_func_by(|nd| nd.name == func_name && is_controller(nd, controller_name));
+        let handler = find_fn(
+            &func_name,
+            &format!("{}{}", controller_name, CONTROLLER_FILE_SUFFIX),
+        );
         if let Some(handler) = handler {
             Some(Edge::renders(&page, &handler))
         } else {

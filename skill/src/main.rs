@@ -1,4 +1,5 @@
 use anyhow::{Context, Error, Result};
+use ast::lang::ArrayGraph;
 use ast::Repo;
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::presigning::PresigningConfigBuilder;
@@ -113,12 +114,12 @@ async fn start_inner() -> Result<Response> {
             let repo =
                 Repo::new_clone_to_tmp(&repo_url, Some(&l), lsp, username, pat, files_filter, revs)
                     .await?;
-            repo.build_graph().await?
+            repo.build_graph::<ArrayGraph>().await?
         }
         None => {
             let repos =
                 Repo::new_clone_multi_detect(&repo_url, username, pat, files_filter, revs).await?;
-            repos.build_graphs().await?
+            repos.build_graphs::<ArrayGraph>().await?
         }
     };
 
