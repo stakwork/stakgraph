@@ -1,4 +1,4 @@
-use crate::lang::{Edge, Lang, Node, NodeType};
+use crate::lang::{Edge, Lang, NodeType};
 use crate::lang::{Function, FunctionCall};
 use anyhow::Result;
 use std::fmt::Debug;
@@ -21,6 +21,17 @@ pub trait Graph: Default + Debug {
     {
         Self::default()
     }
+    fn create_filtered_graph(&self, final_filter: &[String]) -> Self
+    where
+        Self: Sized;
+
+    fn extend_graph(&mut self, other: Self)
+    where
+        Self: Sized;
+
+    fn get_graph_size(&self) -> (u32, u32);
+
+    //Nodes
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData>;
     fn find_nodes_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData>;
     fn find_node_at(&self, node_type: NodeType, file: &str, line: u32) -> Option<NodeData>;
@@ -30,7 +41,7 @@ pub trait Graph: Default + Debug {
         node_data: NodeData,
         parent_type: NodeType,
         parent_file: &str,
-    ) -> Option<Edge>;
+    );
     fn find_node_by_name_in_file(
         &self,
         node_type: NodeType,
@@ -64,6 +75,14 @@ pub trait Graph: Default + Debug {
     fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>);
     fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>);
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>));
+    fn filter_out_nodes_without_children(
+        &mut self,
+        parent_type: NodeType,
+        child_type: NodeType,
+        child_meta_key: &str,
+    );
+    fn get_data_models_within(&mut self, lang: &Lang);
+    fn prefix_paths(&mut self, root: &str);
 
     //Specific
     fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData>;

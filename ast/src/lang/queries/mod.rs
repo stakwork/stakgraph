@@ -17,7 +17,7 @@ pub mod toml;
 pub mod typescript;
 
 use crate::lang::asg::Operand;
-use crate::lang::graph::{ArrayGraph, Edge};
+use crate::lang::graph::Edge;
 use crate::lang::{Function, NodeData, NodeType};
 use anyhow::Result;
 use lsp::Language as LspLanguage;
@@ -107,7 +107,11 @@ pub trait Stack {
     fn use_data_model_within_finder(&self) -> bool {
         false
     }
-    fn data_model_within_finder(&self, _dm: &NodeData, _graph: &ArrayGraph) -> Vec<Edge> {
+    fn data_model_within_finder(
+        &self,
+        _dm: &NodeData,
+        _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
+    ) -> Vec<Edge> {
         Vec::new()
     }
     fn data_model_name(&self, dm_name: &str) -> String {
@@ -227,11 +231,15 @@ pub trait Stack {
     fn is_extra_page(&self, _file_name: &str) -> bool {
         false
     }
-    fn extra_page_finder(&self, _file_name: &str, _graph: &ArrayGraph) -> Option<Edge> {
+    fn extra_page_finder(
+        &self,
+        _file_name: &str,
+        _callback: &dyn Fn(&str, &str) -> Option<NodeData>,
+    ) -> Option<Edge> {
         None
     }
 
-    fn clean_graph(&self, _graph: &mut ArrayGraph) -> bool {
+    fn clean_graph(&mut self, _callback: &dyn Fn(NodeType, NodeType, &str)) -> bool {
         false
     }
 }
@@ -277,38 +285,3 @@ impl HandlerItem {
 }
 
 use std::collections::BTreeMap;
-
-use super::graph::Node;
-pub fn filter_out_classes_without_methods(graph: &mut ArrayGraph) -> bool {
-    let mut assumed_class: BTreeMap<String, bool> = BTreeMap::new();
-    let mut actual_class: BTreeMap<String, bool> = BTreeMap::new();
-
-    for node in &graph.nodes {
-        match node.node_type {
-            NodeType::Function => {
-                if let Some(operand) = node.node_data.meta.get("operand") {
-                    actual_class.insert(operand.to_string(), true);
-                }
-            }
-            NodeType::Class => {
-                assumed_class.insert(node.node_data.name.to_string(), false);
-            }
-            _ => {}
-        }
-    }
-
-    for key in actual_class.keys() {
-        if let Some(entry) = assumed_class.get_mut(key) {
-            *entry = true
-        }
-    }
-
-    for (key, value) in assumed_class {
-        if !value {
-            if let Some(index) = graph.find_index_by_name(NodeType::Class, &key) {
-                graph.nodes.remove(index);
-            }
-        }
-    }
-    true
-}

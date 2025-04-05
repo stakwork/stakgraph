@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use super::{graph_trait::Graph, linker::normalize_backend_path, *};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -106,6 +108,52 @@ impl Graph for ArrayGraph {
     {
         Self::default()
     }
+
+    fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
+        let mut new_graph = Self::new();
+
+        for node in &self.nodes {
+            if node.node_type == NodeType::Repository {
+                new_graph.nodes.push(node.clone());
+                continue;
+            }
+            if final_filter.contains(&node.node_data.file) {
+                new_graph.nodes.push(node.clone());
+            }
+        }
+
+        for edge in &self.edges {
+            if final_filter.contains(&edge.source.node_data.file)
+                || final_filter.contains(&edge.target.node_data.file)
+            {
+                new_graph.edges.push(edge.clone());
+            }
+        }
+        //TODO: handler linker
+        // info!("linking e2e tests");
+        // linker::link_e2e_tests(&mut graph)?;
+        // info!("linking api nodes");
+        // linker::link_api_nodes(&mut graph)?;
+
+        println!(
+            "Final Graph: {} nodes and {} edges",
+            &self.nodes.len(),
+            &self.edges.len()
+        );
+
+        new_graph
+    }
+
+    fn extend_graph(&mut self, other: Self) {
+        self.nodes.extend(other.nodes);
+        self.edges.extend(other.edges);
+        self.errors.extend(other.errors);
+    }
+
+    fn get_graph_size(&self) -> (u32, u32) {
+        ((self.nodes.len() as u32), (self.edges.len() as u32))
+    }
+
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         self.nodes
             .iter()
@@ -146,7 +194,7 @@ impl Graph for ArrayGraph {
         node_data: NodeData,
         parent_type: NodeType,
         parent_file: &str,
-    ) -> Option<Edge> {
+    ) {
         if let Some(parent) = self
             .nodes
             .iter()
@@ -157,11 +205,8 @@ impl Graph for ArrayGraph {
 
             self.nodes.push(Node::new(node_type, node_data.clone()));
             self.edges.push(edge.clone());
-
-            Some(edge)
         } else {
             self.nodes.push(Node::new(node_type, node_data));
-            None
         }
     }
     // NOTE does this need to be per lang on the trait?
@@ -174,8 +219,12 @@ impl Graph for ArrayGraph {
                 if let Some(gf) = self.find_by_name(NodeType::Function, &g) {
                     // each individual endpoint in the group code
                     for q in lang.lang().endpoint_finders() {
-                        let endpoints_in_group =
-                            lang.get_query_opt(Some(q), &gf.body, &gf.file, NodeType::Endpoint)?;
+                        let endpoints_in_group = lang.get_query_opt::<Self>(
+                            Some(q),
+                            &gf.body,
+                            &gf.file,
+                            NodeType::Endpoint,
+                        )?;
                         // find the endpoint in the graph
                         for end in endpoints_in_group {
                             if let Some(idx) =
@@ -430,6 +479,63 @@ impl Graph for ArrayGraph {
                     && edge.target.node_data.file == target_file
             })
             .map(|edge| edge.source.node_data.clone())
+    }
+    fn filter_out_nodes_without_children(
+        &mut self,
+        parent_type: NodeType,
+        child_type: NodeType,
+        child_meta_key: &str,
+    ) {
+        let mut has_children: BTreeMap<String, bool> = BTreeMap::new();
+
+        //all parents have no children
+        for node in &self.nodes {
+            if node.node_type == parent_type {
+                has_children.insert(node.node_data.name.clone(), false);
+            }
+        }
+
+        //nodes that have children
+        for node in &self.nodes {
+            if node.node_type == child_type {
+                if let Some(parent_name) = node.node_data.meta.get(child_meta_key) {
+                    if let Some(entry) = has_children.get_mut(parent_name) {
+                        *entry = true;
+                    }
+                }
+            }
+        }
+
+        //now remove nodes without children
+        self.nodes.retain(|node| {
+            node.node_type != parent_type
+                || *has_children.get(&node.node_data.name).unwrap_or(&true)
+        });
+    }
+    fn get_data_models_within(&mut self, lang: &Lang) {
+        let data_model_nodes: Vec<NodeData> = self
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == NodeType::DataModel)
+            .map(|n| n.node_data.clone())
+            .collect();
+
+        for data_model in data_model_nodes {
+            let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
+                self.find_nodes_by_file_ends_with(NodeType::DataModel, file)
+            });
+
+            self.edges.extend(edges);
+        }
+    }
+    fn prefix_paths(&mut self, root: &str) {
+        for node in &mut self.nodes {
+            node.add_root(root);
+        }
+
+        for edge in &mut self.edges {
+            edge.add_root(root);
+        }
     }
 }
 

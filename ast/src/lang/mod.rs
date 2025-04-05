@@ -10,6 +10,7 @@ use asg::*;
 use consts::*;
 use graph::*;
 pub use graph::{ArrayGraph, NodeType};
+use graph_trait::Graph;
 use lsp::{CmdSender, Language};
 use queries::*;
 use std::fmt;
@@ -114,30 +115,30 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
-    pub fn get_libs(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);
-            Ok(self.collect::<ArrayGraph>(&qo, code, file, NodeType::Library)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Library)?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_classes(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
-        Ok(self.collect::<ArrayGraph>(&qo, code, file, NodeType::Class)?)
+        Ok(self.collect::<G>(&qo, code, file, NodeType::Class)?)
     }
-    pub fn get_traits(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.trait_query() {
             let qo = self.q(&qo, &NodeType::Trait);
-            Ok(self.collect::<ArrayGraph>(&qo, code, file, NodeType::Trait)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Trait)?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_imports(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_imports<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.imports_query() {
             let qo = self.q(&qo, &NodeType::Import);
-            Ok(self.collect::<ArrayGraph>(&qo, code, file, NodeType::Import)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Import)?)
         } else {
             Ok(Vec::new())
         }
@@ -177,11 +178,11 @@ impl Lang {
         Ok(Some(name.to_string()))
     }
     // returns (Vec<Function>, Vec<Test>)
-    pub fn get_functions_and_tests(
+    pub fn get_functions_and_tests<G: Graph>(
         &self,
         code: &str,
         file: &str,
-        graph: &ArrayGraph,
+        graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<Function>, Vec<Function>)> {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
@@ -194,7 +195,7 @@ impl Lang {
         }
         Ok((funcs, tests))
     }
-    pub fn get_query_opt(
+    pub fn get_query_opt<G: Graph>(
         &self,
         q: Option<String>,
         code: &str,
@@ -202,18 +203,18 @@ impl Lang {
         fmtr: NodeType,
     ) -> Result<Vec<NodeData>> {
         if let Some(qo) = q {
-            let insts = self.collect::<ArrayGraph>(&self.q(&qo, &fmtr), code, file, fmtr)?;
+            let insts = self.collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr)?;
             Ok(insts)
         } else {
             Ok(Vec::new())
         }
     }
     // returns (Vec<CallsFromFunctions>, Vec<CallsFromTests>)
-    pub async fn get_function_calls(
+    pub async fn get_function_calls<G: Graph>(
         &self,
         code: &str,
         file: &str,
-        graph: &ArrayGraph,
+        graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)> {
         trace!("get_function_calls");
@@ -232,14 +233,14 @@ impl Lang {
         }
         Ok(res)
     }
-    pub async fn add_calls_for_function<'a, 'b>(
+    pub async fn add_calls_for_function<'a, 'b, G: Graph>(
         &self,
         res: &mut (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>), // funcs, tests, integration tests
         m: &QueryMatch<'a, 'b>,
         q: &Query,
         code: &str,
         file: &str,
-        graph: &ArrayGraph,
+        graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<()> {
         trace!("add_calls_for_function");
