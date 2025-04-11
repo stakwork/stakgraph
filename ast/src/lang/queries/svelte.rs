@@ -1,51 +1,45 @@
 use super::super::*;
 use super::consts::*;
 use anyhow::{Context, Result};
-use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
+use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Svelte(Language);
 
 impl Svelte {
     pub fn new() -> Self {
-        Svelte(tree_sitter_svelte_ng::LANGUAGE.into())
+        Svelte(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
     }
 }
 
 impl Stack for Svelte {
-    fn q(&self, q: &str, nt: &NodeType) -> Query {
-        if matches!(nt, NodeType::Library) {
-            Query::new(&tree_sitter_svelte_ng::LANGUAGE.into(), q).unwrap()
-        } else {
-            Query::new(&self.0, q).unwrap()
-        }
+    fn q(&self, q: &str, _nt: &NodeType) -> Query {
+        Query::new(&self.0, q).unwrap()
     }
-
-    fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
+    fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
-        if matches!(nt, NodeType::Library) {
-            parser.set_language(&tree_sitter_svelte_ng::LANGUAGE.into())?;
-        } else {
-            parser.set_language(&self.0)?;
-        }
+        parser.set_language(&self.0)?;
         Ok(parser.parse(code, None).context("failed to parse")?)
     }
-
+    
     fn imports_query(&self) -> Option<String> {
         Some(format!(
-            r#"
-            (document
-                (_) @{IMPORTS}
-            )
-        "#
+            r#"(program
+                (import_statement)+ @{IMPORTS}
+            )"#,
         ))
     }
 
     fn class_definition_query(&self) -> String {
         format!(
             r#"
-            (script_element
-                (_) @{CLASS_NAME}
-            )
+            (class_declaration
+                name: (type_identifier) @{CLASS_NAME}
+                (class_heritage
+                    (implements_clause
+                    (type_identifier) @{PARENT_NAME}
+                    )?
+                )?
+            ) @{CLASS_DEFINITION}
             "#
         )
     }
@@ -53,12 +47,10 @@ impl Stack for Svelte {
     fn function_definition_query(&self) -> String {
         format!(
             r#"
-            (
-                attribute
-                (expression
-                    (_) @{FUNCTION_NAME}
-                ) @{FUNCTION_DEFINITION}
-            )
+            (function_declaration
+                (identifier) @{FUNCTION_NAME}
+                parameters: (formal_parameters)
+            )@{FUNCTION_DEFINITION}
             "#
         )
     }
@@ -66,83 +58,48 @@ impl Stack for Svelte {
     fn function_call_query(&self) -> String {
         format!(
             r#"
-            (expression
-                (_) @args
-            ) @FUNCTION_CALL
+            (call_expression
+                function: (identifier) @{FUNCTION_NAME}
+                arguments: (arguments) @{ARGUMENTS}
+            )@{FUNCTION_CALL}
+
+            (call_expression
+            function: (member_expression
+                object: (identifier) @{CLASS_NAME}
+                property: (property_identifier) @{FUNCTION_NAME}
+            )
+                arguments: (arguments) @{ARGUMENTS}
+            )@{FUNCTION_CALL}
             "#
         )
-    }
-
-    fn find_function_parent(
-        &self,
-        node: TreeNode,
-        code: &str,
-        file: &str,
-        func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<NodeData>,
-        _parent_type: Option<&str>,
-    ) -> Result<Option<Operand>> {
-        let mut parent = node.parent();
-        while parent.is_some() {
-            if parent.unwrap().kind().to_string() == "class_declaration" {
-                // found it!
-                break;
-            }
-            parent = parent.unwrap().parent();
-        }
-        let parent_of = match parent {
-            Some(p) => {
-                let query = self.q("(type_identifier) @class_name", &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file),
-                        target: NodeKeys::new(func_name, file),
-                    }),
-                    None => None,
-                }
-            }
-            None => None,
-        };
-        Ok(parent_of)
     }
 
     fn request_finder(&self) -> Option<String> {
         Some(format!(
             r#"
-            (_
+            (call_expression
                 (_) @{ENDPOINT}
                 (#match? @{ENDPOINT} "fetch|get|post|put|delete")
-            ) @{REQUEST_CALL}
+            )@{REQUEST_CALL}
             "#
         ))
     }
-
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (document
-                (_
-                    (_) + @{STRUCT_NAME}
-                )
-            ) @{STRUCT}
-            "#
+                (class_declaration
+                    name: (type_identifier) @{STRUCT_NAME}
+                 
+                )@{STRUCT}
+
+             "#
         ))
     }
-
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
-            r#"
-            [
-                    (_) @{STRUCT_NAME} (#match? @{STRUCT_NAME} "^[A-Z].*")
-                (expression
-                     (_) @{STRUCT_NAME} (#match? @{STRUCT_NAME} "^[A-Z].*")
-                )
-            ]
-            "#
+            r#"(
+                (type_identifier) @{STRUCT_NAME} (#match? @{STRUCT_NAME} "^[A-Z].*")
+            )"#
         ))
-    }
-
-    fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
-        func_name.starts_with("test")
     }
 }
