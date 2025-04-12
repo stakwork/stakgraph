@@ -105,7 +105,7 @@ impl Language {
     pub fn skip_file_ends(&self) -> Vec<&'static str> {
         match self {
             Self::Typescript | Self::React => vec![".min.js"],
-            Self::Svelte => vec![".config.ts", ".config.ts"],
+            Self::Svelte => vec![".config.ts", ".config.js"],
             Self::Angular => vec!["spec.ts"],
             _ => Vec::new(),
         }

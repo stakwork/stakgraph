@@ -48,9 +48,16 @@ impl Stack for Svelte {
         format!(
             r#"
             (function_declaration
-                (identifier) @{FUNCTION_NAME}
+                name: (identifier) @{FUNCTION_NAME}
                 parameters: (formal_parameters)
             )@{FUNCTION_DEFINITION}
+
+            (lexical_declaration
+                (variable_declarator
+                name: (identifier) @{FUNCTION_NAME}
+                ) 
+            )@{FUNCTION_DEFINITION}
+
             "#
         )
     }
