@@ -61,6 +61,9 @@ impl Graph for ArrayGraph {
     fn get_graph_size(&self) -> (u32, u32) {
         ((self.nodes.len() as u32), (self.edges.len() as u32))
     }
+    fn add_edge(&mut self, edge: Edge) {
+        self.edges.push(edge);
+    }
 
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         self.nodes
@@ -111,7 +114,7 @@ impl Graph for ArrayGraph {
         {
             let edge = Edge::contains(parent_type, &parent, node_type.clone(), &node_data);
             self.nodes.push(Node::new(node_type, node_data));
-            self.edges.push(edge.clone());
+            self.add_edge(edge);
         } else {
             self.nodes.push(Node::new(node_type, node_data));
         };
@@ -211,17 +214,17 @@ impl Graph for ArrayGraph {
             let (node, method_of, reqs, dms, trait_operand, return_types) = f;
             if let Some(ff) = self.file_data(&node.file) {
                 let edge = Edge::contains(NodeType::File, &ff, NodeType::Function, &node);
-                self.edges.push(edge);
+                self.add_edge(edge);
             }
             self.nodes.push(Node::new(NodeType::Function, node.clone()));
             if let Some(p) = method_of {
-                self.edges.push(p.into());
+                self.add_edge(p.into());
             }
             if let Some(to) = trait_operand {
-                self.edges.push(to.into());
+                self.add_edge(to.into());
             }
             for rt in return_types {
-                self.edges.push(rt);
+                self.add_edge(rt);
             }
             for r in reqs {
                 // FIXME add operand on calls (axios, api, etc)
@@ -254,7 +257,7 @@ impl Graph for ArrayGraph {
         for (p, e) in pages {
             self.nodes.push(Node::new(NodeType::Page, p));
             for edge in e {
-                self.edges.push(edge);
+                self.add_edge(edge);
             }
         }
     }
@@ -310,7 +313,7 @@ impl Graph for ArrayGraph {
         // add lib funcs first
         for (fc, ext_func) in funcs {
             if let Some(ext_nd) = ext_func {
-                self.edges.push(Edge::uses(fc.source, &ext_nd));
+                self.add_edge(Edge::uses(fc.source, &ext_nd));
                 // don't add if it's already in the graph
                 if let None =
                     self.find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
@@ -318,24 +321,24 @@ impl Graph for ArrayGraph {
                     self.nodes.push(Node::new(NodeType::Function, ext_nd));
                 }
             } else {
-                self.edges.push(fc.into())
+                self.add_edge(fc.into())
             }
         }
         for (tc, ext_func) in tests {
             if let Some(ext_nd) = ext_func {
-                self.edges.push(Edge::uses(tc.source, &ext_nd));
-                // don't add if it's already in the graph
+                self.add_edge(Edge::uses(tc.source, &ext_nd));
+
                 if let None =
                     self.find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
                 {
                     self.nodes.push(Node::new(NodeType::Function, ext_nd));
                 }
             } else {
-                self.edges.push(Edge::new_test_call(tc));
+                self.add_edge(Edge::new_test_call(tc));
             }
         }
-        for edg in int_tests {
-            self.edges.push(edg);
+        for edge in int_tests {
+            self.add_edge(edge);
         }
     }
     fn find_node_by_name_in_file(

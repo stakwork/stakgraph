@@ -36,6 +36,7 @@ pub trait Graph: Default + Debug {
         parent_type: NodeType,
         parent_file: &str,
     );
+    fn add_edge(&mut self, edge: Edge);
 
     fn find_source_edge_by_name_and_file(
         &self,

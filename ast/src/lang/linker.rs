@@ -1,44 +1,42 @@
-use crate::lang::graphs::{array_graph::ArrayGraph, NodeType};
+use crate::lang::graphs::{Graph, NodeType};
 use crate::lang::{CallsMeta, Edge, Language, NodeData};
 use anyhow::{Context, Result};
 use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
 use std::path::PathBuf;
 use tracing::info;
-pub fn link_e2e_tests(graph: &mut ArrayGraph) -> Result<()> {
-    // First collect functions and tests in a single pass
+pub fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let mut e2e_tests = Vec::new();
     let mut frontend_functions = Vec::new();
 
-    for node in &graph.nodes {
-        match node.node_type {
-            NodeType::E2eTest => {
-                if let Ok(lang) = infer_lang(&node.node_data.clone()) {
-                    if let Ok(test_ids) = extract_test_ids(&node.node_data.body, &lang) {
-                        e2e_tests.push((node.node_data.clone(), test_ids));
-                    }
-                }
+    let e2e_test_nodes = graph.find_nodes_by_type(NodeType::E2eTest);
+    let function_nodes = graph.find_nodes_by_type(NodeType::Function);
+
+    for node_data in e2e_test_nodes {
+        if let Ok(lang) = infer_lang(&node_data) {
+            if let Ok(test_ids) = extract_test_ids(&node_data.body, &lang) {
+                e2e_tests.push((node_data.clone(), test_ids));
             }
-            NodeType::Function => {
-                if let Ok(lang) = infer_lang(&node.node_data.clone()) {
-                    if lang.is_frontend() {
-                        if let Ok(test_ids) = extract_test_ids(&node.node_data.body, &lang) {
-                            frontend_functions.push((node.node_data.clone(), test_ids));
-                        }
-                    }
-                }
-            }
-            _ => {}
         }
     }
 
-    // Create edges
+    for node_data in function_nodes {
+        if let Ok(lang) = infer_lang(&node_data) {
+            if lang.is_frontend() {
+                if let Ok(test_ids) = extract_test_ids(&node_data.body, &lang) {
+                    frontend_functions.push((node_data.clone(), test_ids));
+                }
+            }
+        }
+    }
+
     let mut i = 0;
     for (t, test_ids) in &e2e_tests {
         for (f, frontend_test_ids) in &frontend_functions {
             for ftestid in frontend_test_ids {
                 if test_ids.contains(ftestid) {
-                    graph.edges.push(Edge::linked_e2e_test_call(t, f));
+                    let edge = Edge::linked_e2e_test_call(t, f);
+                    graph.add_edge(edge);
                     i += 1;
                 }
             }
@@ -77,39 +75,39 @@ fn extract_test_ids(content: &str, lang: &Language) -> Result<Vec<String>> {
     Ok(test_ids)
 }
 
-pub fn link_api_nodes(graph: &mut ArrayGraph) -> Result<()> {
+pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
     // Collect requests and endpoints in a single pass
     let mut frontend_requests = Vec::new();
     let mut backend_endpoints = Vec::new();
 
-    for node in &graph.nodes {
-        match node.node_type {
-            NodeType::Request => {
-                if let Some(normalized_path) = normalize_frontend_path(&node.node_data.name) {
-                    frontend_requests.push((&node.node_data, normalized_path));
-                }
-            }
-            NodeType::Endpoint => {
-                if let Some(normalized_path) = normalize_backend_path(&node.node_data.name) {
-                    backend_endpoints.push((&node.node_data, normalized_path));
-                }
-            }
-            _ => {}
+    let request_nodes = graph.find_nodes_by_type(NodeType::Request);
+    let endpoint_nodes = graph.find_nodes_by_type(NodeType::Endpoint);
+
+    for node_data in request_nodes {
+        if let Some(normalized_path) = normalize_frontend_path(&node_data.name) {
+            frontend_requests.push((node_data, normalized_path));
+        }
+    }
+
+    for node_data in endpoint_nodes {
+        if let Some(normalized_path) = normalize_backend_path(&node_data.name) {
+            backend_endpoints.push((node_data, normalized_path));
         }
     }
 
     // Create edges between matching paths and verbs
     let mut i = 0;
-    for (req, req_path) in &frontend_requests {
-        for endpoint in &backend_endpoints {
-            if paths_match(&req_path, &endpoint.0.name) && verbs_match(req, endpoint.0) {
-                graph.edges.push(Edge::calls(
+    for (req, req_path) in frontend_requests {
+        for (endpoint, _) in &backend_endpoints {
+            if paths_match(&req_path, &endpoint.name) && verbs_match(&req, endpoint) {
+                let edge = Edge::calls(
                     NodeType::Request,
-                    req,
+                    &req,
                     NodeType::Endpoint,
-                    endpoint.0,
+                    endpoint,
                     CallsMeta::default(),
-                ));
+                );
+                graph.add_edge(edge);
                 i += 1;
             }
         }
@@ -280,6 +278,7 @@ mod tests {
 
     #[test]
     fn test_link_api_nodes() -> Result<()> {
+        use crate::lang::graphs::ArrayGraph;
         let mut graph = ArrayGraph::new();
 
         // Valid matching pair

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tag-Based Search</title>
+    <!-- Add highlight.js CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
+    <!-- Load highlight.js script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <!-- Optional: Load language packages -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/languages/rust.min.js"></script>
+    
+    <link rel="stylesheet" href="/textarea/styles.css">
+</head>
+<body>
+    <div class="content-container">
+        <div class="tooltip" id="tooltip"></div>
+        <div id="editor-container">
+            <div id="editor" contenteditable="true"></div>
+        </div>
+        <div id="results-pane">
+            <h3>Search Results</h3>
+            <div id="results-list"></div>
+        </div>
+    </div>
+
+    <!-- Initialize our namespace -->
+    <script>
+        // Create global namespace
+        window.Tagger = {
+            // Config
+            config: {
+                base_url: window.BASE_URL || ""
+            },
+            
+            // DOM elements (populated in init)
+            elements: {},
+            
+            // State variables
+            state: {
+                searchTimeout: null,
+                currentTag: '',
+                lastRange: null,
+                activeTagElement: null,
+                currentTrigger: '',
+                selectedResultIndex: -1,
+                shiftPressed: false
+            },
+            
+            // Constants
+            constants: {
+                // Define colors for each NodeType (darker versions for better contrast with white text)
+                nodeTypeColors: {
+                    "Repository": "#2C5985", // Darker blue
+                    "Language": "#A35D00",   // Darker orange
+                    "Directory": "#3A7336",  // Darker green
+                    "File": "#ad8cc6",       // Darker purple
+                    "Import": "#8B2E2A",     // Darker red
+                    "Class": "#4A7D4A",      // Darker light green
+                    "Trait": "#3B6EB5",      // Darker light blue
+                    "Library": "#A83333",    // Darker pink
+                    "Function": "#C67000",   // Darker light orange
+                    "Test": "#B7940A",       // Darker yellow
+                    "E2etest": "#7C4A85",    // Darker lavender
+                    "Endpoint": "#385D8A",   // Darker blue gray
+                    "Request": "#6B4A7A",    // Darker medium purple
+                    "Datamodel": "#A13939",  // Darker salmon
+                    "Page": "#2980B9"        // Darker sky blue
+                }
+            },
+            
+            // Utility methods
+            utils: {},
+            
+            // Initialize the editor
+            init: function() {
+                // Cache DOM elements
+                this.elements.editor = document.getElementById('editor');
+                this.elements.resultsPane = document.getElementById('results-pane');
+                this.elements.resultsList = document.getElementById('results-list');
+                this.elements.tooltip = document.getElementById('tooltip');
+                this.elements.editorContainer = document.getElementById('editor-container');
+                this.elements.contentContainer = document.querySelector('.content-container');
+                
+                // Check dark mode
+                this.checkDarkMode();
+                
+                // Listen for dark mode changes
+                if (window.matchMedia) {
+                    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', 
+                        this.checkDarkMode.bind(this));
+                }
+                
+                // Initialize modules
+                this.Textarea.init();
+                this.Tooltip.init();
+                
+                // Focus editor
+                this.elements.editor.focus();
+            },
+            
+            // Dark mode handling
+            checkDarkMode: function() {
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                    document.body.classList.add('dark-mode');
+                } else {
+                    document.body.classList.remove('dark-mode');
+                }
+            }
+        };
+    </script>
+    
+    <!-- Load modules -->
+    <script src="/textarea/tooltip.js"></script>
+    <script src="/textarea/textarea.js"></script>
+    
+    <!-- Initialize application -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Tagger.init();
+        });
+    </script>
+</body>
+</html>

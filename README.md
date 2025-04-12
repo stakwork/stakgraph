@@ -22,10 +22,14 @@ cargo run --bin index
 - [x] Ruby on Rails
 - [x] Typescript
 - [x] Python
-- [ ] Swift
-- [ ] Kotlin
-- [ ] Rust
-- [ ] Java
+- [x] Swift
+- [x] Kotlin
+- [x] Rust
+- [x] Java
+- [x] Angular
+- [x] Svelte
+- [ ] C
+- [ ] C#
 
 ### LSP
 
