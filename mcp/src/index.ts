@@ -22,6 +22,7 @@ app.use(fileUpload());
 
 app.get("/", swagger);
 app.use("/textarea", express.static(path.join(__dirname, "../textarea")));
+app.use("/app", express.static(path.join(__dirname, "../app")));
 
 mcp_routes(app);
 app.get("/schema", r.schema);
