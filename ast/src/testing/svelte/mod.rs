@@ -37,9 +37,7 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 6, "Expected 6 imports");
-    for function in &imports {
-        println!("Imports: {:?}", function.file);
-    }
+
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     assert_eq!(classes.len(), 1, "Expected 1 classes");
