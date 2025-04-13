@@ -17,8 +17,8 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let graph = repo.build_graph_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 27, "Expected 44 nodes");
-    assert_eq!(num_edges, 26, "Expected 43 edges");
+    assert_eq!(num_nodes, 27, "Expected 27 nodes");
+    assert_eq!(num_edges, 26, "Expected 26 edges");
     
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
@@ -33,10 +33,10 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let files = graph.find_nodes_by_type(NodeType::File);
-    assert_eq!(files.len(), 6, "Expected 7 files");
+    assert_eq!(files.len(), 6, "Expected 6 files");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
-    assert_eq!(imports.len(), 6, "Expected 7 imports");
+    assert_eq!(imports.len(), 6, "Expected 6 imports");
     for function in &imports {
         println!("Imports: {:?}", function.file);
     }
