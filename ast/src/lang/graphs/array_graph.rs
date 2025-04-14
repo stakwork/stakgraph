@@ -27,7 +27,14 @@ impl Graph for ArrayGraph {
     {
         Self::default()
     }
-
+    fn analysis(&self) {
+        for node in &self.nodes {
+            println!(
+                "Node Name : {:?} for Node: {:?}",
+                node.node_data.name, node.node_data
+            );
+        }
+    }
     fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
         let mut new_graph = Self::new();
 

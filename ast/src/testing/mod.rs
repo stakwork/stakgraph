@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 pub mod angular;
 pub mod go;
+pub mod graphs;
 pub mod kotlin;
 pub mod python;
 pub mod react;

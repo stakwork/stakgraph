@@ -26,6 +26,14 @@ impl Graph for BTreeMapGraph {
     {
         Self::default()
     }
+    fn analysis(&self) {
+        for node in &self.nodes {
+            println!(
+                "Node Name: {:?} for Node: {:?}",
+                node.0, node.1.node_data.name
+            );
+        }
+    }
 
     fn extend_graph(&mut self, other: Self) {
         self.nodes.extend(other.nodes);
@@ -280,8 +288,8 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
-        let prefix = format!("{:?}-{}-{}", NodeType::Endpoint, name, file);
+    fn find_endpoint(&self, name: &str, _file: &str, verb: &str) -> Option<NodeData> {
+        let prefix = format!("{:?}-{}", NodeType::Endpoint, name.to_lowercase());
 
         self.nodes
             .range(prefix.clone()..)
