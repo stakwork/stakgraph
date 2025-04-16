@@ -2,6 +2,7 @@ import fs from "fs";
 import { v4 as uuidv4 } from "uuid";
 import { db } from "./neo4j.js";
 import type { Request, Response } from "express";
+import { isTrue } from "./utils.js";
 
 const UPLOAD_PATH = "./uploads/";
 
@@ -75,8 +76,7 @@ async function processFiles(requestId: string, node_file: any, edge_file: any) {
 }
 
 export async function embed_code(req: Request, res: Response) {
-  const files = req.query.files as string;
-  const do_files = files === "true" || files === "1";
+  const do_files = isTrue(req.query.files as string);
   await db.embed_data_bank_bodies(do_files);
   res.json({ status: "completed" });
 }

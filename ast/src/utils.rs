@@ -1,19 +1,35 @@
+use std::any::Any;
+
 use crate::lang::graphs::{ArrayGraph, Node};
+use crate::lang::{BTreeMapGraph, Graph};
 use anyhow::Result;
+use serde::Serialize;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
-pub fn print_json(graph: &ArrayGraph, name: &str) -> Result<()> {
+pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
     use serde_jsonlines::write_json_lines;
     match std::env::var("OUTPUT_FORMAT")
         .unwrap_or_else(|_| "json".to_string())
         .as_str()
     {
         "jsonl" => {
-            let nodepath = format!("ast/examples/{}-nodes.jsonl", name);
-            write_json_lines(nodepath, &graph.nodes)?;
-            let edgepath = format!("ast/examples/{}-edges.jsonl", name);
-            write_json_lines(edgepath, &graph.edges)?;
+            if let Some(array_graph) = as_array_graph(graph) {
+                let nodepath = format!("ast/examples/{}-nodes.jsonl", name);
+                write_json_lines(nodepath, &array_graph.nodes)?;
+                let edgepath = format!("ast/examples/{}-edges.jsonl", name);
+                write_json_lines(edgepath, &array_graph.edges)?;
+            } else if let Some(btreemap_graph) = as_btreemap_graph(graph) {
+                let nodepath = format!("ast/examples/{}-nodes.jsonl", name);
+                write_json_lines(nodepath, &btreemap_graph.nodes)?;
+                let edgepath = format!("ast/examples/{}-edges.jsonl", name);
+                write_json_lines(edgepath, &btreemap_graph.edges)?;
+            } else {
+                //seriolize the whole graph otherwise
+                let pretty = serde_json::to_string_pretty(&graph)?;
+                let path = format!("ast/examples/{}.json", name);
+                std::fs::write(path, pretty)?;
+            }
         }
         _ => {
             let pretty = serde_json::to_string_pretty(&graph)?;
@@ -22,6 +38,14 @@ pub fn print_json(graph: &ArrayGraph, name: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn as_array_graph<G: Graph + Serialize + 'static>(graph: &G) -> Option<&ArrayGraph> {
+    (graph as &dyn Any).downcast_ref::<ArrayGraph>()
+}
+
+fn as_btreemap_graph<G: Graph + Serialize + 'static>(graph: &G) -> Option<&BTreeMapGraph> {
+    (graph as &dyn Any).downcast_ref::<BTreeMapGraph>()
 }
 
 pub fn logger() {

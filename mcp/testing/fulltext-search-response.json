@@ -1,27 +1,40 @@
 [
-  {
-      "node_type": "Function",
-      "ref_id": "test_ref_id",
-      "properties": {
-          "file": "stakwork/demo-repo/db.go",
-          "node_key": "function-newperson-stakworkdemorepodbgo-26",
-          "name": "NewPerson",
-          "start": 26,
-          "end": 28,
-          "body": "func (db database) NewPerson(p Person) error {\n\treturn db.db.Create(&p).Error\n}",
-          "operand": "database"
-      }
-  },
-  {
-      "node_type": "Function",
-      "ref_id": "test_ref_id",
-      "properties": {
-          "file": "stakwork/demo-repo/frontend/src/components/NewPerson.tsx",
-          "node_key": "function-newperson-stakworkdemorepofrontendsrccomponentsnewpersontsx-52",
-          "name": "NewPerson",
-          "start": 52,
-          "end": 111,
-          "body": "function NewPerson() {\n  const [name, setName] = useState('');\n  const [email, setEmail] = useState('');\n\n  const handleSubmit = async (event: React.FormEvent) => {\n    event.preventDefault();\n\n    const newPerson = {\n      name: name,\n      email: email,\n    };\n\n    try {\n      const response = await fetch(`${api.host}/person`, {\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json',\n        },\n        body: JSON.stringify(newPerson),\n      });\n\n      if (!response.ok) {\n        console.error('Failed to add new person:', response.statusText);\n        return;\n      }\n\n      const data = await response.json();\n      console.log('New person added:', data);\n    } catch (error) {\n      console.error('Error adding new person:', error);\n    }\n  };\n\n  return (\n    <FormContainer>\n      <FormTitle>Add New Person</FormTitle>\n      <form onSubmit={handleSubmit}>\n        <FormGroup>\n          <Label>Name:</Label>\n          <Input\n            type=\"text\"\n            value={name}\n            onChange={(e) => setName(e.target.value)}\n            required\n          />\n        </FormGroup>\n        <FormGroup>\n          <Label>Email:</Label>\n          <Input\n            type=\"email\"\n            value={email}\n            onChange={(e) => setEmail(e.target.value)}\n            required\n          />\n        </FormGroup>\n        <SubmitButton type=\"submit\">Add Person</SubmitButton>\n      </form>\n    </FormContainer>\n  );\n}"
-      }
-  }
+    {
+        "node_type": "Function",
+        "ref_id": "test_ref_id",
+        "properties": {
+            "file": "stakwork/demo-repo/db.go",
+            "node_key": "function-newperson-stakworkdemorepodbgo-26",
+            "name": "NewPerson",
+            "start": 26,
+            "end": 28,
+            "body": "func (db database) NewPerson(p Person) error {\n\treturn db.db.Create(&p).Error\n}",
+            "operand": "database"
+        }
+    },
+    {
+        "node_type": "Function",
+        "ref_id": "test_ref_id",
+        "properties": {
+            "file": "stakwork/demo-repo/frontend/src/components/NewPerson.tsx",
+            "node_key": "function-newperson-stakworkdemorepofrontendsrccomponentsnewpersontsx-52",
+            "name": "NewPerson",
+            "start": 52,
+            "end": 111,
+            "body": "function NewPerson() {\n  const [name, setName] = useState('');\n  const [email, setEmail] = useState('');\n\n  const handleSubmit = async (event: React.FormEvent) => {\n    event.preventDefault();\n\n    const newPerson = {\n      name: name,\n      email: email,\n    };\n\n    try {\n      const response = await fetch(`${api.host}/person`, {\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json',\n        },\n        body: JSON.stringify(newPerson),\n      });\n\n      if (!response.ok) {\n        console.error('Failed to add new person:', response.statusText);\n        return;\n      }\n\n      const data = await response.json();\n      console.log('New person added:', data);\n    } catch (error) {\n      console.error('Error adding new person:', error);\n    }\n  };\n\n  return (\n    <FormContainer>\n      <FormTitle>Add New Person</FormTitle>\n      <form onSubmit={handleSubmit}>\n        <FormGroup>\n          <Label>Name:</Label>\n          <Input\n            type=\"text\"\n            value={name}\n            onChange={(e) => setName(e.target.value)}\n            required\n          />\n        </FormGroup>\n        <FormGroup>\n          <Label>Email:</Label>\n          <Input\n            type=\"email\"\n            value={email}\n            onChange={(e) => setEmail(e.target.value)}\n            required\n          />\n        </FormGroup>\n        <SubmitButton type=\"submit\">Add Person</SubmitButton>\n      </form>\n    </FormContainer>\n  );\n}"
+        }
+    },
+    {
+        "node_type": "File",
+        "ref_id": "test_ref_id",
+        "properties": {
+            "file": "stakwork/demo-repo/frontend/src/components/NewPerson.tsx",
+            "node_key": "file-newpersontsx-stakworkdemorepofrontendsrccomponentsnewpersontsx-0",
+            "name": "NewPerson.tsx",
+            "start": 0,
+            "end": 0,
+            "body": "import { useState } from 'react';\nimport styled from 'styled-components';\nimport * as api from '../api';\n\nconst FormContainer = styled.div`\n  max-width: 400px;\n  margin: 0 auto;\n  padding: 20px;\n  border: 1px solid #ccc;\n  border-radius: 8px;\n  background-color: #f9f9f9;\n`;\n\nconst FormTitle = styled.h2`\n  text-align: center;\n  color: #333;\n`;\n\nconst FormGroup = styled.div`\n  margin-bottom: 15px;\n`;\n\nconst Label = styled.label`\n  display: block;\n  margin-bottom: 5px;\n  font-weight: bold;\n  color: #555;\n`;\n\nconst Input = styled.input`\n  width: 100%;\n  padding: 8px;\n  border: 1px solid #ccc;\n  border-radius: 4px;\n  font-size: 16px;\n`;\n\nconst SubmitButton = styled.button`\n  width: 100%;\n  padding: 10px;\n  background-color: #28a745;\n  color: white;\n  border: none;\n  border-radius: 4px;\n  font-size: 16px;\n  cursor: pointer;\n\n  &:hover {\n    background-color: #218838;\n  }\n`;\n\nfunction NewPerson() {\n  const [name, setName] = useState('');\n  const [email, setEmail] = useState('');\n\n  const handleSubmit = async (event: React.FormEvent) => {\n    event.preventDefault();\n\n    const newPerson = {\n      name: name,\n      email: email,\n    };\n\n    try {\n      const response = await fetch(`${api.host}/person`, {\n        method: 'POST',\n        headers: {\n          'Content-Type': 'application/json',\n        },\n        body: JSON.stringify(newPerson),\n      });\n\n      if (!response.ok) {\n        console.error('Failed to add new person:', response.statusText);\n        return;\n      }\n\n      const data = await response.json();\n      console.log('New person added:', data);\n    } catch (error) {\n      console.error('Error adding new person:', error);\n    }\n  };\n\n  return (\n    <FormContainer>\n      <FormTitle>Add New Person</FormTitle>\n      <form onSubmit={handleSubmit}>\n        <FormGroup>\n          <Label>Name:</Label>\n          <Input\n            type=\"text\"\n            value={name}\n            onChange={(e) => setName(e.target.value)}\n            required\n          />\n        </FormGroup>\n        <FormGroup>\n          <Label>Email:</Label>\n          <Input\n            type=\"email\"\n            value={email}\n            onChange={(e) => setEmail(e.target.value)}\n            required\n          />\n        </FormGroup>\n        <SubmitButton type=\"submit\">Add Person</SubmitButton>\n      </form>\n    </FormContainer>\n  );\n}\n\nexport default NewPerson;\n",
+            "hash": "b2a2170be0c8556850d6d40bc91b6cd678df977cce59d0a3e5d1d49961a82972"
+        }
+    }
 ]

@@ -131,8 +131,8 @@ paths:
           description: Direction to traverse relationships
           schema:
             type: string
-            enum: [up, down]
-            default: down
+            enum: [up, down, both]
+            default: both
         - name: trim
           in: query
           required: false
@@ -196,8 +196,8 @@ paths:
           description: Direction to traverse relationships
           schema:
             type: string
-            enum: [up, down]
-            default: down
+            enum: [up, down, both]
+            default: both
         - name: trim
           in: query
           required: false

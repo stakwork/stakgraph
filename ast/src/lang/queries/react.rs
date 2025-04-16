@@ -284,7 +284,8 @@ impl Stack for ReactTs {
     }
     fn is_router_file(&self, file_name: &str, code: &str) -> bool {
         // next.js or react-router-dom
-        file_name.contains("src/pages/") || code.contains("react-router-dom")
+        // file_name.contains("src/pages/") || code.contains("react-router-dom")
+        !file_name.contains("__tests__") && !file_name.contains("test")
     }
     fn page_query(&self) -> Option<String> {
         let component_attribute = format!(

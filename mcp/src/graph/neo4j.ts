@@ -4,14 +4,10 @@ import readline from "readline";
 import { Node, Edge, Neo4jNode, NodeType } from "./types.js";
 import { create_node_key } from "./utils.js";
 import * as Q from "./queries.js";
-import {
-  DIMENSIONS,
-  vectorizeCodeDocument,
-  vectorizeQuery,
-} from "../vector/index.js";
+import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
 import { v4 as uuidv4 } from "uuid";
 
-export type Direction = "up" | "down";
+export type Direction = "up" | "down" | "both";
 
 export const Data_Bank = Q.Data_Bank;
 
@@ -51,6 +47,16 @@ class Db {
     try {
       const r = await session.run(Q.LIST_QUERY, { node_label: label });
       return r.records.map((record) => record.get("f"));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async nodes_by_ref_ids(ref_ids: string[]): Promise<Neo4jNode[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.REF_IDS_LIST_QUERY, { ref_ids });
+      return r.records.map((record) => record.get("n"));
     } finally {
       await session.close();
     }
@@ -107,7 +113,7 @@ class Db {
     const label_filter = this.skip_string(disclude);
     const session = this.driver.session();
     try {
-      return await session.run(Q.SUBTREE_QUERY, {
+      return await session.run(Q.SUBGRAPH_QUERY, {
         node_label: node_type,
         node_name: name,
         ref_id: ref_id,
@@ -265,8 +271,9 @@ class Db {
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
+      // ^8 is a boost factor for exact match query
       const result = await session.run(Q.SEARCH_QUERY_NAME, {
-        query,
+        query: `${query}^8 OR ${query}*`, // wildcard OR not
         limit,
         node_types,
       });

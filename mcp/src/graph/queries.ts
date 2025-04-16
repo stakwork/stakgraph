@@ -74,6 +74,13 @@ WHERE any(label IN labels(f) WHERE label = nodeLabel)
 RETURN f
 `;
 
+export const REF_IDS_LIST_QUERY = `
+WITH $ref_ids AS refIdList
+MATCH (n)
+WHERE n.ref_id IN refIdList
+RETURN n
+`;
+
 export const FILES_QUERY = `
 MATCH path = (d:Directory)-[:CONTAINS*0..]->(node)
 WHERE (node:Directory OR node:File)
@@ -151,7 +158,7 @@ ORDER BY score DESC
 LIMIT toInteger($limit)
 `;
 
-export const SUBTREE_QUERY = `
+export const SUBGRAPH_QUERY = `
 WITH $node_label AS nodeLabel,
      $node_name as nodeName,
      $ref_id as refId,
@@ -159,14 +166,6 @@ WITH $node_label AS nodeLabel,
      $label_filter as labelFilter,
      $depth as depth,
      $trim as trim
-
-// Determine the relationshipFilter based on the direction parameter
-WITH nodeLabel, nodeName, refId, labelFilter, depth, trim,
-     CASE direction
-        WHEN "down" THEN "RENDERS>|CALLS>|CONTAINS>|HANDLER>|<OPERAND"
-        WHEN "up" THEN "<RENDERS|<CALLS|<CONTAINS|<HANDLER|<OPERAND"
-        ELSE "RENDERS>|CALLS>|CONTAINS>|HANDLER>|<OPERAND" // default
-     END AS relationshipFilter
 
 // Find the start node using either ref_id or name+label
 OPTIONAL MATCH (fByName {name: nodeName})
@@ -179,55 +178,86 @@ WHERE refId <> ''
 WITH CASE
        WHEN fByRefId IS NOT NULL THEN fByRefId
        ELSE fByName
-     END AS f,
-     relationshipFilter, labelFilter, depth, trim
-WHERE f IS NOT NULL
+     END AS startNode,
+     direction, labelFilter, depth, trim
+WHERE startNode IS NOT NULL
 
-// Now use the dynamically determined relationshipFilter
-CALL apoc.path.expandConfig(f, {
-    relationshipFilter: relationshipFilter,
-    uniqueness: "NODE_PATH",
-    minLevel: 1,
-    maxLevel: depth,
-    labelFilter: labelFilter
-})
-YIELD path
+// For bidirectional queries, reduce depth to prevent explosion
+WITH startNode, direction, labelFilter, trim,
+     CASE WHEN direction = 'both' THEN toInteger(depth/2) ELSE depth END AS effectiveDepth
 
-WITH f as startNode,
-     COLLECT(DISTINCT path) AS paths,
-     trim
+// Execute separate traversals and combine results
+CALL {
+    WITH *
+    CALL apoc.path.subgraphAll(startNode, {
+        relationshipFilter: CASE WHEN direction IN ['down', 'both'] 
+                            THEN "RENDERS>|CALLS>|CONTAINS>|HANDLER>|<OPERAND" 
+                            ELSE null END,
+        minLevel: 1,
+        maxLevel: effectiveDepth,
+        labelFilter: labelFilter
+    })
+    YIELD nodes as downNodes, relationships as downRels
+    RETURN downNodes, downRels
+}
 
-// Filter out trimmed nodes from collected paths
-UNWIND paths AS path
-WITH startNode, path, trim
-WHERE NONE(n IN nodes(path) WHERE n.name IN trim)
+CALL {
+    WITH *
+    CALL apoc.path.subgraphAll(startNode, {
+        relationshipFilter: CASE WHEN direction IN ['up', 'both'] 
+                            THEN "<RENDERS|<CALLS|<CONTAINS|<HANDLER|<OPERAND" 
+                            ELSE null END,
+        minLevel: 1,
+        maxLevel: effectiveDepth,
+        labelFilter: labelFilter
+    })
+    YIELD nodes as upNodes, relationships as upRels
+    RETURN upNodes, upRels
+}
 
-// Collect the filtered paths and their nodes
+// Combine and deduplicate nodes and relationships
+WITH startNode, trim, 
+     CASE WHEN direction IN ['down', 'both'] THEN downNodes ELSE [] END + 
+     CASE WHEN direction IN ['up', 'both'] THEN upNodes ELSE [] END AS allNodes,
+     CASE WHEN direction IN ['down', 'both'] THEN downRels ELSE [] END + 
+     CASE WHEN direction IN ['up', 'both'] THEN upRels ELSE [] END AS allRels
+
+// Remove duplicates
+WITH startNode, trim,
+     apoc.coll.toSet(allNodes) AS uniqueNodes,
+     apoc.coll.toSet(allRels) AS uniqueRels
+
+// Filter out trimmed nodes
 WITH startNode,
-     COLLECT(DISTINCT path) AS filteredPaths,
+     [n IN uniqueNodes WHERE NOT n.name IN trim] AS filteredNodes,
+     uniqueRels, trim
+
+// Filter relationships to only include those between non-trimmed nodes
+WITH startNode, filteredNodes,
+     [r IN uniqueRels 
+      WHERE 
+        NOT startNode(r).name IN trim AND
+        NOT endNode(r).name IN trim
+     ] AS filteredRels,
      trim
 
-UNWIND filteredPaths AS path
-UNWIND nodes(path) AS node
-WITH startNode, filteredPaths, trim, COLLECT(DISTINCT node) AS allNodes
+// Transform to the format you need
+WITH startNode, filteredNodes, 
+     [rel IN filteredRels | {
+        source: id(startNode(rel)),
+        target: id(endNode(rel)),
+        type: type(rel),
+        properties: properties(rel)
+     }] AS relationshipData,
+     [node IN filteredNodes WHERE node.file IS NOT NULL | node.file] AS fileNames
 
-UNWIND filteredPaths AS path
-UNWIND relationships(path) AS rel
-WITH startNode, allNodes, COLLECT(DISTINCT {
-    source: id(startNode(rel)),
-    target: id(endNode(rel)),
-    type: type(rel),
-    properties: properties(rel)
-}) AS relationships, trim
-
-WITH startNode, allNodes, relationships,
-     [node IN allNodes WHERE node.file IS NOT NULL | node.file] AS fileNames
+// Get imports
 MATCH (file:File)-[:CONTAINS]->(import:Import)
 WHERE file.file IN fileNames
 
 RETURN startNode,
-       allNodes,
-       relationships,
+       filteredNodes AS allNodes,
+       relationshipData AS relationships,
        COLLECT(DISTINCT import) AS imports
 `;
 

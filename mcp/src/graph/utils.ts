@@ -1,9 +1,11 @@
 import { Node, Neo4jNode, ReturnNode, NodeType } from "./types.js";
-import { TikTokenizer } from "@microsoft/tiktokenizer";
 import { Data_Bank } from "./neo4j.js";
 
-const IS_TEST =
-  process.env.TEST_REF_ID === "true" || process.env.TEST_REF_ID === "1";
+export function isTrue(value: string): boolean {
+  return value === "true" || value === "1" || value === "True";
+}
+
+const IS_TEST = isTrue(process.env.TEST_REF_ID as string);
 
 export function rightLabel(node: Neo4jNode): string {
   let label = node.labels[0];
@@ -55,6 +57,7 @@ export function formatNode(node: Neo4jNode): string {
     return [
       `<snippet>`,
       `name: ${getNodeLabel(node)}`,
+      `ref_id: ${node.ref_id || node.properties.ref_id || "N/A"}`,
       `file: ${node.properties.file || "Not specified"}`,
       `start: ${node.properties.start || "N/A"}, end: ${
         node.properties.end || "N/A"

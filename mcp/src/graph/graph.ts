@@ -10,9 +10,19 @@ export type SearchMethod = "vector" | "fulltext";
 
 export { Data_Bank, Direction };
 
-export async function get_nodes(node_type: NodeType, concise: boolean) {
-  const result = await db.nodes_by_type(node_type);
-  return result.map((f) => toNode(f, concise));
+export async function get_nodes(
+  node_type: NodeType,
+  concise: boolean,
+  ref_ids: string[],
+  output: OutputFormat = "json"
+) {
+  let result: Neo4jNode[] = [];
+  if (ref_ids.length > 0) {
+    result = await db.nodes_by_ref_ids(ref_ids);
+  } else {
+    result = await db.nodes_by_type(node_type);
+  }
+  return toNodes(result, concise, output);
 }
 
 export async function get_files(prefix: string, limit: number) {
@@ -34,6 +44,7 @@ export async function search(
     const result = await db.vectorSearch(query, limit, node_types);
     return toNodes(result, concise, output);
   } else {
+    console.log("=> search", `${query}* OR ${query}`);
     const result = await db.search(query, limit, node_types);
     return toNodes(result, concise, output);
   }

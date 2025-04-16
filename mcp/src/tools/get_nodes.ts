@@ -15,6 +15,10 @@ export const GetNodesSchema = z.object({
     .describe(
       "Whether to return a concise response (only the name and filename)."
     ),
+  ref_ids: z
+    .string()
+    .optional()
+    .describe("Comma-separated list of ref_ids to retrieve (e.g. '123,456')."),
 });
 
 export const GetNodesTool: Tool = {
@@ -27,7 +31,8 @@ export async function getNodes(args: z.infer<typeof GetNodesSchema>) {
   console.log("=> Running get_nodes tool with args:", args);
   const result = await G.get_nodes(
     args.node_type as NodeType,
-    args.concise ?? false
+    args.concise ?? false,
+    args.ref_ids?.split(",") ?? []
   );
   return {
     content: [
