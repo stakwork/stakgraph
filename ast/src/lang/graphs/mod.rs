@@ -8,7 +8,7 @@ pub use graph::*;
 
 use crate::lang::asg::*;
 use serde::{Deserialize, Serialize};
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 pub enum NodeType {
     Repository,
     Language,
@@ -37,7 +37,7 @@ pub enum NodeType {
 //     E2e,
 // }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Node {
     pub node_type: NodeType,
     pub node_data: NodeData,
@@ -50,7 +50,7 @@ pub struct Edge {
     pub target: NodeRef,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct CallsMeta {
     pub call_start: usize,
     pub call_end: usize,
@@ -58,7 +58,7 @@ pub struct CallsMeta {
     pub operand: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "edge_type", content = "edge_data")]
 #[serde(rename_all = "UPPERCASE")]
 pub enum EdgeType {

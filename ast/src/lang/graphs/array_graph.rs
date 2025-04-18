@@ -73,6 +73,14 @@ impl Graph for ArrayGraph {
         ((self.nodes.len() as u32), (self.edges.len() as u32))
     }
     fn add_edge(&mut self, edge: Edge) {
+        println!(
+            "From {:?}-{:?} to {:?}-{:?} type: {:?}",
+            edge.source.node_data.name,
+            edge.source.node_type,
+            edge.target.node_data.name,
+            edge.target.node_type,
+            edge.edge
+        );
         self.edges.push(edge);
     }
 
