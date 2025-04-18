@@ -28,10 +28,14 @@ impl Graph for ArrayGraph {
         Self::default()
     }
     fn analysis(&self) {
-        for node in &self.nodes {
+        for edge in &self.edges {
             println!(
-                "Node Name : {:?} for Node: {:?}",
-                node.node_data.name, node.node_data
+                "From {:?}-{:?} to {:?}-{:?} type: {:?}",
+                edge.source.node_data.name,
+                edge.source.node_type,
+                edge.target.node_data.name,
+                edge.target.node_type,
+                edge.edge
             );
         }
     }

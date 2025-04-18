@@ -27,10 +27,10 @@ impl Graph for BTreeMapGraph {
         Self::default()
     }
     fn analysis(&self) {
-        for node in &self.nodes {
+        for edge in &self.edges {
             println!(
-                "Node Name: {:?} for Node: {:?}",
-                node.0, node.1.node_data.name
+                "Edge: {:?} -> {:?} type: {:?}",
+                edge.0 .0, edge.0 .1, edge.1
             );
         }
     }
@@ -55,7 +55,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
-        let prefix = format!("{:?}-{}", node_type, name.to_lowercase());
+        let prefix = format!("{:?}-{}", node_type, name).to_lowercase();
 
         self.nodes
             .range(prefix.clone()..)
@@ -69,12 +69,7 @@ impl Graph for BTreeMapGraph {
         name: &str,
         file: &str,
     ) -> Option<NodeData> {
-        let prefix = format!(
-            "{:?}-{}-{}",
-            node_type,
-            name.to_lowercase(),
-            file.to_lowercase()
-        );
+        let prefix = format!("{:?}-{}-{}", node_type, name, file).to_lowercase();
 
         self.nodes
             .range(prefix.clone()..)
@@ -92,8 +87,9 @@ impl Graph for BTreeMapGraph {
     ) {
         let node = Node::new(node_type.clone(), node_data.clone());
         let node_key = create_node_key(node.clone());
+        self.nodes.insert(node_key.clone(), node);
 
-        let prefix = format!("{:?}-", parent_type);
+        let prefix = format!("{:?}-", parent_type).to_lowercase();
         if let Some((parent_key, _)) = self
             .nodes
             .range(prefix.clone()..)
@@ -131,7 +127,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_nodes_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData> {
-        let prefix = format!("{:?}-", node_type);
+        let prefix = format!("{:?}-", node_type).to_lowercase();
 
         self.nodes
             .range(prefix.clone()..)
@@ -145,7 +141,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_node_at(&self, node_type: NodeType, file: &str, line: u32) -> Option<NodeData> {
-        let prefix = format!("{:?}-", node_type);
+        let prefix = format!("{:?}-", node_type).to_lowercase();
 
         self.nodes
             .range(prefix.clone()..)
@@ -160,7 +156,7 @@ impl Graph for BTreeMapGraph {
         name: &str,
         suffix: &str,
     ) -> Option<NodeData> {
-        let prefix = format!("{:?}-{}", node_type, name.to_lowercase());
+        let prefix = format!("{:?}-{}", node_type, name).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
@@ -169,7 +165,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {
-        let prefix = format!("{:?}-", node_type);
+        let prefix = format!("{:?}-", node_type).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
@@ -207,7 +203,7 @@ impl Graph for BTreeMapGraph {
                     self.nodes.insert(node_key.clone(), node);
 
                     let class_key =
-                        format!("{:?}-{}", NodeType::Class, class_node.name.to_lowercase());
+                        format!("{:?}-{}", NodeType::Class, class_node.name).to_lowercase();
                     self.edges.insert((node_key, class_key), EdgeType::Of);
                 }
             }
@@ -220,12 +216,11 @@ impl Graph for BTreeMapGraph {
             let func_key = create_node_key(func_node.clone());
             self.nodes.insert(func_key.clone(), func_node);
 
-            let file_prefix = format!("{:?}-{}", NodeType::File, node.file.to_lowercase());
+            let file_prefix = format!("{:?}-{}", NodeType::File, node.file).to_lowercase();
             if let Some((file_key, _)) = self.nodes.range(file_prefix..).next() {
                 self.edges
                     .insert((file_key.clone(), func_key.clone()), EdgeType::Contains);
             }
-            // Add method_of edge if present
             if let Some(p) = method_of {
                 self.add_edge(p.into());
             }
@@ -288,13 +283,16 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    fn find_endpoint(&self, name: &str, _file: &str, verb: &str) -> Option<NodeData> {
-        let prefix = format!("{:?}-{}", NodeType::Endpoint, name.to_lowercase());
-
+    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
+        let prefix = format!("{:?}-", NodeType::Endpoint).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
-            .find(|(_, node)| node.node_data.meta.get("verb") == Some(&verb.to_string()))
+            .find(|(_, node)| {
+                node.node_data.name == name
+                    && node.node_data.file == file
+                    && node.node_data.meta.get("verb") == Some(&verb.to_string())
+            })
             .map(|(_, node)| node.node_data.clone())
     }
 
@@ -337,7 +335,6 @@ impl Graph for BTreeMapGraph {
 
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
         let (funcs, tests, int_tests) = calls;
-
         for (fc, ext_func) in funcs {
             if let Some(ext_nd) = ext_func {
                 if let Some(source_node) =
@@ -410,7 +407,8 @@ impl Graph for BTreeMapGraph {
                         )?;
 
                         for end in endpoints_in_group {
-                            let prefix = format!("{:?}-{}", NodeType::Endpoint, end.name);
+                            let prefix =
+                                format!("{:?}-{}", NodeType::Endpoint, end.name).to_lowercase();
                             if let Some((key, node)) = self
                                 .nodes
                                 .range(prefix.clone()..)
@@ -496,7 +494,7 @@ impl Graph for BTreeMapGraph {
         }
     }
     fn get_data_models_within(&mut self, lang: &Lang) {
-        let prefix = format!("{:?}-", NodeType::DataModel);
+        let prefix = format!("{:?}-", NodeType::DataModel).to_lowercase();
 
         let data_model_nodes: Vec<NodeData> = self
             .nodes
@@ -524,7 +522,7 @@ impl Graph for BTreeMapGraph {
     ) {
         let mut has_children: BTreeMap<String, bool> = BTreeMap::new();
 
-        let parent_prefix = format!("{:?}-", parent_type);
+        let parent_prefix = format!("{:?}-", parent_type).to_lowercase();
         for (_, node) in self
             .nodes
             .range(parent_prefix.clone()..)
@@ -533,7 +531,7 @@ impl Graph for BTreeMapGraph {
             has_children.insert(node.node_data.name.clone(), false);
         }
 
-        let child_prefix = format!("{:?}-", child_type);
+        let child_prefix = format!("{:?}-", child_type).to_lowercase();
         for (_, node) in self
             .nodes
             .range(child_prefix.clone()..)
@@ -581,7 +579,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
-        let prefix = format!("{:?}-{}", node_type, name);
+        let prefix = format!("{:?}-{}", node_type, name).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, n)| k.starts_with(&prefix) && n.node_data.name.contains(name))
@@ -590,7 +588,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_resource_nodes(&self, node_type: NodeType, verb: &str, path: &str) -> Vec<NodeData> {
-        let prefix = format!("{:?}-", node_type);
+        let prefix = format!("{:?}-", node_type).to_lowercase();
 
         self.nodes
             .range(prefix.clone()..)
@@ -654,7 +652,8 @@ impl Graph for BTreeMapGraph {
             NodeType::Function,
             function.name,
             function.file
-        );
+        )
+        .to_lowercase();
         let mut called_functions = Vec::new();
 
         for ((src, dst), edge_type) in &self.edges {
@@ -671,7 +670,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn find_nodes_by_type(&self, node_type: NodeType) -> Vec<NodeData> {
-        let prefix = format!("{:?}-", node_type);
+        let prefix = format!("{:?}-", node_type).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
@@ -686,8 +685,8 @@ impl Graph for BTreeMapGraph {
         edge_type: EdgeType,
     ) -> Vec<(NodeData, NodeData)> {
         let mut result = Vec::new();
-        let source_prefix = format!("{:?}-", source_type);
-        let target_prefix = format!("{:?}-", target_type);
+        let source_prefix = format!("{:?}-", source_type).to_lowercase();
+        let target_prefix = format!("{:?}-", target_type).to_lowercase();
 
         for ((src_key, dst_key), edge) in &self.edges {
             if *edge == edge_type
@@ -717,10 +716,8 @@ impl Graph for BTreeMapGraph {
 
 impl BTreeMapGraph {
     fn find_node_from_node_ref(&self, node_ref: NodeRef) -> Option<Node> {
-        let prefix = format!(
-            "{:?}-{}-{}",
-            &node_ref.node_type, &node_ref.node_data.name, &node_ref.node_data.file
-        );
+        let prefix =
+            format!("{:?}-{}-", &node_ref.node_type, &node_ref.node_data.name).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
@@ -729,7 +726,8 @@ impl BTreeMapGraph {
     }
 
     fn find_node_from_node_key(&self, node_type: NodeType, node_key: NodeKeys) -> Option<Node> {
-        let prefix = format!("{:?}-{}-{}", &node_type, &node_key.name, &node_key.file);
+        let prefix = format!("{:?}-{}-", &node_type, &node_key.name).to_lowercase();
+
         self.nodes
             .range(prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&prefix))
