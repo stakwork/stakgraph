@@ -1,4 +1,5 @@
 use crate::lang::{ArrayGraph, Lang};
+use crate::utils::get_use_lsp;
 use graphs::GraphTestExpectations;
 use lsp::Language;
 use std::env;
@@ -22,7 +23,10 @@ static TEST_EXPECTATIONS: &[GraphTestExpectations] = &[GraphTestExpectations {
     repo_path: "src/testing/go",
     expected_nodes: 30,
     expected_edges: 48,
+    expected_nodes_lsp: Some(64),
+    expected_edges_lsp: Some(108),
     critical_edges: Vec::new(),
+    critical_edges_lsp: None,
 }];
 #[cfg(test)]
 fn pre_test() {
@@ -67,8 +71,10 @@ async fn run_client_tests() {
 async fn test_graphs_similarity() {
     pre_test();
 
+    let use_lsp = get_use_lsp();
+
     for expectation in TEST_EXPECTATIONS {
-        graphs::run_graph_similarity_test(expectation)
+        graphs::run_graph_similarity_test(expectation, use_lsp)
             .await
             .unwrap();
     }
