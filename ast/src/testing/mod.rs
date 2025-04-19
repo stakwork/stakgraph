@@ -24,7 +24,7 @@ static TEST_EXPECTATIONS: &[GraphTestExpectations] = &[GraphTestExpectations {
     expected_nodes: 30,
     expected_edges: 48,
     expected_nodes_lsp: Some(64),
-    expected_edges_lsp: Some(108),
+    expected_edges_lsp: Some(92),
     critical_edges: Vec::new(),
     critical_edges_lsp: None,
 }];

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::env;
 
 use crate::lang::graphs::{ArrayGraph, Node};
-use crate::lang::{BTreeMapGraph, Graph};
+use crate::lang::{BTreeMapGraph, Graph, NodeRef};
 use anyhow::Result;
 use serde::Serialize;
 use tracing_subscriber::filter::LevelFilter;
@@ -92,4 +92,31 @@ pub fn get_use_lsp() -> bool {
         return true;
     }
     false
+}
+
+pub fn create_synthetic_key_from_ref(node_ref: NodeRef, start: u32) -> String {
+    let node_type = node_ref.node_type.to_string().to_lowercase();
+    let name = node_ref
+        .node_data
+        .name
+        .to_lowercase()
+        .trim()
+        .replace(char::is_whitespace, "")
+        .replace(|c: char| !c.is_alphanumeric(), "");
+    let file = node_ref
+        .node_data
+        .file
+        .to_lowercase()
+        .trim()
+        .replace(char::is_whitespace, "")
+        .replace(|c: char| !c.is_alphanumeric(), "");
+    let start = start.to_string();
+
+    format!("{}-{}-{}-{}", node_type, name, file, start)
+}
+pub fn normalize_string(s: &str) -> String {
+    s.to_lowercase()
+        .trim()
+        .replace(char::is_whitespace, "")
+        .replace(|c: char| !c.is_alphanumeric(), "")
 }

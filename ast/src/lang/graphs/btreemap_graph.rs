@@ -1,6 +1,6 @@
 use super::{graph::Graph, *};
 use crate::lang::{Function, FunctionCall, Lang};
-use crate::utils::create_node_key;
+use crate::utils::{create_node_key, create_synthetic_key_from_ref};
 use anyhow::Result;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -44,14 +44,23 @@ impl Graph for BTreeMapGraph {
         (self.nodes.len() as u32, self.edges.len() as u32)
     }
     fn add_edge(&mut self, edge: Edge) {
+        let old_edge = edge.clone();
         if let (Some(source_node), Some(target_node)) = (
-            self.find_node_from_node_ref(edge.source),
-            self.find_node_from_node_ref(edge.target),
+            self.find_node_from_node_ref(old_edge.source),
+            self.find_node_from_node_ref(old_edge.target),
         ) {
             let source_key = create_node_key(source_node);
             let target_key = create_node_key(target_node);
-            self.edges.insert((source_key, target_key, edge.edge));
+            self.edges.insert((source_key, target_key, old_edge.edge));
+            return;
         }
+
+        //handle case when LSP is introduced
+        println!("LSP found : {:?}", edge);
+        let new_edge = edge;
+        let source_key = create_synthetic_key_from_ref(new_edge.source, 0);
+        let target_key = create_synthetic_key_from_ref(new_edge.target, 0);
+        self.edges.insert((source_key, target_key, new_edge.edge));
     }
 
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {

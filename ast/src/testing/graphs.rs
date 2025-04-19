@@ -1,5 +1,5 @@
 use crate::lang::graphs::{BTreeMapGraph, Node, NodeType};
-use crate::lang::{ArrayGraph, Lang};
+use crate::lang::{ArrayGraph, Graph, Lang};
 use crate::repo::Repo;
 use anyhow::Result;
 use std::str::FromStr;
@@ -31,6 +31,8 @@ pub async fn run_graph_similarity_test(
     )
     .unwrap();
     let graph_a = repo_a.build_graph_inner::<ArrayGraph>().await?;
+    println!("ArrayGraph Analysis");
+    graph_a.analysis();
 
     let lang = Lang::from_str(expectations.lang_id).unwrap();
     let repo_b = Repo::new(
@@ -42,6 +44,9 @@ pub async fn run_graph_similarity_test(
     )
     .unwrap();
     let graph_b = repo_b.build_graph_inner::<BTreeMapGraph>().await?;
+
+    println!("BTreeMapGraph Analysis");
+    graph_b.analysis();
 
     let mut nodes_a = graph_a.nodes; // Takes ownership
     let mut nodes_b: Vec<Node> = graph_b.nodes.values().cloned().collect();
