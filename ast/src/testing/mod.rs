@@ -1,4 +1,5 @@
 use crate::lang::{ArrayGraph, Lang};
+use graphs::GraphTestExpectations;
 use lsp::Language;
 use std::env;
 use std::str::FromStr;
@@ -16,6 +17,13 @@ pub mod test_backend;
 pub mod test_frontend;
 pub mod utils;
 
+static TEST_EXPECTATIONS: &[GraphTestExpectations] = &[GraphTestExpectations {
+    lang_id: "go",
+    repo_path: "src/testing/go",
+    expected_nodes: 30,
+    expected_edges: 48,
+    critical_edges: Vec::new(),
+}];
 #[cfg(test)]
 fn pre_test() {
     env::set_var("LSP_SKIP_POST_CLONE", "true");
@@ -52,5 +60,16 @@ async fn run_client_tests() {
             .await
             .unwrap();
         tester.test_frontend().unwrap();
+    }
+}
+
+#[test(tokio::test)]
+async fn test_graphs_similarity() {
+    pre_test();
+
+    for expectation in TEST_EXPECTATIONS {
+        graphs::run_graph_similarity_test(expectation)
+            .await
+            .unwrap();
     }
 }
