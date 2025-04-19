@@ -17,8 +17,9 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let graph = repo.build_graph_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 44, "Expected 44 nodes");
-    assert_eq!(num_edges, 43, "Expected 43 edges");
+    assert_eq!(num_nodes, 27, "Expected 27 nodes");
+    assert_eq!(num_edges, 26, "Expected 26 edges");
+    
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -32,14 +33,15 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let files = graph.find_nodes_by_type(NodeType::File);
-    assert_eq!(files.len(), 7, "Expected 7 files");
+    assert_eq!(files.len(), 6, "Expected 6 files");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
-    assert_eq!(imports.len(), 7, "Expected 7 imports");
+    assert_eq!(imports.len(), 6, "Expected 6 imports");
+
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
-    assert_eq!(classes.len(), 3, "Expected 3 classes");
-    assert_eq!(classes[0].body, "", "Class body should be empty");
+    assert_eq!(classes.len(), 1, "Expected 1 classes");
+    assert_eq!(classes[0].name, "Person ", "Class name should be 'Person'");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     assert_eq!(functions.len(), 6, "Expected 6 functions");
@@ -54,7 +56,8 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    assert_eq!(data_models.len(), 13, "Expected 13 data models");
+    assert_eq!(data_models.len(), 1, "Expected 1 data models");
+    assert_eq!(data_models[0].name, "Person","Data model name should be 'Person'");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 1, "Expected 1 request");

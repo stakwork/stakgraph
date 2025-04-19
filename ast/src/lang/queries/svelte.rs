@@ -42,19 +42,21 @@ impl Stack for Svelte {
 
     fn class_definition_query(&self) -> String {
         format!(
-            r#"
-            (script_element
-                (_) @{CLASS_NAME}
-            )
-            "#
+            r#"[
+                (document
+                    (expression
+                        (_) @{CLASS_NAME}
+                        (#match? @{CLASS_NAME} "^[A-Z].*")
+                    ) 
+                )
+            ] @{CLASS_DEFINITION}"#
         )
     }
 
     fn function_definition_query(&self) -> String {
         format!(
             r#"
-            (
-                attribute
+            (attribute
                 (expression
                     (_) @{FUNCTION_NAME}
                 ) @{FUNCTION_DEFINITION}
@@ -65,11 +67,13 @@ impl Stack for Svelte {
 
     fn function_call_query(&self) -> String {
         format!(
-            r#"
-            (expression
-                (_) @args
-            ) @FUNCTION_CALL
-            "#
+            r#"[
+                ;; Svelte expressions
+                (expression
+                    (_) @args
+                ) @{FUNCTION_CALL}
+                ;; TypeScript function calls
+            ] @{FUNCTION_CALL}"#
         )
     }
 
@@ -108,24 +112,27 @@ impl Stack for Svelte {
 
     fn request_finder(&self) -> Option<String> {
         Some(format!(
-            r#"
-            (_
-                (_) @{ENDPOINT}
-                (#match? @{ENDPOINT} "fetch|get|post|put|delete")
-            ) @{REQUEST_CALL}
-            "#
+            r#"[
+                (_
+                    (_) @{ENDPOINT}
+                    (#match? @{ENDPOINT} "fetch|get|post|put|delete")
+                )
+            ] @{REQUEST_CALL}"#
         ))
     }
 
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
-            r#"
-            (document
-                (_
-                    (_) + @{STRUCT_NAME}
+            r#"[
+                ;; Svelte data models
+                (document
+                    (expression
+                        (_) @{STRUCT_NAME}
+                        (#match? @{STRUCT_NAME} "^[A-Z].*")
+                    )
                 )
-            ) @{STRUCT}
-            "#
+                
+            ] @{STRUCT}"#
         ))
     }
 
