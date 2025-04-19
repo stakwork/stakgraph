@@ -33,7 +33,7 @@ pub struct Repos(pub Vec<Repo>);
 
 impl Repos {
     pub async fn build_graphs(&self) -> Result<ArrayGraph> {
-        self.build_graphs_inner::<ArrayGraph>().await
+        self.build_graphs_inner().await
     }
 
     pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {

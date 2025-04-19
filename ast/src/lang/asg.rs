@@ -11,7 +11,7 @@ pub struct UniqueKey {
     pub parent: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct NodeKeys {
     pub name: String,
     pub file: String,
@@ -41,7 +41,7 @@ impl From<&NodeData> for NodeKeys {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default)]
+#[derive(Clone, Debug, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct NodeData {
     pub name: String,
     pub file: String,
