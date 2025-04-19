@@ -30,6 +30,9 @@ impl Graph for BTreeMapGraph {
         for (src_key, dst_key, edge_type) in &self.edges {
             println!("Edge: {:?} -> {:?} type: {:?}", src_key, dst_key, edge_type);
         }
+        for (node_key, node) in &self.nodes {
+            println!("Node: {:?} type: {:?}", node_key, node.node_type);
+        }
     }
 
     fn extend_graph(&mut self, other: Self) {
@@ -40,63 +43,15 @@ impl Graph for BTreeMapGraph {
     fn get_graph_size(&self) -> (u32, u32) {
         (self.nodes.len() as u32, self.edges.len() as u32)
     }
-    // fn add_edge(&mut self, edge: Edge) {
-    //     if let (Some(source_node), Some(target_node)) = (
-    //         self.find_node_from_node_ref(edge.source),
-    //         self.find_node_from_node_ref(edge.target),
-    //     ) {
-    //         let source_key = create_node_key(source_node);
-    //         let target_key = create_node_key(target_node);
-    //         println!(
-    //             "Adding edge: {:?} -> {:?} type: {:?}",
-    //             source_key, target_key, edge.edge
-    //         );
-    //         self.edges.insert((source_key, target_key, edge.edge));
-    //     }
-    // }
-    // filepath: /Users/fayekelmith/Kelmith/Projects/stakgraph/ast/src/lang/graphs/btreemap_graph.rs
     fn add_edge(&mut self, edge: Edge) {
-        // --- BEGIN DEBUG LOGGING ---
-        if edge.edge == EdgeType::Contains
-            && (edge.target.node_type.clone() == NodeType::Class
-                || edge.target.node_type == NodeType::Import)
-        {
-            println!(
-                "DEBUG: Attempting to add File->{:?} edge:",
-                edge.target.node_type
-            );
-            println!("  Source Ref: {:?}", edge.source);
-            println!("  Target Ref: {:?}", edge.target);
-            let source_lookup_result = self.find_node_from_node_ref(edge.source.clone());
-            let target_lookup_result = self.find_node_from_node_ref(edge.target.clone());
-            println!("  Source Found: {}", source_lookup_result.is_some());
-            println!("  Target Found: {}", target_lookup_result.is_some());
-        }
-        // --- END DEBUG LOGGING ---
-
         if let (Some(source_node), Some(target_node)) = (
-            self.find_node_from_node_ref(edge.source), // Check result here
-            self.find_node_from_node_ref(edge.target.clone()), // And here
+            self.find_node_from_node_ref(edge.source),
+            self.find_node_from_node_ref(edge.target),
         ) {
             let source_key = create_node_key(source_node);
             let target_key = create_node_key(target_node);
-            println!(
-                "Adding edge: {:?} -> {:?} type: {:?}",
-                source_key, target_key, edge.edge
-            );
             self.edges.insert((source_key, target_key, edge.edge));
         }
-        // --- BEGIN DEBUG LOGGING ---
-        else if edge.edge == EdgeType::Contains
-            && (edge.target.node_type == NodeType::Class
-                || edge.target.node_type == NodeType::Import)
-        {
-            println!(
-                "DEBUG: Failed to find nodes for File->{:?} edge.",
-                edge.target.node_type
-            );
-        }
-        // --- END DEBUG LOGGING ---
     }
 
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
@@ -407,15 +362,10 @@ impl Graph for BTreeMapGraph {
                 let edge = Edge::uses(fc.source, &ext_nd);
                 self.add_edge(edge);
             } else {
-                println!("supposed to add function calls here");
                 if let (Some(source_node), Some(target_node)) = (
                     self.find_node_from_node_key(NodeType::Function, fc.source.clone()),
                     self.find_node_from_node_key(NodeType::Function, fc.target),
                 ) {
-                    println!(
-                        "Adding function call edge: {:?} -> {:?}",
-                        source_node.node_data.name, target_node.node_data.name
-                    );
                     let edge = Edge::calls(
                         NodeType::Function,
                         &source_node.node_data,
@@ -617,8 +567,9 @@ impl Graph for BTreeMapGraph {
         for key in nodes_to_remove {
             self.nodes.remove(&key);
             // Remove associated edges
-            self.edges
-                .retain(|(src, dst, _)| src != &key && dst != &key);
+            //TODO: Add this or roll it back
+            // self.edges
+            //     .retain(|(src, dst, _)| src != &key && dst != &key);
         }
     }
 
@@ -791,12 +742,10 @@ impl BTreeMapGraph {
         let prefix = format!("{:?}-", &node_type).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
-            .take_while(|(k, n)| {
-                k.starts_with(&prefix)
-                    && n.node_data.file == node_key.file
-                    && n.node_data.name == node_key.name
+            .take_while(|(k, _)| k.starts_with(&prefix))
+            .find(|(_, node)| {
+                node.node_data.file == node_key.file && node.node_data.name == node_key.name
             })
-            .find(|(_, node)| node.node_data.file == node_key.file)
             .map(|(_, node)| node.clone())
     }
 }

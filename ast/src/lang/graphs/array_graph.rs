@@ -38,6 +38,10 @@ impl Graph for ArrayGraph {
                 edge.edge
             );
         }
+
+        for node in &self.nodes {
+            println!("Node: {:?}-{:?}", node.node_data.name, node.node_type);
+        }
     }
     fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
         let mut new_graph = Self::new();
@@ -73,14 +77,6 @@ impl Graph for ArrayGraph {
         ((self.nodes.len() as u32), (self.edges.len() as u32))
     }
     fn add_edge(&mut self, edge: Edge) {
-        println!(
-            "From {:?}-{:?} to {:?}-{:?} type: {:?}",
-            edge.source.node_data.name,
-            edge.source.node_type,
-            edge.target.node_data.name,
-            edge.target.node_type,
-            edge.edge
-        );
         self.edges.push(edge);
     }
 

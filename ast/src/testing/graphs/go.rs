@@ -17,7 +17,7 @@ pub async fn test_go_graph_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    //graph.analysis();
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
