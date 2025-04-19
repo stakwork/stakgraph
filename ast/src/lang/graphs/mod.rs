@@ -43,7 +43,7 @@ pub struct Node {
     pub node_data: NodeData,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Edge {
     pub edge: EdgeType,
     pub source: NodeRef,
@@ -76,7 +76,7 @@ pub enum EdgeType {
     ParentOf, // Class -> Class
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 pub struct NodeRef {
     pub node_type: NodeType,
     pub node_data: NodeKeys,

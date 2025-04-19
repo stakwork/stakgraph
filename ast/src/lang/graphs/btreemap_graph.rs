@@ -374,7 +374,7 @@ impl Graph for BTreeMapGraph {
                         CallsMeta {
                             call_start: fc.call_start,
                             call_end: fc.call_end,
-                            operand: None,
+                            operand: fc.operand,
                         },
                     );
                     self.add_edge(edge);
@@ -566,8 +566,6 @@ impl Graph for BTreeMapGraph {
 
         for key in nodes_to_remove {
             self.nodes.remove(&key);
-            // Remove associated edges
-            //TODO: Add this or roll it back
             // self.edges
             //     .retain(|(src, dst, _)| src != &key && dst != &key);
         }
