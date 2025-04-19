@@ -93,12 +93,6 @@ async fn test_go() {
 }
 
 // #[test(tokio::test)]
-// async fn test_go() {
-//     use crate::lang::graphs::ArrayGraph;
-//     test_go_generic::<ArrayGraph>().await.unwrap();
-// }
-
-// #[test(tokio::test)]
 // async fn test_go_btree() {
 //     use crate::lang::graphs::BTreeMapGraph;
 //     test_go_generic::<BTreeMapGraph>().await.unwrap();
