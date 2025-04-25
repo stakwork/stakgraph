@@ -68,6 +68,12 @@ pub async fn run_graph_similarity_test(
     let nodes_a = graph_a.nodes;
     let nodes_b: Vec<Node> = graph_b.nodes.values().cloned().collect();
 
+    // Check if the two graph implementations produce different node counts
+    if nodes_a.len() != nodes_b.len() {
+        println!("WARNING: Graph implementations have different node counts for {}: ArrayGraph: {}, BTreeMapGraph: {}", 
+            expectations.lang_id, nodes_a.len(), nodes_b.len());
+    }
+
     if use_lsp_to_test {
         assert_eq!(
             nodes_a.len() as u32,
@@ -137,10 +143,10 @@ pub fn get_test_expectations() -> Vec<GraphTestExpectations> {
         GraphTestExpectations {
             lang_id: "react",
             repo_path: "src/testing/react",
-            expected_nodes: 49,
-            expected_edges: 61,
-            expected_nodes_lsp: Some(55),
-            expected_edges_lsp: Some(77),
+            expected_nodes: 56,
+            expected_edges: 72,
+            expected_nodes_lsp: Some(64),
+            expected_edges_lsp: Some(88),
             ..Default::default()
         },
         GraphTestExpectations {

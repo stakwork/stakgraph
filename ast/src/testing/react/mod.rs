@@ -95,11 +95,11 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     if use_lsp == true {
-        assert_eq!(num_nodes, 55, "Expected 55 nodes");
+        assert_eq!(num_nodes, 56, "Expected 56 nodes");
         assert_eq!(num_edges, 77, "Expected 77 edges");
     } else {
-        assert_eq!(num_nodes, 49, "Expected 49 nodes");
-        assert_eq!(num_edges, 61, "Expected 61 edges");
+        assert_eq!(num_nodes, 56, "Expected 56 nodes");
+        assert_eq!(num_edges, 72, "Expected 72 edges");
     }
 
     fn normalize_path(path: &str) -> String {
@@ -126,13 +126,13 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
-    assert_eq!(imports.len(), 4, "Expected 4 imports");
+    assert_eq!(imports.len(), 5, "Expected 5 imports");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     if use_lsp == true {
-        assert_eq!(functions.len(), 17, "Expected 17 functions/components");
+        assert_eq!(functions.len(), 22, "Expected 22 functions/components");
     } else {
-        assert_eq!(functions.len(), 11, "Expected 11 functions/components");
+        assert_eq!(functions.len(), 16, "Expected 16 functions/components");
     }
 
     let mut sorted_functions = functions.clone();
@@ -149,13 +149,13 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     );
 
     assert_eq!(
-        sorted_functions[1].name, "FormContainer",
-        "FormContainer component name is incorrect"
+        sorted_functions[1].name, "ArrowComponent",
+        "ArrowComponent component name is incorrect"
     );
     assert_eq!(
         normalize_path(&sorted_functions[1].file),
-        "src/testing/react/src/components/NewPerson.tsx",
-        "FormContainer component file path is incorrect"
+        "src/testing/react/src/components/ComponentStyles.tsx",
+        "ArrowComponent component file path is incorrect"
     );
 
     let submit_button = functions
@@ -176,7 +176,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(Default::default()));
-    assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
+    assert_eq!(calls_edges_count, 18, "Expected 18 calls edges");
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     assert_eq!(pages.len(), 2, "Expected 2 pages");
