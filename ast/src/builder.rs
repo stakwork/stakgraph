@@ -504,7 +504,7 @@ pub fn combine_imports(nodes: Vec<NodeData>) -> Vec<NodeData> {
     if nodes.is_empty() {
         return Vec::new();
     }
-    let import_name = create_node_key(Node::new(NodeType::Import, nodes[0].clone()));
+    let import_name = create_node_key(&Node::new(NodeType::Import, nodes[0].clone()));
     let mut combined_body = String::new();
     let mut current_position = nodes[0].start;
     for (i, node) in nodes.iter().enumerate() {

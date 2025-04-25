@@ -763,7 +763,7 @@ impl Lang {
                                 "==> ! found target for {:?} {}!!!",
                                 called, &t.file
                             ));
-                            fc.target = NodeKeys::new(&called, &t.file);
+                            fc.target = NodeKeys::new(&called, &t.file, t.start);
                             // set extenal func so this is marked as USES edge rather than CALLS
                             if t.body.is_empty() && t.docs.is_some() {
                                 log_cmd(format!("==> ! found target is external {:?}!!!", called));
@@ -772,7 +772,7 @@ impl Lang {
                         } else {
                             if let Some(one_func) = func_target_file_finder(&called, &None, graph) {
                                 log_cmd(format!("==> ? ONE target for {:?} {}", called, &one_func));
-                                fc.target = NodeKeys::new(&called, &one_func);
+                                fc.target = NodeKeys::new(&called, &one_func, 0);
                             } else {
                                 // println!("no target for {:?}", body);
                                 log_cmd(format!(
@@ -792,7 +792,8 @@ impl Lang {
                                             lib_func.docs = Some(hr);
                                         }
                                         external_func = Some(lib_func);
-                                        fc.target = NodeKeys::new(&called, &target_file);
+                                        fc.target =
+                                            NodeKeys::new(&called, &target_file, gt.line as usize);
                                     }
                                 } else {
                                     // handle trait match, jump to implemenetations
@@ -809,7 +810,8 @@ impl Lang {
                                                 "==> ! found target for impl {:?} {:?}!!!",
                                                 called, &t_file
                                             ));
-                                            fc.target = NodeKeys::new(&called, &t_file.file);
+                                            fc.target =
+                                                NodeKeys::new(&called, &t_file.file, t_file.start);
                                         }
                                     }
                                 }
@@ -828,11 +830,11 @@ impl Lang {
                             "==> ? (no lsp) ONE target for {:?} {}",
                             called, &tf
                         ));
-                        fc.target = NodeKeys::new(&called, &tf);
+                        fc.target = NodeKeys::new(&called, &tf, 0);
                     }
                 }
             } else if o == FUNCTION_CALL {
-                fc.source = NodeKeys::new(&caller_name, file);
+                fc.source = NodeKeys::new(&caller_name, file, node.start_position().row);
                 fc.call_start = node.start_position().row;
                 fc.call_end = node.end_position().row;
             } else if o == OPERAND {
@@ -1004,7 +1006,7 @@ impl Lang {
                     caller_name, handler_name, &target_file
                 ));
             }
-            fc.target = NodeKeys::new(&handler_name, &target_file);
+            fc.target = NodeKeys::new(&handler_name, &target_file, gt.line as usize);
         }
 
         // target must be found
@@ -1021,7 +1023,7 @@ impl Lang {
             return Ok(None);
         }
         let endpoint = endpoint.unwrap();
-        let source = NodeKeys::new(&caller_name, file);
+        let source = NodeKeys::new(&caller_name, file, 0);
         let edge = Edge::new(
             EdgeType::Calls(CallsMeta {
                 call_start: fc.call_start,

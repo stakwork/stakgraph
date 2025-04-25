@@ -18,8 +18,10 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let graph = repo.build_graph_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
+
+    //graph.analysis();
     assert_eq!(num_nodes, 115, "Expected 115 nodes");
-    assert_eq!(num_edges, 103, "Expected 103 edges");
+    assert_eq!(num_edges, 125, "Expected 125 edges");
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
@@ -88,6 +90,6 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
 #[test(tokio::test)]
 async fn test_kotlin() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_kotlin_generic::<ArrayGraph>().await.unwrap();
     test_kotlin_generic::<BTreeMapGraph>().await.unwrap();
+    test_kotlin_generic::<ArrayGraph>().await.unwrap();
 }

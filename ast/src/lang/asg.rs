@@ -17,14 +17,16 @@ pub struct NodeKeys {
     pub file: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub verb: Option<String>,
+    pub start: usize,
 }
 
 impl NodeKeys {
-    pub fn new(name: &str, file: &str) -> Self {
+    pub fn new(name: &str, file: &str, start: usize) -> Self {
         Self {
             name: name.to_string(),
             file: file.to_string(),
             verb: None,
+            start: start,
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -37,6 +39,7 @@ impl From<&NodeData> for NodeKeys {
             name: d.name.clone(),
             file: d.file.clone(),
             verb: d.meta.get("verb").map(|s| s.to_string()),
+            start: d.start,
         }
     }
 }

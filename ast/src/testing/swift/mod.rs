@@ -18,10 +18,10 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
 
-    graph.analysis();
+    //graph.analysis();
 
     assert_eq!(num_nodes, 55, "Expected 55 nodes");
-    assert_eq!(num_edges, 73, "Expected 73 edges");
+    assert_eq!(num_edges, 81, "Expected 81 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -81,12 +81,7 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
 #[test(tokio::test)]
 async fn test_swift() {
-    use crate::lang::graphs::ArrayGraph;
+    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_swift_generic::<ArrayGraph>().await.unwrap();
+    test_swift_generic::<BTreeMapGraph>().await.unwrap();
 }
-
-// #[test(tokio::test)]
-// async fn test_swift_btree() {
-//     use crate::lang::graphs::BTreeMapGraph;
-//     test_swift_generic::<BTreeMapGraph>().await.unwrap();
-// }

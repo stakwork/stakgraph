@@ -58,11 +58,11 @@ async fn run_client_tests() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[traced_test]
 async fn test_graphs_similarity() {
     pre_test();
 
-    //let use_lsp = get_use_lsp(); //FIXME: fix TS first
-    let use_lsp = false;
+    let use_lsp = get_use_lsp();
 
     for expectation in graphs::get_test_expectations() {
         graphs::run_graph_similarity_test(&expectation, use_lsp)

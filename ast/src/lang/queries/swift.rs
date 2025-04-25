@@ -84,8 +84,8 @@ impl Stack for Swift {
                 let query = self.q("(type_identifier) @class-name", &NodeType::Class);
                 match query_to_ident(query, p, code)? {
                     Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file),
-                        target: NodeKeys::new(func_name, file),
+                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                        target: NodeKeys::new(func_name, file, node.start_position().row),
                     }),
                     None => None,
                 }

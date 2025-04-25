@@ -176,7 +176,7 @@ impl Stack for Go {
     }
     fn find_function_parent(
         &self,
-        _node: TreeNode,
+        node: TreeNode,
         _code: &str,
         file: &str,
         func_name: &str,
@@ -190,8 +190,8 @@ impl Stack for Go {
         let nodedata = find_class(parent_type);
         Ok(match nodedata {
             Some(class) => Some(Operand {
-                source: NodeKeys::new(&class.name, &class.file),
-                target: NodeKeys::new(func_name, file),
+                source: NodeKeys::new(&class.name, &class.file, class.start),
+                target: NodeKeys::new(func_name, file, node.start_position().row),
             }),
             None => None,
         })

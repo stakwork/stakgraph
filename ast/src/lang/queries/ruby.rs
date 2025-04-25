@@ -118,8 +118,8 @@ impl Stack for Ruby {
                 let query = self.q(&self.identifier_query(), &NodeType::Class);
                 match query_to_ident(query, p, code)? {
                     Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file),
-                        target: NodeKeys::new(func_name, file),
+                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                        target: NodeKeys::new(func_name, file, node.start_position().row),
                     }),
                     None => None,
                 }

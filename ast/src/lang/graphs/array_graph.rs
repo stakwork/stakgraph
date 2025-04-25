@@ -1,10 +1,10 @@
 use super::{graph::Graph, *};
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
-use crate::utils::create_node_key;
+use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use tracing::debug;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -12,6 +12,11 @@ pub struct ArrayGraph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
     pub errors: Vec<String>,
+
+    #[serde(skip)]
+    node_keys: HashSet<String>,
+    #[serde(skip)]
+    edge_keys: HashSet<String>,
 }
 
 impl Graph for ArrayGraph {
@@ -20,6 +25,8 @@ impl Graph for ArrayGraph {
             nodes: Vec::new(),
             edges: Vec::new(),
             errors: Vec::new(),
+            node_keys: HashSet::new(),
+            edge_keys: HashSet::new(),
         }
     }
     fn with_capacity(_nodes: usize, _edges: usize) -> Self
@@ -49,10 +56,14 @@ impl Graph for ArrayGraph {
 
         for node in &self.nodes {
             if node.node_type == NodeType::Repository {
+                let key = create_node_key(node);
+                new_graph.node_keys.insert(key);
                 new_graph.nodes.push(node.clone());
                 continue;
             }
             if final_filter.contains(&node.node_data.file) {
+                let key = create_node_key(node);
+                new_graph.node_keys.insert(key);
                 new_graph.nodes.push(node.clone());
             }
         }
@@ -61,6 +72,8 @@ impl Graph for ArrayGraph {
             if final_filter.contains(&edge.source.node_data.file)
                 || final_filter.contains(&edge.target.node_data.file)
             {
+                let key = self.create_edge_key(edge);
+                new_graph.edge_keys.insert(key);
                 new_graph.edges.push(edge.clone());
             }
         }
@@ -69,6 +82,14 @@ impl Graph for ArrayGraph {
     }
 
     fn extend_graph(&mut self, other: Self) {
+        for node in &other.nodes {
+            let key = create_node_key(node);
+            self.node_keys.insert(key);
+        }
+        for edge in &other.edges {
+            let key = self.create_edge_key(edge);
+            self.edge_keys.insert(key);
+        }
         self.nodes.extend(other.nodes);
         self.edges.extend(other.edges);
         self.errors.extend(other.errors);
@@ -78,54 +99,19 @@ impl Graph for ArrayGraph {
         ((self.nodes.len() as u32), (self.edges.len() as u32))
     }
     fn add_edge(&mut self, edge: Edge) {
-        let is_duplicate = self.edges.iter().any(|existing_edge| {
-            if existing_edge.edge != edge.edge {
-                return false;
-            }
-
-            let source_match = existing_edge.source.node_type == edge.source.node_type
-                && existing_edge.source.node_data.name == edge.source.node_data.name
-                && existing_edge.source.node_data.file == edge.source.node_data.file
-                && existing_edge.source.node_data.verb == edge.source.node_data.verb;
-
-            let target_match = existing_edge.target.node_type == edge.target.node_type
-                && existing_edge.target.node_data.name == edge.target.node_data.name
-                && existing_edge.target.node_data.file == edge.target.node_data.file
-                && existing_edge.target.node_data.verb == edge.target.node_data.verb;
-
-            if source_match && target_match {
-                match &existing_edge.edge {
-                    EdgeType::Calls(meta) => {
-                        if let Some(operand1) = &meta.operand {
-                            if let EdgeType::Calls(meta2) = &edge.edge {
-                                if let Some(operand2) = &meta2.operand {
-                                    return operand1 == operand2;
-                                }
-                            }
-                        }
-
-                        return true;
-                    }
-                    _ => true,
-                }
-            } else {
-                false
-            }
-        });
-        if !is_duplicate {
+        let key = self.create_edge_key(&edge);
+        if !self.edge_keys.contains(&key) {
+            self.edge_keys.insert(key);
             self.edges.push(edge);
         }
     }
 
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
-        let new_node = Node::new(node_type, node_data.clone());
-        let key = create_node_key(new_node.clone());
+        let new_node = Node::new(node_type, node_data);
+        let key = create_node_key(&new_node);
 
-        let is_duplicate = self.nodes.iter().any(|node| {
-            let existing_key = create_node_key(node.clone());
-            existing_key == key
-        });
-        if !is_duplicate {
+        if !self.node_keys.contains(&key) {
+            self.node_keys.insert(key);
             self.nodes.push(new_node);
         }
     }
@@ -660,13 +646,6 @@ impl Graph for ArrayGraph {
 }
 
 impl ArrayGraph {
-    pub fn new() -> Self {
-        ArrayGraph {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            errors: Vec::new(),
-        }
-    }
     pub fn file_data(&self, filename: &str) -> Option<NodeData> {
         self.nodes.iter().find_map(|n| {
             if n.node_type == NodeType::File && n.node_data.file == filename {
@@ -691,6 +670,13 @@ impl ArrayGraph {
         }
         None
     }
+
+    fn create_edge_key(&self, edge: &Edge) -> String {
+        let source_key = create_node_key_from_ref(&edge.source);
+        let target_key = create_node_key_from_ref(&edge.target);
+        let edge_type = sanitize_string(&format!("{:?}", edge.edge));
+        format!("{}-{}-{}", source_key, target_key, edge_type,)
+    }
 }
 
 impl Default for ArrayGraph {
@@ -699,6 +685,8 @@ impl Default for ArrayGraph {
             nodes: Vec::new(),
             edges: Vec::new(),
             errors: Vec::new(),
+            node_keys: HashSet::new(),
+            edge_keys: HashSet::new(),
         }
     }
 }

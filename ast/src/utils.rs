@@ -59,25 +59,29 @@ pub fn logger() {
         .init();
 }
 
-pub fn create_node_key(node: Node) -> String {
+pub fn create_node_key(node: &Node) -> String {
     let node_type = node.node_type.to_string();
-    let node_data = node.node_data;
-    let name = node_data.name;
-    let file = node_data.file;
+    let node_data = &node.node_data;
+    let name = &node_data.name;
+    let file = &node_data.file;
     let start = node_data.start.to_string();
-    let meta = node_data.meta;
+    let meta = &node_data.meta;
 
-    let mut parts = vec![node_type, name, file, start];
+    let mut result = String::new();
+
+    result.push_str(&sanitize_string(&node_type));
+    result.push('-');
+    result.push_str(&sanitize_string(name));
+    result.push('-');
+    result.push_str(&sanitize_string(file));
+    result.push('-');
+    result.push_str(&sanitize_string(&start));
+
     if let Some(v) = meta.get("verb") {
-        parts.push(v.clone());
+        result.push('-');
+        result.push_str(&sanitize_string(v));
     }
-
-    let sanitized_parts: Vec<String> = parts
-        .into_iter()
-        .map(|part| sanitize_string(&part))
-        .collect();
-
-    sanitized_parts.join("-")
+    result
 }
 
 pub fn get_use_lsp() -> bool {
@@ -98,22 +102,28 @@ fn delete_react_testing_node_modules() -> std::io::Result<()> {
     }
     Ok(())
 }
-pub fn create_synthetic_key_from_ref(node_ref: NodeRef, start: u32) -> String {
+pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
     let node_type = node_ref.node_type.to_string().to_lowercase();
-    let name = node_ref.node_data.name;
-    let file = node_ref.node_data.file;
-    let start = start.to_string();
+    let name = &node_ref.node_data.name;
+    let file = &node_ref.node_data.file;
+    let start = &node_ref.node_data.start.to_string();
 
-    let mut parts = vec![node_type, name, file, start];
-    if let Some(v) = node_ref.node_data.verb {
-        parts.push(v.clone());
+    let mut result = String::new();
+
+    result.push_str(&sanitize_string(&node_type));
+    result.push('-');
+    result.push_str(&sanitize_string(name));
+    result.push('-');
+    result.push_str(&sanitize_string(file));
+    result.push('-');
+    result.push_str(&sanitize_string(&start));
+
+    if let Some(v) = &node_ref.node_data.verb {
+        result.push('-');
+        result.push_str(&sanitize_string(v));
     }
 
-    let sanitized_parts: Vec<String> = parts
-        .into_iter()
-        .map(|part| sanitize_string(&part))
-        .collect();
-    sanitized_parts.join("-")
+    result
 }
 
 pub fn sanitize_string(input: &str) -> String {
