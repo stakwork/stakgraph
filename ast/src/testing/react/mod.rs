@@ -4,6 +4,80 @@ use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
 use tracing_test::traced_test;
+
+async fn test_component_styles_generic<G: Graph>() -> Result<(), anyhow::Error> {
+    let use_lsp = get_use_lsp();
+    let repo = Repo::new(
+        "src/testing/react",
+        Lang::from_str("tsx").unwrap(),
+        use_lsp,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+    graph.analysis();
+
+    fn normalize_path(path: &str) -> String {
+        path.replace("\\", "/")
+    }
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    
+    let regular_component = functions
+        .iter()
+        .find(|f| f.name == "RegularComponent")
+        .expect("RegularComponent not found");
+    assert_eq!(
+        regular_component.name, "RegularComponent",
+        "Regular function component name is incorrect"
+    );
+    assert_eq!(
+        normalize_path(&regular_component.file),
+        "src/testing/react/src/components/ComponentStyles.tsx",
+        "Regular function component file path is incorrect"
+    );
+
+    let arrow_component = functions
+        .iter()
+        .find(|f| f.name == "ArrowComponent")
+        .expect("ArrowComponent not found");
+    assert_eq!(
+        arrow_component.name, "ArrowComponent",
+        "Arrow function component name is incorrect"
+    );
+
+    let direct_assignment = functions
+        .iter()
+        .find(|f| f.name == "DirectAssignmentComponent")
+        .expect("DirectAssignmentComponent not found");
+    assert_eq!(
+        direct_assignment.name, "DirectAssignmentComponent",
+        "Direct assignment component name is incorrect"
+    );
+
+    let exported_function = functions
+        .iter()
+        .find(|f| f.name == "ExportedFunctionComponent")
+        .expect("ExportedFunctionComponent not found");
+    assert_eq!(
+        exported_function.name, "ExportedFunctionComponent",
+        "Exported function component name is incorrect"
+    );
+
+    let exported_arrow = functions
+        .iter()
+        .find(|f| f.name == "ExportedArrowComponent")
+        .expect("ExportedArrowComponent not found");
+    assert_eq!(
+        exported_arrow.name, "ExportedArrowComponent",
+        "Exported arrow component name is incorrect"
+    );
+
+    Ok(())
+}
+
 pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let use_lsp = get_use_lsp();
     let repo = Repo::new(
@@ -133,3 +207,13 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 //         .await
 //         .unwrap();
 // }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 10)]
+#[traced_test]
+async fn test_component_styles() {
+    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+    test_component_styles_generic::<ArrayGraph>().await.unwrap();
+    test_component_styles_generic::<BTreeMapGraph>()
+        .await
+        .unwrap();
+}
