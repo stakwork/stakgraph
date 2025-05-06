@@ -52,7 +52,7 @@ impl Stack for ReactTs {
         (variable_declarator
           name: (identifier) @{VARIABLE_NAME}
           value: (_) @{VARIABLE_VALUE}
-          type: (_)?
+          type: (_)? @{VARIABLE_TYPE}
         )
       ) @{VARIABLE_DECLARATION}
     )
@@ -61,7 +61,7 @@ impl Stack for ReactTs {
         (variable_declarator
           name: (identifier) @{VARIABLE_NAME}
           value: (_) @{VARIABLE_VALUE}
-          type: (_)?
+          type: (_)? @{VARIABLE_TYPE}
         )
       ) @{VARIABLE_DECLARATION}
     )
@@ -71,7 +71,7 @@ impl Stack for ReactTs {
           (variable_declarator
             name: (identifier) @{VARIABLE_NAME}
             value: (_) @{VARIABLE_VALUE}
-            type: (_)?
+            type: (_)? @{VARIABLE_TYPE}
           )
         )
       ) @{VARIABLE_DECLARATION}
@@ -79,8 +79,8 @@ impl Stack for ReactTs {
     (
       (expression_statement
         (assignment_expression
-          left: (identifier) @variable-name
-          right: (_) @variable-value
+          left: (identifier) @{VARIABLE_NAME}
+          right: (_) @{VARIABLE_VALUE}
         )
       ) @{VARIABLE_DECLARATION}
     )

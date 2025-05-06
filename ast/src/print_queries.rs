@@ -71,5 +71,10 @@ fn main() -> Result<()> {
         println!("{}\n", rq);
     }
 
+    println!("=======> Variable query <=======");
+    if let Some(vq) = lang.lang().variables_query() {
+        println!("{}\n", vq);
+    }
+
     Ok(())
 }

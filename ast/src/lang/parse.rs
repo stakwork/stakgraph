@@ -130,6 +130,8 @@ impl Lang {
                     impy.body = body.clone();
                     impy.start = node.start_position().row;
                     impy.end = node.end_position().row;
+                } else if capture_name.to_string() == VARIABLE_TYPE {
+                    impy.data_type = Some(body)
                 }
             }
         }

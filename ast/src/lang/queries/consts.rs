@@ -48,3 +48,4 @@ pub const PAGE_CHILD: &str = "page-child";
 pub const VARIABLE_DECLARATION: &str = "variable-declaration";
 pub const VARIABLE_VALUE: &str = "variable-value";
 pub const VARIABLE_NAME: &str = "variable-name";
+pub const VARIABLE_TYPE: &str = "variable-type";
