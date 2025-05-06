@@ -16,7 +16,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    //graph.analysis();
+    // graph.analysis();
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     if use_lsp == true {

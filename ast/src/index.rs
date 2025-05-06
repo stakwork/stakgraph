@@ -18,6 +18,8 @@ export REPO_URL="https://github.com/stakwork/sphinx-tribes.git"
 
 export REPO_PATH=/Users/evanfeenstra/code/sphinx2/tribes-workspace/sphinx-tribes
 
+export REPO_PATH=/Users/evanfeenstra/code/sphinx2/stakgraph/ast/examples/senza-lnd
+
 */
 
 #[tokio::main]
