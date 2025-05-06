@@ -114,19 +114,48 @@ impl Lang {
         q: &Query,
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
-        Self::loop_captures_multi(q, &m, code, |body, node, o| {
-            let mut impy = NodeData::in_file(file);
-            if o == IDENTIFIER {
-                impy.name = body.to_string();
-                impy.body = body;
-                impy.start = node.start_position().row;
-                impy.end = node.end_position().row;
-                res.push(impy);
-            }
+        let mut impy = NodeData::in_file(file);
+        let mut is_top_level_var = false;
+        for capture in m.captures {
+            let node = capture.node;
+            let capture_index = capture.index as usize;
+            let capture_name = &q.capture_names()[capture_index];
 
-            Ok(())
-        })?;
+            let body = node.utf8_text(code.as_bytes())?.to_string();
+            if Self::is_top_level(node) {
+                is_top_level_var = true;
+                if capture_name.to_string() == VARIABLE_NAME {
+                    impy.name = body.clone();
+                } else if capture_name.to_string() == VARIABLE_DECLARATION {
+                    impy.body = body.clone();
+                    impy.start = node.start_position().row;
+                    impy.end = node.end_position().row;
+                }
+            }
+        }
+        if is_top_level_var {
+            res.push(impy);
+        }
         Ok(res)
+    }
+
+    fn is_top_level(node: tree_sitter::Node) -> bool {
+        let mut current = node;
+        loop {
+            if let Some(parent) = current.parent() {
+                match parent.kind() {
+                    "program" => return true,
+                    "function_declaration"
+                    | "class_declaration"
+                    | "method_definition"
+                    | "arrow_function" => return false,
+                    _ => current = parent,
+                }
+            } else {
+                break;
+            }
+        }
+        false
     }
     pub fn collect_pages<G: Graph>(
         &self,

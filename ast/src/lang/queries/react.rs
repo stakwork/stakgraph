@@ -46,39 +46,45 @@ impl Stack for ReactTs {
 
     fn variables_query(&self) -> Option<String> {
         Some(format!(
-            r#"(program
-                    [
-                        (variable_declaration
-                            (variable_declarator
-                                name: (identifier) @{IDENTIFIER}
-                                value: (_)? @variable_value
-                                type: (_)? @variable_type
-                            )
-                        )
-                        (lexical_declaration
-                            (variable_declarator
-                                name: (identifier) @{IDENTIFIER}
-                                value: (_)? @variable_value
-                                type: (_)? @variable_type
-                            )
-                        )
-                        (export_statement
-                            declaration: (lexical_declaration
-                                (variable_declarator
-                                    name: (identifier) @{IDENTIFIER}
-                                    value: (_)? @variable_value
-                                    type: (_)? @variable_type
-                                )
-                            )
-                        )
-                        (expression_statement
-                            (assignment_expression
-                                left: (identifier) @{IDENTIFIER}
-                                right: (_) @variable_value
-                            )
-                        )
-                    ]+ @{VARIABLE_DECLARATION}
-                )"#,
+            r#"
+    (
+      (variable_declaration
+        (variable_declarator
+          name: (identifier) @{VARIABLE_NAME}
+          value: (_) @{VARIABLE_VALUE}
+          type: (_)?
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    (
+      (lexical_declaration
+        (variable_declarator
+          name: (identifier) @{VARIABLE_NAME}
+          value: (_) @{VARIABLE_VALUE}
+          type: (_)?
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    (
+      (export_statement
+        declaration: (lexical_declaration
+          (variable_declarator
+            name: (identifier) @{VARIABLE_NAME}
+            value: (_) @{VARIABLE_VALUE}
+            type: (_)?
+          )
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    (
+      (expression_statement
+        (assignment_expression
+          left: (identifier) @variable-name
+          right: (_) @variable-value
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    "#
         ))
     }
 
