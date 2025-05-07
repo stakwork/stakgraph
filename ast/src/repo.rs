@@ -156,6 +156,11 @@ impl Repo {
         // First, collect all detected languages
         let mut detected_langs: Vec<Language> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
+            if let Ok(only_lang) = std::env::var("ONLY_LANG") {
+                if only_lang != l.to_string() {
+                    continue;
+                }
+            }
             let conf = Config {
                 exts: stringy(l.exts()),
                 skip_dirs: stringy(l.skip_dirs()),

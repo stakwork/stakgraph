@@ -31,7 +31,7 @@ impl Graph for BTreeMapGraph {
     }
     fn analysis(&self) {
         for (src_key, dst_key, edge_type) in &self.edges {
-            println!("Edge: {:?} -> {:?} type: {:?}", src_key, dst_key, edge_type);
+            println!("Edge: {:?}: {:?} -> {:?}", edge_type, src_key, dst_key);
         }
         for (node_key, node) in &self.nodes {
             println!("Node: {:?} type: {:?}", node_key, node.node_type);
@@ -370,7 +370,17 @@ impl Graph for BTreeMapGraph {
 
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
         let (funcs, tests, int_tests) = calls;
-        for (fc, ext_func) in funcs {
+        for (fc, ext_func, class_call) in funcs {
+            if let Some(class_call) = &class_call {
+                self.add_edge(Edge::new(
+                    EdgeType::Calls(CallsMeta::default()),
+                    NodeRef::from(fc.source.clone(), NodeType::Function),
+                    NodeRef::from(class_call.into(), NodeType::Class),
+                ));
+            }
+            if fc.target.is_empty() {
+                continue; // might have empty target if it's a class call only
+            }
             if let Some(ext_nd) = ext_func {
                 let ext_node = Node::new(NodeType::Function, ext_nd.clone());
                 let ext_key = create_node_key(&ext_node);
@@ -385,7 +395,7 @@ impl Graph for BTreeMapGraph {
             }
         }
 
-        for (tc, ext_func) in tests {
+        for (tc, ext_func, _) in tests {
             if let Some(ext_nd) = ext_func {
                 let edge = Edge::uses(tc.source, &ext_nd);
                 self.add_edge(edge);

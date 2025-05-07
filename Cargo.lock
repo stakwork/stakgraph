@@ -108,6 +108,7 @@ dependencies = [
  "git-url-parse",
  "git2",
  "inflection-rs",
+ "lazy_static",
  "lsp",
  "neo4rs",
  "regex",

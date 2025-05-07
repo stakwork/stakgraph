@@ -790,6 +790,7 @@ impl Lang {
     ) -> Result<Option<FunctionCall>> {
         let mut fc = Calls::default();
         let mut external_func = None;
+        let mut class_call = None;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 let called = body;
@@ -888,15 +889,22 @@ impl Lang {
                 fc.call_start = node.start_position().row;
                 fc.call_end = node.end_position().row;
             } else if o == OPERAND {
-                fc.operand = Some(body);
+                fc.operand = Some(body.clone());
+                if self.lang.direct_class_calls() {
+                    let possible_classes = graph.find_nodes_by_name(NodeType::Class, &body);
+                    if possible_classes.len() == 1 {
+                        class_call = Some(possible_classes[0].clone())
+                    }
+                }
             }
             Ok(())
         })?;
-        // target must be found
-        if fc.target.is_empty() {
+        // target must be found OR class call
+        if fc.target.is_empty() && class_call.is_none() {
+            // NOTE should we only do the class call if there is no direct function target?
             return Ok(None);
         }
-        Ok(Some((fc, external_func)))
+        Ok(Some((fc, external_func, class_call)))
     }
     pub fn collect_integration_test_calls<'a, G: Graph>(
         &self,

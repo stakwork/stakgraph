@@ -36,8 +36,8 @@ pub type Function = (
     Option<Edge>,
     Vec<Edge>,
 );
-// Calls, args, external function (from library or std)
-pub type FunctionCall = (Calls, Option<NodeData>);
+// Calls, args, external function (from library or std), call another Class
+pub type FunctionCall = (Calls, Option<NodeData>, Option<NodeData>);
 
 impl Lang {
     pub fn new_python() -> Self {
@@ -215,7 +215,7 @@ impl Lang {
             Ok(Vec::new())
         }
     }
-    // returns (Vec<CallsFromFunctions>, Vec<CallsFromTests>)
+    // returns (Vec<CallsFromFunctions>, Vec<CallsFromTests>, Vec<IntegrationTests>)
     pub async fn get_function_calls<G: Graph>(
         &self,
         code: &str,
@@ -229,7 +229,7 @@ impl Lang {
         let qo1 = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&qo1, tree.root_node(), code.as_bytes());
-        // calls from functions, calls from tests
+        // calls from functions, calls from tests, integration tests
         let mut res = (Vec::new(), Vec::new(), Vec::new());
         // get each function call within that function
         while let Some(m) = matches.next() {

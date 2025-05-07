@@ -141,7 +141,7 @@ impl Language {
             Self::Python => false,
             Self::Ruby => false,
             Self::Kotlin => true,
-            Self::Swift => true,
+            Self::Swift => false,
             Self::Java => true,
             Self::Bash => false,
             Self::Toml => false,

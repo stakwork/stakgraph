@@ -22,6 +22,14 @@ impl Repo {
         self.build_graph_inner().await
     }
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
+        #[cfg(feature = "neo4j")]
+        {
+            use crate::lang::graphs::neo4j_utils::Neo4jConnectionManager;
+            if let Err(e) = Neo4jConnectionManager::initialize_from_env().await {
+                info!("Failed to initialize Neo4j connection: {}", e);
+            }
+        }
+
         let mut graph = G::new();
 
         println!("Root: {:?}", self.root);
@@ -419,7 +427,6 @@ impl Repo {
                     .get_function_calls(&code, &filename, &graph, &self.lsp_tx)
                     .await?;
                 i += all_calls.0.len();
-
                 graph.add_calls(all_calls);
             }
             info!("=> got {} function calls", i);

@@ -5,6 +5,9 @@ pub mod graph;
 #[cfg(feature = "neo4j")]
 pub mod neo4j_graph;
 
+#[cfg(feature = "neo4j")]
+pub mod neo4j_utils;
+
 pub use array_graph::*;
 pub use btreemap_graph::*;
 pub use graph::*;
@@ -245,4 +248,32 @@ pub fn form(root: &str, nd: &mut NodeData) {
         return;
     }
     nd.file = format!("{}/{}", root, nd.file);
+}
+
+impl ToString for EdgeType {
+    fn to_string(&self) -> String {
+        match self {
+            EdgeType::ArgOf => "ARG_OF".to_string(),
+            EdgeType::Contains => "CONTAINS".to_string(),
+            EdgeType::Handler => "HANDLER".to_string(),
+            EdgeType::Imports => "IMPORTS".to_string(),
+            EdgeType::Of => "OF".to_string(),
+            EdgeType::Operand => "OPERAND".to_string(),
+            EdgeType::ParentOf => "PARENT_OF".to_string(),
+            EdgeType::Renders => "RENDERS".to_string(),
+            EdgeType::Uses => "USES".to_string(),
+            EdgeType::Includes => "INCLUDES".to_string(),
+            EdgeType::Calls(_) => "CALLS".to_string(),
+        }
+    }
+}
+impl ToString for CallsMeta {
+    fn to_string(&self) -> String {
+        let mut result = String::new();
+        if let Some(operand) = &self.operand {
+            result.push_str(&format!("({})", operand));
+        }
+        result.push_str(&format!("({}-{})", self.call_start, self.call_end));
+        result
+    }
 }

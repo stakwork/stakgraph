@@ -96,6 +96,9 @@ pub trait Stack {
     fn string_node_name(&self) -> String {
         "string".to_string()
     }
+    fn program_node_name(&self) -> String {
+        "program".to_string()
+    }
     // data model definitions
     fn data_model_query(&self) -> Option<String> {
         None
@@ -242,6 +245,9 @@ pub trait Stack {
         None
     }
     fn clean_graph(&self, _callback: &mut dyn FnMut(NodeType, NodeType, &str)) {}
+    fn direct_class_calls(&self) -> bool {
+        false
+    }
 }
 
 pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {

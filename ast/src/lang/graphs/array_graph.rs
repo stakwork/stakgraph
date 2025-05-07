@@ -373,7 +373,17 @@ impl Graph for ArrayGraph {
         (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
     ) {
         // add lib funcs first
-        for (fc, ext_func) in funcs {
+        for (fc, ext_func, class_call) in funcs {
+            if let Some(class_call) = &class_call {
+                self.add_edge(Edge::new(
+                    EdgeType::Calls(CallsMeta::default()),
+                    NodeRef::from(fc.source.clone(), NodeType::Function),
+                    NodeRef::from(class_call.into(), NodeType::Class),
+                ));
+            }
+            if fc.target.is_empty() {
+                continue; // might have empty target if it's a class call only
+            }
             if let Some(ext_nd) = ext_func {
                 self.add_edge(Edge::uses(fc.source, &ext_nd));
                 // don't add if it's already in the graph
@@ -386,7 +396,7 @@ impl Graph for ArrayGraph {
                 self.add_edge(fc.into())
             }
         }
-        for (tc, ext_func) in tests {
+        for (tc, ext_func, _) in tests {
             if let Some(ext_nd) = ext_func {
                 self.add_edge(Edge::uses(tc.source, &ext_nd));
 

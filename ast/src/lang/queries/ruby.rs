@@ -179,7 +179,7 @@ impl Stack for Ruby {
         // file: app/controllers/api/advisor_groups_controller.rb
         let mut models = Vec::new();
 
-        println!("{}{}", &data_model.name, CONTROLLER_FILE_SUFFIX);
+        // println!("{}{}", &data_model.name, CONTROLLER_FILE_SUFFIX);
 
         let funcs = find_fns_in(format!("{}{}", &data_model.name, CONTROLLER_FILE_SUFFIX).as_str());
 
@@ -443,6 +443,9 @@ impl Stack for Ruby {
         } else {
             None
         }
+    }
+    fn direct_class_calls(&self) -> bool {
+        true
     }
 }
 
