@@ -14,6 +14,7 @@ impl Lang {
         nt: NodeType,
     ) -> Result<Vec<NodeData>> {
         let tree = self.lang.parse(&code, &nt)?;
+        let program_name = self.lang.program_node_name();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -31,7 +32,7 @@ impl Lang {
                     .map(|(nd, _e)| nd)
                     .collect(),
                 NodeType::DataModel => vec![self.format_data_model(&m, code, file, q)?],
-                NodeType::Var => self.format_variables(&m, code, file, q)?,
+                NodeType::Var => self.format_variables(&m, code, file, q, &program_name)?,
                 _ => return Err(anyhow::anyhow!("collect: {nt:?} not implemented")),
             };
             res.extend(another);
@@ -113,11 +114,12 @@ impl Lang {
         code: &str,
         file: &str,
         q: &Query,
+        program_name: &str,
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
         let mut v = NodeData::in_file(file);
         Self::loop_captures(q, &m, code, |body, node, o| {
-            if Self::is_top_level(node) {
+            if Self::is_top_level(node, program_name) {
                 if o == VARIABLE_NAME {
                     v.name = body.to_string();
                 } else if o == VARIABLE_DECLARATION {
@@ -137,12 +139,12 @@ impl Lang {
         Ok(res)
     }
 
-    fn is_top_level(node: tree_sitter::Node) -> bool {
+    fn is_top_level(node: tree_sitter::Node, program_name: &str) -> bool {
         let mut current = node;
         loop {
             if let Some(parent) = current.parent() {
                 match parent.kind() {
-                    "program" => return true,
+                    kind if kind == program_name => return true,
                     "function_declaration"
                     | "class_declaration"
                     | "method_definition"
