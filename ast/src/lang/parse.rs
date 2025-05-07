@@ -106,6 +106,7 @@ impl Lang {
         })?;
         Ok(res)
     }
+
     pub fn format_variables(
         &self,
         m: &QueryMatch,
@@ -114,29 +115,24 @@ impl Lang {
         q: &Query,
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
-        let mut impy = NodeData::in_file(file);
-        let mut is_top_level_var = false;
-        for capture in m.captures {
-            let node = capture.node;
-            let capture_index = capture.index as usize;
-            let capture_name = &q.capture_names()[capture_index];
-
-            let body = node.utf8_text(code.as_bytes())?.to_string();
+        let mut v = NodeData::in_file(file);
+        Self::loop_captures(q, &m, code, |body, node, o| {
             if Self::is_top_level(node) {
-                is_top_level_var = true;
-                if capture_name.to_string() == VARIABLE_NAME {
-                    impy.name = body.clone();
-                } else if capture_name.to_string() == VARIABLE_DECLARATION {
-                    impy.body = body.clone();
-                    impy.start = node.start_position().row;
-                    impy.end = node.end_position().row;
-                } else if capture_name.to_string() == VARIABLE_TYPE {
-                    impy.data_type = Some(body)
+                if o == VARIABLE_NAME {
+                    v.name = body.to_string();
+                } else if o == VARIABLE_DECLARATION {
+                    v.body = body;
+                    v.start = node.start_position().row;
+                    v.end = node.end_position().row;
+                } else if o == VARIABLE_TYPE {
+                    v.data_type = Some(body);
                 }
             }
-        }
-        if is_top_level_var {
-            res.push(impy);
+
+            Ok(())
+        })?;
+        if !v.name.is_empty() && !v.body.is_empty() {
+            res.push(v);
         }
         Ok(res)
     }

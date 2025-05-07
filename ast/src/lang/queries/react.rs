@@ -45,13 +45,14 @@ impl Stack for ReactTs {
     }
 
     fn variables_query(&self) -> Option<String> {
+        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
         Some(format!(
             r#"
     (
       (variable_declaration
         (variable_declarator
           name: (identifier) @{VARIABLE_NAME}
-          value: (_) @{VARIABLE_VALUE}
+          value: [{types}] @{VARIABLE_VALUE}
           type: (_)? @{VARIABLE_TYPE}
         )
       ) @{VARIABLE_DECLARATION}
@@ -60,7 +61,7 @@ impl Stack for ReactTs {
       (lexical_declaration
         (variable_declarator
           name: (identifier) @{VARIABLE_NAME}
-          value: (_) @{VARIABLE_VALUE}
+          value: [{types}] @{VARIABLE_VALUE}
           type: (_)? @{VARIABLE_TYPE}
         )
       ) @{VARIABLE_DECLARATION}
@@ -70,7 +71,7 @@ impl Stack for ReactTs {
         declaration: (lexical_declaration
           (variable_declarator
             name: (identifier) @{VARIABLE_NAME}
-            value: (_) @{VARIABLE_VALUE}
+            value: [{types}] @{VARIABLE_VALUE}
             type: (_)? @{VARIABLE_TYPE}
           )
         )
@@ -80,7 +81,7 @@ impl Stack for ReactTs {
       (expression_statement
         (assignment_expression
           left: (identifier) @{VARIABLE_NAME}
-          right: (_) @{VARIABLE_VALUE}
+          right: [{types}] @{VARIABLE_VALUE}
         )
       ) @{VARIABLE_DECLARATION}
     )
