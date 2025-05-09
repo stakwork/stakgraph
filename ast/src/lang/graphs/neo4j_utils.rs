@@ -8,7 +8,7 @@ use std::{
 use tokio::runtime::Handle;
 use tracing::{debug, info};
 use lazy_static::lazy_static;
-use crate::{lang::FunctionCall, utils::create_node_key};
+use crate::{lang::FunctionCall, utils::{create_node_key, create_node_key_from_ref}};
 
 use super::*;
 
@@ -22,7 +22,7 @@ pub struct Neo4jConnectionManager;
 impl Neo4jConnectionManager {
     pub async fn initialize(uri: &str, username: &str, password: &str) -> Result<()> {
         let mut conn_guard = CONNECTION.lock().unwrap();
-        if (conn_guard.is_some()) {
+        if conn_guard.is_some() {
             return Ok(());
         }
         
@@ -221,34 +221,41 @@ impl EdgeQueryBuilder {
         params
     }
     
-    pub fn build(&self) -> (String, HashMap<String, String>) {
-        let params = self.build_params();
-        let rel_type = self.edge.edge.to_string();
+pub fn build(&self) -> (String, HashMap<String, String>) {
+    let mut params = self.build_params();
+    let rel_type = self.edge.edge.to_string();
 
-        let props_clause = match &self.edge.edge {
-            EdgeType::Calls(_) if params.contains_key("operand") => {
-                "r.call_start = $call_start, r.call_end = $call_end, r.operand = $operand"
-            }
-            EdgeType::Calls(_) => {
-                "r.call_start = $call_start, r.call_end = $call_end"
-            }
-            _ => "",
-        };
+    let source_key = create_node_key_from_ref(&self.edge.source);
+    let target_key = create_node_key_from_ref(&self.edge.target);
 
-        let query = format!(
-            "MATCH (source: {} {{name: $source_name, file: $source_file, start: $source_start}}), (target: {} {{name: $target_name, file: $target_file, start: $target_start}})
-            MERGE (source)-[r:{}]->(target)
-            ON CREATE SET {}
-            ON MATCH SET {}",
-            self.edge.source.node_type.to_string(),
-            self.edge.target.node_type.to_string(),
-            rel_type,
-            if props_clause.is_empty() { "r.updated = true" } else { props_clause },
-            if props_clause.is_empty() { "r.updated = true" } else { props_clause }
-        );
+    println!("Creating edge: {} -> {} of type {} ", source_key, target_key, rel_type);
+    
+    params.insert("source_key".to_string(), source_key);
+    params.insert("target_key".to_string(), target_key);
 
-        (query, params)
-    }
+    let props_clause = match &self.edge.edge {
+        EdgeType::Calls(meta) if params.contains_key("operand") => {
+            "r.call_start = $call_start, r.call_end = $call_end, r.operand = $operand"
+        }
+        EdgeType::Calls(meta) => {
+            "r.call_start = $call_start, r.call_end = $call_end"
+        }
+        _ => "",
+    };
+
+    // Fixed query format with proper line breaks
+    let query = format!(
+        "MATCH (source {{key: $source_key}}), (target {{key: $target_key}})
+         MERGE (source)-[r:{}]->(target)
+         ON CREATE SET {}
+         ON MATCH SET {}",
+        rel_type,
+        if props_clause.is_empty() { "r.updated = true" } else { props_clause },
+        if props_clause.is_empty() { "r.updated = true" } else { props_clause }
+    );
+
+    (query, params)
+}
 }
 pub async fn execute_batch(
     conn: &Neo4jConnection,
@@ -256,14 +263,16 @@ pub async fn execute_batch(
 ) -> Result<()> {
     let mut txn = conn.start_txn().await?;
     
-    for (query_str, params) in queries {
+     for (i, (query_str, params)) in queries.iter().enumerate() {
         let mut query_obj = query(&query_str);
         for (k, v) in params {
             query_obj = query_obj.param(&k, v.as_str());
         }
         
         if let Err(e) = txn.run(query_obj).await {
-            debug!("Neo4j query error in batch: {}", e);
+            debug!("Neo4j query #{} failed: {}", i, e);
+            debug!("Query: {}", query_str);
+            debug!("Params: {:?}", params);
             txn.rollback().await?;
             return Err(anyhow::anyhow!("Neo4j batch query error: {}", e));
         }
@@ -398,10 +407,18 @@ pub fn count_nodes_edges_query() -> String {
      RETURN COUNT(DISTINCT n) as nodes, COUNT(DISTINCT r) as edges"
         .to_string()
 }
-pub fn graph_analysis_query() -> String {
+pub fn graph_node_analysis_query() -> String {
     "MATCH (n) 
-     WITH labels(n) as node_type, count(n) as count 
-     RETURN node_type, count ORDER BY count DESC"
+     RETURN labels(n)[0] as node_type, n.name as name, n.file as file 
+     ORDER BY node_type, name"
+        .to_string()
+}
+pub fn graph_edges_analysis_query() -> String {
+    "MATCH (source)-[r]->(target) 
+     RETURN labels(source)[0] as source_type, source.name as source_name, 
+            type(r) as edge_type, labels(target)[0] as target_type, 
+            target.name as target_name, r.operand as operand 
+     ORDER BY source_type, source_name, edge_type, target_type, target_name"
         .to_string()
 }
 pub fn count_edges_by_type_query(edge_type: &EdgeType) -> (String, HashMap<String, String>) {
@@ -871,7 +888,19 @@ pub fn add_calls_query(
 ) -> Vec<(String, HashMap<String, String>)> {
     let mut queries = Vec::new();
     
-    for (func_call, ext_func) in funcs {
+    for (func_call, ext_func, class_call) in funcs {
+        if let Some(class_call) = class_call{
+            let edge = Edge::new(
+                EdgeType::Calls(CallsMeta::default()),
+                NodeRef::from(func_call.source.clone(), NodeType::Function),
+                NodeRef::from(class_call.into(), NodeType::Class)
+            );
+            queries.push(add_edge_query(&edge));
+        }
+
+         if func_call.target.is_empty() {
+            continue;
+        }
         if let Some(ext_nd) = ext_func {
             queries.push(add_node_query(&NodeType::Function, ext_nd));
             let edge = Edge::uses(func_call.source.clone(), ext_nd);
@@ -883,7 +912,7 @@ pub fn add_calls_query(
         }
     }
     
-    for (test_call, ext_func) in tests {
+    for (test_call, ext_func,_class_call) in tests {
         if let Some(ext_nd) = ext_func {
 
             queries.push(add_node_query(&NodeType::Function, ext_nd));

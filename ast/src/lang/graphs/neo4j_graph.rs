@@ -209,7 +209,7 @@ impl Neo4jGraph {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
             };
-            
+
             let mut txn = connection.start_txn().await?;
 
             // Delete relationships first, then nodes
@@ -285,7 +285,7 @@ impl Graph for Neo4jGraph {
             debug!("Error adding node: {:?}", e);
         }
     }
-    
+
     fn add_edge(&mut self, edge: Edge) {
         let edge_builder = EdgeQueryBuilder::new(&edge);
         let (query, params) = edge_builder.build();
@@ -398,22 +398,59 @@ impl Graph for Neo4jGraph {
     }
     fn analysis(&self) {
         let connection = self.get_connection();
+        let (nodes, edges) = self.get_graph_size();
+        println!("Graph contains {} nodes and {} edges", nodes, edges);
 
-        let query_str = graph_analysis_query();
-
+        let query_str = graph_node_analysis_query();
         match block_in_place(connection.execute(query(&query_str))) {
             Ok(mut result) => {
-                info!("Neo4j graph analysis:");
                 while let Ok(Some(row)) = block_in_place(result.next()) {
-                    if let (Ok(node_type), Ok(count)) =
-                        (row.get::<Vec<String>>("node_type"), row.get::<i64>("count"))
-                    {
-                        info!("  {}: {}", node_type.join(","), count);
+                    if let (Ok(node_type), Ok(name), Ok(file)) = (
+                        row.get::<String>("node_type"),
+                        row.get::<String>("name"),
+                        row.get::<String>("file"),
+                    ) {
+                        println!("Node: \"{}\"-{}", name, node_type);
                     }
                 }
             }
             Err(e) => {
-                debug!("Error analyzing graph: {}", e);
+                debug!("Error retrieving node details: {}", e);
+            }
+        }
+
+        let query_str = graph_edges_analysis_query();
+        match block_in_place(connection.execute(query(&query_str))) {
+            Ok(mut result) => {
+                while let Ok(Some(row)) = block_in_place(result.next()) {
+                    if let (
+                        Ok(source_type),
+                        Ok(source_name),
+                        Ok(edge_type),
+                        Ok(target_type),
+                        Ok(target_name),
+                    ) = (
+                        row.get::<String>("source_type"),
+                        row.get::<String>("source_name"),
+                        row.get::<String>("edge_type"),
+                        row.get::<String>("target_type"),
+                        row.get::<String>("target_name"),
+                    ) {
+                        let operand = row.get::<String>("operand").ok();
+                        let edge_info = match operand {
+                            Some(op) => format!("type: {} (operand: {})", edge_type, op),
+                            None => format!("type: {}", edge_type),
+                        };
+
+                        println!(
+                            "From \"{}\"-{} to \"{}\"-{} {}",
+                            source_name, source_type, target_name, target_type, edge_info,
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                debug!("Error retrieving edge details: {}", e);
             }
         }
     }
@@ -539,12 +576,69 @@ impl Graph for Neo4jGraph {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
             };
-            let mut txn_manager = TransactionManager::new(&connection);
 
-            let queries = add_calls_query(&funcs, &tests, &int_tests);
-            txn_manager.add_queries(queries);
+            let mut node_queries = Vec::new();
+            let mut edge_queries = Vec::new();
 
-            txn_manager.execute().await
+            for (func_call, ext_func, class_call) in &funcs {
+                if let Some(cls_call) = &class_call {
+                    let edge = Edge::new(
+                        EdgeType::Calls(CallsMeta::default()),
+                        NodeRef::from(func_call.source.clone(), NodeType::Function),
+                        NodeRef::from(cls_call.into(), NodeType::Class),
+                    );
+                    edge_queries.push(add_edge_query(&edge));
+                }
+
+                if func_call.target.is_empty() {
+                    continue;
+                }
+
+                if let Some(ext_nd) = ext_func {
+                    node_queries.push(add_node_query(&NodeType::Function, ext_nd));
+
+                    let edge = Edge::uses(func_call.source.clone(), ext_nd);
+                    edge_queries.push(add_edge_query(&edge));
+                } else {
+                    let edge = func_call.clone().into();
+                    edge_queries.push(add_edge_query(&edge));
+                }
+            }
+            for (test_call, ext_func, _class_call) in &tests {
+                if let Some(ext_nd) = ext_func {
+                    node_queries.push(add_node_query(&NodeType::Function, ext_nd));
+
+                    let edge = Edge::uses(test_call.source.clone(), ext_nd);
+                    edge_queries.push(add_edge_query(&edge));
+                } else {
+                    let edge = test_call.clone().into();
+                    edge_queries.push(add_edge_query(&edge));
+                }
+            }
+
+            for edge in int_tests {
+                edge_queries.push(add_edge_query(&edge));
+            }
+
+            if !node_queries.is_empty() {
+                println!("Creating {} nodes for function calls", node_queries.len());
+                if let Err(e) = execute_batch(&connection, node_queries).await {
+                    println!("Error creating function nodes: {:?}", e);
+                }
+            }
+
+            for (i, (query_str, params)) in edge_queries.iter().enumerate() {
+                let query_builder = QueryBuilder::new(query_str).with_params(params.clone());
+
+                if let Err(e) = execute_query(&connection, &query_builder).await {
+                    println!("Failed Edge query #{} failed: {:?}", i, e);
+                    println!("Failed Query: {}", query_str);
+                    println!("Failed Params: {:?}", params);
+                    // Continue execution despite errors
+                }
+            }
+
+            Ok(())
         }) {
             debug!("Error in add_calls: {:?}", e);
         }
