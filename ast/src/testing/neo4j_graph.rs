@@ -4,10 +4,10 @@ use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use anyhow::Result;
 use std::str::FromStr;
-use tracing_test::traced_test;
+// use tracing_test::traced_test;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[traced_test]
+// #[traced_test]
 #[ignore]
 pub async fn test_neo4j() -> Result<()> {
     let mut graph = Neo4jGraph::default();
