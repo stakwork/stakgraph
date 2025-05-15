@@ -1,5 +1,7 @@
 use crate::utils::{run, run_res_in_dir};
 use anyhow::{Context, Result};
+use std::path::Path;
+use tracing::info;
 
 pub async fn git_clone(
     repo: &str,
@@ -36,4 +38,26 @@ pub async fn push(msg: &str, branch: &str) -> Result<()> {
     run("git", &["commit", "-m", msg]).await?;
     run("git", &["push", "origin", branch]).await?;
     Ok(())
+}
+
+pub async fn git_pull_or_clone(
+    repo: &str,
+    path: &str,
+    username: Option<String>,
+    pat: Option<String>,
+) -> Result<()> {
+    let repo_path = Path::new(path);
+
+    if repo_path.exists() && repo_path.join(".git").exists() {
+        info!("Repository exists at {}, pulling latest changes", path);
+
+        run_res_in_dir("git", &["reset", "--hard", "HEAD"], path).await?;
+
+        run_res_in_dir("git", &["pull"], path).await?;
+
+        Ok(())
+    } else {
+        info!("Repository doesn't exist at {}, cloning it", path);
+        git_clone(repo, path, username, pat).await
+    }
 }

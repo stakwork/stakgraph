@@ -12,7 +12,7 @@ use axum::{
     routing::post,
     Json, Router,
 };
-use lsp::git::{get_commit_hash, git_clone};
+use lsp::git::{get_commit_hash, git_pull_or_clone};
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use tracing_subscriber::filter::LevelFilter;
@@ -73,7 +73,7 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
 
         let repo_path = Repo::get_path_from_url(&repo_url)?;
 
-        git_clone(
+        git_pull_or_clone(
             &repo_url,
             &repo_path,
             body.username.clone(),
