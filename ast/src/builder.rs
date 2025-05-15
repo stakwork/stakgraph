@@ -342,17 +342,22 @@ impl Repo {
             for pagepath in extra_pages {
                 if let Some(pagename) = get_page_name(&pagepath) {
                     let nd = NodeData::name_file(&pagename, &pagepath);
-                    let edge = self
+                    let edges = self
                         .lang
                         .lang()
-                        .extra_page_finder(&pagepath, &|name, filename| {
+                        .extra_page_finder(&pagepath, &|node_type, name, filename| {
                             graph.find_node_by_name_and_file_end_with(
-                                NodeType::Function,
+                                node_type,
                                 name,
                                 filename,
                             )
                         });
-                    graph.add_page((nd, edge));
+                    
+                    graph.add_node(NodeType::Page, nd.clone());
+                    
+                    for edge in edges {
+                        graph.add_edge(edge);
+                    }
                 }
             }
         }
@@ -517,7 +522,12 @@ fn _filenamey(f: &PathBuf) -> String {
 }
 
 pub fn get_page_name(path: &str) -> Option<String> {
-    let parts = path.split("/").collect::<Vec<&str>>();
+    let parts = if path.contains('/') {
+        path.split("/").collect::<Vec<&str>>()
+    } else {
+        path.split("\\").collect::<Vec<&str>>()
+    };
+    
     if parts.last().is_none() {
         return None;
     }

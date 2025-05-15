@@ -240,9 +240,9 @@ pub trait Stack {
     fn extra_page_finder(
         &self,
         _file_name: &str,
-        _callback: &dyn Fn(&str, &str) -> Option<NodeData>,
-    ) -> Option<Edge> {
-        None
+        _callback: &dyn Fn(NodeType, &str, &str) -> Option<NodeData>,
+    ) -> Vec<Edge> {
+        Vec::new()
     }
     fn clean_graph(&self, _callback: &mut dyn FnMut(NodeType, NodeType, &str)) {}
     fn direct_class_calls(&self) -> bool {

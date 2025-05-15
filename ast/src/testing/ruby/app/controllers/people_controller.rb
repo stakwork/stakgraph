@@ -45,6 +45,10 @@ class PeopleController < ApplicationController
     end
   end
 
+  def show_person_profile
+    @person = Person.find(params[:id])
+  end
+
   private
 
   def person_params

@@ -8,6 +8,7 @@ Rails.application.routes.draw do
     end
   end
   resources :people do
+    get 'profile', to: 'people#show_person_profile'
     member do
       post 'articles'
     end
@@ -15,5 +16,5 @@ Rails.application.routes.draw do
   resources :countries do
     post :process
   end
-
+  
 end
