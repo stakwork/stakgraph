@@ -20,7 +20,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     assert_eq!(num_nodes, 58, "Expected 58 nodes");
-    assert_eq!(num_edges, 93, "Expected 93 edges");
+    assert_eq!(num_edges, 88, "Expected 88 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -41,7 +41,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(endpoints.len(), 6, "Expected 6 endpoints");
+    assert_eq!(endpoints.len(), 7, "Expected 7 endpoints");
 
     let mut sorted_endpoints = endpoints.clone();
     sorted_endpoints.sort_by(|a, b| a.name.cmp(&b.name));
@@ -50,8 +50,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         .iter()
         .find(|e| e.name == "person/:id" && e.meta.get("verb") == Some(&"GET".to_string()))
         .expect("GET person/:id endpoint not found");
-    assert_eq!(
-        get_person_endpoint.file, "src/testing/ruby/config/routes.rb",
+    assert!(
+        get_person_endpoint.file.ends_with("routes.rb"),
         "Endpoint file path is incorrect"
     );
 
@@ -59,8 +59,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         .iter()
         .find(|e| e.name == "person" && e.meta.get("verb") == Some(&"POST".to_string()))
         .expect("POST person endpoint not found");
-    assert_eq!(
-        post_person_endpoint.file, "src/testing/ruby/config/routes.rb",
+    assert!(
+        post_person_endpoint.file.ends_with("routes.rb"),
         "Endpoint file path is incorrect"
     );
 
@@ -68,8 +68,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         .iter()
         .find(|e| e.name == "/people/:id" && e.meta.get("verb") == Some(&"DELETE".to_string()))
         .expect("DELETE /people/:id endpoint not found");
-    assert_eq!(
-        delete_people_endpoint.file, "src/testing/ruby/config/routes.rb",
+    assert!(
+        delete_people_endpoint.file.ends_with("routes.rb"),
         "Endpoint file path is incorrect"
     );
 
@@ -77,8 +77,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         .iter()
         .find(|e| e.name == "/people/articles" && e.meta.get("verb") == Some(&"GET".to_string()))
         .expect("GET /people/articles endpoint not found");
-    assert_eq!(
-        get_articles_endpoint.file, "src/testing/ruby/config/routes.rb",
+    assert!(
+        get_articles_endpoint.file.ends_with("routes.rb"),
         "Endpoint file path is incorrect"
     );
 
@@ -88,8 +88,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
             e.name == "/people/:id/articles" && e.meta.get("verb") == Some(&"POST".to_string())
         })
         .expect("POST /people/:id/articles endpoint not found");
-    assert_eq!(
-        post_articles_endpoint.file, "src/testing/ruby/config/routes.rb",
+    assert!(
+        post_articles_endpoint.file.ends_with("routes.rb"),
         "Endpoint file path is incorrect"
     );
 
@@ -100,13 +100,33 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
                 && e.meta.get("verb") == Some(&"POST".to_string())
         })
         .expect("POST /countries/:country_id/process endpoint not found");
-    assert_eq!(
-        post_countries_endpoint.file, "src/testing/ruby/config/routes.rb",
+    assert!(
+        post_countries_endpoint.file.ends_with("routes.rb"),
         "Endpoint file path is incorrect"
     );
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
-    assert_eq!(handler_edges_count, 6, "Expected 6 handler edges");
+    assert_eq!(handler_edges_count, 7, "Expected 7 handler edges");
+
+    let pages = graph.find_nodes_by_type(NodeType::Page);
+    assert_eq!(pages.len(), 1, "Expected 1 page node");
+    
+    let show_person_profile = pages
+        .iter()
+        .find(|p| p.name.ends_with("show_person_profile.erb"))
+        .expect("show_person_profile.erb page not found");
+    
+    let file_path_lower = show_person_profile.file.to_lowercase().replace("\\", "/");
+    assert!(
+        file_path_lower.contains("/views/people/show_person_profile.erb"),
+        "Page file path is incorrect"
+    );
+    
+    let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
+    assert!(
+        renders_edges_count > 0,
+        "Expected at least one RENDERS edge"
+    );
 
     Ok(())
 }

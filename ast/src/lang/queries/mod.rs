@@ -241,8 +241,8 @@ pub trait Stack {
         &self,
         _file_name: &str,
         _callback: &dyn Fn(&str, &str) -> Option<NodeData>,
-    ) -> Option<Edge> {
-        None
+    ) -> Vec<Edge> {
+        Vec::new()
     }
     fn clean_graph(&self, _callback: &mut dyn FnMut(NodeType, NodeType, &str)) {}
     fn direct_class_calls(&self) -> bool {

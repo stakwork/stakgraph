@@ -1,0 +1,17 @@
+<h1>Person Profile</h1>
+
+<div class="profile">
+  <p><strong>Name:</strong> <%= @person.name %></p>
+  <p><strong>Email:</strong> <%= @person.email %></p>
+</div>
+
+<% if @person.articles.any? %>
+  <h2>Articles</h2>
+  <ul>
+    <% @person.articles.each do |article| %>
+      <li><%= article.title %></li>
+    <% end %>
+  </ul>
+<% end %>
+
+<%= link_to "Back", people_path %> 

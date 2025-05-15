@@ -418,34 +418,72 @@ impl Stack for Ruby {
             return false;
         }
         // let is_underscore = pagename.as_ref().unwrap().starts_with("_");
-        let is_view = file_name.contains("/views/");
+        let is_view = file_name.contains("/views/") || file_name.contains("\\views\\");
         is_view && is_good_ext
     }
     fn extra_page_finder(
         &self,
         file_path: &str,
         find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
-    ) -> Option<Edge> {
+    ) -> Vec<Edge> {
         let pagename = get_page_name(file_path);
         if pagename.is_none() {
-            return None;
+            return Vec::new();
         }
         let pagename = pagename.unwrap();
         let page = NodeData::name_file(&pagename, file_path);
-        // get the handler name
+        
+        // Get the file name without extension as the method name
         let p = std::path::Path::new(file_path);
-        let func_name = remove_all_extensions(p);
-        let controller_name = p.parent()?.file_name()?.to_str()?;
-        // println!("func_name: {}, controller_name: {}", func_name, controller_name);
-        let handler = find_fn(
-            &func_name,
-            &format!("{}{}", controller_name, CONTROLLER_FILE_SUFFIX),
-        );
-        if let Some(handler) = handler {
-            Some(Edge::renders(&page, &handler))
-        } else {
-            None
+        let method_name = remove_all_extensions(p);
+        
+        // Parse the views path to get the controller name
+        // Example: views/people/show_person_profile.erb -> people
+        // Support both forward and backslash paths
+        if !file_path.contains("/views/") && !file_path.contains("\\views\\") {
+            return Vec::new();
         }
+        
+        let parts = if file_path.contains("/views/") {
+            file_path.split("/views/").collect::<Vec<&str>>()
+        } else {
+            file_path.split("\\views\\").collect::<Vec<&str>>()
+        };
+        
+        if parts.len() < 2 {
+            return Vec::new();
+        }
+        
+        let path_parts = if parts[1].contains('/') {
+            parts[1].split('/').collect::<Vec<&str>>()
+        } else {
+            parts[1].split('\\').collect::<Vec<&str>>()
+        };
+        
+        if path_parts.is_empty() {
+            return Vec::new();
+        }
+        
+        let controller_name = path_parts[0];
+        
+        let class_name = inflection::singularize(controller_name);
+        
+        let controller_file = format!("{}{}", controller_name, CONTROLLER_FILE_SUFFIX);
+        let function = find_fn(&method_name, &controller_file);
+        
+        let class = find_fn(&class_name, &controller_file);
+        
+        let mut edges = Vec::new();
+        
+        if let Some(func) = function {
+            edges.push(Edge::renders(&page, &func));
+        }
+        
+        if let Some(cls) = class {
+            edges.push(Edge::renders(&page, &cls));
+        }
+        
+        edges
     }
     fn direct_class_calls(&self) -> bool {
         true
