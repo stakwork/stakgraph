@@ -2,7 +2,7 @@ use anyhow::Result;
 use neo4rs::{query, ConfigBuilder, Graph as Neo4jConnection};
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{Arc, Mutex, Once},
+    sync::{Arc, Once},
 };
 use tracing::{debug, info};
 use lazy_static::lazy_static;
@@ -11,7 +11,7 @@ use crate::{lang::FunctionCall, utils::create_node_key};
 use super::*;
 
 lazy_static! {
-    static ref CONNECTION: Mutex<Option<Arc<Neo4jConnection>>> = Mutex::new(None);
+    static ref CONNECTION: tokio::sync::Mutex<Option<Arc<Neo4jConnection>>> = tokio::sync::Mutex::new(None);
     static ref INIT: Once = Once::new();
 }
 
@@ -19,7 +19,7 @@ pub struct Neo4jConnectionManager;
 
 impl Neo4jConnectionManager {
     pub async fn initialize(uri: &str, username: &str, password: &str) -> Result<()> {
-        let mut conn_guard = CONNECTION.lock().unwrap();
+        let mut conn_guard = CONNECTION.lock().await;
         if conn_guard.is_some() {
             return Ok(());
         }
@@ -41,12 +41,12 @@ impl Neo4jConnectionManager {
         }
     }
     
-    pub fn get_connection() -> Option<Arc<Neo4jConnection>> {
-        CONNECTION.lock().unwrap().clone()
+    pub async fn get_connection() -> Option<Arc<Neo4jConnection>> {
+        CONNECTION.lock().await.clone()
     }
     
-    pub fn clear_connection() {
-        let mut conn = CONNECTION.lock().unwrap();
+    pub async fn clear_connection() {
+        let mut conn = CONNECTION.lock().await;
         *conn = None;
     }
     pub async fn initialize_from_env() -> Result<()> {
@@ -932,4 +932,48 @@ pub fn extract_node_data_from_neo4j_node(node: &neo4rs::Node) -> NodeData {
         hash,
         meta,
     }
+}
+
+pub fn get_repository_hash_query(repo_url: &str) -> (String, HashMap<String, String>) {
+    let mut params = HashMap::new();
+    
+    let repo_name = if repo_url.contains('/') {
+        let parts: Vec<&str> = repo_url.split('/').collect();
+        let name = parts.last().unwrap_or(&repo_url);
+        name.trim_end_matches(".git")
+    } else {
+        repo_url
+    };
+    
+    params.insert("repo_name".to_string(), repo_name.to_string());
+    
+    let query = "MATCH (r:Repository) 
+                 WHERE r.name CONTAINS $repo_name 
+                 RETURN r.hash as hash";
+    
+    (query.to_string(), params)
+}
+
+pub fn remove_nodes_by_file_query(file_path: &str) -> (String, HashMap<String, String>) {
+    let mut params = HashMap::new();
+    params.insert("file_path".to_string(), file_path.to_string());
+    
+    let query = "MATCH (n) 
+                 WHERE n.file = $file_path 
+                 OPTIONAL MATCH (n)-[r]-() 
+                 DELETE r, n";
+    
+    (query.to_string(), params)
+}
+
+pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String, HashMap<String, String>) {
+    let mut params = HashMap::new();
+    params.insert("repo_name".to_string(), repo_name.to_string());
+    params.insert("new_hash".to_string(), new_hash.to_string());
+    
+    let query = "MATCH (r:Repository) 
+                 WHERE r.name CONTAINS $repo_name 
+                 SET r.hash = $new_hash";
+    
+    (query.to_string(), params)
 }

@@ -5,7 +5,7 @@ use crate::{
 
 use super::{graph::Graph, neo4j_utils::*, *};
 use anyhow::Result;
-use neo4rs::{query, ConfigBuilder, Graph as Neo4jConnection};
+use neo4rs::{query, Graph as Neo4jConnection};
 use std::str::FromStr;
 use std::{
     collections::{HashMap, HashSet},
@@ -55,7 +55,7 @@ impl Neo4jGraph {
     }
 
     pub async fn connect(&mut self) -> Result<()> {
-        if let Some(conn) = Neo4jConnectionManager::get_connection() {
+        if let Some(conn) = Neo4jConnectionManager::get_connection().await {
             self.connection = Some(conn);
             if let Ok(mut conn_status) = self.connected.lock() {
                 *conn_status = true;
@@ -81,7 +81,7 @@ impl Neo4jGraph {
         .await
         {
             Ok(_) => {
-                if let Some(conn) = Neo4jConnectionManager::get_connection() {
+                if let Some(conn) = Neo4jConnectionManager::get_connection().await {
                     self.connection = Some(conn);
 
                     if let Ok(mut conn_status) = self.connected.lock() {
@@ -136,7 +136,7 @@ impl Neo4jGraph {
             return Ok(conn.clone());
         }
 
-        if let Some(conn) = Neo4jConnectionManager::get_connection() {
+        if let Some(conn) = Neo4jConnectionManager::get_connection().await {
             self.connection = Some(conn.clone());
             if let Ok(mut conn_status) = self.connected.lock() {
                 *conn_status = true;
@@ -160,7 +160,7 @@ impl Neo4jGraph {
 
         let (query, params) = find_node_by_key_query(key);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding node by key: {}", e);
@@ -168,20 +168,30 @@ impl Neo4jGraph {
             }
         }
     }
-
     fn get_connection(&self) -> Arc<Neo4jConnection> {
-        if let Some(conn) = &self.connection {
-            return conn.clone();
-        }
-        if let Some(conn) = Neo4jConnectionManager::get_connection() {
-            return conn;
-        }
-        debug!("No Neo4j connection available. Call connect() first.");
-        match Neo4jConnectionManager::get_connection() {
-            Some(conn) => conn,
-            None => panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
+        match &self.connection {
+            Some(conn) => conn.clone(),
+            None => block_in_place(async {
+                if let Some(conn) = Neo4jConnectionManager::get_connection().await {
+                    return conn;
+                }
+                panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
+            }),
         }
     }
+    // fn get_connection(&self) -> Arc<Neo4jConnection> {
+    //     if let Some(conn) = &self.connection {
+    //         return conn.clone();
+    //     }
+    //     if let Some(conn) = Neo4jConnectionManager::get_connection() {
+    //         return conn;
+    //     }
+    //     debug!("No Neo4j connection available. Call connect() first.");
+    //     match Neo4jConnectionManager::get_connection() {
+    //         Some(conn) => conn,
+    //         None => panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
+    //     }
+    // }
 
     pub fn clear(&mut self) {
         if let Err(e) = block_in_place(async {
@@ -240,6 +250,62 @@ impl Neo4jGraph {
         } else {
             result
         }
+    }
+
+    pub fn get_repository_hash(&self, repo_url: &str) -> Result<String> {
+        let connection = self.get_connection();
+
+        let (query_str, params) = get_repository_hash_query(repo_url);
+
+        let mut query_obj = query(&query_str);
+        for (key, value) in &params {
+            query_obj = query_obj.param(key, value.as_str());
+        }
+
+        match block_in_place(connection.execute(query_obj)) {
+            Ok(mut result) => {
+                if let Ok(Some(row)) = block_in_place(result.next()) {
+                    if let Ok(hash) = row.get::<String>("hash") {
+                        return Ok(hash);
+                    }
+                }
+                Err(anyhow::anyhow!("Repository hash not found in graph"))
+            }
+            Err(e) => {
+                debug!("Error getting repository hash: {}", e);
+                Err(anyhow::anyhow!("Error getting repository hash: {}", e))
+            }
+        }
+    }
+
+    pub fn remove_nodes_by_file(&mut self, file_path: &str) -> Result<()> {
+        if let Err(e) = block_in_place(async {
+            self.execute_with_transaction(|txn_manager| {
+                let (query, params) = remove_nodes_by_file_query(file_path);
+                txn_manager.add_query((query, params));
+                Ok(())
+            })
+            .await
+        }) {
+            debug!("Error removing nodes for file {}: {}", file_path, e);
+            return Err(anyhow::anyhow!("Error removing file nodes: {}", e));
+        }
+        Ok(())
+    }
+
+    pub fn update_repository_hash(&mut self, repo_name: &str, new_hash: &str) -> Result<()> {
+        if let Err(e) = block_in_place(async {
+            self.execute_with_transaction(|txn_manager| {
+                let (query, params) = update_repository_hash_query(repo_name, new_hash);
+                txn_manager.add_query((query, params));
+                Ok(())
+            })
+            .await
+        }) {
+            debug!("Error updating repository hash: {}", e);
+            return Err(anyhow::anyhow!("Error updating hash: {}", e));
+        }
+        Ok(())
     }
 }
 
@@ -358,7 +424,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_node_by_name_file_query(&node_type, name, file);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding node by name and file: {}", e);
@@ -652,7 +718,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_by_type_query(&node_type);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by type: {}", e);
@@ -665,7 +731,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_by_name_contains_query(&node_type, name_part);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by name contains: {}", e);
@@ -678,7 +744,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_by_file_pattern_query(&node_type, file);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by file ends with: {}", e);
@@ -691,7 +757,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_in_range_query(&node_type, file, row);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding nodes in range: {}", e);
@@ -705,7 +771,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_resource_nodes_query(&node_type, verb, path);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding resource nodes: {}", e);
@@ -719,7 +785,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_handlers_for_endpoint_query(&endpoint);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding handlers for endpoint: {}", e);
@@ -732,7 +798,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_functions_called_by_query(&function);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding functions called by: {}", e);
@@ -1197,7 +1263,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_endpoint_query(name, file, verb);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding endpoint: {}", e);

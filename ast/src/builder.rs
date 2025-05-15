@@ -485,7 +485,7 @@ impl Repo {
     }
 }
 
-fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
+pub fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
     if revs.is_empty() {
         return graph;
     }
