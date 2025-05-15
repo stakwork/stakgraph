@@ -47,39 +47,45 @@ impl Stack for ReactTs {
     fn variables_query(&self) -> Option<String> {
         let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
         Some(format!(
-            r#"(program
-                    [
-                        (variable_declaration
-                            (variable_declarator
-                                name: (identifier) @{VARIABLE_NAME}
-                                value: [{types}] @variable_value
-                                type: (_)? @{VARIABLE_TYPE}
-                            )
-                        )
-                        (lexical_declaration
-                            (variable_declarator
-                                name: (identifier) @{VARIABLE_NAME}
-                                value: [{types}] @variable_value
-                                type: (_)? @{VARIABLE_TYPE}
-                            )
-                        )
-                        (export_statement
-                            declaration: (lexical_declaration
-                                (variable_declarator
-                                    name: (identifier) @{VARIABLE_NAME}
-                                    value: [{types}] @variable_value
-                                    type: (_)? @{VARIABLE_TYPE}
-                                )
-                            )
-                        )
-                        (expression_statement
-                            (assignment_expression
-                                left: (identifier) @{VARIABLE_NAME}
-                                right: [{types}] @variable_value
-                            )
-                        )
-                    ]+ @{VARIABLE_DECLARATION}
-                )"#,
+            r#"
+    (
+      (variable_declaration
+        (variable_declarator
+          name: (identifier) @{VARIABLE_NAME}
+          value: [{types}] @{VARIABLE_VALUE}
+          type: (_)? @{VARIABLE_TYPE}
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    (
+      (lexical_declaration
+        (variable_declarator
+          name: (identifier) @{VARIABLE_NAME}
+          value: [{types}] @{VARIABLE_VALUE}
+          type: (_)? @{VARIABLE_TYPE}
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    (
+      (export_statement
+        declaration: (lexical_declaration
+          (variable_declarator
+            name: (identifier) @{VARIABLE_NAME}
+            value: [{types}] @{VARIABLE_VALUE}
+            type: (_)? @{VARIABLE_TYPE}
+          )
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    (
+      (expression_statement
+        (assignment_expression
+          left: (identifier) @{VARIABLE_NAME}
+          right: [{types}] @{VARIABLE_VALUE}
+        )
+      ) @{VARIABLE_DECLARATION}
+    )
+    "#
         ))
     }
 
