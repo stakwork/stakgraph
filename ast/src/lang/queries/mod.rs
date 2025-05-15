@@ -240,7 +240,7 @@ pub trait Stack {
     fn extra_page_finder(
         &self,
         _file_name: &str,
-        _callback: &dyn Fn(&str, &str) -> Option<NodeData>,
+        _callback: &dyn Fn(NodeType, &str, &str) -> Option<NodeData>,
     ) -> Vec<Edge> {
         Vec::new()
     }

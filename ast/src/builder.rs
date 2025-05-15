@@ -345,9 +345,9 @@ impl Repo {
                     let edges = self
                         .lang
                         .lang()
-                        .extra_page_finder(&pagepath, &|name, filename| {
+                        .extra_page_finder(&pagepath, &|node_type, name, filename| {
                             graph.find_node_by_name_and_file_end_with(
-                                NodeType::Function,
+                                node_type,
                                 name,
                                 filename,
                             )

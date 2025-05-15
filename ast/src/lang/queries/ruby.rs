@@ -424,7 +424,7 @@ impl Stack for Ruby {
     fn extra_page_finder(
         &self,
         file_path: &str,
-        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        find_fn: &dyn Fn(NodeType, &str, &str) -> Option<NodeData>,
     ) -> Vec<Edge> {
         let pagename = get_page_name(file_path);
         if pagename.is_none() {
@@ -469,9 +469,9 @@ impl Stack for Ruby {
         let class_name = inflection::singularize(controller_name);
         
         let controller_file = format!("{}{}", controller_name, CONTROLLER_FILE_SUFFIX);
-        let function = find_fn(&method_name, &controller_file);
+        let function = find_fn(NodeType::Function, &method_name, &controller_file);
         
-        let class = find_fn(&class_name, &controller_file);
+        let class = find_fn(NodeType::Class, &class_name, &controller_file);
         
         let mut edges = Vec::new();
         
