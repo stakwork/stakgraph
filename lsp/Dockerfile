@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
     sed \
+    unzip \
+    default-jdk \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -55,3 +57,13 @@ RUN gem install ruby-lsp
 RUN curl -LO "https://github.com/rust-lang/rust-analyzer/releases/download/2025-01-20/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
     && gzip -cd rust-analyzer-x86_64-unknown-linux-gnu.gz > /bin/rust-analyzer \
     && chmod +x /bin/rust-analyzer
+
+# kotlin-lsp
+RUN mkdir -p /opt/kotlin-language-server && \
+    curl -L "https://github.com/fwcd/kotlin-language-server/releases/latest/download/server.zip" -o /opt/kotlin-language-server/server.zip && \
+    cd /opt/kotlin-language-server && \
+    unzip server.zip && \
+    rm server.zip && \
+    chmod +x server/bin/kotlin-language-server
+
+ENV PATH="/opt/kotlin-language-server/server/bin:$PATH"
