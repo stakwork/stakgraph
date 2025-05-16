@@ -117,7 +117,7 @@ impl Neo4jGraph {
             *conn_status = false;
         };
 
-        Neo4jConnectionManager::clear_connection();
+        block_in_place(async { Neo4jConnectionManager::clear_connection().await });
 
         info!("Disconnected from Neo4j database");
         Ok(())
@@ -1021,7 +1021,12 @@ impl Graph for Neo4jGraph {
 
     fn extend_graph(&mut self, other: Self) {
         if let Err(e) = block_in_place(async {
-            // Ensure this graph is connected
+            let (other_nodes, other_edges) = other.get_graph_size();
+            if other_nodes == 0 && other_edges == 0 {
+                info!("Warning: Attempting to extend with an empty graph");
+                return Ok(());
+            }
+
             let target_connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error for target graph: {}", e)),

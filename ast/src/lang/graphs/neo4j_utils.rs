@@ -956,12 +956,17 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, HashMap<String, Str
 
 pub fn remove_nodes_by_file_query(file_path: &str) -> (String, HashMap<String, String>) {
     let mut params = HashMap::new();
-    params.insert("file_path".to_string(), file_path.to_string());
+    params.insert("file".to_string(), file_path.to_string());
     
-    let query = "MATCH (n) 
-                 WHERE n.file = $file_path 
-                 OPTIONAL MATCH (n)-[r]-() 
-                 DELETE r, n";
+    let query = "
+            MATCH (n)
+            WHERE n.file = $file
+            OPTIONAL MATCH (n)-[r]-() 
+            DELETE r
+            WITH n
+            DETACH DELETE n
+            RETURN count(n) as deleted
+        ";
     
     (query.to_string(), params)
 }

@@ -3171,6 +3171,7 @@ dependencies = [
  "anyhow",
  "ast",
  "axum",
+ "futures",
  "lsp",
  "serde",
  "serde_json",

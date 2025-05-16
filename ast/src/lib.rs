@@ -1,4 +1,4 @@
-pub mod builder;
+mod builder;
 mod gat;
 pub mod lang;
 pub mod repo;
