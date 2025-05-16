@@ -1,5 +1,3 @@
-use std::vec;
-
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::Neo4jGraph;
 use ast::lang::Graph;
@@ -142,11 +140,10 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
                             deleted_files.push(file_path.clone());
 
                             let (nodes_before, edges_before) = graph.get_graph_size();
-
-                            graph.remove_nodes_by_file(file_path)?;
-
+                            let deleted_count = graph.remove_nodes_by_file(file_path)?;
                             let (nodes_after, edges_after) = graph.get_graph_size();
-                            if nodes_before != nodes_after || edges_before != edges_after {
+
+                            if deleted_count > 0 {
                                 info!(
                                     "Removed {} nodes and {} edges for deleted file {}",
                                     nodes_before - nodes_after,
@@ -154,7 +151,11 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
                                     file_path
                                 );
                             } else {
-                                info!("No nodes found to remove for deleted file {}", file_path);
+                                info!("No nodes removed for deleted file {}", file_path);
+                                // return Err(AppError::Anyhow(anyhow::anyhow!(
+                                //     "No nodes removed for deleted file {}",
+                                //     file_path
+                                // )));
                             }
                         }
                     }

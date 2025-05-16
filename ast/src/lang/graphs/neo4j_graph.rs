@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::runtime::Handle;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::neo4j_utils::Neo4jConnectionManager;
 
@@ -179,19 +179,6 @@ impl Neo4jGraph {
             }),
         }
     }
-    // fn get_connection(&self) -> Arc<Neo4jConnection> {
-    //     if let Some(conn) = &self.connection {
-    //         return conn.clone();
-    //     }
-    //     if let Some(conn) = Neo4jConnectionManager::get_connection() {
-    //         return conn;
-    //     }
-    //     debug!("No Neo4j connection available. Call connect() first.");
-    //     match Neo4jConnectionManager::get_connection() {
-    //         Some(conn) => conn,
-    //         None => panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
-    //     }
-    // }
 
     pub fn clear(&mut self) {
         if let Err(e) = block_in_place(async {
@@ -217,7 +204,6 @@ impl Neo4jGraph {
                 return Err(anyhow::anyhow!("Neo4j node deletion error: {}", e));
             }
 
-            // Convert the Result<(), neo4rs::Error> to Result<(), anyhow::Error>
             match txn.commit().await {
                 Ok(()) => Ok(()),
                 Err(e) => Err(anyhow::anyhow!("Neo4j commit error: {}", e)),
@@ -278,19 +264,34 @@ impl Neo4jGraph {
         }
     }
 
-    pub fn remove_nodes_by_file(&mut self, file_path: &str) -> Result<()> {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                let (query, params) = remove_nodes_by_file_query(file_path);
-                txn_manager.add_query((query, params));
-                Ok(())
-            })
-            .await
-        }) {
-            debug!("Error removing nodes for file {}: {}", file_path, e);
-            return Err(anyhow::anyhow!("Error removing file nodes: {}", e));
-        }
-        Ok(())
+    pub fn remove_nodes_by_file(&mut self, file_path: &str) -> Result<u32> {
+        let deleted_count = block_in_place(async {
+            let connection = self.get_connection();
+
+            let (query_str, params) = remove_nodes_by_file_query(file_path);
+
+            let mut query_obj = query(&query_str);
+            for (k, v) in &params {
+                query_obj = query_obj.param(k, v.as_str());
+            }
+
+            match connection.execute(query_obj).await {
+                Ok(mut result) => {
+                    if let Some(row) = result.next().await? {
+                        if let Ok(count) = row.get::<u32>("deleted") {
+                            return Ok(count);
+                        }
+                    }
+                    Ok(0)
+                }
+                Err(e) => {
+                    debug!("Error removing nodes for file {}: {}", file_path, e);
+                    Err(anyhow::anyhow!("Error removing file nodes: {}", e))
+                }
+            }
+        })?;
+
+        Ok(deleted_count)
     }
 
     pub fn update_repository_hash(&mut self, repo_name: &str, new_hash: &str) -> Result<()> {
@@ -436,24 +437,26 @@ impl Graph for Neo4jGraph {
     fn get_graph_size(&self) -> (u32, u32) {
         let connection = self.get_connection();
 
-        //TODO: For debugging, remove later
-        let edge_types_query = "MATCH ()-[r]->() RETURN type(r) as type, COUNT(r) as count";
-        match block_in_place(connection.execute(query(edge_types_query))) {
-            Ok(mut result) => {
-                let mut total = 0;
-                println!("Edge counts by type:");
-                while let Ok(Some(row)) = block_in_place(result.next()) {
-                    if let (Ok(edge_type), Ok(count)) =
-                        (row.get::<String>("type"), row.get::<u32>("count"))
-                    {
-                        println!("  {}: {}", edge_type, count);
-                        total += count;
+        #[cfg(debug_assertions)]
+        {
+            let edge_types_query = "MATCH ()-[r]->() RETURN type(r) as type, COUNT(r) as count";
+            match block_in_place(connection.execute(query(edge_types_query))) {
+                Ok(mut result) => {
+                    let mut total = 0;
+                    println!("Edge counts by type:");
+                    while let Ok(Some(row)) = block_in_place(result.next()) {
+                        if let (Ok(edge_type), Ok(count)) =
+                            (row.get::<String>("type"), row.get::<u32>("count"))
+                        {
+                            println!("  {}: {}", edge_type, count);
+                            total += count;
+                        }
                     }
+                    println!("Total edges from type count: {}", total);
                 }
-                println!("Total edges from type count: {}", total);
-            }
-            Err(e) => {
-                println!("Error getting edge counts by type: {}", e);
+                Err(e) => {
+                    println!("Error getting edge counts by type: {}", e);
+                }
             }
         }
 
@@ -1023,7 +1026,7 @@ impl Graph for Neo4jGraph {
         if let Err(e) = block_in_place(async {
             let (other_nodes, other_edges) = other.get_graph_size();
             if other_nodes == 0 && other_edges == 0 {
-                info!("Warning: Attempting to extend with an empty graph");
+                warn!("Warning: Attempting to extend with an empty graph");
                 return Ok(());
             }
 
