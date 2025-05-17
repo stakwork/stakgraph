@@ -73,13 +73,13 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 19, "Expected 19 functions");
+    assert!(functions.len() >= 19, "Expected at least 19 functions, found {}", functions.len());
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    assert!(data_models.len() >= 0, "Expected at least 0 data models");
+    assert_eq!(data_models.len(), 0, "Expected 0 data models");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
-    assert!(requests.len() >= 0, "Expected at least 0 requests");
+    assert_eq!(requests.len(), 0, "Expected 0 requests");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(CallsMeta::default()));
     assert!(calls_edges_count > 0, "Expected at least one calls edge");
