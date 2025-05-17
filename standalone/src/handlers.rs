@@ -4,6 +4,7 @@ use crate::types::{AppError, ProcessResponse, Result};
 use ast::lang::graphs::Neo4jGraph;
 use ast::lang::Graph;
 use ast::repo::check_revs_files;
+use ast::utils::print_json_vec;
 use ast::Repo;
 use axum::Json;
 use lsp::git::{get_commit_hash, git_pull_or_clone};
@@ -35,6 +36,14 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
                     "Git pull or clone failed : {}",
                     e
                 )));
+            }
+
+            #[cfg(debug_assertions)]
+            {
+                let nodes = graph.all_nodes();
+                let edges = graph.all_edges();
+                print_json_vec(&nodes, "before_update-nodes").ok();
+                print_json_vec(&edges, "before_update-edges").ok();
             }
 
             let current_hash = match block_on(get_commit_hash(&repo_path)) {
@@ -130,7 +139,6 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
 
                             for repo in &file_repos.0 {
                                 let file_graph = block_on(repo.build_graph_inner::<Neo4jGraph>())?;
-
                                 let (nodes_before, edges_before) = graph.get_graph_size();
                                 graph.extend_graph(file_graph);
 
@@ -190,7 +198,13 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
 
                 graph.update_repository_hash(&repo_url, &current_hash)?;
             }
-
+            #[cfg(debug_assertions)]
+            {
+                let nodes = graph.all_nodes();
+                let edges = graph.all_edges();
+                print_json_vec(&nodes, "after_update-nodes").ok();
+                print_json_vec(&edges, "after_update-edges").ok();
+            }
             let (nodes, edges) = graph.get_graph_size();
             info!("Updated graph - Nodes: {}, Edges: {}", nodes, edges);
             Ok(ProcessResponse {
