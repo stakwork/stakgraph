@@ -245,6 +245,54 @@ fn start(
                     ControlFlow::Continue(())
                 });
             }
+            Language::Ruby => {
+                router.notification::<Progress>(|this, prog| {
+                    info!("Ruby progress: {:?} {:?}", prog.token, prog.value);
+                    
+                    let is_ruby_token = if let NumberOrString::String(ref s) = prog.token {
+                        s.contains("ruby") || s.contains("ruby-lsp")
+                    } else {
+                        false
+                    };
+                    
+                    match &prog.value {
+                        ProgressParamsValue::WorkDone(wd) => {
+                            match wd {
+                                WorkDoneProgress::Begin(begin) => {
+                                    if begin.title == "Indexing" || begin.title == "Loading" {
+                                        debug!("Ruby LSP indexing started: {}", begin.title);
+                                    }
+                                }
+                                WorkDoneProgress::Report(report) => {
+                                    if let Some(per) = report.percentage {
+                                        if let Some(msg) = &report.message {
+                                            debug!("Ruby LSP indexing: {msg} ({per}%)");
+                                        }
+                                    }
+                                }
+                                WorkDoneProgress::End(_) => {
+                                    debug!("Ruby LSP indexing completed");
+                                    if let Some(tx) = this.indexed_tx.take() {
+                                        let _: Result<_, _> = tx.send(());
+                                    }
+                                }
+                            }
+                        }
+                        _ => {
+                            debug!("Ruby non-WorkDone progress type");
+                        }
+                    }
+                    
+                    if is_ruby_token && this.indexed_tx.is_some() {
+                        debug!("Ruby LSP token match detected");
+                        if let Some(tx) = this.indexed_tx.take() {
+                            let _: Result<_, _> = tx.send(());
+                        }
+                    }
+                    
+                    ControlFlow::Continue(())
+                });
+            }
             _ => {
                 //
             }
