@@ -185,16 +185,16 @@ impl Edge {
             NodeRef::from(m.into(), NodeType::Class),
         )
     }
-    pub fn add_root(&mut self, root: &str) {
-        self.source.node_data.file = format!("{}/{}", root, self.source.node_data.file);
-        self.target.node_data.file = format!("{}/{}", root, self.target.node_data.file);
-    }
     pub fn implements(class: &NodeData, tr: &NodeData) -> Edge {
         Edge::new(
             EdgeType::Implements,
             NodeRef::from(class.into(), NodeType::Class),
             NodeRef::from(tr.into(), NodeType::Trait),
         )
+    }
+    pub fn add_root(&mut self, root: &str) {
+        self.source.node_data.file = format!("{}/{}", root, self.source.node_data.file);
+        self.target.node_data.file = format!("{}/{}", root, self.target.node_data.file);
     }
 }
 

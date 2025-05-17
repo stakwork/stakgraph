@@ -639,19 +639,22 @@ impl Lang {
                     let qqq = self.q(&dmq, &NodeType::DataModel);
                     let mut matches = cursor.matches(&qqq, node, code.as_bytes());
                     while let Some(m) = matches.next() {
-                        let dm_node = self.format_data_model(&m, code, file, &qqq)?;
-                        if models
-                            .iter()
-                            .any(|e| e.target.node_data.name == dm_node.name)
-                        {
-                            continue;
-                        }
-                        match graph
-                            .find_nodes_by_name(NodeType::DataModel, &dm_node.name)
-                            .first()
-                            .cloned()
-                        {
-                            Some(dmr) => {
+                        let mut dm_name = None;
+                        Self::loop_captures(&qqq, &m, code, |body, _node, o| {
+                            if o == STRUCT_NAME {
+                                dm_name = Some(trim_quotes(&body).to_string());
+                            }
+                            Ok(())
+                        })?;
+                        if let Some(dm_name) = dm_name {
+                            if models.iter().any(|e| e.target.node_data.name == dm_name) {
+                                continue;
+                            }
+                            if let Some(dmr) = graph
+                                .find_nodes_by_name(NodeType::DataModel, &dm_name)
+                                .first()
+                                .cloned()
+                            {
                                 models.push(Edge::contains(
                                     NodeType::Function,
                                     &func,
@@ -659,7 +662,6 @@ impl Lang {
                                     &dmr,
                                 ));
                             }
-                            None => (),
                         }
                     }
                 }

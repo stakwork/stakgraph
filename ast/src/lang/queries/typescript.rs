@@ -165,18 +165,14 @@ impl Stack for TypeScript {
     fn trait_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (interface_declaration
-                name: (type_identifier) @{TRAIT_NAME}
-                body: (interface_body) @{TRAIT}
-            )
-            (type_alias_declaration
-                name: (type_identifier) @{TRAIT_NAME}
-                type: (object_type
-                    (method_signature
-                        name: (property_identifier) @{TRAIT_METHOD_NAME}
-                    )+
-                ) @{TRAIT}
-            )
+                (interface_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    body: (interface_body) @{TRAIT}
+                )
+                (type_alias_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    value: (object_type) @{TRAIT}
+                )
             "#
         ))
     }
