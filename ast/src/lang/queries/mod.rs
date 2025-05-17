@@ -248,8 +248,15 @@ pub trait Stack {
     fn direct_class_calls(&self) -> bool {
         false
     }
+
     fn convert_association_to_name(&self, name: &str) -> String {
         name.to_string()
+    }
+    fn is_data_model(&self, _body: TreeNode, _code: &str) -> bool {
+        false
+    }
+    fn is_trait(&self, _body: TreeNode, _code: &str) -> bool {
+        false
     }
 }
 

@@ -81,6 +81,8 @@ pub enum EdgeType {
     Renders,  // Page -> Component
     #[serde(rename = "PARENT_OF")]
     ParentOf, // Class -> Class
+    Implements, // Class -> Trait
+              //TraitOperand, // Trait -> Function
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -187,6 +189,13 @@ impl Edge {
         self.source.node_data.file = format!("{}/{}", root, self.source.node_data.file);
         self.target.node_data.file = format!("{}/{}", root, self.target.node_data.file);
     }
+    pub fn implements(class: &NodeData, tr: &NodeData) -> Edge {
+        Edge::new(
+            EdgeType::Implements,
+            NodeRef::from(class.into(), NodeType::Class),
+            NodeRef::from(tr.into(), NodeType::Trait),
+        )
+    }
 }
 
 impl From<Operand> for Edge {
@@ -249,6 +258,7 @@ impl ToString for EdgeType {
             EdgeType::Uses => "USES".to_string(),
             EdgeType::Includes => "INCLUDES".to_string(),
             EdgeType::Calls => "CALLS".to_string(),
+            EdgeType::Implements => "IMPLEMENTS".to_string(),
         }
     }
 }
