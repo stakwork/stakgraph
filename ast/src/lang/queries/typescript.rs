@@ -158,4 +158,40 @@ impl Stack for TypeScript {
             )"#
         ))
     }
+
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (interface_declaration
+                name: (type_identifier) @{TRAIT_NAME}
+                body: (interface_body) @{TRAIT}
+            )
+            "#
+        ))
+    }
+
+    fn is_data_model(&self, body: tree_sitter::Node, _code: &str) -> bool {
+        let mut only_properties = true;
+        for i in 0..body.named_child_count() {
+            if let Some(child) = body.named_child(i) {
+                println!("child: {:?}", child);
+                if child.kind() != "property_signature" {
+                    only_properties = false;
+                    break;
+                }
+            }
+        }
+        only_properties && body.named_child_count() > 0
+    }
+
+    fn is_trait(&self, body: tree_sitter::Node, _code: &str) -> bool {
+        for i in 0..body.named_child_count() {
+            if let Some(child) = body.named_child(i) {
+                if child.kind() == "method_signature" {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }

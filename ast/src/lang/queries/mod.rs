@@ -248,6 +248,12 @@ pub trait Stack {
     fn direct_class_calls(&self) -> bool {
         false
     }
+    fn is_data_model(&self, _body: TreeNode, _code: &str) -> bool {
+        false
+    }
+    fn is_trait(&self, _body: TreeNode, _code: &str) -> bool {
+        false
+    }
 }
 
 pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {
