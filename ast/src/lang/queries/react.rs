@@ -91,9 +91,19 @@ impl Stack for ReactTs {
     }
     fn class_definition_query(&self) -> String {
         format!(
-            "(class_declaration
+            r#"
+            (class_declaration
                 name: (type_identifier) @{CLASS_NAME}
-            ) @{CLASS_DEFINITION}"
+                (class_heritage
+                    (implements_clause
+                        (_) @{IMPLEMENTS}
+                    )?
+                    (extends_clause
+                        (identifier)@{CLASS_PARENT}
+                    )?
+                )?
+            ) @{CLASS_DEFINITION}
+            "#
         )
     }
     // FIXME "render" is always discluded to avoid jsx classes
@@ -354,7 +364,7 @@ impl Stack for ReactTs {
             inst.add_verb("GET");
         }
     }
-    fn is_router_file(&self, file_name: &str, code: &str) -> bool {
+    fn is_router_file(&self, file_name: &str, _code: &str) -> bool {
         // next.js or react-router-dom
         // file_name.contains("src/pages/") || code.contains("react-router-dom")
         !file_name.contains("__tests__") && !file_name.contains("test")
