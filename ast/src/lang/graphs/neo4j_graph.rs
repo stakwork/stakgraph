@@ -308,6 +308,48 @@ impl Neo4jGraph {
         }
         Ok(())
     }
+
+    pub fn get_incoming_edges_for_file(&self, file: &str) -> Vec<(Edge, NodeData)> {
+        let connection = self.get_connection();
+        let query_str = r#"
+                MATCH (source)-[r]->(target)
+                WHERE target.file = $file AND source.file <> $file
+                RETURN source, r, target, labels(source)[0] as source_type, labels(target)[0] as target_type, type(r) as edge_type
+            "#;
+        let query_obj = query(query_str).param("file", file);
+        let mut incoming = Vec::new();
+        if let Ok(mut result) = block_in_place(connection.execute(query_obj)) {
+            while let Ok(Some(row)) = block_in_place(result.next()) {
+                if let (
+                    Ok(source_node),
+                    Ok(target_node),
+                    Ok(source_type),
+                    Ok(target_type),
+                    Ok(edge_type),
+                ) = (
+                    row.get::<neo4rs::Node>("source"),
+                    row.get::<neo4rs::Node>("target"),
+                    row.get::<String>("source_type"),
+                    row.get::<String>("target_type"),
+                    row.get::<String>("edge_type"),
+                ) {
+                    if let (Ok(source_type), Ok(target_type), Ok(edge_type)) = (
+                        NodeType::from_str(&source_type),
+                        NodeType::from_str(&target_type),
+                        EdgeType::from_str(&edge_type),
+                    ) {
+                        let source_data = extract_node_data_from_neo4j_node(&source_node);
+                        let target_data = extract_node_data_from_neo4j_node(&target_node);
+                        let source_ref = NodeRef::from(NodeKeys::from(&source_data), source_type);
+                        let target_ref = NodeRef::from(NodeKeys::from(&target_data), target_type);
+                        let edge = Edge::new(edge_type, source_ref, target_ref);
+                        incoming.push((edge, target_data));
+                    }
+                }
+            }
+        }
+        incoming
+    }
 }
 
 impl Default for Neo4jGraph {

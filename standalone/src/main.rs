@@ -168,6 +168,8 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
 
                     if !modified_files.is_empty() {
                         for file in &modified_files {
+                            let incoming_edges = graph.get_incoming_edges_for_file(file);
+
                             graph.remove_nodes_by_file(file)?;
 
                             let file_repos = block_on(Repo::new_multi_detect(
@@ -182,6 +184,27 @@ pub async fn process(Json(body): Json<ProcessBody>) -> Result<Json<ProcessRespon
 
                                 let (nodes_before, edges_before) = graph.get_graph_size();
                                 graph.extend_graph(file_graph);
+
+                                for (edge, _target_data) in &incoming_edges {
+                                    let source_exists = graph
+                                        .find_nodes_by_name(
+                                            edge.source.node_type.clone(),
+                                            &edge.source.node_data.name,
+                                        )
+                                        .iter()
+                                        .any(|n| n.file == edge.source.node_data.file);
+                                    let target_exists = graph
+                                        .find_nodes_by_name(
+                                            edge.target.node_type.clone(),
+                                            &edge.target.node_data.name,
+                                        )
+                                        .iter()
+                                        .any(|n| n.file == edge.target.node_data.file);
+                                    if source_exists && target_exists {
+                                        graph.add_edge(edge.clone());
+                                    }
+                                }
+
                                 let (nodes_after, edges_after) = graph.get_graph_size();
 
                                 info!(
