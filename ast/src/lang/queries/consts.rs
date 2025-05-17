@@ -21,6 +21,7 @@ pub const PARENT_NAME: &str = "parent-name";
 pub const PARENT_TYPE: &str = "parent-type";
 pub const FUNCTION_CALL: &str = "function-call";
 pub const OPERAND: &str = "operand";
+pub const IMPLEMENTS: &str = "implements";
 
 pub const HANDLER: &str = "handler";
 pub const HANDLER_ACTIONS_ARRAY: &str = "handler-actions-array";

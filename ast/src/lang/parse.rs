@@ -23,14 +23,20 @@ impl Lang {
                 NodeType::Library => vec![self.format_library(&m, code, file, q)?],
                 NodeType::Import => self.format_imports(&m, code, file, q)?,
                 NodeType::Instance => vec![self.format_instance(&m, code, file, q)?],
-                NodeType::Trait => vec![self.format_trait(&m, code, file, q)?],
+                NodeType::Trait => match self.format_trait(&m, code, file, q) {
+                    Ok(tr) => vec![tr],
+                    Err(_) => continue,
+                },
                 // req and endpoint are the same format in the query templates
                 NodeType::Endpoint | NodeType::Request => self
                     .format_endpoint::<G>(&m, code, file, q, None, &None)?
                     .into_iter()
                     .map(|(nd, _e)| nd)
                     .collect(),
-                NodeType::DataModel => vec![self.format_data_model(&m, code, file, q)?],
+                NodeType::DataModel => match self.format_data_model(&m, code, file, q) {
+                    Ok(dm) => vec![dm],
+                    Err(_) => continue,
+                },
                 NodeType::Var => self.format_variables(&m, code, file, q)?,
                 _ => return Err(anyhow::anyhow!("collect: {nt:?} not implemented")),
             };
@@ -57,6 +63,12 @@ impl Lang {
                 cls.add_parent(&body);
             } else if o == INCLUDED_MODULES {
                 cls.add_includes(&body);
+            } else if o == IMPLEMENTS {
+                println!("found implements {:?}", body);
+                cls.meta
+                    .entry("implements".to_string())
+                    .and_modify(|v| v.push_str(&format!(",{}", body)))
+                    .or_insert_with(|| body.to_string());
             }
             Ok(())
         })?;
@@ -254,17 +266,25 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut tr = NodeData::in_file(file);
+        let mut is_valid = false;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == TRAIT_NAME {
                 tr.name = body;
             } else if o == TRAIT {
-                tr.body = body;
-                tr.start = node.start_position().row;
-                tr.end = node.end_position().row;
+                if self.lang.is_trait(&node, code) {
+                    tr.body = body;
+                    tr.start = node.start_position().row;
+                    tr.end = node.end_position().row;
+                    is_valid = true;
+                }
             }
             Ok(())
         })?;
-        Ok(tr)
+        if is_valid {
+            Ok(tr)
+        } else {
+            Err(anyhow::anyhow!("Not a trait"))
+        }
     }
     pub fn format_instance(
         &self,
@@ -455,17 +475,25 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut inst = NodeData::in_file(file);
+        let mut is_valid = false;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == STRUCT_NAME {
                 inst.name = trim_quotes(&body).to_string();
             } else if o == STRUCT {
-                inst.body = body;
-                inst.start = node.start_position().row;
-                inst.end = node.end_position().row;
+                if self.lang.is_data_model(&node, code) {
+                    inst.body = body;
+                    inst.start = node.start_position().row;
+                    inst.end = node.end_position().row;
+                    is_valid = true;
+                }
             }
             Ok(())
         })?;
-        Ok(inst)
+        if is_valid {
+            Ok(inst)
+        } else {
+            Err(anyhow::anyhow!("Not a data model"))
+        }
     }
     pub fn collect_functions<G: Graph>(
         &self,
