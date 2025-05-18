@@ -6,7 +6,7 @@ use std::{
 };
 use tracing::{debug, info};
 use lazy_static::lazy_static;
-use crate::{lang::FunctionCall, utils::create_node_key};
+use crate::{lang::FunctionCall, utils::{create_node_key, create_node_key_from_ref}};
 
 use super::*;
 
@@ -222,37 +222,36 @@ impl EdgeQueryBuilder {
     pub fn build(&self) -> (String, HashMap<String, String>) {
         let mut params = self.build_params();
         let rel_type = self.edge.edge.to_string();
-        
+    
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
-        
-        params.insert("source_name".to_string(), self.edge.source.node_data.name.clone());
-        params.insert("source_file".to_string(), self.edge.source.node_data.file.clone());
-        params.insert("target_name".to_string(), self.edge.target.node_data.name.clone());
-        params.insert("target_file".to_string(), self.edge.target.node_data.file.clone());
     
-        let props_clause = match &self.edge.edge {
-            EdgeType::Calls(_) if params.contains_key("operand") => {
-                "r.call_start = $call_start, r.call_end = $call_end, r.operand = $operand"
-            }
-            EdgeType::Calls(_) => {
-                "r.call_start = $call_start, r.call_end = $call_end"
-            }
-            _ => "",
-        };
+    
+        let source_key = create_node_key_from_ref(&self.edge.source);
+        let target_key = create_node_key_from_ref(&self.edge.target);
+        params.insert("source_key".to_string(), source_key.clone());
+        params.insert("target_key".to_string(), target_key.clone());
+    
+        let mut rel_props = vec![
+            "source_key: $source_key".to_string(),
+            "target_key: $target_key".to_string(),
+        ];
     
         
+        if let EdgeType::Calls(meta) = &self.edge.edge {
+            rel_props.push("call_start: $call_start".to_string());
+            rel_props.push("call_end: $call_end".to_string());
+            if params.contains_key("operand") {
+                rel_props.push("operand: $operand".to_string());
+            }
+        }
+    
+        let rel_props_clause = rel_props.join(", ");
+    
         let query = format!(
-            "MATCH (source:{} {{name: $source_name, file: $source_file}}), 
-                   (target:{} {{name: $target_name, file: $target_file}})
-             MERGE (source)-[r:{}]->(target)
-             ON CREATE SET {}
-             ON MATCH SET {}",
-            source_type,
-            target_type,
-            rel_type,
-            if props_clause.is_empty() { "r.updated = true" } else { props_clause },
-            if props_clause.is_empty() { "r.updated = true" } else { props_clause }
+            "MATCH (source:{} {{key: $source_key}}), (target:{} {{key: $target_key}})
+             MERGE (source)-[r:{} {{{}}}]->(target)",
+            source_type, target_type, rel_type, rel_props_clause
         );
     
         (query, params)
@@ -263,21 +262,20 @@ pub async fn execute_batch(
     queries: Vec<(String, HashMap<String, String>)>,
 ) -> Result<()> {
     let mut txn = conn.start_txn().await?;
-    
-     for (i, (query_str, params)) in queries.iter().enumerate() {
+    info!("Started Neo4j transaction with {} queries", queries.len());
+    for (i, (query_str, params)) in queries.iter().enumerate() {
         let mut query_obj = query(&query_str);
         for (k, v) in params {
             query_obj = query_obj.param(&k, v.as_str());
         }
-
-            if let Err(e) = txn.run(query_obj).await  {
+        info!("Running query #{}: {}", i, query_str);
+        if let Err(e) = txn.run(query_obj).await  {
             println!("Neo4j query #{} {} failed: {}", i, query_str, e);
             txn.rollback().await?;
             return Err(anyhow::anyhow!("Neo4j batch query error: {}", e));
-            }
-        
+        }
     }
-    
+    info!("Committing Neo4j transaction");
     txn.commit().await?;
     Ok(())
 }

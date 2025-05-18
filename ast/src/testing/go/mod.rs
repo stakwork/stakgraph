@@ -1,3 +1,5 @@
+#[cfg(feature = "neo4j")]
+use crate::lang::graphs::Neo4jGraph;
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::Graph;
 use crate::utils::get_use_lsp;
@@ -91,4 +93,9 @@ async fn test_go() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_go_generic::<ArrayGraph>().await.unwrap();
     test_go_generic::<BTreeMapGraph>().await.unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        test_go_generic::<Neo4jGraph>().await.unwrap();
+    }
 }
