@@ -107,7 +107,7 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     if use_lsp {
         assert_eq!(calls_edges_count, 12, "Expected 12 calls edges with LSP");
     } else {
-        assert_eq!(calls_edges_count, 8, "Expected 8 calls edges");
+        assert_eq!(calls_edges_count, 13, "Expected 13 calls edges");
     }
 
     Ok(())
