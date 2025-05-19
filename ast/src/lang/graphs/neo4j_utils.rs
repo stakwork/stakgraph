@@ -52,7 +52,7 @@ impl Neo4jConnectionManager {
     pub async fn initialize_from_env() -> Result<()> {
         let uri = std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://localhost:7687".to_string());
         let username = std::env::var("NEO4J_USERNAME").unwrap_or_else(|_| "neo4j".to_string());
-        let password = std::env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "password".to_string());
+        let password = std::env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "testtest".to_string());
 
         Self::initialize(&uri, &username, &password).await
     }
@@ -155,21 +155,21 @@ impl NodeQueryBuilder {
         let params = self.build_params();
         
         let property_list = params
-            .keys()
-            .filter(|k| k != &"key")
-            .map(|k| format!("n.{} = ${}", k, k))
-            .collect::<Vec<_>>()
-            .join(", ");
+                                .keys()
+                                .filter(|k| k != &"key")
+                                .map(|k| format!("n.{} = ${}", k, k))
+                                .collect::<Vec<_>>()
+                                .join(", ");
 
         let query = format!(
-            "MERGE (n:{} {{key: $key}})
+            "MERGE (n:{} {{name: $name, file: $file, start: $start}})
             ON CREATE SET {}
             ON MATCH SET {}",
             self.node_type.to_string(),
             property_list,
             property_list
         );
-
+        
         (query, params)
     }
 }
@@ -226,34 +226,31 @@ impl EdgeQueryBuilder {
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
     
+        let source_match = "name: $source_name, file: $source_file, start: $source_start";
+        let target_match = "name: $target_name, file: $target_file, start: $target_start";
     
-        let source_key = create_node_key_from_ref(&self.edge.source);
-        let target_key = create_node_key_from_ref(&self.edge.target);
-        params.insert("source_key".to_string(), source_key.clone());
-        params.insert("target_key".to_string(), target_key.clone());
-    
-        let mut rel_props = vec![
-            "source_key: $source_key".to_string(),
-            "target_key: $target_key".to_string(),
-        ];
-    
-        
-        if let EdgeType::Calls(meta) = &self.edge.edge {
+        let mut rel_props = vec![];
+        if let EdgeType::Calls(_meta) = &self.edge.edge {
             rel_props.push("call_start: $call_start".to_string());
             rel_props.push("call_end: $call_end".to_string());
             if params.contains_key("operand") {
                 rel_props.push("operand: $operand".to_string());
             }
         }
-    
-        let rel_props_clause = rel_props.join(", ");
+        let rel_props_clause = if rel_props.is_empty() {
+            "".to_string()
+        } else {
+            format!("{{{}}}", rel_props.join(", "))
+        };
     
         let query = format!(
-            "MATCH (source:{} {{key: $source_key}}), (target:{} {{key: $target_key}})
-             MERGE (source)-[r:{} {{{}}}]->(target)",
-            source_type, target_type, rel_type, rel_props_clause
+            "MATCH (source:{} {{{}}}), (target:{} {{{}}})
+             MERGE (source)-[r:{} {}]->(target)",
+            source_type, source_match, target_type, target_match, rel_type, rel_props_clause
         );
-    
+        
+        println!("Edge Query: {}", query);
+        println!("Edge Params: {:?}", params);
         (query, params)
     }
 }
@@ -266,7 +263,15 @@ pub async fn execute_batch(
     for (i, (query_str, params)) in queries.iter().enumerate() {
         let mut query_obj = query(&query_str);
         for (k, v) in params {
-            query_obj = query_obj.param(&k, v.as_str());
+            if k == "start" || k == "end" || k == "call_start" || k == "call_end" {
+                if let Ok(num) = v.parse::<i64>() {
+                    query_obj = query_obj.param(&k, num);
+                } else {
+                    query_obj = query_obj.param(&k, v.as_str());
+                }
+            } else {
+                query_obj = query_obj.param(&k, v.as_str());
+            }
         }
         info!("Running query #{}: {}", i, query_str);
         if let Err(e) = txn.run(query_obj).await  {

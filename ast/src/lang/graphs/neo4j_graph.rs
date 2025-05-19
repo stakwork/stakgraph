@@ -131,30 +131,6 @@ impl Neo4jGraph {
         }
     }
 
-    pub async fn ensure_connected(&mut self) -> Result<Arc<Neo4jConnection>> {
-        if let Some(conn) = &self.connection {
-            return Ok(conn.clone());
-        }
-
-        if let Some(conn) = Neo4jConnectionManager::get_connection().await {
-            self.connection = Some(conn.clone());
-            if let Ok(mut conn_status) = self.connected.lock() {
-                *conn_status = true;
-            };
-            return Ok(conn);
-        }
-
-        self.connect().await?;
-
-        match &self.connection {
-            Some(conn) => Ok(conn.clone()),
-            None => {
-                debug!("Failed to connect to Neo4j database");
-                Err(anyhow::anyhow!("Failed to connect to Neo4j database"))
-            }
-        }
-    }
-
     fn get_connection(&self) -> Arc<Neo4jConnection> {
         match &self.connection {
             Some(conn) => conn.clone(),
@@ -169,26 +145,16 @@ impl Neo4jGraph {
 
     pub fn clear(&mut self) {
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
 
             let mut txn = connection.start_txn().await?;
 
-            // Delete relationships first, then nodes
-            let clear_rels = query("MATCH ()-[r]-() DELETE r");
-            if let Err(e) = txn.run(clear_rels).await {
-                debug!("Error clearing relationships: {:?}", e);
+            // Delete all nodes and relationships in one go
+            let clear_all = query("MATCH (n) DETACH DELETE n");
+            if let Err(e) = txn.run(clear_all).await {
+                debug!("Error clearing graph: {:?}", e);
                 txn.rollback().await?;
-                return Err(anyhow::anyhow!("Neo4j relationship deletion error: {}", e));
-            }
-
-            let clear_nodes = query("MATCH (n) DELETE n");
-            if let Err(e) = txn.run(clear_nodes).await {
-                debug!("Error clearing nodes: {:?}", e);
-                txn.rollback().await?;
-                return Err(anyhow::anyhow!("Neo4j node deletion error: {}", e));
+                return Err(anyhow::anyhow!("Neo4j graph deletion error: {}", e));
             }
 
             match txn.commit().await {
@@ -203,10 +169,7 @@ impl Neo4jGraph {
     where
         F: FnOnce(&mut TransactionManager) -> Result<T>,
     {
-        let connection = match self.ensure_connected().await {
-            Ok(conn) => conn,
-            Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-        };
+        let connection = self.get_connection();
 
         let mut txn_manager = TransactionManager::new(&connection);
 
@@ -667,10 +630,7 @@ impl Graph for Neo4jGraph {
     }
     fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
             let mut txn_manager = TransactionManager::new(&connection);
 
             let queries = add_test_node_query(&test_data, &test_type, &test_edge);
@@ -685,10 +645,7 @@ impl Graph for Neo4jGraph {
         let (page_data, edge_opt) = page;
 
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
             let mut txn_manager = TransactionManager::new(&connection);
 
             // Get the queries from the utility
@@ -702,10 +659,7 @@ impl Graph for Neo4jGraph {
     }
     fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
             let mut txn_manager = TransactionManager::new(&connection);
 
             // Get the queries from the utility
@@ -720,10 +674,7 @@ impl Graph for Neo4jGraph {
 
     fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
             let mut txn_manager = TransactionManager::new(&connection);
 
             let queries = add_endpoints_query(&endpoints);
@@ -739,10 +690,7 @@ impl Graph for Neo4jGraph {
         let (funcs, tests, int_tests) = calls;
 
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
 
             let mut txn_manager = TransactionManager::new(&connection);
 
@@ -996,10 +944,7 @@ impl Graph for Neo4jGraph {
 
             let source_connection = self.get_connection();
 
-            let target_connection = match filtered_graph.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error for target graph: {}", e)),
-            };
+            let target_connection = self.get_connection();
 
             let mut txn_manager = TransactionManager::new(&target_connection);
 
@@ -1104,16 +1049,12 @@ impl Graph for Neo4jGraph {
 
     fn extend_graph(&mut self, other: Self) {
         if let Err(e) = block_in_place(async {
+            let target_connection = self.get_connection();
             let (other_nodes, other_edges) = other.get_graph_size();
             if other_nodes == 0 && other_edges == 0 {
                 warn!("Warning: Attempting to extend with an empty graph");
                 return Ok(());
             }
-
-            let target_connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error for target graph: {}", e)),
-            };
 
             let source_connection = other.get_connection();
 
@@ -1225,10 +1166,7 @@ impl Graph for Neo4jGraph {
     }
     fn add_instances(&mut self, instances: Vec<NodeData>) {
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
 
             let mut txn_manager = TransactionManager::new(&connection);
 
@@ -1275,10 +1213,7 @@ impl Graph for Neo4jGraph {
     }
     fn get_data_models_within(&mut self, lang: &Lang) {
         if let Err(e) = block_in_place(async {
-            let connection = match self.ensure_connected().await {
-                Ok(conn) => conn,
-                Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
-            };
+            let connection = self.get_connection();
 
             let mut txn_manager = TransactionManager::new(&connection);
 

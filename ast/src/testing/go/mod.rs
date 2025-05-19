@@ -1,7 +1,7 @@
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::graphs::{EdgeType, NodeType};
-use crate::lang::Graph;
+use crate::lang::{graph, Graph};
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
@@ -20,6 +20,9 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let graph = repo.build_graph_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
+
+    graph.analysis();
+
     if use_lsp == true {
         assert_eq!(num_nodes, 64, "Expected 64 nodes");
         assert_eq!(num_edges, 108, "Expected 108 edges");
@@ -96,6 +99,22 @@ async fn test_go() {
 
     #[cfg(feature = "neo4j")]
     {
+        let mut graph = Neo4jGraph::default();
+        graph.clear();
         test_go_generic::<Neo4jGraph>().await.unwrap();
+
+        //graph.clear()
+    }
+}
+
+#[tokio::test]
+async fn test_neo4j_connectivity() {
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::neo4j_utils::Neo4jConnectionManager;
+        Neo4jConnectionManager::initialize_from_env().await.unwrap();
+        let conn = Neo4jConnectionManager::get_connection().unwrap();
+        let result = conn.execute(neo4rs::query("RETURN 1")).await;
+        assert!(result.is_ok());
     }
 }
