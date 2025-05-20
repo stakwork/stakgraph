@@ -159,22 +159,23 @@ impl Graph for ArrayGraph {
     fn add_node_with_parent(
         &mut self,
         node_type: NodeType,
-        node_data: NodeData,
+        node_data: &NodeData,
         parent_type: NodeType,
-        parent_file: &str,
+        parent_data: &NodeData,
     ) {
-        let _edge = if let Some(parent) = self
-            .nodes
-            .iter()
-            .find(|n| n.node_type == parent_type && n.node_data.file == parent_file)
-            .map(|n| n.node_data.clone())
-        {
-            let edge = Edge::contains(parent_type, &parent, node_type.clone(), &node_data);
-            self.add_node(node_type, node_data);
+        if let Some(parent) = self.find_node_by_name_in_file(
+            parent_type.clone(),
+            &parent_data.name,
+            &parent_data.file,
+        ) {
+            self.add_node(node_type.clone(), node_data.clone());
+            let edge = Edge::contains(parent_type, &parent, node_type, node_data);
             self.add_edge(edge);
+            return;
         } else {
-            self.add_node(node_type, node_data);
-        };
+            println!("Parent node not found: {:?}", parent_data);
+            self.add_node(node_type, node_data.clone());
+        }
     }
     // NOTE does this need to be per lang on the trait?
     fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
@@ -262,12 +263,7 @@ impl Graph for ArrayGraph {
         for inst in instances {
             if let Some(of) = &inst.data_type {
                 if let Some(cl) = self.find_nodes_by_name(NodeType::Class, &of).first() {
-                    self.add_node_with_parent(
-                        NodeType::Instance,
-                        inst.clone(),
-                        NodeType::File,
-                        &inst.file,
-                    );
+                    self.add_node_with_parent(NodeType::Instance, &inst, NodeType::File, &inst);
                     let of_edge = Edge::of(&inst, &cl);
                     self.add_edge(of_edge);
                 }
@@ -356,12 +352,7 @@ impl Graph for ArrayGraph {
         }
     }
     fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
-        self.add_node_with_parent(
-            test_type,
-            test_data.clone(),
-            NodeType::File,
-            &test_data.file,
-        );
+        self.add_node_with_parent(test_type, &test_data, NodeType::File, &test_data);
 
         if let Some(edge) = test_edge {
             self.add_edge(edge);

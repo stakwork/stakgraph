@@ -50,7 +50,12 @@ impl Repo {
             ..Default::default()
         };
         repo_data.add_source_link(&self.url);
-        graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
+        graph.add_node_with_parent(
+            NodeType::Repository,
+            &repo_data.clone(),
+            NodeType::Repository,
+            &repo_data,
+        );
 
         debug!("add language...");
         let lang_data = NodeData {
@@ -58,7 +63,12 @@ impl Repo {
             file: "".to_string(),
             ..Default::default()
         };
-        graph.add_node_with_parent(NodeType::Language, lang_data, NodeType::Repository, "main");
+        graph.add_node_with_parent(
+            NodeType::Language,
+            &lang_data,
+            NodeType::Repository,
+            &repo_data,
+        );
 
         debug!("collecting dirs...");
         let dirs = self.collect_dirs()?;
@@ -116,11 +126,19 @@ impl Repo {
                     (NodeType::Directory, parent)
                 };
 
+                let parent_node_data = if parent_type == NodeType::Repository {
+                    repo_data.clone()
+                } else {
+                    let mut parent_dir_data = NodeData::in_file(&parent_file);
+                    parent_dir_data.name = segments[idx - 1].to_string();
+                    parent_dir_data
+                };
+
                 graph.add_node_with_parent(
                     NodeType::Directory,
-                    dir_data,
+                    &dir_data,
                     parent_type,
-                    &parent_file,
+                    &parent_node_data,
                 );
                 processed_dirs.insert(current_path.clone());
             }
@@ -155,7 +173,15 @@ impl Repo {
                 (NodeType::Repository, "main".to_string())
             };
 
-            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
+            let parent_node_data = if parent_type == NodeType::Repository {
+                repo_data.clone()
+            } else {
+                let mut parent_dir_data = NodeData::in_file(&parent_file);
+                parent_dir_data.name = parent_file.split('/').last().unwrap_or("").to_string();
+                parent_dir_data
+            };
+
+            graph.add_node_with_parent(NodeType::File, &file_data, parent_type, &parent_node_data);
         }
 
         let filez = fileys(&files, &self.root)?;
@@ -181,15 +207,23 @@ impl Repo {
 
             let file_data = self.prepare_file_data(&pkg_file, code);
 
-            let (parent_type, parent_file) = self.get_parent_info(&pkg_file);
+            let (parent_type, _parent_file) = self.get_parent_info(&pkg_file);
 
-            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
+            graph.add_node_with_parent(NodeType::File, &file_data, parent_type, &repo_data);
 
             let libs = self.lang.get_libs::<G>(&code, &pkg_file)?;
             i += libs.len();
 
+            let mut lib_parent_data = NodeData::in_file(pkg_file);
+            lib_parent_data.name = pkg_file.split('/').last().unwrap_or("").to_string();
+
             for lib in libs {
-                graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, &pkg_file);
+                graph.add_node_with_parent(
+                    NodeType::Library,
+                    &lib,
+                    NodeType::File,
+                    &lib_parent_data,
+                );
             }
         }
         info!("=> got {} libs", i);
@@ -206,9 +240,9 @@ impl Repo {
             for import in import_section {
                 graph.add_node_with_parent(
                     NodeType::Import,
-                    import.clone(),
+                    &import.clone(),
                     NodeType::File,
-                    &import.file,
+                    &import,
                 );
             }
         }
@@ -223,9 +257,9 @@ impl Repo {
             for variable in variables {
                 graph.add_node_with_parent(
                     NodeType::Var,
-                    variable.clone(),
+                    &variable.clone(),
                     NodeType::File,
-                    &variable.file,
+                    &variable,
                 );
             }
         }
@@ -238,12 +272,7 @@ impl Repo {
             i += classes.len();
 
             for class in classes {
-                graph.add_node_with_parent(
-                    NodeType::Class,
-                    class.clone(),
-                    NodeType::File,
-                    &class.file,
-                );
+                graph.add_node_with_parent(NodeType::Class, &class.clone(), NodeType::File, &class);
             }
         }
         info!("=> got {} classes", i);
@@ -267,7 +296,7 @@ impl Repo {
             i += traits.len();
 
             for tr in traits {
-                graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
+                graph.add_node_with_parent(NodeType::Trait, &tr.clone(), NodeType::File, &tr);
             }
         }
         info!("=> got {} traits", i);
@@ -287,12 +316,7 @@ impl Repo {
             i += structs.len();
 
             for st in &structs {
-                graph.add_node_with_parent(
-                    NodeType::DataModel,
-                    st.clone(),
-                    NodeType::File,
-                    &st.file,
-                );
+                graph.add_node_with_parent(NodeType::DataModel, &st.clone(), NodeType::File, &st);
             }
         }
         info!("=> got {} data models", i);
@@ -312,9 +336,9 @@ impl Repo {
             for test in tests {
                 graph.add_node_with_parent(
                     NodeType::Test,
-                    test.0.clone(),
+                    &test.0.clone(),
                     NodeType::File,
-                    &test.0.file,
+                    &test.0,
                 );
             }
         }

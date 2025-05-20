@@ -421,29 +421,15 @@ impl Graph for Neo4jGraph {
     fn add_node_with_parent(
         &mut self,
         node_type: NodeType,
-        node_data: NodeData,
+        node_data: &NodeData,
         parent_type: NodeType,
-        parent_file: &str,
+        parent_data: &NodeData,
     ) {
         if let Err(e) = block_in_place(async {
             self.execute_with_transaction(|txn_manager| {
-                txn_manager.add_node(&node_type, &node_data);
-
-                let mut params = HashMap::new();
-                params.insert("name".to_string(), node_data.name.clone());
-                params.insert("file".to_string(), node_data.file.clone());
-                params.insert("start".to_string(), node_data.start.to_string());
-                params.insert("parent_file".to_string(), parent_file.to_string());
-
-                let query = format!(
-                    "MATCH (parent:{} {{file: $parent_file}}),
-                       (node:{} {{name: $name, file: $file}})
-                     MERGE (parent)-[:CONTAINS]->(node)",
-                    parent_type.to_string(),
-                    node_type.to_string()
-                );
-
-                txn_manager.add_query((query, params));
+                let queries =
+                    add_node_with_parent_query(&node_type, &node_data, &parent_type, parent_data);
+                txn_manager.add_queries(queries);
                 Ok(())
             })
             .await

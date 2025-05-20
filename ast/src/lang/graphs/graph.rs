@@ -34,9 +34,9 @@ pub trait Graph: Default + Debug {
     fn add_node_with_parent(
         &mut self,
         node_type: NodeType,
-        node_data: NodeData,
+        node_data: &NodeData,
         parent_type: NodeType,
-        parent_file: &str,
+        parent_data: &NodeData,
     );
     fn add_edge(&mut self, edge: Edge);
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData);

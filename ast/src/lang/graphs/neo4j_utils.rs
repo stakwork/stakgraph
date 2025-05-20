@@ -657,24 +657,24 @@ pub fn add_node_with_parent_query(
     node_type: &NodeType,
     node_data: &NodeData,
     parent_type: &NodeType,
-    parent_file: &str,
+    parent_data: &NodeData,
 ) -> Vec<(String, HashMap<String, String>)> {
     let mut queries = Vec::new();
 
-    queries.push(add_node_query(node_type, node_data));
-
     let mut params = HashMap::new();
+    params.insert("parent_name".to_string(), parent_data.name.clone());
+    params.insert("parent_file".to_string(), parent_data.file.clone());
+
     params.insert("name".to_string(), node_data.name.clone());
     params.insert("file".to_string(), node_data.file.clone());
     params.insert("start".to_string(), node_data.start.to_string());
-    params.insert("parent_file".to_string(), parent_file.to_string());
 
     let query_str = format!(
-        "MATCH (parent:{} {{file: $parent_file}}),
-               (node:{} {{name: $name, file: $file, start: $start}})
-         MERGE (parent)-[:CONTAINS]->(node)",
-        parent_type.to_string(),
-        node_type.to_string()
+        "MERGE (parent:{parent_type} {{name: $parent_name, file: $parent_file}})
+         MERGE (child:{node_type} {{name: $name, file: $file, start: $start}})
+         MERGE (parent)-[:CONTAINS]->(child)",
+        parent_type = parent_type.to_string(),
+        node_type = node_type.to_string()
     );
     queries.push((query_str, params));
     queries

@@ -102,19 +102,18 @@ impl Graph for BTreeMapGraph {
     fn add_node_with_parent(
         &mut self,
         node_type: NodeType,
-        node_data: NodeData,
+        node_data: &NodeData,
         parent_type: NodeType,
-        parent_file: &str,
+        parent_data: &NodeData,
     ) {
         self.add_node(node_type.clone(), node_data.clone());
 
-        let prefix = format!("{:?}-", parent_type).to_lowercase();
-        if let Some((_parent_key, parent_node)) = self
-            .nodes
-            .range(prefix.clone()..)
-            .take_while(|(k, _)| k.starts_with(&prefix))
-            .find(|(_, n)| n.node_data.file == parent_file)
-        {
+        let parent_key = create_node_key(&Node::new(parent_type.clone(), parent_data.clone()));
+        if let Some(parent_node) = self.nodes.get(&parent_key) {
+            println!(
+                "Adding edge from {:?} to {:?}",
+                parent_node.node_data, node_data
+            );
             let edge = Edge::contains(parent_type, &parent_node.node_data, node_type, &node_data);
             self.add_edge(edge);
         }
@@ -222,12 +221,7 @@ impl Graph for BTreeMapGraph {
             if let Some(of) = &inst.data_type {
                 if let Some(class_node_data) = self.find_nodes_by_name(NodeType::Class, of).first()
                 {
-                    self.add_node_with_parent(
-                        NodeType::Instance,
-                        inst.clone(),
-                        NodeType::File,
-                        &inst.file,
-                    );
+                    self.add_node_with_parent(NodeType::Instance, &inst, NodeType::File, &inst);
 
                     let edge = Edge::of(&inst, class_node_data);
                     self.add_edge(edge);
@@ -356,12 +350,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
-        self.add_node_with_parent(
-            test_type,
-            test_data.clone(),
-            NodeType::File,
-            &test_data.file,
-        );
+        self.add_node_with_parent(test_type, &test_data, NodeType::File, &test_data);
 
         if let Some(edge) = test_edge {
             self.add_edge(edge);
