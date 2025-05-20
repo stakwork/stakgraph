@@ -169,7 +169,7 @@ impl NodeQueryBuilder {
             property_list,
             property_list
         );
-        
+
         (query, params)
     }
 }
@@ -220,17 +220,14 @@ impl EdgeQueryBuilder {
     }
     
     pub fn build(&self) -> (String, HashMap<String, String>) {
-        let mut params = self.build_params();
+        let params = self.build_params();
         let rel_type = self.edge.edge.to_string();
     
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
     
-        let source_match = "name: $source_name, file: $source_file, start: $source_start";
-        let target_match = "name: $target_name, file: $target_file, start: $target_start";
-    
         let mut rel_props = vec![];
-        if let EdgeType::Calls(_meta) = &self.edge.edge {
+        if let EdgeType::Calls(meta) = &self.edge.edge {
             rel_props.push("call_start: $call_start".to_string());
             rel_props.push("call_end: $call_end".to_string());
             if params.contains_key("operand") {
@@ -240,17 +237,15 @@ impl EdgeQueryBuilder {
         let rel_props_clause = if rel_props.is_empty() {
             "".to_string()
         } else {
-            format!("{{{}}}", rel_props.join(", "))
+            format!(" {{{}}}", rel_props.join(", "))
         };
     
         let query = format!(
-            "MATCH (source:{} {{{}}}), (target:{} {{{}}})
-             MERGE (source)-[r:{} {}]->(target)",
-            source_type, source_match, target_type, target_match, rel_type, rel_props_clause
+            "MATCH (source:{} {{name: $source_name, file: $source_file}}), 
+                (target:{} {{name: $target_name, file: $target_file}})
+             MERGE (source)-[r:{}{}]->(target)",
+            source_type, target_type, rel_type, rel_props_clause
         );
-        
-        println!("Edge Query: {}", query);
-        println!("Edge Params: {:?}", params);
         (query, params)
     }
 }
@@ -259,11 +254,10 @@ pub async fn execute_batch(
     queries: Vec<(String, HashMap<String, String>)>,
 ) -> Result<()> {
     let mut txn = conn.start_txn().await?;
-    info!("Started Neo4j transaction with {} queries", queries.len());
     for (i, (query_str, params)) in queries.iter().enumerate() {
         let mut query_obj = query(&query_str);
         for (k, v) in params {
-            if k == "start" || k == "end" || k == "call_start" || k == "call_end" {
+            if k == "start" || k == "end" || k == "call_start" || k == "call_end" || k == "source_start" || k == "target_start" {
                 if let Ok(num) = v.parse::<i64>() {
                     query_obj = query_obj.param(&k, num);
                 } else {
@@ -273,14 +267,12 @@ pub async fn execute_batch(
                 query_obj = query_obj.param(&k, v.as_str());
             }
         }
-        info!("Running query #{}: {}", i, query_str);
-        if let Err(e) = txn.run(query_obj).await  {
+       if let Err(e) = txn.run(query_obj).await {
             println!("Neo4j query #{} {} failed: {}", i, query_str, e);
             txn.rollback().await?;
             return Err(anyhow::anyhow!("Neo4j batch query error: {}", e));
         }
     }
-    info!("Committing Neo4j transaction");
     txn.commit().await?;
     Ok(())
 }
@@ -457,7 +449,7 @@ pub fn find_nodes_by_name_query(
 }
 
 pub fn find_node_by_name_file_query(
-    node_type: &NodeType,
+    node_type: NodeType,
     name: &str,
     file: &str,
 ) -> (String, HashMap<String, String>) {
@@ -707,9 +699,10 @@ pub fn add_functions_query(
         "function_start".to_string(),
         function_node.start.to_string(),
     );
+    //TODO: add function_start in the query
 
     let query_str = format!(
-        "MATCH (function:Function {{name: $function_name, file: $function_file, start: $function_start}}),
+        "MATCH (function:Function {{name: $function_name, file: $function_file}}),
                (file:File {{file: $function_file}})
          MERGE (file)-[:CONTAINS]->(function)"
     );

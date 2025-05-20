@@ -1,7 +1,7 @@
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::graphs::{EdgeType, NodeType};
-use crate::lang::{graph, Graph};
+use crate::lang::Graph;
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
@@ -113,7 +113,7 @@ async fn test_neo4j_connectivity() {
     {
         use crate::lang::graphs::neo4j_utils::Neo4jConnectionManager;
         Neo4jConnectionManager::initialize_from_env().await.unwrap();
-        let conn = Neo4jConnectionManager::get_connection().unwrap();
+        let conn = Neo4jConnectionManager::get_connection().await.unwrap();
         let result = conn.execute(neo4rs::query("RETURN 1")).await;
         assert!(result.is_ok());
     }

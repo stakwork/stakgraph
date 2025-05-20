@@ -351,6 +351,14 @@ impl Neo4jGraph {
         }
         edges
     }
+    fn resolve_node_ref(&self, node_type: NodeType, keys: &NodeKeys) -> Option<NodeRef> {
+        if let Some(node) =
+            self.find_node_by_name_in_file(node_type.clone(), &keys.name, &keys.file)
+        {
+            return Some(NodeRef::from(NodeKeys::from(&node), node_type));
+        }
+        None
+    }
 }
 
 impl Default for Neo4jGraph {
@@ -429,7 +437,7 @@ impl Graph for Neo4jGraph {
 
                 let query = format!(
                     "MATCH (parent:{} {{file: $parent_file}}),
-                       (node:{} {{name: $name, file: $file, start: $start}})
+                       (node:{} {{name: $name, file: $file}})
                      MERGE (parent)-[:CONTAINS]->(node)",
                     parent_type.to_string(),
                     node_type.to_string()
@@ -466,7 +474,7 @@ impl Graph for Neo4jGraph {
     ) -> Option<NodeData> {
         let connection = self.get_connection();
 
-        let (query, params) = find_node_by_name_file_query(&node_type, name, file);
+        let (query, params) = find_node_by_name_file_query(node_type.clone(), name, file);
 
         match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
@@ -648,7 +656,6 @@ impl Graph for Neo4jGraph {
             let connection = self.get_connection();
             let mut txn_manager = TransactionManager::new(&connection);
 
-            // Get the queries from the utility
             let queries = add_page_query(&page_data, &edge_opt);
             txn_manager.add_queries(queries);
 
@@ -695,7 +702,7 @@ impl Graph for Neo4jGraph {
             let mut txn_manager = TransactionManager::new(&connection);
 
             for (func_call, ext_func, class_call) in &funcs {
-                if let Some(cls_call) = &class_call {
+                if let Some(cls_call) = class_call {
                     let edge = Edge::new(
                         EdgeType::Calls(CallsMeta::default()),
                         NodeRef::from(func_call.source.clone(), NodeType::Function),
@@ -711,14 +718,39 @@ impl Graph for Neo4jGraph {
                 if let Some(ext_nd) = ext_func {
                     txn_manager.add_node(&NodeType::Function, ext_nd);
 
-                    let edge = Edge::uses(func_call.source.clone(), ext_nd);
-                    txn_manager.add_edge(&edge);
+                    if let (Some(source_ref), Some(target_ref)) = (
+                        self.resolve_node_ref(NodeType::Function, &func_call.source),
+                        self.resolve_node_ref(NodeType::Function, &func_call.target),
+                    ) {
+                        let edge = Edge::new(
+                            EdgeType::Calls(CallsMeta {
+                                call_start: func_call.call_start,
+                                call_end: func_call.call_end,
+                                operand: func_call.operand.clone(),
+                            }),
+                            source_ref,
+                            target_ref,
+                        );
+                        txn_manager.add_edge(&edge);
+                    }
                 } else {
-                    let edge = func_call.clone().into();
-                    txn_manager.add_edge(&edge);
+                    if let (Some(source_ref), Some(target_ref)) = (
+                        self.resolve_node_ref(NodeType::Function, &func_call.source),
+                        self.resolve_node_ref(NodeType::Function, &func_call.target),
+                    ) {
+                        let edge = Edge::new(
+                            EdgeType::Calls(CallsMeta {
+                                call_start: func_call.call_start,
+                                call_end: func_call.call_end,
+                                operand: func_call.operand.clone(),
+                            }),
+                            source_ref,
+                            target_ref,
+                        );
+                        txn_manager.add_edge(&edge);
+                    }
                 }
             }
-
             for (test_call, ext_func, _class_call) in &tests {
                 if let Some(ext_nd) = ext_func {
                     txn_manager.add_node(&NodeType::Function, ext_nd);
@@ -1145,7 +1177,7 @@ impl Graph for Neo4jGraph {
                 if let Ok(Some(row)) = block_in_place(result.next()) {
                     let name = row.get::<String>("name").unwrap_or_default();
                     let file = row.get::<String>("file").unwrap_or_default();
-                    let start = row.get::<i32>("start").unwrap_or(0) as usize;
+                    let start = row.get::<i32>("start").unwrap_or_default() as usize;
                     let verb = row.get::<String>("verb").ok();
 
                     Some(NodeKeys {
