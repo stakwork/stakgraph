@@ -1,4 +1,4 @@
-import { App } from "./app";
+import { App } from "./app.js";
 import dotenv from "dotenv";
 
 // Load environment variables

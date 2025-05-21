@@ -1,4 +1,4 @@
-import { Message } from "../types";
+import { Message } from "../types/index.js";
 
 export type Adapter = "github" | "none";
 

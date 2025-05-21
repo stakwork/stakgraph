@@ -5,7 +5,7 @@ use crate::{
 
 use super::{graph::Graph, neo4j_utils::*, *};
 use anyhow::Result;
-use neo4rs::{query, ConfigBuilder, Graph as Neo4jConnection};
+use neo4rs::{query, Graph as Neo4jConnection};
 use std::str::FromStr;
 use std::{
     collections::{HashMap, HashSet},
@@ -13,7 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::runtime::Handle;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use super::neo4j_utils::Neo4jConnectionManager;
 
@@ -55,7 +55,7 @@ impl Neo4jGraph {
     }
 
     pub async fn connect(&mut self) -> Result<()> {
-        if let Some(conn) = Neo4jConnectionManager::get_connection() {
+        if let Some(conn) = Neo4jConnectionManager::get_connection().await {
             self.connection = Some(conn);
             if let Ok(mut conn_status) = self.connected.lock() {
                 *conn_status = true;
@@ -81,7 +81,7 @@ impl Neo4jGraph {
         .await
         {
             Ok(_) => {
-                if let Some(conn) = Neo4jConnectionManager::get_connection() {
+                if let Some(conn) = Neo4jConnectionManager::get_connection().await {
                     self.connection = Some(conn);
 
                     if let Ok(mut conn_status) = self.connected.lock() {
@@ -117,7 +117,7 @@ impl Neo4jGraph {
             *conn_status = false;
         };
 
-        Neo4jConnectionManager::clear_connection();
+        block_in_place(async { Neo4jConnectionManager::clear_connection().await });
 
         info!("Disconnected from Neo4j database");
         Ok(())
@@ -136,7 +136,7 @@ impl Neo4jGraph {
             return Ok(conn.clone());
         }
 
-        if let Some(conn) = Neo4jConnectionManager::get_connection() {
+        if let Some(conn) = Neo4jConnectionManager::get_connection().await {
             self.connection = Some(conn.clone());
             if let Ok(mut conn_status) = self.connected.lock() {
                 *conn_status = true;
@@ -155,31 +155,15 @@ impl Neo4jGraph {
         }
     }
 
-    fn find_node_by_key(&self, key: &str) -> Option<NodeData> {
-        let connection = self.get_connection();
-
-        let (query, params) = find_node_by_key_query(key);
-
-        match block_in_place(execute_node_query(&connection, query, params)) {
-            Ok(nodes) => nodes.into_iter().next(),
-            Err(e) => {
-                debug!("Error finding node by key: {}", e);
-                None
-            }
-        }
-    }
-
     fn get_connection(&self) -> Arc<Neo4jConnection> {
-        if let Some(conn) = &self.connection {
-            return conn.clone();
-        }
-        if let Some(conn) = Neo4jConnectionManager::get_connection() {
-            return conn;
-        }
-        debug!("No Neo4j connection available. Call connect() first.");
-        match Neo4jConnectionManager::get_connection() {
-            Some(conn) => conn,
-            None => panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
+        match &self.connection {
+            Some(conn) => conn.clone(),
+            None => block_in_place(async {
+                if let Some(conn) = Neo4jConnectionManager::get_connection().await {
+                    return conn;
+                }
+                panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
+            }),
         }
     }
 
@@ -207,7 +191,6 @@ impl Neo4jGraph {
                 return Err(anyhow::anyhow!("Neo4j node deletion error: {}", e));
             }
 
-            // Convert the Result<(), neo4rs::Error> to Result<(), anyhow::Error>
             match txn.commit().await {
                 Ok(()) => Ok(()),
                 Err(e) => Err(anyhow::anyhow!("Neo4j commit error: {}", e)),
@@ -240,6 +223,170 @@ impl Neo4jGraph {
         } else {
             result
         }
+    }
+
+    pub fn get_repository_hash(&self, repo_url: &str) -> Result<String> {
+        let connection = self.get_connection();
+
+        let (query_str, params) = get_repository_hash_query(repo_url);
+
+        let mut query_obj = query(&query_str);
+        for (key, value) in &params {
+            query_obj = query_obj.param(key, value.as_str());
+        }
+
+        match block_in_place(connection.execute(query_obj)) {
+            Ok(mut result) => {
+                if let Ok(Some(row)) = block_in_place(result.next()) {
+                    if let Ok(hash) = row.get::<String>("hash") {
+                        return Ok(hash);
+                    }
+                }
+                Err(anyhow::anyhow!("Repository hash not found in graph"))
+            }
+            Err(e) => {
+                debug!("Error getting repository hash: {}", e);
+                Err(anyhow::anyhow!("Error getting repository hash: {}", e))
+            }
+        }
+    }
+
+    pub fn remove_nodes_by_file(&mut self, file_path: &str) -> Result<u32> {
+        let deleted_count = block_in_place(async {
+            let connection = self.get_connection();
+
+            let (query_str, params) = remove_nodes_by_file_query(file_path);
+
+            let mut query_obj = query(&query_str);
+            for (k, v) in &params {
+                query_obj = query_obj.param(k, v.as_str());
+            }
+
+            match connection.execute(query_obj).await {
+                Ok(mut result) => {
+                    if let Some(row) = result.next().await? {
+                        if let Ok(count) = row.get::<u32>("deleted") {
+                            return Ok(count);
+                        }
+                    }
+                    Ok(0)
+                }
+                Err(e) => {
+                    debug!("Error removing nodes for file {}: {}", file_path, e);
+                    Err(anyhow::anyhow!("Error removing file nodes: {}", e))
+                }
+            }
+        })?;
+
+        Ok(deleted_count)
+    }
+
+    pub fn update_repository_hash(&mut self, repo_name: &str, new_hash: &str) -> Result<()> {
+        if let Err(e) = block_in_place(async {
+            self.execute_with_transaction(|txn_manager| {
+                let (query, params) = update_repository_hash_query(repo_name, new_hash);
+                txn_manager.add_query((query, params));
+                Ok(())
+            })
+            .await
+        }) {
+            debug!("Error updating repository hash: {}", e);
+            return Err(anyhow::anyhow!("Error updating hash: {}", e));
+        }
+        Ok(())
+    }
+
+    pub fn get_incoming_edges_for_file(&self, file: &str) -> Vec<(Edge, NodeData)> {
+        let connection = self.get_connection();
+        let query_str = r#"
+                MATCH (source)-[r]->(target)
+                WHERE target.file = $file AND source.file <> $file
+                RETURN source, r, target, labels(source)[0] as source_type, labels(target)[0] as target_type, type(r) as edge_type
+            "#;
+        let query_obj = query(query_str).param("file", file);
+        let mut incoming = Vec::new();
+        if let Ok(mut result) = block_in_place(connection.execute(query_obj)) {
+            while let Ok(Some(row)) = block_in_place(result.next()) {
+                if let (
+                    Ok(source_node),
+                    Ok(target_node),
+                    Ok(source_type),
+                    Ok(target_type),
+                    Ok(edge_type),
+                ) = (
+                    row.get::<neo4rs::Node>("source"),
+                    row.get::<neo4rs::Node>("target"),
+                    row.get::<String>("source_type"),
+                    row.get::<String>("target_type"),
+                    row.get::<String>("edge_type"),
+                ) {
+                    if let (Ok(source_type), Ok(target_type), Ok(edge_type)) = (
+                        NodeType::from_str(&source_type),
+                        NodeType::from_str(&target_type),
+                        EdgeType::from_str(&edge_type),
+                    ) {
+                        let source_data = extract_node_data_from_neo4j_node(&source_node);
+                        let target_data = extract_node_data_from_neo4j_node(&target_node);
+                        let source_ref = NodeRef::from(NodeKeys::from(&source_data), source_type);
+                        let target_ref = NodeRef::from(NodeKeys::from(&target_data), target_type);
+                        let edge = Edge::new(edge_type, source_ref, target_ref);
+                        incoming.push((edge, target_data));
+                    }
+                }
+            }
+        }
+        incoming
+    }
+    pub fn all_nodes(&self) -> Vec<NodeData> {
+        let connection = self.get_connection();
+        let query_str = "MATCH (n) RETURN n, labels(n)[0] as node_type";
+        let mut nodes = Vec::new();
+        if let Ok(mut result) = block_in_place(connection.execute(query(query_str))) {
+            while let Ok(Some(row)) = block_in_place(result.next()) {
+                if let Ok(node) = row.get::<neo4rs::Node>("n") {
+                    nodes.push(extract_node_data_from_neo4j_node(&node));
+                }
+            }
+        }
+        nodes
+    }
+
+    pub fn all_edges(&self) -> Vec<Edge> {
+        let connection = self.get_connection();
+        let query_str = "MATCH (source)-[r]->(target) \
+            RETURN source, r, target, labels(source)[0] as source_type, labels(target)[0] as target_type, type(r) as edge_type";
+        let mut edges = Vec::new();
+        if let Ok(mut result) = block_in_place(connection.execute(query(query_str))) {
+            while let Ok(Some(row)) = block_in_place(result.next()) {
+                if let (
+                    Ok(source_node),
+                    Ok(target_node),
+                    Ok(source_type),
+                    Ok(target_type),
+                    Ok(edge_type),
+                ) = (
+                    row.get::<neo4rs::Node>("source"),
+                    row.get::<neo4rs::Node>("target"),
+                    row.get::<String>("source_type"),
+                    row.get::<String>("target_type"),
+                    row.get::<String>("edge_type"),
+                ) {
+                    if let (Ok(source_type), Ok(target_type), Ok(edge_type)) = (
+                        NodeType::from_str(&source_type),
+                        NodeType::from_str(&target_type),
+                        EdgeType::from_str(&edge_type),
+                    ) {
+                        let source_data = extract_node_data_from_neo4j_node(&source_node);
+                        let target_data = extract_node_data_from_neo4j_node(&target_node);
+                        let source_ref = NodeRef::from(NodeKeys::from(&source_data), source_type);
+                        let target_ref = NodeRef::from(NodeKeys::from(&target_data), target_type);
+                        let edge = Edge::new(edge_type, source_ref, target_ref);
+                        edges.push(edge);
+                    }
+                }
+            }
+        }
+        edges
     }
 }
 
@@ -358,7 +505,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_node_by_name_file_query(&node_type, name, file);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding node by name and file: {}", e);
@@ -370,24 +517,26 @@ impl Graph for Neo4jGraph {
     fn get_graph_size(&self) -> (u32, u32) {
         let connection = self.get_connection();
 
-        //TODO: For debugging, remove later
-        let edge_types_query = "MATCH ()-[r]->() RETURN type(r) as type, COUNT(r) as count";
-        match block_in_place(connection.execute(query(edge_types_query))) {
-            Ok(mut result) => {
-                let mut total = 0;
-                println!("Edge counts by type:");
-                while let Ok(Some(row)) = block_in_place(result.next()) {
-                    if let (Ok(edge_type), Ok(count)) =
-                        (row.get::<String>("type"), row.get::<u32>("count"))
-                    {
-                        println!("  {}: {}", edge_type, count);
-                        total += count;
+        #[cfg(debug_assertions)]
+        {
+            let edge_types_query = "MATCH ()-[r]->() RETURN type(r) as type, COUNT(r) as count";
+            match block_in_place(connection.execute(query(edge_types_query))) {
+                Ok(mut result) => {
+                    let mut total = 0;
+                    println!("Edge counts by type:");
+                    while let Ok(Some(row)) = block_in_place(result.next()) {
+                        if let (Ok(edge_type), Ok(count)) =
+                            (row.get::<String>("type"), row.get::<u32>("count"))
+                        {
+                            println!("  {}: {}", edge_type, count);
+                            total += count;
+                        }
                     }
+                    println!("Total edges from type count: {}", total);
                 }
-                println!("Total edges from type count: {}", total);
-            }
-            Err(e) => {
-                println!("Error getting edge counts by type: {}", e);
+                Err(e) => {
+                    println!("Error getting edge counts by type: {}", e);
+                }
             }
         }
 
@@ -652,7 +801,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_by_type_query(&node_type);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by type: {}", e);
@@ -665,7 +814,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_by_name_contains_query(&node_type, name_part);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by name contains: {}", e);
@@ -678,7 +827,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_by_file_pattern_query(&node_type, file);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by file ends with: {}", e);
@@ -691,7 +840,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_nodes_in_range_query(&node_type, file, row);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding nodes in range: {}", e);
@@ -705,7 +854,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_resource_nodes_query(&node_type, verb, path);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding resource nodes: {}", e);
@@ -719,7 +868,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_handlers_for_endpoint_query(&endpoint);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding handlers for endpoint: {}", e);
@@ -732,7 +881,7 @@ impl Graph for Neo4jGraph {
 
         let (query, params) = find_functions_called_by_query(&function);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding functions called by: {}", e);
@@ -955,7 +1104,12 @@ impl Graph for Neo4jGraph {
 
     fn extend_graph(&mut self, other: Self) {
         if let Err(e) = block_in_place(async {
-            // Ensure this graph is connected
+            let (other_nodes, other_edges) = other.get_graph_size();
+            if other_nodes == 0 && other_edges == 0 {
+                warn!("Warning: Attempting to extend with an empty graph");
+                return Ok(());
+            }
+
             let target_connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error for target graph: {}", e)),
@@ -1159,8 +1313,6 @@ impl Graph for Neo4jGraph {
     ) -> Vec<(NodeData, NodeData)> {
         let connection = self.get_connection();
 
-        let pairs = Vec::new();
-
         let (query_str, params) =
             find_nodes_with_edge_type_query(&source_type, &target_type, &edge_type);
 
@@ -1168,36 +1320,44 @@ impl Graph for Neo4jGraph {
         for (key, value) in params {
             query_obj = query_obj.param(&key, value);
         }
+        let mut node_pairs = Vec::new();
         match block_in_place(connection.execute(query_obj)) {
             Ok(mut result) => {
-                let mut node_pairs = Vec::new();
-
                 while let Ok(Some(row)) = block_in_place(result.next()) {
-                    let source_key: String = row.get("source_key").unwrap_or_default();
-                    let target_key: String = row.get("target_key").unwrap_or_default();
-                    if let (Some(source_node), Some(target_node)) = (
-                        self.find_node_by_key(&source_key),
-                        self.find_node_by_key(&target_key),
-                    ) {
-                        node_pairs.push((source_node, target_node));
-                    }
+                    let source_name: String = row.get("source_name").unwrap_or_default();
+                    let source_file: String = row.get("source_file").unwrap_or_default();
+                    let source_start: i32 = row.get("source_start").unwrap_or_default();
+                    let target_name: String = row.get("target_name").unwrap_or_default();
+                    let target_file: String = row.get("target_file").unwrap_or_default();
+                    let target_start: i32 = row.get("target_start").unwrap_or_default();
+
+                    let source_node = NodeData {
+                        name: source_name,
+                        file: source_file,
+                        start: source_start as usize,
+                        ..Default::default()
+                    };
+                    let target_node = NodeData {
+                        name: target_name,
+                        file: target_file,
+                        start: target_start as usize,
+                        ..Default::default()
+                    };
+                    node_pairs.push((source_node, target_node));
                 }
-                node_pairs
             }
             Err(e) => {
                 debug!("Error finding nodes with edge type: {}", e);
-                Vec::new()
             }
-        };
-
-        pairs
+        }
+        node_pairs
     }
     fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
         let connection = self.get_connection();
 
         let (query, params) = find_endpoint_query(name, file, verb);
 
-        match block_in_place(execute_node_query(&connection, query, params)) {
+        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding endpoint: {}", e);

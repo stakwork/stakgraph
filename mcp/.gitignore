@@ -29,3 +29,7 @@ src/pr/*.txt
 .neo4j2
 .neo4j-*
 temp
+
+sage_config.json
+data/*
+!data/.gitkeep

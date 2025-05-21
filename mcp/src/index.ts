@@ -6,6 +6,10 @@ import * as uploads from "./graph/uploads.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
+import { App as SageApp } from "./sage/src/app.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,6 +23,12 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
+
+try {
+  new SageApp(app);
+} catch (e) {
+  console.log("===> skipping sage setup");
+}
 
 app.get("/", swagger);
 app.use("/textarea", express.static(path.join(__dirname, "../textarea")));

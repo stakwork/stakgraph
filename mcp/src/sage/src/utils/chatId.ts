@@ -1,4 +1,4 @@
-import { Adapter } from "../adapters/adapter";
+import { Adapter } from "../adapters/adapter.js";
 
 export function getAdapterFromChatId(chatId: string): Adapter {
   if (chatId.startsWith("github-")) {

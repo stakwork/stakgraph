@@ -1,6 +1,10 @@
 import axios from "axios";
-import { Message, StakworkChatPayload, StakworkResponse } from "../types";
-import { getAdapterFromChatId } from "../utils/chatId";
+import {
+  Message,
+  StakworkChatPayload,
+  StakworkResponse,
+} from "../types/index.js";
+import { getAdapterFromChatId } from "../utils/chatId.js";
 
 export class StakworkService {
   private apiKey: string;
@@ -9,23 +13,26 @@ export class StakworkService {
   private codeSpaceURL: string;
   private twoBBaseUrl: string;
   private secret: string;
+  private dryRun: boolean;
 
   constructor(
     apiKey: string,
     workflowId: number = 38842,
     codeSpaceURL: string = "",
     twoBBaseUrl: string = "",
-    secret: string = ""
+    secret: string = "",
+    dryRun: boolean = false
   ) {
     this.apiKey = apiKey;
     this.workflowId = workflowId;
     this.codeSpaceURL = codeSpaceURL;
     this.twoBBaseUrl = twoBBaseUrl;
     this.secret = secret;
+    this.dryRun = dryRun;
   }
 
   async sendToStakwork(payload: StakworkChatPayload): Promise<number> {
-    if (process.env.DRY_RUN === "true") {
+    if (this.dryRun) {
       console.log("Dry run, not sending to Stakwork");
       console.log(JSON.stringify(payload, null, 2));
       return 0;
@@ -65,15 +72,14 @@ export class StakworkService {
   ): StakworkChatPayload {
     const source = getAdapterFromChatId(chatId);
     /*
-    (find the stakwork secret too and add in a header)
     history: [
       {
         role: "user",
         content: "message",
       },
     ]
-    source "github"
     */
+    const history: { role: string; content: string }[] = [];
     return {
       name: "Hive Chat Processor",
       workflow_id: this.workflowId,
@@ -88,6 +94,7 @@ export class StakworkService {
               "2b_base_url": this.twoBBaseUrl,
               secret: this.secret,
               source,
+              history,
             },
           },
         },

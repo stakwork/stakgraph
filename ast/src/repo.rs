@@ -169,7 +169,14 @@ impl Repo {
             let source_files = walk_files(&root.into(), &conf)?;
             let has_pkg_file = source_files.iter().any(|f| {
                 let fname = f.display().to_string();
-                l.pkg_file().is_empty() || fname.ends_with(l.pkg_file())
+                if l.pkg_files().is_empty() {
+                    return true;
+                }
+                let found_pkg_file = l
+                    .pkg_files()
+                    .iter()
+                    .any(|pkg_file| fname.ends_with(pkg_file));
+                found_pkg_file
             });
             if has_pkg_file {
                 // Don't add duplicate languages
@@ -397,7 +404,11 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
         if path.is_file() {
             let fname = path.display().to_string();
             for l in PROGRAMMING_LANGUAGES {
-                if fname.ends_with(l.pkg_file()) {
+                let found_pkg_file = l
+                    .pkg_files()
+                    .iter()
+                    .any(|pkg_file| fname.ends_with(pkg_file));
+                if found_pkg_file {
                     source_files.push(path.to_path_buf());
                 }
             }

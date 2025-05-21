@@ -25,7 +25,7 @@ export async function callModel(
         throw part.error;
       case "text-delta":
         if (parser) {
-          parser(part.textDelta);
+          parser(fullResponse);
         }
         fullResponse += part.textDelta;
         break;

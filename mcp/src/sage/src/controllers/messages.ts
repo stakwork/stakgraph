@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
-import { StakworkService } from "../services/stakwork";
-import { ChatRequest, Message } from "../types";
-import { getAdapterFromChatId } from "../utils/chatId";
+import { StakworkService } from "../services/stakwork.js";
+import { ChatRequest, Message } from "../types/index.js";
+import { getAdapterFromChatId } from "../utils/chatId.js";
 
 export class MessagesController {
   private stakworkService: StakworkService;

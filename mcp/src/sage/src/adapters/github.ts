@@ -1,6 +1,6 @@
 import { Octokit } from "@octokit/rest";
-import { BaseAdapter } from "./adapter";
-import { Message } from "../types";
+import { BaseAdapter } from "./adapter.js";
+import { Message } from "../types/index.js";
 import * as fs from "fs";
 import * as path from "path";
 

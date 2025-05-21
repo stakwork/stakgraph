@@ -1,6 +1,6 @@
 
 # Use rust as the build environment
-FROM rust:1.84.0 AS builder
+FROM rust:1.87.0 AS builder
 
 # Create app directory
 WORKDIR /app
@@ -19,6 +19,6 @@ RUN cargo build --release --manifest-path standalone/Cargo.toml
 # lsp final image
 FROM sphinxlightning/stakgraph-lsp:latest
 
-COPY --from=builder /app/standalone/target/release/stakgraph-standalone /root
+COPY --from=builder /app/standalone/target/release/standalone /root
 
-CMD ["/root/stakgraph-standalone"]
+CMD ["/root/standalone"]

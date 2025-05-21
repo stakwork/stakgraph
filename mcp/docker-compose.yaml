@@ -1,21 +1,21 @@
 version: "3.8"
 
 services:
-  mcp:
-    # image: sphinxlightning/repo2graph:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: mcp
-    ports:
-      - 7776:7776
-    environment:
-      - PORT=7776
-      - NEO4J_HOST=neo4j
-      - NEO4J_USER=neo4j
-      - NEO4J_PASSWORD=testtest
-      - DELAY_START=10
-    platform: linux/amd64
+  # mcp:
+  # image: sphinxlightning/repo2graph:latest
+  # build:
+  #   context: .
+  #   dockerfile: Dockerfile
+  # container_name: mcp
+  # ports:
+  #   - 7776:7776
+  # environment:
+  #   - PORT=7776
+  #   - NEO4J_HOST=neo4j
+  #   - NEO4J_USER=neo4j
+  #   - NEO4J_PASSWORD=testtest
+  #   - DELAY_START=10
+  # platform: linux/amd64
 
   neo4j:
     image: sphinxlightning/sphinx-neo4j:latest

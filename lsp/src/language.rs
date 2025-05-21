@@ -39,20 +39,20 @@ impl Language {
             Self::Typescript | Self::React | Self::Kotlin | Self::Swift
         )
     }
-    pub fn pkg_file(&self) -> &'static str {
+    pub fn pkg_files(&self) -> Vec<&'static str> {
         match self {
-            Self::Rust => "Cargo.toml",
-            Self::Go => "go.mod",
-            Self::Typescript | Self::React => "package.json",
-            Self::Python => "requirements.txt",
-            Self::Ruby => "Gemfile",
-            Self::Kotlin => "build.gradle.kts",
-            Self::Swift => "Podfile",
-            Self::Java => "pom.xml",
-            Self::Bash => "",
-            Self::Toml => "",
-            Self::Svelte => "package.json",
-            Self::Angular => "package.json",
+            Self::Rust => vec!["Cargo.toml"],
+            Self::Go => vec!["go.mod"],
+            Self::Typescript | Self::React => vec!["package.json"],
+            Self::Python => vec!["requirements.txt"],
+            Self::Ruby => vec!["Gemfile"],
+            Self::Kotlin => vec!["build.gradle.kts", "build.gradle"],
+            Self::Swift => vec!["Podfile"],
+            Self::Java => vec!["pom.xml"],
+            Self::Bash => vec![],
+            Self::Toml => vec![],
+            Self::Svelte => vec!["package.json"],
+            Self::Angular => vec!["package.json"],
         }
     }
 

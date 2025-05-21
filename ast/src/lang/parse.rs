@@ -1,5 +1,6 @@
 use super::{graphs::Graph, *};
 use anyhow::Result;
+use inflection_rs::inflection;
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use streaming_iterator::StreamingIterator;
 use tracing::debug;
@@ -19,7 +20,6 @@ impl Lang {
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             let another = match nt {
-                NodeType::Class => vec![self.format_class(&m, code, file, q)?],
                 NodeType::Library => vec![self.format_library(&m, code, file, q)?],
                 NodeType::Import => self.format_imports(&m, code, file, q)?,
                 NodeType::Instance => vec![self.format_instance(&m, code, file, q)?],
@@ -38,14 +38,19 @@ impl Lang {
         }
         Ok(res)
     }
-    pub fn format_class(
+    pub fn format_class_with_associations<G: Graph>(
         &self,
         m: &QueryMatch,
         code: &str,
         file: &str,
         q: &Query,
-    ) -> Result<NodeData> {
+        graph: &G,
+    ) -> Result<(NodeData, Vec<Edge>)> {
         let mut cls = NodeData::in_file(file);
+        let mut associations = Vec::new();
+        let mut association_type = None;
+        let mut assocition_target = None;
+
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == CLASS_NAME {
                 cls.name = body;
@@ -57,10 +62,52 @@ impl Lang {
                 cls.add_parent(&body);
             } else if o == INCLUDED_MODULES {
                 cls.add_includes(&body);
+            } else if o == ASSOCIATION_TYPE {
+                association_type = Some(body.clone());
+            } else if o == ASSOCIATION_TARGET {
+                assocition_target = Some(body.clone());
+            }
+
+            if let (Some(ref ty), Some(ref target)) = (&association_type, &assocition_target) {
+                let target_class_name = self.lang.convert_association_to_name(&trim_quotes(target));
+                let target_classes = graph.find_nodes_by_name(NodeType::Class, &target_class_name);
+                if let Some(target_class) = target_classes.first() {
+                    let edge = Edge::calls(
+                        NodeType::Class,
+                        &cls,
+                        NodeType::Class,
+                        &target_class,
+                        crate::lang::graphs::CallsMeta {
+                            call_start: cls.start,
+                            call_end: cls.end,
+                            operand: Some(ty.clone()),
+                        },
+                    );
+                    associations.push(edge);
+                    association_type = None;
+                    assocition_target = None;
+                }
             }
             Ok(())
         })?;
-        Ok(cls)
+        Ok((cls, associations))
+    }
+    pub fn collect_classes<G: Graph>(
+        &self,
+        q: &Query,
+        code: &str,
+        file: &str,
+        graph: &G,
+    ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
+        let tree = self.lang.parse(&code, &NodeType::Class)?;
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
+        let mut res = Vec::new();
+        while let Some(m) = matches.next() {
+            let (cls, edges) = self.format_class_with_associations(&m, code, file, q, graph)?;
+            res.push((cls, edges));
+        }
+        Ok(res)
     }
     pub fn format_library(
         &self,

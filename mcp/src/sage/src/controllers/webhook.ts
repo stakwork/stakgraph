@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { Adapter, ChatAdapter } from "../adapters/adapter";
-import { WebhookPayload } from "../types";
+import { Adapter, ChatAdapter } from "../adapters/adapter.js";
+import { WebhookPayload } from "../types/index.js";
 
 export class WebhookController {
   private adapters: Record<Adapter, ChatAdapter>;

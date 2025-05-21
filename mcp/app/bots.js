@@ -58,7 +58,7 @@ export const BotSelector = ({
   // Model definitions
   const models = [
     { id: "anthropic", name: "Anthropic Claude" },
-    { id: "gemini", name: "Google Gemini" },
+    { id: "google", name: "Google Gemini" },
     { id: "openai", name: "OpenAI GPT" },
   ];
 

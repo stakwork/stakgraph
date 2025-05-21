@@ -86,10 +86,12 @@ jobs:
         working-directory: ./mcp
         run: |
           export TEST_REF_ID=1 
-          yarn run dev &
+          yarn run dev > server.log 2>&1 & #captuere logs
 
       - name: Wait for the server
-        run: npx wait-on http://localhost:3000 -t 120000
+        run: |
+          tail -n +1 -f server.log &
+          npx wait-on http://localhost:3000 -t 120000
 
       - name: Upload data
         run: |
