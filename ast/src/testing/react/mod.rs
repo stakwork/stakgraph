@@ -140,7 +140,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(Default::default()));
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
 
     let pages = graph.find_nodes_by_type(NodeType::Page);

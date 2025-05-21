@@ -14,11 +14,7 @@ fn clear_neo4j() {
 fn assert_edge_exists(graph: &GraphOps, src: &str, tgt: &str) -> bool {
     graph
         .graph
-        .find_nodes_with_edge_type(
-            NodeType::Function,
-            NodeType::Function,
-            EdgeType::Calls(Default::default()),
-        )
+        .find_nodes_with_edge_type(NodeType::Function, NodeType::Function, EdgeType::Calls)
         .iter()
         .any(|(s, t)| s.name == src && t.name == tgt)
 }

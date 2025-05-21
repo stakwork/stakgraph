@@ -22,7 +22,7 @@ export function loadConfig(configPath: string = "sage_config.json"): Config {
     const configData = fs.readFileSync(configFilePath, "utf8");
     return JSON.parse(configData) as Config;
   } catch (error) {
-    console.error(`Error loading config from ${configPath}:`, error);
+    // console.error(`Error loading config from ${configPath}:`, error);
     throw new Error(`Failed to load configuration: ${error}`);
   }
 }

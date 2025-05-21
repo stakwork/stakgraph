@@ -48,10 +48,10 @@ impl Stack for Ruby {
             r#"
             (
               (class
-                name: (_) @class-name
-                superclass: (superclass (_) @class-parent)?
+                name: (_) @{CLASS_NAME}
+                superclass: (superclass (_) @{CLASS_PARENT})?
                 body: (body_statement)?
-              ) @class-definition
+              ) @{CLASS_DEFINITION}
             )
             (
                 (class
@@ -416,12 +416,7 @@ impl Stack for Ruby {
     ) -> Option<Edge> {
         let cla = find_class(&nd.name);
         if let Some(cl) = cla {
-            let meta = CallsMeta {
-                call_start: nd.start,
-                call_end: nd.end,
-                operand: None,
-            };
-            Some(Edge::calls(tt, nd, NodeType::Class, &cl, meta))
+            Some(Edge::calls(tt, nd, NodeType::Class, &cl))
         } else {
             None
         }

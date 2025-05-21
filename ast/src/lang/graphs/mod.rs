@@ -65,28 +65,20 @@ pub struct Edge {
     pub target: NodeRef,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord)]
-pub struct CallsMeta {
-    pub call_start: usize,
-    pub call_end: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub operand: Option<String>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 #[serde(tag = "edge_type", content = "edge_data")]
 #[serde(rename_all = "UPPERCASE")]
 pub enum EdgeType {
-    Calls(CallsMeta), // Function -> Function
-    Uses,             // like Calls but for libraries
-    Operand,          // Class -> Function
-    ArgOf,            // Function -> Arg
-    Contains,         // Module -> Function/Class/Module OR File -> Function/Class/Module
-    Imports,          // File -> Module
-    Of,               // Instance -> Class
-    Handler,          // Endpoint -> Function
-    Includes,         // Feature -> Function/Class/Module/Endpoint/Request/DataModel/Test
-    Renders,          // Page -> Component
+    Calls,    // Function -> Function
+    Uses,     // like Calls but for libraries
+    Operand,  // Class -> Function
+    ArgOf,    // Function -> Arg
+    Contains, // Module -> Function/Class/Module OR File -> Function/Class/Module
+    Imports,  // File -> Module
+    Of,       // Instance -> Class
+    Handler,  // Endpoint -> Function
+    Includes, // Feature -> Function/Class/Module/Endpoint/Request/DataModel/Test
+    Renders,  // Page -> Component
     #[serde(rename = "PARENT_OF")]
     ParentOf, // Class -> Class
 }
@@ -116,22 +108,14 @@ impl Edge {
     }
     fn new_test_call(m: Calls) -> Edge {
         Edge::new(
-            EdgeType::Calls(CallsMeta {
-                call_start: m.call_start,
-                call_end: m.call_end,
-                operand: m.operand,
-            }),
+            EdgeType::Calls,
             NodeRef::from(m.source, NodeType::Test),
             NodeRef::from(m.target, NodeType::Function),
         )
     }
     pub fn linked_e2e_test_call(source: &NodeData, target: &NodeData) -> Edge {
         Edge::new(
-            EdgeType::Calls(CallsMeta {
-                call_start: source.start,
-                call_end: source.end,
-                operand: None,
-            }),
+            EdgeType::Calls,
             NodeRef::from(source.into(), NodeType::E2eTest),
             NodeRef::from(target.into(), NodeType::Function),
         )
@@ -143,9 +127,9 @@ impl Edge {
             NodeRef::from(c.into(), nt2),
         )
     }
-    pub fn calls(nt1: NodeType, f: &NodeData, nt2: NodeType, c: &NodeData, cm: CallsMeta) -> Edge {
+    pub fn calls(nt1: NodeType, f: &NodeData, nt2: NodeType, c: &NodeData) -> Edge {
         Edge::new(
-            EdgeType::Calls(cm),
+            EdgeType::Calls,
             NodeRef::from(f.into(), nt1),
             NodeRef::from(c.into(), nt2),
         )
@@ -218,11 +202,7 @@ impl From<Operand> for Edge {
 impl From<Calls> for Edge {
     fn from(m: Calls) -> Self {
         Edge::new(
-            EdgeType::Calls(CallsMeta {
-                call_start: m.call_start,
-                call_end: m.call_end,
-                operand: m.operand,
-            }),
+            EdgeType::Calls,
             NodeRef::from(m.source, NodeType::Function),
             NodeRef::from(m.target, NodeType::Function),
         )
@@ -268,18 +248,8 @@ impl ToString for EdgeType {
             EdgeType::Renders => "RENDERS".to_string(),
             EdgeType::Uses => "USES".to_string(),
             EdgeType::Includes => "INCLUDES".to_string(),
-            EdgeType::Calls(_) => "CALLS".to_string(),
+            EdgeType::Calls => "CALLS".to_string(),
         }
-    }
-}
-impl ToString for CallsMeta {
-    fn to_string(&self) -> String {
-        let mut result = String::new();
-        if let Some(operand) = &self.operand {
-            result.push_str(&format!("({})", operand));
-        }
-        result.push_str(&format!("({}-{})", self.call_start, self.call_end));
-        result
     }
 }
 
@@ -288,7 +258,7 @@ impl FromStr for EdgeType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
-            "CALLS" => Ok(EdgeType::Calls(CallsMeta::default())),
+            "CALLS" => Ok(EdgeType::Calls),
             "USES" => Ok(EdgeType::Uses),
             "OPERAND" => Ok(EdgeType::Operand),
             "ARG_OF" => Ok(EdgeType::ArgOf),

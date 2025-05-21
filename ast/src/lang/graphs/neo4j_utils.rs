@@ -232,10 +232,10 @@ impl EdgeQueryBuilder {
         params.insert("target_file".to_string(), self.edge.target.node_data.file.clone());
     
         let props_clause = match &self.edge.edge {
-            EdgeType::Calls(_) if params.contains_key("operand") => {
+            EdgeType::Calls if params.contains_key("operand") => {
                 "r.call_start = $call_start, r.call_end = $call_end, r.operand = $operand"
             }
-            EdgeType::Calls(_) => {
+            EdgeType::Calls => {
                 "r.call_start = $call_start, r.call_end = $call_end"
             }
             _ => "",
@@ -842,7 +842,7 @@ pub fn add_calls_query(
     for (func_call, ext_func, class_call) in funcs {
         if let Some(class_call) = class_call{
             let edge = Edge::new(
-                EdgeType::Calls(CallsMeta::default()),
+                EdgeType::Calls,
                 NodeRef::from(func_call.source.clone(), NodeType::Function),
                 NodeRef::from(class_call.into(), NodeType::Class)
             );

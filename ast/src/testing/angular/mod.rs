@@ -49,7 +49,7 @@ pub async fn test_angular_generic<G: Graph>() -> Result<(), anyhow::Error> {
     assert_eq!(requests.len(), 7, "Expected 7 requests");
 
     // Test calls edges
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(Default::default()));
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     assert_eq!(calls_edges_count, 8, "Expected 8 calls edges");
 
     Ok(())

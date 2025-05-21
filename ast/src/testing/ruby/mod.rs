@@ -1,5 +1,5 @@
 use crate::lang::graphs::{EdgeType, NodeType};
-use crate::lang::{CallsMeta, Graph};
+use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
 use test_log::test;
@@ -107,6 +107,23 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges_count, 7, "Expected 7 handler edges");
+
+    let class_counts = graph.count_edges_of_type(EdgeType::ParentOf);
+    assert_eq!(class_counts, 6, "Expected 6 class edges");
+
+    let class_calls =
+        graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Class, EdgeType::Calls);
+
+    assert_eq!(class_calls.len(), 1, "Expected 1 class calls edges");
+
+    let person_to_article_call = class_calls.iter().any(|(src, dst)| {
+        (src.name == "Person" && dst.name == "Article")
+            || (src.name == "Article" && dst.name == "Person")
+    });
+    assert!(
+        person_to_article_call,
+        "Expects a Person -> CALLS -> Article Class Call Edge"
+    );
 
     Ok(())
 }

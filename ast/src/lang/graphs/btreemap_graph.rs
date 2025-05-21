@@ -280,17 +280,7 @@ impl Graph for BTreeMapGraph {
                     self.nodes.insert(req_key, req_node);
                 }
 
-                let edge = Edge::calls(
-                    NodeType::Function,
-                    &node_clone,
-                    NodeType::Request,
-                    &r,
-                    CallsMeta {
-                        call_start: r.start,
-                        call_end: r.end,
-                        operand: None,
-                    },
-                );
+                let edge = Edge::calls(NodeType::Function, &node_clone, NodeType::Request, &r);
                 self.add_edge(edge);
             }
 
@@ -373,7 +363,7 @@ impl Graph for BTreeMapGraph {
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
-                    EdgeType::Calls(CallsMeta::default()),
+                    EdgeType::Calls,
                     NodeRef::from(fc.source.clone(), NodeType::Function),
                     NodeRef::from(class_call.into(), NodeType::Class),
                 ));
@@ -677,7 +667,7 @@ impl Graph for BTreeMapGraph {
         let mut called_functions = Vec::new();
 
         for (src, dst, edge_type) in &self.edges {
-            if let EdgeType::Calls(_) = edge_type {
+            if let EdgeType::Calls = edge_type {
                 if src.starts_with(&function_prefix) {
                     if let Some(node) = self.nodes.get(dst) {
                         called_functions.push(node.node_data.clone());
@@ -726,7 +716,7 @@ impl Graph for BTreeMapGraph {
         self.edges
             .iter()
             .filter(|(_, _, edge)| match (edge, &edge_type) {
-                (EdgeType::Calls(_), EdgeType::Calls(_)) => true,
+                (EdgeType::Calls, EdgeType::Calls) => true,
                 _ => *edge == edge_type,
             })
             .count()

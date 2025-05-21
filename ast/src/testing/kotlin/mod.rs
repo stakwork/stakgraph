@@ -1,6 +1,6 @@
 use crate::lang::graphs::{EdgeType, NodeType};
-use crate::lang::{CallsMeta, Graph};
 use crate::utils::get_use_lsp;
+use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use anyhow::Result;
 use std::str::FromStr;
@@ -130,13 +130,13 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(CallsMeta::default()));
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     if effective_lsp {
         assert_eq!(calls_edges_count, 12, "Expected 12 calls edges with LSP");
     } else {
         assert_eq!(calls_edges_count, 13, "Expected 13 calls edges");
     }
-
+  
     Ok(())
 }
 

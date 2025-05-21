@@ -749,7 +749,7 @@ impl Graph for Neo4jGraph {
             for (func_call, ext_func, class_call) in &funcs {
                 if let Some(cls_call) = &class_call {
                     let edge = Edge::new(
-                        EdgeType::Calls(CallsMeta::default()),
+                        EdgeType::Calls,
                         NodeRef::from(func_call.source.clone(), NodeType::Function),
                         NodeRef::from(cls_call.into(), NodeType::Class),
                     );

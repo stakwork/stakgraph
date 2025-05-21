@@ -293,13 +293,7 @@ impl Graph for ArrayGraph {
                 self.add_edge(rt);
             }
             for r in reqs {
-                let edge = Edge::calls(
-                    NodeType::Function,
-                    &node,
-                    NodeType::Request,
-                    &r,
-                    CallsMeta::default(),
-                );
+                let edge = Edge::calls(NodeType::Function, &node, NodeType::Request, &r);
                 self.add_edge(edge);
                 self.add_node(NodeType::Request, r);
             }
@@ -376,7 +370,7 @@ impl Graph for ArrayGraph {
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
-                    EdgeType::Calls(CallsMeta::default()),
+                    EdgeType::Calls,
                     NodeRef::from(fc.source.clone(), NodeType::Function),
                     NodeRef::from(class_call.into(), NodeType::Class),
                 ));
@@ -597,7 +591,7 @@ impl Graph for ArrayGraph {
     fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
         let mut result = Vec::new();
         for edge in &self.edges {
-            if let EdgeType::Calls(_) = edge.edge {
+            if let EdgeType::Calls = edge.edge {
                 if edge.source.node_data.name == function.name
                     && edge.source.node_data.file == function.file
                 {
@@ -646,7 +640,7 @@ impl Graph for ArrayGraph {
         self.edges
             .iter()
             .filter(|edge| match (&edge.edge, &edge_type) {
-                (EdgeType::Calls(_), EdgeType::Calls(_)) => true,
+                (EdgeType::Calls, EdgeType::Calls) => true,
                 _ => edge.edge == edge_type,
             })
             .count()

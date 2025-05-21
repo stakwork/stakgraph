@@ -68,21 +68,12 @@ impl Lang {
                 assocition_target = Some(body.clone());
             }
 
-            if let (Some(ref ty), Some(ref target)) = (&association_type, &assocition_target) {
+            if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
+                //ty == assocition type like belongs_to, has_many, etc.
                 let target_class_name = self.lang.convert_association_to_name(&trim_quotes(target));
                 let target_classes = graph.find_nodes_by_name(NodeType::Class, &target_class_name);
                 if let Some(target_class) = target_classes.first() {
-                    let edge = Edge::calls(
-                        NodeType::Class,
-                        &cls,
-                        NodeType::Class,
-                        &target_class,
-                        crate::lang::graphs::CallsMeta {
-                            call_start: cls.start,
-                            call_end: cls.end,
-                            operand: Some(ty.clone()),
-                        },
-                    );
+                    let edge = Edge::calls(NodeType::Class, &cls, NodeType::Class, &target_class);
                     associations.push(edge);
                     association_type = None;
                     assocition_target = None;
@@ -1108,11 +1099,7 @@ impl Lang {
         let endpoint = endpoint.unwrap();
         let source = NodeKeys::new(&caller_name, file, 0);
         let edge = Edge::new(
-            EdgeType::Calls(CallsMeta {
-                call_start: fc.call_start,
-                call_end: fc.call_end,
-                operand: None,
-            }),
+            EdgeType::Calls,
             NodeRef::from(source, NodeType::Test),
             NodeRef::from(endpoint, NodeType::Endpoint),
         );

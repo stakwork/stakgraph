@@ -1,5 +1,5 @@
 use crate::lang::graphs::{Graph, NodeType};
-use crate::lang::{CallsMeta, Edge, Language, NodeData};
+use crate::lang::{Edge, Language, NodeData};
 use anyhow::{Context, Result};
 use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
@@ -100,13 +100,7 @@ pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
     for (req, req_path) in frontend_requests {
         for (endpoint, _) in &backend_endpoints {
             if paths_match(&req_path, &endpoint.name) && verbs_match(&req, endpoint) {
-                let edge = Edge::calls(
-                    NodeType::Request,
-                    &req,
-                    NodeType::Endpoint,
-                    endpoint,
-                    CallsMeta::default(),
-                );
+                let edge = Edge::calls(NodeType::Request, &req, NodeType::Endpoint, endpoint);
                 graph.add_edge(edge);
                 i += 1;
             }
