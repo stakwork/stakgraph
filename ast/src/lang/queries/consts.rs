@@ -24,6 +24,7 @@ pub const OPERAND: &str = "operand";
 pub const ASSOCIATION_TYPE: &str = "association-type";
 pub const ASSOCIATION_TARGET: &str = "association-target";
 pub const ASSOCIATION_OPTION: &str = "association-option";
+pub const IMPLEMENTS: &str = "implements";
 
 pub const HANDLER: &str = "handler";
 pub const HANDLER_ACTIONS_ARRAY: &str = "handler-actions-array";

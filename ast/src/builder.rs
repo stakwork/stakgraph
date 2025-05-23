@@ -1,7 +1,7 @@
 use super::repo::{check_revs_files, Repo};
 use crate::lang::graphs::Graph;
 use crate::lang::{asg::NodeData, graphs::NodeType};
-use crate::lang::{ArrayGraph, BTreeMapGraph, Node};
+use crate::lang::{ArrayGraph, BTreeMapGraph, Edge, Node};
 use crate::utils::create_node_key;
 use anyhow::{Ok, Result};
 use git_url_parse::GitUrl;
@@ -288,6 +288,20 @@ impl Repo {
             }
         }
         info!("=> got {} traits", i);
+
+        for class in graph.find_nodes_by_type(NodeType::Class) {
+            if let Some(implements) = class.meta.get("implements") {
+                for trait_name in implements.split(',').map(|s| s.trim()) {
+                    if let Some(tr) = graph
+                        .find_nodes_by_name(NodeType::Trait, trait_name)
+                        .first()
+                    {
+                        let edge = Edge::implements(&class, tr);
+                        graph.add_edge(edge);
+                    }
+                }
+            }
+        }
 
         i = 0;
         info!("=> get_structs...");

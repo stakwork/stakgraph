@@ -48,14 +48,17 @@ impl Stack for TypeScript {
     fn class_definition_query(&self) -> String {
         format!(
             r#"
-            (class_declaration
-                name: (type_identifier) @{CLASS_NAME}
-                (class_heritage
-                    (implements_clause
-                    (type_identifier) @{PARENT_NAME}
+                 (class_declaration
+                    name: (type_identifier) @{CLASS_NAME}
+                    (class_heritage
+                        (implements_clause
+                            (_) @{IMPLEMENTS}
+                        )?
+                        (extends_clause
+                            (identifier)@{CLASS_PARENT}
+                        )?
                     )?
-                )?
-            ) @{CLASS_DEFINITION}
+                ) @{CLASS_DEFINITION}
             "#
         )
     }
@@ -157,5 +160,45 @@ impl Stack for TypeScript {
                 (type_identifier) @{STRUCT_NAME} (#match? @{STRUCT_NAME} "^[A-Z].*")
             )"#
         ))
+    }
+
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+                (interface_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    body: (interface_body) @{TRAIT}
+                )
+                (type_alias_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    value: (object_type) @{TRAIT}
+                )
+            "#
+        ))
+    }
+
+    fn is_data_model(&self, body: &tree_sitter::Node, _code: &str) -> bool {
+        let mut only_properties = true;
+        for i in 0..body.named_child_count() {
+            if let Some(child) = body.named_child(i) {
+                println!("child: {:?}", child);
+                if child.kind() != "property_signature" {
+                    only_properties = false;
+                    break;
+                }
+            }
+        }
+        only_properties && body.named_child_count() > 0
+    }
+
+    fn is_trait(&self, body: &tree_sitter::Node, _code: &str) -> bool {
+        for i in 0..body.named_child_count() {
+            if let Some(child) = body.named_child(i) {
+                if child.kind() == "method_signature" {
+                    return true;
+                }
+            }
+        }
+        false
     }
 }
