@@ -71,6 +71,11 @@ impl Lang {
                 association_type = Some(body.clone());
             } else if o == ASSOCIATION_TARGET {
                 assocition_target = Some(body.clone());
+            } else if o == IMPLEMENTS {
+                cls.meta
+                    .entry("implements".to_string())
+                    .and_modify(|v| v.push_str(&format!(",{}", &body)))
+                    .or_insert_with(|| body.clone());
             }
 
             if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
@@ -83,11 +88,6 @@ impl Lang {
                     association_type = None;
                     assocition_target = None;
                 }
-            } else if o == IMPLEMENTS {
-                cls.meta
-                    .entry("implements".to_string())
-                    .and_modify(|v| v.push_str(&format!(",{}", &body)))
-                    .or_insert_with(|| body.to_string());
             }
             Ok(())
         })?;
