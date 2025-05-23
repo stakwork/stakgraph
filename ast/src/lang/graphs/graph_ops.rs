@@ -1,7 +1,9 @@
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::Graph;
+use crate::lang::graphs::{Edge, Graph, Node};
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use tracing::info;
 
 pub struct GraphOps {
@@ -113,5 +115,54 @@ impl GraphOps {
 
         self.graph.update_repository_hash(repo_url, current_hash)?;
         Ok(self.graph.get_graph_size())
+    }
+
+    pub fn build_from_files(
+        &mut self,
+        node_file: &str,
+        edge_file: &str,
+        repo_url: &str,
+        current_hash: &str,
+    ) -> Result<(u32, u32)> {
+        self.process_nodes_file(node_file)?;
+
+        self.process_edges_file(edge_file)?;
+
+        self.graph.update_repository_hash(repo_url, current_hash)?;
+
+        Ok(self.graph.get_graph_size())
+    }
+
+    fn process_nodes_file(&mut self, file_path: &str) -> Result<()> {
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let node: Node = serde_json::from_str(&line)?;
+            self.graph.add_node(node.node_type, node.node_data);
+        }
+
+        Ok(())
+    }
+    fn process_edges_file(&mut self, file_path: &str) -> Result<()> {
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let edge: Edge = serde_json::from_str(&line)?;
+            self.graph.add_edge(edge);
+        }
+
+        Ok(())
     }
 }

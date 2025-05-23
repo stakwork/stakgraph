@@ -129,10 +129,36 @@ pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
             }
         };
 
+        let repos = Repo::new_multi_detect(
+            repo_path,
+            Some(repo_url.to_string()),
+            Vec::new(),
+            Vec::new(),
+        );
+        info!("Building BTreeMapGraph graph for repo: {}", repo_path);
+        let btree_graph = repos.build_graphs_btree().await?;
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let base_name = format!("ingest_{}", timestamp);
+
+        info!("Exporting graph to JSONL files...");
+        ast::utils::print_json(&btree_graph, &base_name)?;
+
+        let node_file = format!("ast/examples/{}-nodes.jsonl", base_name);
+        let edge_file = format!("ast/examples/{}-edges.jsonl", base_name);
+
+        info!("Processing JSONL files and uploading to Neo4j...");
         let mut graph_ops = GraphOps::new();
         graph_ops.connect()?;
 
-        let (nodes, edges) = graph_ops.update_full(&repo_url, &repo_path, &current_hash)?;
+        let (nodes, edges) =
+            graph_ops.build_from_files(&node_file, &edge_file, repo_url, &current_hash)?;
+
+        let _ = std::fs::remove_file(&node_file);
+        let _ = std::fs::remove_file(&edge_file);
 
         Ok(Json(ProcessResponse {
             status: "success".to_string(),
