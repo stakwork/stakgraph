@@ -1,13 +1,12 @@
 use super::{graphs::Graph, *};
 use anyhow::Result;
-use inflection_rs::inflection;
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use streaming_iterator::StreamingIterator;
 use tracing::debug;
 use tree_sitter::{Node as TreeNode, QueryMatch};
 
 impl Lang {
-    pub fn collect<G: Graph>(
+    pub async fn collect<G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -40,7 +39,7 @@ impl Lang {
     }
     pub fn format_class_with_associations<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -83,7 +82,7 @@ impl Lang {
         })?;
         Ok((cls, associations))
     }
-    pub fn collect_classes<G: Graph>(
+    pub async fn collect_classes<G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -102,7 +101,7 @@ impl Lang {
     }
     pub fn format_library(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -124,7 +123,7 @@ impl Lang {
     }
     pub fn format_imports(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -146,7 +145,7 @@ impl Lang {
     }
     pub fn format_variables(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -191,7 +190,7 @@ impl Lang {
     }
     pub fn format_page<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -286,7 +285,7 @@ impl Lang {
     }
     pub fn format_trait(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -306,7 +305,7 @@ impl Lang {
     }
     pub fn format_instance(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -352,7 +351,7 @@ impl Lang {
     // endpoint, handlers
     pub fn format_endpoint<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -487,7 +486,7 @@ impl Lang {
     }
     pub fn format_data_model(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -505,7 +504,7 @@ impl Lang {
         })?;
         Ok(inst)
     }
-    pub fn collect_functions<G: Graph>(
+    pub async fn collect_functions<G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -518,7 +517,10 @@ impl Lang {
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            if let Some(ff) = self.format_function(&m, code, file, &q, graph, lsp_tx)? {
+            if let Some(ff) = self
+                .format_function(&m, code, file, &q, graph, lsp_tx)
+                .await?
+            {
                 res.push(ff);
             }
         }
@@ -536,9 +538,9 @@ impl Lang {
         }
         Ok(res)
     }
-    fn format_function<G: Graph>(
+    pub async fn format_function<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -574,6 +576,7 @@ impl Lang {
                     &|name| {
                         graph
                             .find_nodes_by_name(NodeType::Class, name)
+                            .await
                             .first()
                             .cloned()
                     },
@@ -622,6 +625,7 @@ impl Lang {
                         }
                         match graph
                             .find_nodes_by_name(NodeType::DataModel, &dm_node.name)
+                            .await
                             .first()
                             .cloned()
                         {
@@ -647,8 +651,9 @@ impl Lang {
                             if let LspRes::GotoDefinition(Some(gt)) = res {
                                 let dfile = gt.file.display().to_string();
                                 if !self.lang.is_lib_file(&dfile) {
-                                    if let Some(t) =
-                                        graph.find_node_at(NodeType::DataModel, &dfile, gt.line)
+                                    if let Some(t) = graph
+                                        .find_node_at(NodeType::DataModel, &dfile, gt.line)
+                                        .await
                                     {
                                         log_cmd(format!(
                                             "*******RETURN_TYPE found target for {:?} {} {}!!!",
@@ -677,7 +682,7 @@ impl Lang {
             trait_operand = self.lang.find_trait_operand(
                 pos,
                 &func,
-                &|row, file| graph.find_nodes_in_range(NodeType::Trait, row, file),
+                &|row, file| graph.find_nodes_in_range(NodeType::Trait, row, file).await,
                 lsp_tx,
             )?;
         }
@@ -954,7 +959,7 @@ impl Lang {
         }
         Ok(res)
     }
-    pub fn collect_integration_tests<G: Graph>(
+    pub async fn collect_integration_tests<G: Graph>(
         &self,
         code: &str,
         file: &str,
@@ -975,9 +980,10 @@ impl Lang {
             let (nd, tt) = self.format_integration_test(&m, code, file, &q)?;
             let test_edge_opt = self.lang.integration_test_edge_finder(
                 &nd,
-                &|name| {
+                &|name| async {
                     graph
                         .find_nodes_by_name(NodeType::Class, name)
+                        .await
                         .first()
                         .cloned()
                 },
@@ -1019,7 +1025,7 @@ impl Lang {
         }
         Ok((nd, tt))
     }
-    fn format_integration_test_call<'a, 'b, G: Graph>(
+    async fn format_integration_test_call<'a, 'b, G: Graph>(
         &self,
         m: &QueryMatch<'a, 'b>,
         code: &str,
@@ -1067,19 +1073,17 @@ impl Lang {
         let res = LspCmd::GotoDefinition(pos).send(&lsp_tx)?;
         if let LspRes::GotoDefinition(Some(gt)) = res {
             let target_file = gt.file.display().to_string();
-            if let Some(t_file) =
-                graph.find_node_by_name_in_file(NodeType::Function, &handler_name, &target_file)
-            {
-                log_cmd(format!(
-                    "==> {} ! found integration test target for {:?} {:?}!!!",
-                    caller_name, handler_name, &t_file
-                ));
-            } else {
-                log_cmd(format!(
-                    "==> {} ? integration test definition, not in graph: {:?} in {}",
-                    caller_name, handler_name, &target_file
-                ));
+            let endpoint_fut =
+                graph.find_node_by_name_in_file(NodeType::Function, &handler_name, &target_file);
+            let endpoint = endpoint_fut.await;
+            if endpoint.is_none() {
+                return Ok(None);
             }
+            let endpoint = endpoint.unwrap();
+            log_cmd(format!(
+                "==> {} ! found integration test target for {:?} {:?}!!!",
+                caller_name, handler_name, &endpoint
+            ));
             fc.target = NodeKeys::new(&handler_name, &target_file, gt.line as usize);
         }
 
@@ -1091,7 +1095,7 @@ impl Lang {
             EdgeType::Handler,
             &fc.target.name,
             &fc.target.file,
-        );
+        ).await;
 
         if endpoint.is_none() {
             return Ok(None);

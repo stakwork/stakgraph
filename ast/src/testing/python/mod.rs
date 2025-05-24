@@ -15,11 +15,11 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
     assert_eq!(num_nodes, 61, "Expected 61 nodes");
     assert_eq!(num_edges, 78, "Expected 78 edges");
 
-    let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    let language_nodes = graph.find_nodes_by_type(NodeType::Language).await;
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "python",
@@ -30,13 +30,13 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
-    let files = graph.find_nodes_by_type(NodeType::File);
+    let files = graph.find_nodes_by_type(NodeType::File).await;
     assert_eq!(files.len(), 16, "Expected 16 files");
 
-    let imports = graph.find_nodes_by_type(NodeType::Import);
+    let imports = graph.find_nodes_by_type(NodeType::Import).await;
     assert_eq!(imports.len(), 12, "Expected 12 imports");
 
-    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let classes = graph.find_nodes_by_type(NodeType::Class).await;
     assert_eq!(classes.len(), 3, "Expected 3 classes");
 
     let mut sorted_classes = classes.clone();
@@ -49,14 +49,15 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Expected Person class not found"
     );
 
-    let class_function_edges =
-        graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
+    let class_function_edges = graph
+        .find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand)
+        .await;
     assert_eq!(class_function_edges.len(), 2, "Expected 2 methods");
 
-    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel).await;
     assert_eq!(data_models.len(), 3, "Expected 3 data models");
 
-    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint).await;
     assert_eq!(endpoints.len(), 6, "Expected 6 endpoints");
 
     Ok(())

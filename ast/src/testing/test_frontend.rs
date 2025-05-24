@@ -59,95 +59,67 @@ impl<G: Graph> FrontendTester<G> {
         })
     }
 
-    pub fn test_frontend(&self) -> Result<(), anyhow::Error> {
+    pub async fn test_frontend(&self) -> Result<(), anyhow::Error> {
         let artefact = FrontendArtefact::default();
-
         info!(
             "\n\nTesting frontend for {} at src/testing/{}\n\n",
             self.lang.kind.to_string().to_uppercase(),
             self.repo.as_ref().unwrap()
         );
-
-        self.test_language()?;
-        self.test_package_file()?;
-        self.test_data_model(artefact.data_model)?;
+        self.test_language().await?;
+        self.test_package_file().await?;
+        self.test_data_model(artefact.data_model).await?;
         if artefact
             .contains_pages_and_components
             .contains(&&self.lang.kind)
         {
-            self.test_components(artefact.components)?;
-            self.test_pages(artefact.pages)?;
+            self.test_components(artefact.components).await?;
+            self.test_pages(artefact.pages).await?;
         }
-        self.test_requests(artefact.request)?;
-
+        self.test_requests(artefact.request).await?;
         Ok(())
     }
-
-    fn test_language(&self) -> Result<(), anyhow::Error> {
-        let language_nodes = self
-            .graph
-            .find_nodes_by_type(NodeType::Language)
-            .first()
-            .cloned()
-            .unwrap();
-
+    async fn test_language(&self) -> Result<(), anyhow::Error> {
+        let language_nodes = self.graph.find_nodes_by_type(NodeType::Language).await;
+        let language_node = language_nodes.first().cloned().unwrap();
         assert_eq!(
-            language_nodes.name,
+            language_node.name,
             self.lang.kind.to_string(),
             "Language node name mismatch"
         );
-
         Ok(())
     }
-
-    fn test_package_file(&self) -> Result<(), anyhow::Error> {
+    async fn test_package_file(&self) -> Result<(), anyhow::Error> {
         let package_file_names = self.lang.kind.pkg_files();
         let package_file_name = package_file_names.first().unwrap();
-
-        let pkg_file_nodes = self
-            .graph
-            .find_nodes_by_name(NodeType::File, &package_file_name);
-
+        let pkg_file_nodes = self.graph.find_nodes_by_name(NodeType::File, &package_file_name).await;
         assert!(
             pkg_file_nodes.len() >= 1,
             "No package file found matching {}",
             package_file_name
         );
-
         info!("✓ Found package file {}", package_file_name);
-
         Ok(())
     }
-
-    fn test_data_model(&self, data_model: &str) -> Result<(), anyhow::Error> {
-        let data_model_nodes = self
-            .graph
-            .find_nodes_by_name_contains(NodeType::DataModel, data_model);
-
+    async fn test_data_model(&self, data_model: &str) -> Result<(), anyhow::Error> {
+        let data_model_nodes = self.graph.find_nodes_by_name_contains(NodeType::DataModel, data_model).await;
         info!("✓ Found data model {}", data_model);
-
         assert!(
             data_model_nodes.len() >= 1,
             "No data model found matching {}",
             data_model
         );
-
         Ok(())
     }
-
-    fn test_components(&self, expected_components: Vec<&str>) -> Result<(), anyhow::Error> {
+    async fn test_components(&self, expected_components: Vec<&str>) -> Result<(), anyhow::Error> {
         let mut found_components: HashMap<&str, bool> = expected_components
             .clone()
             .into_iter()
             .map(|item| (item, false))
             .collect();
-
         for component in expected_components {
-            if let Some(node) = self
-                .graph
-                .find_nodes_by_name(NodeType::Function, component)
-                .first()
-            {
+            let nodes = self.graph.find_nodes_by_name(NodeType::Function, component).await;
+            if let Some(node) = nodes.first() {
                 let component_name = node.name.as_str();
                 if let Some(entry) = found_components.get_mut(component_name) {
                     *entry = true;
@@ -155,22 +127,20 @@ impl<G: Graph> FrontendTester<G> {
                 }
             }
         }
-
         for (component_name, found) in found_components.iter() {
             assert!(*found, "Component {} not found in graph", component_name);
         }
         Ok(())
     }
-
-    fn test_pages(&self, expected_pages: Vec<&str>) -> Result<(), anyhow::Error> {
+    async fn test_pages(&self, expected_pages: Vec<&str>) -> Result<(), anyhow::Error> {
         let mut found_pages: HashMap<&str, bool> = expected_pages
             .clone()
             .into_iter()
             .map(|item| (item, false))
             .collect();
-
         for page in expected_pages {
-            if let Some(node) = self.graph.find_nodes_by_name(NodeType::Page, page).last() {
+            let nodes = self.graph.find_nodes_by_name(NodeType::Page, page).await;
+            if let Some(node) = nodes.last() {
                 let page_name = node.name.as_str();
                 if let Some(entry) = found_pages.get_mut(page_name) {
                     *entry = true;
@@ -183,26 +153,21 @@ impl<G: Graph> FrontendTester<G> {
         }
         Ok(())
     }
-
-    fn test_requests(&self, expected_requests: Vec<(&str, &str)>) -> Result<(), anyhow::Error> {
+    async fn test_requests(&self, expected_requests: Vec<(&str, &str)>) -> Result<(), anyhow::Error> {
         let mut found_requests = HashMap::new();
         for (verb, path) in expected_requests.iter() {
             found_requests.insert((verb.to_string(), path.to_string()), false);
         }
         for ((verb, path), found) in found_requests.iter_mut() {
-            let matching_nodes = self
-                .graph
-                .find_resource_nodes(NodeType::Request, verb, path);
+            let matching_nodes = self.graph.find_resource_nodes(NodeType::Request, verb, path).await;
             if !matching_nodes.is_empty() {
                 *found = true;
                 info!("✓ Found request {} {}", verb, path);
             }
         }
-
         for ((verb, path), found) in found_requests.iter() {
             assert!(*found, "Request {} {} not found in graph", verb, path);
         }
-
         Ok(())
     }
 }

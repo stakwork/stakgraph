@@ -112,55 +112,51 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
-    pub fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub async fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Library)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Library).await?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub async fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
-        Ok(self.collect::<G>(&qo, code, file, NodeType::Class)?)
+        Ok(self.collect::<G>(&qo, code, file, NodeType::Class).await?)
     }
-    pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub async fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.trait_query() {
             let qo = self.q(&qo, &NodeType::Trait);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Trait)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Trait).await?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_imports<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub async fn get_imports<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.imports_query() {
             let qo = self.q(&qo, &NodeType::Import);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Import)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Import).await?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_varables<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub async fn get_varables<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.variables_query() {
             let qo = self.q(&qo, &NodeType::Var);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Var)?)
+            Ok(self.collect::<G>(&qo, code, file, NodeType::Var).await?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_pages<G: Graph>(
+    pub async fn get_pages<G: Graph>(
         &self,
         code: &str,
         file: &str,
         lsp_tx: &Option<CmdSender>,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        if let Some(qo) = self.lang.page_query() {
-            let qo = self.q(&qo, &NodeType::Page);
-            Ok(self.collect_pages(&qo, code, file, lsp_tx, graph)?)
-        } else {
-            Ok(Vec::new())
-        }
+        let qo = self.q(self.lang().page_query().as_ref().unwrap(), &NodeType::Page);
+        Ok(self.collect_pages(&qo, code, file, lsp_tx, graph)?)
     }
     pub fn get_identifier_for_node(&self, node: TreeNode, code: &str) -> Result<Option<String>> {
         let query = self.q(&self.lang.identifier_query(), &NodeType::Function);
@@ -184,7 +180,7 @@ impl Lang {
         Ok(Some(name.to_string()))
     }
     // returns (Vec<Function>, Vec<Test>)
-    pub fn get_functions_and_tests<G: Graph>(
+    pub async fn get_functions_and_tests<G: Graph>(
         &self,
         code: &str,
         file: &str,
@@ -192,7 +188,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<Function>, Vec<Function>)> {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
-        let funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx)?;
+        let funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx).await?;
         let (funcs, mut tests) = self.lang.filter_tests(funcs1);
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::Test);
@@ -201,7 +197,7 @@ impl Lang {
         }
         Ok((funcs, tests))
     }
-    pub fn get_query_opt<G: Graph>(
+    pub async fn get_query_opt<G: Graph>(
         &self,
         q: Option<String>,
         code: &str,
@@ -209,7 +205,7 @@ impl Lang {
         fmtr: NodeType,
     ) -> Result<Vec<NodeData>> {
         if let Some(qo) = q {
-            let insts = self.collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr)?;
+            let insts = self.collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr).await?;
             Ok(insts)
         } else {
             Ok(Vec::new())

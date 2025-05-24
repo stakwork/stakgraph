@@ -37,7 +37,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect()?;
 
-        let stored_hash = match graph_ops.graph.get_repository_hash(&repo_url) {
+        let stored_hash = match graph_ops.graph.get_repository_hash(&repo_url).await {
             Ok(hash) => Some(hash),
             Err(_) => None,
         };
@@ -49,7 +49,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
 
         if let Some(hash) = &stored_hash {
             if hash == &current_hash {
-                let (nodes, edges) = graph_ops.graph.get_graph_size();
+                let (nodes, edges) = graph_ops.graph.get_graph_size().await;
                 return Ok(Json(ProcessResponse {
                     status: "success".to_string(),
                     message: "Repository already processed".to_string(),
@@ -61,10 +61,14 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
 
         let (nodes, edges) = if let Some(hash) = stored_hash {
             info!("Updating repository hash from {} to {}", hash, current_hash);
-            graph_ops.update_incremental(&repo_url, &repo_path, &current_hash, &hash)?
+            graph_ops
+                .update_incremental(&repo_url, &repo_path, &current_hash, &hash)
+                .await?
         } else {
             info!("Adding new repository hash: {}", current_hash);
-            graph_ops.update_full(&repo_url, &repo_path, &current_hash)?
+            graph_ops
+                .update_full(&repo_url, &repo_path, &current_hash)
+                .await?
         };
 
         Ok(Json(ProcessResponse {
@@ -87,7 +91,7 @@ pub async fn clear_graph() -> Result<Json<ProcessResponse>> {
     {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect()?;
-        let (nodes, edges) = graph_ops.clear()?;
+        let (nodes, edges) = graph_ops.clear().await?;
         Ok(Json(ProcessResponse {
             status: "success".to_string(),
             message: "Graph cleared".to_string(),
@@ -132,7 +136,9 @@ pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect()?;
 
-        let (nodes, edges) = graph_ops.update_full(&repo_url, &repo_path, &current_hash)?;
+        let (nodes, edges) = graph_ops
+            .update_full(&repo_url, &repo_path, &current_hash)
+            .await?;
 
         Ok(Json(ProcessResponse {
             status: "success".to_string(),

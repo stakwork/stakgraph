@@ -105,7 +105,7 @@ impl Neo4jGraph {
         }
     }
 
-    pub fn disconnect(&mut self) -> Result<()> {
+    pub async fn disconnect(&mut self) -> Result<()> {
         if self.connection.is_none() {
             debug!("Not connected to Neo4j database");
             return Ok(());
@@ -117,7 +117,7 @@ impl Neo4jGraph {
             *conn_status = false;
         };
 
-        block_in_place(async { Neo4jConnectionManager::clear_connection().await });
+        Neo4jConnectionManager::clear_connection().await;
 
         info!("Disconnected from Neo4j database");
         Ok(())
@@ -155,20 +155,20 @@ impl Neo4jGraph {
         }
     }
 
-    fn get_connection(&self) -> Arc<Neo4jConnection> {
+    async fn get_connection(&self) -> Arc<Neo4jConnection> {
         match &self.connection {
             Some(conn) => conn.clone(),
-            None => block_in_place(async {
+            None => {
                 if let Some(conn) = Neo4jConnectionManager::get_connection().await {
                     return conn;
                 }
                 panic!("No Neo4j connection available. Make sure Neo4j is running and connect() was called.")
-            }),
+            }
         }
     }
 
-    pub fn clear(&mut self) {
-        if let Err(e) = block_in_place(async {
+    pub async fn clear(&mut self) {
+        if let Err(e) = async {
             let connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
@@ -195,7 +195,7 @@ impl Neo4jGraph {
                 Ok(()) => Ok(()),
                 Err(e) => Err(anyhow::anyhow!("Neo4j commit error: {}", e)),
             }
-        }) {
+        }.await {
             debug!("Error clearing graph: {:?}", e);
         }
     }
@@ -225,8 +225,8 @@ impl Neo4jGraph {
         }
     }
 
-    pub fn get_repository_hash(&self, repo_url: &str) -> Result<String> {
-        let connection = self.get_connection();
+    pub async fn get_repository_hash(&self, repo_url: &str) -> Result<String> {
+        let connection = self.get_connection().await;
 
         let (query_str, params) = get_repository_hash_query(repo_url);
 
@@ -235,9 +235,9 @@ impl Neo4jGraph {
             query_obj = query_obj.param(key, value.as_str());
         }
 
-        match block_in_place(connection.execute(query_obj)) {
+        match connection.execute(query_obj).await {
             Ok(mut result) => {
-                if let Ok(Some(row)) = block_in_place(result.next()) {
+                if let Ok(Some(row)) = result.next().await {
                     if let Ok(hash) = row.get::<String>("hash") {
                         return Ok(hash);
                     }
@@ -251,9 +251,9 @@ impl Neo4jGraph {
         }
     }
 
-    pub fn remove_nodes_by_file(&mut self, file_path: &str) -> Result<u32> {
-        let deleted_count = block_in_place(async {
-            let connection = self.get_connection();
+    pub async fn remove_nodes_by_file(&mut self, file_path: &str) -> Result<u32> {
+        let deleted_count = async {
+            let connection = self.get_connection().await;
 
             let (query_str, params) = remove_nodes_by_file_query(file_path);
 
@@ -276,28 +276,26 @@ impl Neo4jGraph {
                     Err(anyhow::anyhow!("Error removing file nodes: {}", e))
                 }
             }
-        })?;
+        }.await?;
 
         Ok(deleted_count)
     }
 
-    pub fn update_repository_hash(&mut self, repo_name: &str, new_hash: &str) -> Result<()> {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                let (query, params) = update_repository_hash_query(repo_name, new_hash);
-                txn_manager.add_query((query, params));
-                Ok(())
-            })
-            .await
-        }) {
+    pub async fn update_repository_hash(&mut self, repo_name: &str, new_hash: &str) -> Result<()> {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            let (query, params) = update_repository_hash_query(repo_name, new_hash);
+            txn_manager.add_query((query, params));
+            Ok(())
+        })
+        .await {
             debug!("Error updating repository hash: {}", e);
             return Err(anyhow::anyhow!("Error updating hash: {}", e));
         }
         Ok(())
     }
 
-    pub fn get_incoming_edges_for_file(&self, file: &str) -> Vec<(Edge, NodeData)> {
-        let connection = self.get_connection();
+    pub async fn get_incoming_edges_for_file(&self, file: &str) -> Vec<(Edge, NodeData)> {
+        let connection = self.get_connection().await;
         let query_str = r#"
                 MATCH (source)-[r]->(target)
                 WHERE target.file = $file AND source.file <> $file
@@ -305,8 +303,8 @@ impl Neo4jGraph {
             "#;
         let query_obj = query(query_str).param("file", file);
         let mut incoming = Vec::new();
-        if let Ok(mut result) = block_in_place(connection.execute(query_obj)) {
-            while let Ok(Some(row)) = block_in_place(result.next()) {
+        if let Ok(mut result) = connection.execute(query_obj).await {
+            while let Ok(Some(row)) = result.next().await {
                 if let (
                     Ok(source_node),
                     Ok(target_node),
@@ -337,12 +335,12 @@ impl Neo4jGraph {
         }
         incoming
     }
-    pub fn all_nodes(&self) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    pub async fn all_nodes(&self) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
         let query_str = "MATCH (n) RETURN n, labels(n)[0] as node_type";
         let mut nodes = Vec::new();
-        if let Ok(mut result) = block_in_place(connection.execute(query(query_str))) {
-            while let Ok(Some(row)) = block_in_place(result.next()) {
+        if let Ok(mut result) = connection.execute(query(query_str)).await {
+            while let Ok(Some(row)) = result.next().await {
                 if let Ok(node) = row.get::<neo4rs::Node>("n") {
                     nodes.push(extract_node_data_from_neo4j_node(&node));
                 }
@@ -351,13 +349,13 @@ impl Neo4jGraph {
         nodes
     }
 
-    pub fn all_edges(&self) -> Vec<Edge> {
-        let connection = self.get_connection();
+    pub async fn all_edges(&self) -> Vec<Edge> {
+        let connection = self.get_connection().await;
         let query_str = "MATCH (source)-[r]->(target) \
             RETURN source, r, target, labels(source)[0] as source_type, labels(target)[0] as target_type, type(r) as edge_type";
         let mut edges = Vec::new();
-        if let Ok(mut result) = block_in_place(connection.execute(query(query_str))) {
-            while let Ok(Some(row)) = block_in_place(result.next()) {
+        if let Ok(mut result) = connection.execute(query(query_str)).await {
+            while let Ok(Some(row)) = result.next().await {
                 if let (
                     Ok(source_node),
                     Ok(target_node),
@@ -410,6 +408,7 @@ impl std::fmt::Debug for Neo4jGraph {
     }
 }
 
+#[async_trait::async_trait]
 impl Graph for Neo4jGraph {
     fn new() -> Self {
         Neo4jGraph {
@@ -423,71 +422,63 @@ impl Graph for Neo4jGraph {
         Neo4jGraph::default()
     }
 
-    fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                txn_manager.add_node(&node_type, &node_data);
-                Ok(())
-            })
-            .await
-        }) {
+    async fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            txn_manager.add_node(&node_type, &node_data);
+            Ok(())
+        }).await {
             debug!("Error adding node: {:?}", e);
         }
     }
 
-    fn add_edge(&mut self, edge: Edge) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                txn_manager.add_edge(&edge);
-                Ok(())
-            })
-            .await
-        }) {
+    async fn add_edge(&mut self, edge: Edge) {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            txn_manager.add_edge(&edge);
+            Ok(())
+        }).await {
             debug!("Error adding edge: {:?}", e);
         }
     }
 
-    fn add_node_with_parent(
+    async fn add_node_with_parent(
         &mut self,
         node_type: NodeType,
         node_data: NodeData,
         parent_type: NodeType,
         parent_file: &str,
     ) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                txn_manager.add_node(&node_type, &node_data);
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            txn_manager.add_node(&node_type, &node_data);
 
-                let mut params = HashMap::new();
-                params.insert("name".to_string(), node_data.name.clone());
-                params.insert("file".to_string(), node_data.file.clone());
-                params.insert("start".to_string(), node_data.start.to_string());
-                params.insert("parent_file".to_string(), parent_file.to_string());
+            let mut params = HashMap::new();
+            params.insert("name".to_string(), node_data.name.clone());
+            params.insert("file".to_string(), node_data.file.clone());
+            params.insert("start".to_string(), node_data.start.to_string());
+            params.insert("parent_file".to_string(), parent_file.to_string());
 
-                let query = format!(
-                    "MATCH (parent:{} {{file: $parent_file}}),
-                       (node:{} {{name: $name, file: $file, start: $start}})
-                     MERGE (parent)-[:CONTAINS]->(node)",
-                    parent_type.to_string(),
-                    node_type.to_string()
-                );
+            let query = format!(
+                "MATCH (parent:{} {{file: $parent_file}}),
+                   (node:{} {{name: $name, file: $file, start: $start}})
+                 MERGE (parent)-[:CONTAINS]->(node)",
+                parent_type.to_string(),
+                node_type.to_string()
+            );
 
-                txn_manager.add_query((query, params));
-                Ok(())
-            })
-            .await
-        }) {
+            txn_manager.add_query((query, params));
+            Ok(())
+        })
+        .await {
             debug!("Error adding node with parent: {:?}", e);
         }
     }
-    fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_nodes_by_name_query(&node_type, name);
         let query_builder = QueryBuilder::new(&query).with_params(params);
         let (query_str, params_map) = query_builder.build();
 
-        match block_in_place(execute_node_query(&connection, query_str, params_map)) {
+        match execute_node_query(&connection, query_str, params_map).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by name: {}", e);
@@ -495,17 +486,17 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn find_node_by_name_in_file(
+    async fn find_node_by_name_in_file(
         &self,
         node_type: NodeType,
         name: &str,
         file: &str,
     ) -> Option<NodeData> {
-        let connection = self.get_connection();
+        let connection = self.get_connection().await;
 
         let (query, params) = find_node_by_name_file_query(&node_type, name, file);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding node by name and file: {}", e);
@@ -514,17 +505,17 @@ impl Graph for Neo4jGraph {
         }
     }
 
-    fn get_graph_size(&self) -> (u32, u32) {
-        let connection = self.get_connection();
+    async fn get_graph_size(&self) -> (u32, u32) {
+        let connection = self.get_connection().await;
 
         #[cfg(debug_assertions)]
         {
             let edge_types_query = "MATCH ()-[r]->() RETURN type(r) as type, COUNT(r) as count";
-            match block_in_place(connection.execute(query(edge_types_query))) {
+            match connection.execute(query(edge_types_query)).await {
                 Ok(mut result) => {
                     let mut total = 0;
                     println!("Edge counts by type:");
-                    while let Ok(Some(row)) = block_in_place(result.next()) {
+                    while let Ok(Some(row)) = result.next().await {
                         if let (Ok(edge_type), Ok(count)) =
                             (row.get::<String>("type"), row.get::<u32>("count"))
                         {
@@ -542,9 +533,9 @@ impl Graph for Neo4jGraph {
 
         let query_str = count_nodes_edges_query();
 
-        match block_in_place(connection.execute(query(&query_str))) {
+        match connection.execute(query(&query_str)).await {
             Ok(mut result) => {
-                if let Ok(Some(row)) = block_in_place(result.next()) {
+                if let Ok(Some(row)) = result.next().await {
                     let nodes = row.get::<u32>("nodes").unwrap_or(0);
                     let edges = row.get::<u32>("edges").unwrap_or(0);
                     (nodes, edges)
@@ -558,18 +549,18 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn get_graph_keys(&self) -> (HashSet<&str>, HashSet<&str>) {
+    async fn get_graph_keys(&self) -> (HashSet<&str>, HashSet<&str>) {
         (HashSet::new(), HashSet::new())
     }
-    fn analysis(&self) {
-        let connection = self.get_connection();
-        let (nodes, edges) = self.get_graph_size();
+    async fn analysis(&self) {
+        let connection = self.get_connection().await;
+        let (nodes, edges) = self.get_graph_size().await;
         println!("Graph contains {} nodes and {} edges", nodes, edges);
 
         let query_str = graph_node_analysis_query();
-        match block_in_place(connection.execute(query(&query_str))) {
+        match connection.execute(query(&query_str)).await {
             Ok(mut result) => {
-                while let Ok(Some(row)) = block_in_place(result.next()) {
+                while let Ok(Some(row)) = result.next().await {
                     if let (Ok(node_type), Ok(name), Ok(file), Ok(start)) = (
                         row.get::<String>("node_type"),
                         row.get::<String>("name"),
@@ -586,9 +577,9 @@ impl Graph for Neo4jGraph {
         }
 
         let query_str = graph_edges_analysis_query();
-        match block_in_place(connection.execute(query(&query_str))) {
+        match connection.execute(query(&query_str)).await {
             Ok(mut result) => {
-                while let Ok(Some(row)) = block_in_place(result.next()) {
+                while let Ok(Some(row)) = result.next().await {
                     if let (
                         Ok(source_type),
                         Ok(source_name),
@@ -630,17 +621,17 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
-        let connection = self.get_connection();
+    async fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
+        let connection = self.get_connection().await;
 
         let (query_str, params) = count_edges_by_type_query(&edge_type);
         let mut query_obj = query(&query_str);
         for (key, value) in params {
             query_obj = query_obj.param(&key, value);
         }
-        match block_in_place(connection.execute(query_obj)) {
+        match connection.execute(query_obj).await {
             Ok(mut result) => {
-                if let Ok(Some(row)) = block_in_place(result.next()) {
+                if let Ok(Some(row)) = result.next().await {
                     row.get::<usize>("count").unwrap_or(0)
                 } else {
                     0
@@ -652,32 +643,30 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn add_functions(&mut self, functions: Vec<Function>) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                for (function_node, method_of, reqs, dms, trait_operand, return_types) in &functions
-                {
-                    let queries = add_functions_query(
-                        function_node,
-                        method_of.as_ref(),
-                        reqs,
-                        dms,
-                        trait_operand.as_ref(),
-                        return_types,
-                    );
-                    for (query, params) in queries {
-                        txn_manager.add_query((query, params));
-                    }
+    async fn add_functions(&mut self, functions: Vec<Function>) {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            for (function_node, method_of, reqs, dms, trait_operand, return_types) in &functions
+            {
+                let queries = add_functions_query(
+                    function_node,
+                    method_of.as_ref(),
+                    reqs,
+                    dms,
+                    trait_operand.as_ref(),
+                    return_types,
+                );
+                for (query, params) in queries {
+                    txn_manager.add_query((query, params));
                 }
-                Ok(())
-            })
-            .await
-        }) {
+            }
+            Ok(())
+        })
+        .await {
             debug!("Error adding functions batch: {:?}", e);
         }
     }
-    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
-        if let Err(e) = block_in_place(async {
+    async fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
+        if let Err(e) = async {
             let connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
@@ -688,14 +677,14 @@ impl Graph for Neo4jGraph {
             txn_manager.add_queries(queries);
 
             txn_manager.execute().await
-        }) {
+        }.await {
             debug!("Error adding test node: {:?}", e);
         }
     }
-    fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
+    async fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
         let (page_data, edge_opt) = page;
 
-        if let Err(e) = block_in_place(async {
+        if let Err(e) = async {
             let connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
@@ -707,12 +696,12 @@ impl Graph for Neo4jGraph {
             txn_manager.add_queries(queries);
 
             txn_manager.execute().await
-        }) {
+        }.await {
             debug!("Error adding page: {:?}", e);
         }
     }
-    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
-        if let Err(e) = block_in_place(async {
+    async fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+        if let Err(e) = async {
             let connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
@@ -722,12 +711,12 @@ impl Graph for Neo4jGraph {
             txn_manager.add_queries(queries);
 
             txn_manager.execute().await
-        }) {
+        }.await {
             debug!("Error adding pages: {:?}", e);
         }
     }
 
-    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+    async fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
         use std::collections::HashSet;
         let mut to_add = Vec::new();
         let mut seen = HashSet::new();
@@ -745,7 +734,7 @@ impl Graph for Neo4jGraph {
                     continue;
                 }
                 let exists = self
-                    .find_endpoint(&endpoint_data.name, &endpoint_data.file, verb)
+                    .find_endpoint(&endpoint_data.name, &endpoint_data.file, verb).await
                     .is_some();
                 if !exists {
                     to_add.push((endpoint_data.clone(), handler_edge.clone()));
@@ -754,25 +743,23 @@ impl Graph for Neo4jGraph {
             }
         }
 
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                for (endpoint_data, handler_edge) in &to_add {
-                    txn_manager.add_node(&NodeType::Endpoint, endpoint_data);
-                    if let Some(edge) = handler_edge {
-                        txn_manager.add_edge(edge);
-                    }
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            for (endpoint_data, handler_edge) in &to_add {
+                txn_manager.add_node(&NodeType::Endpoint, endpoint_data);
+                if let Some(edge) = handler_edge {
+                    txn_manager.add_edge(edge);
                 }
-                Ok(())
-            })
-            .await
-        }) {
+            }
+            Ok(())
+        })
+        .await {
             debug!("Error adding endpoints: {:?}", e);
         }
     }
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
+    async fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
         let (funcs, tests, int_tests) = calls;
 
-        if let Err(e) = block_in_place(async {
+        if let Err(e) = async {
             let connection = match self.ensure_connected().await {
                 Ok(conn) => conn,
                 Err(e) => return Err(anyhow::anyhow!("Connection error: {}", e)),
@@ -806,6 +793,10 @@ impl Graph for Neo4jGraph {
             }
 
             for (test_call, ext_func, _class_call) in &tests {
+                if test_call.target.is_empty() {
+                    continue;
+                }
+
                 if let Some(ext_nd) = ext_func {
                     txn_manager.add_node(&NodeType::Function, ext_nd);
 
@@ -826,16 +817,16 @@ impl Graph for Neo4jGraph {
             }
 
             Ok(())
-        }) {
+        }.await {
             println!("Error in add_calls: {:?}", e);
         }
     }
-    fn find_nodes_by_type(&self, node_type: NodeType) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_nodes_by_type(&self, node_type: NodeType) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_nodes_by_type_query(&node_type);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by type: {}", e);
@@ -843,12 +834,12 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn find_nodes_by_name_contains(&self, node_type: NodeType, name_part: &str) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_nodes_by_name_contains(&self, node_type: NodeType, name_part: &str) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_nodes_by_name_contains_query(&node_type, name_part);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by name contains: {}", e);
@@ -856,12 +847,12 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_nodes_by_file_pattern_query(&node_type, file);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding nodes by file ends with: {}", e);
@@ -869,12 +860,12 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn find_nodes_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData> {
-        let connection = self.get_connection();
+    async fn find_nodes_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_nodes_in_range_query(&node_type, file, row);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes.into_iter().next(),
             Err(e) => {
                 debug!("Error finding nodes in range: {}", e);
@@ -883,12 +874,12 @@ impl Graph for Neo4jGraph {
         }
     }
 
-    fn find_resource_nodes(&self, node_type: NodeType, verb: &str, path: &str) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_resource_nodes(&self, node_type: NodeType, verb: &str, path: &str) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_resource_nodes_query(&node_type, verb, path);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding resource nodes: {}", e);
@@ -897,12 +888,12 @@ impl Graph for Neo4jGraph {
         }
     }
 
-    fn find_handlers_for_endpoint(&self, endpoint: &NodeData) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_handlers_for_endpoint(&self, endpoint: &NodeData) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_handlers_for_endpoint_query(&endpoint);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding handlers for endpoint: {}", e);
@@ -910,12 +901,12 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
-        let connection = self.get_connection();
+    async fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
+        let connection = self.get_connection().await;
 
         let (query, params) = find_functions_called_by_query(&function);
 
-        match block_in_place(async { execute_node_query(&connection, query, params).await }) {
+        match execute_node_query(&connection, query, params).await {
             Ok(nodes) => nodes,
             Err(e) => {
                 debug!("Error finding functions called by: {}", e);
@@ -923,63 +914,57 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn filter_out_nodes_without_children(
+    async fn filter_out_nodes_without_children(
         &mut self,
         parent_type: NodeType,
         child_type: NodeType,
         _child_meta_key: &str,
     ) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                let query = format!(
-                    "MATCH (parent:{}) 
-                     WHERE NOT EXISTS {{
-                         MATCH (parent)<-[:OPERAND]-(child:{})
-                     }}
-                     AND NOT EXISTS {{
-                         MATCH (instance:Instance)-[:OF]->(parent)
-                     }}
-                     DETACH DELETE parent",
-                    parent_type.to_string(),
-                    child_type.to_string()
-                );
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            let query = format!(
+                "MATCH (parent:{}) 
+                 WHERE NOT EXISTS {{
+                     MATCH (parent)<-[:OPERAND]-(child:{})
+                 }}
+                 AND NOT EXISTS {{
+                     MATCH (instance:Instance)-[:OF]->(parent)
+                 }}
+                 DETACH DELETE parent",
+                parent_type.to_string(),
+                child_type.to_string()
+            );
 
-                txn_manager.add_query((query, HashMap::new()));
-                Ok(())
-            })
-            .await
-        }) {
+            txn_manager.add_query((query, HashMap::new()));
+            Ok(())
+        })
+        .await {
             debug!("Error filtering nodes without children: {:?}", e);
         }
     }
-    fn class_includes(&mut self) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                let query = class_includes_query();
-                txn_manager.add_query((query, HashMap::new()));
-                Ok(())
-            })
-            .await
-        }) {
+    async fn class_includes(&mut self) {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            let query = class_includes_query();
+            txn_manager.add_query((query, HashMap::new()));
+            Ok(())
+        })
+        .await {
             debug!("Error in class includes: {:?}", e);
         }
     }
 
-    fn class_inherits(&mut self) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                let query = class_inherits_query();
-                txn_manager.add_query((query, HashMap::new()));
-                Ok(())
-            })
-            .await
-        }) {
+    async fn class_inherits(&mut self) {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            let query = class_inherits_query();
+            txn_manager.add_query((query, HashMap::new()));
+            Ok(())
+        })
+        .await {
             debug!("Error in class inherits: {:?}", e);
         }
     }
 
-    fn check_direct_data_model_usage(&self, function_name: &str, data_model: &str) -> bool {
-        let connection = self.get_connection();
+    async fn check_direct_data_model_usage(&self, function_name: &str, data_model: &str) -> bool {
+        let connection = self.get_connection().await;
 
         let (query_str, params) = check_direct_data_model_usage_query(function_name, data_model);
 
@@ -987,9 +972,9 @@ impl Graph for Neo4jGraph {
         for (key, value) in params {
             query_obj = query_obj.param(&key, value);
         }
-        match block_in_place(connection.execute(query_obj)) {
+        match connection.execute(query_obj).await {
             Ok(mut result) => {
-                if let Ok(Some(row)) = block_in_place(result.next()) {
+                if let Ok(Some(row)) = result.next().await {
                     row.get::<bool>("exists").unwrap_or(false)
                 } else {
                     false
@@ -1001,20 +986,18 @@ impl Graph for Neo4jGraph {
             }
         }
     }
-    fn prefix_paths(&mut self, root: &str) {
-        if let Err(e) = block_in_place(async {
-            self.execute_with_transaction(|txn_manager| {
-                let (query, params) = prefix_paths_query(root);
-                txn_manager.add_query((query, params));
+    async fn prefix_paths(&mut self, root: &str) {
+        if let Err(e) = self.execute_with_transaction(|txn_manager| {
+            let (query, params) = prefix_paths_query(root);
+            txn_manager.add_query((query, params));
 
-                Ok(())
-            })
-            .await
-        }) {
+            Ok(())
+        })
+        .await {
             debug!("Error prefixing paths: {:?}", e);
         }
     }
-    fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
+    async fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
         if final_filter.is_empty() {
             return self.clone();
         }

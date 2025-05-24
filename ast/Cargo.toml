@@ -12,6 +12,7 @@ neo4j = ["dep:neo4rs"]
 lsp = { path = "../lsp" }
 tokio = { version = "1.27.0", features = ["full"] }
 git2 = "0.20.0"
+async-trait = "0.1"
 
 tree-sitter-rust = "0.23.0"
 tree-sitter-go = "0.23.1"

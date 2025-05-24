@@ -15,14 +15,14 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
 
     graph.analysis();
 
     assert_eq!(num_nodes, 55, "Expected 55 nodes");
     assert_eq!(num_edges, 81, "Expected 81 edges");
 
-    let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    let language_nodes = graph.find_nodes_by_type(NodeType::Language).await;
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "swift",
@@ -32,14 +32,11 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
         language_nodes[0].file, "src/testing/swift/",
         "Language node file path is incorrect"
     );
-
-    let files = graph.find_nodes_by_type(NodeType::File);
+    let files = graph.find_nodes_by_type(NodeType::File).await;
     assert_eq!(files.len(), 8, "Expected 8 files");
-
-    let imports = graph.find_nodes_by_type(NodeType::Import);
+    let imports = graph.find_nodes_by_type(NodeType::Import).await;
     assert_eq!(imports.len(), 7, "Expected 7 imports");
-
-    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let classes = graph.find_nodes_by_type(NodeType::Class).await;
     assert_eq!(classes.len(), 7, "Expected 7 classes");
 
     let mut sorted_classes = classes.clone();
@@ -50,7 +47,7 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "First class name should be 'API'"
     );
 
-    let functions = graph.find_nodes_by_type(NodeType::Function);
+    let functions = graph.find_nodes_by_type(NodeType::Function).await;
     assert_eq!(functions.len(), 26, "Expected 26 functions");
 
     let mut sorted_functions = functions.clone();
@@ -61,10 +58,10 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "First function name should be 'application'"
     );
 
-    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel).await;
     assert_eq!(data_models.len(), 1, "Expected 1 data model");
 
-    let requests = graph.find_nodes_by_type(NodeType::Request);
+    let requests = graph.find_nodes_by_type(NodeType::Request).await;
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
     let mut sorted_requests = requests.clone();

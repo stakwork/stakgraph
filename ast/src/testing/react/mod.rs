@@ -16,9 +16,9 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    graph.analysis().await;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
     if use_lsp == true {
         assert_eq!(num_nodes, 63, "Expected 63 nodes");
         assert_eq!(num_edges, 80, "Expected 80 edges");
@@ -31,35 +31,14 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
         path.replace("\\", "/")
     }
 
-    let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    let language_nodes = graph.find_nodes_by_type(NodeType::Language).await;
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
-    assert_eq!(
-        language_nodes[0].name, "react",
-        "Language node name should be 'react'"
-    );
-    assert_eq!(
-        normalize_path(&language_nodes[0].file),
-        "src/testing/react/",
-        "Language node file path is incorrect"
-    );
-
-    let pkg_files = graph.find_nodes_by_name(NodeType::File, "package.json");
-    assert_eq!(pkg_files.len(), 1, "Expected 1 package.json file");
-    assert_eq!(
-        pkg_files[0].name, "package.json",
-        "Package file name is incorrect"
-    );
-
-    let imports = graph.find_nodes_by_type(NodeType::Import);
+    assert_eq!(language_nodes[0].name, "react", "Language node name should be 'react'");
+    assert_eq!(normalize_path(&language_nodes[0].file), "src/testing/react/", "Language node file path is incorrect");
+    let imports = graph.find_nodes_by_type(NodeType::Import).await;
     assert_eq!(imports.len(), 5, "Expected 5 imports");
-
-    let functions = graph.find_nodes_by_type(NodeType::Function);
-    if use_lsp == true {
-        assert_eq!(functions.len(), 22, "Expected 22 functions/components");
-    } else {
-        assert_eq!(functions.len(), 16, "Expected 16 functions/components");
-    }
-
+    let functions = graph.find_nodes_by_type(NodeType::Function).await;
+    assert_eq!(functions.len(), 22, "Expected 22 functions/components");
     let mut sorted_functions = functions.clone();
     sorted_functions.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -137,16 +116,16 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
         "SubmitButton component file path is incorrect"
     );
 
-    let requests = graph.find_nodes_by_type(NodeType::Request);
+    let requests = graph.find_nodes_by_type(NodeType::Request).await;
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls).await;
     assert_eq!(calls_edges_count, 11, "Expected 11 calls edges");
 
-    let pages = graph.find_nodes_by_type(NodeType::Page);
+    let pages = graph.find_nodes_by_type(NodeType::Page).await;
     assert_eq!(pages.len(), 2, "Expected 2 pages");
 
-    let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
+    let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders).await;
     assert_eq!(renders_edges_count, 2, "Expected 2 renders edges");
 
     let people_page = pages

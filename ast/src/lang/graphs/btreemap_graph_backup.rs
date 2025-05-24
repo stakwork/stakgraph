@@ -146,12 +146,7 @@ impl Graph for BTreeMapGraph {
         filtered
     }
 
-    async fn find_nodes_in_range(
-        &self,
-        node_type: NodeType,
-        row: u32,
-        file: &str,
-    ) -> Option<NodeData> {
+    async fn find_nodes_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData> {
         let prefix = format!("{:?}-", node_type).to_lowercase();
 
         self.nodes
@@ -193,7 +188,7 @@ impl Graph for BTreeMapGraph {
             .map(|(_, node)| node.node_data.clone())
     }
 
-    async fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {
+    fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {
         let prefix = format!("{:?}-", node_type).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
@@ -226,16 +221,14 @@ impl Graph for BTreeMapGraph {
     async fn add_instances(&mut self, instances: Vec<NodeData>) {
         for inst in instances {
             if let Some(of) = &inst.data_type {
-                if let Some(class_node_data) =
-                    self.find_nodes_by_name(NodeType::Class, of).await.first()
+                if let Some(class_node_data) = self.find_nodes_by_name(NodeType::Class, of).await.first()
                 {
                     self.add_node_with_parent(
                         NodeType::Instance,
                         inst.clone(),
                         NodeType::File,
                         &inst.file,
-                    )
-                    .await;
+                    ).await;
 
                     let edge = Edge::of(&inst, class_node_data);
                     self.add_edge(edge).await;
@@ -244,7 +237,7 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    async fn add_functions(&mut self, functions: Vec<Function>) {
+    fn add_functions(&mut self, functions: Vec<Function>) {
         for (node, method_of, reqs, dms, trait_operand, return_types) in functions {
             let node_clone = node.clone();
             let func_node = Node::new(NodeType::Function, node);
@@ -266,19 +259,19 @@ impl Graph for BTreeMapGraph {
                     NodeType::Function,
                     &node_clone,
                 );
-                self.add_edge(edge).await;
+                self.add_edge(edge);
             }
 
             if let Some(p) = method_of {
-                self.add_edge(p.into()).await;
+                self.add_edge(p.into());
             }
 
             if let Some(to) = trait_operand {
-                self.add_edge(to.into()).await;
+                self.add_edge(to.into());
             }
 
             for rt in return_types {
-                self.add_edge(rt).await;
+                self.add_edge(rt);
             }
 
             for r in reqs {
@@ -289,35 +282,35 @@ impl Graph for BTreeMapGraph {
                 }
 
                 let edge = Edge::calls(NodeType::Function, &node_clone, NodeType::Request, &r);
-                self.add_edge(edge).await;
+                self.add_edge(edge);
             }
 
             for dm in dms {
-                self.add_edge(dm).await;
+                self.add_edge(dm);
             }
         }
     }
 
-    async fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
+    fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
         let (page_data, edge_opt) = page;
-        self.add_node(NodeType::Page, page_data).await;
+        self.add_node(NodeType::Page, page_data);
 
         if let Some(edge) = edge_opt {
-            self.add_edge(edge).await;
+            self.add_edge(edge);
         }
     }
 
-    async fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
         for (page_data, edges) in pages {
-            self.add_node(NodeType::Page, page_data).await;
+            self.add_node(NodeType::Page, page_data);
 
             for edge in edges {
-                self.add_edge(edge).await;
+                self.add_edge(edge);
             }
         }
     }
 
-    async fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
+    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
         let prefix = format!(
             "{}-{}-{}",
             &sanitize_string(&format!("{:?}", NodeType::Endpoint)),
@@ -331,7 +324,7 @@ impl Graph for BTreeMapGraph {
             .map(|(_, node)| node.node_data.clone())
     }
 
-    async fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
         for (endpoint_data, handler_edge) in endpoints {
             if endpoint_data.meta.get("handler").is_some() {
                 let default_verb = "".to_string();
@@ -339,40 +332,34 @@ impl Graph for BTreeMapGraph {
 
                 if self
                     .find_endpoint(&endpoint_data.name, &endpoint_data.file, verb)
-                    .await
                     .is_some()
                 {
                     continue;
                 }
 
-                self.add_node(NodeType::Endpoint, endpoint_data).await;
+                self.add_node(NodeType::Endpoint, endpoint_data);
 
                 if let Some(edge) = handler_edge {
-                    self.add_edge(edge).await;
+                    self.add_edge(edge);
                 }
             }
         }
     }
 
-    async fn add_test_node(
-        &mut self,
-        test_data: NodeData,
-        test_type: NodeType,
-        test_edge: Option<Edge>,
-    ) {
+    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
         self.add_node_with_parent(
             test_type,
             test_data.clone(),
             NodeType::File,
             &test_data.file,
-        )
-        .await;
+        );
 
         if let Some(edge) = test_edge {
-            self.add_edge(edge).await;
+            self.add_edge(edge);
         }
     }
-    async fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
+    // Add calls only between function definitions not between function calls
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
         let (funcs, tests, int_tests) = calls;
         let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
 
@@ -382,8 +369,7 @@ impl Graph for BTreeMapGraph {
                     EdgeType::Calls,
                     NodeRef::from(fc.source.clone(), NodeType::Function),
                     NodeRef::from(class_call.into(), NodeType::Class),
-                ))
-                .await;
+                ));
             }
             if fc.target.is_empty() {
                 continue;
@@ -407,13 +393,14 @@ impl Graph for BTreeMapGraph {
                     }
 
                     let edge = Edge::uses(fc.source, &ext_nd);
-                    self.add_edge(edge).await;
+                    self.add_edge(edge);
                 }
             } else {
-                if let Some(target_function) = self
-                    .find_node_by_name_in_file(NodeType::Function, &fc.target.name, &fc.source.file)
-                    .await
-                {
+                if let Some(target_function) = self.find_node_by_name_in_file(
+                    NodeType::Function,
+                    &fc.target.name,
+                    &fc.source.file,
+                ) {
                     let edge_key = (
                         fc.source.name.clone(),
                         fc.source.file.clone(),
@@ -428,7 +415,7 @@ impl Graph for BTreeMapGraph {
                             NodeRef::from(fc.source.clone(), NodeType::Function),
                             NodeRef::from((&target_function).into(), NodeType::Function),
                         );
-                        self.add_edge(edge).await;
+                        self.add_edge(edge);
                     }
                 } else {
                     let edge_key = (
@@ -440,7 +427,7 @@ impl Graph for BTreeMapGraph {
 
                     if !unique_edges.contains(&edge_key) {
                         unique_edges.insert(edge_key);
-                        self.add_edge(fc.into()).await;
+                        self.add_edge(fc.into());
                     }
                 }
             }
@@ -459,7 +446,7 @@ impl Graph for BTreeMapGraph {
                     unique_edges.insert(edge_key);
 
                     let edge = Edge::uses(tc.source, &ext_nd);
-                    self.add_edge(edge).await;
+                    self.add_edge(edge);
                     let ext_node = Node::new(NodeType::Function, ext_nd.clone());
                     let ext_key = create_node_key(&ext_node);
                     if !self.nodes.contains_key(&ext_key) {
@@ -476,22 +463,22 @@ impl Graph for BTreeMapGraph {
 
                 if !unique_edges.contains(&edge_key) {
                     unique_edges.insert(edge_key);
-                    self.add_edge(Edge::new_test_call(tc)).await;
+                    self.add_edge(Edge::new_test_call(tc));
                 }
             }
         }
 
         for edge in int_tests {
-            self.add_edge(edge).await;
+            self.add_edge(edge);
         }
     }
-    async fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
         // Collect all updates we need to make
         let mut updates = Vec::new();
 
         for group in eg {
             if let Some(g) = group.meta.get("group") {
-                if let Some(gf) = self.find_nodes_by_name(NodeType::Function, g).await.first() {
+                if let Some(gf) = self.find_nodes_by_name(NodeType::Function, g).first() {
                     for q in lang.lang().endpoint_finders() {
                         let endpoints_in_group = lang.get_query_opt::<Self>(
                             Some(q),
@@ -549,7 +536,7 @@ impl Graph for BTreeMapGraph {
 
         Ok(())
     }
-    async fn class_includes(&mut self) {
+    fn class_includes(&mut self) {
         let class_nodes: Vec<_> = self
             .nodes
             .iter()
@@ -561,19 +548,17 @@ impl Graph for BTreeMapGraph {
             if let Some(includes) = node.node_data.meta.get("includes") {
                 let modules = includes.split(',').map(|m| m.trim());
                 for module in modules {
-                    if let Some(module_node) = self
-                        .find_nodes_by_name(NodeType::Class, module)
-                        .await
-                        .first()
+                    if let Some(module_node) =
+                        self.find_nodes_by_name(NodeType::Class, module).first()
                     {
                         let edge = Edge::class_imports(&node.node_data, &module_node);
-                        self.add_edge(edge).await;
+                        self.add_edge(edge);
                     }
                 }
             }
         }
     }
-    async fn class_inherits(&mut self) {
+    fn class_inherits(&mut self) {
         let class_nodes: Vec<_> = self
             .nodes
             .iter()
@@ -583,18 +568,15 @@ impl Graph for BTreeMapGraph {
 
         for (_, node) in class_nodes {
             if let Some(parent) = node.node_data.meta.get("parent") {
-                if let Some(parent_node) = self
-                    .find_nodes_by_name(NodeType::Class, parent)
-                    .await
-                    .first()
+                if let Some(parent_node) = self.find_nodes_by_name(NodeType::Class, parent).first()
                 {
                     let edge = Edge::parent_of(&parent_node, &node.node_data);
-                    self.add_edge(edge).await;
+                    self.add_edge(edge);
                 }
             }
         }
     }
-    async fn get_data_models_within(&mut self, lang: &Lang) {
+    fn get_data_models_within(&mut self, lang: &Lang) {
         let prefix = format!("{:?}-", NodeType::DataModel).to_lowercase();
 
         let data_model_nodes: Vec<NodeData> = self
@@ -606,16 +588,16 @@ impl Graph for BTreeMapGraph {
 
         for data_model in data_model_nodes {
             let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
-                self.find_nodes_by_file_ends_with_sync(NodeType::Function, file)
+                self.find_nodes_by_file_ends_with(NodeType::Function, file)
             });
 
             for edge in edges {
-                self.add_edge(edge).await;
+                self.add_edge(edge);
             }
         }
     }
 
-    async fn filter_out_nodes_without_children(
+    fn filter_out_nodes_without_children(
         &mut self,
         parent_type: NodeType,
         child_type: NodeType,
@@ -660,7 +642,7 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    async fn prefix_paths(&mut self, root: &str) {
+    fn prefix_paths(&mut self, root: &str) {
         let nodes_to_update: Vec<_> = self
             .nodes
             .iter()
@@ -676,7 +658,7 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    async fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
+    fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         let prefix = format!("{:?}-", node_type).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
@@ -685,12 +667,7 @@ impl Graph for BTreeMapGraph {
             .collect()
     }
 
-    async fn find_resource_nodes(
-        &self,
-        node_type: NodeType,
-        verb: &str,
-        path: &str,
-    ) -> Vec<NodeData> {
+    fn find_resource_nodes(&self, node_type: NodeType, verb: &str, path: &str) -> Vec<NodeData> {
         let prefix = format!("{:?}-", node_type).to_lowercase();
 
         self.nodes
@@ -714,7 +691,7 @@ impl Graph for BTreeMapGraph {
             .collect()
     }
 
-    async fn find_handlers_for_endpoint(&self, endpoint: &NodeData) -> Vec<NodeData> {
+    fn find_handlers_for_endpoint(&self, endpoint: &NodeData) -> Vec<NodeData> {
         let endpoint = Node::new(NodeType::Endpoint, endpoint.clone());
         let endpoint_key = create_node_key(&endpoint);
 
@@ -731,7 +708,7 @@ impl Graph for BTreeMapGraph {
         handlers
     }
 
-    async fn check_direct_data_model_usage(&self, function_name: &str, data_model: &str) -> bool {
+    fn check_direct_data_model_usage(&self, function_name: &str, data_model: &str) -> bool {
         for (src_key, dst_key, edge_type) in &self.edges {
             if *edge_type == EdgeType::Contains {
                 if let (Some(src_node), Some(dst_node)) =
@@ -749,7 +726,7 @@ impl Graph for BTreeMapGraph {
         false
     }
 
-    async fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
+    fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
         let function_prefix = format!(
             "{:?}-{}-{}",
             NodeType::Function,
@@ -772,7 +749,7 @@ impl Graph for BTreeMapGraph {
         called_functions
     }
 
-    async fn find_nodes_by_type(&self, node_type: NodeType) -> Vec<NodeData> {
+    fn find_nodes_by_type(&self, node_type: NodeType) -> Vec<NodeData> {
         let prefix = format!("{:?}-", node_type).to_lowercase();
         self.nodes
             .range(prefix.clone()..)
@@ -781,7 +758,7 @@ impl Graph for BTreeMapGraph {
             .collect()
     }
 
-    async fn find_nodes_with_edge_type(
+    fn find_nodes_with_edge_type(
         &self,
         source_type: NodeType,
         target_type: NodeType,
@@ -805,7 +782,7 @@ impl Graph for BTreeMapGraph {
 
         result
     }
-    async fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
+    fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
         self.edges
             .iter()
             .filter(|(_, _, edge)| match (edge, &edge_type) {
@@ -817,21 +794,6 @@ impl Graph for BTreeMapGraph {
 }
 
 impl BTreeMapGraph {
-    // Synchronous helper method for backwards compatibility
-    pub fn find_nodes_by_file_ends_with_sync(
-        &self,
-        node_type: NodeType,
-        file: &str,
-    ) -> Vec<NodeData> {
-        let prefix = format!("{:?}-", node_type).to_lowercase();
-        self.nodes
-            .range(prefix.clone()..)
-            .take_while(|(k, _)| k.starts_with(&prefix))
-            .filter(|(_, node)| node.node_data.file.ends_with(file))
-            .map(|(_, node)| node.node_data.clone())
-            .collect()
-    }
-
     pub fn to_array_graph_edges(&self) -> Vec<Edge> {
         let mut formatted_edges = Vec::with_capacity(self.edges.len());
 
