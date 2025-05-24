@@ -1,7 +1,10 @@
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::Graph;
+use crate::lang::graphs::{BTreeMapGraph, Edge, Graph, Node};
 use crate::repo::{check_revs_files, Repo};
+use crate::utils::print_json;
 use anyhow::Result;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use tracing::info;
 
 pub struct GraphOps {
@@ -15,8 +18,8 @@ impl GraphOps {
         }
     }
 
-    pub fn connect(&mut self) -> Result<()> {
-        futures::executor::block_on(self.graph.connect())
+    pub async fn connect(&mut self) -> Result<()> {
+        self.graph.connect().await
     }
 
     pub fn clear(&mut self) -> Result<(u32, u32)> {
@@ -26,7 +29,7 @@ impl GraphOps {
         Ok((nodes, edges))
     }
 
-    pub fn update_incremental(
+    pub async fn update_incremental(
         &mut self,
         repo_url: &str,
         repo_path: &str,
@@ -47,16 +50,16 @@ impl GraphOps {
                     self.graph.remove_nodes_by_file(file)?;
                 }
 
-                let file_repos = futures::executor::block_on(Repo::new_multi_detect(
+                let file_repos = Repo::new_multi_detect(
                     repo_path,
                     Some(repo_url.to_string()),
                     modified_files.clone(),
                     Vec::new(),
-                ))?;
+                )
+                .await?;
 
                 for repo in &file_repos.0 {
-                    let file_graph =
-                        futures::executor::block_on(repo.build_graph_inner::<Neo4jGraph>())?;
+                    let file_graph = repo.build_graph_inner::<Neo4jGraph>().await?;
                     let (nodes_before, edges_before) = self.graph.get_graph_size();
                     self.graph.extend_graph(file_graph);
 
@@ -95,23 +98,95 @@ impl GraphOps {
         Ok(self.graph.get_graph_size())
     }
 
-    pub fn update_full(
+    pub async fn update_full(
         &mut self,
         repo_url: &str,
         repo_path: &str,
         current_hash: &str,
     ) -> Result<(u32, u32)> {
-        let repos = futures::executor::block_on(Repo::new_multi_detect(
+        let repos = Repo::new_multi_detect(
             repo_path,
             Some(repo_url.to_string()),
             Vec::new(),
             Vec::new(),
-        ))?;
+        )
+        .await?;
 
-        let temp_graph = futures::executor::block_on(repos.build_graphs_inner::<Neo4jGraph>())?;
+        let temp_graph = repos.build_graphs_inner::<Neo4jGraph>().await?;
         self.graph.extend_graph(temp_graph);
 
         self.graph.update_repository_hash(repo_url, current_hash)?;
         Ok(self.graph.get_graph_size())
+    }
+
+    pub async fn import_jsonl_to_neo4j(
+        &mut self,
+        node_file: &str,
+        edge_file: &str,
+        repo_url: &str,
+        current_hash: &str,
+    ) -> Result<(u32, u32)> {
+        self.process_nodes_file(node_file)?;
+
+        self.process_edges_file(edge_file)?;
+
+        self.graph.update_repository_hash(repo_url, current_hash)?;
+
+        Ok(self.graph.get_graph_size())
+    }
+
+    fn process_nodes_file(&mut self, file_path: &str) -> Result<()> {
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let node: Node = serde_json::from_str(&line)?;
+            self.graph.add_node(node.node_type, node.node_data);
+        }
+
+        Ok(())
+    }
+    fn process_edges_file(&mut self, file_path: &str) -> Result<()> {
+        let file = File::open(file_path)?;
+        let reader = BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let edge: Edge = serde_json::from_str(&line)?;
+            self.graph.add_edge(edge);
+        }
+
+        Ok(())
+    }
+
+    pub async fn export_btreemap_to_jsonl(
+        &self,
+        repo_path: &str,
+        repo_url: &str,
+    ) -> Result<(String, String)> {
+        let repos =
+            Repo::new_multi_detect(repo_path, Some(repo_url.to_string()), vec![], vec![]).await?;
+        let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await?;
+
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        let base_name = format!("ingest_{}", timestamp);
+
+        print_json(&btree_graph, &base_name)?;
+
+        let node_file = format!("ast/examples/{}-nodes.jsonl", base_name);
+        let edge_file = format!("ast/examples/{}-edges.jsonl", base_name);
+
+        Ok((node_file, edge_file))
     }
 }

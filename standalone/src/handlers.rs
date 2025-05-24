@@ -1,7 +1,7 @@
 use crate::types::{AppError, ProcessBody, ProcessResponse, Result};
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphOps;
-use ast::lang::Graph;
+use ast::lang::{BTreeMapGraph, Graph};
 use ast::repo::Repo;
 use axum::Json;
 use lsp::git::{get_commit_hash, git_pull_or_clone};
@@ -12,14 +12,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
     {
         let (final_repo_path, final_repo_url, need_clone, username, pat) = resolve_repo(&body)?;
 
-        clone_repo(
-            need_clone,
-            &final_repo_url,
-            &final_repo_path,
-            username.clone(),
-            pat.clone(),
-        )
-        .await?;
+        clone_repo(need_clone, &final_repo_url, &final_repo_path, username, pat).await?;
 
         let repo_path = &final_repo_path;
         let repo_url = &final_repo_url;
@@ -35,7 +28,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         };
 
         let mut graph_ops = GraphOps::new();
-        graph_ops.connect()?;
+        graph_ops.connect().await?;
 
         let stored_hash = match graph_ops.graph.get_repository_hash(&repo_url) {
             Ok(hash) => Some(hash),
@@ -61,10 +54,14 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
 
         let (nodes, edges) = if let Some(hash) = stored_hash {
             info!("Updating repository hash from {} to {}", hash, current_hash);
-            graph_ops.update_incremental(&repo_url, &repo_path, &current_hash, &hash)?
+            graph_ops
+                .update_incremental(&repo_url, &repo_path, &current_hash, &hash)
+                .await?
         } else {
             info!("Adding new repository hash: {}", current_hash);
-            graph_ops.update_full(&repo_url, &repo_path, &current_hash)?
+            graph_ops
+                .update_full(&repo_url, &repo_path, &current_hash)
+                .await?
         };
 
         Ok(Json(ProcessResponse {
@@ -86,7 +83,7 @@ pub async fn clear_graph() -> Result<Json<ProcessResponse>> {
     #[cfg(feature = "neo4j")]
     {
         let mut graph_ops = GraphOps::new();
-        graph_ops.connect()?;
+        graph_ops.connect().await?;
         let (nodes, edges) = graph_ops.clear()?;
         Ok(Json(ProcessResponse {
             status: "success".to_string(),
@@ -102,37 +99,31 @@ pub async fn clear_graph() -> Result<Json<ProcessResponse>> {
         )))
     }
 }
-
+#[axum::debug_handler]
 pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
     #[cfg(feature = "neo4j")]
     {
-        let (final_repo_path, final_repo_url, need_clone, username, pat) = resolve_repo(&body)?;
-        clone_repo(
-            need_clone,
-            &final_repo_url,
-            &final_repo_path,
-            username.clone(),
-            pat.clone(),
-        )
-        .await?;
+        let (repo_path, repo_url, need_clone, username, pat) = resolve_repo(&body)?;
+        clone_repo(need_clone, &repo_url, &repo_path, username, pat).await?;
 
-        let repo_path = &final_repo_path;
-        let repo_url = &final_repo_url;
-
-        let current_hash = match get_commit_hash(&repo_path).await {
-            Ok(hash) => hash,
-            Err(e) => {
-                return Err(AppError::Anyhow(anyhow::anyhow!(
-                    "Could not get current hash: {}",
-                    e
-                )))
-            }
-        };
+        let current_hash = get_commit_hash(&repo_path).await?;
 
         let mut graph_ops = GraphOps::new();
-        graph_ops.connect()?;
+        graph_ops.connect().await?;
 
-        let (nodes, edges) = graph_ops.update_full(&repo_url, &repo_path, &current_hash)?;
+        // 1. Export BTreeMapGraph to JSONL
+        let (node_file, edge_file) = graph_ops
+            .export_btreemap_to_jsonl(&repo_path, &repo_url)
+            .await?;
+
+        // 2. Import JSONL into Neo4j
+        let (nodes, edges) = graph_ops
+            .import_jsonl_to_neo4j(&node_file, &edge_file, &repo_url, &current_hash)
+            .await?;
+
+        // Optionally: Clean up files
+        let _ = std::fs::remove_file(&node_file);
+        let _ = std::fs::remove_file(&edge_file);
 
         Ok(Json(ProcessResponse {
             status: "success".to_string(),
@@ -141,7 +132,6 @@ pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
             edges: edges as usize,
         }))
     }
-
     #[cfg(not(feature = "neo4j"))]
     {
         Err(AppError::Anyhow(anyhow::anyhow!(
