@@ -279,7 +279,8 @@ impl Repo {
 
         info!("=> get_instances...");
         for (filename, code) in &filez {
-            let q = self.lang.lang().instance_definition_query();
+            let q_str = self.lang.lang().instance_definition_query();
+            let q = self.lang.q(q_str.as_deref().unwrap_or(""), &NodeType::Instance);
             let instances = self
                 .lang
                 .collect::<G>(&q, &code, &filename, NodeType::Instance)

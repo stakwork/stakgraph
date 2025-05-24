@@ -115,7 +115,9 @@ impl Lang {
     pub async fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Library).await?)
+            Ok(self
+                .collect::<G>(&qo, code, file, NodeType::Library)
+                .await?)
         } else {
             Ok(Vec::new())
         }
@@ -188,7 +190,9 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<Function>, Vec<Function>)> {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
-        let funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx).await?;
+        let funcs1 = self
+            .collect_functions(&qo, code, file, graph, lsp_tx)
+            .await?;
         let (funcs, mut tests) = self.lang.filter_tests(funcs1);
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::Test);
@@ -205,7 +209,9 @@ impl Lang {
         fmtr: NodeType,
     ) -> Result<Vec<NodeData>> {
         if let Some(qo) = q {
-            let insts = self.collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr).await?;
+            let insts = self
+                .collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr)
+                .await?;
             Ok(insts)
         } else {
             Ok(Vec::new())
@@ -247,7 +253,7 @@ impl Lang {
     ) -> Result<()> {
         trace!("add_calls_for_function");
         let mut caller_name = "".to_string();
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, &m, code, |body, node, o| async {
             if o == FUNCTION_NAME {
                 caller_name = body;
             } else if o == FUNCTION_DEFINITION {
@@ -276,7 +282,7 @@ impl Lang {
                 }
             }
             Ok(())
-        })?;
+        }).await?;
         Ok(())
     }
     fn add_calls_inside(

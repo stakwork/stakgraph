@@ -1299,15 +1299,16 @@ impl Graph for Neo4jGraph {
 
             let mut txn_manager = TransactionManager::new(&connection);
 
-            let data_models = self.find_nodes_by_type(NodeType::DataModel);
+            let data_models = self.find_nodes_by_type(NodeType::DataModel).await;
 
             for data_model in data_models {
                 let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
-                    self.find_nodes_by_file_ends_with(NodeType::Function, file)
+                    // For Neo4j, you may need to block_on or spawn a task if this is async
+                    futures::executor::block_on(self.find_nodes_by_file_ends_with(NodeType::Function, file))
                 });
 
                 for edge in edges {
-                    txn_manager.add_edge(&edge);
+                    txn_manager.add_edge(&edge).await;
                 }
             }
 

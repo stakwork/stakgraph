@@ -493,12 +493,9 @@ impl Graph for BTreeMapGraph {
             if let Some(g) = group.meta.get("group") {
                 if let Some(gf) = self.find_nodes_by_name(NodeType::Function, g).await.first() {
                     for q in lang.lang().endpoint_finders() {
-                        let endpoints_in_group = lang.get_query_opt::<Self>(
-                            Some(q),
-                            &gf.body,
-                            &gf.file,
-                            NodeType::Endpoint,
-                        )?;
+                        let endpoints_in_group = lang
+                            .get_query_opt::<Self>(Some(q), &gf.body, &gf.file, NodeType::Endpoint)
+                            .await?;
 
                         for end in endpoints_in_group {
                             let prefix =
@@ -596,19 +593,16 @@ impl Graph for BTreeMapGraph {
     }
     async fn get_data_models_within(&mut self, lang: &Lang) {
         let prefix = format!("{:?}-", NodeType::DataModel).to_lowercase();
-
         let data_model_nodes: Vec<NodeData> = self
             .nodes
-            .range(prefix.clone()..)
-            .take_while(|(k, _)| k.starts_with(&prefix))
-            .map(|(_, node)| node.node_data.clone())
+            .values()
+            .filter(|n| create_node_key(n).starts_with(&prefix))
+            .map(|n| n.node_data.clone())
             .collect();
-
         for data_model in data_model_nodes {
             let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
-                self.find_nodes_by_file_ends_with_sync(NodeType::Function, file)
+                self.find_nodes_by_file_ends_with(NodeType::Function, file)
             });
-
             for edge in edges {
                 self.add_edge(edge).await;
             }
@@ -847,7 +841,7 @@ impl BTreeMapGraph {
                     },
                     target: NodeRef {
                         node_type: dst_node.node_type.clone(),
-                        node_data: NodeKeys::from(&dst_node.node_data),
+                        node_data: NodeKeys::from(&dstNode.node_data),
                     },
                 };
 

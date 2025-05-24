@@ -206,7 +206,8 @@ impl Graph for ArrayGraph {
                             &gf.body,
                             &gf.file,
                             NodeType::Endpoint,
-                        )?;
+                        )
+                        .await?;
                         // find the endpoint in the graph
                         for end in endpoints_in_group {
                             if let Some(idx) =
@@ -622,18 +623,22 @@ impl Graph for ArrayGraph {
         });
     }
     async fn get_data_models_within(&mut self, lang: &Lang) {
+        let prefix = format!("{:?}-", NodeType::DataModel).to_lowercase();
         let data_model_nodes: Vec<NodeData> = self
             .nodes
             .iter()
-            .filter(|n| n.node_type == NodeType::DataModel)
+            .filter(|n| create_node_key(n).starts_with(&prefix))
             .map(|n| n.node_data.clone())
             .collect();
         for data_model in data_model_nodes {
             let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
-                self.find_nodes_by_file_ends_with_sync(NodeType::Function, file)
+                self.find_nodes_by_file_ends_with(NodeType::Function, file)
             });
-
-            self.edges.extend(edges);
+            // If edges is async, use block_on or .await as needed
+            // If not, just use as is
+            for edge in edges {
+                self.add_edge(edge).await;
+            }
         }
     }
     async fn prefix_paths(&mut self, root: &str) {
