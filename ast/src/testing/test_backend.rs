@@ -40,31 +40,32 @@ impl<G: Graph> BackendTester<G> {
         })
     }
 
-    pub fn test_backend(&self) -> Result<(), anyhow::Error> {
+    pub async fn test_backend(&self) -> Result<(), anyhow::Error> {
         info!(
             "\n\nTesting backend for {} at src/testing/{}\n\n",
             self.lang.kind.to_string().to_uppercase(),
             self.repo.as_ref().unwrap()
         );
 
-        self.test_language()?;
-        self.test_package_file()?;
+        self.test_language().await?;
+        self.test_package_file().await?;
 
         let data_model = self.lang.lang().data_model_name("Person");
 
         let expected_endpoints = vec![("GET", "person/:param"), ("POST", "person")];
 
-        self.test_data_model(data_model.as_str())?;
+        self.test_data_model(data_model.as_str()).await?;
 
-        self.test_endpoints(expected_endpoints.clone())?;
+        self.test_endpoints(expected_endpoints.clone()).await?;
 
-        self.test_handler_functions(expected_endpoints, data_model.as_str())?;
+        self.test_handler_functions(expected_endpoints, data_model.as_str())
+            .await?;
 
         Ok(())
     }
 
-    fn test_language(&self) -> Result<(), anyhow::Error> {
-        let language_nodes = self.graph.find_nodes_by_type(NodeType::Language);
+    async fn test_language(&self) -> Result<(), anyhow::Error> {
+        let language_nodes = self.graph.find_nodes_by_type(NodeType::Language).await;
 
         assert!(!language_nodes.is_empty(), "Language node not found");
 
@@ -77,14 +78,14 @@ impl<G: Graph> BackendTester<G> {
 
         Ok(())
     }
-
-    fn test_package_file(&self) -> Result<(), anyhow::Error> {
+    async fn test_package_file(&self) -> Result<(), anyhow::Error> {
         let package_file_names = self.lang.kind.pkg_files();
         let package_file_name = package_file_names.first().unwrap();
 
         let file_nodes = self
             .graph
-            .find_nodes_by_name(NodeType::File, &package_file_name);
+            .find_nodes_by_name(NodeType::File, &package_file_name)
+            .await;
 
         assert!(
             !file_nodes.is_empty(),
@@ -96,11 +97,11 @@ impl<G: Graph> BackendTester<G> {
 
         Ok(())
     }
-
-    fn test_data_model(&self, name: &str) -> Result<(), anyhow::Error> {
+    async fn test_data_model(&self, name: &str) -> Result<(), anyhow::Error> {
         let data_model_nodes = self
             .graph
-            .find_nodes_by_name_contains(NodeType::DataModel, name);
+            .find_nodes_by_name_contains(NodeType::DataModel, name)
+            .await;
 
         if !data_model_nodes.is_empty() {
             info!("✓ Found data model {}", name);
@@ -109,17 +110,14 @@ impl<G: Graph> BackendTester<G> {
             anyhow::bail!("Data model {} not found", name)
         }
     }
-
-    fn test_endpoints(&self, endpoints: Vec<(&str, &str)>) -> Result<(), anyhow::Error> {
+    async fn test_endpoints(&self, endpoints: Vec<(&str, &str)>) -> Result<(), anyhow::Error> {
         for (method, path) in endpoints {
             let normalized_expected_path = normalize_backend_path(path).unwrap();
 
-            // Using find_resource_nodes which we added to the Graph trait
-            let matching_endpoints = self.graph.find_resource_nodes(
-                NodeType::Endpoint,
-                method,
-                &normalized_expected_path,
-            );
+            let matching_endpoints = self
+                .graph
+                .find_resource_nodes(NodeType::Endpoint, method, &normalized_expected_path)
+                .await;
 
             if !matching_endpoints.is_empty() {
                 info!("✓ Found endpoint {} {}", method, path);
@@ -127,11 +125,9 @@ impl<G: Graph> BackendTester<G> {
                 anyhow::bail!("Endpoint {} {} not found", method, path);
             }
         }
-
         Ok(())
     }
-
-    fn test_handler_functions(
+    async fn test_handler_functions(
         &self,
         expected_enpoints: Vec<(&str, &str)>,
         data_model: &str,
@@ -139,9 +135,10 @@ impl<G: Graph> BackendTester<G> {
         for (verb, path) in expected_enpoints {
             let normalized_path = normalize_path(path);
 
-            let matching_endpoints =
-                self.graph
-                    .find_resource_nodes(NodeType::Endpoint, verb, &normalized_path);
+            let matching_endpoints = self
+                .graph
+                .find_resource_nodes(NodeType::Endpoint, verb, &normalized_path)
+                .await;
             if matching_endpoints.is_empty() {
                 anyhow::bail!("Endpoint {} {} not found", verb, path);
             }
@@ -149,7 +146,7 @@ impl<G: Graph> BackendTester<G> {
             let mut found_handler = false;
             let mut last_endpoint_name = String::new();
             for endpoint in &matching_endpoints {
-                let handlers = self.graph.find_handlers_for_endpoint(endpoint);
+                let handlers = self.graph.find_handlers_for_endpoint(endpoint).await;
 
                 if handlers.is_empty() {
                     info!("No handler found for endpoint {}", endpoint.name);
@@ -167,7 +164,8 @@ impl<G: Graph> BackendTester<G> {
 
                 let direct_connection = self
                     .graph
-                    .check_direct_data_model_usage(&handler_name, data_model);
+                    .check_direct_data_model_usage(&handler_name, data_model)
+                    .await;
 
                 if direct_connection {
                     info!(
@@ -177,7 +175,7 @@ impl<G: Graph> BackendTester<G> {
                     continue;
                 }
 
-                let triggered_functions = self.graph.find_functions_called_by(handler);
+                let triggered_functions = self.graph.find_functions_called_by(handler).await;
 
                 if triggered_functions.is_empty() {
                     error!("No functions triggered by handler {}", formatted_handler);
@@ -192,6 +190,7 @@ impl<G: Graph> BackendTester<G> {
                     if self
                         .graph
                         .check_direct_data_model_usage(&func.name, data_model)
+                        .await
                     {
                         data_model_found = true;
                         break;
@@ -199,7 +198,10 @@ impl<G: Graph> BackendTester<G> {
 
                     let mut visited = Vec::new();
 
-                    if self.check_indirect_data_model_usage(&func.name, data_model, &mut visited) {
+                    if self
+                        .check_indirect_data_model_usage(&func.name, data_model, &mut visited)
+                        .await
+                    {
                         data_model_found = true;
                         info!(
                             "✓ Found function {} that indirectly triggers data model {}",
@@ -231,11 +233,9 @@ impl<G: Graph> BackendTester<G> {
                 error!("No handler found for endpoint {}", last_endpoint_name);
             }
         }
-
         Ok(())
     }
-
-    fn check_indirect_data_model_usage(
+    async fn check_indirect_data_model_usage(
         &self,
         function_name: &str,
         data_model: &str,
@@ -249,13 +249,15 @@ impl<G: Graph> BackendTester<G> {
         if self
             .graph
             .check_direct_data_model_usage(function_name, data_model)
+            .await
         {
             return true;
         }
 
         let function_nodes = self
             .graph
-            .find_nodes_by_name(NodeType::Function, function_name);
+            .find_nodes_by_name(NodeType::Function, function_name)
+            .await;
 
         if function_nodes.is_empty() {
             return false;
@@ -263,10 +265,13 @@ impl<G: Graph> BackendTester<G> {
 
         let function_node = &function_nodes[0];
 
-        let called_functions = self.graph.find_functions_called_by(&function_node);
+        let called_functions = self.graph.find_functions_called_by(&function_node).await;
 
         for called_function in called_functions {
-            if self.check_indirect_data_model_usage(&called_function.name, data_model, visited) {
+            if self
+                .check_indirect_data_model_usage(&called_function.name, data_model, visited)
+                .await
+            {
                 return true;
             }
         }

@@ -16,35 +16,24 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    graph.analysis().await;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
     assert_eq!(num_nodes, 61, "Expected 61 nodes");
     assert_eq!(num_edges, 100, "Expected 100 edges");
 
-    let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    let language_nodes = graph.find_nodes_by_type(NodeType::Language).await;
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
-    assert_eq!(
-        language_nodes[0].name, "ruby",
-        "Language node name should be 'ruby'"
-    );
-    assert_eq!(
-        language_nodes[0].file, "src/testing/ruby/",
-        "Language node file path is incorrect"
-    );
+    assert_eq!(language_nodes[0].name, "ruby", "Language node name should be 'ruby'");
+    assert_eq!(language_nodes[0].file, "src/testing/ruby/", "Language node file path is incorrect");
 
-    let pkg_files = graph.find_nodes_by_name(NodeType::File, "Gemfile");
-    assert_eq!(pkg_files.len(), 1, "Expected 1 Gemfile");
-    assert_eq!(
-        pkg_files[0].name, "Gemfile",
-        "Package file name is incorrect"
-    );
-
-    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint).await;
     assert_eq!(endpoints.len(), 7, "Expected 7 endpoints");
 
     let mut sorted_endpoints = endpoints.clone();
     sorted_endpoints.sort_by(|a, b| a.name.cmp(&b.name));
+
+    assert_eq!(sorted_endpoints[0].file, "src/testing/ruby/routes.rb", "Endpoint file path is incorrect");
 
     let get_person_endpoint = endpoints
         .iter()
@@ -105,14 +94,14 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Endpoint file path is incorrect"
     );
 
-    let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
+    let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler).await;
     assert_eq!(handler_edges_count, 7, "Expected 7 handler edges");
 
-    let class_counts = graph.count_edges_of_type(EdgeType::ParentOf);
+    let class_counts = graph.count_edges_of_type(EdgeType::ParentOf).await;
     assert_eq!(class_counts, 6, "Expected 6 class edges");
 
     let class_calls =
-        graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Class, EdgeType::Calls);
+        graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Class, EdgeType::Calls).await;
 
     assert_eq!(class_calls.len(), 1, "Expected 1 class calls edges");
 
