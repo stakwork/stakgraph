@@ -210,19 +210,11 @@ impl EdgeQueryBuilder {
     }
     
     pub fn build(&self) -> (String, HashMap<String, String>) {
-        let mut  params = self.build_params();
+        let params = self.build_params();
 
         let rel_type = self.edge.edge.to_string();
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
-
-        //ideal query
-        // let query = format!(
-        //     "MATCH (source:{} {{name: $source_name, file: $source_file, start: $source_start}}), \
-        //            (target:{} {{name: $target_name, file: $target_file, start: $target_start}}) \
-        //      MERGE (source)-[r:{}]->(target)",
-        //     source_type, target_type, rel_type
-        // );
         
             let query = format!(
                 "MATCH (source:{} {{name: $source_name, file: $source_file}}), \

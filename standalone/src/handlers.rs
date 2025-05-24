@@ -1,7 +1,7 @@
 use crate::types::{AppError, ProcessBody, ProcessResponse, Result};
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphOps;
-use ast::lang::Graph;
+use ast::lang::{BTreeMapGraph, Graph};
 use ast::repo::Repo;
 use axum::Json;
 use lsp::git::{get_commit_hash, git_pull_or_clone};
@@ -134,9 +134,10 @@ pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
             Some(repo_url.to_string()),
             Vec::new(),
             Vec::new(),
-        );
+        )
+        .await?;
         info!("Building BTreeMapGraph graph for repo: {}", repo_path);
-        let btree_graph = repos.build_graphs_btree().await?;
+        let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await?;
 
         let timestamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
