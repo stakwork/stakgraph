@@ -19,7 +19,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     graph.analysis();
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
     if use_lsp == true {
         assert_eq!(num_nodes, 64, "Expected 64 nodes");
         assert_eq!(num_edges, 93, "Expected 93 edges");
@@ -28,7 +28,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         assert_eq!(num_edges, 47, "Expected 47 edges");
     }
 
-    let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go");
+    let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go").await;
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "go",
@@ -39,11 +39,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
-    let imports = graph.find_nodes_by_type(NodeType::Import);
+    let imports = graph.find_nodes_by_type(NodeType::Import).await;
     assert_eq!(imports.len(), 3, "Expected 3 imports");
 
     // Find classes
-    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let classes = graph.find_nodes_by_type(NodeType::Class).await;
     assert_eq!(classes.len(), 1, "Expected 1 class");
     assert_eq!(
         classes[0].name, "database",
@@ -54,11 +54,12 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Class file path is incorrect"
     );
 
-    let class_function_edges =
-        graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
+    let class_function_edges = graph
+        .find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand)
+        .await;
     assert_eq!(class_function_edges.len(), 4, "Expected 4 methods");
 
-    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel).await;
     assert_eq!(data_models.len(), 2, "Expected 2 data models");
     assert!(
         data_models
@@ -67,7 +68,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Expected Person data model not found"
     );
 
-    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint).await;
     assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
 
     let get_endpoint = endpoints
@@ -82,23 +83,23 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         .expect("POST endpoint not found");
     assert_eq!(post_endpoint.file, "src/testing/go/routes.go");
 
-    let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
+    let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler).await;
     assert_eq!(handler_edges_count, 2, "Expected 2 handler edges");
 
-    let function_calls = graph.count_edges_of_type(EdgeType::Calls);
+    let function_calls = graph.count_edges_of_type(EdgeType::Calls).await;
     assert_eq!(function_calls, 6, "Expected 6 function calls");
 
-    let operands = graph.count_edges_of_type(EdgeType::Operand);
+    let operands = graph.count_edges_of_type(EdgeType::Operand).await;
     assert_eq!(operands, 4, "Expected 4 operands");
 
-    let of = graph.count_edges_of_type(EdgeType::Of);
+    let of = graph.count_edges_of_type(EdgeType::Of).await;
     assert_eq!(of, 1, "Expected 1 of edges");
 
     if use_lsp {
-        let contains = graph.count_edges_of_type(EdgeType::Contains);
+        let contains = graph.count_edges_of_type(EdgeType::Contains).await;
         assert_eq!(contains, 36, "Expected 36 contains edges with lsp");
     } else {
-        let contains = graph.count_edges_of_type(EdgeType::Contains);
+        let contains = graph.count_edges_of_type(EdgeType::Contains).await;
         assert_eq!(contains, 34, "Expected 34 contains edges");
     }
 

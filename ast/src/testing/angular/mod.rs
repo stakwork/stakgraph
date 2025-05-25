@@ -16,24 +16,24 @@ pub async fn test_angular_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
     assert_eq!(num_nodes, 76, "Expected 76 nodes");
     assert_eq!(num_edges, 78, "Expected 78 edges");
 
-    let imports = graph.find_nodes_by_type(NodeType::Import);
+    let imports = graph.find_nodes_by_type(NodeType::Import).await;
     assert_eq!(imports.len(), 10, "Expected 10 imports");
 
-    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let classes = graph.find_nodes_by_type(NodeType::Class).await;
     assert_eq!(classes.len(), 5, "Expected 5 classes");
 
-    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel).await;
     assert_eq!(data_models.len(), 1, "Expected 1 data model");
     assert_eq!(
         data_models[0].name, "Person",
         "Data model name should be 'Person'"
     );
 
-    let functions = graph.find_nodes_by_type(NodeType::Function);
+    let functions = graph.find_nodes_by_type(NodeType::Function).await;
     assert_eq!(functions.len(), 8, "Expected 8 functions");
 
     // Check if there's a constructor function
@@ -44,11 +44,11 @@ pub async fn test_angular_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     // Test requests
-    let requests = graph.find_nodes_by_type(NodeType::Request);
+    let requests = graph.find_nodes_by_type(NodeType::Request).await;
     assert_eq!(requests.len(), 7, "Expected 7 requests");
 
     // Test calls edges
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls).await;
     assert_eq!(calls_edges_count, 8, "Expected 8 calls edges");
 
     Ok(())

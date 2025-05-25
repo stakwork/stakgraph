@@ -161,9 +161,7 @@ impl Repo {
                 (NodeType::Repository, "main".to_string())
             };
 
-            graph
-                .add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file)
-                .await;
+            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
         }
 
         let filez = fileys(&files, &self.root)?;
@@ -195,11 +193,9 @@ impl Repo {
 
             let (parent_type, parent_file) = self.get_parent_info(&pkg_file);
 
-            graph
-                .add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file)
-                .await;
+            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
 
-            let libs = self.lang.get_libs::<G>(&code, &pkg_file).await?;
+            let libs = self.lang.get_libs::<G>(&code, &pkg_file)?;
             i += libs.len();
 
             for lib in libs {
@@ -211,20 +207,19 @@ impl Repo {
         i = 0;
         info!("=> get_imports...");
         for (filename, code) in &filez {
-            let imports = self.lang.get_imports::<G>(&code, &filename).await?;
+            let imports = self.lang.get_imports::<G>(&code, &filename)?;
+
             let import_section = combine_imports(imports);
             if !import_section.is_empty() {
                 i += 1;
             }
             for import in import_section {
-                graph
-                    .add_node_with_parent(
-                        NodeType::Import,
-                        import.clone(),
-                        NodeType::File,
-                        &import.file,
-                    )
-                    .await;
+                graph.add_node_with_parent(
+                    NodeType::Import,
+                    import.clone(),
+                    NodeType::File,
+                    &import.file,
+                );
             }
         }
         info!("=> got {} import sections", i);
@@ -232,18 +227,16 @@ impl Repo {
         i = 0;
         info!("=> get_varables...");
         for (filename, code) in &filez {
-            let variables = self.lang.get_varables::<G>(&code, &filename).await?;
+            let variables = self.lang.get_varables::<G>(&code, &filename)?;
 
             i += variables.len();
             for variable in variables {
-                graph
-                    .add_node_with_parent(
-                        NodeType::Var,
-                        variable.clone(),
-                        NodeType::File,
-                        &variable.file,
-                    )
-                    .await;
+                graph.add_node_with_parent(
+                    NodeType::Var,
+                    variable.clone(),
+                    NodeType::File,
+                    &variable.file,
+                );
             }
         }
         info!("=> got {} all variables", i);
@@ -256,48 +249,42 @@ impl Repo {
                 .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
             let classes = self
                 .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)
-                .await?;
+                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
             i += classes.len();
             for (class, assoc_edges) in classes {
-                graph
-                    .add_node_with_parent(
-                        NodeType::Class,
-                        class.clone(),
-                        NodeType::File,
-                        &class.file,
-                    )
-                    .await;
+                graph.add_node_with_parent(
+                    NodeType::Class,
+                    class.clone(),
+                    NodeType::File,
+                    &class.file,
+                );
                 for edge in assoc_edges {
                     graph.add_edge(edge);
                 }
             }
         }
         info!("=> got {} classes", i);
-        graph.class_inherits().await;
-        graph.class_includes().await;
+        graph.class_inherits();
+        graph.class_includes();
 
         info!("=> get_instances...");
         for (filename, code) in &filez {
-            let q_str = self.lang.lang().instance_definition_query();
-            let q = self.lang.q(q_str.as_deref().unwrap_or(""), &NodeType::Instance);
-            let instances = self
-                .lang
-                .collect::<G>(&q, &code, &filename, NodeType::Instance)
-                .await?;
-            graph.add_instances(instances).await;
+            let q = self.lang.lang().instance_definition_query();
+            let instances =
+                self.lang
+                    .get_query_opt::<G>(q, &code, &filename, NodeType::Instance)?;
+
+            graph.add_instances(instances);
         }
 
         i = 0;
         info!("=> get_traits...");
         for (filename, code) in &filez {
-            let traits = self.lang.get_traits::<G>(&code, &filename).await?;
+            let traits = self.lang.get_traits::<G>(&code, &filename)?;
             i += traits.len();
 
             for tr in traits {
-                graph
-                    .add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file)
-                    .await;
+                graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
             }
         }
         info!("=> got {} traits", i);
@@ -313,14 +300,16 @@ impl Repo {
             let q = self.lang.lang().data_model_query();
             let structs = self
                 .lang
-                .get_query_opt::<G>(q, &code, &filename, NodeType::DataModel)
-                .await?;
+                .get_query_opt::<G>(q, &code, &filename, NodeType::DataModel)?;
             i += structs.len();
 
             for st in &structs {
-                graph
-                    .add_node_with_parent(NodeType::DataModel, st.clone(), NodeType::File, &st.file)
-                    .await;
+                graph.add_node_with_parent(
+                    NodeType::DataModel,
+                    st.clone(),
+                    NodeType::File,
+                    &st.file,
+                );
             }
         }
         info!("=> got {} data models", i);
@@ -329,23 +318,21 @@ impl Repo {
         i = 0;
         info!("=> get_functions_and_tests...");
         for (filename, code) in &filez {
-            let (funcs, tests) = self
-                .lang
-                .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)
-                .await?;
+            let (funcs, tests) =
+                self.lang
+                    .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)?;
             i += funcs.len();
 
-            graph.add_functions(funcs).await;
+            graph.add_functions(funcs);
             i += tests.len();
+
             for test in tests {
-                graph
-                    .add_node_with_parent(
-                        NodeType::Test,
-                        test.0.clone(),
-                        NodeType::File,
-                        &test.0.file,
-                    )
-                    .await;
+                graph.add_node_with_parent(
+                    NodeType::Test,
+                    test.0.clone(),
+                    NodeType::File,
+                    &test.0.file,
+                );
             }
         }
         info!("=> got {} functions and tests", i);
@@ -357,10 +344,9 @@ impl Repo {
             if self.lang.lang().is_router_file(&filename, &code) {
                 let pages = self
                     .lang
-                    .get_pages(&code, &filename, &self.lsp_tx, &graph)
-                    .await?;
+                    .get_pages(&code, &filename, &self.lsp_tx, &graph)?;
                 i += pages.len();
-                graph.add_pages(pages).await;
+                graph.add_pages(pages);
             }
         }
         info!("=> got {} pages", i);
@@ -377,17 +363,13 @@ impl Repo {
                         .lang
                         .lang()
                         .extra_page_finder(&pagepath, &|name, filename| {
-                            futures::executor::block_on(async move {
-                                graph
-                                    .find_node_by_name_and_file_end_with(
-                                        NodeType::Function,
-                                        name,
-                                        filename,
-                                    )
-                                    .await
-                            })
+                            graph.find_node_by_name_and_file_end_with(
+                                NodeType::Function,
+                                name,
+                                filename,
+                            )
                         });
-                    graph.add_page((nd, edge)).await;
+                    graph.add_page((nd, edge));
                 }
             }
         }
@@ -405,12 +387,12 @@ impl Repo {
                 continue;
             }
             debug!("get_endpoints in {:?}", filename);
-            let endpoints = self
-                .lang
-                .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx)
-                .await?;
+            let endpoints =
+                self.lang
+                    .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx)?;
             i += endpoints.len();
-            graph.add_endpoints(endpoints).await;
+
+            graph.add_endpoints(endpoints);
         }
         info!("=> got {} endpoints", i);
 
@@ -420,19 +402,16 @@ impl Repo {
                 continue;
             }
             let q = self.lang.lang().endpoint_group_find();
-            let endpoint_groups = self
-                .lang
-                .get_query_opt::<G>(q, &code, &filename, NodeType::Endpoint)
-                .await?;
-            let _ = graph
-                .process_endpoint_groups(endpoint_groups, &self.lang)
-                .await;
+            let endpoint_groups =
+                self.lang
+                    .get_query_opt::<G>(q, &code, &filename, NodeType::Endpoint)?;
+            let _ = graph.process_endpoint_groups(endpoint_groups, &self.lang);
         }
 
         // try again on the endpoints to add data models, if manual
         if self.lang.lang().use_data_model_within_finder() {
             info!("=> get_data_models_within...");
-            graph.get_data_models_within(&self.lang).await;
+            graph.get_data_models_within(&self.lang);
         }
 
         i = 0;
@@ -440,14 +419,14 @@ impl Repo {
             info!("=> get_integration_tests...");
             for (filename, code) in &filez {
                 if !self.lang.lang().is_test_file(&filename) {
-                    let int_tests = self
-                        .lang
-                        .collect_integration_tests(code, filename, &graph)
-                        .await?;
-                    i += int_tests.len();
-                    for (nd, tt, edge_opt) in int_tests {
-                        graph.add_test_node(nd, tt, edge_opt);
-                    }
+                    continue;
+                }
+                let int_tests = self
+                    .lang
+                    .collect_integration_tests(code, filename, &graph)?;
+                i += int_tests.len();
+                for (nd, tt, edge_opt) in int_tests {
+                    graph.add_test_node(nd, tt, edge_opt);
                 }
             }
         }

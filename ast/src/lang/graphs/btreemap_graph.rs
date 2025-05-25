@@ -841,7 +841,7 @@ impl BTreeMapGraph {
                     },
                     target: NodeRef {
                         node_type: dst_node.node_type.clone(),
-                        node_data: NodeKeys::from(&dstNode.node_data),
+                        node_data: NodeKeys::from(&dst_node.node_data),
                     },
                 };
 
