@@ -48,8 +48,8 @@ async fn compare_graphs_inner(lang_id: &str, repo_path: &str) -> Result<()> {
     assert_eq!(array_graph.edges.len(), btree_map_graph.edges.len());
 
     //Graph difference
-    let (array_graph_nodes, array_graph_edges) = array_graph.get_graph_keys();
-    let (btree_map_graph_nodes, btree_map_graph_edges) = btree_map_graph.get_graph_keys();
+    let (array_graph_nodes, array_graph_edges) = array_graph.get_graph_keys().await;
+    let (btree_map_graph_nodes, btree_map_graph_edges) = btree_map_graph.get_graph_keys().await;
     let nodes_only_in_array_graph: HashSet<_> = array_graph_nodes
         .difference(&btree_map_graph_nodes)
         .collect();

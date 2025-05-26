@@ -22,8 +22,9 @@ use crate::lang::{Function, NodeData, NodeType};
 use anyhow::Result;
 use lsp::Language as LspLanguage;
 use lsp::{CmdSender, Position};
+use std::future::Future;
+use std::pin::Pin;
 use tree_sitter::{Node as TreeNode, Query, Tree};
-
 #[derive(Default, Debug)]
 pub enum HandlerItemType {
     Collection,
@@ -46,7 +47,8 @@ pub struct HandlerParams {
     pub parents: Vec<HandlerItem>, // nested resources OR namespaces in RoR
 }
 
-pub trait Stack {
+#[async_trait::async_trait]
+pub trait Stack: Sync {
     fn q(&self, q: &str, nt: &NodeType) -> Query;
     // use different parser for pkg files
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree>;
@@ -237,10 +239,12 @@ pub trait Stack {
     fn is_extra_page(&self, _file_name: &str) -> bool {
         false
     }
-    fn extra_page_finder(
+    async fn extra_page_finder(
         &self,
         _file_name: &str,
-        _callback: &dyn Fn(&str, &str) -> Option<NodeData>,
+        _callback: &(dyn Fn(&str, &str) -> Pin<Box<dyn Future<Output = Option<NodeData>> + Send>>
+              + Send
+              + Sync),
     ) -> Option<Edge> {
         None
     }

@@ -37,7 +37,7 @@ async fn run_server_tests() {
         let tester = test_backend::BackendTester::<ArrayGraph>::from_repo(language, repo)
             .await
             .unwrap();
-        tester.test_backend().unwrap();
+        tester.test_backend().await.unwrap();
     }
 }
 
@@ -54,6 +54,6 @@ async fn run_client_tests() {
         let tester = test_frontend::FrontendTester::<ArrayGraph>::from_repo(language, repo)
             .await
             .unwrap();
-        tester.test_frontend().unwrap();
+        tester.test_frontend().await.unwrap();
     }
 }

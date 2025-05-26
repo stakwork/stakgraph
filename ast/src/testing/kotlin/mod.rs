@@ -16,7 +16,7 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let (num_nodes, num_edges) = graph.get_graph_size().await;
 
     //graph.analysis();
     assert_eq!(num_nodes, 115, "Expected 115 nodes");
@@ -26,7 +26,7 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
         path.replace("\\", "/")
     }
 
-    let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    let language_nodes = graph.find_nodes_by_type(NodeType::Language).await;
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "kotlin",
@@ -38,7 +38,9 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
-    let build_gradle_files = graph.find_nodes_by_name(NodeType::File, "build.gradle.kts");
+    let build_gradle_files = graph
+        .find_nodes_by_name(NodeType::File, "build.gradle.kts")
+        .await;
     assert_eq!(
         build_gradle_files.len(),
         2,
@@ -49,13 +51,13 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Gradle file name is incorrect"
     );
 
-    let libraries = graph.find_nodes_by_type(NodeType::Library);
+    let libraries = graph.find_nodes_by_type(NodeType::Library).await;
     assert_eq!(libraries.len(), 44, "Expected 44 libraries");
 
-    let imports = graph.find_nodes_by_type(NodeType::Import);
+    let imports = graph.find_nodes_by_type(NodeType::Import).await;
     assert_eq!(imports.len(), 9, "Expected 9 imports");
 
-    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let classes = graph.find_nodes_by_type(NodeType::Class).await;
     assert_eq!(classes.len(), 6, "Expected 6 classes");
 
     let mut sorted_classes = classes.clone();
@@ -71,16 +73,16 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Class file path is incorrect"
     );
 
-    let functions = graph.find_nodes_by_type(NodeType::Function);
+    let functions = graph.find_nodes_by_type(NodeType::Function).await;
     assert_eq!(functions.len(), 19, "Expected 19 functions");
 
-    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel).await;
     assert_eq!(data_models.len(), 1, "Expected 1 data model");
 
-    let requests = graph.find_nodes_by_type(NodeType::Request);
+    let requests = graph.find_nodes_by_type(NodeType::Request).await;
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls).await;
     assert!(calls_edges_count > 0, "Expected at least one calls edge");
 
     Ok(())

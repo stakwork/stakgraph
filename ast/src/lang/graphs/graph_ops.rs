@@ -1,7 +1,10 @@
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::Graph;
+use crate::lang::graphs::{BTreeMapGraph, Graph};
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
+use serde_json;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use tracing::info;
 
 pub struct GraphOps {
@@ -113,5 +116,73 @@ impl GraphOps {
 
         self.graph.update_repository_hash(repo_url, current_hash)?;
         Ok(self.graph.get_graph_size())
+    }
+
+    /// Export a BTreeMapGraph to JSONL format
+    /// This is stage 1 of our two-stage async process
+    pub async fn export_btreemap_to_jsonl<P: AsRef<std::path::Path>>(
+        &self,
+        graph: &BTreeMapGraph,
+        path: P,
+    ) -> Result<()> {
+        let file = File::create(path)?;
+        let mut writer = BufWriter::new(file);
+
+        // Export nodes
+        for (_, node) in &graph.nodes {
+            let json_line = serde_json::to_string(node)?;
+            writeln!(writer, "{}", json_line)?;
+        }
+
+        // Export edges
+        for edge in graph.to_array_graph_edges() {
+            let json_line = serde_json::to_string(&edge)?;
+            writeln!(writer, "{}", json_line)?;
+        }
+
+        writer.flush()?;
+        info!(
+            "Exported BTreeMapGraph to JSONL with {} nodes and {} edges",
+            graph.nodes.len(),
+            graph.edges.len()
+        );
+        Ok(())
+    }
+
+    /// Import JSONL data to Neo4j database
+    /// This is stage 2 of our two-stage async process
+    pub async fn import_jsonl_to_neo4j<P: AsRef<std::path::Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<()> {
+        use std::io::{BufRead, BufReader};
+
+        let file = File::open(path)?;
+        let reader = BufReader::new(file);
+
+        let mut node_count = 0;
+        let mut edge_count = 0;
+
+        for line in reader.lines() {
+            let line = line?;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            // Try to parse as Node first, then as Edge
+            if let Ok(node) = serde_json::from_str::<crate::lang::graphs::Node>(&line) {
+                self.graph.add_node(node.node_type, node.node_data).await;
+                node_count += 1;
+            } else if let Ok(edge) = serde_json::from_str::<crate::lang::graphs::Edge>(&line) {
+                self.graph.add_edge(edge).await;
+                edge_count += 1;
+            }
+        }
+
+        info!(
+            "Imported {} nodes and {} edges to Neo4j",
+            node_count, edge_count
+        );
+        Ok(())
     }
 }

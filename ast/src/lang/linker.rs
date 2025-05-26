@@ -5,12 +5,12 @@ use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
 use std::path::PathBuf;
 use tracing::info;
-pub fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
+pub async fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let mut e2e_tests = Vec::new();
     let mut frontend_functions = Vec::new();
 
-    let e2e_test_nodes = graph.find_nodes_by_type(NodeType::E2eTest);
-    let function_nodes = graph.find_nodes_by_type(NodeType::Function);
+    let e2e_test_nodes = graph.find_nodes_by_type(NodeType::E2eTest).await;
+    let function_nodes = graph.find_nodes_by_type(NodeType::Function).await;
 
     for node_data in e2e_test_nodes {
         if let Ok(lang) = infer_lang(&node_data) {
@@ -75,13 +75,13 @@ fn extract_test_ids(content: &str, lang: &Language) -> Result<Vec<String>> {
     Ok(test_ids)
 }
 
-pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
+pub async fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
     // Collect requests and endpoints in a single pass
     let mut frontend_requests = Vec::new();
     let mut backend_endpoints = Vec::new();
 
-    let request_nodes = graph.find_nodes_by_type(NodeType::Request);
-    let endpoint_nodes = graph.find_nodes_by_type(NodeType::Endpoint);
+    let request_nodes = graph.find_nodes_by_type(NodeType::Request).await;
+    let endpoint_nodes = graph.find_nodes_by_type(NodeType::Endpoint).await;
 
     for node_data in request_nodes {
         if let Some(normalized_path) = normalize_frontend_path(&node_data.name) {
@@ -270,8 +270,8 @@ mod tests {
         assert!(!paths_match("/api/user/:param/extra", "/api/user/:id"));
     }
 
-    #[test]
-    fn test_link_api_nodes() -> Result<()> {
+    #[tokio::test]
+    async fn test_link_api_nodes() -> Result<()> {
         use crate::lang::graphs::ArrayGraph;
         let mut graph = ArrayGraph::new();
 
@@ -295,7 +295,7 @@ mod tests {
         graph.nodes.push(Node::new(NodeType::Endpoint, endpoint1));
         graph.nodes.push(Node::new(NodeType::Endpoint, endpoint2));
 
-        link_api_nodes(&mut graph)?;
+        link_api_nodes(&mut graph).await?;
 
         // Should only create one edge for the matching pair
         assert_eq!(graph.edges.len(), 1);

@@ -139,7 +139,7 @@ impl Repo {
 
             let path = filename.display().to_string();
 
-            if graph.find_nodes_by_name(NodeType::File, &path).len() > 0 {
+            if graph.find_nodes_by_name(NodeType::File, &path).await.len() > 0 {
                 continue;
             }
             if self
@@ -249,7 +249,8 @@ impl Repo {
                 .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
             let classes = self
                 .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
+                .collect_classes::<G>(&qo, &code, &filename, &graph)
+                .await?;
             i += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(
@@ -318,9 +319,10 @@ impl Repo {
         i = 0;
         info!("=> get_functions_and_tests...");
         for (filename, code) in &filez {
-            let (funcs, tests) =
-                self.lang
-                    .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)?;
+            let (funcs, tests) = self
+                .lang
+                .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)
+                .await?;
             i += funcs.len();
 
             graph.add_functions(funcs);
@@ -344,7 +346,8 @@ impl Repo {
             if self.lang.lang().is_router_file(&filename, &code) {
                 let pages = self
                     .lang
-                    .get_pages(&code, &filename, &self.lsp_tx, &graph)?;
+                    .get_pages(&code, &filename, &self.lsp_tx, &graph)
+                    .await?;
                 i += pages.len();
                 graph.add_pages(pages);
             }
@@ -363,12 +366,17 @@ impl Repo {
                         .lang
                         .lang()
                         .extra_page_finder(&pagepath, &|name, filename| {
-                            graph.find_node_by_name_and_file_end_with(
-                                NodeType::Function,
-                                name,
-                                filename,
-                            )
-                        });
+                            Box::pin(async {
+                                graph
+                                    .find_node_by_name_and_file_end_with(
+                                        NodeType::Function,
+                                        name,
+                                        filename,
+                                    )
+                                    .await
+                            })
+                        })
+                        .await;
                     graph.add_page((nd, edge));
                 }
             }
@@ -389,10 +397,10 @@ impl Repo {
             debug!("get_endpoints in {:?}", filename);
             let endpoints =
                 self.lang
-                    .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx)?;
+                    .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx).await?;
             i += endpoints.len();
 
-            graph.add_endpoints(endpoints);
+            graph.add_endpoints(endpoints).await;
         }
         info!("=> got {} endpoints", i);
 
@@ -405,7 +413,9 @@ impl Repo {
             let endpoint_groups =
                 self.lang
                     .get_query_opt::<G>(q, &code, &filename, NodeType::Endpoint)?;
-            let _ = graph.process_endpoint_groups(endpoint_groups, &self.lang);
+            let _ = graph
+                .process_endpoint_groups(endpoint_groups, &self.lang)
+                .await;
         }
 
         // try again on the endpoints to add data models, if manual
@@ -426,7 +436,7 @@ impl Repo {
                     .collect_integration_tests(code, filename, &graph)?;
                 i += int_tests.len();
                 for (nd, tt, edge_opt) in int_tests {
-                    graph.add_test_node(nd, tt, edge_opt);
+                    graph.add_test_node(nd, tt, edge_opt).await;
                 }
             }
         }
@@ -444,7 +454,7 @@ impl Repo {
                     .get_function_calls(&code, &filename, &graph, &self.lsp_tx)
                     .await?;
                 i += all_calls.0.len();
-                graph.add_calls(all_calls);
+                graph.add_calls(all_calls).await;
             }
             info!("=> got {} function calls", i);
         }
@@ -457,13 +467,13 @@ impl Repo {
             });
 
         // filter by revs
-        graph = filter_by_revs(&self.root.to_str().unwrap(), self.revs.clone(), graph);
+        graph = filter_by_revs(&self.root.to_str().unwrap(), self.revs.clone(), graph).await;
 
         // prefix the "file" of each node and edge with the root
         graph.prefix_paths(&self.root_less_tmp());
 
         println!("done!");
-        let (num_of_nodes, num_of_edges) = graph.get_graph_size();
+        let (num_of_nodes, num_of_edges) = graph.get_graph_size().await;
         println!(
             "Returning Graph with {} nodes and {} edges",
             num_of_nodes, num_of_edges
@@ -502,12 +512,12 @@ impl Repo {
     }
 }
 
-fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
+async fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G) -> G {
     if revs.is_empty() {
         return graph;
     }
     match check_revs_files(root, revs) {
-        Some(final_filter) => graph.create_filtered_graph(&final_filter),
+        Some(final_filter) => graph.create_filtered_graph(&final_filter).await,
         None => graph,
     }
 }

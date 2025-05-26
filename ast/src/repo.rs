@@ -48,11 +48,11 @@ impl Repos {
         }
 
         info!("linking e2e tests");
-        linker::link_e2e_tests(&mut graph)?;
+        linker::link_e2e_tests(&mut graph).await?;
         info!("linking api nodes");
-        linker::link_api_nodes(&mut graph)?;
+        linker::link_api_nodes(&mut graph).await?;
 
-        let (nodes_size, edges_size) = graph.get_graph_size();
+        let (nodes_size, edges_size) = graph.get_graph_size().await;
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
         Ok(graph)
     }
