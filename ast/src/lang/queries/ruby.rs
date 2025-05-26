@@ -7,7 +7,9 @@ use anyhow::{Context, Result};
 use convert_case::{Case, Casing};
 use inflection_rs::inflection;
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::path::Path;
+use std::pin::Pin;
 use tracing::debug;
 use tree_sitter::{Language, Parser, Query, Tree};
 
@@ -437,10 +439,13 @@ impl Stack for Ruby {
         let is_view = file_name.contains("/views/");
         is_view && is_good_ext
     }
-    fn extra_page_finder(
+
+    async fn extra_page_finder(
         &self,
         file_path: &str,
-        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        find_fn: &(dyn Fn(&str, &str) -> Pin<Box<dyn Future<Output = Option<NodeData>> + Send>>
+              + Send
+              + Sync),
     ) -> Option<Edge> {
         let pagename = get_page_name(file_path);
         if pagename.is_none() {
@@ -448,29 +453,34 @@ impl Stack for Ruby {
         }
         let pagename = pagename.unwrap();
         let page = NodeData::name_file(&pagename, file_path);
-        // get the handler name
         let p = std::path::Path::new(file_path);
         let func_name = remove_all_extensions(p);
         let parent_name = p.parent()?.file_name()?.to_str()?;
-        println!("func_name: {}, parent_name: {}", func_name, parent_name);
+
         let controller_handler = find_fn(
             &func_name,
             &format!("{}{}", parent_name, CONTROLLER_FILE_SUFFIX),
-        );
+        )
+        .await;
+
         if let Some(h) = controller_handler {
             return Some(Edge::renders(&page, &h));
         }
+
         let parent_name_no_mailer = parent_name.strip_suffix("_mailer").unwrap_or(parent_name);
         let mailer_handler = find_fn(
             &func_name,
             &format!("{}{}", parent_name_no_mailer, MAILER_FILE_SUFFIX),
-        );
+        )
+        .await;
+
         if let Some(h) = mailer_handler {
             return Some(Edge::renders(&page, &h));
         }
-        println!("no handler found for {} {}", func_name, file_path);
+
         None
     }
+
     fn direct_class_calls(&self) -> bool {
         true
     }

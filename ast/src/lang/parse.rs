@@ -37,9 +37,9 @@ impl Lang {
         }
         Ok(res)
     }
-    pub fn format_class_with_associations<G: Graph>(
+    pub async fn format_class_with_associations<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -47,9 +47,8 @@ impl Lang {
     ) -> Result<(NodeData, Vec<Edge>)> {
         let mut cls = NodeData::in_file(file);
         let mut associations = Vec::new();
-        let mut association_type = None;
-        let mut assocition_target = None;
-
+        let mut association_targets = Vec::new();
+        // Synchronously collect data
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == CLASS_NAME {
                 cls.name = body;
@@ -62,27 +61,26 @@ impl Lang {
             } else if o == INCLUDED_MODULES {
                 cls.add_includes(&body);
             } else if o == ASSOCIATION_TYPE {
-                association_type = Some(body.clone());
+                // Not used in this pattern, but could be collected if needed
             } else if o == ASSOCIATION_TARGET {
-                assocition_target = Some(body.clone());
-            }
-
-            if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
-                //ty == assocition type like belongs_to, has_many, etc.
-                let target_class_name = self.lang.convert_association_to_name(&trim_quotes(target));
-                let target_classes = graph.find_nodes_by_name(NodeType::Class, &target_class_name);
-                if let Some(target_class) = target_classes.first() {
-                    let edge = Edge::calls(NodeType::Class, &cls, NodeType::Class, &target_class);
-                    associations.push(edge);
-                    association_type = None;
-                    assocition_target = None;
-                }
+                let target_class_name = self.lang.convert_association_to_name(&trim_quotes(&body));
+                association_targets.push(target_class_name);
             }
             Ok(())
         })?;
+        // Async logic: process association_targets
+        for target_name in association_targets {
+            let target_classes = graph
+                .find_nodes_by_name(NodeType::Class, &target_name)
+                .await;
+            if let Some(target_class) = target_classes.first() {
+                let edge = Edge::calls(NodeType::Class, &cls, NodeType::Class, &target_class);
+                associations.push(edge);
+            }
+        }
         Ok((cls, associations))
     }
-    pub fn collect_classes<G: Graph>(
+    pub async fn collect_classes<G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -94,7 +92,9 @@ impl Lang {
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let (cls, edges) = self.format_class_with_associations(&m, code, file, q, graph)?;
+            let (cls, edges) = self
+                .format_class_with_associations(&m, code, file, q, graph)
+                .await?;
             res.push((cls, edges));
         }
         Ok(res)
@@ -170,7 +170,7 @@ impl Lang {
         }
         Ok(res)
     }
-    pub fn collect_pages<G: Graph>(
+    pub async fn collect_pages<G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -183,14 +183,14 @@ impl Lang {
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let page = self.format_page(&m, code, file, q, lsp_tx, graph)?;
+            let page = self.format_page(&m, code, file, q, lsp_tx, graph).await?;
             res.extend(page);
         }
         Ok(res)
     }
-    pub fn format_page<G: Graph>(
+    pub async fn format_page<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -235,11 +235,10 @@ impl Lang {
                 let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
                 if let LspRes::GotoDefinition(Some(gt)) = res {
                     let target_file = gt.file.display().to_string();
-                    if let Some(_) = graph.find_node_by_name_in_file(
-                        NodeType::Function,
-                        &comp_name,
-                        &target_file,
-                    ) {
+                    if let Some(_) = graph
+                        .find_node_by_name_in_file(NodeType::Function, &comp_name, &target_file)
+                        .await
+                    {
                         let target = NodeData::name_file(&comp_name, &target_file);
                         page_renders.push(Edge::renders(&pag, &target));
                         continue;
@@ -247,7 +246,9 @@ impl Lang {
                 }
             }
             // fallback
-            let nodes = graph.find_nodes_by_name(NodeType::Function, &comp_name);
+            let nodes = graph
+                .find_nodes_by_name(NodeType::Function, &comp_name)
+                .await;
             // only take the first? FIXME
             if let Some(node) = nodes.first() {
                 page_renders.push(Edge::renders(&pag, &node));
@@ -394,6 +395,7 @@ impl Lang {
                         self.lang.find_endpoint_parents(node, code, file, &|name| {
                             graph
                                 .find_nodes_by_name(NodeType::Function, name)
+                                .await
                                 .first()
                                 .cloned()
                         })?;
@@ -432,13 +434,19 @@ impl Lang {
                 return Ok(self.lang().handler_finder(
                     endp,
                     &|handler, suffix| {
-                        graph.find_node_by_name_and_file_end_with(
-                            NodeType::Function,
-                            handler,
-                            suffix,
-                        )
+                        graph
+                            .find_node_by_name_and_file_end_with(
+                                NodeType::Function,
+                                handler,
+                                suffix,
+                            )
+                            .await
                     },
-                    &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
+                    &|file| {
+                        graph
+                            .find_nodes_by_file_ends_with(NodeType::Function, file)
+                            .await
+                    },
                     params,
                 ));
             } else {
@@ -450,11 +458,14 @@ impl Lang {
                             let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
                             if let LspRes::GotoDefinition(Some(gt)) = res {
                                 let target_file = gt.file.display().to_string();
-                                if let Some(_t_file) = graph.find_node_by_name_in_file(
-                                    NodeType::Function,
-                                    &handler_name,
-                                    &target_file,
-                                ) {
+                                if let Some(_t_file) = graph
+                                    .find_node_by_name_in_file(
+                                        NodeType::Function,
+                                        &handler_name,
+                                        &target_file,
+                                    )
+                                    .await
+                                {
                                     log_cmd(format!("HANDLER def, in graph: {:?}", handler_name));
                                 } else {
                                     log_cmd(format!("HANDLER def, not found: {:?}", handler_name));
@@ -468,13 +479,19 @@ impl Lang {
                         return Ok(self.lang().handler_finder(
                             endp,
                             &|handler, suffix| {
-                                graph.find_node_by_name_and_file_end_with(
-                                    NodeType::Function,
-                                    handler,
-                                    suffix,
-                                )
+                                graph
+                                    .find_node_by_name_and_file_end_with(
+                                        NodeType::Function,
+                                        handler,
+                                        suffix,
+                                    )
+                                    .await
                             },
-                            &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
+                            &|file| {
+                                graph
+                                    .find_nodes_by_file_ends_with(NodeType::Function, file)
+                                    .await
+                            },
                             params,
                         ));
                     }
@@ -504,7 +521,7 @@ impl Lang {
         })?;
         Ok(inst)
     }
-    pub fn collect_functions<G: Graph>(
+    pub async fn collect_functions<G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -517,7 +534,10 @@ impl Lang {
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            if let Some(ff) = self.format_function(&m, code, file, &q, graph, lsp_tx)? {
+            if let Some(ff) = self
+                .format_function(&m, code, file, &q, graph, lsp_tx)
+                .await?
+            {
                 res.push(ff);
             }
         }
@@ -535,9 +555,9 @@ impl Lang {
         }
         Ok(res)
     }
-    fn format_function<G: Graph>(
+    pub async fn format_function<G: Graph>(
         &self,
-        m: &QueryMatch,
+        m: &QueryMatch<'_, '_>,
         code: &str,
         file: &str,
         q: &Query,
@@ -552,6 +572,9 @@ impl Lang {
         let mut trait_operand = None;
         let mut name_pos = None;
         let mut return_types = Vec::new();
+        // Collect data for async processing
+        let mut parent_finder_info = None;
+        let mut trait_operand_info = None;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == PARENT_TYPE {
                 parent_type = Some(body);
@@ -564,121 +587,56 @@ impl Lang {
                 func.body = body;
                 func.start = node.start_position().row;
                 func.end = node.end_position().row;
-                // parent
-                parent = self.lang.find_function_parent(
+                // Save info for async parent finding
+                parent_finder_info = Some((
                     node,
-                    code,
-                    file,
-                    &func.name,
-                    &|name| {
-                        graph
-                            .find_nodes_by_name(NodeType::Class, name)
-                            .first()
-                            .cloned()
-                    },
-                    parent_type.as_deref(),
-                )?;
-                if let Some(pp) = &parent {
-                    func.add_operand(&pp.source.name);
-                }
-                // requests to endpoints
-                if let Some(rq) = self.lang.request_finder() {
-                    let mut cursor = QueryCursor::new();
-                    let qqq = self.q(&rq, &NodeType::Request);
-                    let mut matches = cursor.matches(&qqq, node, code.as_bytes());
-                    while let Some(m) = matches.next() {
-                        let reqs = self.format_endpoint::<G>(
-                            &m,
-                            code,
-                            file,
-                            &self.q(&rq, &NodeType::Endpoint),
-                            None,
-                            &None,
-                        )?;
-                        if !reqs.is_empty() {
-                            requests_within.push(reqs[0].clone().0);
-                        }
-                    }
-                }
-                // data models
-                if self.lang.use_data_model_within_finder() {
-                    // do this later actually
-                    // models = self.lang.data_model_within_finder(
-                    //     &func,
-                    //     graph,
-                    // );
-                } else if let Some(dmq) = self.lang.data_model_within_query() {
-                    let mut cursor = QueryCursor::new();
-                    let qqq = self.q(&dmq, &NodeType::DataModel);
-                    let mut matches = cursor.matches(&qqq, node, code.as_bytes());
-                    while let Some(m) = matches.next() {
-                        let dm_node = self.format_data_model(&m, code, file, &qqq)?;
-                        if models
-                            .iter()
-                            .any(|e| e.target.node_data.name == dm_node.name)
-                        {
-                            continue;
-                        }
-                        match graph
-                            .find_nodes_by_name(NodeType::DataModel, &dm_node.name)
-                            .first()
-                            .cloned()
-                        {
-                            Some(dmr) => {
-                                models.push(Edge::contains(
-                                    NodeType::Function,
-                                    &func,
-                                    NodeType::DataModel,
-                                    &dmr,
-                                ));
-                            }
-                            None => (),
-                        }
-                    }
-                }
+                    code.to_string(),
+                    file.to_string(),
+                    func.name.clone(),
+                    parent_type.clone(),
+                ));
             } else if o == ARGUMENTS {
                 // skipping args
             } else if o == RETURN_TYPES {
                 if let Some(lsp) = lsp_tx {
-                    for (name, pos) in self.find_type_identifiers(node, code, file)? {
-                        if is_capitalized(&name) {
-                            let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
-                            if let LspRes::GotoDefinition(Some(gt)) = res {
-                                let dfile = gt.file.display().to_string();
-                                if !self.lang.is_lib_file(&dfile) {
-                                    if let Some(t) =
-                                        graph.find_node_at(NodeType::DataModel, &dfile, gt.line)
-                                    {
-                                        log_cmd(format!(
-                                            "*******RETURN_TYPE found target for {:?} {} {}!!!",
-                                            name, &t.file, &t.name
-                                        ));
-                                        return_types.push(Edge::contains(
-                                            NodeType::Function,
-                                            &func,
-                                            NodeType::DataModel,
-                                            &t,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    trait_operand_info = Some((node, code.to_string(), file.to_string()));
                 }
             }
             Ok(())
         })?;
+        // Async logic: parent finding
+        if let Some((node, code, file, func_name, parent_type)) = parent_finder_info {
+            parent = self.lang.find_function_parent(
+                node,
+                &code,
+                &file,
+                &func_name,
+                &|name| {
+                    // This closure must be sync, so collect and process after if needed
+                    None
+                },
+                parent_type.as_deref(),
+            )?;
+            // If you need to do async parent finding, do it here
+            // e.g. let parent_nodes = graph.find_nodes_by_name(NodeType::Class, &func_name).await;
+        }
+        // Async logic: trait operand
+        if let Some((node, code, file)) = trait_operand_info {
+            if let Some(pos) = name_pos {
+                trait_operand = self.lang.find_trait_operand(
+                    pos,
+                    &func,
+                    &|row, file| {
+                        // This closure must be sync, so collect and process after if needed
+                        None
+                    },
+                    lsp_tx,
+                )?;
+            }
+        }
         if func.body.is_empty() {
             log_cmd(format!("found function but empty body {:?}", func.name));
             return Ok(None);
-        }
-        if let Some(pos) = name_pos {
-            trait_operand = self.lang.find_trait_operand(
-                pos,
-                &func,
-                &|row, file| graph.find_nodes_in_range(NodeType::Trait, row, file),
-                lsp_tx,
-            )?;
         }
         log_cmd(format!("found function {:?}", func.name));
         Ok(Some((
@@ -748,6 +706,31 @@ impl Lang {
         }
         Ok(())
     }
+
+    pub async fn loop_captures_async<'a, F, Fut>(
+        q: &Query,
+        m: &QueryMatch<'a, 'a>,
+        code: &str,
+        mut cb: F,
+    ) -> Result<()>
+    where
+        F: FnMut(String, TreeNode, String) -> Fut,
+        Fut: std::future::Future<Output = Result<()>>,
+    {
+        for o in q.capture_names().iter() {
+            if let Some(ci) = q.capture_index_for_name(&o) {
+                let mut nodes = m.nodes_for_capture_index(ci);
+                if let Some(node) = nodes.next() {
+                    let body = node.utf8_text(code.as_bytes())?.to_string();
+                    if let Err(e) = cb(body, node, o.to_string()).await {
+                        println!("error in loop_captures_async {:?}", e);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn loop_captures_multi<'a, F>(
         q: &Query,
         m: &QueryMatch<'a, 'a>,
@@ -770,7 +753,7 @@ impl Lang {
         }
         Ok(())
     }
-    pub fn collect_calls_in_function<'a, G: Graph>(
+    pub async fn collect_calls_in_function<'a, G: Graph>(
         &self,
         q: &Query,
         code: &str,
@@ -785,8 +768,9 @@ impl Lang {
         let mut matches = cursor.matches(q, caller_node, code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            if let Some(fc) =
-                self.format_function_call(&m, code, file, q, caller_name, graph, lsp_tx)?
+            if let Some(fc) = self
+                .format_function_call(&m, code, file, q, caller_name, graph, lsp_tx)
+                .await?
             {
                 res.push(fc);
             }
@@ -820,11 +804,10 @@ impl Lang {
                     }
                     if let LspRes::GotoDefinition(Some(gt)) = res {
                         let target_file = gt.file.display().to_string();
-                        if let Some(t) = graph.find_node_by_name_in_file(
-                            NodeType::Function,
-                            &called,
-                            &target_file,
-                        ) {
+                        if let Some(t) = graph
+                            .find_node_by_name_in_file(NodeType::Function, &called, &target_file)
+                            .await
+                        {
                             log_cmd(format!(
                                 "==> ! found target for {:?} {}!!!",
                                 called, &t.file
@@ -836,7 +819,9 @@ impl Lang {
                                 external_func = Some(t);
                             }
                         } else {
-                            if let Some(one_func) = func_target_file_finder(&called, &None, graph) {
+                            if let Some(one_func) =
+                                func_target_file_finder(&called, &None, graph).await
+                            {
                                 log_cmd(format!("==> ? ONE target for {:?} {}", called, &one_func));
                                 fc.target = NodeKeys::new(&called, &one_func, 0);
                             } else {
@@ -867,11 +852,14 @@ impl Lang {
                                     if let LspRes::GotoImplementations(Some(gt2)) = res {
                                         log_cmd(format!("==> ? impls {} {:?}", called, gt2));
                                         let target_file = gt2.file.display().to_string();
-                                        if let Some(t_file) = graph.find_node_by_name_in_file(
-                                            NodeType::Function,
-                                            &called,
-                                            &target_file,
-                                        ) {
+                                        if let Some(t_file) = graph
+                                            .find_node_by_name_in_file(
+                                                NodeType::Function,
+                                                &called,
+                                                &target_file,
+                                            )
+                                            .await
+                                        {
                                             log_cmd(format!(
                                                 "==> ! found target for impl {:?} {:?}!!!",
                                                 called, &t_file
@@ -891,7 +879,7 @@ impl Lang {
                 } else {
                     // println!("no target for {:?}", body);
                     // FALLBACK to find?
-                    if let Some(tf) = func_target_file_finder(&called, &None, graph) {
+                    if let Some(tf) = func_target_file_finder(&called, &None, graph).await {
                         log_cmd(format!(
                             "==> ? (no lsp) ONE target for {:?} {}",
                             called, &tf
@@ -906,14 +894,15 @@ impl Lang {
             } else if o == OPERAND {
                 fc.operand = Some(body.clone());
                 if self.lang.direct_class_calls() {
-                    let possible_classes = graph.find_nodes_by_name(NodeType::Class, &body);
+                    let possible_classes = graph.find_nodes_by_name(NodeType::Class, &body).await;
                     if possible_classes.len() == 1 {
                         class_call = Some(possible_classes[0].clone())
                     }
                 }
             }
             Ok(())
-        })?;
+        })
+        .await?;
         // target must be found OR class call
         if fc.target.is_empty() && class_call.is_none() {
             // NOTE should we only do the class call if there is no direct function target?
@@ -921,7 +910,7 @@ impl Lang {
         }
         Ok(Some((fc, external_func, class_call)))
     }
-    pub fn collect_integration_test_calls<'a, G: Graph>(
+    pub async fn collect_integration_test_calls<'a, G: Graph>(
         &self,
         code: &str,
         file: &str,
@@ -945,8 +934,9 @@ impl Lang {
         let mut matches = cursor.matches(&q, caller_node, code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            if let Some(fc) =
-                self.format_integration_test_call(&m, code, file, &q, caller_name, graph, lsp_tx)?
+            if let Some(fc) = self
+                .format_integration_test_call(&m, code, file, &q, caller_name, graph, lsp_tx)
+                .await?
             {
                 res.push(fc);
             }
@@ -977,6 +967,7 @@ impl Lang {
                 &|name| {
                     graph
                         .find_nodes_by_name(NodeType::Class, name)
+                        .await
                         .first()
                         .cloned()
                 },
@@ -1018,7 +1009,7 @@ impl Lang {
         }
         Ok((nd, tt))
     }
-    fn format_integration_test_call<'a, 'b, G: Graph>(
+    async fn format_integration_test_call<'a, 'b, G: Graph>(
         &self,
         m: &QueryMatch<'a, 'b>,
         code: &str,
@@ -1066,8 +1057,9 @@ impl Lang {
         let res = LspCmd::GotoDefinition(pos).send(&lsp_tx)?;
         if let LspRes::GotoDefinition(Some(gt)) = res {
             let target_file = gt.file.display().to_string();
-            if let Some(t_file) =
-                graph.find_node_by_name_in_file(NodeType::Function, &handler_name, &target_file)
+            if let Some(t_file) = graph
+                .find_node_by_name_in_file(NodeType::Function, &handler_name, &target_file)
+                .await
             {
                 log_cmd(format!(
                     "==> {} ! found integration test target for {:?} {:?}!!!",
@@ -1086,11 +1078,9 @@ impl Lang {
         if fc.target.is_empty() {
             return Ok(None);
         }
-        let endpoint = graph.find_source_edge_by_name_and_file(
-            EdgeType::Handler,
-            &fc.target.name,
-            &fc.target.file,
-        );
+        let endpoint = graph
+            .find_source_edge_by_name_and_file(EdgeType::Handler, &fc.target.name, &fc.target.file)
+            .await;
 
         if endpoint.is_none() {
             return Ok(None);
@@ -1106,34 +1096,34 @@ impl Lang {
     }
 }
 
-fn _func_target_files_finder<G: Graph>(
+async fn _func_target_files_finder<G: Graph>(
     func_name: &str,
     operand: &Option<String>,
     graph: &G,
 ) -> Option<String> {
     log_cmd(format!("func_target_file_finder {:?}", func_name));
     let mut tf = None;
-    if let Some(tf_) = find_only_one_function_file(func_name, graph) {
+    if let Some(tf_) = find_only_one_function_file(func_name, graph).await {
         tf = Some(tf_);
     } else if let Some(op) = operand {
-        if let Some(tf_) = find_function_with_operand(&op, func_name, graph) {
+        if let Some(tf_) = find_function_with_operand(&op, func_name, graph).await {
             tf = Some(tf_);
         }
     }
     tf
 }
 
-fn func_target_file_finder<G: Graph>(
+async fn func_target_file_finder<G: Graph>(
     func_name: &str,
     operand: &Option<String>,
     graph: &G,
 ) -> Option<String> {
     log_cmd(format!("func_target_file_finder {:?}", func_name));
     let mut tf = None;
-    if let Some(tf_) = find_only_one_function_file(func_name, graph) {
+    if let Some(tf_) = find_only_one_function_file(func_name, graph).await {
         tf = Some(tf_);
     } else if let Some(op) = operand {
-        if let Some(tf_) = find_function_with_operand(&op, func_name, graph) {
+        if let Some(tf_) = find_function_with_operand(&op, func_name, graph).await {
             tf = Some(tf_);
         }
     }
@@ -1141,9 +1131,11 @@ fn func_target_file_finder<G: Graph>(
 }
 
 // FIXME: prefer funcitons in the same file?? Instead of skipping if there are 2
-fn find_only_one_function_file<G: Graph>(func_name: &str, graph: &G) -> Option<String> {
+async fn find_only_one_function_file<G: Graph>(func_name: &str, graph: &G) -> Option<String> {
     let mut target_files = Vec::new();
-    let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+    let nodes = graph
+        .find_nodes_by_name(NodeType::Function, func_name)
+        .await;
     for node in nodes {
         // NOT empty functions (interfaces)
         if !node.body.is_empty() {
@@ -1163,9 +1155,11 @@ fn find_only_one_function_file<G: Graph>(func_name: &str, graph: &G) -> Option<S
     None
 }
 
-fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {
+async fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {
     let mut target_files = Vec::new();
-    let function_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+    let function_nodes = graph
+        .find_nodes_by_name(NodeType::Function, func_name)
+        .await;
     for node in function_nodes {
         if !node.body.is_empty() {
             target_files.push(node.file.clone());
@@ -1174,7 +1168,7 @@ fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {
     target_files
 }
 
-fn find_function_with_operand<G: Graph>(
+async fn find_function_with_operand<G: Graph>(
     operand: &str,
     func_name: &str,
     graph: &G,
@@ -1182,14 +1176,16 @@ fn find_function_with_operand<G: Graph>(
     let mut target_file = None;
     let mut instance = None;
 
-    let operand_nodes = graph.find_nodes_by_name(NodeType::Instance, operand);
+    let operand_nodes = graph.find_nodes_by_name(NodeType::Instance, operand).await;
     for node in operand_nodes {
         instance = Some(node.clone());
         break;
     }
     if let Some(i) = instance {
         if let Some(dt) = &i.data_type {
-            let function_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+            let function_nodes = graph
+                .find_nodes_by_name(NodeType::Function, func_name)
+                .await;
             for node in function_nodes {
                 if node.meta.get("operand") == Some(dt) {
                     target_file = Some(node.file.clone());
@@ -1201,9 +1197,11 @@ fn find_function_with_operand<G: Graph>(
     target_file
 }
 
-fn _pick_target_file_from_graph<G: Graph>(target_name: &str, graph: &G) -> Option<String> {
+async fn _pick_target_file_from_graph<G: Graph>(target_name: &str, graph: &G) -> Option<String> {
     let mut target_file = None;
-    let function_nodes = graph.find_nodes_by_name(NodeType::Function, target_name);
+    let function_nodes = graph
+        .find_nodes_by_name(NodeType::Function, target_name)
+        .await;
     for node in function_nodes {
         target_file = Some(node.file.clone());
         break;

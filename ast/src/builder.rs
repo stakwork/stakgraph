@@ -363,12 +363,17 @@ impl Repo {
                         .lang
                         .lang()
                         .extra_page_finder(&pagepath, &|name, filename| {
-                            graph.find_node_by_name_and_file_end_with(
-                                NodeType::Function,
-                                name,
-                                filename,
-                            )
-                        });
+                            Box::pin(async {
+                                graph
+                                    .find_node_by_name_and_file_end_with(
+                                        NodeType::Function,
+                                        name,
+                                        filename,
+                                    )
+                                    .await
+                            })
+                        })
+                        .await;
                     graph.add_page((nd, edge));
                 }
             }

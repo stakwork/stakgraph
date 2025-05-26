@@ -206,8 +206,7 @@ impl Graph for ArrayGraph {
                             &gf.body,
                             &gf.file,
                             NodeType::Endpoint,
-                        )
-                        .await?;
+                        )?;
                         // find the endpoint in the graph
                         for end in endpoints_in_group {
                             if let Some(idx) =
@@ -631,9 +630,12 @@ impl Graph for ArrayGraph {
             .map(|n| n.node_data.clone())
             .collect();
         for data_model in data_model_nodes {
-            let edges = lang.lang().data_model_within_finder(&data_model, &|file| {
-                self.find_nodes_by_file_ends_with(NodeType::Function, file)
-            });
+            let edges = lang
+                .lang()
+                .data_model_within_finder(&data_model, &|file| async {
+                    self.find_nodes_by_file_ends_with(NodeType::Function, file)
+                        .await
+                });
             // If edges is async, use block_on or .await as needed
             // If not, just use as is
             for edge in edges {

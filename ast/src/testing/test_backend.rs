@@ -1,3 +1,6 @@
+use std::future::Future;
+use std::pin::Pin;
+
 use crate::lang::graphs::NodeType;
 use crate::lang::Graph;
 use crate::lang::{linker::normalize_backend_path, Lang};
@@ -235,47 +238,49 @@ impl<G: Graph> BackendTester<G> {
         }
         Ok(())
     }
-    async fn check_indirect_data_model_usage(
-        &self,
-        function_name: &str,
-        data_model: &str,
-        visited: &mut Vec<String>,
-    ) -> bool {
-        if visited.contains(&function_name.to_string()) {
-            return false;
-        }
-        visited.push(function_name.to_string());
+    fn check_indirect_data_model_usage<'a>(
+        &'a self,
+        function_name: &'a str,
+        data_model: &'a str,
+        visited: &'a mut Vec<String>,
+    ) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+        Box::pin(async move {
+            if visited.contains(&function_name.to_string()) {
+                return false;
+            }
+            visited.push(function_name.to_string());
 
-        if self
-            .graph
-            .check_direct_data_model_usage(function_name, data_model)
-            .await
-        {
-            return true;
-        }
-
-        let function_nodes = self
-            .graph
-            .find_nodes_by_name(NodeType::Function, function_name)
-            .await;
-
-        if function_nodes.is_empty() {
-            return false;
-        }
-
-        let function_node = &function_nodes[0];
-
-        let called_functions = self.graph.find_functions_called_by(&function_node).await;
-
-        for called_function in called_functions {
             if self
-                .check_indirect_data_model_usage(&called_function.name, data_model, visited)
+                .graph
+                .check_direct_data_model_usage(function_name, data_model)
                 .await
             {
                 return true;
             }
-        }
-        false
+
+            let function_nodes = self
+                .graph
+                .find_nodes_by_name(NodeType::Function, function_name)
+                .await;
+
+            if function_nodes.is_empty() {
+                return false;
+            }
+
+            let function_node = &function_nodes[0];
+
+            let called_functions = self.graph.find_functions_called_by(&function_node).await;
+
+            for called_function in called_functions {
+                if self
+                    .check_indirect_data_model_usage(&called_function.name, data_model, visited)
+                    .await
+                {
+                    return true;
+                }
+            }
+            false
+        })
     }
 }
 
