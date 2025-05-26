@@ -144,6 +144,7 @@ impl Lang {
         })?;
         Ok(res)
     }
+
     pub fn format_variables(
         &self,
         m: &QueryMatch,
@@ -153,15 +154,18 @@ impl Lang {
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
         let mut v = NodeData::in_file(file);
+
         Self::loop_captures(q, &m, code, |body, node, o| {
-            if o == VARIABLE_NAME {
-                v.name = body.to_string();
-            } else if o == VARIABLE_DECLARATION {
-                v.body = body;
-                v.start = node.start_position().row;
-                v.end = node.end_position().row;
-            } else if o == VARIABLE_TYPE {
-                v.data_type = Some(body);
+            if Self::is_top_level(node, &self.lang.program_node_name()) {
+                if o == VARIABLE_NAME {
+                    v.name = body.to_string();
+                } else if o == VARIABLE_DECLARATION {
+                    v.body = body;
+                    v.start = node.start_position().row;
+                    v.end = node.end_position().row;
+                } else if o == VARIABLE_TYPE {
+                    v.data_type = Some(body);
+                }
             }
 
             Ok(())
@@ -170,6 +174,25 @@ impl Lang {
             res.push(v);
         }
         Ok(res)
+    }
+
+    fn is_top_level(node: tree_sitter::Node, program_name: &str) -> bool {
+        let mut current = node;
+        loop {
+            if let Some(parent) = current.parent() {
+                match parent.kind() {
+                    kind if kind == program_name => return true,
+                    "function_declaration"
+                    | "class_declaration"
+                    | "method_definition"
+                    | "arrow_function" => return false,
+                    _ => current = parent,
+                }
+            } else {
+                break;
+            }
+        }
+        false
     }
     pub fn collect_pages<G: Graph>(
         &self,
