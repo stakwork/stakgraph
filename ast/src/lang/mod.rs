@@ -148,7 +148,7 @@ impl Lang {
             Ok(Vec::new())
         }
     }
-    pub fn get_pages<G: Graph>(
+    pub async fn get_pages<G: Graph>(
         &self,
         code: &str,
         file: &str,
@@ -157,7 +157,7 @@ impl Lang {
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
         if let Some(qo) = self.lang.page_query() {
             let qo = self.q(&qo, &NodeType::Page);
-            Ok(self.collect_pages(&qo, code, file, lsp_tx, graph)?)
+            Ok(self.collect_pages(&qo, code, file, lsp_tx, graph).await?)
         } else {
             Ok(Vec::new())
         }
@@ -184,7 +184,7 @@ impl Lang {
         Ok(Some(name.to_string()))
     }
     // returns (Vec<Function>, Vec<Test>)
-    pub fn get_functions_and_tests<G: Graph>(
+    pub async fn get_functions_and_tests<G: Graph>(
         &self,
         code: &str,
         file: &str,
@@ -192,7 +192,9 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<Function>, Vec<Function>)> {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
-        let funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx)?;
+        let funcs1 = self
+            .collect_functions(&qo, code, file, graph, lsp_tx)
+            .await?;
         let (funcs, mut tests) = self.lang.filter_tests(funcs1);
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::Test);
@@ -250,37 +252,44 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<()> {
         trace!("add_calls_for_function");
+        
+        // Approach 1: Collect data synchronously first
         let mut caller_name = "".to_string();
+        let mut function_node = None;
+        
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 caller_name = body;
             } else if o == FUNCTION_DEFINITION {
-                // NOTE this should always be the last one
-                let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
-                let calls = self.collect_calls_in_function(
-                    &q2,
-                    code,
-                    file,
-                    node,
-                    &caller_name,
-                    graph,
-                    lsp_tx,
-                )?;
-                self.add_calls_inside(res, &caller_name, file, calls);
-                if self.lang.is_test(&caller_name, file) {
-                    let int_calls = self.collect_integration_test_calls(
+                // Store the node for async processing
+                function_node = Some(node);
+            }
+            Ok(())
+        })?;
+        
+        // Now process asynchronously
+        if let Some(node) = function_node {
+            let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
+            let calls = self
+                .collect_calls_in_function(&q2, code, file, node, &caller_name, graph, lsp_tx)
+                .await?;
+            self.add_calls_inside(res, &caller_name, file, calls);
+            
+            if self.lang.is_test(&caller_name, file) {
+                let int_calls = self
+                    .collect_integration_test_calls(
                         code,
                         file,
                         node,
                         &caller_name,
                         graph,
                         lsp_tx,
-                    )?;
-                    res.2.extend(int_calls);
-                }
+                    )
+                    .await?;
+                res.2.extend(int_calls);
             }
-            Ok(())
-        })?;
+        }
+        
         Ok(())
     }
     fn add_calls_inside(

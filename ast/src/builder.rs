@@ -249,7 +249,8 @@ impl Repo {
                 .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
             let classes = self
                 .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
+                .collect_classes::<G>(&qo, &code, &filename, &graph)
+                .await?;
             i += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(
@@ -318,9 +319,10 @@ impl Repo {
         i = 0;
         info!("=> get_functions_and_tests...");
         for (filename, code) in &filez {
-            let (funcs, tests) =
-                self.lang
-                    .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)?;
+            let (funcs, tests) = self
+                .lang
+                .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)
+                .await?;
             i += funcs.len();
 
             graph.add_functions(funcs);
@@ -344,7 +346,8 @@ impl Repo {
             if self.lang.lang().is_router_file(&filename, &code) {
                 let pages = self
                     .lang
-                    .get_pages(&code, &filename, &self.lsp_tx, &graph)?;
+                    .get_pages(&code, &filename, &self.lsp_tx, &graph)
+                    .await?;
                 i += pages.len();
                 graph.add_pages(pages);
             }
@@ -394,10 +397,10 @@ impl Repo {
             debug!("get_endpoints in {:?}", filename);
             let endpoints =
                 self.lang
-                    .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx)?;
+                    .collect_endpoints(&code, &filename, Some(&graph), &self.lsp_tx).await?;
             i += endpoints.len();
 
-            graph.add_endpoints(endpoints);
+            graph.add_endpoints(endpoints).await;
         }
         info!("=> got {} endpoints", i);
 
@@ -410,7 +413,9 @@ impl Repo {
             let endpoint_groups =
                 self.lang
                     .get_query_opt::<G>(q, &code, &filename, NodeType::Endpoint)?;
-            let _ = graph.process_endpoint_groups(endpoint_groups, &self.lang);
+            let _ = graph
+                .process_endpoint_groups(endpoint_groups, &self.lang)
+                .await;
         }
 
         // try again on the endpoints to add data models, if manual
@@ -431,7 +436,7 @@ impl Repo {
                     .collect_integration_tests(code, filename, &graph)?;
                 i += int_tests.len();
                 for (nd, tt, edge_opt) in int_tests {
-                    graph.add_test_node(nd, tt, edge_opt);
+                    graph.add_test_node(nd, tt, edge_opt).await;
                 }
             }
         }
@@ -449,7 +454,7 @@ impl Repo {
                     .get_function_calls(&code, &filename, &graph, &self.lsp_tx)
                     .await?;
                 i += all_calls.0.len();
-                graph.add_calls(all_calls);
+                graph.add_calls(all_calls).await;
             }
             info!("=> got {} function calls", i);
         }
