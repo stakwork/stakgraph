@@ -162,6 +162,14 @@ impl Repo {
             };
 
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
+
+            if self.lang.use_partial_finder() {
+                if let Some(edge) = self.lang.partial_finder(&path, &|name, file| {
+                    graph.find_node_by_name_and_file(NodeType::Page, name, file)
+                }) {
+                    graph.add_edge(edge);
+                }
+            }
         }
 
         let filez = fileys(&files, &self.root)?;
