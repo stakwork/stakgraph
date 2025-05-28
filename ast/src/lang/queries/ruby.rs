@@ -20,6 +20,37 @@ impl Ruby {
     pub fn new() -> Self {
         Ruby(tree_sitter_ruby::LANGUAGE.into())
     }
+
+    fn is_partial(&self, file_name: &str) -> bool {
+        let partial_name = get_page_name(file_name);
+        if let Some(name) = partial_name {
+            return name.starts_with('_');
+        }
+        false
+    }
+
+    fn partial_finder(
+        &self,
+        file_path: &str,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+    ) -> Option<Edge> {
+        if !self.is_partial(file_path) {
+            return None;
+        }
+
+        let pagename = get_page_name(file_path)?;
+        let page = NodeData::name_file(&pagename, file_path);
+        
+        // Remove leading underscore for the parent template
+        let parent_name = pagename.trim_start_matches('_');
+        let parent_path = file_path.replace(&pagename, parent_name);
+
+        if let Some(parent) = find_fn(parent_name, &parent_path) {
+            return Some(Edge::renders(&parent, &page));
+        }
+
+        None
+    }
 }
 
 impl Stack for Ruby {
@@ -478,6 +509,16 @@ impl Stack for Ruby {
         let target_class = inflection_rs::inflection::singularize(name);
         target_class.to_case(Case::Pascal)
     }
+    fn use_partial_finder(&self) -> bool {
+        true
+    }
+    fn partial_finder(
+        &self,
+        file_path: &str,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+    ) -> Option<Edge> {
+        self.partial_finder(file_path, find_fn)
+    }
 }
 
 fn remove_all_extensions(path: &Path) -> String {
@@ -511,3 +552,62 @@ fn trim_array_string(s: &str) -> String {
 // fn is_controller(nd: &NodeData, controller: &str) -> bool {
 //     nd.file.ends_with(&format!("{}_controller.rb", controller))
 // }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lang::{NodeData, NodeType};
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_is_partial() {
+        let ruby = Ruby::new();
+        
+        // Test partial files
+        assert!(ruby.is_partial("app/views/shared/_header.html.erb"));
+        assert!(ruby.is_partial("app/views/users/_form.html.haml"));
+        
+        // Test non-partial files
+        assert!(!ruby.is_partial("app/views/shared/header.html.erb"));
+        assert!(!ruby.is_partial("app/views/users/form.html.haml"));
+    }
+
+    #[test]
+    fn test_partial_finder() {
+        let ruby = Ruby::new();
+        
+        // Mock find function
+        let find_fn = |name: &str, file: &str| {
+            if name == "form" && file == "app/views/users/form.html.haml" {
+                Some(NodeData {
+                    name: "form".to_string(),
+                    file: "app/views/users/form.html.haml".to_string(),
+                    start: 0,
+                    end: 10,
+                    body: "".to_string(),
+                    meta: HashMap::new(),
+                })
+            } else {
+                None
+            }
+        };
+
+        // Test partial finder
+        let edge = ruby.partial_finder(
+            "app/views/users/_form.html.haml",
+            &find_fn
+        ).unwrap();
+
+        assert_eq!(edge.source.node_data.name, "form");
+        assert_eq!(edge.source.node_data.file, "app/views/users/form.html.haml");
+        assert_eq!(edge.target.node_data.name, "_form");
+        assert_eq!(edge.target.node_data.file, "app/views/users/_form.html.haml");
+        assert_eq!(edge.edge_type, EdgeType::Renders);
+
+        // Test non-partial file
+        assert!(ruby.partial_finder(
+            "app/views/users/form.html.haml",
+            &find_fn
+        ).is_none());
+    }
+}
