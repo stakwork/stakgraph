@@ -17,7 +17,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     assert_eq!(num_nodes, 86, "Expected 86 nodes");
-    assert_eq!(num_edges, 110, "Expected 110 edges");
+    assert_eq!(num_edges, 118, "Expected 118 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -35,6 +35,12 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 12, "Expected 12 imports");
+
+    let calls = graph.count_edges_of_type(EdgeType::Calls);
+    assert_eq!(calls, 12, "Expected 12 call edges");
+
+    let contains = graph.count_edges_of_type(EdgeType::Contains);
+    assert_eq!(contains, 93, "Expected 93 contains edges");
 
     let main_import_body = format!(
         r#"import os

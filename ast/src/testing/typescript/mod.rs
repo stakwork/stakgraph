@@ -4,7 +4,7 @@ use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
 pub async fn test_typescript_generic<G: Graph>() -> Result<(), anyhow::Error> {
-    let use_lsp = get_use_lsp();
+    let use_lsp = get_use_lsp("typescript");
     let repo = Repo::new(
         "src/testing/typescript",
         Lang::from_str("ts").unwrap(),
@@ -19,12 +19,12 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<(), anyhow::Error> {
     graph.analysis();
 
     let (num_nodes, num_edges) = graph.get_graph_size();
-    if use_lsp == true {
+    if use_lsp {
         assert_eq!(num_nodes, 49, "Expected 49 nodes");
-        assert_eq!(num_edges, 68, "Expected 68 edges");
+        assert_eq!(num_edges, 80, "Expected 80 edges");
     } else {
         assert_eq!(num_nodes, 46, "Expected 46 nodes");
-        assert_eq!(num_edges, 63, "Expected 63 edges");
+        assert_eq!(num_edges, 66, "Expected 66 edges");
     }
 
     fn normalize_path(path: &str) -> String {
@@ -93,7 +93,7 @@ import {{ sequelize }} from "./config.js";"#
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges_count, 2, "Expected 11 calls edges");
+    assert_eq!(calls_edges_count, 2, "Expected 2 calls edges");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     assert_eq!(data_models.len(), 4, "Expected 4 data models");
@@ -102,7 +102,11 @@ import {{ sequelize }} from "./config.js";"#
     assert_eq!(variables.len(), 4, "Expected 4 variables");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
-    assert_eq!(import_edges_count, 12, "Expected 12 import edges");
+    if use_lsp {
+        assert_eq!(import_edges_count, 23, "Expected 23 import edges");
+    } else {
+        assert_eq!(import_edges_count, 12, "Expected 12 import edges");
+    }
 
     Ok(())
 }

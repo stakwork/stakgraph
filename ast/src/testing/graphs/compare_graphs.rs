@@ -35,7 +35,7 @@ async fn compare_graphs() {
 
 async fn compare_graphs_inner(lang_id: &str, repo_path: &str) -> Result<()> {
     let lang = Lang::from_str(lang_id).unwrap();
-    let use_lsp = get_use_lsp() && lang.kind.default_do_lsp();
+    let use_lsp = get_use_lsp(lang_id);
     let repo = Repo::new(repo_path, lang, use_lsp, Vec::new(), Vec::new()).unwrap();
     let array_graph = repo.build_graph_inner::<ArrayGraph>().await?;
     info!("ArrayGraph Analysis for {}", lang_id);

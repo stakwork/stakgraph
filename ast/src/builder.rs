@@ -323,7 +323,17 @@ impl Repo {
                     .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)?;
             i += funcs.len();
 
-            graph.add_functions(funcs);
+            graph.add_functions(funcs.clone());
+
+            for func in &funcs {
+                let func_node = &func.0;
+                let var_edges =
+                    self.lang
+                        .collect_var_call_in_function(func_node, &graph, &self.lsp_tx);
+                for edge in var_edges {
+                    graph.add_edge(edge);
+                }
+            }
             i += tests.len();
 
             for test in tests {

@@ -137,7 +137,8 @@ impl Language {
         match self {
             Self::Rust => true,
             Self::Go => true,
-            Self::Typescript | Self::React => true,
+            Self::Typescript => false,
+            Self::React => true,
             Self::Python => false,
             Self::Ruby => false,
             Self::Kotlin => false,

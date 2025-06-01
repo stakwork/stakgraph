@@ -20,7 +20,7 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     //graph.analysis();
     assert_eq!(num_nodes, 124, "Expected 124 nodes");
-    assert_eq!(num_edges, 140, "Expected 140 edges");
+    assert_eq!(num_edges, 142, "Expected 142 edges");
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
