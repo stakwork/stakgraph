@@ -351,16 +351,12 @@ impl std::fmt::Debug for Neo4jGraph {
 }
 
 impl Neo4jGraph {
-    fn new() -> Self {
+    fn _new() -> Self {
         Neo4jGraph {
             connection: None,
             config: Neo4jConfig::default(),
             connected: Arc::new(Mutex::new(false)),
         }
-    }
-
-    fn with_capacity(_nodes: usize, _edges: usize) -> Self {
-        Neo4jGraph::default()
     }
 
     pub async fn add_node(&mut self, node_type: NodeType, node_data: NodeData) -> Result<()> {
@@ -456,9 +452,6 @@ impl Neo4jGraph {
         } else {
             Ok((0, 0))
         }
-    }
-    fn get_graph_keys(&self) -> (HashSet<&str>, HashSet<&str>) {
-        (HashSet::new(), HashSet::new())
     }
     pub async fn analysis(&mut self) -> Result<()> {
         let connection = self.get_connection();

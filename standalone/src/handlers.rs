@@ -6,76 +6,87 @@ use lsp::git::{get_commit_hash, git_pull_or_clone};
 use std::time::Instant;
 use tracing::info;
 
-// #[axum::debug_handler]
-// pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
-//     let (final_repo_path, final_repo_url, need_clone, username, pat) = resolve_repo(&body)?;
+#[axum::debug_handler]
+pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
+    let (final_repo_path, final_repo_url, need_clone, username, pat) = resolve_repo(&body)?;
 
-//     clone_repo(
-//         need_clone,
-//         &final_repo_url,
-//         &final_repo_path,
-//         username.clone(),
-//         pat.clone(),
-//     )
-//     .await?;
+    let clone_start = Instant::now();
+    let total_start = Instant::now();
 
-//     let repo_path = &final_repo_path;
-//     let repo_url = &final_repo_url;
+    clone_repo(
+        need_clone,
+        &final_repo_url,
+        &final_repo_path,
+        username.clone(),
+        pat.clone(),
+    )
+    .await?;
+    info!(
+        "\n\n ==>> Cloning repo took {:.2?} \n\n",
+        clone_start.elapsed()
+    );
 
-//     let current_hash = match get_commit_hash(&repo_path).await {
-//         Ok(hash) => hash,
-//         Err(e) => {
-//             return Err(AppError::Anyhow(anyhow::anyhow!(
-//                 "Could not get current hash: {}",
-//                 e
-//             )))
-//         }
-//     };
+    let repo_path = &final_repo_path;
+    let repo_url = &final_repo_url;
 
-//     let mut graph_ops = GraphOps::new();
-//     graph_ops.connect().await?;
+    let current_hash = match get_commit_hash(&repo_path).await {
+        Ok(hash) => hash,
+        Err(e) => {
+            return Err(AppError::Anyhow(anyhow::anyhow!(
+                "Could not get current hash: {}",
+                e
+            )))
+        }
+    };
 
-//     let stored_hash = match graph_ops.graph.get_repository_hash(&repo_url).await {
-//         Ok(hash) => Some(hash),
-//         Err(_) => None,
-//     };
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await?;
 
-//     info!(
-//         "Current hash: {} | Stored hash: {:?}",
-//         current_hash, stored_hash
-//     );
+    let stored_hash = match graph_ops.graph.get_repository_hash(&repo_url).await {
+        Ok(hash) => Some(hash),
+        Err(_) => None,
+    };
 
-//     if let Some(hash) = &stored_hash {
-//         if hash == &current_hash {
-//             let (nodes, edges) = graph_ops.graph.get_graph_size().await?;
-//             return Ok(Json(ProcessResponse {
-//                 status: "success".to_string(),
-//                 message: "Repository already processed".to_string(),
-//                 nodes: nodes as usize,
-//                 edges: edges as usize,
-//             }));
-//         }
-//     }
+    info!(
+        "Current hash: {} | Stored hash: {:?}",
+        current_hash, stored_hash
+    );
 
-//     let (nodes, edges) = if let Some(hash) = stored_hash {
-//         info!("Updating repository hash from {} to {}", hash, current_hash);
-//         graph_ops
-//             .update_incremental(&repo_url, &repo_path, &current_hash, &hash)
-//             .await?
-//     } else {
-//         info!("Adding new repository hash: {}", current_hash);
-//         graph_ops
-//             .update_full(&repo_url, &repo_path, &current_hash)
-//             .await?
-//     };
+    if let Some(hash) = &stored_hash {
+        if hash == &current_hash {
+            let (nodes, edges) = graph_ops.graph.get_graph_size().await?;
+            return Ok(Json(ProcessResponse {
+                status: "success".to_string(),
+                message: "Repository already processed".to_string(),
+                nodes: nodes as usize,
+                edges: edges as usize,
+            }));
+        }
+    }
 
-//     Ok(Json(ProcessResponse {
-//         status: "success".to_string(),
-//         message: "Repository processed successfully".to_string(),
-//         nodes: nodes as usize,
-//         edges: edges as usize,
-//     }))
-// }
+    let (nodes, edges) = if let Some(hash) = stored_hash {
+        info!("Updating repository hash from {} to {}", hash, current_hash);
+        graph_ops
+            .update_incremental(&repo_url, &repo_path, &current_hash, &hash)
+            .await?
+    } else {
+        info!("Adding new repository hash: {}", current_hash);
+        graph_ops
+            .update_full(&repo_url, &repo_path, &current_hash)
+            .await?
+    };
+    info!(
+        "\n\n ==>> Total processing time: {:.2?} \n\n",
+        total_start.elapsed()
+    );
+
+    Ok(Json(ProcessResponse {
+        status: "success".to_string(),
+        message: "Repository processed successfully".to_string(),
+        nodes: nodes as usize,
+        edges: edges as usize,
+    }))
+}
 
 pub async fn clear_graph() -> Result<Json<ProcessResponse>> {
     let mut graph_ops = GraphOps::new();

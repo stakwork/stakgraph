@@ -3,7 +3,7 @@ use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::graph_ops::GraphOps;
 use crate::lang::{graphs::EdgeType, NodeType};
 use lsp::git::{checkout_commit, get_changed_files_between, git_pull_or_clone};
-use tracing::{debug, info};
+use tracing::info;
 
 fn clear_neo4j() {
     let mut graph_ops = GraphOps::new();
@@ -21,8 +21,6 @@ fn assert_edge_exists(graph: &GraphOps, src: &str, tgt: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_graph_update() {
-    use crate::lang::graph;
-
     let repo_url = "https://github.com/fayekelmith/demorepo.git";
     let repo_path = "/tmp/demorepo";
     let before_commit = "3a2bd5cc2e0a38ce80214a32ed06b2fb9430ab73";

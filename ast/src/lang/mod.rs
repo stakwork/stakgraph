@@ -14,7 +14,7 @@ use std::fmt;
 use std::str::FromStr;
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
-use tree_sitter::{Node as TreeNode, Query, QueryCursor, QueryMatch};
+use tree_sitter::{Node as TreeNode, Query, QueryCursor};
 
 pub struct Lang {
     pub kind: Language,
