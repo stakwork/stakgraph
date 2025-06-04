@@ -5,6 +5,7 @@ use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
 use tracing::info;
 
+#[derive(Debug, Clone)]
 pub struct GraphOps {
     pub graph: Neo4jGraph,
 }

@@ -5,7 +5,7 @@ use anyhow::Result;
 use neo4rs::{query, Graph as Neo4jConnection};
 use std::str::FromStr;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
