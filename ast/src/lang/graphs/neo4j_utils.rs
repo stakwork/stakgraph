@@ -6,8 +6,9 @@ use std::{
 };
 use tracing::{debug, info};
 use lazy_static::lazy_static;
-use crate::{lang::FunctionCall, utils::create_node_key};
+use crate::{lang::FunctionCall, utils::{create_node_key, create_node_key_from_ref}};
 use serde_json;
+use uuid::Uuid;
 
 use super::*;
 
@@ -15,6 +16,8 @@ lazy_static! {
     static ref CONNECTION: tokio::sync::Mutex<Option<Arc<Neo4jConnection>>> = tokio::sync::Mutex::new(None);
     static ref INIT: Once = Once::new();
 }
+
+const DATA_BANK: &str = "Data_Bank";
 
 pub struct Neo4jConnectionManager;
 
@@ -131,6 +134,8 @@ impl NodeQueryBuilder {
         params.insert("end".to_string(), self.node_data.end.to_string());
         params.insert("body".to_string(), self.node_data.body.clone());
 
+        params.insert("ref_id".to_string(), Uuid::new_v4().to_string());
+
         if let Some(data_type) = &self.node_data.data_type {
             params.insert("data_type".to_string(), data_type.clone());
         }
@@ -143,32 +148,32 @@ impl NodeQueryBuilder {
         let string_meta = serde_json::to_string(&self.node_data.meta).unwrap();
         params.insert("meta".to_string(), string_meta);
         
-        let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
-        params.insert("key".to_string(), node_key.clone());
-        
         params
     }
     
     pub fn build(&self) -> (String, HashMap<String, String>) {
-        let params = self.build_params();
+        let mut params = self.build_params();
+        
+        let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
+        params.insert("node_key".to_string(), node_key);
         
         let property_list = params
             .keys()
-            .filter(|k| k != &"key")
+            .filter(|k| k != &"node_key")
             .map(|k| format!("n.{} = ${}", k, k))
             .collect::<Vec<_>>()
             .join(", ");
-
-
+    
         let query = format!(
-            "MERGE (n:{} {{name: $name, file: $file, start: $start}})
+            "MERGE (n:{}:{} {{node_key: $node_key}})
             ON CREATE SET {}
             ON MATCH SET {}",
             self.node_type.to_string(),
+            DATA_BANK,
             property_list,
             property_list
         );
-
+    
         (query, params)
     }
 }
@@ -209,20 +214,49 @@ impl EdgeQueryBuilder {
         params
     }
     
+    // pub fn build(&self) -> (String, HashMap<String, String>) {
+    //     let params = self.build_params();
+
+    //     let rel_type = self.edge.edge.to_string();
+    //     let source_type = self.edge.source.node_type.to_string();
+    //     let target_type = self.edge.target.node_type.to_string();
+        
+    //         let query = format!(
+    //             "MATCH (source:{} {{name: $source_name, file: $source_file}}), \
+    //                    (target:{} {{name: $target_name, file: $target_file}}) \
+    //              MERGE (source)-[r:{}]->(target)",
+    //             source_type, target_type, rel_type
+    //         );
+    //         (query, params)
+    // }
     pub fn build(&self) -> (String, HashMap<String, String>) {
         let params = self.build_params();
 
         let rel_type = self.edge.edge.to_string();
+
+        println!("Creating edge: {} -> {} with type: {}", 
+             self.edge.source.node_data.name, 
+             self.edge.target.node_data.name, 
+             rel_type);
+             
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
         
-            let query = format!(
-                "MATCH (source:{} {{name: $source_name, file: $source_file}}), \
-                       (target:{} {{name: $target_name, file: $target_file}}) \
-                 MERGE (source)-[r:{}]->(target)",
-                source_type, target_type, rel_type
-            );
-            (query, params)
+        let source_node_key = create_node_key_from_ref(&self.edge.source);
+        let target_node_key = create_node_key_from_ref(&self.edge.target);
+        
+        let mut edge_params = params;
+        edge_params.insert("source_node_key".to_string(), source_node_key);
+        edge_params.insert("target_node_key".to_string(), target_node_key);
+        
+        let query = format!(
+            "MATCH (source:{} {{node_key: $source_node_key}}), \
+                   (target:{} {{node_key: $target_node_key}}) \
+             MERGE (source)-[r:{}]->(target)",
+            source_type, target_type, rel_type
+        );
+        
+        (query, edge_params)
     }
 }
 pub async fn execute_batch(

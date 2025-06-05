@@ -1,3 +1,4 @@
+use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
 use crate::lang::graphs::{BTreeMapGraph, Edge, NodeKeys, NodeRef};
 use crate::lang::neo4j_utils::TransactionManager;
@@ -64,6 +65,7 @@ impl GraphOps {
                     let file_graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
                     // Upload to Neo4j
                     self.upload_btreemap_to_neo4j(&file_graph).await?;
+                    self.graph.create_indexes().await?;
 
                     // Re-add incoming edges if both nodes exist
                     for (edge, _target_data) in &all_incoming_edges {
@@ -119,7 +121,11 @@ impl GraphOps {
         .await?;
 
         let temp_graph = repos.build_graphs_inner::<BTreeMapGraph>().await?;
+
+        temp_graph.analysis();
+
         self.upload_btreemap_to_neo4j(&temp_graph).await?;
+        self.graph.create_indexes().await?;
 
         self.graph
             .update_repository_hash(repo_url, current_hash)
@@ -130,8 +136,6 @@ impl GraphOps {
         &mut self,
         btree_graph: &BTreeMapGraph,
     ) -> anyhow::Result<(u32, u32)> {
-        self.graph.clear().await?;
-
         let connection = self.graph.ensure_connected().await?;
 
         let mut txn_manager = TransactionManager::new(&connection);
