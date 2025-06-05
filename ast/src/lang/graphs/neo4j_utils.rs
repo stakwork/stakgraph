@@ -134,7 +134,13 @@ impl NodeQueryBuilder {
         params.insert("end".to_string(), self.node_data.end.to_string());
         params.insert("body".to_string(), self.node_data.body.clone());
 
-        params.insert("ref_id".to_string(), Uuid::new_v4().to_string());
+        let ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+            "test_ref_id".to_string()
+        } else {
+            Uuid::new_v4().to_string()
+        };
+
+        params.insert("ref_id".to_string(), ref_id);
 
         if let Some(data_type) = &self.node_data.data_type {
             params.insert("data_type".to_string(), data_type.clone());
@@ -145,8 +151,13 @@ impl NodeQueryBuilder {
         if let Some(hash) = &self.node_data.hash {
             params.insert("hash".to_string(), hash.clone());
         }
-        let string_meta = serde_json::to_string(&self.node_data.meta).unwrap();
-        params.insert("meta".to_string(), string_meta);
+        for (key, value) in &self.node_data.meta {
+            match key.as_str() {
+                "handler" => { params.insert("handler".to_string(), value.clone()); },
+                "verb" => { params.insert("verb".to_string(), value.clone()); },
+                _ => { params.insert(key.clone(), value.clone()); },
+            }
+        }
         
         params
     }
@@ -194,9 +205,6 @@ impl EdgeQueryBuilder {
         params.insert("source_name".to_string(), self.edge.source.node_data.name.clone());
         params.insert("source_file".to_string(), self.edge.source.node_data.file.clone());
         params.insert("source_start".to_string(), self.edge.source.node_data.start.to_string());
-       
-       
-        
 
         if let Some(verb) = &self.edge.source.node_data.verb {
             params.insert("source_verb".to_string(), verb.clone());
@@ -214,50 +222,22 @@ impl EdgeQueryBuilder {
         params
     }
     
-    // pub fn build(&self) -> (String, HashMap<String, String>) {
-    //     let params = self.build_params();
-
-    //     let rel_type = self.edge.edge.to_string();
-    //     let source_type = self.edge.source.node_type.to_string();
-    //     let target_type = self.edge.target.node_type.to_string();
-        
-    //         let query = format!(
-    //             "MATCH (source:{} {{name: $source_name, file: $source_file}}), \
-    //                    (target:{} {{name: $target_name, file: $target_file}}) \
-    //              MERGE (source)-[r:{}]->(target)",
-    //             source_type, target_type, rel_type
-    //         );
-    //         (query, params)
-    // }
     pub fn build(&self) -> (String, HashMap<String, String>) {
         let params = self.build_params();
 
         let rel_type = self.edge.edge.to_string();
-
-        println!("Creating edge: {} -> {} with type: {}", 
-             self.edge.source.node_data.name, 
-             self.edge.target.node_data.name, 
-             rel_type);
-
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
         
-        let source_node_key = create_node_key_from_ref(&self.edge.source);
-        let target_node_key = create_node_key_from_ref(&self.edge.target);
-        
-        let mut edge_params = params;
-        edge_params.insert("source_node_key".to_string(), source_node_key);
-        edge_params.insert("target_node_key".to_string(), target_node_key);
-        
-        let query = format!(
-            "MATCH (source:{} {{node_key: $source_node_key}}), \
-                   (target:{} {{node_key: $target_node_key}}) \
-             MERGE (source)-[r:{}]->(target)",
-            source_type, target_type, rel_type
-        );
-        
-        (query, edge_params)
+            let query = format!(
+                "MATCH (source:{} {{name: $source_name, file: $source_file}}), \
+                       (target:{} {{name: $target_name, file: $target_file}}) \
+                 MERGE (source)-[r:{}]->(target)",
+                source_type, target_type, rel_type
+            );
+            (query, params)
     }
+  
 }
 pub async fn execute_batch(
     conn: &Neo4jConnection,

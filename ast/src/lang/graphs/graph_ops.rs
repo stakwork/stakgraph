@@ -138,31 +138,39 @@ impl GraphOps {
     ) -> anyhow::Result<(u32, u32)> {
         let connection = self.graph.ensure_connected().await?;
 
-        let mut txn_manager = TransactionManager::new(&connection);
+        let mut nodes_txn_manager = TransactionManager::new(&connection);
         for node in btree_graph.nodes.values() {
-            txn_manager.add_node(&node.node_type, &node.node_data);
+            nodes_txn_manager.add_node(&node.node_type, &node.node_data);
         }
+        nodes_txn_manager.execute().await?;
+
+        let mut edges_txn_manager = TransactionManager::new(&connection);
         for (src_key, dst_key, edge_type) in &btree_graph.edges {
-            if let (Some(src_node), Some(dst_node)) = (
-                btree_graph.nodes.get(src_key),
-                btree_graph.nodes.get(dst_key),
-            ) {
-                let edge = Edge {
-                    edge: edge_type.clone(),
-                    source: NodeRef {
-                        node_type: src_node.node_type.clone(),
-                        node_data: NodeKeys::from(&src_node.node_data),
-                    },
-                    target: NodeRef {
-                        node_type: dst_node.node_type.clone(),
-                        node_data: NodeKeys::from(&dst_node.node_data),
-                    },
-                };
-                txn_manager.add_edge(&edge);
+            let src_base_key = src_key.rsplitn(2, '-').nth(1).unwrap_or(src_key);
+            let dst_base_key = dst_key.rsplitn(2, '-').nth(1).unwrap_or(dst_key);
+
+            let src_node = btree_graph
+                .nodes
+                .iter()
+                .find(|(key, _)| key.starts_with(src_base_key))
+                .map(|(_, node)| node);
+
+            let dst_node = btree_graph
+                .nodes
+                .iter()
+                .find(|(key, _)| key.starts_with(dst_base_key))
+                .map(|(_, node)| node);
+
+            if let (Some(src_node), Some(dst_node)) = (src_node, dst_node) {
+                let edge = Edge::new(
+                    edge_type.clone(),
+                    NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                    NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
+                );
+                edges_txn_manager.add_edge(&edge);
             }
         }
-
-        txn_manager.execute().await?;
+        edges_txn_manager.execute().await?;
 
         let (nodes, edges) = self.graph.get_graph_size().await?;
         Ok((nodes, edges))
