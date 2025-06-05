@@ -1,15 +1,21 @@
 import { CoreMessage, streamText, ToolSet } from "ai";
-import { Provider, getModel, getProviderOptions } from "./provider";
+import {
+  Provider,
+  getModel,
+  getProviderOptions,
+  ThinkingSpeed,
+} from "./provider";
 
 export async function callModel(
   provider: Provider,
   apiKey: string,
   messages: CoreMessage[],
   tools?: ToolSet,
-  parser?: (fullResponse: string) => void
+  parser?: (fullResponse: string) => void,
+  thinkingSpeed?: ThinkingSpeed
 ): Promise<string> {
   const model = await getModel(provider, apiKey);
-  const providerOptions = getProviderOptions(provider);
+  const providerOptions = getProviderOptions(provider, thinkingSpeed);
   console.log(`Calling ${provider} with options:`, providerOptions);
   const result = streamText({
     model,
@@ -25,7 +31,7 @@ export async function callModel(
         throw part.error;
       case "text-delta":
         if (parser) {
-          parser(part.textDelta);
+          parser(fullResponse);
         }
         fullResponse += part.textDelta;
         break;

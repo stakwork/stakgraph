@@ -1,12 +1,12 @@
 import express from "express";
 import bodyParser from "body-parser";
-import { StakworkService } from "./services/stakwork";
-import { GitHubIssueAdapter } from "./adapters/github";
-import { ChatAdapter, Adapter, EmptyAdapters } from "./adapters/adapter";
-import { MessagesController } from "./controllers/messages";
-import { WebhookController } from "./controllers/webhook";
-import { Message } from "./types";
-import { loadConfig, Config } from "./utils/config";
+import { StakworkService } from "./services/stakwork.js";
+import { GitHubIssueAdapter } from "./adapters/github.js";
+import { ChatAdapter, Adapter, EmptyAdapters } from "./adapters/adapter.js";
+import { MessagesController } from "./controllers/messages.js";
+import { WebhookController } from "./controllers/webhook.js";
+import { Message } from "./types/index.js";
+import { loadConfig, Config } from "./utils/config.js";
 
 export class App {
   public app: express.Application;
@@ -16,13 +16,16 @@ export class App {
   private webhookController!: WebhookController;
   private config: Config;
 
-  constructor(configPath: string = "config.json") {
-    this.app = express();
+  constructor(parentApp?: any) {
+    this.app = parentApp || express();
+    const configPath = process.env.SAGE_CONFIG_PATH || "sage_config.json";
     this.config = loadConfig(configPath);
-    this.configureMiddleware();
+    if (!parentApp) {
+      this.configureMiddleware();
+    }
     this.initializeServices();
-    this.setupControllers();
     this.adapters = this.initializeAdapters();
+    this.setupControllers();
     this.setupRoutes();
   }
 
@@ -31,38 +34,28 @@ export class App {
   }
 
   private initializeServices(): void {
-    // Initialize Stakwork service
-    const STAKWORK_API_KEY = process.env.STAKWORK_API_KEY || "";
-    const WORKFLOW_ID = parseInt(process.env.WORKFLOW_ID || "38842", 10);
+    const workflow_id = parseInt(this.config.workflow_id || "38842", 10);
+    const repo = `${this.config.github.owner}/${this.config.github.repo}`;
     this.stakworkService = new StakworkService(
-      STAKWORK_API_KEY,
-      WORKFLOW_ID,
+      this.config.stakwork_api_key,
+      workflow_id,
       this.config.codeSpaceURL,
       this.config["2b_base_url"],
-      this.config.secret
+      this.config.secret,
+      this.config.dry_run,
+      repo
     );
   }
 
   private initializeAdapters(): Record<Adapter, ChatAdapter> {
     const adapters = EmptyAdapters();
-    // Initialize Stakwork service
-    const STAKWORK_API_KEY = process.env.STAKWORK_API_KEY || "";
-    const WORKFLOW_ID = parseInt(process.env.WORKFLOW_ID || "38842", 10);
-    this.stakworkService = new StakworkService(
-      STAKWORK_API_KEY,
-      WORKFLOW_ID,
-      this.config.codeSpaceURL,
-      this.config["2b_base_url"],
-      this.config.secret
-    );
 
-    const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
-    const { owner, repo } = this.config.github;
+    const { owner, repo, token } = this.config.github;
 
-    if (GITHUB_TOKEN && owner && repo) {
-      const DATA_DIR = process.env.DATA_DIR || "./data";
+    if (token && owner && repo) {
+      const DATA_DIR = this.config.data_dir || "./data";
       const githubAdapter = new GitHubIssueAdapter(
-        GITHUB_TOKEN,
+        token,
         owner,
         repo,
         DATA_DIR
@@ -97,16 +90,17 @@ export class App {
 
   private setupControllers(): void {
     const WEBHOOK_BASE_URL =
-      process.env.WEBHOOK_BASE_URL || "http://localhost:3000/webhook";
+      this.config.webhook_url || "http://localhost:3000/webhook";
     this.messagesController = new MessagesController(
       this.stakworkService,
-      WEBHOOK_BASE_URL
+      WEBHOOK_BASE_URL,
+      this.adapters
     );
     this.webhookController = new WebhookController(this.adapters);
   }
 
   private setupRoutes(): void {
-    this.app.post("/messages", (req, res) =>
+    this.app.post("/msg", (req, res) =>
       this.messagesController.handleMessage(req, res)
     );
     this.app.post("/webhook", (req, res) =>

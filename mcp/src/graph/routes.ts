@@ -155,7 +155,7 @@ function mapParams(req: Request): MapParams {
 export async function get_map(req: Request, res: Response) {
   try {
     const html = await G.get_map(mapParams(req));
-    res.send(html);
+    res.send(`<pre>\n${html}\n</pre>`);
   } catch (error) {
     console.error("Error:", error);
     res.status(500).send("Internal Server Error");
@@ -167,7 +167,7 @@ export async function get_repo_map(req: Request, res: Response) {
     const name = req.query.name as string;
     const ref_id = req.query.ref_id as string;
     const html = await G.get_repo_map(name, ref_id);
-    res.send(html);
+    res.send(`<pre>\n${html}\n</pre>`);
   } catch (error) {
     console.error("Error:", error);
     res.status(500).send("Internal Server Error");

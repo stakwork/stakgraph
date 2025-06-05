@@ -1,6 +1,7 @@
 .DS_Store
 target
 notes.md
+notes-*.md
 treesitter/tree-sitter-haml
 treesitter/tree-sitter-typescript
 treesitter/tree-sitter-embedded-template

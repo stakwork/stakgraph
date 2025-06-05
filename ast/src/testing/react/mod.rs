@@ -16,15 +16,15 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    // graph.analysis();
+    graph.analysis();
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     if use_lsp == true {
-        assert_eq!(num_nodes, 63, "Expected 63 nodes");
-        assert_eq!(num_edges, 85, "Expected 85 edges");
+        assert_eq!(num_nodes, 67, "Expected 67 nodes");
+        assert_eq!(num_edges, 88, "Expected 88 edges");
     } else {
-        assert_eq!(num_nodes, 57, "Expected 57 nodes");
-        assert_eq!(num_edges, 69, "Expected 69 edges");
+        assert_eq!(num_nodes, 61, "Expected 61 nodes");
+        assert_eq!(num_edges, 74, "Expected 74 edges");
     }
 
     fn normalize_path(path: &str) -> String {
@@ -51,6 +51,33 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    for imp in &imports {
+        let import_lines: Vec<&str> = imp
+            .body
+            .lines()
+            .filter(|line| line.trim_start().starts_with("import "))
+            .collect();
+
+        assert!(
+            import_lines.len() > 0,
+            "Expected multiple import lines in {}",
+            imp.file
+        );
+    }
+    let import_test_file = imports
+        .iter()
+        .find(|imp| imp.file == "src/testing/react/src/App.tsx")
+        .unwrap();
+
+    let app_body = format!(
+        r#"import React from "react";
+import {{ BrowserRouter as Router, Route, Routes }} from "react-router-dom";
+import "./App.css";
+import People from "./components/People";
+import NewPerson from "./components/NewPerson";"#
+    );
+
+    assert_eq!(import_test_file.body, app_body, "Body of App is incorrect");
     assert_eq!(imports.len(), 5, "Expected 5 imports");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
@@ -140,11 +167,14 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(Default::default()));
-    assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    assert_eq!(calls_edges_count, 11, "Expected 11 calls edges");
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     assert_eq!(pages.len(), 2, "Expected 2 pages");
+
+    let variables = graph.find_nodes_by_type(NodeType::Var);
+    assert_eq!(variables.len(), 5, "Expected 5 variables");
 
     let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
     assert_eq!(renders_edges_count, 2, "Expected 2 renders edges");
@@ -165,9 +195,18 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_react_typescript() {
+    #[cfg(feature = "neo4j")]
+    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_react_typescript_generic::<ArrayGraph>().await.unwrap();
     test_react_typescript_generic::<BTreeMapGraph>()
         .await
         .unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph = Neo4jGraph::default();
+        graph.clear();
+        test_react_typescript_generic::<Neo4jGraph>().await.unwrap();
+    }
 }

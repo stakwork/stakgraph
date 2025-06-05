@@ -12,8 +12,9 @@ async fn test_neo4j_revs() -> Result<()> {
     logger();
 
     let repo_path = env::var("REPO_PATH").ok();
-    let repo_urls = env::var("REPO_URL").ok();
-    if repo_path.is_none() && repo_urls.is_none() {
+    let repo_urls = env::var("REPO_URL")
+        .unwrap_or_else(|_| "https://github.com/fayekelmith/demorepo.git".to_string());
+    if repo_path.is_none() && repo_urls.is_empty() {
         return Err(anyhow::anyhow!("no REPO_PATH or REPO_URL"));
     }
 
@@ -23,7 +24,7 @@ async fn test_neo4j_revs() -> Result<()> {
             .await
             .context("Failed to create repo without filter")?
     } else {
-        let urls = repo_urls.as_ref().unwrap();
+        let urls = &repo_urls;
         info!("Using remote repositories: {}", urls);
 
         let username = env::var("USERNAME").ok();
@@ -121,7 +122,7 @@ async fn test_neo4j_revs() -> Result<()> {
             .await
             .context("Failed to create repo with filter")?
     } else {
-        let urls = repo_urls.as_ref().unwrap();
+        let urls = &repo_urls;
         let username = env::var("USERNAME").ok();
         let pat = env::var("PAT").ok();
 

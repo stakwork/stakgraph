@@ -25,18 +25,34 @@ impl Stack for Java {
     fn lib_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (package_declaration
-                (scoped_identifier)@{LIBRARY}
-            )"#
+            (package_declaration) @{LIBRARY}"#
         ))
     }
 
     fn imports_query(&self) -> Option<String> {
         Some(format!(
             r#"
+            (package_declaration) @{IMPORTS}
             (import_declaration
-                (scoped_identifier)@{IMPORTS}
-            )"#
+                (scoped_identifier) @{IMPORTS_NAME} @{IMPORTS_FROM}
+            ) @{IMPORTS}
+            "#
+        ))
+    }
+    fn variables_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (program
+                (local_variable_declaration
+                    (modifiers)
+                    type: (_)@{VARIABLE_TYPE}
+                    declarator: (variable_declarator
+                        name: (identifier) @{VARIABLE_NAME}
+                        value: (_) @{VARIABLE_VALUE}
+                    )
+                )@{VARIABLE_DECLARATION}
+            )
+            "#
         ))
     }
 
@@ -192,5 +208,24 @@ impl Stack for Java {
             ) 
             "#
         ))
+    }
+    fn resolve_import_name(&self, import_name: &str) -> String {
+        let import_name = import_name.to_string();
+        let name = import_name
+            .split('.')
+            .last()
+            .unwrap_or(&import_name)
+            .to_string();
+        name
+    }
+    fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
+        let import_path = import_path.to_string();
+
+        let parts: Vec<&str> = import_path.split('.').collect();
+        if parts.len() > 1 {
+            parts[..parts.len() - 1].join("/")
+        } else {
+            import_path
+        }
     }
 }

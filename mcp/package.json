@@ -19,7 +19,9 @@
     "@anthropic-ai/sdk": "^0.37.0",
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.4.1",
+    "@octokit/rest": "^21.1.1",
     "archy": "^1.0.0",
+    "axios": "^1.9.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -28,8 +30,8 @@
     "git-url-parse": "^16.0.1",
     "neo4j-driver": "^5.28.1",
     "uuid": "^11.1.0",
-    "zod": "^3.24.1",
-    "zod-to-json-schema": "^3.24.1"
+    "zod": "3.24.1",
+    "zod-to-json-schema": "3.24.1"
   },
   "devDependencies": {
     "@types/archy": "^0.0.36",
@@ -51,5 +53,6 @@
   },
   "scarfSettings": {
     "enabled": false
-  }
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

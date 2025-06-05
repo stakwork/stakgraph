@@ -17,7 +17,7 @@ export const ShortestPathSchema = z.object({
 });
 
 export const ShortestPathTool: Tool = {
-  name: "shortest_path",
+  name: "stakgraph_shortest_path",
   description:
     "Find the shortest path between two nodes in the code graph and return the code snippets along that path.",
   inputSchema: parseSchema(ShortestPathSchema),

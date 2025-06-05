@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  neo4j:
+    image: sphinxlightning/sphinx-neo4j:latest
+    container_name: neo4j
+    volumes:
+      - ./mcp/.neo4j/data:/data:rw
+      - ./mcp/.neo4j/logs:/logs:rw
+      - ./mcp/.neo4j/plugins:/plugins:rw
+      - ./mcp/.neo4j/tmp/import:/import
+      - ./mcp/conf:/conf/
+    ports:
+      - 7474:7474
+      - 7687:7687
+    environment:
+      - NEO4J_AUTH=neo4j/testtest
+    command: >
+      /bin/bash -c "
+      cp -R /var/lib/neo4j/plugins/* /plugins &&
+      /startup/docker-entrypoint.sh neo4j
+      "
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "/var/lib/neo4j/bin/cypher-shell",
+          "-u",
+          "neo4j",
+          "-p",
+          "testtest",
+          "MATCH (n) RETURN n LIMIT 1",
+        ]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+
+  standalone:
+    image: ghcr.io/stakwork/stakgraph:standalone-latest
+    environment:
+      PORT: "7777"
+      NEO4J_URI: "bolt://neo4j:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "testtest"
+      USE_LSP: false
+      REPO_PATH: "/tmp/stakgraph"
+    ports:
+      - "7777:7777"
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - ../:/tmp/stakgraph

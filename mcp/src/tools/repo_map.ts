@@ -14,7 +14,7 @@ export const RepoMapSchema = z.object({
 });
 
 export const RepoMapTool: Tool = {
-  name: "repo_map",
+  name: "stakgraph_repo_map",
   description:
     "Generate a visual map/tree of the directories and files in the repo",
   inputSchema: parseSchema(RepoMapSchema),
@@ -26,8 +26,8 @@ export async function repoMap(args: z.infer<typeof RepoMapSchema>) {
   return {
     content: [
       {
-        type: "html",
-        html: result,
+        type: "text",
+        text: result,
       },
     ],
   };

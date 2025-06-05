@@ -19,3 +19,11 @@ examples/cabal-routes.txt
 node_modules
 dist
 package-lock.json
+
+# CPP
+people.db
+server
+Makefile
+CMakeCache.txt
+cmake_install.cmake
+CMakeFiles

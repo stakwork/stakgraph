@@ -48,7 +48,10 @@ impl Graph for ArrayGraph {
         }
 
         for node in &self.nodes {
-            println!("Node: {:?}-{:?}", node.node_data.name, node.node_type);
+            println!(
+                "Node: {:?}-{:?}-{:?}",
+                node.node_data.name, node.node_type, node.node_data.file
+            );
         }
     }
     fn create_filtered_graph(&self, final_filter: &[String]) -> Self {
@@ -116,9 +119,9 @@ impl Graph for ArrayGraph {
         }
     }
 
-    fn get_graph_keys(&self) -> (HashSet<&str>, HashSet<&str>) {
-        let node_keys: HashSet<&str> = self.node_keys.iter().map(|s| s.as_str()).collect();
-        let edge_keys: HashSet<&str> = self.edge_keys.iter().map(|s| s.as_str()).collect();
+    fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
+        let node_keys: HashSet<String> = self.node_keys.iter().map(|s| s.to_lowercase()).collect();
+        let edge_keys: HashSet<String> = self.edge_keys.iter().map(|s| s.to_lowercase()).collect();
         (node_keys, edge_keys)
     }
 
@@ -293,13 +296,7 @@ impl Graph for ArrayGraph {
                 self.add_edge(rt);
             }
             for r in reqs {
-                let edge = Edge::calls(
-                    NodeType::Function,
-                    &node,
-                    NodeType::Request,
-                    &r,
-                    CallsMeta::default(),
-                );
+                let edge = Edge::calls(NodeType::Function, &node, NodeType::Request, &r);
                 self.add_edge(edge);
                 self.add_node(NodeType::Request, r);
             }
@@ -367,52 +364,122 @@ impl Graph for ArrayGraph {
             self.add_edge(edge);
         }
     }
-    // funcs, tests, integration tests
+
+    //Add calls between function definitions not calls
     fn add_calls(
         &mut self,
         (funcs, tests, int_tests): (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>),
     ) {
-        // add lib funcs first
+        let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
-                    EdgeType::Calls(CallsMeta::default()),
+                    EdgeType::Calls,
                     NodeRef::from(fc.source.clone(), NodeType::Function),
                     NodeRef::from(class_call.into(), NodeType::Class),
                 ));
             }
             if fc.target.is_empty() {
-                continue; // might have empty target if it's a class call only
+                continue;
             }
+
             if let Some(ext_nd) = ext_func {
-                self.add_edge(Edge::uses(fc.source, &ext_nd));
-                // don't add if it's already in the graph
-                if let None =
-                    self.find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
-                {
-                    self.add_node(NodeType::Function, ext_nd);
+                let edge_key = (
+                    fc.source.name.clone(),
+                    fc.source.file.clone(),
+                    ext_nd.name.clone(),
+                    ext_nd.file.clone(),
+                );
+
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+                    self.add_edge(Edge::uses(fc.source, &ext_nd));
+
+                    if self
+                        .find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
+                        .is_none()
+                    {
+                        self.add_node(NodeType::Function, ext_nd);
+                    }
                 }
             } else {
-                self.add_edge(fc.into())
+                if let Some(target_function) = self.find_node_by_name_in_file(
+                    NodeType::Function,
+                    &fc.target.name,
+                    &fc.source.file,
+                ) {
+                    let edge_key = (
+                        fc.source.name.clone(),
+                        fc.source.file.clone(),
+                        target_function.name.clone(),
+                        target_function.file.clone(),
+                    );
+
+                    if !unique_edges.contains(&edge_key) {
+                        unique_edges.insert(edge_key);
+                        let edge = Edge::new(
+                            EdgeType::Calls,
+                            NodeRef::from(fc.source.clone(), NodeType::Function),
+                            NodeRef::from((&target_function).into(), NodeType::Function),
+                        );
+                        self.add_edge(edge);
+                    }
+                } else {
+                    let edge_key = (
+                        fc.source.name.clone(),
+                        fc.source.file.clone(),
+                        fc.target.name.clone(),
+                        fc.source.file.clone(),
+                    );
+
+                    if !unique_edges.contains(&edge_key) {
+                        unique_edges.insert(edge_key);
+                        self.add_edge(fc.into());
+                    }
+                }
             }
         }
+
         for (tc, ext_func, _) in tests {
             if let Some(ext_nd) = ext_func {
-                self.add_edge(Edge::uses(tc.source, &ext_nd));
+                let edge_key = (
+                    tc.source.name.clone(),
+                    tc.source.file.clone(),
+                    ext_nd.name.clone(),
+                    ext_nd.file.clone(),
+                );
 
-                if let None =
-                    self.find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
-                {
-                    self.add_node(NodeType::Function, ext_nd);
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+                    self.add_edge(Edge::uses(tc.source, &ext_nd));
+
+                    if self
+                        .find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
+                        .is_none()
+                    {
+                        self.add_node(NodeType::Function, ext_nd);
+                    }
                 }
             } else {
-                self.add_edge(Edge::new_test_call(tc));
+                let edge_key = (
+                    tc.source.name.clone(),
+                    tc.source.file.clone(),
+                    tc.target.name.clone(),
+                    tc.source.file.clone(),
+                );
+
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+                    self.add_edge(Edge::new_test_call(tc));
+                }
             }
         }
+
         for edge in int_tests {
             self.add_edge(edge);
         }
     }
+
     fn find_node_by_name_in_file(
         &self,
         node_type: NodeType,
@@ -477,14 +544,14 @@ impl Graph for ArrayGraph {
     ) {
         let mut has_children: BTreeMap<String, bool> = BTreeMap::new();
 
-        //all parents have no children
+        // Mark all parents as having no children initially
         for node in &self.nodes {
             if node.node_type == parent_type {
                 has_children.insert(node.node_data.name.clone(), false);
             }
         }
 
-        //nodes that have children
+        // Mark parents that have children
         for node in &self.nodes {
             if node.node_type == child_type {
                 if let Some(parent_name) = node.node_data.meta.get(child_meta_key) {
@@ -495,10 +562,38 @@ impl Graph for ArrayGraph {
             }
         }
 
-        //now remove nodes without children
+        // Collect keys of nodes to remove
+        let nodes_to_remove: Vec<_> = self
+            .nodes
+            .iter()
+            .filter(|node| {
+                node.node_type == parent_type
+                    && !has_children.get(&node.node_data.name).unwrap_or(&true)
+            })
+            .map(|node| create_node_key(node))
+            .collect();
+
+        // Remove nodes
         self.nodes.retain(|node| {
-            node.node_type != parent_type
-                || *has_children.get(&node.node_data.name).unwrap_or(&true)
+            !(node.node_type == parent_type
+                && !has_children.get(&node.node_data.name).unwrap_or(&true))
+        });
+
+        // Remove edges where source or target is a removed node
+        self.edges.retain(|edge| {
+            let src_key = create_node_key_from_ref(&edge.source);
+            let dst_key = create_node_key_from_ref(&edge.target);
+            !nodes_to_remove.contains(&src_key) && !nodes_to_remove.contains(&dst_key)
+        });
+
+        // Also update node_keys and edge_keys sets
+        for key in &nodes_to_remove {
+            self.node_keys.remove(key);
+        }
+        self.edge_keys.retain(|key| {
+            !nodes_to_remove
+                .iter()
+                .any(|rm| key.starts_with(rm) || key.contains(&format!("-{}-", rm)))
         });
     }
     fn get_data_models_within(&mut self, lang: &Lang) {
@@ -597,7 +692,7 @@ impl Graph for ArrayGraph {
     fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
         let mut result = Vec::new();
         for edge in &self.edges {
-            if let EdgeType::Calls(_) = edge.edge {
+            if let EdgeType::Calls = edge.edge {
                 if edge.source.node_data.name == function.name
                     && edge.source.node_data.file == function.file
                 {
@@ -646,7 +741,7 @@ impl Graph for ArrayGraph {
         self.edges
             .iter()
             .filter(|edge| match (&edge.edge, &edge_type) {
-                (EdgeType::Calls(_), EdgeType::Calls(_)) => true,
+                (EdgeType::Calls, EdgeType::Calls) => true,
                 _ => edge.edge == edge_type,
             })
             .count()

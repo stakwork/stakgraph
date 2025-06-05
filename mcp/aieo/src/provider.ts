@@ -10,7 +10,7 @@ export type Provider = "anthropic" | "google" | "openai";
 export const PROVIDERS: Provider[] = ["anthropic", "google", "openai"];
 
 const SOTA = {
-  anthropic: "claude-3-7-sonnet-20250219",
+  anthropic: "claude-4-sonnet-20250514",
   google: "gemini-2.5-pro-preview-05-06",
   openai: "gpt-4.1",
 };
@@ -38,20 +38,28 @@ export async function getModel(provider: Provider, apiKey: string) {
   }
 }
 
-export function getProviderOptions(provider: Provider) {
+export type ThinkingSpeed = "thinking" | "fast";
+
+export function getProviderOptions(
+  provider: Provider,
+  thinkingSpeed?: ThinkingSpeed
+) {
+  const fast = thinkingSpeed === "fast";
+  const budget = fast ? 0 : 24000;
   switch (provider) {
     case "anthropic":
+      let thinking = fast
+        ? { type: "disabled" as const }
+        : { type: "enabled" as const, budgetTokens: budget };
       return {
         anthropic: {
-          thinking: { type: "enabled", budgetTokens: 24000 },
+          thinking,
         } satisfies AnthropicProviderOptions,
       };
     case "google":
       return {
         google: {
-          thinkingConfig: {
-            thinkingBudget: 16384,
-          },
+          thinkingConfig: { thinkingBudget: budget },
         } satisfies GoogleGenerativeAIProviderOptions,
       };
     case "openai":

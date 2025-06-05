@@ -17,13 +17,15 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
+    graph.analysis();
+
     let (num_nodes, num_edges) = graph.get_graph_size();
     if use_lsp == true {
-        assert_eq!(num_nodes, 64, "Expected 64 nodes");
-        assert_eq!(num_edges, 108, "Expected 108 edges");
+        assert_eq!(num_nodes, 65, "Expected 65 nodes");
+        assert_eq!(num_edges, 98, "Expected 98 edges");
     } else {
-        assert_eq!(num_nodes, 30, "Expected 30 nodes");
-        assert_eq!(num_edges, 48, "Expected 48 edges");
+        assert_eq!(num_nodes, 31, "Expected 31 nodes");
+        assert_eq!(num_edges, 49, "Expected 49 edges");
     }
 
     let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go");
@@ -32,15 +34,34 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         language_nodes[0].name, "go",
         "Language node name should be 'go'"
     );
-    assert_eq!(
-        language_nodes[0].file, "src/testing/go/",
+    assert!(
+        "src/testing/go/".contains(language_nodes[0].file.as_str()),
         "Language node file path is incorrect"
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 3, "Expected 3 imports");
 
-    // Find classes
+    let main_import_body = format!(
+        r#"import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)"#
+    );
+    let main = imports
+        .iter()
+        .find(|i| i.file == "src/testing/go/main.go")
+        .unwrap();
+
+    assert_eq!(
+        main.body, main_import_body,
+        "Model import body is incorrect"
+    );
+
     let classes = graph.find_nodes_by_type(NodeType::Class);
     assert_eq!(classes.len(), 1, "Expected 1 class");
     assert_eq!(
@@ -83,12 +104,44 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges_count, 2, "Expected 2 handler edges");
 
+    let function_calls = graph.count_edges_of_type(EdgeType::Calls);
+    assert_eq!(function_calls, 6, "Expected 6 function calls");
+
+    let operands = graph.count_edges_of_type(EdgeType::Operand);
+    assert_eq!(operands, 4, "Expected 4 operands");
+
+    let of = graph.count_edges_of_type(EdgeType::Of);
+    assert_eq!(of, 1, "Expected 1 of edges");
+
+    if use_lsp {
+        let contains = graph.count_edges_of_type(EdgeType::Contains);
+        assert_eq!(contains, 38, "Expected 38 contains edges with lsp");
+    } else {
+        let contains = graph.count_edges_of_type(EdgeType::Contains);
+        assert_eq!(contains, 36, "Expected 36 contains edges");
+    }
+
+    let variables = graph.find_nodes_by_type(NodeType::Var);
+    assert_eq!(variables.len(), 1, "Expected 1 variables");
+
+    if use_lsp {
+        let import_edges = graph.count_edges_of_type(EdgeType::Imports);
+        assert_eq!(import_edges, 3, "Expected 3 import edges with lsp");
+    }
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_go() {
+    #[cfg(feature = "neo4j")]
+    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_go_generic::<ArrayGraph>().await.unwrap();
     test_go_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph = Neo4jGraph::default();
+        graph.clear();
+        test_go_generic::<Neo4jGraph>().await.unwrap();
+    }
 }

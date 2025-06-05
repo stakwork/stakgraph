@@ -32,6 +32,19 @@ impl Stack for Swift {
         ))
     }
 
+    fn variables_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (source_file
+                (property_declaration 
+                    (pattern
+                        (simple_identifier) @{VARIABLE_NAME}
+                    )
+                )@{VARIABLE_DECLARATION}
+            )
+            "#
+        ))
+    }
     fn class_definition_query(&self) -> String {
         format!(
             r#"

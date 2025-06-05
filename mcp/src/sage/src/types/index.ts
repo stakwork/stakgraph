@@ -1,6 +1,7 @@
 export interface Message {
   role: string;
   content: string;
+  codespaceUrl?: string; // Add optional codespace URL
 }
 
 export interface ChatRequest {
@@ -15,11 +16,22 @@ export interface ChatResponse {
 }
 
 export interface WebhookPayload {
-  chat_id: string;
-  message: Message;
-  workflow_id: number;
-  project_id: number;
+  value: {
+    chatId: string;
+    messageId: string;
+    response: string;
+    sourceWebsocketId: string;
+    artifacts?: ChatMessageArtifact[];
+  };
 }
+
+export interface ChatMessageArtifact {
+  id: string;
+  type: ArtifactType;
+  content: any;
+}
+
+export type ArtifactType = string;
 
 export interface StakworkChatPayload {
   name: string;

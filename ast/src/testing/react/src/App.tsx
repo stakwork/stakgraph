@@ -4,6 +4,9 @@ import "./App.css";
 import People from "./components/People";
 import NewPerson from "./components/NewPerson";
 
+export const AppName: string = "My React App";
+export const hostPort: string = "http://localhost:5002";
+
 function App() {
   return (
     <div className="App">

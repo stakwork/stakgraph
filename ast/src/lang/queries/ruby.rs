@@ -4,6 +4,7 @@ use crate::builder::get_page_name;
 use crate::lang::parse::trim_quotes;
 use crate::lang::queries::rails_routes;
 use anyhow::{Context, Result};
+use convert_case::{Case, Casing};
 use inflection_rs::inflection;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,6 +14,7 @@ use tree_sitter::{Language, Parser, Query, Tree};
 pub struct Ruby(Language);
 
 const CONTROLLER_FILE_SUFFIX: &str = "_controller.rb";
+const MAILER_FILE_SUFFIX: &str = "_mailer.rb";
 
 impl Ruby {
     pub fn new() -> Self {
@@ -41,14 +43,56 @@ impl Stack for Ruby {
         ))
     }
 
+    fn imports_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (call
+                method: (identifier) @method (#any-of? @method "require" "require_relative" "load" "include" "extend")
+                arguments: (argument_list) @{IMPORTS_NAME} @{IMPORTS_FROM}
+            )@{IMPORTS}
+            "#
+        ))
+    }
+
+    fn variables_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (program
+                (assignment
+                    left: (_) @{VARIABLE_NAME}
+                    right: (_) @{VARIABLE_VALUE}
+                )@{VARIABLE_DECLARATION}
+            )
+            "#
+        ))
+    }
+
     fn class_definition_query(&self) -> String {
         format!(
             r#"
             (
+              (class
+                name: (_) @{CLASS_NAME}
+                superclass: (superclass (_) @{CLASS_PARENT})?
+                body: (body_statement)?
+              ) @{CLASS_DEFINITION}
+            )
+            (
                 (class
                     name: (_) @{CLASS_NAME}
                     superclass: (superclass (_) @{CLASS_PARENT})?
-                    body: (_)? 
+                    body:  (body_statement
+                                (call
+                                    method: (_) @{ASSOCIATION_TYPE} (#match? @{ASSOCIATION_TYPE} "^has_one$|^has_many$|^belongs_to$|^has_and_belongs_to_many$")
+                                    arguments: (argument_list
+                                        (simple_symbol)@{ASSOCIATION_TARGET}
+                                        (pair
+                                            key: (hash_key_symbol) @association.option.key
+                                            value: (_) @association.option.value
+                                        )? @{ASSOCIATION_OPTION}
+                                    )
+                                )?
+                            )?
                 ) @{CLASS_DEFINITION}
                 )
                 (module
@@ -70,6 +114,7 @@ impl Stack for Ruby {
             "#
         )
     }
+
     fn function_definition_query(&self) -> String {
         format!(
             "[
@@ -395,12 +440,7 @@ impl Stack for Ruby {
     ) -> Option<Edge> {
         let cla = find_class(&nd.name);
         if let Some(cl) = cla {
-            let meta = CallsMeta {
-                call_start: nd.start,
-                call_end: nd.end,
-                operand: None,
-            };
-            Some(Edge::calls(tt, nd, NodeType::Class, &cl, meta))
+            Some(Edge::calls(tt, nd, NodeType::Class, &cl))
         } else {
             None
         }
@@ -435,20 +475,63 @@ impl Stack for Ruby {
         // get the handler name
         let p = std::path::Path::new(file_path);
         let func_name = remove_all_extensions(p);
-        let controller_name = p.parent()?.file_name()?.to_str()?;
-        // println!("func_name: {}, controller_name: {}", func_name, controller_name);
-        let handler = find_fn(
+        let parent_name = p.parent()?.file_name()?.to_str()?;
+        println!("func_name: {}, parent_name: {}", func_name, parent_name);
+        let controller_handler = find_fn(
             &func_name,
-            &format!("{}{}", controller_name, CONTROLLER_FILE_SUFFIX),
+            &format!("{}{}", parent_name, CONTROLLER_FILE_SUFFIX),
         );
-        if let Some(handler) = handler {
-            Some(Edge::renders(&page, &handler))
-        } else {
-            None
+        if let Some(h) = controller_handler {
+            return Some(Edge::renders(&page, &h));
         }
+        let parent_name_no_mailer = parent_name.strip_suffix("_mailer").unwrap_or(parent_name);
+        let mailer_handler = find_fn(
+            &func_name,
+            &format!("{}{}", parent_name_no_mailer, MAILER_FILE_SUFFIX),
+        );
+        if let Some(h) = mailer_handler {
+            return Some(Edge::renders(&page, &h));
+        }
+        println!("no handler found for {} {}", func_name, file_path);
+        None
     }
     fn direct_class_calls(&self) -> bool {
         true
+    }
+    fn convert_association_to_name(&self, name: &str) -> String {
+        let target_class = inflection_rs::inflection::singularize(name);
+        target_class.to_case(Case::Pascal)
+    }
+
+    fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
+        let mut path = import_path.to_string();
+
+        if path.starts_with("(") {
+            path = path[1..path.len() - 1].to_string();
+        }
+
+        if path.contains(":") {
+            path = path.replace(":", "");
+        }
+
+        path
+    }
+    fn resolve_import_name(&self, import_name: &str) -> String {
+        let mut name = import_name.to_string();
+
+        if name.starts_with("(") {
+            name = name[1..name.len() - 1].to_string();
+        }
+
+        if name.contains(":") {
+            name = name.replace(":", "");
+        }
+
+        if name.starts_with("\"") && name.ends_with("\"") {
+            name = name[1..name.len() - 1].to_string();
+        }
+
+        inflection::camelize(name)
     }
 }
 

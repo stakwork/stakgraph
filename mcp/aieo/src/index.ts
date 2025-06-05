@@ -3,5 +3,5 @@ export * from "./provider";
 export * from "./stream";
 export * from "./prompt";
 
-export { CoreMessage } from "ai";
-export { Tool, ToolSet } from "ai";
+export type { CoreMessage } from "ai";
+export type { Tool, ToolSet } from "ai";

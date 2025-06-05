@@ -37,14 +37,61 @@ impl Stack for Rust {
     }
 
     fn imports_query(&self) -> Option<String> {
-        Some(
+        Some(format!(
             r#"
-           (source_file
-             (use_declaration)+ @imports
-            )
+           (use_declaration 
+                    argument: (scoped_use_list
+                        path:(scoped_identifier
+                            path: (crate)
+                            name: (identifier)@{IMPORTS_FROM}
+                        )?
+                        name: (identifier)? @{IMPORTS_NAME}
+                        path: (crate)?
+                        list: (use_list
+                                (identifier)?@{IMPORTS_NAME}
+                                (scoped_identifier
+                                    path: (identifier) @{IMPORTS_FROM}
+                                    name: (identifier) @{IMPORTS_NAME}
+                                )?
+                        )?
+                    )?
+                argument:(scoped_identifier
+                        path: (super)?@{IMPORTS_FROM}
+                        path: (scoped_identifier
+                            path:(_)
+                            name:(identifier)@{IMPORTS_FROM}
+                        )?
+                        name: (identifier) @{IMPORTS_NAME}
+                        
+                        
+                    )?
+                )@{IMPORTS}
+
         "#
-            .to_string(),
-        )
+        ))
+    }
+    fn variables_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+                (source_file
+                    (const_item
+                        name: (identifier) @{VARIABLE_NAME}
+                        type: (_)? @{VARIABLE_TYPE}
+                        value: (_) @{VARIABLE_VALUE}
+                    )?@{VARIABLE_DECLARATION}
+                    (static_item
+                        name: (identifier) @{VARIABLE_NAME}
+                        type: (_)? @{VARIABLE_TYPE}
+                        value: (_) @{VARIABLE_VALUE}
+                    )?@{VARIABLE_DECLARATION}
+                    (let_declaration
+                        pattern: (identifier) @{VARIABLE_NAME}
+                        type: (_)? @{VARIABLE_TYPE}
+                        value: (_) @{VARIABLE_VALUE}
+                    )?@{VARIABLE_DECLARATION}
+                )
+                "#
+        ))
     }
     fn trait_query(&self) -> Option<String> {
         Some(
@@ -246,5 +293,10 @@ impl Stack for Rust {
 
     fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
         callback(NodeType::Class, NodeType::Function, "operand");
+    }
+    fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
+        let mut path = import_path.to_string();
+        path = path.replace("::", "/");
+        path
     }
 }

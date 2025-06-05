@@ -22,7 +22,7 @@ export const GetNodesSchema = z.object({
 });
 
 export const GetNodesTool: Tool = {
-  name: "get_nodes",
+  name: "stakgraph_nodes",
   description: "Retrieve all nodes of a specific type from the codebase.",
   inputSchema: parseSchema(GetNodesSchema),
 };

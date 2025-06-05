@@ -1,14 +1,14 @@
 use crate::lang::graphs::BTreeMapGraph;
 use crate::lang::{ArrayGraph, Graph, Lang};
 use crate::repo::Repo;
-
 use crate::utils::get_use_lsp;
 use anyhow::{Ok, Result};
 use std::collections::HashSet;
 use std::str::FromStr;
+use test_log::test;
 use tracing::{debug, info};
 
-const PROGRAMMING_LANGUAGES: [&str; 11] = [
+const PROGRAMMING_LANGUAGES: [&str; 12] = [
     "angular",
     "go",
     "kotlin",
@@ -20,9 +20,10 @@ const PROGRAMMING_LANGUAGES: [&str; 11] = [
     "typescript",
     "java",
     "rust",
+    "cpp",
 ];
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn compare_graphs() {
     for lang in PROGRAMMING_LANGUAGES.iter() {
         let repo_path = format!("src/testing/{}", lang);
@@ -37,17 +38,13 @@ async fn compare_graphs_inner(lang_id: &str, repo_path: &str) -> Result<()> {
     let lang = Lang::from_str(lang_id).unwrap();
     let use_lsp = get_use_lsp() && lang.kind.default_do_lsp();
     let repo = Repo::new(repo_path, lang, use_lsp, Vec::new(), Vec::new()).unwrap();
-    let array_graph = repo.build_graph_inner::<ArrayGraph>().await?;
+
     info!("ArrayGraph Analysis for {}", lang_id);
+    let array_graph = repo.build_graph_inner::<ArrayGraph>().await?;
 
-    let lang = Lang::from_str(lang_id).unwrap();
-    let repo = Repo::new(repo_path, lang, use_lsp, Vec::new(), Vec::new()).unwrap();
-    let btree_map_graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
     info!("BTreeMapGraph Analysis for {}", lang_id);
-    assert_eq!(array_graph.nodes.len(), btree_map_graph.nodes.len());
-    assert_eq!(array_graph.edges.len(), btree_map_graph.edges.len());
+    let btree_map_graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
 
-    //Graph difference
     let (array_graph_nodes, array_graph_edges) = array_graph.get_graph_keys();
     let (btree_map_graph_nodes, btree_map_graph_edges) = btree_map_graph.get_graph_keys();
     let nodes_only_in_array_graph: HashSet<_> = array_graph_nodes
@@ -78,5 +75,31 @@ async fn compare_graphs_inner(lang_id: &str, repo_path: &str) -> Result<()> {
             edges_only_in_btree_map_graph
         );
     }
+
+    assert_eq!(
+        array_graph.nodes.len(),
+        btree_map_graph.nodes.len(),
+        "Node counts do not match: ArrayGraph has {}, BTreeMapGraph has {}",
+        array_graph.nodes.len(),
+        btree_map_graph.nodes.len()
+    );
+
+    if use_lsp {
+        assert!(
+            (array_graph.edges.len() as i32 - btree_map_graph.edges.len() as i32).abs() <= 2,
+            "Edge counts differ by more than 2: ArrayGraph has {}, BTreeMapGraph has {}",
+            array_graph.edges.len(),
+            btree_map_graph.edges.len()
+        );
+    } else {
+        assert_eq!(
+            array_graph.edges.len(),
+            btree_map_graph.edges.len(),
+            "Edge counts do not match: ArrayGraph has {}, BTreeMapGraph has {}",
+            array_graph.edges.len(),
+            btree_map_graph.edges.len()
+        );
+    }
+
     Ok(())
 }

@@ -52,6 +52,28 @@ impl Stack for Go {
             )"
         ))
     }
+    fn variables_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (source_file
+                (var_declaration
+                    (var_spec
+                        name: (identifier) @{VARIABLE_NAME}
+                        type: (type_identifier)? @{VARIABLE_TYPE}
+                        value: (expression_list)? @{VARIABLE_VALUE}
+                    )
+                )? @{VARIABLE_DECLARATION}
+                (const_declaration
+                    (const_spec
+                        name: (identifier) @{VARIABLE_NAME}
+                        type: (type_identifier)? @{VARIABLE_TYPE}
+                        value: (expression_list)? @{VARIABLE_VALUE}
+                    )
+                )? @{VARIABLE_DECLARATION}
+            )
+            "#
+        ))
+    }
     fn trait_query(&self) -> Option<String> {
         Some(format!(
             r#"(type_declaration

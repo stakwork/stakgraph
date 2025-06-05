@@ -1,9 +1,8 @@
 use crate::lang::graphs::{EdgeType, NodeType};
-use crate::lang::{CallsMeta, Graph};
+use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use anyhow::Result;
 use std::str::FromStr;
-use test_log::test;
 
 pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -20,8 +19,8 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let (num_nodes, num_edges) = graph.get_graph_size();
 
     //graph.analysis();
-    assert_eq!(num_nodes, 115, "Expected 115 nodes");
-    assert_eq!(num_edges, 125, "Expected 125 edges");
+    assert_eq!(num_nodes, 124, "Expected 124 nodes");
+    assert_eq!(num_edges, 142, "Expected 142 edges");
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
@@ -56,8 +55,36 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 9, "Expected 9 imports");
 
+    let main_import_body = format!(
+        r#"package com.kotlintestapp.sqldelight
+
+import android.content.Context
+import app.cash.sqldelight.db.SqlDriver
+import app.cash.sqldelight.driver.android.AndroidSqliteDriver
+import com.kotlintestapp.db.Person
+import com.kotlintestapp.db.PersonDatabase"#
+    );
+    let main = imports
+        .iter()
+        .find(|i| i.file == "src/testing/kotlin/app/src/main/java/com/kotlintestapp/sqldelight/DatabaseHelper.kt")
+        .unwrap();
+
+    assert_eq!(
+        main.body, main_import_body,
+        "Model import body is incorrect"
+    );
+
     let classes = graph.find_nodes_by_type(NodeType::Class);
     assert_eq!(classes.len(), 6, "Expected 6 classes");
+
+    let imports = graph.find_nodes_by_type(NodeType::Import);
+    for imp in &imports {
+        println!("Import: {:?}\n\n", imp);
+    }
+    assert_eq!(imports.len(), 9, "Expected 9 imports");
+
+    let variables = graph.find_nodes_by_type(NodeType::Var);
+    assert_eq!(variables.len(), 9, "Expected 9 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -81,15 +108,27 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
-    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls(CallsMeta::default()));
-    assert!(calls_edges_count > 0, "Expected at least one calls edge");
+    let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    assert_eq!(calls_edges_count, 13, "Expected at 13 calls edges");
+
+    let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
+    assert_eq!(import_edges_count, 6, "Expected at 6 import edges");
 
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_kotlin() {
+    #[cfg(feature = "neo4j")]
+    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_kotlin_generic::<BTreeMapGraph>().await.unwrap();
     test_kotlin_generic::<ArrayGraph>().await.unwrap();
+    test_kotlin_generic::<BTreeMapGraph>().await.unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph = Neo4jGraph::default();
+        graph.clear();
+        test_kotlin_generic::<Neo4jGraph>().await.unwrap();
+    }
 }

@@ -8,7 +8,7 @@ WORKDIR /usr/src/app
 
 # Install dependencies
 RUN apt update
-RUN apt install -y sed git
+RUN apt install -y sed git vim
 
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json

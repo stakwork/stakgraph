@@ -7,7 +7,7 @@ import { GetMapSchema, toMapParams } from "./get_map.js";
 export const GetCodeSchema = GetMapSchema;
 
 export const GetCodeTool: Tool = {
-  name: "get_code",
+  name: "stakgraph_code",
   description:
     "Retrieve actual code snippets from a subtree starting at the specified node.",
   inputSchema: parseSchema(GetCodeSchema),

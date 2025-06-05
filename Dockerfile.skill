@@ -1,6 +1,6 @@
 
 # Use rust as the build environment
-FROM rust:1.84.0 AS builder
+FROM rust:1.87.0 AS builder
 
 # Create app directory
 WORKDIR /app

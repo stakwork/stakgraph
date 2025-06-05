@@ -8,6 +8,9 @@
 import UIKit
 import CoreData
 
+let Name = "StakGraph"
+var Version = "1.0.0"
+
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
 

@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
-import { Adapter, ChatAdapter } from "../adapters/adapter";
-import { WebhookPayload } from "../types";
+import { Adapter, ChatAdapter } from "../adapters/adapter.js";
+import { WebhookPayload } from "../types/index.js";
 
 export class WebhookController {
   private adapters: Record<Adapter, ChatAdapter>;
@@ -11,8 +11,10 @@ export class WebhookController {
 
   async handleWebhook(req: Request, res: Response): Promise<void> {
     try {
-      const chatId = req.query.chat_id as string;
       const payload = req.body as WebhookPayload;
+      const chatId = payload.value?.chatId;
+
+      console.log("=> handleWebhook payload", payload);
 
       if (!chatId) {
         res.status(400).json({
@@ -38,7 +40,10 @@ export class WebhookController {
       }
 
       // Send message to the appropriate platform
-      await adapter.sendResponse(chatId, payload.message);
+      await adapter.sendResponse(chatId, {
+        role: "assistant",
+        content: payload.value?.response,
+      });
 
       res.status(200).json({
         success: true,

@@ -101,7 +101,8 @@ impl<G: Graph> FrontendTester<G> {
     }
 
     fn test_package_file(&self) -> Result<(), anyhow::Error> {
-        let package_file_name = self.lang.kind.pkg_file();
+        let package_file_names = self.lang.kind.pkg_files();
+        let package_file_name = package_file_names.first().unwrap();
 
         let pkg_file_nodes = self
             .graph

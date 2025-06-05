@@ -109,7 +109,7 @@ export async function get_repo_map(
   const tokenizer = await createByModelName("gpt-4");
   const tree = await buildTree(record, "down", tokenizer);
   const text = archy(tree.root);
-  return `<pre>\n${text}\n</pre>`;
+  return text;
 }
 
 export async function get_map(params: MapParams): Promise<string> {
@@ -126,17 +126,16 @@ export async function get_map(params: MapParams): Promise<string> {
   tree.root.nodes = sortedTreeNodes;
 
   const text = archy(tree.root);
-  let html = `<pre>\n`;
-  html += text;
+  let themap = ``;
+  themap += text;
   for (const file of pkg_files) {
     const tokens = tokenizer.encode(file.properties.body || "", []);
-    html += `File: ${toNode(file, true).file} (${tokens.length})\n`;
+    themap += `File: ${toNode(file, true).file} (${tokens.length})\n`;
   }
   const fulltext = extractNodesFromRecord(record, pkg_files);
   const tokens = tokenizer.encode(fulltext, []);
-  html += `Total tokens: ${tokens.length}`;
-  html += `\n</pre>`;
-  return html;
+  themap += `Total tokens: ${tokens.length}`;
+  return themap;
 }
 
 export async function get_code(params: MapParams): Promise<string> {

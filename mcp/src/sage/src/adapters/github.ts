@@ -1,8 +1,9 @@
 import { Octokit } from "@octokit/rest";
-import { BaseAdapter } from "./adapter";
-import { Message } from "../types";
+import { BaseAdapter } from "./adapter.js";
+import { Message } from "../types/index.js";
 import * as fs from "fs";
 import * as path from "path";
+import { extractCodespaceUrl } from "../utils/markdown.js";
 
 export class GitHubIssueAdapter extends BaseAdapter {
   private octokit: Octokit;
@@ -45,7 +46,7 @@ export class GitHubIssueAdapter extends BaseAdapter {
       } catch (error) {
         console.error("Error checking for new GitHub issues:", error);
       }
-    }, 60000); // Check every minute
+    }, 10000); // Check every 10 seconds
   }
 
   async sendResponse(chatId: string, message: Message): Promise<void> {
@@ -105,7 +106,7 @@ export class GitHubIssueAdapter extends BaseAdapter {
   }
 
   async checkForNewIssues(): Promise<void> {
-    console.log("Checking for new GitHub issues...");
+    // console.log("Checking for new GitHub issues...");
     const issues = await this.octokit.issues.listForRepo({
       owner: this.owner,
       repo: this.repo,
@@ -122,18 +123,35 @@ export class GitHubIssueAdapter extends BaseAdapter {
       if (this.processedIssues.has(issue.number)) {
         continue;
       }
+      if (!issue.body) {
+        continue;
+      }
 
-      // Check if @hive is mentioned
-      if (issue.body && issue.body.includes("@hive")) {
+      // Check if @stakwork or @stakgraph is mentioned
+      if (
+        issue.body.includes("@stakwork") ||
+        issue.body.includes("@stakgraph")
+      ) {
         const chatId = `github-issue-${issue.number}`;
+
+        // Extract codespace URL from the issue body
+        const extractedCodespaceUrl = extractCodespaceUrl(issue.body);
+
         const message: Message = {
           role: "user",
           content: issue.body,
+          // Add extracted codespace URL as metadata
+          ...(extractedCodespaceUrl && { codespaceUrl: extractedCodespaceUrl }),
         };
 
         console.log(
-          `Processing GitHub issue #${issue.number} with @hive mention`
+          `Processing GitHub issue #${issue.number} with @stakwork mention`
         );
+
+        if (extractedCodespaceUrl) {
+          console.log(`Extracted codespace URL: ${extractedCodespaceUrl}`);
+        }
+
         this.processedIssues.add(issue.number);
         newIssuesProcessed = true;
 

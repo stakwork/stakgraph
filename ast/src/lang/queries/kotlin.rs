@@ -36,11 +36,30 @@ impl Stack for Kotlin {
         Some(format!(
             r#"
                 (package_header
-                    (identifier) @{IMPORTS}
+                    (identifier) 
+                )@{IMPORTS}
+                (import_list
+                    (import_header
+                        (identifier) @{IMPORTS_NAME} @{IMPORTS_FROM}
+                    )@{IMPORTS}
                 )
-                (import_header
-                    (identifier) @{IMPORTS}
-                )
+            "#
+        ))
+    }
+
+    fn variables_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (source_file
+                (property_declaration
+                    (modifiers)?@modifiers
+                    (binding_pattern_kind)
+                    (variable_declaration
+                        (user_type)?@{VARIABLE_TYPE}
+                    )@{VARIABLE_NAME}
+                    (_)?@{VARIABLE_VALUE}
+                )@{VARIABLE_DECLARATION}
+            )
             "#
         ))
     }
@@ -225,6 +244,27 @@ impl Stack for Kotlin {
 
     fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
         func_name.starts_with("test")
+    }
+
+    fn resolve_import_name(&self, import_name: &str) -> String {
+        let import_name = import_name.to_string();
+        let name = import_name
+            .split('.')
+            .last()
+            .unwrap_or(&import_name)
+            .to_string();
+        name
+    }
+
+    fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
+        let import_path = import_path.to_string();
+
+        let parts: Vec<&str> = import_path.split('.').collect();
+        if parts.len() > 2 {
+            parts[..parts.len() - 2].join("/")
+        } else {
+            import_path
+        }
     }
 }
 fn extract_path_from_url(url: &str) -> String {

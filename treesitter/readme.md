@@ -41,3 +41,11 @@ git clone https://github.com/fwcd/tree-sitter-kotlin.git
 cd tree-sitter-kotlin
 
 tree-sitter playground
+
+### swift
+
+repo: https://github.com/alex-pinkus/tree-sitter-swift.git
+
+playground: https://swift-ast-explorer.com/
+
+grammar: https://github.com/alex-pinkus/tree-sitter-swift/blob/main/queries/highlights.scm

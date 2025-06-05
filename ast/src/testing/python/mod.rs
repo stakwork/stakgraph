@@ -2,7 +2,6 @@ use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
-use test_log::test;
 
 pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -17,8 +16,8 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let graph = repo.build_graph_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 61, "Expected 61 nodes");
-    assert_eq!(num_edges, 78, "Expected 78 edges");
+    assert_eq!(num_nodes, 86, "Expected 86 nodes");
+    assert_eq!(num_edges, 118, "Expected 118 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -37,8 +36,37 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 12, "Expected 12 imports");
 
+    let calls = graph.count_edges_of_type(EdgeType::Calls);
+    assert_eq!(calls, 12, "Expected 12 call edges");
+
+    let contains = graph.count_edges_of_type(EdgeType::Contains);
+    assert_eq!(contains, 93, "Expected 93 contains edges");
+
+    let main_import_body = format!(
+        r#"import os
+import signal
+import subprocess
+import sys
+from fastapi import FastAPI
+from flask import Flask
+from fastapi_app.routes import router
+from database import Base, engine
+from flask_app.routes import flask_bp"#
+    );
+    let main = imports
+        .iter()
+        .find(|i| i.file == "src/testing/python/main.py")
+        .unwrap();
+
+    assert_eq!(
+        main.body, main_import_body,
+        "Model import body is incorrect"
+    );
     let classes = graph.find_nodes_by_type(NodeType::Class);
     assert_eq!(classes.len(), 3, "Expected 3 classes");
+
+    let vars = graph.find_nodes_by_type(NodeType::Var);
+    assert_eq!(vars.len(), 25, "Expected 25 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -60,12 +88,24 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     assert_eq!(endpoints.len(), 6, "Expected 6 endpoints");
 
+    let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
+    assert_eq!(imported_edges, 7, "Expected 7 import edges");
+
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_python() {
+    #[cfg(feature = "neo4j")]
+    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_python_generic::<ArrayGraph>().await.unwrap();
     test_python_generic::<BTreeMapGraph>().await.unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph = Neo4jGraph::default();
+        graph.clear();
+        test_python_generic::<Neo4jGraph>().await.unwrap();
+    }
 }

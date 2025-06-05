@@ -34,7 +34,10 @@ impl Graph for BTreeMapGraph {
             println!("Edge: {:?}: {:?} -> {:?}", edge_type, src_key, dst_key);
         }
         for (node_key, node) in &self.nodes {
-            println!("Node: {:?} type: {:?}", node_key, node.node_type);
+            println!(
+                "Node: {:?} type: {:?} file: {:?}",
+                node_key, node.node_type, node.node_data.file
+            );
         }
     }
 
@@ -59,9 +62,10 @@ impl Graph for BTreeMapGraph {
         self.nodes.insert(node_key.clone(), node);
     }
 
-    fn get_graph_keys(&self) -> (HashSet<&str>, HashSet<&str>) {
-        let node_keys: HashSet<&str> = self.nodes.keys().map(|k| k.as_str()).collect();
-        let edge_keys: HashSet<&str> = self.edge_keys.iter().map(|s| s.as_str()).collect();
+    fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
+        let node_keys: HashSet<String> = self.nodes.keys().map(|s| s.to_lowercase()).collect();
+
+        let edge_keys: HashSet<String> = self.edge_keys.iter().map(|s| s.to_lowercase()).collect();
         (node_keys, edge_keys)
     }
 
@@ -280,17 +284,7 @@ impl Graph for BTreeMapGraph {
                     self.nodes.insert(req_key, req_node);
                 }
 
-                let edge = Edge::calls(
-                    NodeType::Function,
-                    &node_clone,
-                    NodeType::Request,
-                    &r,
-                    CallsMeta {
-                        call_start: r.start,
-                        call_end: r.end,
-                        operand: None,
-                    },
-                );
+                let edge = Edge::calls(NodeType::Function, &node_clone, NodeType::Request, &r);
                 self.add_edge(edge);
             }
 
@@ -367,47 +361,116 @@ impl Graph for BTreeMapGraph {
             self.add_edge(edge);
         }
     }
-
+    // Add calls only between function definitions not between function calls
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>)) {
         let (funcs, tests, int_tests) = calls;
+        let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
+
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
-                    EdgeType::Calls(CallsMeta::default()),
+                    EdgeType::Calls,
                     NodeRef::from(fc.source.clone(), NodeType::Function),
                     NodeRef::from(class_call.into(), NodeType::Class),
                 ));
             }
             if fc.target.is_empty() {
-                continue; // might have empty target if it's a class call only
+                continue;
             }
-            if let Some(ext_nd) = ext_func {
-                let ext_node = Node::new(NodeType::Function, ext_nd.clone());
-                let ext_key = create_node_key(&ext_node);
-                if !self.nodes.contains_key(&ext_key) {
-                    self.nodes.insert(ext_key, ext_node);
-                }
 
-                let edge = Edge::uses(fc.source, &ext_nd);
-                self.add_edge(edge);
+            if let Some(ext_nd) = ext_func {
+                let edge_key = (
+                    fc.source.name.clone(),
+                    fc.source.file.clone(),
+                    ext_nd.name.clone(),
+                    ext_nd.file.clone(),
+                );
+
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+
+                    let ext_node = Node::new(NodeType::Function, ext_nd.clone());
+                    let ext_key = create_node_key(&ext_node);
+                    if !self.nodes.contains_key(&ext_key) {
+                        self.nodes.insert(ext_key, ext_node);
+                    }
+
+                    let edge = Edge::uses(fc.source, &ext_nd);
+                    self.add_edge(edge);
+                }
             } else {
-                self.add_edge(fc.into());
+                if let Some(target_function) = self.find_node_by_name_in_file(
+                    NodeType::Function,
+                    &fc.target.name,
+                    &fc.source.file,
+                ) {
+                    let edge_key = (
+                        fc.source.name.clone(),
+                        fc.source.file.clone(),
+                        target_function.name.clone(),
+                        target_function.file.clone(),
+                    );
+
+                    if !unique_edges.contains(&edge_key) {
+                        unique_edges.insert(edge_key);
+                        let edge = Edge::new(
+                            EdgeType::Calls,
+                            NodeRef::from(fc.source.clone(), NodeType::Function),
+                            NodeRef::from((&target_function).into(), NodeType::Function),
+                        );
+                        self.add_edge(edge);
+                    }
+                } else {
+                    let edge_key = (
+                        fc.source.name.clone(),
+                        fc.source.file.clone(),
+                        fc.target.name.clone(),
+                        fc.source.file.clone(),
+                    );
+
+                    if !unique_edges.contains(&edge_key) {
+                        unique_edges.insert(edge_key);
+                        self.add_edge(fc.into());
+                    }
+                }
             }
         }
 
         for (tc, ext_func, _) in tests {
             if let Some(ext_nd) = ext_func {
-                let edge = Edge::uses(tc.source, &ext_nd);
-                self.add_edge(edge);
-                let ext_node = Node::new(NodeType::Function, ext_nd.clone());
-                let ext_key = create_node_key(&ext_node);
-                if !self.nodes.contains_key(&ext_key) {
-                    self.nodes.insert(ext_key, ext_node);
+                let edge_key = (
+                    tc.source.name.clone(),
+                    tc.source.file.clone(),
+                    ext_nd.name.clone(),
+                    ext_nd.file.clone(),
+                );
+
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+
+                    let edge = Edge::uses(tc.source, &ext_nd);
+                    self.add_edge(edge);
+                    let ext_node = Node::new(NodeType::Function, ext_nd.clone());
+                    let ext_key = create_node_key(&ext_node);
+                    if !self.nodes.contains_key(&ext_key) {
+                        self.nodes.insert(ext_key, ext_node);
+                    }
                 }
             } else {
-                self.add_edge(Edge::new_test_call(tc));
+                let edge_key = (
+                    tc.source.name.clone(),
+                    tc.source.file.clone(),
+                    tc.target.name.clone(),
+                    tc.source.file.clone(),
+                );
+
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+                    self.add_edge(Edge::new_test_call(tc));
+                }
             }
         }
+
         for edge in int_tests {
             self.add_edge(edge);
         }
@@ -577,8 +640,8 @@ impl Graph for BTreeMapGraph {
 
         for key in nodes_to_remove {
             self.nodes.remove(&key);
-            // self.edges
-            //     .retain(|(src, dst, _)| src != &key && dst != &key);
+            self.edges
+                .retain(|(src, dst, _)| src != &key && dst != &key);
         }
     }
 
@@ -677,7 +740,7 @@ impl Graph for BTreeMapGraph {
         let mut called_functions = Vec::new();
 
         for (src, dst, edge_type) in &self.edges {
-            if let EdgeType::Calls(_) = edge_type {
+            if let EdgeType::Calls = edge_type {
                 if src.starts_with(&function_prefix) {
                     if let Some(node) = self.nodes.get(dst) {
                         called_functions.push(node.node_data.clone());
@@ -726,7 +789,7 @@ impl Graph for BTreeMapGraph {
         self.edges
             .iter()
             .filter(|(_, _, edge)| match (edge, &edge_type) {
-                (EdgeType::Calls(_), EdgeType::Calls(_)) => true,
+                (EdgeType::Calls, EdgeType::Calls) => true,
                 _ => *edge == edge_type,
             })
             .count()

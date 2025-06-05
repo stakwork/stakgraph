@@ -6,6 +6,10 @@ import * as uploads from "./graph/uploads.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
+import { App as SageApp } from "./sage/src/app.js";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,16 +20,24 @@ function swagger(_: Request, res: Response) {
 
 const app = express();
 app.use(cors());
+
+// MCP routes must come before body parsing middleware to preserve raw streams
+mcp_routes(app);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
+
+try {
+  new SageApp(app);
+} catch (e) {
+  console.log("===> skipping sage setup");
+}
 
 app.get("/", swagger);
 app.use("/textarea", express.static(path.join(__dirname, "../textarea")));
 app.use("/app", express.static(path.join(__dirname, "../app")));
 app.use("/demo", express.static(path.join(__dirname, "../app/vendor")));
-
-mcp_routes(app);
 app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 

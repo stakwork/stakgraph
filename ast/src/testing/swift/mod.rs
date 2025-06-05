@@ -2,7 +2,6 @@ use crate::lang::graphs::NodeType;
 use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
-use test_log::test;
 
 pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -18,10 +17,10 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
 
-    //graph.analysis();
+    graph.analysis();
 
-    assert_eq!(num_nodes, 55, "Expected 55 nodes");
-    assert_eq!(num_edges, 81, "Expected 81 edges");
+    assert_eq!(num_nodes, 57, "Expected 57 nodes");
+    assert_eq!(num_edges, 83, "Expected 83 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -68,6 +67,9 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
+    let variables = graph.find_nodes_by_type(NodeType::Var);
+    assert_eq!(variables.len(), 2, "Expected 2 variables");
+
     let mut sorted_requests = requests.clone();
     sorted_requests.sort_by(|a, b| a.name.cmp(&b.name));
 
@@ -79,9 +81,18 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[test(tokio::test)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_swift() {
+    #[cfg(feature = "neo4j")]
+    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_swift_generic::<ArrayGraph>().await.unwrap();
     test_swift_generic::<BTreeMapGraph>().await.unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph = Neo4jGraph::default();
+        graph.clear();
+        test_swift_generic::<Neo4jGraph>().await.unwrap();
+    }
 }

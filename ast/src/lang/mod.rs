@@ -18,7 +18,7 @@ use tree_sitter::{Node as TreeNode, Query, QueryCursor, QueryMatch};
 
 pub struct Lang {
     pub kind: Language,
-    lang: Box<dyn Stack>,
+    lang: Box<dyn Stack + Send + Sync + 'static>,
 }
 
 impl fmt::Display for Lang {
@@ -104,6 +104,12 @@ impl Lang {
         Self {
             kind: Language::Angular,
             lang: Box::new(angular::Angular::new()),
+        }
+    }
+    pub fn new_cpp() -> Self {
+        Self {
+            kind: Language::Cpp,
+            lang: Box::new(cpp::Cpp::new()),
         }
     }
     pub fn lang(&self) -> &dyn Stack {
@@ -234,41 +240,16 @@ impl Lang {
         // get each function call within that function
         while let Some(m) = matches.next() {
             // FIXME can we only pass in the node code here? Need to sum line nums
-            self.add_calls_for_function(&mut res, &m, &qo1, code, file, graph, lsp_tx)
-                .await?;
-        }
-        Ok(res)
-    }
-    pub async fn add_calls_for_function<'a, 'b, G: Graph>(
-        &self,
-        res: &mut (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>), // funcs, tests, integration tests
-        m: &QueryMatch<'a, 'b>,
-        q: &Query,
-        code: &str,
-        file: &str,
-        graph: &G,
-        lsp_tx: &Option<CmdSender>,
-    ) -> Result<()> {
-        trace!("add_calls_for_function");
-        let mut caller_name = "".to_string();
-        Self::loop_captures(q, &m, code, |body, node, o| {
-            if o == FUNCTION_NAME {
-                caller_name = body;
-            } else if o == FUNCTION_DEFINITION {
-                // NOTE this should always be the last one
-                let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
-                let calls = self.collect_calls_in_function(
-                    &q2,
-                    code,
-                    file,
-                    node,
-                    &caller_name,
-                    graph,
-                    lsp_tx,
-                )?;
-                self.add_calls_inside(res, &caller_name, file, calls);
-                if self.lang.is_test(&caller_name, file) {
-                    let int_calls = self.collect_integration_test_calls(
+            trace!("add_calls_for_function");
+            let mut caller_name = "".to_string();
+            Self::loop_captures(&qo1, &m, code, |body, node, o| {
+                if o == FUNCTION_NAME {
+                    caller_name = body;
+                } else if o == FUNCTION_DEFINITION {
+                    // NOTE this should always be the last one
+                    let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
+                    let calls = self.collect_calls_in_function(
+                        &q2,
                         code,
                         file,
                         node,
@@ -276,12 +257,23 @@ impl Lang {
                         graph,
                         lsp_tx,
                     )?;
-                    res.2.extend(int_calls);
+                    self.add_calls_inside(&mut res, &caller_name, file, calls);
+                    if self.lang.is_test(&caller_name, file) {
+                        let int_calls = self.collect_integration_test_calls(
+                            code,
+                            file,
+                            node,
+                            &caller_name,
+                            graph,
+                            lsp_tx,
+                        )?;
+                        res.2.extend(int_calls);
+                    }
                 }
-            }
-            Ok(())
-        })?;
-        Ok(())
+                Ok(())
+            })?;
+        }
+        Ok(res)
     }
     fn add_calls_inside(
         &self,
@@ -314,6 +306,7 @@ impl Lang {
             Language::Java => Lang::new_java(),
             Language::Svelte => Lang::new_svelte(),
             Language::Angular => Lang::new_angular(),
+            Language::Cpp => Lang::new_cpp(),
         }
     }
 }

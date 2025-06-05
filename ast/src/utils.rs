@@ -5,9 +5,10 @@ use crate::lang::graphs::{ArrayGraph, Node};
 use crate::lang::{BTreeMapGraph, Graph, NodeRef};
 use anyhow::Result;
 use serde::Serialize;
+use std::fs::File;
+use std::io::{BufWriter, Write};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
-
 pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
     use serde_jsonlines::write_json_lines;
     match std::env::var("OUTPUT_FORMAT")
@@ -134,4 +135,15 @@ pub fn sanitize_string(input: &str) -> String {
         .trim()
         .replace(char::is_whitespace, "")
         .replace(|c: char| !c.is_alphanumeric(), "")
+}
+
+// To print Neo4jGraph nodes and edges for testing purposes
+pub fn print_json_vec<T: Serialize>(data: &Vec<T>, name: &str) -> anyhow::Result<()> {
+    let file = File::create(format!("ast/examples/{}.jsonl", name))?;
+    let mut writer = BufWriter::new(file);
+    for item in data {
+        serde_json::to_writer(&mut writer, item)?;
+        writer.write_all(b"\n")?;
+    }
+    Ok(())
 }

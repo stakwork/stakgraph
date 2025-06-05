@@ -5,18 +5,22 @@ use std::str::FromStr;
 // use tracing_test::traced_test;
 
 pub mod angular;
+pub mod cpp;
 pub mod go;
 pub mod graphs;
+pub mod java;
 pub mod kotlin;
 #[cfg(feature = "neo4j")]
 pub mod neo4j;
 pub mod python;
 pub mod react;
 pub mod ruby;
+pub mod rust_test;
 pub mod svelte;
 pub mod swift;
 pub mod test_backend;
 pub mod test_frontend;
+pub mod typescript;
 pub mod utils;
 
 #[cfg(test)]

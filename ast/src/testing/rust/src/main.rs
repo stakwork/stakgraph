@@ -1,6 +1,11 @@
 mod db;
 mod routes;
 
+use crate::db::init_db;
+use crate::routes::{
+    actix_routes::config, axum_routes::create_router, rocket_routes::create_rocket,
+};
+
 use anyhow::Result;
 use std::net::SocketAddr;
 
@@ -12,7 +17,7 @@ const ADDRESS: [u8; 4] = [0, 0, 0, 0];
 #[tokio::main]
 async fn main() -> Result<()> {
     println!("Initializing database...");
-    db::init_db().await?;
+    init_db().await?;
 
     println!("Starting servers...");
     println!("Axum server on http://localhost:{}", AXUM_PORT);
@@ -42,7 +47,7 @@ async fn main() -> Result<()> {
 }
 
 async fn start_axum_server() -> Result<()> {
-    let app = routes::axum_routes::create_router();
+    let app = create_router();
     let addr = SocketAddr::from((ADDRESS, AXUM_PORT));
 
     axum::Server::bind(&addr)
@@ -55,13 +60,11 @@ async fn start_axum_server() -> Result<()> {
 
 async fn start_actix_server() -> Result<()> {
     // Using move to ensure closure captures nothing by reference
-    actix_web::HttpServer::new(move || {
-        actix_web::App::new().configure(routes::actix_routes::config)
-    })
-    .bind(format!("0.0.0.0:{}", ACTIX_PORT))?
-    .run()
-    .await
-    .map_err(|e| anyhow::anyhow!("Actix server error: {}", e))?;
+    actix_web::HttpServer::new(move || actix_web::App::new().configure(config))
+        .bind(format!("0.0.0.0:{}", ACTIX_PORT))?
+        .run()
+        .await
+        .map_err(|e| anyhow::anyhow!("Actix server error: {}", e))?;
 
     Ok(())
 }
@@ -71,7 +74,7 @@ async fn start_rocket_server() -> Result<()> {
         .merge(("port", ROCKET_PORT))
         .merge(("address", "0.0.0.0"));
 
-    let rocket = routes::rocket_routes::create_rocket().configure(figment);
+    let rocket = create_rocket().configure(figment);
 
     rocket
         .launch()
