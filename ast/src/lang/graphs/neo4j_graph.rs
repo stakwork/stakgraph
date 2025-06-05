@@ -9,6 +9,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tiktoken_rs::get_bpe_from_model;
 use tracing::{debug, info, warn};
 
 use super::neo4j_utils::Neo4jConnectionManager;
@@ -171,16 +172,49 @@ impl Neo4jGraph {
     }
 
     pub async fn update_all_token_counts(&mut self) -> anyhow::Result<()> {
-        let _connection = self.ensure_connected().await?;
-        // Implementation to match Node.js update_all_token_counts()
-        // This would need a tokenizer crate equivalent
-        Ok(())
-    }
+        let connection = self.ensure_connected().await?;
 
-    pub async fn embed_data_bank_bodies(&mut self, _do_files: bool) -> anyhow::Result<()> {
-        let _connection = self.ensure_connected().await?;
-        // Implementation to match Node.js embed_data_bank_bodies()
-        // This would need vector embedding equivalent
+        let query_str = "
+            MATCH (n:Data_Bank) 
+            WHERE n.token_count IS NULL AND n.body IS NOT NULL
+            RETURN n.node_key as node_key, n.body as body
+        ";
+
+        let mut result = connection.execute(neo4rs::query(query_str)).await?;
+        let mut nodes_to_update = Vec::new();
+
+        while let Some(row) = result.next().await? {
+            if let (Ok(node_key), Ok(body)) =
+                (row.get::<String>("node_key"), row.get::<String>("body"))
+            {
+                nodes_to_update.push((node_key, body));
+            }
+        }
+
+        info!(
+            "Found {} nodes without token counts",
+            &nodes_to_update.len()
+        );
+
+        let bpe = get_bpe_from_model("gpt-4")?;
+
+        for (node_key, body) in &nodes_to_update {
+            let tokens = bpe.encode_with_special_tokens(&body);
+            let token_count = tokens.len();
+
+            let update_query = "
+                MATCH (n {node_key: $node_key})
+                SET n.token_count = $token_count
+            ";
+
+            let query_obj = neo4rs::query(update_query)
+                .param("node_key", node_key.to_string())
+                .param("token_count", token_count as i64);
+
+            connection.run(query_obj).await?;
+        }
+
+        info!("Updated token counts for {} nodes", nodes_to_update.len());
         Ok(())
     }
 

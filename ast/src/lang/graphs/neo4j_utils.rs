@@ -238,7 +238,7 @@ impl EdgeQueryBuilder {
              self.edge.source.node_data.name, 
              self.edge.target.node_data.name, 
              rel_type);
-             
+
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
         
@@ -1005,4 +1005,16 @@ pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String,
                  SET r.hash = $new_hash";
     
     (query.to_string(), params)
+}
+
+pub fn data_bank_bodies_query_no_token_count() -> String {
+    "MATCH (n:Data_Bank) 
+     WHERE n.token_count IS NULL AND n.body IS NOT NULL
+     RETURN n.node_key as node_key, n.body as body".to_string()
+}
+
+
+pub fn update_token_count_query() -> String {
+    "MATCH (n {node_key: $node_key})
+     SET n.token_count = $token_count".to_string()
 }

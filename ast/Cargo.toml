@@ -59,6 +59,7 @@ uuid = { version = "1.0", features = ["v4"] }
 neo4rs = {version =  "0.8.0", optional = true}
 lazy_static = "1.5.0"
 futures = "0.3.31"
+tiktoken-rs = "0.7.0"
 
 
 [[example]]
