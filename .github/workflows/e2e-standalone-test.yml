@@ -1,0 +1,224 @@
+name: Stakgraph E2E Test - Rust Ingest
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  run-test:
+    runs-on: ubuntu-latest
+    name: Run e2e tests with Rust ingest
+    steps:
+      - name: Enable docker.host.internal for Ubuntu
+        run: |
+          pwd && sudo bash -c 'echo "172.17.0.1 host.docker.internal" >> /etc/hosts'
+
+      - name: Checkout from Github
+        uses: actions/checkout@v4
+
+      - name: Give Permission
+        working-directory: ./mcp
+        run: |
+          mkdir -p ./.neo4j/plugins
+          sudo chown -R 1000:1000 ./.neo4j/plugins
+          sudo chmod -R 777 ./.neo4j/plugins  
+          sudo chmod -R 777 ./conf
+
+      - name: Run Neo4j
+        working-directory: ./mcp
+        run: docker compose -f neo4j.yaml up -d
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+
+      - name: Verify Rust Installation
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.1"
+
+      - name: Verify Go Installation
+        run: go version
+
+      - name: Install gopls
+        run: go install golang.org/x/tools/gopls@latest
+
+      - name: Verify gopls Installation
+        run: |
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+          gopls version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify Node.js Installation
+        run: node -v
+
+      - name: Install TypeScript and TypeScript LSP
+        run: |
+          npm install -g typescript typescript-language-server
+          echo "$HOME/.npm-global/bin" >> $GITHUB_PATH
+
+      - name: Verify TypeScript Installation
+        run: |
+          tsc --version
+          typescript-language-server --version
+
+      - name: Wait for Neo4j to be Ready
+        run: |
+          echo "Waiting for Neo4j to be healthy..."
+          timeout 300s sh -c '
+          until docker inspect --format "{{json .State.Health.Status }}" neo4j.sphinx | grep -q "healthy"; do
+            echo "Neo4j is not ready yet..."
+            sleep 10
+          done'
+          echo "Neo4j is healthy!"
+
+      - name: Build Rust Standalone Binary
+        run: |
+          cargo build --release --bin standalone --features neo4j
+
+      - name: Start Rust Standalone Server
+        run: |
+          export NEO4J_URI="bolt://localhost:7687"
+          export NEO4J_USERNAME="neo4j"
+          export NEO4J_PASSWORD="testtest"
+          export PORT="7777"
+          export LSP_SKIP_POST_CLONE=1
+          ./target/release/standalone > rust-server.log 2>&1 &
+          echo $! > rust-server.pid
+          echo "Rust server started on port 7777"
+
+      - name: Wait for Rust Server
+        run: |
+          echo "Waiting for Rust server to be ready..."
+          timeout 300s sh -c '
+          until curl -f -s http://localhost:7777/ingest > /dev/null 2>&1 || [[ $? -eq 22 ]]; do
+            echo "Waiting for Rust server to be ready..."
+            sleep 5
+          done'
+          echo "Rust server is ready!"
+
+      - name: Ingest Data Using HTTP Endpoint
+        run: |
+          echo "Calling /ingest endpoint..."
+          curl -X POST "http://localhost:7777/ingest" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "repo_url": "https://github.com/stakwork/demo-repo.git"
+            }'
+
+      - name: Install Node Dependencies
+        working-directory: ./mcp
+        run: yarn install
+
+      - name: Start Node Server
+        working-directory: ./mcp
+        run: |
+          export TEST_REF_ID=1 
+          yarn dev > server.log 2>&1 &
+          echo $! > server.pid
+          echo "Node.js server started"
+
+      - name: Wait for Node Server
+        run: |
+          timeout 300s sh -c '
+          until curl -s http://localhost:3000/health > /dev/null 2>&1; do
+            echo "Waiting for Node.js server to be ready..."
+            sleep 5
+          done'
+          echo "Node.js server is ready!"
+
+      - name: Test API Response
+        working-directory: ./mcp
+        run: |
+          sleep 10
+          curl "http://localhost:3000/map?name=App&node_type=Function" -o ./testing/actual-map-response.html
+
+      - name: Compare actual and expected output
+        working-directory: ./mcp
+        run: |
+          ACTUAL_MAP_FILE="./testing/actual-map-response.html"
+          EXPECTED_MAP_FILE="./testing/map.html"
+
+          if diff --color=always -u "$ACTUAL_MAP_FILE" "$EXPECTED_MAP_FILE"; then
+            echo "✅ Output matches expected"
+          else
+            echo "❌ Output does not match expected"
+            exit 1
+          fi
+
+      - name: Check Fulltext Search
+        working-directory: ./mcp
+        run: |
+          curl -s -X GET "http://localhost:3000/search?query=NewRouter&output=snippet" -o ./testing/actual-fulltext-search.txt
+          echo "$(<./testing/actual-fulltext-search.txt)"
+
+      - name: Compare Fulltext Search Response with Expected Output
+        working-directory: ./mcp
+        run: |
+          ACTUAL_FULLTEXT_FILE="./testing/actual-fulltext-search.txt"
+          EXPECTED_FULLTEXT_FILE="./testing/fulltext-search-response.txt"
+
+          if diff -q "$ACTUAL_FULLTEXT_FILE" "$EXPECTED_FULLTEXT_FILE"; then
+            echo "Response matches expected output ✅"
+          else
+            echo "Response does NOT match expected output ❌"
+            exit 1
+          fi
+
+      - name: Check NodeType Endpoint
+        working-directory: ./mcp
+        run: |
+          curl -s -X GET "http://localhost:3000/nodes?node_type=Endpoint" -o ./testing/actual-nodes-nodetypes-endpoint.json
+          echo "$(<./testing/actual-nodes-nodetypes-endpoint.json)"
+
+      - name: Compare NodeType Response with Expected Output
+        working-directory: ./mcp
+        run: |
+          ACTUAL_NODETYPE_ENDPOINT_FILE="./testing/actual-nodes-nodetypes-endpoint.json"
+          EXPECTED_NODETYPE_ENDPOINT_FILE="./testing/nodes-nodetype-endpoint.json"
+
+          SORTED_ACTUAL_NODETYPE_ENDPOINT_FILE="/tmp/sorted_actual_nodetype_endpoint.json"
+          SORTED_EXPECTED_NODETYPE_ENDPOINT_FILE="/tmp/sorted_expected_nodetype_endpoint.json"
+
+          jq --sort-keys . "$ACTUAL_NODETYPE_ENDPOINT_FILE" > "$SORTED_ACTUAL_NODETYPE_ENDPOINT_FILE"
+          jq --sort-keys . "$EXPECTED_NODETYPE_ENDPOINT_FILE" > "$SORTED_EXPECTED_NODETYPE_ENDPOINT_FILE"
+
+          if diff --color=always -u "$SORTED_EXPECTED_NODETYPE_ENDPOINT_FILE" "$SORTED_ACTUAL_NODETYPE_ENDPOINT_FILE"; then
+            echo "Nodetypes Response matches expected output ✅"
+          else
+            echo "Nodetypes Response does NOT match expected output ❌"
+            exit 1
+          fi
+
+      - name: Display server logs on failure
+        if: failure()
+        run: |
+          echo "=== Rust Server Logs ==="
+          cat ./rust-server.log || echo "No Rust server logs found"
+          echo "=== Node.js Server Logs ==="
+          cat ./mcp/server.log || echo "No Node.js server logs found"
+          echo "=== Neo4j Status ==="
+          docker logs neo4j.sphinx --tail 50 || echo "No Neo4j logs found"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # Kill Rust server
+          if [ -f rust-server.pid ]; then
+            kill $(cat rust-server.pid) || true
+          fi
+          # Kill Node server
+          if [ -f ./mcp/server.pid ]; then
+            kill $(cat ./mcp/server.pid) || true
+          fi
