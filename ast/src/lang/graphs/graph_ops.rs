@@ -1,6 +1,6 @@
 use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::{BTreeMapGraph, Edge, NodeKeys, NodeRef};
+use crate::lang::graphs::{BTreeMapGraph, Edge, NodeRef};
 use crate::lang::neo4j_utils::TransactionManager;
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;

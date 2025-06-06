@@ -6,7 +6,7 @@ use std::{
 };
 use tracing::{debug, info};
 use lazy_static::lazy_static;
-use crate::{lang::FunctionCall, utils::{create_node_key, create_node_key_from_ref}};
+use crate::{lang::FunctionCall, utils::create_node_key};
 use serde_json;
 use uuid::Uuid;
 
@@ -295,23 +295,9 @@ impl<'a> TransactionManager<'a> {
         self
     }
     
-    //Add nodes before edges to the graph when we batch them.
+
     pub async fn execute(self) -> Result<()> {
-         let (node_queries, edge_queries): (Vec<_>, Vec<_>) = self.queries
-         .into_iter()
-         .partition(|(query, _)| {
-             query.contains("MERGE (n:") || 
-             query.contains("CREATE (n:") ||
-             query.trim_start().starts_with("MERGE (") && query.contains(" {name:")
-         });
-
-        if !node_queries.is_empty() {
-            execute_batch(self.conn, node_queries).await?;
-        } 
-        if !edge_queries.is_empty() {
-            execute_batch(self.conn, edge_queries).await?;
-        }
-
+        execute_batch(self.conn, self.queries).await?;
      Ok(())
  }
     
