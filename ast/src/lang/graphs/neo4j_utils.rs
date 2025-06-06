@@ -149,62 +149,32 @@ impl NodeQueryBuilder {
         params
     }
 
+    
     pub fn build(&self) -> (String, HashMap<String, String>) {
         let mut params = self.build_params();
         
         let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
         params.insert("node_key".to_string(), node_key);
         
-        let mut properties = HashMap::new();
-        for (key, value) in &params {
-            if key != "node_key" {
-                properties.insert(key.clone(), value.clone());
-            }
-        }
-
-        let mut final_params = HashMap::new();
-        final_params.insert("node_key".to_string(), params.get("node_key").unwrap().clone());
-        final_params.insert("properties".to_string(), serde_json::to_string(&properties).unwrap());
-
+        let property_list = params
+            .keys()
+            .filter(|k| k != &"node_key")
+            .map(|k| format!("n.{} = ${}", k, k))
+            .collect::<Vec<_>>()
+            .join(", ");
+    
         let query = format!(
-            "MERGE (node:{}:{} {{node_key: $node_key}})
-            ON CREATE SET node += $properties
-            ON MATCH SET node += $properties
-            RETURN node",
+            "MERGE (n:{}:{} {{node_key: $node_key}})
+            ON CREATE SET {}
+            ON MATCH SET {}",
             self.node_type.to_string(),
-            DATA_BANK
+            DATA_BANK,
+            property_list,
+            property_list
         );
-
-        
-        
-        (query, final_params)
+    
+        (query, params)
     }
-    
-    // pub fn build(&self) -> (String, HashMap<String, String>) {
-    //     let mut params = self.build_params();
-        
-    //     let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
-    //     params.insert("node_key".to_string(), node_key);
-        
-    //     let property_list = params
-    //         .keys()
-    //         .filter(|k| k != &"node_key")
-    //         .map(|k| format!("n.{} = ${}", k, k))
-    //         .collect::<Vec<_>>()
-    //         .join(", ");
-    
-    //     let query = format!(
-    //         "MERGE (n:{}:{} {{node_key: $node_key}})
-    //         ON CREATE SET {}
-    //         ON MATCH SET {}",
-    //         self.node_type.to_string(),
-    //         DATA_BANK,
-    //         property_list,
-    //         property_list
-    //     );
-    
-    //     (query, params)
-    // }
 }
 pub struct EdgeQueryBuilder {
     edge: Edge,
@@ -242,32 +212,67 @@ impl EdgeQueryBuilder {
     }
   
 }
+// pub async fn execute_batch(
+//     conn: &Neo4jConnection,
+//     queries: Vec<(String, HashMap<String, String>)>,
+// ) -> Result<()> {
+//     let mut txn = conn.start_txn().await?;
+    
+//      for (i, (query_str, params)) in queries.iter().enumerate() {
+//         let mut query_obj = query(&query_str);
+//         for (k, v) in params {
+//             if k == "properties" {
+//                 if let Ok(props) = serde_json::from_str::<HashMap<String, String>>(v) {
+//                     query_obj = query_obj.param(k, props);
+//                 } else {
+//                     query_obj = query_obj.param(k, v.as_str());
+//                 }
+//             } else {
+//                 query_obj = query_obj.param(k, v.as_str());
+//             }
+//         }
+
+//             if let Err(e) = txn.run(query_obj).await  {
+//             println!("Neo4j query #{} {} failed: {}", i, query_str, e);
+//             txn.rollback().await?;
+//             return Err(anyhow::anyhow!("Neo4j batch query error: {}", e));
+//             }
+        
+//     }
+    
+//     txn.commit().await?;
+//     Ok(())
+// }
+
 pub async fn execute_batch(
     conn: &Neo4jConnection,
     queries: Vec<(String, HashMap<String, String>)>,
 ) -> Result<()> {
     let mut txn = conn.start_txn().await?;
     
-     for (i, (query_str, params)) in queries.iter().enumerate() {
+    for (i, (query_str, params)) in queries.iter().enumerate() {
         let mut query_obj = query(&query_str);
         for (k, v) in params {
-            if k == "properties" {
-                if let Ok(props) = serde_json::from_str::<HashMap<String, String>>(v) {
-                    query_obj = query_obj.param(k, props);
-                } else {
+            // ✅ SIMPLE FIX: Handle integer fields properly
+            match k.as_str() {
+                "start" | "end" | "token_count" => {
+                    if let Ok(int_val) = v.parse::<i64>() {
+                        query_obj = query_obj.param(k, int_val);
+                    } else {
+                        query_obj = query_obj.param(k, v.as_str());
+                    }
+                }
+                _ => {
                     query_obj = query_obj.param(k, v.as_str());
                 }
-            } else {
-                query_obj = query_obj.param(k, v.as_str());
             }
         }
 
-            if let Err(e) = txn.run(query_obj).await  {
+        if let Err(e) = txn.run(query_obj).await {
             println!("Neo4j query #{} {} failed: {}", i, query_str, e);
             txn.rollback().await?;
             return Err(anyhow::anyhow!("Neo4j batch query error: {}", e));
-            }
-        
+        }
     }
     
     txn.commit().await?;

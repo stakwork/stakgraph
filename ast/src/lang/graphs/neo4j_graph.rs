@@ -196,11 +196,11 @@ impl Neo4jGraph {
             let token_count = bpe.encode_with_special_tokens(&body).len();
 
             let update_query = "MATCH (n:Data_Bank {node_key: $node_key})
-                               SET n.token_count = toInteger($token_count)";
+                               SET n.token_count = $token_count";
 
             let query_obj = neo4rs::query(&update_query)
                 .param("node_key", node_key.to_string())
-                .param("token_count", token_count.to_string());
+                .param("token_count", token_count as i64);
             connection.run(query_obj).await?;
         }
 
