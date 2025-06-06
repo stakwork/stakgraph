@@ -148,32 +148,63 @@ impl NodeQueryBuilder {
         
         params
     }
-    
+
     pub fn build(&self) -> (String, HashMap<String, String>) {
         let mut params = self.build_params();
         
         let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
         params.insert("node_key".to_string(), node_key);
         
-        let property_list = params
-            .keys()
-            .filter(|k| k != &"node_key")
-            .map(|k| format!("n.{} = ${}", k, k))
-            .collect::<Vec<_>>()
-            .join(", ");
-    
+        let mut properties = HashMap::new();
+        for (key, value) in &params {
+            if key != "node_key" {
+                properties.insert(key.clone(), value.clone());
+            }
+        }
+
+        let mut final_params = HashMap::new();
+        final_params.insert("node_key".to_string(), params.get("node_key").unwrap().clone());
+        final_params.insert("properties".to_string(), serde_json::to_string(&properties).unwrap());
+
         let query = format!(
-            "MERGE (n:{}:{} {{node_key: $node_key}})
-            ON CREATE SET {}
-            ON MATCH SET {}",
+            "MERGE (node:{}:{} {{node_key: $node_key}})
+            ON CREATE SET node += $properties
+            ON MATCH SET node += $properties
+            RETURN node",
             self.node_type.to_string(),
-            DATA_BANK,
-            property_list,
-            property_list
+            DATA_BANK
         );
-    
-        (query, params)
+
+        
+        
+        (query, final_params)
     }
+    
+    // pub fn build(&self) -> (String, HashMap<String, String>) {
+    //     let mut params = self.build_params();
+        
+    //     let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
+    //     params.insert("node_key".to_string(), node_key);
+        
+    //     let property_list = params
+    //         .keys()
+    //         .filter(|k| k != &"node_key")
+    //         .map(|k| format!("n.{} = ${}", k, k))
+    //         .collect::<Vec<_>>()
+    //         .join(", ");
+    
+    //     let query = format!(
+    //         "MERGE (n:{}:{} {{node_key: $node_key}})
+    //         ON CREATE SET {}
+    //         ON MATCH SET {}",
+    //         self.node_type.to_string(),
+    //         DATA_BANK,
+    //         property_list,
+    //         property_list
+    //     );
+    
+    //     (query, params)
+    // }
 }
 pub struct EdgeQueryBuilder {
     edge: Edge,
@@ -186,43 +217,28 @@ impl EdgeQueryBuilder {
         }
     }
     
-    pub fn build_params(&self) -> HashMap<String, String> {
+    pub fn build(&self) -> (String, HashMap<String, String>) {
         let mut params = HashMap::new();
+
 
         params.insert("source_name".to_string(), self.edge.source.node_data.name.clone());
         params.insert("source_file".to_string(), self.edge.source.node_data.file.clone());
-        params.insert("source_start".to_string(), self.edge.source.node_data.start.to_string());
-
-        if let Some(verb) = &self.edge.source.node_data.verb {
-            params.insert("source_verb".to_string(), verb.clone());
-        }
-
         params.insert("target_name".to_string(), self.edge.target.node_data.name.clone());
         params.insert("target_file".to_string(), self.edge.target.node_data.file.clone());
-        params.insert("target_start".to_string(), self.edge.target.node_data.start.to_string());
-        
-
-        if let Some(verb) = &self.edge.target.node_data.verb {
-            params.insert("target_verb".to_string(), verb.clone());
-        }
-        
-        params
-    }
-    
-    pub fn build(&self) -> (String, HashMap<String, String>) {
-        let params = self.build_params();
 
         let rel_type = self.edge.edge.to_string();
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
         
-            let query = format!(
-                "MATCH (source:{} {{name: $source_name, file: $source_file}}), \
-                       (target:{} {{name: $target_name, file: $target_file}}) \
-                 MERGE (source)-[r:{}]->(target)",
-                source_type, target_type, rel_type
-            );
-            (query, params)
+        let query = format!(
+            "MATCH (source:{} {{name: $source_name, file: $source_file}})
+            MATCH (target:{} {{name: $target_name, file: $target_file}})
+            MERGE (source)-[r:{}]->(target)
+            RETURN r",
+            source_type, target_type, rel_type
+        );
+
+        (query, params)
     }
   
 }
@@ -235,7 +251,15 @@ pub async fn execute_batch(
      for (i, (query_str, params)) in queries.iter().enumerate() {
         let mut query_obj = query(&query_str);
         for (k, v) in params {
-            query_obj = query_obj.param(&k, v.as_str());
+            if k == "properties" {
+                if let Ok(props) = serde_json::from_str::<HashMap<String, String>>(v) {
+                    query_obj = query_obj.param(k, props);
+                } else {
+                    query_obj = query_obj.param(k, v.as_str());
+                }
+            } else {
+                query_obj = query_obj.param(k, v.as_str());
+            }
         }
 
             if let Err(e) = txn.run(query_obj).await  {

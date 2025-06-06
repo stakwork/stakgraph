@@ -140,7 +140,7 @@ pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
     graph_ops.connect().await?;
 
     let start_upload = Instant::now();
-
+    graph_ops.clear().await?;
     let (nodes, edges) = graph_ops.upload_btreemap_to_neo4j(&btree_graph).await?;
     graph_ops.graph.create_indexes().await?;
     graph_ops.graph.update_all_token_counts().await?;
