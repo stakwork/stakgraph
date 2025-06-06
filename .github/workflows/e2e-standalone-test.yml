@@ -94,6 +94,7 @@ jobs:
           export NEO4J_PASSWORD="testtest"
           export PORT="7777"
           export LSP_SKIP_POST_CLONE=1
+          export TEST_REF_ID=1
           ./target/release/standalone > rust-server.log 2>&1 &
           echo $! > rust-server.pid
           echo "Rust server started on port 7777"
@@ -102,7 +103,7 @@ jobs:
         run: |
           echo "Waiting for Rust server to be ready..."
           timeout 300s sh -c '
-          until curl -f -s http://localhost:7777/ingest > /dev/null 2>&1 || [[ $? -eq 22 ]]; do
+          until curl -f -s http://localhost:7777/ingest > /dev/null 2>&1 || [ $? -eq 22 ]; do
             echo "Waiting for Rust server to be ready..."
             sleep 5
           done'
@@ -130,12 +131,10 @@ jobs:
           echo "Node.js server started"
 
       - name: Wait for Node Server
+        working-directory: ./mcp
         run: |
-          timeout 300s sh -c '
-          until curl -s http://localhost:3000/health > /dev/null 2>&1; do
-            echo "Waiting for Node.js server to be ready..."
-            sleep 5
-          done'
+          echo "Waiting for Node.js server to be ready..."
+          npx wait-on http://localhost:3000 -t 120000
           echo "Node.js server is ready!"
 
       - name: Test API Response
