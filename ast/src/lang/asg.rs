@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
+#[cfg(feature = "neo4j")]
+use neo4rs::{BoltInteger, BoltMap, BoltType};
+#[cfg(feature = "neo4j")]
+use uuid::Uuid;
+
 pub struct UniqueKey {
     pub kind: NodeType,
     pub name: String,
@@ -150,6 +155,30 @@ impl NodeData {
         self.meta
             .insert("includes".to_string(), modules.to_string());
     }
+
+    #[cfg(feature = "neo4j")]
+    pub fn get_property_names(&self) -> Vec<String> {
+        let mut properties = vec![
+            "name".to_string(),
+            "file".to_string(),
+            "body".to_string(),
+            "start".to_string(),
+            "end".to_string(),
+        ];
+        if self.data_type.is_some() {
+            properties.push("data_type".to_string());
+        }
+        if self.docs.is_some() {
+            properties.push("docs".to_string());
+        }
+        if self.hash.is_some() {
+            properties.push("hash".to_string());
+        }
+        for key in self.meta.keys() {
+            properties.push(key.clone());
+        }
+        properties
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -252,5 +281,58 @@ impl ToString for Operand {
     fn to_string(&self) -> String {
         let s = format!("{:?}", self.source.name);
         s //Given that the source is a class
+    }
+}
+
+#[cfg(feature = "neo4j")]
+impl From<&NodeData> for BoltMap {
+    fn from(node_data: &NodeData) -> Self {
+        let mut map = std::collections::HashMap::new();
+
+        map.insert(
+            "name".into(),
+            BoltType::String(node_data.name.clone().into()),
+        );
+        map.insert(
+            "file".into(),
+            BoltType::String(node_data.file.clone().into()),
+        );
+        map.insert(
+            "body".into(),
+            BoltType::String(node_data.body.clone().into()),
+        );
+        map.insert(
+            "start".into(),
+            BoltType::Integer(BoltInteger::from(node_data.start as i64)),
+        );
+        map.insert(
+            "end".into(),
+            BoltType::Integer(BoltInteger::from(node_data.end as i64)),
+        );
+        if let Some(data_type) = &node_data.data_type {
+            map.insert(
+                "data_type".into(),
+                BoltType::String(data_type.clone().into()),
+            );
+        }
+        if let Some(docs) = &node_data.docs {
+            map.insert("docs".into(), BoltType::String(docs.clone().into()));
+        }
+        if let Some(hash) = &node_data.hash {
+            map.insert("hash".into(), BoltType::String(hash.clone().into()));
+        }
+        for (key, value) in &node_data.meta {
+            map.insert(key.clone().into(), BoltType::String(value.clone().into()));
+        }
+
+        let ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+            "test_ref_id".to_string()
+        } else {
+            Uuid::new_v4().to_string()
+        };
+
+        map.insert("ref_id".into(), BoltType::String(ref_id.into()));
+
+        BoltMap { value: map }
     }
 }
