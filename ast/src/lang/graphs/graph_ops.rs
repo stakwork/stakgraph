@@ -1,6 +1,6 @@
 use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::{BTreeMapGraph, Edge, NodeRef};
+use crate::lang::graphs::{BTreeMapGraph, Edge, EdgeType, NodeRef};
 use crate::lang::neo4j_utils::TransactionManager;
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
@@ -46,7 +46,6 @@ impl GraphOps {
             if !modified_files.is_empty() {
                 let mut all_incoming_edges = Vec::new();
                 for file in &modified_files {
-                    // Collect incoming edges before removing nodes
                     let incoming = self.graph.get_incoming_edges_for_file(file).await?;
                     all_incoming_edges.extend(incoming);
                     self.graph.remove_nodes_by_file(file).await?;
@@ -61,13 +60,11 @@ impl GraphOps {
                 .await?;
 
                 for repo in &file_repos.0 {
-                    // Build in-memory graph for this file
                     let file_graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
-                    // Upload to Neo4j
+
                     self.upload_btreemap_to_neo4j(&file_graph).await?;
                     self.graph.create_indexes().await?;
 
-                    // Re-add incoming edges if both nodes exist
                     for (edge, _target_data) in &all_incoming_edges {
                         let source_exists = self
                             .graph
@@ -146,27 +143,7 @@ impl GraphOps {
 
         let mut edges_txn_manager = TransactionManager::new(&connection);
         for (src_key, dst_key, edge_type) in &btree_graph.edges {
-            let src_base_key = src_key.rsplitn(2, '-').nth(1).unwrap_or(src_key);
-            let dst_base_key = dst_key.rsplitn(2, '-').nth(1).unwrap_or(dst_key);
-
-            let src_node = btree_graph
-                .nodes
-                .iter()
-                .find(|(key, _)| key.starts_with(src_base_key))
-                .map(|(_, node)| node);
-
-            let dst_node = btree_graph
-                .nodes
-                .iter()
-                .find(|(key, _)| key.starts_with(dst_base_key))
-                .map(|(_, node)| node);
-
-            if let (Some(src_node), Some(dst_node)) = (src_node, dst_node) {
-                let edge = Edge::new(
-                    edge_type.clone(),
-                    NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
-                    NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
-                );
+            if let Some(edge) = self.create_edge(btree_graph, src_key, dst_key, edge_type.clone()) {
                 edges_txn_manager.add_edge(&edge);
             }
         }
@@ -174,5 +151,38 @@ impl GraphOps {
 
         let (nodes, edges) = self.graph.get_graph_size().await?;
         Ok((nodes, edges))
+    }
+
+    fn create_edge(
+        &self,
+        graph: &BTreeMapGraph,
+        src_key: &str,
+        dst_key: &str,
+        edge_type: EdgeType,
+    ) -> Option<Edge> {
+        let src_base_key = src_key.rsplitn(2, '-').nth(1).unwrap_or(src_key);
+        let dst_base_key = dst_key.rsplitn(2, '-').nth(1).unwrap_or(dst_key);
+
+        let src_node = graph
+            .nodes
+            .iter()
+            .find(|(key, _)| key.starts_with(src_base_key))
+            .map(|(_, node)| node);
+
+        let dst_node = graph
+            .nodes
+            .iter()
+            .find(|(key, _)| key.starts_with(dst_base_key))
+            .map(|(_, node)| node);
+
+        if let (Some(src_node), Some(dst_node)) = (src_node, dst_node) {
+            Some(Edge::new(
+                edge_type,
+                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
+            ))
+        } else {
+            None
+        }
     }
 }

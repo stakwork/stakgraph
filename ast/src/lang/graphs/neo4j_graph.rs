@@ -172,50 +172,33 @@ impl Neo4jGraph {
     }
 
     pub async fn update_all_token_counts(&mut self) -> anyhow::Result<()> {
-        let connection = self.ensure_connected().await?;
+        self.execute_query(|conn| {
+            Box::pin(async move {
+                let query_str = data_bank_bodies_query_no_token_count();
+                let mut result = conn.execute(neo4rs::query(&query_str)).await?;
+                let mut updates: Vec<(String, String)> = Vec::new();
 
-        let query_str = "
-            MATCH (n:Data_Bank) 
-            WHERE n.token_count IS NULL AND n.body IS NOT NULL
-            RETURN n.node_key as node_key, n.body as body
-        ";
+                while let Some(row) = result.next().await? {
+                    if let (Ok(node_key), Ok(body)) =
+                        (row.get::<String>("node_key"), row.get::<String>("body"))
+                    {
+                        updates.push((node_key, body));
+                    }
+                }
 
-        let mut result = connection.execute(neo4rs::query(query_str)).await?;
-        let mut nodes_to_update = Vec::new();
-
-        while let Some(row) = result.next().await? {
-            if let (Ok(node_key), Ok(body)) =
-                (row.get::<String>("node_key"), row.get::<String>("body"))
-            {
-                nodes_to_update.push((node_key, body));
-            }
-        }
-
-        info!(
-            "Found {} nodes without token counts",
-            &nodes_to_update.len()
-        );
-
-        let bpe = get_bpe_from_model("gpt-4")?;
-
-        for (node_key, body) in &nodes_to_update {
-            let tokens = bpe.encode_with_special_tokens(&body);
-            let token_count = tokens.len();
-
-            let update_query = "
-                MATCH (n {node_key: $node_key})
-                SET n.token_count = $token_count
-            ";
-
-            let query_obj = neo4rs::query(update_query)
-                .param("node_key", node_key.to_string())
-                .param("token_count", token_count as i64);
-
-            connection.run(query_obj).await?;
-        }
-
-        info!("Updated token counts for {} nodes", nodes_to_update.len());
-        Ok(())
+                let bpe = get_bpe_from_model("gpt-4")?;
+                for (node_key, body) in &updates {
+                    let token_count = bpe.encode_with_special_tokens(&body).len();
+                    let update_query = update_token_count_query();
+                    let query_obj = neo4rs::query(&update_query)
+                        .param("node_key", node_key.to_string())
+                        .param("token_count", token_count as i64);
+                    conn.run(query_obj).await?;
+                }
+                Ok(())
+            })
+        })
+        .await
     }
 
     pub async fn clear(&mut self) -> Result<()> {
@@ -238,6 +221,17 @@ impl Neo4jGraph {
 
         txn.commit().await?;
         Ok(())
+    }
+
+    async fn execute_query<T, Fut>(
+        &mut self,
+        operation: impl FnOnce(Arc<Neo4jConnection>) -> Fut,
+    ) -> anyhow::Result<T>
+    where
+        Fut: std::future::Future<Output = anyhow::Result<T>>,
+    {
+        let connection = self.ensure_connected().await?;
+        operation(connection).await
     }
 
     async fn execute_with_transaction<F, T>(&mut self, operation: F) -> Result<T>

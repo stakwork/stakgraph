@@ -100,19 +100,6 @@ impl QueryBuilder {
     }
 }
 
-pub async fn execute_query(
-    conn: &Neo4jConnection,
-    builder: &QueryBuilder,
-) -> Result<()> {
-    match conn.execute(builder.to_neo4j_query()).await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            debug!("Neo4j query error: {}", e);
-            Err(anyhow::anyhow!("Neo4j query error: {}", e))
-        }
-    }
-}
-
 pub struct NodeQueryBuilder {
     node_type: NodeType,
     node_data: NodeData,
