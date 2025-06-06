@@ -1,14 +1,13 @@
 use crate::utils::create_node_key;
 use anyhow::Result;
 use lazy_static::lazy_static;
-use neo4rs::{query, BoltMap, BoltType, ConfigBuilder, Graph as Neo4jConnection};
+use neo4rs::{query, BoltInteger, BoltMap, BoltType, ConfigBuilder, Graph as Neo4jConnection};
 use serde_json;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::{Arc, Once},
 };
 use tracing::{debug, info};
-use uuid::Uuid;
 
 use super::*;
 
@@ -115,28 +114,27 @@ impl NodeQueryBuilder {
         }
     }
 
-    pub fn build(&self) -> (String, BoltMap) {
-        let mut properties: BoltMap = (&self.node_data).into();
+    pub fn build(&self) -> (String, HashMap<String, BoltType>) {
+        let bolt_map: BoltMap = (&self.node_data).into();
+
+        let mut params: HashMap<String, BoltType> = HashMap::new();
+
+        for (key, value) in bolt_map.value {
+            params.insert(key.to_string(), value);
+        }
 
         let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
-        properties
-            .value
-            .insert("node_key".into(), BoltType::String(node_key.into()));
+        params.insert("node_key".to_string(), BoltType::String(node_key.into()));
 
-        let property_names = self.node_data.get_property_names();
-        let mut all_properties = property_names;
-        all_properties.push("node_key".to_string());
-        all_properties.push("ref_id".to_string());
-
-        let property_list = all_properties
-            .iter()
+        let property_list = params
+            .keys()
             .filter(|k| k != &"node_key")
-            .map(|k| format!("node.{} = $properties.{}", k, k))
+            .map(|k| format!("node.{} = ${}", k, k))
             .collect::<Vec<_>>()
             .join(", ");
 
         let query = format!(
-            "MERGE (node:{}:{} {{node_key: $properties.node_key}})
+            "MERGE (node:{}:{} {{node_key: $node_key}})
             ON CREATE SET {}
             ON MATCH SET {}
             RETURN node",
@@ -146,7 +144,7 @@ impl NodeQueryBuilder {
             property_list
         );
 
-        (query, properties)
+        (query, params)
     }
 }
 pub struct EdgeQueryBuilder {
@@ -218,12 +216,14 @@ pub async fn execute_batch(
 
 pub async fn execute_batch_bolt(
     conn: &Neo4jConnection,
-    queries: Vec<(String, BoltMap)>,
+    queries: Vec<(String, HashMap<String, BoltType>)>,
 ) -> Result<()> {
     let mut txn = conn.start_txn().await?;
-
-    for (i, (query_str, properties)) in queries.iter().enumerate() {
-        let query_obj = query(&query_str).param("properties", properties.clone());
+    for (i, (query_str, params)) in queries.iter().enumerate() {
+        let mut query_obj = query(&query_str);
+        for (key, value) in params {
+            query_obj = query_obj.param(key, value.clone());
+        }
 
         if let Err(e) = txn.run(query_obj).await {
             println!("Neo4j query #{} {} failed: {}", i, query_str, e);
@@ -237,7 +237,7 @@ pub async fn execute_batch_bolt(
 }
 pub struct TransactionManager<'a> {
     conn: &'a Neo4jConnection,
-    node_queries: Vec<(String, BoltMap)>,
+    node_queries: Vec<(String, HashMap<String, BoltType>)>,
     edge_queries: Vec<(String, HashMap<String, String>)>,
 }
 
@@ -250,7 +250,7 @@ impl<'a> TransactionManager<'a> {
         }
     }
 
-    pub fn add_node_query(&mut self, query: (String, BoltMap)) -> &mut Self {
+    pub fn add_node_query(&mut self, query: (String, HashMap<String, BoltType>)) -> &mut Self {
         self.node_queries.push(query);
         self
     }
@@ -283,7 +283,10 @@ impl<'a> TransactionManager<'a> {
     }
 }
 
-pub fn add_node_query(node_type: &NodeType, node_data: &NodeData) -> (String, BoltMap) {
+pub fn add_node_query(
+    node_type: &NodeType,
+    node_data: &NodeData,
+) -> (String, HashMap<String, BoltType>) {
     NodeQueryBuilder::new(node_type, node_data).build()
 }
 
@@ -452,10 +455,15 @@ pub fn prefix_paths_query(root: &str) -> (String, HashMap<String, String>) {
 pub fn extract_node_data_from_neo4j_node(node: &neo4rs::Node) -> NodeData {
     let name = node.get::<String>("name").unwrap_or_default();
     let file = node.get::<String>("file").unwrap_or_default();
-    let start_str = node.get::<String>("start").unwrap_or_default();
-    let start = start_str.parse::<usize>().unwrap_or_default();
-    let end_str = node.get::<String>("end").unwrap_or_default();
-    let end = end_str.parse::<usize>().unwrap_or_default();
+    let start = match node.get::<BoltInteger>("start") {
+        Ok(bolt_int) => bolt_int.value as usize,
+        Err(_) => node.get::<i64>("start").unwrap_or(0) as usize,
+    };
+
+    let end = match node.get::<BoltInteger>("end") {
+        Ok(bolt_int) => bolt_int.value as usize,
+        Err(_) => node.get::<i64>("end").unwrap_or(0) as usize,
+    };
     let body = node.get::<String>("body").unwrap_or_default();
     let data_type = node.get::<String>("data_type").ok();
     let docs = node.get::<String>("docs").ok();

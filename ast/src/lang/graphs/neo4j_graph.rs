@@ -1,6 +1,7 @@
-use super::{neo4j_utils::*, *};
+use super::neo4j_utils::*;
+use crate::lang::{Edge, EdgeType, NodeData, NodeKeys, NodeRef, NodeType};
 use anyhow::Result;
-use neo4rs::{query, BoltMap, BoltType, Graph as Neo4jConnection};
+use neo4rs::{query, Graph as Neo4jConnection};
 use std::str::FromStr;
 use std::{
     sync::{Arc, Mutex},
@@ -8,8 +9,6 @@ use std::{
 };
 use tiktoken_rs::get_bpe_from_model;
 use tracing::{debug, info, warn};
-
-use super::neo4j_utils::Neo4jConnectionManager;
 
 #[derive(Clone, Debug)]
 pub struct Neo4jConfig {
@@ -192,19 +191,12 @@ impl Neo4jGraph {
         for (node_key, body) in &updates {
             let token_count = bpe.encode_with_special_tokens(&body).len();
 
-            let mut properties = BoltMap::new();
-            properties
-                .value
-                .insert("node_key".into(), BoltType::String(node_key.clone().into()));
-            properties.value.insert(
-                "token_count".into(),
-                BoltType::Integer(neo4rs::BoltInteger::from(token_count as i64)),
-            );
+            let update_query = "MATCH (n:Data_Bank {node_key: $node_key})
+                               SET n.token_count = $token_count";
 
-            let update_query = "MATCH (n:Data_Bank {node_key: $properties.node_key})
-                               SET n.token_count = $properties.token_count";
-
-            let query_obj = neo4rs::query(&update_query).param("properties", properties);
+            let query_obj = neo4rs::query(&update_query)
+                .param("node_key", node_key.as_str())
+                .param("token_count", token_count as u32);
             connection.run(query_obj).await?;
         }
 
@@ -652,7 +644,7 @@ impl Neo4jGraph {
             find_nodes_with_edge_type_query(&source_type, &target_type, &edge_type);
 
         let mut query_obj = query(&query_str);
-        for (key, value) in params {
+        for (key, value) in &params {
             query_obj = query_obj.param(&key, value.as_str());
         }
         let mut node_pairs = Vec::new();
