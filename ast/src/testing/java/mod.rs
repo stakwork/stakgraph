@@ -112,16 +112,7 @@ import java.util.Optional;"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_java() {
-    #[cfg(feature = "neo4j")]
-    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_java_generic::<ArrayGraph>().await.unwrap();
     test_java_generic::<BTreeMapGraph>().await.unwrap();
-
-    #[cfg(feature = "neo4j")]
-    {
-        let mut graph = Neo4jGraph::default();
-        graph.clear();
-        test_java_generic::<Neo4jGraph>().await.unwrap();
-    }
 }

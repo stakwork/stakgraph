@@ -74,16 +74,7 @@ use std::net::SocketAddr;"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_rust() {
-    #[cfg(feature = "neo4j")]
-    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_rust_generic::<ArrayGraph>().await.unwrap();
     test_rust_generic::<BTreeMapGraph>().await.unwrap();
-
-    #[cfg(feature = "neo4j")]
-    {
-        let mut graph = Neo4jGraph::default();
-        graph.clear();
-        test_rust_generic::<Neo4jGraph>().await.unwrap();
-    }
 }

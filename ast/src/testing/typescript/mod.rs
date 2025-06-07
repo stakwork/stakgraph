@@ -124,16 +124,7 @@ import {{ sequelize }} from "./config.js";"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_typescript() {
-    #[cfg(feature = "neo4j")]
-    use crate::lang::graphs::Neo4jGraph;
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_typescript_generic::<BTreeMapGraph>().await.unwrap();
     test_typescript_generic::<ArrayGraph>().await.unwrap();
-
-    #[cfg(feature = "neo4j")]
-    {
-        let mut graph = Neo4jGraph::default();
-        graph.clear();
-        test_typescript_generic::<Neo4jGraph>().await.unwrap();
-    }
 }

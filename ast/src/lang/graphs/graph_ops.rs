@@ -1,10 +1,11 @@
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::{BTreeMapGraph, Edge, NodeKeys, NodeRef};
+use crate::lang::graphs::BTreeMapGraph;
 use crate::lang::neo4j_utils::TransactionManager;
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
 use tracing::info;
 
+#[derive(Debug, Clone)]
 pub struct GraphOps {
     pub graph: Neo4jGraph,
 }
@@ -44,7 +45,6 @@ impl GraphOps {
             if !modified_files.is_empty() {
                 let mut all_incoming_edges = Vec::new();
                 for file in &modified_files {
-                    // Collect incoming edges before removing nodes
                     let incoming = self.graph.get_incoming_edges_for_file(file).await?;
                     all_incoming_edges.extend(incoming);
                     self.graph.remove_nodes_by_file(file).await?;
@@ -59,12 +59,11 @@ impl GraphOps {
                 .await?;
 
                 for repo in &file_repos.0 {
-                    // Build in-memory graph for this file
                     let file_graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
-                    // Upload to Neo4j
-                    self.upload_btreemap_to_neo4j(&file_graph).await?;
 
-                    // Re-add incoming edges if both nodes exist
+                    self.upload_btreemap_to_neo4j(&file_graph).await?;
+                    self.graph.create_indexes().await?;
+
                     for (edge, _target_data) in &all_incoming_edges {
                         let source_exists = self
                             .graph
@@ -118,7 +117,9 @@ impl GraphOps {
         .await?;
 
         let temp_graph = repos.build_graphs_inner::<BTreeMapGraph>().await?;
+
         self.upload_btreemap_to_neo4j(&temp_graph).await?;
+        self.graph.create_indexes().await?;
 
         self.graph
             .update_repository_hash(repo_url, current_hash)
@@ -129,35 +130,21 @@ impl GraphOps {
         &mut self,
         btree_graph: &BTreeMapGraph,
     ) -> anyhow::Result<(u32, u32)> {
-        self.graph.clear().await?;
-
         let connection = self.graph.ensure_connected().await?;
 
-        let mut txn_manager = TransactionManager::new(&connection);
+        let mut nodes_txn_manager = TransactionManager::new(&connection);
         for node in btree_graph.nodes.values() {
-            txn_manager.add_node(&node.node_type, &node.node_data);
+            nodes_txn_manager.add_node(&node.node_type, &node.node_data);
         }
+        nodes_txn_manager.execute().await?;
+
+        let mut edges_txn_manager = TransactionManager::new(&connection);
         for (src_key, dst_key, edge_type) in &btree_graph.edges {
-            if let (Some(src_node), Some(dst_node)) = (
-                btree_graph.nodes.get(src_key),
-                btree_graph.nodes.get(dst_key),
-            ) {
-                let edge = Edge {
-                    edge: edge_type.clone(),
-                    source: NodeRef {
-                        node_type: src_node.node_type.clone(),
-                        node_data: NodeKeys::from(&src_node.node_data),
-                    },
-                    target: NodeRef {
-                        node_type: dst_node.node_type.clone(),
-                        node_data: NodeKeys::from(&dst_node.node_data),
-                    },
-                };
-                txn_manager.add_edge(&edge);
+            if let Some(edge) = btree_graph.find_edge_by_keys(src_key, dst_key, edge_type) {
+                edges_txn_manager.add_edge(&edge);
             }
         }
-
-        txn_manager.execute().await?;
+        edges_txn_manager.execute().await?;
 
         let (nodes, edges) = self.graph.get_graph_size().await?;
         Ok((nodes, edges))
