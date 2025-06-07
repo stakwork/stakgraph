@@ -1,4 +1,3 @@
-use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
 use crate::lang::graphs::BTreeMapGraph;
 use crate::lang::neo4j_utils::TransactionManager;
@@ -119,8 +118,6 @@ impl GraphOps {
 
         let temp_graph = repos.build_graphs_inner::<BTreeMapGraph>().await?;
 
-        temp_graph.analysis();
-
         self.upload_btreemap_to_neo4j(&temp_graph).await?;
         self.graph.create_indexes().await?;
 
@@ -145,13 +142,6 @@ impl GraphOps {
         for (src_key, dst_key, edge_type) in &btree_graph.edges {
             if let Some(edge) = btree_graph.find_edge_by_keys(src_key, dst_key, edge_type) {
                 edges_txn_manager.add_edge(&edge);
-            } else {
-                tracing::warn!(
-                    "Edge not found for src_key: {}, dst_key: {}, edge_type: {:?}",
-                    src_key,
-                    dst_key,
-                    edge_type
-                );
             }
         }
         edges_txn_manager.execute().await?;

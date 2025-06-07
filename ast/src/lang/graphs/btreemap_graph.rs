@@ -646,19 +646,37 @@ impl Graph for BTreeMapGraph {
     }
 
     fn prefix_paths(&mut self, root: &str) {
-        let nodes_to_update: Vec<_> = self
-            .nodes
-            .iter()
-            .map(|(k, node)| {
-                let mut new_node = node.clone();
-                new_node.add_root(root);
-                (k.clone(), new_node)
-            })
-            .collect();
+        let mut new_nodes_map = BTreeMap::new();
+        let mut old_to_new_key_map: BTreeMap<String, String> = BTreeMap::new();
 
-        for (key, node) in nodes_to_update {
-            self.nodes.insert(key, node);
+        let old_nodes_drain = std::mem::take(&mut self.nodes);
+
+        for (old_key, mut node) in old_nodes_drain {
+            node.add_root(root);
+            let new_key = create_node_key(&node);
+            old_to_new_key_map.insert(old_key.clone(), new_key.clone());
+            new_nodes_map.insert(new_key, node);
         }
+        self.nodes = new_nodes_map;
+
+        let mut new_edges_set = BTreeSet::new();
+        let mut new_edge_keys_hashset = HashSet::new();
+        let old_edges_drain = std::mem::take(&mut self.edges);
+
+        for (old_src_key, old_dst_key, edge_type) in old_edges_drain {
+            let new_src_key_opt =
+                self.find_new_key_for_old_edge_endpoint(&old_src_key, &old_to_new_key_map);
+            let new_dst_key_opt =
+                self.find_new_key_for_old_edge_endpoint(&old_dst_key, &old_to_new_key_map);
+
+            if let (Some(new_src_key), Some(new_dst_key)) = (new_src_key_opt, new_dst_key_opt) {
+                new_edges_set.insert((new_src_key.clone(), new_dst_key.clone(), edge_type.clone()));
+                let edge_key_fmt = format!("{}-{}-{:?}", new_src_key, new_dst_key, edge_type);
+                new_edge_keys_hashset.insert(edge_key_fmt);
+            }
+        }
+        self.edges = new_edges_set;
+        self.edge_keys = new_edge_keys_hashset;
     }
 
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
@@ -829,55 +847,10 @@ impl BTreeMapGraph {
         dst_key: &str,
         edge_type: &EdgeType,
     ) -> Option<Edge> {
-        // 1. Try exact match
-        let src_node = self.nodes.get(src_key);
-        let dst_node = self.nodes.get(dst_key);
+        let src_node = self.find_node_by_key_fuzzy(src_key);
+        let dst_node = self.find_node_by_key_fuzzy(dst_key);
 
         if let (Some(src_node), Some(dst_node)) = (src_node, dst_node) {
-            return Some(Edge::new(
-                edge_type.clone(),
-                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
-                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
-            ));
-        }
-
-        // 2. Try fuzzy match by suffix
-        let src_suffix = Self::key_suffix(src_key);
-        let dst_suffix = Self::key_suffix(dst_key);
-
-        let src_node_fuzzy = self
-            .nodes
-            .iter()
-            .find(|(k, _)| k.ends_with(&src_suffix))
-            .map(|(_, n)| n);
-
-        let dst_node_fuzzy = self
-            .nodes
-            .iter()
-            .find(|(k, _)| k.ends_with(&dst_suffix))
-            .map(|(_, n)| n);
-
-        if let (Some(src_node), Some(dst_node)) = (src_node_fuzzy, dst_node_fuzzy) {
-            return Some(Edge::new(
-                edge_type.clone(),
-                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
-                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
-            ));
-        }
-        // contains
-        let src_node_contains = self
-            .nodes
-            .iter()
-            .find(|(k, _)| k.contains(&src_suffix))
-            .map(|(_, n)| n);
-
-        let dst_node_contains = self
-            .nodes
-            .iter()
-            .find(|(k, _)| k.contains(&dst_suffix))
-            .map(|(_, n)| n);
-
-        if let (Some(src_node), Some(dst_node)) = (src_node_contains, dst_node_contains) {
             return Some(Edge::new(
                 edge_type.clone(),
                 NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
@@ -887,14 +860,51 @@ impl BTreeMapGraph {
         None
     }
 
-    fn key_suffix(key: &str) -> String {
+    pub fn find_node_by_key_fuzzy(&self, key: &str) -> Option<&Node> {
+        if let Some(node) = self.nodes.get(key) {
+            return Some(node);
+        }
+        let base_key_arr: Vec<&str> = key.split("-").collect();
+        let base_key = base_key_arr[0..base_key_arr.len() - 1].join("-");
+
+        for (node_key, node) in &self.nodes {
+            if node_key.starts_with(&base_key) {
+                return Some(node);
+            }
+        }
+        None
+    }
+    fn get_base_key_prefix(key: &str) -> String {
         let parts: Vec<&str> = key.split('-').collect();
-        let n = parts.len();
-        if n >= 4 {
-            parts[n - 4..].join("-")
+        if parts.len() > 1
+            && parts
+                .last()
+                .map_or(false, |p| p.chars().all(char::is_numeric))
+        {
+            parts[0..parts.len() - 1].join("-")
         } else {
             key.to_string()
         }
+    }
+
+    fn find_new_key_for_old_edge_endpoint(
+        &self,
+        old_edge_key: &str,
+        old_to_new_node_key_map: &BTreeMap<String, String>,
+    ) -> Option<String> {
+        if let Some(new_key) = old_to_new_node_key_map.get(old_edge_key) {
+            return Some(new_key.clone());
+        }
+
+        let old_edge_key_base = Self::get_base_key_prefix(old_edge_key);
+
+        for (canonical_old_node_key, new_node_key) in old_to_new_node_key_map.iter() {
+            let canonical_old_node_key_base = Self::get_base_key_prefix(canonical_old_node_key);
+            if old_edge_key_base == canonical_old_node_key_base {
+                return Some(new_node_key.clone());
+            }
+        }
+        None
     }
 }
 impl Default for BTreeMapGraph {
