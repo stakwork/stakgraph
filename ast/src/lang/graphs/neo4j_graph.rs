@@ -327,56 +327,6 @@ impl Neo4jGraph {
         }
         Ok(incoming)
     }
-
-    pub async fn all_nodes(&mut self) -> Result<Vec<NodeData>> {
-        let connection = self.ensure_connected().await?;
-        let query_str = "MATCH (n) RETURN n, labels(n)[0] as node_type";
-        let mut nodes = Vec::new();
-        let mut result = connection.execute(query(query_str)).await?;
-        while let Some(row) = result.next().await? {
-            if let Ok(node) = row.get::<neo4rs::Node>("n") {
-                nodes.push(extract_node_data_from_neo4j_node(&node));
-            }
-        }
-        Ok(nodes)
-    }
-
-    pub async fn all_edges(&mut self) -> Result<Vec<Edge>> {
-        let connection = self.ensure_connected().await?;
-        let query_str = "MATCH (source)-[r]->(target) \
-            RETURN source, r, target, labels(source)[0] as source_type, labels(target)[0] as target_type, type(r) as edge_type";
-        let mut edges = Vec::new();
-        let mut result = connection.execute(query(query_str)).await?;
-        while let Some(row) = result.next().await? {
-            if let (
-                Ok(source_node),
-                Ok(target_node),
-                Ok(source_type),
-                Ok(target_type),
-                Ok(edge_type),
-            ) = (
-                row.get::<neo4rs::Node>("source"),
-                row.get::<neo4rs::Node>("target"),
-                row.get::<String>("source_type"),
-                row.get::<String>("target_type"),
-                row.get::<String>("edge_type"),
-            ) {
-                if let (Ok(source_type), Ok(target_type), Ok(edge_type)) = (
-                    NodeType::from_str(&source_type),
-                    NodeType::from_str(&target_type),
-                    EdgeType::from_str(&edge_type),
-                ) {
-                    let source_data = extract_node_data_from_neo4j_node(&source_node);
-                    let target_data = extract_node_data_from_neo4j_node(&target_node);
-                    let source_ref = NodeRef::from(NodeKeys::from(&source_data), source_type);
-                    let target_ref = NodeRef::from(NodeKeys::from(&target_data), target_type);
-                    let edge = Edge::new(edge_type, source_ref, target_ref);
-                    edges.push(edge);
-                }
-            }
-        }
-        Ok(edges)
-    }
 }
 
 impl Default for Neo4jGraph {
@@ -541,15 +491,6 @@ impl Neo4jGraph {
             }
         }
         Ok(())
-    }
-
-    pub async fn prefix_paths(&mut self, root: &str) -> Result<()> {
-        self.execute_with_transaction(|txn_manager| {
-            let (query, params) = prefix_paths_query(root);
-            txn_manager.add_edge_query((query, params));
-            Ok(())
-        })
-        .await
     }
 
     pub async fn extend_graph(&mut self, mut other: Self) -> Result<()> {
