@@ -1,5 +1,6 @@
 use crate::types::{AppError, ProcessBody, ProcessResponse, Result};
 use ast::lang::graphs::graph_ops::GraphOps;
+use ast::lang::graphs::Graph;
 use ast::repo::Repo;
 use axum::Json;
 use lsp::git::{get_commit_hash, git_pull_or_clone};
@@ -131,6 +132,9 @@ pub async fn ingest(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
         .await
         .map_err(|e| anyhow::anyhow!("Graph build failed: {}", e))?;
+
+    btree_graph.analysis();
+
     info!(
         "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
         start_build.elapsed()

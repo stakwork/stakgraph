@@ -303,11 +303,11 @@ impl From<&NodeData> for BoltMap {
         );
         map.insert(
             "start".into(),
-            BoltType::Integer(BoltInteger::from(node_data.start as i64)),
+            BoltType::Integer(BoltInteger::from(node_data.start as i32)),
         );
         map.insert(
             "end".into(),
-            BoltType::Integer(BoltInteger::from(node_data.end as i64)),
+            BoltType::Integer(BoltInteger::from(node_data.end as i32)),
         );
         if let Some(data_type) = &node_data.data_type {
             map.insert(

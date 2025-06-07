@@ -822,6 +822,80 @@ impl BTreeMapGraph {
 
         formatted_edges
     }
+
+    pub fn find_edge_by_keys(
+        &self,
+        src_key: &str,
+        dst_key: &str,
+        edge_type: &EdgeType,
+    ) -> Option<Edge> {
+        // 1. Try exact match
+        let src_node = self.nodes.get(src_key);
+        let dst_node = self.nodes.get(dst_key);
+
+        if let (Some(src_node), Some(dst_node)) = (src_node, dst_node) {
+            return Some(Edge::new(
+                edge_type.clone(),
+                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
+            ));
+        }
+
+        // 2. Try fuzzy match by suffix
+        let src_suffix = Self::key_suffix(src_key);
+        let dst_suffix = Self::key_suffix(dst_key);
+
+        let src_node_fuzzy = self
+            .nodes
+            .iter()
+            .find(|(k, _)| k.ends_with(&src_suffix))
+            .map(|(_, n)| n);
+
+        let dst_node_fuzzy = self
+            .nodes
+            .iter()
+            .find(|(k, _)| k.ends_with(&dst_suffix))
+            .map(|(_, n)| n);
+
+        if let (Some(src_node), Some(dst_node)) = (src_node_fuzzy, dst_node_fuzzy) {
+            return Some(Edge::new(
+                edge_type.clone(),
+                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
+            ));
+        }
+        // contains
+        let src_node_contains = self
+            .nodes
+            .iter()
+            .find(|(k, _)| k.contains(&src_suffix))
+            .map(|(_, n)| n);
+
+        let dst_node_contains = self
+            .nodes
+            .iter()
+            .find(|(k, _)| k.contains(&dst_suffix))
+            .map(|(_, n)| n);
+
+        if let (Some(src_node), Some(dst_node)) = (src_node_contains, dst_node_contains) {
+            return Some(Edge::new(
+                edge_type.clone(),
+                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
+            ));
+        }
+        None
+    }
+
+    fn key_suffix(key: &str) -> String {
+        let parts: Vec<&str> = key.split('-').collect();
+        let n = parts.len();
+        if n >= 4 {
+            parts[n - 4..].join("-")
+        } else {
+            key.to_string()
+        }
+    }
 }
 impl Default for BTreeMapGraph {
     fn default() -> Self {
