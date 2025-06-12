@@ -1,6 +1,6 @@
 use super::repo::{check_revs_files, Repo};
 use crate::lang::graphs::Graph;
-use crate::lang::{asg::NodeData, graphs::NodeType};
+use crate::lang::{asg::NodeData, graphs::NodeType, graphs::Edge};
 use crate::lang::{ArrayGraph, BTreeMapGraph, Node};
 use crate::utils::create_node_key;
 use anyhow::{Ok, Result};
@@ -10,6 +10,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::fs;
 use tracing::{debug, info};
+use tree_sitter::QueryCursor;
+use streaming_iterator::StreamingIterator;
 
 const MAX_FILE_SIZE: u64 = 100_000; // 100kb max file size
 
@@ -385,6 +387,64 @@ impl Repo {
             }
         }
         info!("=> got {} component templates/styles", i);
+
+        i = 0;
+        info!("=> find nested components");
+        for (filename, code) in &filez {
+            if filename.ends_with(".component.html") {
+                if let Some(nested_query) = self.lang.lang().nested_component_query() {
+                    let source_file = filename.to_string();
+                    let source_component_name = std::path::Path::new(&source_file)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    
+                    let source_page = graph.find_nodes_by_name(NodeType::Page, &source_component_name)
+                        .into_iter()
+                        .find(|n| n.file == source_file);
+                    
+                    if let Some(source_page) = source_page {
+                        let tree = self.lang.lang().parse(&code, &NodeType::Page)?;
+                        let qo = self.lang.lang().q(&nested_query, &NodeType::Page);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&qo, tree.root_node(), code.as_bytes());
+                        
+                        while let Some(m) = matches.next_match() {
+                            for o in qo.capture_names().iter() {
+                                if o == &"component_name" {
+                                    if let Some(ci) = qo.capture_index_for_name(o) {
+                                        let mut nodes = m.nodes_for_capture_index(ci);
+                                        if let Some(node) = nodes.next() {
+                                            match node.utf8_text(code.as_bytes()) {
+                                                Ok(component_selector) => {
+                                                    if component_selector.starts_with("app-") {
+                                                        let target_name = &component_selector[4..];
+                                                        let target_file = format!("{}.component.html", target_name);
+                                                        let target_pages = graph.find_nodes_by_type(NodeType::Page)
+                                                            .into_iter()
+                                                            .filter(|n| n.file.ends_with(&target_file))
+                                                            .collect::<Vec<_>>();
+                                                        
+                                                        for target_page in target_pages {
+                                                            let edge = Edge::renders(&source_page, &target_page);
+                                                            graph.add_edge(edge);
+                                                            i += 1;
+                                                        }
+                                                    }
+                                                },
+                                                Err(_) => {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        info!("=> found {} nested component relationships", i);
 
         if self.lang.lang().use_extra_page_finder() {
             info!("=> get_extra_pages");

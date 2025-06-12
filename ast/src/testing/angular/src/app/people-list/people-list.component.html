@@ -1,10 +1,13 @@
 <div>
   <h2>People List</h2>
-  <ul>
-    <li *ngFor="let person of people">
-      {{ person.name }} ({{ person.age }})
-      <button (click)="deletePerson(person.id)">Delete</button>
-    </li>
-  </ul>
-  <a routerLink="/add-person">Add New Person</a>
+  <div class="people-container">
+    <div class="person-item-wrapper" *ngFor="let person of people">
+      <app-person-item 
+        [person]="person"
+        (delete)="deletePerson($event)"
+      ></app-person-item>
+      <a class="view-details" [routerLink]="['/person', person.id]">View Details</a>
+    </div>
+  </div>
+  <a class="add-button" routerLink="/add-person">Add New Person</a>
 </div>
