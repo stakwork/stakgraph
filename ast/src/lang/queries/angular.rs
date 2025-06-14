@@ -23,19 +23,52 @@ impl Stack for Angular {
     fn component_template_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (decorator
-                (call_expression
-                    function: (identifier) @{DECORATOR_NAME} (#eq? @{DECORATOR_NAME} "Component")
-                    arguments: (arguments
-                        (object
-                            (pair
-                                key: (property_identifier) @{TEMPLATE_KEY} (#match? @{TEMPLATE_KEY} "^(templateUrl|styleUrls)$")
-                                value: (_) @{TEMPLATE_VALUE}
+            [
+                (decorator
+                    (call_expression
+                        function: (identifier) @{DECORATOR_NAME} (#eq? @{DECORATOR_NAME} "Component")
+                        arguments: (arguments
+                            (object
+                                (pair
+                                    key: (property_identifier) @{TEMPLATE_KEY} (#match? @{TEMPLATE_KEY} "^(templateUrl|styleUrls)$")
+                                    value: (_) @{TEMPLATE_VALUE}
+                                )
                             )
                         )
                     )
                 )
-            )
+                (decorator
+                    (call_expression
+                        function: (identifier) @{DECORATOR_NAME} (#eq? @{DECORATOR_NAME} "Component")
+                        arguments: (arguments
+                            (object
+                                (pair
+                                    key: (property_identifier) @selector (#eq? @selector "selector")
+                                    value: (string) @selector_value
+                                )
+                            )
+                        )
+                    )
+                )
+            ]
+            "#
+        ))
+    }
+    fn nested_component_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+                (element
+                    (start_tag
+                        name: (_) @component_name (#match? @component_name "^app-.*$")
+                    )
+                )
+                (element
+                    (start_tag
+                        name: (_) @router_outlet (#eq? @router_outlet "router-outlet")
+                    )
+                )
+            ]
             "#
         ))
     }

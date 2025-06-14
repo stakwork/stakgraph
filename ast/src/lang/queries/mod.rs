@@ -235,6 +235,9 @@ pub trait Stack {
     fn component_template_query(&self) -> Option<String> {
         None
     }
+    fn nested_component_query(&self) -> Option<String> {
+        None
+    }
     fn template_ext(&self) -> Option<&str> {
         None
     }

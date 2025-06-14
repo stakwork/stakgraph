@@ -17,8 +17,8 @@ pub async fn test_angular_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let graph = repo.build_graph_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 91, "Expected 91 nodes");
-    assert_eq!(num_edges, 98, "Expected 98 edges");
+    assert_eq!(num_nodes, 94, "Expected 94 nodes");
+    assert_eq!(num_edges, 104, "Expected 104 edges");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 10, "Expected 10 imports");
@@ -39,7 +39,7 @@ import {{ AppComponent }} from './app/app.component';"#
     );
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
-    assert_eq!(classes.len(), 5, "Expected 5 classes");
+    assert_eq!(classes.len(), 6, "Expected 6 classes");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     assert_eq!(data_models.len(), 1, "Expected 1 data model");
@@ -49,7 +49,7 @@ import {{ AppComponent }} from './app/app.component';"#
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 8, "Expected 8 functions");
+    assert_eq!(functions.len(), 9, "Expected 9 functions");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     assert_eq!(variables.len(), 4, "Expected 4 variables");
@@ -74,6 +74,56 @@ import {{ AppComponent }} from './app/app.component';"#
     
     let pages = graph.find_nodes_by_type(NodeType::Page);
     assert!(pages.len() > 0, "Expected at least one Page node");
+    
+    let people_list_html = pages.iter()
+        .find(|p| p.file.contains("people-list.component.html"));
+    let person_item_html = pages.iter()
+        .find(|p| p.file.contains("person-item.component.html"));
+    
+    assert!(people_list_html.is_some(), "Expected people-list.component.html Page node");
+    assert!(person_item_html.is_some(), "Expected person-item.component.html Page node");
+    
+    let page_renders_page = graph.find_edges_between(
+        NodeType::Page, 
+        &people_list_html.unwrap().file, 
+        NodeType::Page, 
+        &person_item_html.unwrap().file
+    );
+    
+    assert!(
+        page_renders_page.len() > 0, 
+        "Expected Page RENDERS Page relationship between people-list and person-item"
+    );
+
+    let app_html = pages.iter()
+        .find(|p| p.file.contains("app.component.html"));
+    assert!(app_html.is_some(), "Expected app.component.html Page node");
+
+    let router_renders = graph.find_edges_between(
+        NodeType::Page,
+        &app_html.unwrap().file,
+        NodeType::Page,
+        &people_list_html.unwrap().file
+    );
+    assert!(
+        router_renders.len() > 0,
+        "Expected router-based Page RENDERS Page relationship from app to people-list"
+    );
+
+    let add_person_html = pages.iter()
+        .find(|p| p.file.contains("add-person.component.html"));
+    assert!(add_person_html.is_some(), "Expected add-person.component.html Page node");
+
+    let add_person_renders = graph.find_edges_between(
+        NodeType::Page,
+        &app_html.unwrap().file,
+        NodeType::Page,
+        &add_person_html.unwrap().file
+    );
+    assert!(
+        add_person_renders.len() > 0,
+        "Expected router-based Page RENDERS Page relationship from app to add-person"
+    );
 
     Ok(())
 }

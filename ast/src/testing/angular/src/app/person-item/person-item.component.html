@@ -1,0 +1,21 @@
+<div class="person-container" *ngIf="person">
+  <div class="person-card">
+    <div class="person-info">
+      <span class="person-name">{{ person.name }}</span>
+      <span class="person-age">({{ person.age }})</span>
+    </div>
+    <button class="delete-btn" (click)="onDelete()">Delete</button>
+  </div>
+  
+  <div *ngIf="isStandalone" class="standalone-controls">
+    <h2>Person Details</h2>
+    <p>View or manage details for this person.</p>
+    <button class="back-btn" (click)="goBack()">Back to List</button>
+  </div>
+</div>
+
+<div *ngIf="isStandalone && !person" class="not-found">
+  <h2>Person Not Found</h2>
+  <p>The person you're looking for doesn't exist.</p>
+  <button class="back-btn" (click)="goBack()">Back to List</button>
+</div> 

@@ -1,0 +1,71 @@
+.person-container {
+  display: flex;
+  flex-direction: column;
+  margin: 20px auto;
+  max-width: 600px;
+}
+
+.person-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  margin-bottom: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.person-info {
+  display: flex;
+  gap: 8px;
+}
+
+.person-name {
+  font-weight: bold;
+}
+
+.delete-btn {
+  background-color: #f44336;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  background-color: #d32f2f;
+}
+
+.standalone-controls {
+  padding: 20px;
+  margin-top: 20px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+}
+
+.back-btn {
+  background-color: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 8px 16px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.back-btn:hover {
+  background-color: #0b7dda;
+}
+
+.not-found {
+  text-align: center;
+  padding: 40px;
+  margin: 40px auto;
+  max-width: 500px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background-color: #f9f9f9;
+} 
