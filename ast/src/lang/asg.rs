@@ -5,9 +5,11 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[cfg(feature = "neo4j")]
-use neo4rs::Node as BoltNode;
+use crate::lang::graphs::neo4j_utils::{boltmap_insert_int, boltmap_insert_str};
 #[cfg(feature = "neo4j")]
-use neo4rs::{BoltMap, BoltType};
+use neo4rs::BoltMap;
+#[cfg(feature = "neo4j")]
+use neo4rs::Node as BoltNode;
 
 pub struct UniqueKey {
     pub kind: NodeType,
@@ -263,43 +265,26 @@ impl ToString for Operand {
 #[cfg(feature = "neo4j")]
 impl From<&NodeData> for BoltMap {
     fn from(node_data: &NodeData) -> Self {
-        let mut map = std::collections::HashMap::new();
-        map.insert(
-            "name".into(),
-            BoltType::String(node_data.name.clone().into()),
-        );
-        map.insert(
-            "file".into(),
-            BoltType::String(node_data.file.clone().into()),
-        );
-        map.insert(
-            "body".into(),
-            BoltType::String(node_data.body.clone().into()),
-        );
-        map.insert(
-            "start".into(),
-            BoltType::Integer((node_data.start as i64).into()),
-        );
-        map.insert(
-            "end".into(),
-            BoltType::Integer((node_data.end as i64).into()),
-        );
+        let mut map = BoltMap::new();
+        boltmap_insert_str(&mut map, "name", &node_data.name);
+        boltmap_insert_str(&mut map, "file", &node_data.file);
+        boltmap_insert_str(&mut map, "body", &node_data.body);
+        boltmap_insert_int(&mut map, "start", node_data.start as i64);
+        boltmap_insert_int(&mut map, "end", node_data.end as i64);
         if let Some(ref docs) = node_data.docs {
-            map.insert("docs".into(), BoltType::String(docs.clone().into()));
+            boltmap_insert_str(&mut map, "docs", docs);
         }
         if let Some(ref hash) = node_data.hash {
-            map.insert("hash".into(), BoltType::String(hash.clone().into()));
+            boltmap_insert_str(&mut map, "hash", hash);
         }
         if let Some(ref data_type) = node_data.data_type {
-            map.insert(
-                "data_type".into(),
-                BoltType::String(data_type.clone().into()),
-            );
+            boltmap_insert_str(&mut map, "data_type", data_type);
         }
         for (k, v) in &node_data.meta {
-            map.insert(k.clone().into(), BoltType::String(v.clone().into()));
+            boltmap_insert_str(&mut map, k, v);
         }
-        BoltMap { value: map }
+
+        map
     }
 }
 

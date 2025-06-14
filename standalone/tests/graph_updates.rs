@@ -9,21 +9,20 @@ async fn clear_neo4j() {
 }
 #[cfg(feature = "neo4j")]
 async fn assert_edge_exists(graph: &mut GraphOps, src: &str, tgt: &str) -> bool {
-    use ast::lang::{graphs::EdgeType, NodeType};
+    use ast::lang::{graphs::EdgeType, Graph, NodeType};
 
-    match graph
-        .graph
-        .find_nodes_with_edge_type(NodeType::Function, NodeType::Function, EdgeType::Calls)
-        .await
-    {
-        Ok(pairs) => pairs.iter().any(|(s, t)| s.name == src && t.name == tgt),
-        Err(_) => false,
-    }
+    let pairs = graph.graph.find_nodes_with_edge_type(
+        NodeType::Function,
+        NodeType::Function,
+        EdgeType::Calls,
+    );
+    pairs.iter().any(|(s, t)| s.name == src && t.name == tgt)
 }
 
 #[cfg(feature = "neo4j")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_graph_update() {
+    use ast::lang::Graph;
     use lsp::git::{checkout_commit, get_changed_files_between, git_pull_or_clone};
     use tracing::info;
 
@@ -51,7 +50,7 @@ async fn test_graph_update() {
 
     println!("Before: {} nodes and {} edges", nodes_before, edges_before);
 
-    let _ = graph_ops.graph.analysis().await;
+    let _ = graph_ops.graph.analysis();
 
     // --- Assert initial state ---
     assert!(
@@ -82,7 +81,7 @@ async fn test_graph_update() {
 
     info!("==>>After: {} nodes and {} edges", nodes_after, edges_after);
 
-    let _ = graph_ops.graph.analysis().await;
+    let _ = graph_ops.graph.analysis();
     // --- Assert updated state ---
     // Alpha should now call Delta, not Beta or Gamma
     assert!(

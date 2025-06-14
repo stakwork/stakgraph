@@ -84,7 +84,7 @@ async fn test_graph_consistency() {
         EdgeType::Of,
     ] {
         let btree_count = btree_graph.count_edges_of_type(edge_type.clone());
-        let neo4j_count = graph_ops.graph.count_edges_of_type(edge_type.clone()).await;
+        let neo4j_count = graph_ops.graph.count_edges_of_type(edge_type.clone());
         assert_eq!(
             btree_count, neo4j_count,
             "Edge count mismatch for {:?}: BTreeMapGraph={} Neo4j={}",

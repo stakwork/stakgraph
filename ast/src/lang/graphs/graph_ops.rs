@@ -24,7 +24,7 @@ impl GraphOps {
 
     pub async fn clear(&mut self) -> Result<(u32, u32)> {
         self.graph.clear().await?;
-        let (nodes, edges) = self.graph.get_graph_size().await?;
+        let (nodes, edges) = self.graph.get_graph_size();
         info!("Graph cleared - Nodes: {}, Edges: {}", nodes, edges);
         Ok((nodes, edges))
     }
@@ -72,7 +72,6 @@ impl GraphOps {
                                 edge.source.node_type.clone(),
                                 &edge.source.node_data.name,
                             )
-                            .await
                             .iter()
                             .any(|n| n.file == edge.source.node_data.file);
                         let target_exists = self
@@ -81,15 +80,14 @@ impl GraphOps {
                                 edge.target.node_type.clone(),
                                 &edge.target.node_data.name,
                             )
-                            .await
                             .iter()
                             .any(|n| n.file == edge.target.node_data.file);
                         if source_exists && target_exists {
-                            self.graph.add_edge(edge.clone()).await?;
+                            self.graph.add_edge(edge.clone());
                         }
                     }
 
-                    let (nodes_after, edges_after) = self.graph.get_graph_size().await?;
+                    let (nodes_after, edges_after) = self.graph.get_graph_size();
                     info!(
                         "Updated files: added {} nodes and {} edges",
                         nodes_after, edges_after
@@ -100,7 +98,7 @@ impl GraphOps {
         self.graph
             .update_repository_hash(repo_url, current_hash)
             .await?;
-        self.graph.get_graph_size().await
+        Ok(self.graph.get_graph_size())
     }
 
     pub async fn update_full(
@@ -128,7 +126,7 @@ impl GraphOps {
         self.graph
             .update_repository_hash(repo_url, current_hash)
             .await?;
-        self.graph.get_graph_size().await
+        Ok(self.graph.get_graph_size())
     }
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
@@ -149,7 +147,7 @@ impl GraphOps {
         }
         edges_txn_manager.execute().await?;
 
-        let (nodes, edges) = self.graph.get_graph_size().await?;
+        let (nodes, edges) = self.graph.get_graph_size();
         Ok((nodes, edges))
     }
 }

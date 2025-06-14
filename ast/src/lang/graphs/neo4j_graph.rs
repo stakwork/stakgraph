@@ -1,12 +1,17 @@
 use super::{neo4j_utils::*, *};
+use crate::utils::sync_fn;
+use crate::{
+    lang::{Function, FunctionCall},
+    Lang,
+};
 use anyhow::Result;
-use neo4rs::{query, BoltType, Graph as Neo4jConnection};
+use neo4rs::{query, Graph as Neo4jConnection};
 use std::str::FromStr;
 use std::{
+    collections::HashSet,
     sync::{Arc, Mutex},
     time::Duration,
 };
-use tiktoken_rs::get_bpe_from_model;
 use tracing::{debug, info};
 
 use super::neo4j_utils::Neo4jConnectionManager;
@@ -130,16 +135,6 @@ impl Neo4jGraph {
             return Ok(conn.clone());
         }
 
-        if let Some(conn) = Neo4jConnectionManager::get_connection().await {
-            self.connection = Some(conn.clone());
-            if let Ok(mut conn_status) = self.connected.lock() {
-                *conn_status = true;
-            }
-            return Ok(conn);
-        }
-
-        self.connect().await?;
-
         match &self.connection {
             Some(conn) => Ok(conn.clone()),
             None => Err(anyhow::anyhow!("Failed to connect to Neo4j")),
@@ -168,36 +163,6 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn update_all_token_counts(&mut self) -> anyhow::Result<()> {
-        self.execute_query(|conn| {
-            Box::pin(async move {
-                let query_str = data_bank_bodies_query_no_token_count();
-                let mut result = conn.execute(neo4rs::query(&query_str)).await?;
-                let mut updates: Vec<(String, String)> = Vec::new();
-
-                while let Some(row) = result.next().await? {
-                    if let (Ok(node_key), Ok(body)) =
-                        (row.get::<String>("node_key"), row.get::<String>("body"))
-                    {
-                        updates.push((node_key, body));
-                    }
-                }
-
-                let bpe = get_bpe_from_model("gpt-4")?;
-                for (node_key, body) in &updates {
-                    let token_count = bpe.encode_with_special_tokens(&body).len() as i64;
-                    let update_query = update_token_count_query();
-                    let query_obj = neo4rs::query(&update_query)
-                        .param("node_key", node_key.to_string())
-                        .param("token_count".into(), BoltType::Integer(token_count.into()));
-                    conn.run(query_obj).await?;
-                }
-                Ok(())
-            })
-        })
-        .await
-    }
-
     pub async fn clear(&mut self) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn = connection.start_txn().await?;
@@ -218,17 +183,6 @@ impl Neo4jGraph {
 
         txn.commit().await?;
         Ok(())
-    }
-
-    async fn execute_query<T, Fut>(
-        &mut self,
-        operation: impl FnOnce(Arc<Neo4jConnection>) -> Fut,
-    ) -> anyhow::Result<T>
-    where
-        Fut: std::future::Future<Output = anyhow::Result<T>>,
-    {
-        let connection = self.ensure_connected().await?;
-        operation(connection).await
     }
 
     async fn execute_with_transaction<F, T>(&mut self, operation: F) -> Result<T>
@@ -355,7 +309,7 @@ impl std::fmt::Debug for Neo4jGraph {
 }
 
 impl Neo4jGraph {
-    pub async fn add_node(&mut self, node_type: NodeType, node_data: NodeData) -> Result<()> {
+    pub async fn add_node_async(&mut self, node_type: NodeType, node_data: NodeData) -> Result<()> {
         self.execute_with_transaction(|txn_manager| {
             txn_manager.add_node(&node_type, &node_data);
             Ok(())
@@ -363,7 +317,7 @@ impl Neo4jGraph {
         .await
     }
 
-    pub async fn add_edge(&mut self, edge: Edge) -> Result<()> {
+    pub async fn add_edge_async(&mut self, edge: Edge) -> Result<()> {
         self.execute_with_transaction(|txn_manager| {
             txn_manager.add_edge(&edge);
             Ok(())
@@ -371,20 +325,14 @@ impl Neo4jGraph {
         .await
     }
 
-    pub async fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
+    pub async fn find_nodes_by_name_async(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         let connection = self.get_connection();
 
         let (query_str, params_map) = find_nodes_by_name_query(&node_type, name);
-        match execute_node_query(&connection, query_str, params_map).await {
-            Ok(nodes) => nodes,
-            Err(e) => {
-                debug!("Error finding nodes by name: {}", e);
-                Vec::new()
-            }
-        }
+        execute_node_query(&connection, query_str, params_map).await
     }
 
-    pub async fn find_node_by_name_in_file(
+    pub async fn find_node_by_name_in_file_async(
         &self,
         node_type: NodeType,
         name: &str,
@@ -394,17 +342,14 @@ impl Neo4jGraph {
 
         let (query, params) = find_node_by_name_file_query(&node_type, name, file);
 
-        match execute_node_query(&connection, query, params).await {
-            Ok(nodes) => nodes.into_iter().next(),
-            Err(e) => {
-                debug!("Error finding node by name and file: {}", e);
-                None
-            }
-        }
+        execute_node_query(&connection, query, params)
+            .await
+            .into_iter()
+            .next()
     }
 
-    pub async fn get_graph_size(&mut self) -> Result<(u32, u32)> {
-        let connection = self.ensure_connected().await?;
+    pub async fn get_graph_size_async(&self) -> Result<(u32, u32)> {
+        let connection = self.get_connection();
         let query_str = count_nodes_edges_query();
         let mut result = connection.execute(query(&query_str)).await?;
         if let Some(row) = result.next().await? {
@@ -415,9 +360,9 @@ impl Neo4jGraph {
             Ok((0, 0))
         }
     }
-    pub async fn analysis(&mut self) -> Result<()> {
+    pub async fn analysis_async(&self) -> Result<()> {
         let connection = self.get_connection();
-        let (nodes, edges) = self.get_graph_size().await?;
+        let (nodes, edges) = self.get_graph_size();
         println!("Graph contains {} nodes and {} edges", nodes, edges);
 
         let query_str = graph_node_analysis_query();
@@ -485,7 +430,7 @@ impl Neo4jGraph {
         }
         Ok(())
     }
-    pub async fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
+    pub async fn count_edges_of_type_async(&self, edge_type: EdgeType) -> usize {
         let connection = self.get_connection();
 
         let (query_str, params) = count_edges_by_type_query(&edge_type);
@@ -508,39 +453,39 @@ impl Neo4jGraph {
         }
     }
 
-    pub async fn find_nodes_by_type(&mut self, node_type: NodeType) -> Result<Vec<NodeData>> {
-        let connection = self.ensure_connected().await?;
+    pub async fn find_nodes_by_type_async(&self, node_type: NodeType) -> Vec<NodeData> {
+        let connection = self.get_connection();
         let (query, params) = find_nodes_by_type_query(&node_type);
         execute_node_query(&connection, query, params).await
     }
 
-    pub async fn find_nodes_by_name_contains(
-        &mut self,
+    pub async fn find_nodes_by_name_contains_async(
+        &self,
         node_type: NodeType,
         name_part: &str,
-    ) -> Result<Vec<NodeData>> {
-        let connection = self.ensure_connected().await?;
+    ) -> Vec<NodeData> {
+        let connection = self.get_connection();
         let (query, params) = find_nodes_by_name_contains_query(&node_type, name_part);
         execute_node_query(&connection, query, params).await
     }
 
-    pub async fn find_nodes_by_file_ends_with(
-        &mut self,
+    pub async fn find_nodes_by_file_ends_with_async(
+        &self,
         node_type: NodeType,
         file: &str,
-    ) -> Result<Vec<NodeData>> {
-        let connection = self.ensure_connected().await?;
+    ) -> Vec<NodeData> {
+        let connection = self.get_connection();
         let (query, params) = find_nodes_by_file_pattern_query(&node_type, file);
         execute_node_query(&connection, query, params).await
     }
 
-    pub async fn find_nodes_with_edge_type(
-        &mut self,
+    pub async fn find_nodes_with_edge_type_async(
+        &self,
         source_type: NodeType,
         target_type: NodeType,
         edge_type: EdgeType,
-    ) -> Result<Vec<(NodeData, NodeData)>> {
-        let connection = self.ensure_connected().await?;
+    ) -> Vec<(NodeData, NodeData)> {
+        let connection = self.get_connection();
         let (query_str, params) =
             find_nodes_with_edge_type_query(&source_type, &target_type, &edge_type);
 
@@ -549,29 +494,567 @@ impl Neo4jGraph {
             query_obj = query_obj.param(key.value.as_str(), value.clone());
         }
         let mut node_pairs = Vec::new();
-        let mut result = connection.execute(query_obj).await?;
-        while let Some(row) = result.next().await? {
-            let source_name: String = row.get("source_name").unwrap_or_default();
-            let source_file: String = row.get("source_file").unwrap_or_default();
-            let source_start: i64 = row.get("source_start").unwrap_or_default();
-            let target_name: String = row.get("target_name").unwrap_or_default();
-            let target_file: String = row.get("target_file").unwrap_or_default();
-            let target_start: i64 = row.get("target_start").unwrap_or_default();
+        match connection.execute(query_obj).await {
+            Ok(mut result) => {
+                while let Ok(Some(row)) = result.next().await {
+                    let source_name: String = row.get("source_name").unwrap_or_default();
+                    let source_file: String = row.get("source_file").unwrap_or_default();
+                    let source_start: i64 = row.get("source_start").unwrap_or_default();
+                    let target_name: String = row.get("target_name").unwrap_or_default();
+                    let target_file: String = row.get("target_file").unwrap_or_default();
+                    let target_start: i64 = row.get("target_start").unwrap_or_default();
 
-            let source_node = NodeData {
-                name: source_name,
-                file: source_file,
-                start: source_start as usize,
-                ..Default::default()
-            };
-            let target_node = NodeData {
-                name: target_name,
-                file: target_file,
-                start: target_start as usize,
-                ..Default::default()
-            };
-            node_pairs.push((source_node, target_node));
+                    let source_node = NodeData {
+                        name: source_name,
+                        file: source_file,
+                        start: source_start as usize,
+                        ..Default::default()
+                    };
+                    let target_node = NodeData {
+                        name: target_name,
+                        file: target_file,
+                        start: target_start as usize,
+                        ..Default::default()
+                    };
+                    node_pairs.push((source_node, target_node));
+                }
+            }
+            Err(e) => {
+                debug!("Error executing find_nodes_with_edge_type query: {}", e);
+            }
         }
-        Ok(node_pairs)
+        node_pairs
+    }
+    pub async fn find_endpoint_async(
+        &self,
+        name: &str,
+        file: &str,
+        verb: &str,
+    ) -> Option<NodeData> {
+        let connection = self.get_connection();
+        let (query, params) = find_endpoint_query(name, file, verb);
+
+        let nodes = execute_node_query(&connection, query, params).await;
+        nodes.into_iter().next()
+    }
+    pub async fn find_resource_nodes_async(
+        &self,
+        node_type: NodeType,
+        verb: &str,
+        path: &str,
+    ) -> Vec<NodeData> {
+        let connection = self.get_connection();
+        let (query, params) = find_resource_nodes_query(&node_type, verb, path);
+
+        execute_node_query(&connection, query, params).await
+    }
+    pub async fn find_handlers_for_endpoint_async(&self, endpoint: &NodeData) -> Vec<NodeData> {
+        let connection = self.get_connection();
+        let (query, params) = find_handlers_for_endpoint_query(endpoint);
+
+        execute_node_query(&connection, query, params).await
+    }
+
+    pub async fn check_direct_data_model_usage_async(
+        &self,
+        function_name: &str,
+        data_model: &str,
+    ) -> bool {
+        let connection = self.get_connection();
+        let (query_str, params) = check_direct_data_model_usage_query(function_name, data_model);
+
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        if let Ok(mut result) = connection.execute(query_obj).await {
+            if let Ok(Some(row)) = result.next().await {
+                return row.get::<bool>("exists").unwrap_or(false);
+            }
+        }
+        false
+    }
+    pub async fn find_functions_called_by_async(&self, function: &NodeData) -> Vec<NodeData> {
+        let connection = self.get_connection();
+        let (query, params) = find_functions_called_by_query(function);
+
+        execute_node_query(&connection, query, params).await
+    }
+    pub async fn find_source_edge_by_name_and_file_async(
+        &self,
+        edge_type: EdgeType,
+        target_name: &str,
+        target_file: &str,
+    ) -> Option<NodeKeys> {
+        let connection = self.get_connection();
+        let (query_str, params) =
+            find_source_edge_by_name_and_file_query(&edge_type, target_name, target_file);
+
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        if let Ok(mut result) = connection.execute(query_obj).await {
+            if let Ok(Some(row)) = result.next().await {
+                let name = row.get::<String>("name").unwrap_or_default();
+                let file = row.get::<String>("file").unwrap_or_default();
+                let start = row.get::<i64>("start").unwrap_or_default() as usize;
+                let verb = row.get::<String>("verb").ok();
+
+                return Some(NodeKeys {
+                    name,
+                    file,
+                    start,
+                    verb,
+                });
+            }
+        }
+        None
+    }
+    pub async fn find_node_in_range_async(
+        &self,
+        node_type: NodeType,
+        row: u32,
+        file: &str,
+    ) -> Option<NodeData> {
+        let connection = self.get_connection();
+        let (query, params) = find_nodes_in_range_query(&node_type, file, row);
+
+        let nodes = execute_node_query(&connection, query, params).await;
+        nodes.into_iter().next()
+    }
+    pub async fn find_node_at_async(
+        &self,
+        node_type: NodeType,
+        file: &str,
+        line: u32,
+    ) -> Option<NodeData> {
+        let connection = self.get_connection();
+        let (query, params) = find_node_at_query(&node_type, file, line);
+        let nodes = execute_node_query(&connection, query, params).await;
+        nodes.into_iter().next()
+    }
+    pub async fn find_node_by_name_and_file_end_with_async(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        suffix: &str,
+    ) -> Option<NodeData> {
+        let nodes = self.find_nodes_by_name_async(node_type, name).await;
+        nodes.into_iter().find(|node| node.file.ends_with(suffix))
+    }
+    pub async fn prefix_paths_async(&mut self, root: &str) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let (query_str, params) = prefix_paths_query(root);
+
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        let _ = connection.execute(query_obj).await?;
+        Ok(())
+    }
+
+    pub async fn add_node_with_parent_async(
+        &mut self,
+        node_type: NodeType,
+        node_data: NodeData,
+        parent_type: NodeType,
+        parent_file: &str,
+    ) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries = add_node_with_parent_query(&node_type, &node_data, &parent_type, parent_file);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        for query in queries {
+            txn_manager.add_query(query);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+    pub async fn class_inherits_async(&mut self) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let query_str = class_inherits_query();
+
+        let _ = connection.execute(query(&query_str)).await?;
+        Ok(())
+    }
+
+    pub async fn class_includes_async(&mut self) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let query_str = class_includes_query();
+
+        let _ = connection.execute(query(&query_str)).await?;
+        Ok(())
+    }
+    pub async fn add_instances_async(&mut self, nodes: Vec<NodeData>) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let mut txn_manager = TransactionManager::new(&connection);
+
+        for node in nodes {
+            txn_manager.add_node(&NodeType::Instance, &node);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+    pub async fn add_functions_async(&mut self, functions: Vec<Function>) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let mut txn_manager = TransactionManager::new(&connection);
+
+        for (function_node, method_of, reqs, dms, trait_operand, return_types) in &functions {
+            let queries = add_functions_query(
+                function_node,
+                method_of.as_ref(),
+                reqs,
+                dms,
+                trait_operand.as_ref(),
+                return_types,
+            );
+            for query in queries {
+                txn_manager.add_query(query);
+            }
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+    pub async fn add_page_async(&mut self, page: (NodeData, Option<Edge>)) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries = add_page_query(&page.0, &page.1);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        for query in queries {
+            txn_manager.add_query(query);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+
+    pub async fn add_pages_async(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries = add_pages_query(&pages);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        for query in queries {
+            txn_manager.add_query(query);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+    pub async fn add_endpoints_async(
+        &mut self,
+        endpoints: Vec<(NodeData, Option<Edge>)>,
+    ) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries = add_endpoints_query(&endpoints);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        for query in queries {
+            txn_manager.add_query(query);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+
+    pub async fn add_test_node_async(
+        &mut self,
+        test_data: NodeData,
+        test_type: NodeType,
+        test_edge: Option<Edge>,
+    ) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries = add_test_node_query(&test_data, &test_type, &test_edge);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        for query in queries {
+            txn_manager.add_query(query);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+    pub async fn add_calls_async(
+        &mut self,
+        calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>),
+    ) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries = add_calls_query(&calls.0, &calls.1, &calls.3);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        for query in queries {
+            txn_manager.add_query(query);
+        }
+
+        let _ = txn_manager.execute().await;
+        Ok(())
+    }
+
+    pub async fn get_graph_keys_async(&self) -> (HashSet<String>, HashSet<String>) {
+        let connection = self.get_connection();
+        let mut node_keys = HashSet::new();
+        let mut edge_keys = HashSet::new();
+
+        let (node_query, edge_query) = all_nodes_and_edges_query();
+        if let Ok(mut result) = connection.execute(query(&node_query)).await {
+            while let Ok(Some(row)) = result.next().await {
+                if let Ok(key) = row.get::<String>("key") {
+                    node_keys.insert(key);
+                }
+            }
+        }
+
+        if let Ok(mut result) = connection.execute(query(&edge_query)).await {
+            while let Ok(Some(row)) = result.next().await {
+                if let Ok(edge_type) = row.get::<String>("edge_type") {
+                    edge_keys.insert(edge_type);
+                }
+            }
+        }
+
+        (node_keys, edge_keys)
+    }
+
+    pub async fn filter_out_nodes_without_children_async(
+        &mut self,
+        parent_type: NodeType,
+        child_type: NodeType,
+        child_meta_key: &str,
+    ) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let queries =
+            filter_out_nodes_without_children_query(parent_type, child_type, child_meta_key);
+
+        let mut txn_manager = TransactionManager::new(&connection);
+        txn_manager.add_query(queries);
+        let _ = txn_manager.execute().await;
+
+        Ok(())
+    }
+}
+
+impl Graph for Neo4jGraph {
+    fn new() -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
+    fn with_capacity(_nodes: usize, _edges: usize) -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
+    fn analysis(&self) {
+        let _ = sync_fn(|| async { self.analysis_async().await });
+    }
+    fn create_filtered_graph(&self, _final_filter: &[String]) -> Self
+    where
+        Self: Sized,
+    {
+        todo!("To be implemented in Neo4jGraph");
+    }
+
+    fn extend_graph(&mut self, _other: Self)
+    where
+        Self: Sized,
+    {
+        todo!("To be implemented in Neo4jGraph");
+    }
+
+    fn get_graph_size(&self) -> (u32, u32) {
+        sync_fn(|| async { self.get_graph_size_async().await.unwrap_or_default() })
+    }
+
+    fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
+        sync_fn(|| async { self.find_nodes_by_name_async(node_type, name).await })
+    }
+    fn add_node_with_parent(
+        &mut self,
+        node_type: NodeType,
+        node_data: NodeData,
+        parent_type: NodeType,
+        parent_file: &str,
+    ) {
+        sync_fn(|| async {
+            self.add_node_with_parent_async(node_type, node_data, parent_type, parent_file)
+                .await
+                .unwrap()
+        });
+    }
+    fn add_edge(&mut self, edge: Edge) {
+        sync_fn(|| async { self.add_edge_async(edge).await.unwrap_or_default() });
+    }
+    fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
+        sync_fn(|| async {
+            self.add_node_async(node_type, node_data)
+                .await
+                .unwrap_or_default()
+        })
+    }
+    fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
+        sync_fn(|| async { self.get_graph_keys_async().await })
+    }
+
+    fn find_source_edge_by_name_and_file(
+        &self,
+        edge_type: EdgeType,
+        target_name: &str,
+        target_file: &str,
+    ) -> Option<NodeKeys> {
+        sync_fn(|| async {
+            self.find_source_edge_by_name_and_file_async(edge_type, target_name, target_file)
+                .await
+        })
+    }
+    fn process_endpoint_groups(&mut self, _eg: Vec<NodeData>, _lang: &Lang) -> Result<()> {
+        todo!("To be implemented in Neo4jGraph");
+    }
+    fn class_inherits(&mut self) {
+        sync_fn(|| async { self.class_inherits_async().await.unwrap_or_default() });
+    }
+    fn class_includes(&mut self) {
+        sync_fn(|| async { self.class_includes_async().await.unwrap_or_default() });
+    }
+    fn add_instances(&mut self, nodes: Vec<NodeData>) {
+        sync_fn(|| async { self.add_instances_async(nodes).await.unwrap_or_default() });
+    }
+    fn add_functions(&mut self, functions: Vec<Function>) {
+        sync_fn(|| async {
+            self.add_functions_async(functions)
+                .await
+                .unwrap_or_default()
+        });
+    }
+    fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
+        sync_fn(|| async { self.add_page_async(page).await.unwrap_or_default() });
+    }
+    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+        sync_fn(|| async { self.add_pages_async(pages).await.unwrap_or_default() });
+    }
+    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+        sync_fn(|| async {
+            self.add_endpoints_async(endpoints)
+                .await
+                .unwrap_or_default()
+        });
+    }
+    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
+        sync_fn(|| async {
+            self.add_test_node_async(test_data, test_type, test_edge)
+                .await
+                .unwrap_or_default()
+        });
+    }
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)) {
+        sync_fn(|| async { self.add_calls_async(calls).await.unwrap_or_default() });
+    }
+    fn filter_out_nodes_without_children(
+        &mut self,
+        parent_type: NodeType,
+        child_type: NodeType,
+        child_meta_key: &str,
+    ) {
+        sync_fn(|| async {
+            self.filter_out_nodes_without_children_async(parent_type, child_type, child_meta_key)
+                .await
+                .unwrap_or_default()
+        });
+    }
+    fn get_data_models_within(&mut self, _lang: &Lang) {
+        todo!("To be implemented in Neo4jGraph");
+    }
+    fn prefix_paths(&mut self, root: &str) {
+        sync_fn(|| async { self.prefix_paths_async(root).await.unwrap_or_default() });
+    }
+
+    fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {
+        sync_fn(|| async { self.find_endpoint_async(name, file, verb).await })
+    }
+
+    fn find_resource_nodes(&self, node_type: NodeType, verb: &str, path: &str) -> Vec<NodeData> {
+        sync_fn(|| async { self.find_resource_nodes_async(node_type, verb, path).await })
+    }
+    fn find_handlers_for_endpoint(&self, endpoint: &NodeData) -> Vec<NodeData> {
+        sync_fn(|| async { self.find_handlers_for_endpoint_async(endpoint).await })
+    }
+    fn check_direct_data_model_usage(&self, function_name: &str, data_model: &str) -> bool {
+        sync_fn(|| async {
+            self.check_direct_data_model_usage_async(function_name, data_model)
+                .await
+        })
+    }
+    fn find_functions_called_by(&self, function: &NodeData) -> Vec<NodeData> {
+        sync_fn(|| async { self.find_functions_called_by_async(function).await })
+    }
+    fn find_nodes_by_type(&self, node_type: NodeType) -> Vec<NodeData> {
+        sync_fn(|| async { self.find_nodes_by_type_async(node_type).await })
+    }
+    fn find_nodes_with_edge_type(
+        &self,
+        source_type: NodeType,
+        target_type: NodeType,
+        edge_type: EdgeType,
+    ) -> Vec<(NodeData, NodeData)> {
+        sync_fn(|| async {
+            self.find_nodes_with_edge_type_async(source_type, target_type, edge_type)
+                .await
+        })
+    }
+    fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
+        sync_fn(|| async { self.count_edges_of_type_async(edge_type).await })
+    }
+    fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
+        sync_fn(|| async {
+            self.find_nodes_by_name_contains_async(node_type, name)
+                .await
+        })
+    }
+
+    fn find_node_by_name_in_file(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        file: &str,
+    ) -> Option<NodeData> {
+        sync_fn(|| async {
+            self.find_node_by_name_in_file_async(node_type, name, file)
+                .await
+        })
+    }
+
+    fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {
+        sync_fn(|| async {
+            self.find_nodes_by_file_ends_with_async(node_type, file)
+                .await
+        })
+    }
+
+    fn find_node_by_name_and_file_end_with(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        suffix: &str,
+    ) -> Option<NodeData> {
+        sync_fn(|| async {
+            self.find_node_by_name_and_file_end_with_async(node_type, name, suffix)
+                .await
+        })
+    }
+
+    fn find_node_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData> {
+        sync_fn(|| async { self.find_node_in_range_async(node_type, row, file).await })
+    }
+
+    fn find_node_at(&self, node_type: NodeType, file: &str, line: u32) -> Option<NodeData> {
+        sync_fn(|| async { self.find_node_at_async(node_type, file, line).await })
     }
 }
