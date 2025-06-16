@@ -32,4 +32,8 @@ export class AddPersonComponent {
       this.router.navigate(['/']);
     }
   }
+  
+  navigateToHome() {
+    this.router.navigate(['/']);
+  }
 }
