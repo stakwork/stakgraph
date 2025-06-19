@@ -111,29 +111,69 @@ impl EdgeQueryBuilder {
     pub fn new(edge: &Edge) -> Self {
         Self { edge: edge.clone() }
     }
-
     pub fn build(&self) -> (String, BoltMap) {
         let mut params = BoltMap::new();
 
-        boltmap_insert_str(&mut params, "source_name", &self.edge.source.node_data.name);
-        boltmap_insert_str(&mut params, "source_file", &self.edge.source.node_data.file);
+        let source_node = &self.edge.source;
+        let target_node = &self.edge.target;
 
-        boltmap_insert_str(&mut params, "target_name", &self.edge.target.node_data.name);
-        boltmap_insert_str(&mut params, "target_file", &self.edge.target.node_data.file);
 
+        let mut source_match_props = format!("name: $source_name, file: $source_file");
+        boltmap_insert_str(&mut params, "source_name", &source_node.node_data.name);
+        boltmap_insert_str(&mut params, "source_file", &source_node.node_data.file);
+
+        
+        source_match_props.push_str(", start: $source_start");
+        boltmap_insert_int(&mut params, "source_start", source_node.node_data.start as i64);
+
+
+        let mut target_match_props = format!("name: $target_name, file: $target_file");
+        boltmap_insert_str(&mut params, "target_name", &target_node.node_data.name);
+        boltmap_insert_str(&mut params, "target_file", &target_node.node_data.file);
+
+       
+            target_match_props.push_str(", start: $target_start");
+            boltmap_insert_int(&mut params, "target_start", target_node.node_data.start as i64);
+        
+    
         let rel_type = self.edge.edge.to_string();
         let source_type = self.edge.source.node_type.to_string();
         let target_type = self.edge.target.node_type.to_string();
 
         let query = format!(
-            "MATCH (source:{} {{name: $source_name, file: $source_file}}),
-                 (target:{} {{name: $target_name, file: $target_file}})
+            "MATCH (source:{} {{{}}})
+            MATCH (target:{} {{{}}})
             MERGE (source)-[r:{}]->(target)
             RETURN r",
-            source_type, target_type, rel_type
+            source_type, source_match_props,
+            target_type, target_match_props,
+            rel_type
         );
         (query, params)
     }
+
+    // pub fn build(&self) -> (String, BoltMap) {
+    //     let mut params = BoltMap::new();
+
+    //     boltmap_insert_str(&mut params, "source_name", &self.edge.source.node_data.name);
+    //     boltmap_insert_str(&mut params, "source_file", &self.edge.source.node_data.file);
+
+    //     boltmap_insert_str(&mut params, "target_name", &self.edge.target.node_data.name);
+    //     boltmap_insert_str(&mut params, "target_file", &self.edge.target.node_data.file);
+
+    //     let rel_type = self.edge.edge.to_string();
+    //     let source_type = self.edge.source.node_type.to_string();
+    //     let target_type = self.edge.target.node_type.to_string();
+
+    //     let query = format!(
+    //         "MATCH (source:{} {{name: $source_name, file: $source_file}}),
+    //              (target:{} {{name: $target_name, file: $target_file}})
+    //         MERGE (source)-[r:{}]->(target)
+    //         RETURN r",
+    //         source_type, target_type, rel_type
+    //     );
+    //     (query, params)
+    // }
 }
 
 pub struct TransactionManager<'a> {
