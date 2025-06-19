@@ -812,6 +812,10 @@ impl Lang {
                             &called,
                             &target_file,
                         ) {
+                            println!(
+                                "LSP Call Target: Found canonical node for '{}'. Using its start: {}. (LSP gave: {})",
+                                called, t.start, gt.line
+                            );
                             log_cmd(format!(
                                 "==> ! found target for {:?} {}!!!",
                                 called, &t.file
@@ -823,6 +827,10 @@ impl Lang {
                                 external_func = Some(t);
                             }
                         } else {
+                            println!(
+                                "LSP Call Target: Definition for '{}' not in graph. Using LSP start: {}",
+                                called, gt.line
+                            );
                             if let Some(one_func) =
                                 func_target_file_finder(&called, &None, graph, file)
                             {
@@ -879,6 +887,10 @@ impl Lang {
                 } else {
                     // FALLBACK to find?
                     if let Some(tf) = func_target_file_finder(&called, &None, graph, file) {
+                        println!(
+                            "Non-LSP Call Target: Fallback for '{}'. Found file: {}. Using start: 0",
+                            called, tf
+                        );
                         log_cmd(format!(
                             "==> ? (no lsp) ONE target for {:?} {}",
                             called, &tf

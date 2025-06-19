@@ -117,6 +117,19 @@ impl EdgeQueryBuilder {
         let source_node = &self.edge.source;
         let target_node = &self.edge.target;
 
+        println!(
+            "Building Edge -> Source: {:?}(name: '{}', file: '{}', start: {}), Target: {:?}(name: '{}', file: '{}', start: {})",
+            source_node.node_type,
+            source_node.node_data.name,
+            source_node.node_data.file,
+            source_node.node_data.start,
+            target_node.node_type,
+            target_node.node_data.name,
+            target_node.node_data.file,
+            target_node.node_data.start,
+        );
+
+
 
         let mut source_match_props = format!("name: $source_name, file: $source_file");
         boltmap_insert_str(&mut params, "source_name", &source_node.node_data.name);
@@ -132,9 +145,9 @@ impl EdgeQueryBuilder {
         boltmap_insert_str(&mut params, "target_file", &target_node.node_data.file);
 
        
-            target_match_props.push_str(", start: $target_start");
-            boltmap_insert_int(&mut params, "target_start", target_node.node_data.start as i64);
-        
+        target_match_props.push_str(", start: $target_start");
+        boltmap_insert_int(&mut params, "target_start", target_node.node_data.start as i64);
+    
     
         let rel_type = self.edge.edge.to_string();
         let source_type = self.edge.source.node_type.to_string();

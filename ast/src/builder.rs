@@ -337,6 +337,12 @@ impl Repo {
                 self.lang
                     .get_functions_and_tests(&code, &filename, &graph, &self.lsp_tx)?;
             i += funcs.len();
+            for f in &funcs {
+                println!(
+                    "Builder: Adding function node: {} in {} at start: {}",
+                    f.0.name, f.0.file, f.0.start
+                );
+            }
             graph.add_functions(funcs.clone());
 
             for func in &funcs {
