@@ -19,8 +19,8 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let (num_nodes, num_edges) = graph.get_graph_size();
 
     graph.analysis();
-    assert_eq!(num_nodes, 124, "Expected 124 nodes");
-    assert_eq!(num_edges, 144, "Expected 144 edges");
+    assert_eq!(num_nodes, 163, "Expected 163 nodes");
+    assert_eq!(num_edges, 183, "Expected 183 edges");
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
@@ -50,7 +50,7 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
-    assert_eq!(libraries.len(), 44, "Expected 44 libraries");
+    assert_eq!(libraries.len(), 58, "Expected 58 libraries");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     assert_eq!(imports.len(), 9, "Expected 9 imports");

@@ -106,7 +106,7 @@ impl<G: Graph> FrontendTester<G> {
 
         let pkg_file_nodes = self
             .graph
-            .find_nodes_by_name(NodeType::File, &package_file_name);
+            .find_nodes_by_name_contains(NodeType::File, &package_file_name);
 
         assert!(
             pkg_file_nodes.len() >= 1,
