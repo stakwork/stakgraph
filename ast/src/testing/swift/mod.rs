@@ -95,4 +95,12 @@ async fn test_swift() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_swift_generic::<ArrayGraph>().await.unwrap();
     test_swift_generic::<BTreeMapGraph>().await.unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let mut graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        test_swift_generic::<Neo4jGraph>().await.unwrap();
+    }
 }
