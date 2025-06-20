@@ -20,11 +20,11 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     if use_lsp == true {
-        assert_eq!(num_nodes, 67, "Expected 67 nodes");
-        assert_eq!(num_edges, 88, "Expected 88 edges");
+        assert_eq!(num_nodes, 68, "Expected 68 nodes");
+        assert_eq!(num_edges, 89, "Expected 89 edges");
     } else {
-        assert_eq!(num_nodes, 61, "Expected 61 nodes");
-        assert_eq!(num_edges, 74, "Expected 74 edges");
+        assert_eq!(num_nodes, 62, "Expected 62 nodes");
+        assert_eq!(num_edges, 75, "Expected 75 edges");
     }
 
     fn normalize_path(path: &str) -> String {

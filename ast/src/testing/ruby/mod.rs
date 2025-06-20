@@ -19,8 +19,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     //graph.analysis();
 
     let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 67, "Expected 67 nodes");
-    assert_eq!(num_edges, 112, "Expected 112 edges");
+    assert_eq!(num_nodes, 95, "Expected 95 nodes");
+    assert_eq!(num_edges, 140, "Expected 140 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -41,7 +41,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
-    assert_eq!(imports.len(), 6, "Expected 6 import node");
+    assert_eq!(imports.len(), 10, "Expected 10 import node");
 
     let import_body = imports
         .iter()
@@ -164,7 +164,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     assert_eq!(calls, 14, "Expected 14 call edges");
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 68, "Expected 68 contains edges");
+    assert_eq!(contains, 93, "Expected 93 contains edges");
     Ok(())
 }
 
