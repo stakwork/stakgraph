@@ -197,7 +197,8 @@ impl Repo {
         for (pkg_file, code) in pkg_files {
             info!("=> get_packages in... {:?}", pkg_file);
 
-            let file_data = self.prepare_file_data(&pkg_file, code);
+            let mut file_data = self.prepare_file_data(&pkg_file, code);
+            file_data.meta.insert("lib".to_string(), "true".to_string());
 
             let (parent_type, parent_file) = self.get_parent_info(&pkg_file);
 
