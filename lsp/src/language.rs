@@ -274,6 +274,11 @@ impl Language {
             _ => None,
         }
     }
+    pub fn is_package_file(&self, file_name: &str) -> bool {
+        self.pkg_files()
+            .iter()
+            .any(|pkg_file| file_name.ends_with(pkg_file))
+    }
 }
 
 impl FromStr for Language {

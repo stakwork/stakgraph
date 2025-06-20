@@ -70,12 +70,14 @@ impl Repo {
 
         debug!("collecting dirs...");
         let dirs = self.collect_dirs()?;
-        let files_1 = self.collect()?;
-        let files: Vec<PathBuf> = files_1
+        let all_files = self.collect_all_files()?;
+        let files: Vec<PathBuf> = all_files
             .into_iter()
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+
+        info!("Collected {} files using collect_all_files", files.len());
 
         let mut dirs_not_empty = Vec::new();
         for d in &dirs {
@@ -150,24 +152,16 @@ impl Repo {
             if graph.find_nodes_by_name(NodeType::File, &path).len() > 0 {
                 continue;
             }
-            if self
-                .lang
-                .kind
-                .pkg_files()
-                .iter()
-                .any(|pkg_file| path.ends_with(pkg_file))
-            {
-                continue;
-            }
-            let file_data = self.prepare_file_data(&path, &code);
 
-            let (parent_type, parent_file) = if path.contains('/') {
-                let mut paths: Vec<&str> = path.split('/').collect();
-                paths.pop();
-                (NodeType::Directory, paths.join("/"))
-            } else {
-                (NodeType::Repository, "main".to_string())
-            };
+            let mut file_data = self.prepare_file_data(&path, &code);
+
+            if self.lang.kind.is_package_file(&path) {
+                file_data
+                    .meta
+                    .insert("pkg_file".to_string(), "true".to_string());
+            }
+
+            let (parent_type, parent_file) = self.get_parent_info(&path);
 
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
         }
@@ -187,21 +181,11 @@ impl Repo {
         }
 
         i = 0;
-        let pkg_files = filez.iter().filter(|(f, _)| {
-            self.lang
-                .kind
-                .pkg_files()
-                .iter()
-                .any(|pkg_file| f.ends_with(pkg_file))
-        });
+        let pkg_files = filez
+            .iter()
+            .filter(|(f, _)| self.lang.kind.is_package_file(f));
         for (pkg_file, code) in pkg_files {
             info!("=> get_packages in... {:?}", pkg_file);
-
-            let file_data = self.prepare_file_data(&pkg_file, code);
-
-            let (parent_type, parent_file) = self.get_parent_info(&pkg_file);
-
-            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
 
             let libs = self.lang.get_libs::<G>(&code, &pkg_file)?;
             i += libs.len();
