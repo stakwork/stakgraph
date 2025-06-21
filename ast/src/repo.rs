@@ -428,25 +428,42 @@ impl Repo {
     }
 
     fn is_other_language_file(&self, filename: &str, relative_path: &str) -> bool {
+        let this_lang_exts = self.lang.kind.exts();
+
         if relative_path.ends_with(".md") {
+            return false;
+        }
+
+        if self.lang.kind.is_package_file(relative_path) {
             return false;
         }
 
         if let Some(ext) = std::path::Path::new(filename).extension() {
             if let Some(ext_str) = ext.to_str() {
-                for other_lang in PROGRAMMING_LANGUAGES {
-                    if other_lang != self.lang.kind {
-                        if other_lang.exts().contains(&ext_str) {
-                            return true;
-                        }
-                    }
+                if this_lang_exts.contains(&ext_str) {
+                    return false;
                 }
+
+                // for other_lang in PROGRAMMING_LANGUAGES {
+                //     if other_lang != self.lang.kind {
+                //         if other_lang.exts().contains(&ext_str) {
+                //             return true;
+                //         }
+                //     }
+                // }
             }
         }
 
         for other_lang in PROGRAMMING_LANGUAGES {
             if other_lang != self.lang.kind {
                 if other_lang.is_package_file(relative_path) {
+                    return true;
+                }
+            }
+        }
+        if let Some(ext) = std::path::Path::new(filename).extension() {
+            if let Some(ext_str) = ext.to_str() {
+                if !this_lang_exts.contains(&ext_str) {
                     return true;
                 }
             }
