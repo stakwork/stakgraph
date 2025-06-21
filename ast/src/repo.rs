@@ -2,6 +2,7 @@ use crate::lang::graphs::Graph;
 use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
 use anyhow::{anyhow, Context, Result};
 use git_url_parse::GitUrl;
+use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
 use lsp::{git::git_clone, spawn_analyzer, strip_root, CmdSender};
 use std::str::FromStr;
@@ -366,6 +367,109 @@ impl Repo {
     pub fn get_path_from_url(url: &str) -> Result<String> {
         let gurl = GitUrl::parse(url)?;
         Ok(format!("/tmp/{}", gurl.fullname))
+    }
+    pub fn collect_all_files(&self) -> Result<Vec<PathBuf>> {
+        let mut all_files = Vec::new();
+
+        let walker = WalkBuilder::new(&self.root)
+            .hidden(false)
+            .git_ignore(true)
+            .git_global(true)
+            .git_exclude(true)
+            .build();
+
+        for result in walker {
+            match result {
+                Ok(entry) => {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let relative_path = strip_root(path, &self.root).display().to_string();
+
+                        if self.should_not_include(path, &relative_path) {
+                            continue;
+                        }
+
+                        all_files.push(path.to_path_buf());
+                    }
+                }
+                Err(err) => {
+                    warn!("Error walking directory: {}", err);
+                }
+            }
+        }
+
+        info!(
+            "Collected {} files for {} language (respecting .gitignore and language isolation)",
+            all_files.len(),
+            self.lang.kind.to_string()
+        );
+        Ok(all_files)
+    }
+    fn should_not_include(&self, path: &std::path::Path, relative_path: &str) -> bool {
+        let conf = self.merge_config_with_lang();
+        let fname = path.display().to_string();
+
+        if path.to_string_lossy().contains("/.git/") {
+            return true;
+        }
+
+        let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+        if skip_end(&fname, &conf.skip_file_ends) {
+            return true;
+        }
+        if !only_files(path, &conf.only_include_files) {
+            return true;
+        }
+        if self.is_other_language_file(filename, relative_path) {
+            return true;
+        }
+        false
+    }
+
+    fn is_other_language_file(&self, filename: &str, relative_path: &str) -> bool {
+        let this_lang_exts = self.lang.kind.exts();
+
+        if relative_path.ends_with(".md") {
+            return false;
+        }
+
+        if self.lang.kind.is_package_file(relative_path) {
+            return false;
+        }
+
+        if let Some(ext) = std::path::Path::new(filename).extension() {
+            if let Some(ext_str) = ext.to_str() {
+                if this_lang_exts.contains(&ext_str) {
+                    return false;
+                }
+
+                // for other_lang in PROGRAMMING_LANGUAGES {
+                //     if other_lang != self.lang.kind {
+                //         if other_lang.exts().contains(&ext_str) {
+                //             return true;
+                //         }
+                //     }
+                // }
+            }
+        }
+
+        for other_lang in PROGRAMMING_LANGUAGES {
+            if other_lang != self.lang.kind {
+                if other_lang.is_package_file(relative_path) {
+                    return true;
+                }
+            }
+        }
+        if let Some(ext) = std::path::Path::new(filename).extension() {
+            if let Some(ext_str) = ext.to_str() {
+                if !this_lang_exts.contains(&ext_str) {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 
