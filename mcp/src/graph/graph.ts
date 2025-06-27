@@ -52,6 +52,18 @@ export async function search(
     return toNodes(result, concise, output);
   }
 }
+export async function get_rules_files() {
+  const files = await db.get_rules_files();
+  return files
+    .filter(
+      (file) => file.properties.body && file.properties.body.trim() !== ""
+    )
+    .map(
+      (file) =>
+        `File: ${file.properties.name}\n Content: \n ${file.properties.body}\n`
+    )
+    .join("\n");
+}
 
 export function toNodes(
   result: Neo4jNode[],

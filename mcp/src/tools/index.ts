@@ -3,6 +3,7 @@ import * as search from "./search.js";
 import * as get_nodes from "./get_nodes.js";
 import * as get_map from "./get_map.js";
 import * as get_code from "./get_code.js";
+import * as get_rules_files from "./get_rules_files.js";
 import * as repo_map from "./repo_map.js";
 import * as shortest_path from "./shortest_path.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -44,6 +45,7 @@ function getMcpTools(): Tool[] {
     repo_map.RepoMapTool,
     get_code.GetCodeTool,
     shortest_path.ShortestPathTool,
+    get_rules_files.GetRulesFilesTool,
   ];
   if (USE_STAGEHAND) {
     coreTools.push(...stagehand.TOOLS);
@@ -81,6 +83,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     case repo_map.RepoMapTool.name: {
       const fa = repo_map.RepoMapSchema.parse(args);
       return await repo_map.repoMap(fa);
+    }
+    case get_rules_files.GetRulesFilesTool.name: {
+      return await get_rules_files.getRulesFiles();
     }
     default:
       if (USE_STAGEHAND && name.startsWith("stagehand_")) {

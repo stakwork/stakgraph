@@ -100,6 +100,15 @@ export async function search(req: Request, res: Response) {
     res.status(500).send("Internal Server Error");
   }
 }
+export async function get_rules_files(req: Request, res: Response) {
+  try {
+    const snippets = await G.get_rules_files();
+    res.json(snippets);
+  } catch (error) {
+    console.error("Error fetching rules files:", error);
+    res.status(500).json({ error: "Failed to fetch rules files" });
+  }
+}
 
 export function toNode(node: Neo4jNode, concise: boolean): any {
   return concise ? nameFileOnly(node) : toReturnNode(node);

@@ -413,6 +413,15 @@ class Db {
       }
     }
   }
+  async get_rules_files(): Promise<Neo4jNode[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.RULES_FILES_QUERY);
+      return result.records.map((record) => deser_node(record, "f"));
+    } finally {
+      await session.close();
+    }
+  }
 }
 
 export const db = new Db();

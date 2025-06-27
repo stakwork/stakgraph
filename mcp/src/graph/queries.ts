@@ -324,6 +324,23 @@ WHERE ALL(node IN nodes(path) WHERE
 RETURN path
 `;
 
+export const RULES_FILES_QUERY = `
+MATCH (f:File)
+WHERE
+  f.name ENDS WITH '.windsurfrules' OR
+  f.name ENDS WITH '.cursorrules' OR
+  f.name ENDS WITH 'CLAUDE.md' OR
+  f.file CONTAINS '/.cursor/rules/' OR
+  f.name ENDS WITH 'AGENTS.md' OR
+  f.name ENDS WITH '.goosehints' OR
+  f.file ENDS WITH '.windsurfrules' OR
+  f.file ENDS WITH '.cursorrules' OR
+  f.file ENDS WITH 'CLAUDE.md' OR
+  f.file ENDS WITH 'AGENTS.md' OR
+  f.file ENDS WITH '.goosehints'
+RETURN f
+ORDER BY f.file
+`;
 /*
 
 CALL db.index.fulltext.queryNodes('nameIndex', 'bounty') YIELD node, score

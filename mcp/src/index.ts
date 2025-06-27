@@ -57,6 +57,7 @@ app.post("/upload", uploads.upload_files);
 app.get("/status/:requestId", uploads.check_status);
 app.get("/embed_code", uploads.embed_code);
 app.get("/update_token_counts", uploads.update_token_counts);
+app.get("/rules_files", r.get_rules_files);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (req: Request, res: Response): void => {
