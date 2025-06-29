@@ -10,6 +10,7 @@ pub mod go;
 pub mod graphs;
 pub mod java;
 pub mod kotlin;
+pub mod nextjs;
 pub mod python;
 pub mod react;
 pub mod ruby;

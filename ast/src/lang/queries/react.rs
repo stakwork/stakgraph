@@ -1,3 +1,6 @@
+use crate::lang::linker::normalize_backend_path;
+use crate::lang::linker::normalize_frontend_path;
+
 use super::super::*;
 use super::consts::*;
 use anyhow::{Context, Result};
@@ -189,7 +192,7 @@ impl Stack for ReactTs {
                     ]
                 )
                 (pair
-                    key: (property_identifier) @function-name
+                    key: (property_identifier) @{FUNCTION_NAME}
                     value: [
                         (function_expression
                                 parameters: (formal_parameters) @{ARGUMENTS}
@@ -323,21 +326,59 @@ impl Stack for ReactTs {
                 ] @{FUNCTION_DEFINITION}"#
         ))
     }
+    fn endpoint_finders(&self) -> Vec<String> {
+        vec![format!(
+            r#"
+            (export_statement
+                (function_declaration
+                    name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
+                ) @{ROUTE}
+            )
+            (export_statement
+                (lexical_declaration
+                        (variable_declarator
+                            name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
+                        )
+                )@{ROUTE}
+            )
+        "#
+        )]
+    }
+
     fn request_finder(&self) -> Option<String> {
         Some(format!(
-            r#"(call_expression
-                function: [
-                    (identifier) @{REQUEST_CALL}
-                    (member_expression
-                        property: (property_identifier) @{REQUEST_CALL}
+            r#"
+                ;; Matches: fetch('/api/...')
+                (call_expression
+                    function: (identifier) @{REQUEST_CALL} (#eq? @{REQUEST_CALL} "fetch")
+                    arguments: (arguments [ (string) (template_string) ] @{ENDPOINT})
+                ) @{ROUTE}
+
+                ;; Matches: axios.get('/api/...'), ky.post('/api/...') etc.
+                (call_expression
+                    function: (member_expression
+                        object: (identifier) @lib (#match? @lib "^(axios|ky|superagent)$")
+                        property: (property_identifier) @{REQUEST_CALL} (#match? @{REQUEST_CALL} "^(get|post|put|delete|patch)$")
                     )
-                ] (#match? @{REQUEST_CALL} "^fetch$|^get$|^post$|^put$|^delete$")
-                arguments: (arguments
-                    [(string) (template_string)] @{ENDPOINT}
-                )
-            ) @{ROUTE}"#
+                    arguments: (arguments [ (string) (template_string) ] @{ENDPOINT})
+                ) @{ROUTE}
+
+                ;; Matches: axios({{ url: '/api/...' }})
+                (call_expression
+                    function: (identifier) @lib (#match? @lib "^(axios|ky|superagent)$")
+                    arguments: (arguments
+                        (object
+                            (pair
+                                key: (property_identifier) @url_key (#eq? @url_key "url")
+                                value: [ (string) (template_string) ] @{ENDPOINT}
+                            )
+                        )
+                    )
+                ) @{ROUTE}
+            "#
         ))
     }
+
     fn function_call_query(&self) -> String {
         format!(
             "[
@@ -384,6 +425,47 @@ impl Stack for ReactTs {
         if inst.meta.get("verb").is_none() {
             inst.add_verb("GET");
         }
+    }
+
+    fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {
+        // for next.js
+        if matches!(
+            nd.name.as_str(),
+            "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
+        ) {
+            nd.name = endpoint_name_from_file(&nd.file);
+        }
+        if let Some(verb) = nd.meta.get("verb") {
+            nd.meta.insert("handler".to_string(), verb.to_string());
+        } else {
+            nd.meta.insert("handler".to_string(), "GET".to_string());
+        }
+    }
+    fn update_request(&self, nd: &mut NodeData) {
+        if nd.name.starts_with('/') || nd.name.starts_with("api/") {
+            if let Some(normalized_path) = normalize_frontend_path(&nd.name) {
+                nd.name = normalized_path;
+            }
+        }
+    }
+    fn use_handler_finder(&self) -> bool {
+        true
+    }
+    fn handler_finder(
+        &self,
+        endpoint: NodeData,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
+        _handler_params: HandlerParams,
+    ) -> Vec<(NodeData, Option<Edge>)> {
+        if let Some(verb) = endpoint.meta.get("verb") {
+            let handler_name = verb;
+            if let Some(handler_node) = find_fn(handler_name, &endpoint.file) {
+                let edge = Edge::handler(&endpoint, &handler_node);
+                return vec![(endpoint, Some(edge))];
+            }
+        }
+        vec![(endpoint, None)]
     }
     fn is_router_file(&self, file_name: &str, _code: &str) -> bool {
         // next.js or react-router-dom
@@ -524,4 +606,19 @@ impl Stack for ReactTs {
             "#,
         )]
     }
+}
+
+pub fn endpoint_name_from_file(file: &str) -> String {
+    let path = file.replace('\\', "/");
+    let route_path = if let Some(idx) = path.find("/api/") {
+        let after_api = &path[idx..];
+        after_api
+            .trim_end_matches("/route.ts")
+            .trim_end_matches("/route.js")
+            .to_string()
+    } else {
+        file.to_string()
+    };
+
+    normalize_backend_path(&route_path).unwrap_or(route_path)
 }

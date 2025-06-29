@@ -151,7 +151,7 @@ impl Stack for Java {
         ))
     }
 
-    fn update_endpoint_verb(&self, nd: &mut NodeData, _call: &Option<String>) {
+    fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {
         if let Some(verb_annotation) = nd.meta.get("verb").cloned() {
             let http_verb = match verb_annotation.as_str() {
                 "GETMAPPING" => "GET",

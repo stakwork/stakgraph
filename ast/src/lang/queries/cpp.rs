@@ -271,7 +271,7 @@ impl Stack for Cpp {
         nd.add_verb("ANY");
     }
 
-    fn update_endpoint_verb(&self, nd: &mut NodeData, _call: &Option<String>) {
+    fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {
         if let Some(verb_annotation) = nd.meta.get("verb").cloned() {
             let c = verb_annotation.trim();
             let verb = if let Some(stripped) = c.strip_suffix("_METHOD") {

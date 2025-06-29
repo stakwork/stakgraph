@@ -23,7 +23,7 @@ impl Lang {
                 NodeType::Instance => vec![self.format_instance(&m, code, file, q)?],
                 NodeType::Trait => vec![self.format_trait(&m, code, file, q)?],
                 // req and endpoint are the same format in the query templates
-                NodeType::Endpoint | NodeType::Request => self
+                NodeType::Request => self
                     .format_endpoint::<G>(&m, code, file, q, None, &None)?
                     .into_iter()
                     .map(|(nd, _e)| nd)

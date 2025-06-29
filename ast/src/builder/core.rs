@@ -2,6 +2,7 @@ use super::utils::*;
 use crate::lang::graphs::Graph;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
+use crate::lang::linker;
 use crate::lang::{asg::NodeData, graphs::NodeType};
 use crate::lang::{ArrayGraph, BTreeMapGraph};
 use crate::repo::Repo;
@@ -620,6 +621,8 @@ impl Repo {
             }
             info!("=> got {} function calls", i);
         }
+
+        linker::link_api_nodes(graph)?;
 
         self.lang
             .lang()

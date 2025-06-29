@@ -154,6 +154,10 @@ pub fn normalize_backend_path(path: &str) -> Option<String> {
         (Regex::new(r"\([^)]+\)").unwrap(), ":param"),
         // Optional parameters with curly braces
         (Regex::new(r"\{[^}]+\?\}").unwrap(), ":param"),
+        // Next.js catch-all "[...param]" style
+        (Regex::new(r"\[\.\.\.[^\]]+\]").unwrap(), ":param"),
+        // Next.js "[param]" style
+        (Regex::new(r"\[[^\]]+\]").unwrap(), ":param"),
     ];
 
     let mut normalized = path.to_string();
