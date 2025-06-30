@@ -1,21 +1,16 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::repo::Repo;
 use crate::utils::get_use_lsp;
-use crate::{lang::Lang, repo::Repo};
-use std::str::FromStr;
 
 pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let use_lsp = get_use_lsp();
-    let repo = Repo::new(
-        "src/testing/go",
-        Lang::from_str("go").unwrap(),
-        use_lsp,
-        Vec::new(),
-        Vec::new(),
-    )
-    .unwrap();
 
-    let graph = repo.build_graph_inner::<G>().await?;
+    let repos = Repo::new_multi_detect("src/testing/go", None, Vec::new(), Vec::new())
+        .await
+        .unwrap();
+
+    let graph = repos.build_graphs_inner::<G>().await?;
 
     graph.analysis();
 

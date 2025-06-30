@@ -1,19 +1,13 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-use crate::{lang::Lang, repo::Repo};
-use std::str::FromStr;
+use crate::repo::Repo;
 
 pub async fn test_rust_generic<G: Graph>() -> Result<(), anyhow::Error> {
-    let repo = Repo::new(
-        "src/testing/rust",
-        Lang::from_str("rust").unwrap(),
-        false,
-        Vec::new(),
-        Vec::new(),
-    )
-    .unwrap();
+    let repos = Repo::new_multi_detect("src/testing/rust", None, Vec::new(), Vec::new())
+        .await
+        .unwrap();
 
-    let graph = repo.build_graph_inner::<G>().await?;
+    let graph = repos.build_graphs_inner::<G>().await?;
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     assert_eq!(num_nodes, 50, "Expected 50 nodes");
