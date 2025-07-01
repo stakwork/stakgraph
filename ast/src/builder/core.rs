@@ -12,7 +12,7 @@ use lsp::{git::get_commit_hash, strip_root, Cmd as LspCmd, DidOpen};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::fs;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 impl Repo {
     pub async fn build_graph(&self) -> Result<ArrayGraph> {
@@ -214,7 +214,7 @@ impl Repo {
                     text: code.to_string(),
                     lang: self.lang.kind.clone(),
                 };
-                debug!("didopen: {:?}", didopen);
+                trace!("didopen: {:?}", didopen);
                 let _ = LspCmd::DidOpen(didopen).send(&lsp_tx)?;
             }
         }

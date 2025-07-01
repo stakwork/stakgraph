@@ -5,7 +5,7 @@ use crate::lang::neo4j_utils::TransactionManager;
 use crate::lang::{NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
-use tracing::info;
+use tracing::{debug, info};
 
 #[derive(Debug, Clone)]
 pub struct GraphOps {
@@ -128,17 +128,23 @@ impl GraphOps {
         let connection = self.graph.ensure_connected().await?;
 
         let mut nodes_txn_manager = TransactionManager::new(&connection);
+        debug!("uploading {} nodes", btree_graph.nodes.len());
         for node in btree_graph.nodes.values() {
             nodes_txn_manager.add_node(&node.node_type, &node.node_data);
+            debug!("added node {}", node.node_data.name);
         }
+        debug!("executing node upload");
         nodes_txn_manager.execute().await?;
 
         let mut edges_txn_manager = TransactionManager::new(&connection);
+        debug!("uploading {} edges", btree_graph.edges.len());
         let edges = btree_graph.to_array_graph_edges();
         for edge in edges {
             edges_txn_manager.add_edge(&edge);
         }
+        debug!("executing edge upload");
         edges_txn_manager.execute().await?;
+        debug!("edge upload complete!");
 
         let (nodes, edges) = self.graph.get_graph_size();
         Ok((nodes, edges))

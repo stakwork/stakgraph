@@ -19,7 +19,7 @@ use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
 use tower::ServiceBuilder;
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 pub struct LspClient {
     root: PathBuf,
@@ -52,7 +52,7 @@ impl LspClient {
         Ok(file)
     }
     pub async fn handle(&mut self, cmd: Cmd) -> Result<Res> {
-        debug!("handle: {:?}", cmd);
+        trace!("handle: {:?}", cmd);
         Ok(match cmd {
             Cmd::DidOpen(di) => {
                 let fp = self.file_path(&di.file)?;

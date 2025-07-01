@@ -154,6 +154,7 @@ pub async fn ingest(
     graph_ops.graph.clear().await?;
 
     let (nodes, edges) = graph_ops.upload_btreemap_to_neo4j(&btree_graph).await?;
+    info!("upload complete! nodes: {}, edges: {}", nodes, edges);
     graph_ops.graph.create_indexes().await?;
 
     info!(

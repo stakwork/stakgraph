@@ -4,7 +4,7 @@ use anyhow::Result;
 use lazy_static::lazy_static;
 use neo4rs::{query, BoltMap, BoltType, ConfigBuilder, Graph as Neo4jConnection};
 use std::sync::{Arc, Once};
-use tiktoken_rs::get_bpe_from_model;
+use tiktoken_rs::{get_bpe_from_model, CoreBPE};
 use tracing::{debug, info};
 
 use super::*;
@@ -81,7 +81,7 @@ impl NodeQueryBuilder {
         }
     }
 
-    pub fn build(&self) -> (String, BoltMap) {
+    pub fn build(&self, bpe: &CoreBPE) -> (String, BoltMap) {
         let mut properties: BoltMap = (&self.node_data).into();
         let ref_id = if std::env::var("TEST_REF_ID").is_ok() {
             "test_ref_id".to_string()
@@ -94,7 +94,7 @@ impl NodeQueryBuilder {
         let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
         boltmap_insert_str(&mut properties, "node_key", &node_key);
 
-        let token_count = calculate_token_count(&self.node_data.body).unwrap_or(0);
+        let token_count = calculate_token_count(&self.node_data.body, bpe);
         boltmap_insert_int(&mut properties, "token_count", token_count);
 
         let query = format!(
@@ -145,6 +145,7 @@ impl EdgeQueryBuilder {
 pub struct TransactionManager<'a> {
     conn: &'a Neo4jConnection,
     queries: Vec<(String, BoltMap)>,
+    bpe: CoreBPE,
 }
 
 impl<'a> TransactionManager<'a> {
@@ -152,6 +153,7 @@ impl<'a> TransactionManager<'a> {
         Self {
             conn,
             queries: Vec::new(),
+            bpe: get_bpe_from_model("gpt-4").unwrap(),
         }
     }
 
@@ -161,7 +163,8 @@ impl<'a> TransactionManager<'a> {
     }
 
     pub fn add_node(&mut self, node_type: &NodeType, node_data: &NodeData) -> &mut Self {
-        self.queries.push(add_node_query(node_type, node_data));
+        self.queries
+            .push(add_node_query(node_type, node_data, &self.bpe));
         self
     }
 
@@ -196,8 +199,12 @@ impl<'a> TransactionManager<'a> {
     }
 }
 
-pub fn add_node_query(node_type: &NodeType, node_data: &NodeData) -> (String, BoltMap) {
-    NodeQueryBuilder::new(node_type, node_data).build()
+pub fn add_node_query(
+    node_type: &NodeType,
+    node_data: &NodeData,
+    bpe: &CoreBPE,
+) -> (String, BoltMap) {
+    NodeQueryBuilder::new(node_type, node_data).build(bpe)
 }
 
 pub fn add_edge_query(edge: &Edge) -> (String, BoltMap) {
@@ -554,10 +561,11 @@ pub fn add_node_with_parent_query(
     node_data: &NodeData,
     parent_type: &NodeType,
     parent_file: &str,
+    bpe: &CoreBPE,
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
-    queries.push(add_node_query(node_type, node_data));
+    queries.push(add_node_query(node_type, node_data, bpe));
 
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "node_name", &node_data.name);
@@ -583,10 +591,11 @@ pub fn add_functions_query(
     dms: &[Edge],
     trait_operand: Option<&Edge>,
     return_types: &[Edge],
+    bpe: &CoreBPE,
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
-    queries.push(add_node_query(&NodeType::Function, function_node));
+    queries.push(add_node_query(&NodeType::Function, function_node, bpe));
 
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "function_name", &function_node.name);
@@ -614,7 +623,7 @@ pub fn add_functions_query(
     }
 
     for req in reqs {
-        queries.push(add_node_query(&NodeType::Request, req));
+        queries.push(add_node_query(&NodeType::Request, req, bpe));
 
         let mut params = BoltMap::new();
         boltmap_insert_str(&mut params, "function_name", &function_node.name);
@@ -640,10 +649,11 @@ pub fn add_test_node_query(
     test_data: &NodeData,
     test_type: &NodeType,
     test_edge: &Option<Edge>,
+    bpe: &CoreBPE,
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
-    queries.push(add_node_query(test_type, test_data));
+    queries.push(add_node_query(test_type, test_data, bpe));
 
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "test_type", &test_type.to_string());
@@ -666,10 +676,14 @@ pub fn add_test_node_query(
     queries
 }
 
-pub fn add_page_query(page_data: &NodeData, edge_opt: &Option<Edge>) -> Vec<(String, BoltMap)> {
+pub fn add_page_query(
+    page_data: &NodeData,
+    edge_opt: &Option<Edge>,
+    bpe: &CoreBPE,
+) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
-    queries.push(add_node_query(&NodeType::Page, page_data));
+    queries.push(add_node_query(&NodeType::Page, page_data, bpe));
 
     if let Some(edge) = edge_opt {
         queries.push(add_edge_query(edge));
@@ -678,11 +692,11 @@ pub fn add_page_query(page_data: &NodeData, edge_opt: &Option<Edge>) -> Vec<(Str
     queries
 }
 
-pub fn add_pages_query(pages: &[(NodeData, Vec<Edge>)]) -> Vec<(String, BoltMap)> {
+pub fn add_pages_query(pages: &[(NodeData, Vec<Edge>)], bpe: &CoreBPE) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
     for (page_data, edges) in pages {
-        queries.push(add_node_query(&NodeType::Page, page_data));
+        queries.push(add_node_query(&NodeType::Page, page_data, bpe));
 
         for edge in edges {
             queries.push(add_edge_query(edge));
@@ -692,11 +706,14 @@ pub fn add_pages_query(pages: &[(NodeData, Vec<Edge>)]) -> Vec<(String, BoltMap)
     queries
 }
 
-pub fn add_endpoints_query(endpoints: &[(NodeData, Option<Edge>)]) -> Vec<(String, BoltMap)> {
+pub fn add_endpoints_query(
+    endpoints: &[(NodeData, Option<Edge>)],
+    bpe: &CoreBPE,
+) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
     for (endpoint_data, handler_edge) in endpoints {
-        queries.push(add_node_query(&NodeType::Endpoint, endpoint_data));
+        queries.push(add_node_query(&NodeType::Endpoint, endpoint_data, bpe));
 
         if let Some(edge) = handler_edge {
             queries.push(add_edge_query(edge));
@@ -710,6 +727,7 @@ pub fn add_calls_query(
     funcs: &[(Calls, Option<NodeData>, Option<NodeData>)],
     tests: &[(Calls, Option<NodeData>, Option<NodeData>)],
     int_tests: &[Edge],
+    bpe: &CoreBPE,
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
@@ -727,7 +745,7 @@ pub fn add_calls_query(
             continue;
         }
         if let Some(ext_nd) = ext_func {
-            queries.push(add_node_query(&NodeType::Function, ext_nd));
+            queries.push(add_node_query(&NodeType::Function, ext_nd, bpe));
             let edge = Edge::uses(calls.source.clone(), ext_nd);
             queries.push(add_edge_query(&edge));
         } else {
@@ -738,7 +756,7 @@ pub fn add_calls_query(
 
     for (test_call, ext_func, _class_call) in tests {
         if let Some(ext_nd) = ext_func {
-            queries.push(add_node_query(&NodeType::Function, ext_nd));
+            queries.push(add_node_query(&NodeType::Function, ext_nd, bpe));
             let edge = Edge::uses(test_call.source.clone(), ext_nd);
             queries.push(add_edge_query(&edge));
         } else {
@@ -830,10 +848,9 @@ fn boltmap_to_bolttype_map(bolt_map: &BoltMap) -> BoltType {
     }
     BoltType::Map(BoltMap { value: map })
 }
-pub fn calculate_token_count(body: &str) -> Result<i64> {
-    let bpe = get_bpe_from_model("gpt-4")?;
+pub fn calculate_token_count(body: &str, bpe: &CoreBPE) -> i64 {
     let token_count = bpe.encode_with_special_tokens(body).len() as i64;
-    Ok(token_count)
+    token_count
 }
 // Add these functions to neo4j_utils.rs
 

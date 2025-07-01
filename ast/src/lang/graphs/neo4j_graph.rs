@@ -9,6 +9,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use tiktoken_rs::{get_bpe_from_model, CoreBPE};
 use tracing::{debug, info};
 
 use super::neo4j_utils::Neo4jConnectionManager;
@@ -41,6 +42,7 @@ pub struct Neo4jGraph {
     connection: Option<Arc<Neo4jConnection>>,
     config: Neo4jConfig,
     connected: Arc<Mutex<bool>>,
+    bpe: CoreBPE,
 }
 
 impl Neo4jGraph {
@@ -49,6 +51,7 @@ impl Neo4jGraph {
             connection: None,
             config,
             connected: Arc::new(Mutex::new(false)),
+            bpe: get_bpe_from_model("gpt-4").unwrap(),
         }
     }
 
@@ -276,6 +279,7 @@ impl Default for Neo4jGraph {
             connection: None,
             config: Neo4jConfig::default(),
             connected: Arc::new(Mutex::new(false)),
+            bpe: get_bpe_from_model("gpt-4").unwrap(),
         }
     }
 }
@@ -647,7 +651,13 @@ impl Neo4jGraph {
         parent_file: &str,
     ) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_node_with_parent_query(&node_type, &node_data, &parent_type, parent_file);
+        let queries = add_node_with_parent_query(
+            &node_type,
+            &node_data,
+            &parent_type,
+            parent_file,
+            &self.bpe,
+        );
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
@@ -688,6 +698,7 @@ impl Neo4jGraph {
                         inst,
                         &NodeType::File,
                         &inst.file,
+                        &self.bpe,
                     );
                     for query in queries {
                         txn_manager.add_query(query);
@@ -712,6 +723,7 @@ impl Neo4jGraph {
                 dms,
                 trait_operand.as_ref(),
                 return_types,
+                &self.bpe,
             );
             for query in queries {
                 txn_manager.add_query(query);
@@ -722,7 +734,7 @@ impl Neo4jGraph {
     }
     pub async fn add_page_async(&mut self, page: (NodeData, Option<Edge>)) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_page_query(&page.0, &page.1);
+        let queries = add_page_query(&page.0, &page.1, &self.bpe);
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
@@ -734,7 +746,7 @@ impl Neo4jGraph {
 
     pub async fn add_pages_async(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_pages_query(&pages);
+        let queries = add_pages_query(&pages, &self.bpe);
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
@@ -794,7 +806,7 @@ impl Neo4jGraph {
         test_edge: Option<Edge>,
     ) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_test_node_query(&test_data, &test_type, &test_edge);
+        let queries = add_test_node_query(&test_data, &test_type, &test_edge, &self.bpe);
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
