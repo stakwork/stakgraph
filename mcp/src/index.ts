@@ -23,7 +23,7 @@ function swagger(_: Request, res: Response) {
 const app = express();
 app.use(cors());
 
-// MCP routes must come before body parsing middleware to preserve raw streams
+// MCP routes must come before body parsing middleware to preserve raw streams.
 mcp_routes(app);
 
 app.use(express.json());
