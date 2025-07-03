@@ -10,10 +10,11 @@ async fn clear_neo4j() {
 }
 
 #[cfg(feature = "neo4j")]
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+// #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_graph_consistency() {
     use ast::lang::graphs::{BTreeMapGraph, EdgeType};
-    use ast::lang::Graph;
+    use ast::lang::{Edge, Graph};
     use ast::repo::Repo;
     use tracing::info;
 
