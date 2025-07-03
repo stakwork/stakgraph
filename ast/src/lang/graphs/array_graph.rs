@@ -1,12 +1,13 @@
 use super::{graph::Graph, *};
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
+#[cfg(test)]
+use crate::testing::utils as test_utils;
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 use tracing::debug;
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArrayGraph {
     pub nodes: Vec<Node>,
@@ -36,22 +37,29 @@ impl Graph for ArrayGraph {
         Self::default()
     }
     fn analysis(&self) {
-        for edge in &self.edges {
-            println!(
-                "From {:?}-{:?} to {:?}-{:?} type: {:?}",
-                edge.source.node_data.name,
-                edge.source.node_type,
-                edge.target.node_data.name,
-                edge.target.node_type,
-                edge.edge
-            );
-        }
+        #[cfg(test)]
+        test_utils::clear_current_analysis();
 
         for node in &self.nodes {
-            println!(
-                "Node: {:?}-{:?}-{:?}",
-                node.node_data.name, node.node_type, node.node_data.file
+            let key = create_node_key(node);
+            let line = format!("[Node] : {}", key);
+            debug!("{}", &line);
+            #[cfg(test)]
+            test_utils::log_analysis_line(line);
+        }
+
+        for edge in &self.edges {
+            let source_key = create_node_key_from_ref(&edge.source);
+            let target_key = create_node_key_from_ref(&edge.target);
+            let line = format!(
+                "[Edge] : {} - {} -> {}",
+                source_key,
+                edge.edge.to_string(),
+                target_key
             );
+            debug!("{}", &line);
+            #[cfg(test)]
+            test_utils::log_analysis_line(line);
         }
     }
     fn create_filtered_graph(self, final_filter: &[String]) -> Self {

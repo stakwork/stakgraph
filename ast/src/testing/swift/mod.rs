@@ -2,6 +2,7 @@ use crate::lang::graphs::NodeType;
 use crate::lang::Graph;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+use test_log::test;
 
 pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -90,7 +91,7 @@ pub async fn test_swift_generic<G: Graph>() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_swift() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_swift_generic::<ArrayGraph>().await.unwrap();

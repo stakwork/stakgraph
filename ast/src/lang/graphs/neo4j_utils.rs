@@ -241,19 +241,14 @@ pub fn count_nodes_edges_query() -> String {
         .to_string()
 }
 pub fn graph_node_analysis_query() -> String {
-    "MATCH (n) 
-     RETURN labels(n)[1] as node_type, n.name as name, n.file as file, n.start as start, 
-            n.end as end, n.body as body, n.data_type as data_type, n.docs as docs, 
-            n.hash as hash, n.meta as meta
-     ORDER BY node_type, name"
+    "MATCH (n) WHERE n.node_key IS NOT NULL RETURN n.node_key as node_key ORDER BY n.node_key"
         .to_string()
 }
 pub fn graph_edges_analysis_query() -> String {
     "MATCH (source)-[r]->(target) 
-     RETURN labels(source)[1] as source_type, source.name as source_name, source.file as source_file, source.start as source_start,
-            type(r) as edge_type, labels(target)[1] as target_type, 
-            target.name as target_name, target.file as target_file, target.start as target_start
-     ORDER BY source_type, source_name, edge_type, target_type, target_name"
+     WHERE source.node_key IS NOT NULL AND target.node_key IS NOT NULL
+     RETURN source.node_key as source_key, type(r) as edge_type, target.node_key as target_key
+     ORDER BY source_key, edge_type, target_key"
         .to_string()
 }
 pub fn count_edges_by_type_query(edge_type: &EdgeType) -> (String, BoltMap) {

@@ -1,4 +1,6 @@
 use super::{neo4j_utils::*, *};
+#[cfg(test)]
+use crate::testing::utils as test_utils;
 use crate::utils::sync_fn;
 use crate::{lang::Function, lang::Node, Lang};
 use anyhow::Result;
@@ -345,71 +347,48 @@ impl Neo4jGraph {
         }
     }
     pub async fn analysis_async(&self) -> Result<()> {
+        #[cfg(test)]
+        test_utils::clear_current_analysis();
         let connection = self.get_connection();
-        let (nodes, edges) = self.get_graph_size();
-        println!("Graph contains {} nodes and {} edges", nodes, edges);
+        let (nodes, edges) = self.get_graph_size_async().await.unwrap_or_default();
+        info!("Graph contains {} nodes and {} edges", nodes, edges);
 
-        let query_str = graph_node_analysis_query();
-        match connection.execute(query(&query_str)).await {
+        let node_query_str = graph_node_analysis_query();
+        match connection.execute(query(&node_query_str)).await {
             Ok(mut result) => {
                 while let Some(row) = result.next().await? {
-                    if let (Ok(node_type), Ok(name), Ok(file), Ok(start)) = (
-                        row.get::<String>("node_type"),
-                        row.get::<String>("name"),
-                        row.get::<String>("file"),
-                        row.get::<i64>("start"),
-                    ) {
-                        println!("Node: \"{}\"-{}-{}-{}", node_type, name, file, start);
+                    if let Ok(node_key) = row.get::<String>("node_key") {
+                        let line = format!("[Node] : {}", node_key);
+                        debug!("{}", &line);
+                        #[cfg(test)]
+                        test_utils::log_analysis_line(line);
                     }
                 }
             }
             Err(e) => {
-                debug!("Error retrieving node details: {}", e);
+                debug!("Error retrieving node details for analysis: {}", e);
             }
         }
 
-        let query_str = graph_edges_analysis_query();
-        match connection.execute(query(&query_str)).await {
+        let edge_query_str = graph_edges_analysis_query();
+        match connection.execute(query(&edge_query_str)).await {
             Ok(mut result) => {
                 while let Some(row) = result.next().await? {
-                    if let (
-                        Ok(source_type),
-                        Ok(source_name),
-                        Ok(source_file),
-                        Ok(source_start),
-                        Ok(edge_type),
-                        Ok(target_type),
-                        Ok(target_name),
-                        Ok(target_file),
-                        Ok(target_start),
-                    ) = (
-                        row.get::<String>("source_type"),
-                        row.get::<String>("source_name"),
-                        row.get::<String>("source_file"),
-                        row.get::<i64>("source_start"),
+                    if let (Ok(source_key), Ok(edge_type), Ok(target_key)) = (
+                        row.get::<String>("source_key"),
                         row.get::<String>("edge_type"),
-                        row.get::<String>("target_type"),
-                        row.get::<String>("target_name"),
-                        row.get::<String>("target_file"),
-                        row.get::<i64>("target_start"),
+                        row.get::<String>("target_key"),
                     ) {
-                        println!(
-                            "From {}-{}-{}-{} to {}-{}-{}-{} : {}",
-                            source_type,
-                            source_name,
-                            source_file,
-                            source_start,
-                            target_type,
-                            target_name,
-                            target_file,
-                            target_start,
-                            edge_type,
-                        );
+                        let line =
+                            format!("[Edge] : {} - {} -> {}", source_key, edge_type, target_key);
+                        debug!("{}", &line);
+                        #[cfg(test)]
+                        test_utils::log_analysis_line(line);
                     }
                 }
             }
             Err(e) => {
-                debug!("Error retrieving edge details: {}", e);
+                debug!("Error retrieving edge details for analysis: {}", e);
             }
         }
         Ok(())

@@ -3,6 +3,7 @@ use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use anyhow::Result;
 use std::str::FromStr;
+use test_log::test;
 
 pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -166,7 +167,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_kotlin() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_kotlin_generic::<ArrayGraph>().await.unwrap();

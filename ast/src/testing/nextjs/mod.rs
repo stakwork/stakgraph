@@ -8,6 +8,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::str::FromStr;
+use test_log::test;
 
 pub async fn test_nextjs_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let use_lsp = get_use_lsp() && false; // To activete LSP_SKIP_CLONE = true, helps with tsx issues
@@ -233,7 +234,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_nextjs() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_nextjs_generic::<ArrayGraph>().await.unwrap();
