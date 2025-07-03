@@ -169,6 +169,8 @@ pub struct Operand {
 pub struct Calls {
     pub source: NodeKeys,
     pub target: NodeKeys,
+    pub call_start: usize,
+    pub call_end: usize,
     pub operand: Option<String>,
 }
 

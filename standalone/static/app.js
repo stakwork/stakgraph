@@ -10,6 +10,7 @@ const App = () => {
   const [currentRepoName, setCurrentRepoName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [repoExists, setRepoExists] = useState(false);
+  const [progressInfo, setProgressInfo] = useState(null);
 
   useEffect(() => {
     const fetchRepo = async () => {
@@ -30,6 +31,9 @@ const App = () => {
   const { closeConnection } = useSSE("/events", {
     onMessage: (data, event) => {
       console.log("=>", data);
+      if (data && data.step !== undefined) {
+        setProgressInfo(data);
+      }
     },
   });
 
@@ -51,14 +55,57 @@ const App = () => {
 
   const handleSubmit = async () => {
     setIsLoading(true);
+    setProgressInfo(null);
     await POST("/ingest", { repo_url: repoUrl, username, pat });
     setIsLoading(false);
   };
 
   const handleSync = async () => {
     setIsLoading(true);
+    setProgressInfo(null);
     await POST("/process", { repo_url: repoUrl, username, pat });
     setIsLoading(false);
+  };
+
+  const renderProgressBar = () => {
+    if (!progressInfo) return null;
+
+    const stepPercentage = Math.min(
+      100,
+      Math.round((progressInfo.step / progressInfo.total_steps) * 100)
+    );
+    const stepWidth = `${stepPercentage}%`;
+
+    const progressPercentage = Math.min(
+      100,
+      Math.round(progressInfo.progress * 100)
+    );
+    const progressWidth = `${progressPercentage}%`;
+
+    return html`
+      <div class="progress-container">
+        <div class="progress-info">
+          <div>
+            Step${progressInfo.step}/${progressInfo.total_steps}:${progressInfo.message}
+          </div>
+          <div>${stepPercentage}%</div>
+        </div>
+        <div class="progress-bar steps-bar">
+          <div class="steps-fill" style="width: ${stepWidth}"></div>
+        </div>
+
+        <div class="progress-info sub-progress">
+          <div>Progress within step:</div>
+          <div>${progressPercentage}%</div>
+        </div>
+        <div class="progress-bar progress-bar-small">
+          <div
+            class="progress-fill-small"
+            style="width: ${progressWidth}"
+          ></div>
+        </div>
+      </div>
+    `;
   };
 
   return html`
@@ -96,6 +143,7 @@ const App = () => {
             ? html`<div class="loading"><${LoadingSvg} /></div>`
             : "Sync Repo to Latest"}
         </button>`}
+        ${progressInfo && renderProgressBar()}
       </div>
     </div>
   `;

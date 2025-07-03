@@ -105,7 +105,6 @@ fn delete_react_testing_node_modules() -> std::io::Result<()> {
     }
     Ok(())
 }
-
 pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
     let node_type = node_ref.node_type.to_string().to_lowercase();
     let name = &node_ref.node_data.name;

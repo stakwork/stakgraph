@@ -56,7 +56,7 @@ This project uses the Language Server Protocol to connect nodes in the graph.
 
 ##### rust
 
-https://github.com/rust-lang/rust-analyzer/releases
+`rustup component add rust-analyzer`
 
 ##### python
 

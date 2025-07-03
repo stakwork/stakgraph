@@ -21,7 +21,7 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^1.2.12",
     "@anthropic-ai/sdk": "^0.37.0",
-    "@browserbasehq/stagehand": "^2.3.0",
+    "@browserbasehq/stagehand": "^2.4.0",
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.4.1",
     "@octokit/rest": "^21.1.1",
@@ -57,7 +57,6 @@
     "htm": "3.1.1",
     "preact": "10.26.5",
     "ts-node": "^10.9.2",
-    "tsc": "^2.0.4",
     "tsup": "^8.4.0",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3"

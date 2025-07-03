@@ -3281,7 +3281,6 @@ dependencies = [
  "lsp",
  "serde",
  "serde_json",
- "test-log",
  "tokio",
  "tower-http",
  "tracing",

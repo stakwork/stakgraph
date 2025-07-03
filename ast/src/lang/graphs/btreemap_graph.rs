@@ -649,35 +649,20 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    // NOTE: is this very inefficient?
     fn prefix_paths(&mut self, root: &str) {
-        // self
-        //     .nodes
-        //     .iter_mut()
-        //     .for_each(|(_k, node)| {
-        //         node.add_root(root);
-        //     });
-        let new_nodes: BTreeMap<String, Node> = self
+        let nodes_to_update: Vec<_> = self
             .nodes
             .iter()
-            .map(|(key, node)| {
-                let new_key = add_root_to_node_key(root, key);
+            .map(|(k, node)| {
                 let mut new_node = node.clone();
                 new_node.add_root(root);
-                (new_key, new_node)
+                (k.clone(), new_node)
             })
             .collect();
-        self.nodes = new_nodes;
-        let new_edges: BTreeSet<(String, String, EdgeType)> = self
-            .edges
-            .iter()
-            .map(|(src, dst, edge_type)| {
-                let new_src = add_root_to_node_key(root, src);
-                let new_dst = add_root_to_node_key(root, dst);
-                (new_src, new_dst, edge_type.clone())
-            })
-            .collect();
-        self.edges = new_edges;
+
+        for (key, node) in nodes_to_update {
+            self.nodes.insert(key, node);
+        }
     }
 
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
@@ -924,48 +909,4 @@ impl Ord for BTreeMapGraph {
             other_ordering => other_ordering,
         }
     }
-}
-
-pub fn add_root_to_file(root: &str, file_path: &str) -> String {
-    if file_path.starts_with("/") {
-        return file_path.to_string();
-    }
-    format!("{}/{}", root, file_path)
-}
-
-pub fn add_root_to_node_key(root: &str, edge_key: &str) -> String {
-    // Split the edge key into parts
-    let parts: Vec<&str> = edge_key.split('-').collect();
-
-    // We need at least 4 parts: node_type, name, file, start
-    if parts.len() < 4 {
-        return edge_key.to_string(); // Invalid format, return original
-    }
-
-    // Extract the parts
-    let node_type = parts[0];
-    let name = parts[1];
-    let file = parts[2];
-    let start = parts[3];
-
-    // Add root to the file part
-    let updated_file = add_root_to_file(root, file);
-
-    // Reconstruct the edge key
-    let mut result = String::new();
-    result.push_str(node_type);
-    result.push('-');
-    result.push_str(name);
-    result.push('-');
-    result.push_str(&sanitize_string(&updated_file));
-    result.push('-');
-    result.push_str(start);
-
-    // If there's a verb part (5th element), add it back
-    if parts.len() > 4 {
-        result.push('-');
-        result.push_str(parts[4]);
-    }
-
-    result
 }

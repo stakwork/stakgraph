@@ -15,7 +15,6 @@ tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
 axum = { version = "0.7", features = ["ws", "multipart", "macros"] }
 futures = "0.3.31"
-test-log = "0.*"
 
 [features]
 neo4j = ["ast/neo4j"]

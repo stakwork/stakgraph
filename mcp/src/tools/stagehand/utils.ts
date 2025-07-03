@@ -37,20 +37,20 @@ export async function getOrCreateStagehand() {
     },
   });
   await sh.init();
-  
+
   // Clear any existing logs when stagehand is recreated (only on new creation)
   clearConsoleLogs();
-  
+
   // Set up console log listener
-  sh.page.on('console', (msg) => {
+  sh.page.on("console", (msg) => {
     addConsoleLog({
       timestamp: new Date().toISOString(),
       type: msg.type(),
       text: msg.text(),
-      location: msg.location()
+      location: msg.location(),
     });
   });
-  
+
   STAGEHAND = sh;
   return sh;
 }

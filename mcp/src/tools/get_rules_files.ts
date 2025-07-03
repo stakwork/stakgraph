@@ -3,6 +3,8 @@ import { Tool } from "./index.js";
 import { parseSchema } from "./utils.js";
 import * as G from "../graph/graph.js";
 
+export const GetRulesFilesSchema = z.object({});
+
 export const RULES_PATTERNS = [
   "/.windsurfrules",
   "/.cursorrules",
@@ -16,7 +18,7 @@ export const GetRulesFilesTool: Tool = {
   name: "stakgraph_rules_files",
   description:
     "Fetch rules files (e.g. .cursorrules, .windsurfrules, CLAUDE.md, etc.) as code snippets.",
-  inputSchema: {},
+  inputSchema: parseSchema(GetRulesFilesSchema),
 };
 
 export async function getRulesFiles() {

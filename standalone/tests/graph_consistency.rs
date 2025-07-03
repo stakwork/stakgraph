@@ -1,6 +1,5 @@
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphOps;
-use test_log::test;
 
 #[cfg(feature = "neo4j")]
 async fn clear_neo4j() {
@@ -10,7 +9,6 @@ async fn clear_neo4j() {
 }
 
 #[cfg(feature = "neo4j")]
-// #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_graph_consistency() {
     use ast::lang::graphs::{BTreeMapGraph, EdgeType};

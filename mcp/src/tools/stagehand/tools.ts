@@ -55,6 +55,13 @@ export const AgentSchema = z.object({
     .optional()
     .default("openai")
     .describe("The provider to use for agent functionality."),
+  include_screenshot: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe(
+      "Whether to include a final screenshot in the agent's response (as a base64 string)."
+    ),
 });
 
 export const LogsSchema = z.object({});
@@ -209,17 +216,27 @@ export async function call(
           provider: provider.name as AgentProviderType,
           model: provider.computer_use_model,
         });
-        const rez = await agent.execute({
+        const rez = (await agent.execute({
           instruction: parsedArgs.instruction,
           maxSteps: 25,
-        });
+        })) as any;
+        if (parsedArgs.include_screenshot) {
+          console.log("=====> agent taking screenshot");
+          const buffer = await stagehand.page.screenshot({ fullPage: false });
+          const base64 = buffer.toString("base64");
+          rez.screenshot = {
+            type: "image" as const,
+            data: base64,
+            mimeType: "image/png",
+          };
+        }
         return success(`${JSON.stringify(rez)}`);
       }
 
       case LogsTool.name: {
         LogsSchema.parse(args); // Validate even though no args expected
         const logs = getConsoleLogs();
-        return success(`Console logs (${logs.length} entries):\n${JSON.stringify(logs, null, 2)}`);
+        return success(JSON.stringify(logs, null, 2));
       }
 
       default:

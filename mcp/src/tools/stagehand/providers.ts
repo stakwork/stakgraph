@@ -7,13 +7,11 @@ export interface Provider {
   api_key_env_var_name: string;
 }
 
-//  claude-sonnet-4-20250514
-
 export const PROVIDER_MODELS: Record<ProviderName, Provider> = {
   anthropic: {
     name: "anthropic",
-    model: "claude-3-7-sonnet-20250219",
-    computer_use_model: "claude-3-7-sonnet-20250219",
+    model: "claude-3-7-sonnet-latest",
+    computer_use_model: "claude-sonnet-4-20250514",
     api_key_env_var_name: "ANTHROPIC_API_KEY",
   },
   openai: {

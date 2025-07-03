@@ -134,7 +134,6 @@ impl Lang {
         file: &str,
         caller_node: TreeNode,
         caller_name: &str,
-        caller_start: usize,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<Vec<FunctionCall>> {
@@ -143,16 +142,9 @@ impl Lang {
         let mut matches = cursor.matches(q, caller_node, code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            if let Some(fc) = self.format_function_call(
-                &m,
-                code,
-                file,
-                q,
-                caller_name,
-                caller_start,
-                graph,
-                lsp_tx,
-            )? {
+            if let Some(fc) =
+                self.format_function_call(&m, code, file, q, caller_name, graph, lsp_tx)?
+            {
                 res.push(fc);
             }
         }

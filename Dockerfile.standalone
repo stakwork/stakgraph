@@ -21,6 +21,6 @@ RUN cargo build --release --manifest-path standalone/Cargo.toml --features neo4j
 FROM sphinxlightning/stakgraph-lsp:latest
 
 COPY --from=builder /app/standalone/target/release/standalone /root
-COPY --from=builder /app/standalone/static /root/standalone/static
+COPY --from=builder /app/standalone/static /root/static
 
 CMD ["/root/standalone"]

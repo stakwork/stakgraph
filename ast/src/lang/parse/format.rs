@@ -641,7 +641,6 @@ impl Lang {
         file: &str,
         q: &Query,
         caller_name: &str,
-        caller_start: usize,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<Option<FunctionCall>> {
@@ -681,8 +680,8 @@ impl Lang {
                             if let Some(one_func) =
                                 func_target_file_finder(&called, &None, graph, file)
                             {
-                                log_cmd(format!("==> ? ONE target for {:?} {}", called, &one_func.0));
-                                fc.target = NodeKeys::new(&called, &one_func.0, one_func.1);
+                                log_cmd(format!("==> ? ONE target for {:?} {}", called, &one_func));
+                                fc.target = NodeKeys::new(&called, &one_func, 0);
                             } else {
                                 log_cmd(format!(
                                     "==> ? definition, not in graph: {:?} in {}",
@@ -736,13 +735,15 @@ impl Lang {
                     if let Some(tf) = func_target_file_finder(&called, &None, graph, file) {
                         log_cmd(format!(
                             "==> ? (no lsp) ONE target for {:?} {}",
-                            called, &tf.0
+                            called, &tf
                         ));
-                        fc.target = NodeKeys::new(&called, &tf.0, tf.1);
+                        fc.target = NodeKeys::new(&called, &tf, 0);
                     }
                 }
             } else if o == FUNCTION_CALL {
-                fc.source = NodeKeys::new(&caller_name, file, caller_start);
+                fc.source = NodeKeys::new(&caller_name, file, node.start_position().row);
+                fc.call_start = node.start_position().row;
+                fc.call_end = node.end_position().row;
             } else if o == OPERAND {
                 fc.operand = Some(body.clone());
                 if self.lang.direct_class_calls() {
@@ -869,6 +870,8 @@ impl Lang {
         let mut call_position = None;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == HANDLER {
+                fc.call_start = node.start_position().row;
+                fc.call_end = node.end_position().row;
                 let p = node.start_position();
                 let pos = Position::new(file, p.row as u32, p.column as u32)?;
                 handler_name = Some(body);
