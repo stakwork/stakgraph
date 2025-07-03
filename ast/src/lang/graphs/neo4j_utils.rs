@@ -128,23 +128,25 @@ impl EdgeQueryBuilder {
 
         let rel_type = self.edge.edge.to_string();
 
+        let source_type = self.edge.source.node_type.to_string();
         let source_key = create_node_key_from_ref(&self.edge.source);
         boltmap_insert_str(&mut params, "source_key", &source_key);
 
+        let target_type = self.edge.target.node_type.to_string();
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
 
-        println!(
-            "[EdgeQueryBuilder] source_key: {}, target_key: {}",
-            source_key, target_key
-        );
+        // println!(
+        //     "[EdgeQueryBuilder] source_key: {}, target_key: {}",
+        //     source_key, target_key
+        // );
 
         let query = format!(
-            "MATCH (source {{node_key: $source_key}}),
-                 (target {{node_key: $target_key}})
+            "MATCH (source:{} {{node_key: $source_key}}),
+                 (target:{} {{node_key: $target_key}})
             MERGE (source)-[r:{}]->(target)
             RETURN r",
-            rel_type
+            source_type, target_type, rel_type
         );
         (query, params)
     }
