@@ -1,8 +1,10 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::testing::utils::{assert_golden_standard, parse_golden_standard};
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+use test_log::test;
 
 pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let use_lsp = get_use_lsp();
@@ -183,19 +185,125 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_go() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    println!("ArrayGraph:");
-    test_go_generic::<ArrayGraph>().await.unwrap();
-    println!("BTreeMapGraph:");
-    test_go_generic::<BTreeMapGraph>().await.unwrap();
+    if !get_use_lsp() {
+        let golden_standard = parse_golden_standard(GO_GOLDEN_STANDARD);
 
-    #[cfg(feature = "neo4j")]
-    {
-        use crate::lang::graphs::Neo4jGraph;
-        let mut graph = Neo4jGraph::default();
-        graph.clear().await.unwrap();
-        test_go_generic::<Neo4jGraph>().await.unwrap();
+        test_go_generic::<ArrayGraph>().await.unwrap();
+        assert_golden_standard(&golden_standard);
+
+        test_go_generic::<BTreeMapGraph>().await.unwrap();
+        assert_golden_standard(&golden_standard);
+
+        #[cfg(feature = "neo4j")]
+        {
+            use crate::lang::graphs::Neo4jGraph;
+            let mut graph = Neo4jGraph::default();
+            graph.clear().await.unwrap();
+            test_go_generic::<Neo4jGraph>().await.unwrap();
+            assert_golden_standard(&golden_standard);
+        }
+    } else {
+        test_go_generic::<ArrayGraph>().await.unwrap();
+        test_go_generic::<BTreeMapGraph>().await.unwrap();
+        #[cfg(feature = "neo4j")]
+        {
+            let mut graph = crate::lang::graphs::Neo4jGraph::default();
+            graph.clear().await.unwrap();
+            test_go_generic::<crate::lang::graphs::Neo4jGraph>()
+                .await
+                .unwrap();
+        }
     }
 }
+
+const GO_GOLDEN_STANDARD: &str = r#"
+[Node] : repository-go-srctestinggomain-0
+[Node] : language-go-srctestinggo-0
+[Node] : file-gitignore-srctestinggogitignore-0
+[Node] : file-dbgo-srctestinggodbgo-0
+[Node] : file-gomod-srctestinggogomod-0
+[Node] : file-gosum-srctestinggogosum-0
+[Node] : file-maingo-srctestinggomaingo-0
+[Node] : file-routesgo-srctestinggoroutesgo-0
+[Node] : library-gormiodriverpostgres-srctestinggogomod-4
+[Node] : library-gormiogorm-srctestinggogomod-4
+[Node] : library-githubcomgochichi-srctestinggogomod-9
+[Node] : library-githubcomrscors-srctestinggogomod-9
+[Node] : import-importimportsdbgo2-srctestinggodbgo-2
+[Node] : import-importimportsmaingo2-srctestinggomaingo-2
+[Node] : import-importimportsroutesgo2-srctestinggoroutesgo-2
+[Node] : var-db-srctestinggodbgo-14
+[Node] : class-database-srctestinggodbgo-9
+[Node] : instance-db-srctestinggodbgo-14
+[Node] : datamodel-database-srctestinggodbgo-9
+[Node] : datamodel-person-srctestinggodbgo-16
+[Node] : function-tablename-srctestinggodbgo-22
+[Node] : function-newperson-srctestinggodbgo-26
+[Node] : function-createoreditperson-srctestinggodbgo-31
+[Node] : function-updatepersonname-srctestinggodbgo-38
+[Node] : function-getpersonbyid-srctestinggodbgo-47
+[Node] : function-initdb-srctestinggodbgo-55
+[Node] : function-main-srctestinggomaingo-11
+[Node] : function-newrouter-srctestinggoroutesgo-17
+[Node] : function-getperson-srctestinggoroutesgo-42
+[Node] : function-createperson-srctestinggoroutesgo-55
+[Node] : function-initchi-srctestinggoroutesgo-78
+[Node] : endpoint-personid-srctestinggoroutesgo-21-get
+[Node] : endpoint-person-srctestinggoroutesgo-22-post
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> language-go-srctestinggo-0
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> file-gitignore-srctestinggogitignore-0
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> file-dbgo-srctestinggodbgo-0
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> file-gomod-srctestinggogomod-0
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> file-gosum-srctestinggogosum-0
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> file-maingo-srctestinggomaingo-0
+[Edge] : repository-go-srctestinggomain-0 - CONTAINS -> file-routesgo-srctestinggoroutesgo-0
+[Edge] : file-gomod-srctestinggogomod-0 - CONTAINS -> library-gormiodriverpostgres-srctestinggogomod-4
+[Edge] : file-gomod-srctestinggogomod-0 - CONTAINS -> library-gormiogorm-srctestinggogomod-4
+[Edge] : file-gomod-srctestinggogomod-0 - CONTAINS -> library-githubcomgochichi-srctestinggogomod-9
+[Edge] : file-gomod-srctestinggogomod-0 - CONTAINS -> library-githubcomrscors-srctestinggogomod-9
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> import-importimportsdbgo2-srctestinggodbgo-2
+[Edge] : file-maingo-srctestinggomaingo-0 - CONTAINS -> import-importimportsmaingo2-srctestinggomaingo-2
+[Edge] : file-routesgo-srctestinggoroutesgo-0 - CONTAINS -> import-importimportsroutesgo2-srctestinggoroutesgo-2
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> var-db-srctestinggodbgo-14
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> class-database-srctestinggodbgo-9
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> instance-db-srctestinggodbgo-14
+[Edge] : instance-db-srctestinggodbgo-14 - OF -> class-database-srctestinggodbgo-9
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> datamodel-database-srctestinggodbgo-9
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> function-tablename-srctestinggodbgo-22
+[Edge] : function-tablename-srctestinggodbgo-22 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> function-newperson-srctestinggodbgo-26
+[Edge] : class-database-srctestinggodbgo-9 - OPERAND -> function-newperson-srctestinggodbgo-26
+[Edge] : function-newperson-srctestinggodbgo-26 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> function-createoreditperson-srctestinggodbgo-31
+[Edge] : class-database-srctestinggodbgo-9 - OPERAND -> function-createoreditperson-srctestinggodbgo-31
+[Edge] : function-createoreditperson-srctestinggodbgo-31 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> function-updatepersonname-srctestinggodbgo-38
+[Edge] : class-database-srctestinggodbgo-9 - OPERAND -> function-updatepersonname-srctestinggodbgo-38
+[Edge] : function-updatepersonname-srctestinggodbgo-38 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> function-getpersonbyid-srctestinggodbgo-47
+[Edge] : class-database-srctestinggodbgo-9 - OPERAND -> function-getpersonbyid-srctestinggodbgo-47
+[Edge] : function-getpersonbyid-srctestinggodbgo-47 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : file-dbgo-srctestinggodbgo-0 - CONTAINS -> function-initdb-srctestinggodbgo-55
+[Edge] : function-initdb-srctestinggodbgo-55 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : function-initdb-srctestinggodbgo-55 - CONTAINS -> var-db-srctestinggodbgo-14
+[Edge] : file-maingo-srctestinggomaingo-0 - CONTAINS -> function-main-srctestinggomaingo-11
+[Edge] : file-routesgo-srctestinggoroutesgo-0 - CONTAINS -> function-newrouter-srctestinggoroutesgo-17
+[Edge] : file-routesgo-srctestinggoroutesgo-0 - CONTAINS -> function-getperson-srctestinggoroutesgo-42
+[Edge] : function-getperson-srctestinggoroutesgo-42 - CONTAINS -> var-db-srctestinggodbgo-14
+[Edge] : file-routesgo-srctestinggoroutesgo-0 - CONTAINS -> function-createperson-srctestinggoroutesgo-55
+[Edge] : function-createperson-srctestinggoroutesgo-55 - CONTAINS -> datamodel-person-srctestinggodbgo-16
+[Edge] : function-createperson-srctestinggoroutesgo-55 - CONTAINS -> var-db-srctestinggodbgo-14
+[Edge] : file-routesgo-srctestinggoroutesgo-0 - CONTAINS -> function-initchi-srctestinggoroutesgo-78
+[Edge] : endpoint-personid-srctestinggoroutesgo-21-get - HANDLER -> function-getperson-srctestinggoroutesgo-42
+[Edge] : endpoint-person-srctestinggoroutesgo-22-post - HANDLER -> function-createperson-srctestinggoroutesgo-55
+[Edge] : function-main-srctestinggomaingo-13 - CALLS -> function-initdb-srctestinggodbgo-0
+[Edge] : function-main-srctestinggomaingo-15 - CALLS -> function-newrouter-srctestinggoroutesgo-0
+[Edge] : function-newrouter-srctestinggoroutesgo-18 - CALLS -> function-initchi-srctestinggoroutesgo-78
+[Edge] : function-getperson-srctestinggoroutesgo-45 - CALLS -> function-getpersonbyid-srctestinggodbgo-0
+[Edge] : function-createperson-srctestinggoroutesgo-68 - CALLS -> function-newperson-srctestinggodbgo-0
+[Edge] : function-initchi-srctestinggoroutesgo-79 - CALLS -> function-newrouter-srctestinggoroutesgo-17
+"#;
