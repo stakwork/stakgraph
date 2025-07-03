@@ -58,6 +58,7 @@ impl Repo {
         self.finalize_graph(&mut graph, &filez).await?;
 
         let mut graph = filter_by_revs(&self.root.to_str().unwrap(), self.revs.clone(), graph);
+
         graph.prefix_paths(&self.root_less_tmp());
 
         println!("done!");

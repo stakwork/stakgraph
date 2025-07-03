@@ -1,5 +1,6 @@
 use crate::lang::Node;
 use crate::utils::create_node_key;
+use crate::utils::create_node_key_from_ref;
 use anyhow::Result;
 use lazy_static::lazy_static;
 use neo4rs::{query, BoltMap, BoltType, ConfigBuilder, Graph as Neo4jConnection};
@@ -99,6 +100,8 @@ impl NodeQueryBuilder {
         let token_count = calculate_token_count(&self.node_data.body).unwrap_or(0);
         boltmap_insert_int(&mut properties, "token_count", token_count);
 
+        println!("[NodeQueryBuilder] node_key: {}", node_key);
+
         let query = format!(
             "MERGE (node:{}:{} {{node_key: $node_key}})
             ON CREATE SET node += $properties
@@ -123,24 +126,56 @@ impl EdgeQueryBuilder {
     pub fn build(&self) -> (String, BoltMap) {
         let mut params = BoltMap::new();
 
-        boltmap_insert_str(&mut params, "source_name", &self.edge.source.node_data.name);
-        boltmap_insert_str(&mut params, "source_file", &self.edge.source.node_data.file);
-
-        boltmap_insert_str(&mut params, "target_name", &self.edge.target.node_data.name);
-        boltmap_insert_str(&mut params, "target_file", &self.edge.target.node_data.file);
-
-        boltmap_insert_str(&mut params, "rel_type", &self.edge.edge.to_string());
-
         let rel_type = self.edge.edge.to_string();
-        let source_type = self.edge.source.node_type.to_string();
-        let target_type = self.edge.target.node_type.to_string();
+
+        let source_key = create_node_key_from_ref(&self.edge.source);
+        boltmap_insert_str(&mut params, "source_key", &source_key);
+
+        let target_key = create_node_key_from_ref(&self.edge.target);
+        boltmap_insert_str(&mut params, "target_key", &target_key);
+
+        println!(
+            "[EdgeQueryBuilder] source_key: {}, target_key: {}",
+            source_key, target_key
+        );
 
         let query = format!(
-            "MATCH (source:{} {{name: $source_name, file: $source_file}}),
-                 (target:{} {{name: $target_name, file: $target_file}})
+            "MATCH (source:_ {{node_key: $source_key}}),
+                 (target:_ {{node_key: $target_key}})
             MERGE (source)-[r:{}]->(target)
             RETURN r",
-            source_type, target_type, rel_type
+            rel_type
+        );
+        (query, params)
+    }
+
+    pub fn build_from_keys(
+        source_key: &str,
+        target_key: &str,
+        edge_type: &EdgeType,
+    ) -> (String, BoltMap) {
+        let mut params = BoltMap::new();
+        boltmap_insert_str(&mut params, "source_key", source_key);
+        boltmap_insert_str(&mut params, "target_key", target_key);
+
+        println!("[EdgeQueryBuilder] source_key: {}, target_key: {}, {:?}", source_key, target_key, edge_type);
+
+        /*
+        MATCH (source:${source.node_type} {name: $source_name, file: $source_file})
+        MATCH (target:${target.node_type} {name: $target_name, file: $target_file})
+        MERGE (source)-[r:${edge.edge_type}]->(target)
+        RETURN r
+
+        function-getpeople-stakworkdemoreporoutesgo-79
+        target_key
+        function-getallpeople-stakworkdemorepodbgo-0
+         */
+        let query = format!(
+            "MATCH (source {{node_key: $source_key}})
+            MATCH (target {{node_key: $target_key}})
+            MERGE (source)-[r:{}]->(target)
+            RETURN r",
+            edge_type.to_string()
         );
         (query, params)
     }

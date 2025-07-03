@@ -611,13 +611,13 @@ impl Neo4jGraph {
         nodes.into_iter().find(|node| node.file.ends_with(suffix))
     }
     pub async fn prefix_paths_async(&mut self, root: &str) -> Result<()> {
-        // let connection = self.ensure_connected().await?;
-        // let mut txn_manager = TransactionManager::new(&connection);
+        let connection = self.ensure_connected().await?;
+        let mut txn_manager = TransactionManager::new(&connection);
 
-        // let (query_str, params) = prefix_paths_query(root);
-        // txn_manager.add_query((query_str, params));
+        let (query_str, params) = prefix_paths_query(root);
+        txn_manager.add_query((query_str, params));
 
-        // txn_manager.execute().await
+        txn_manager.execute().await?;
 
         Ok(())
     }
