@@ -2,6 +2,7 @@ use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use std::str::FromStr;
+use test_log::test;
 
 pub async fn test_rust_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -109,7 +110,7 @@ use std::net::SocketAddr;"#
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_rust() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_rust_generic::<ArrayGraph>().await.unwrap();

@@ -3,6 +3,7 @@ use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use anyhow::Result;
 use std::str::FromStr;
+use test_log::test;
 
 pub async fn test_java_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let repo = Repo::new(
@@ -18,7 +19,8 @@ pub async fn test_java_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
 
-    //graph.analysis();
+    graph.analysis();
+
     assert_eq!(num_nodes, 42, "Expected 42 nodes");
     assert_eq!(num_edges, 49, "Expected 49 edges");
 
@@ -183,7 +185,7 @@ import java.util.Optional;"#
     Ok(())
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_java() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_java_generic::<ArrayGraph>().await.unwrap();
