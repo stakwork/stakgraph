@@ -75,11 +75,11 @@ impl GraphOps {
     pub async fn update_incremental(
         &mut self,
         repo_url: &str,
-        username: Option<String>,
-        pat: Option<String>,
+        _username: Option<String>,
+        _pat: Option<String>,
         current_hash: &str,
         stored_hash: &str,
-        commit: Option<&str>,
+        _commit: Option<&str>,
         use_lsp: Option<bool>,
     ) -> Result<(u32, u32)> {
         let revs = vec![stored_hash.to_string(), current_hash.to_string()];
@@ -95,13 +95,11 @@ impl GraphOps {
                     self.graph.remove_nodes_by_file(file).await?;
                 }
 
-                let subgraph_repos = Repo::new_clone_multi_detect(
-                    repo_url,
-                    username.clone(),
-                    pat.clone(),
+                let subgraph_repos = Repo::new_multi_detect(
+                    &repo_path,
+                    Some(repo_url.to_string()),
                     modified_files.clone(),
                     Vec::new(),
-                    commit,
                     use_lsp,
                 )
                 .await?;
