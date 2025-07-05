@@ -41,6 +41,11 @@ pub struct Neo4jGraph {
 }
 
 impl Neo4jGraph {
+    pub async fn new() -> Result<Self> {
+        let graph = Self::default();
+        graph.connect().await?;
+        Ok(graph)
+    }
     pub fn with_config(config: Neo4jConfig) -> Self {
         Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
@@ -127,7 +132,7 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn clear(&mut self) -> Result<()> {
+    pub async fn clear(&self) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn = connection.start_txn().await?;
 
