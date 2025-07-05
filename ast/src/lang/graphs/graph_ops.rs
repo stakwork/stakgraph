@@ -105,7 +105,7 @@ impl GraphOps {
                 .await?;
 
                 for repo in &subgraph_repos.0 {
-                    self.graph = repo.build_graph_inner::<Neo4jGraph>().await?;
+                    repo.build_graph_inner::<Neo4jGraph>().await?;
                 }
 
                 let (nodes_after, edges_after) = self.graph.get_graph_size_async().await?;

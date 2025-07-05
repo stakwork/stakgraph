@@ -4,16 +4,15 @@ use crate::utils::create_node_key_from_ref;
 use anyhow::Result;
 use lazy_static::lazy_static;
 use neo4rs::{query, BoltMap, BoltType, ConfigBuilder, Graph as Neo4jConnection};
-use std::sync::{Arc, Once};
+use std::sync::Arc;
 use tiktoken_rs::{get_bpe_from_model, CoreBPE};
+use tokio::sync::OnceCell;
 use tracing::{debug, error, info};
 
 use super::*;
+static CONNECTION: OnceCell<Arc<Neo4jConnection>> = OnceCell::const_new();
 
 lazy_static! {
-    static ref CONNECTION: tokio::sync::Mutex<Option<Arc<Neo4jConnection>>> =
-        tokio::sync::Mutex::new(None);
-    static ref INIT: Once = Once::new();
     static ref TOKENIZER: CoreBPE = get_bpe_from_model("gpt-4").unwrap();
 }
 
@@ -29,8 +28,9 @@ impl Neo4jConnectionManager {
         password: &str,
         database: &str,
     ) -> Result<()> {
-        let mut conn_guard = CONNECTION.lock().await;
-        if conn_guard.is_some() {
+        let conn_guad = CONNECTION.get();
+        if conn_guad.is_some() {
+            info!("Neo4j connection already initialized.");
             return Ok(());
         }
 
@@ -42,24 +42,24 @@ impl Neo4jConnectionManager {
             .db(database)
             .build()?;
 
-        match Neo4jConnection::connect(config).await {
-            Ok(connection) => {
-                info!("Successfully connected to Neo4j");
-                *conn_guard = Some(Arc::new(connection));
-                Ok(())
-            }
-            Err(e) => Err(anyhow::anyhow!("Failed to connect to Neo4j: {}", e)),
+        let conn = Neo4jConnection::connect(config).await?;
+
+        if CONNECTION.set(Arc::new(conn)).is_ok() {
+            info!("Successfully connected to Neo4j");
+        } else {
+            info!("Connection already initialized, skipping.");
         }
+        Ok(())
     }
 
     pub async fn get_connection() -> Option<Arc<Neo4jConnection>> {
-        CONNECTION.lock().await.clone()
+        if let Some(conn) = CONNECTION.get() {
+            return Some(conn.clone());
+        }
+        error!("Neo4j connection not initialized. Call `initialize` first.");
+        None
     }
 
-    pub async fn clear_connection() {
-        let mut conn = CONNECTION.lock().await;
-        *conn = None;
-    }
     pub async fn initialize_from_env() -> Result<()> {
         let uri =
             std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://localhost:7687".to_string());

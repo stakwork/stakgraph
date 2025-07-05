@@ -100,6 +100,10 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
 
     if let Some(hash) = &stored_hash {
         if hash == &current_hash {
+            info!(
+                "Repository already processed with hash: {}\n\n",
+                current_hash
+            );
             let (nodes, edges) = graph_ops.graph.get_graph_size();
             return Ok(Json(ProcessResponse {
                 status: "success".to_string(),

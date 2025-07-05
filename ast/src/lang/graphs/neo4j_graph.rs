@@ -90,8 +90,6 @@ impl Neo4jGraph {
         let mut conn_status = self.connected.lock().await;
         *conn_status = false;
 
-        Neo4jConnectionManager::clear_connection().await;
-
         info!("Disconnected from Neo4j database");
         Ok(())
     }
