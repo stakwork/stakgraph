@@ -104,9 +104,7 @@ impl GraphOps {
                 )
                 .await?;
 
-                for repo in &subgraph_repos.0 {
-                    repo.build_graph_inner::<Neo4jGraph>().await?;
-                }
+                self.graph = subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
 
                 let (nodes_after, edges_after) = self.graph.get_graph_size_async().await?;
                 info!(
@@ -159,7 +157,7 @@ impl GraphOps {
         &mut self,
         btree_graph: &BTreeMapGraph,
     ) -> anyhow::Result<(u32, u32)> {
-        self.graph.ensure_connected().await?;
+        self.graph.ensure_connected().await;
 
         debug!("preparing node upload {}", btree_graph.nodes.len());
         let node_queries: Vec<(String, BoltMap)> = btree_graph
