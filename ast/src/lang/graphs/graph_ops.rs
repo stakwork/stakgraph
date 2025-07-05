@@ -157,7 +157,7 @@ impl GraphOps {
         &mut self,
         btree_graph: &BTreeMapGraph,
     ) -> anyhow::Result<(u32, u32)> {
-        self.graph.ensure_connected().await;
+        let _ = self.graph.ensure_connected().await?;
 
         debug!("preparing node upload {}", btree_graph.nodes.len());
         let node_queries: Vec<(String, BoltMap)> = btree_graph
