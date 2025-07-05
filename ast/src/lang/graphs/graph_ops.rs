@@ -99,12 +99,24 @@ impl GraphOps {
                     &repo_path,
                     Some(repo_url.to_string()),
                     modified_files.clone(),
-                    Vec::new(),
+                    vec![stored_hash.to_string(), current_hash.to_string()],
                     use_lsp,
                 )
                 .await?;
 
-                self.graph = subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
+                let (nodes_before_reassign, edges_before_reassign) = self.graph.get_graph_size();
+                info!(
+                    "[DEBUG]  Graph  BEFORE build {} nodes, {} edges",
+                    nodes_before_reassign, edges_before_reassign
+                );
+
+                subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
+
+                let (nodes_after_reassign, edges_after_reassign) = self.graph.get_graph_size();
+                info!(
+                    "[DEBUG]  Graph  AFTER build {} nodes, {} edges",
+                    nodes_after_reassign, edges_after_reassign
+                );
 
                 let (nodes_after, edges_after) = self.graph.get_graph_size_async().await?;
                 info!(
