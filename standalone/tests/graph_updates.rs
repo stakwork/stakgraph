@@ -28,7 +28,6 @@ async fn test_graph_update() {
     let use_lsp = Some(false);
 
     let mut graph_ops = GraphOps::new();
-    graph_ops.connect().await.unwrap();
     graph_ops.clear().await.unwrap();
 
     let (nodes_before, edges_before) = graph_ops
@@ -59,6 +58,12 @@ async fn test_graph_update() {
     assert!(
         assert_edge_exists(&mut graph_ops, "Beta", "Alpha").await,
         "Before: Beta should call Alpha"
+    );
+
+    let (nodes_before_inc, edges_before_inc) = graph_ops.graph.get_graph_size();
+    info!(
+        "[DEBUG] GraphOps state BEFORE incremental update: {} nodes, {} edges",
+        nodes_before_inc, edges_before_inc
     );
 
     let changed_files = get_changed_files_between(&repo_path, before_commit, after_commit)

@@ -75,11 +75,11 @@ impl GraphOps {
     pub async fn update_incremental(
         &mut self,
         repo_url: &str,
-        username: Option<String>,
-        pat: Option<String>,
+        _username: Option<String>,
+        _pat: Option<String>,
         current_hash: &str,
         stored_hash: &str,
-        commit: Option<&str>,
+        _commit: Option<&str>,
         use_lsp: Option<bool>,
     ) -> Result<(u32, u32)> {
         let revs = vec![stored_hash.to_string(), current_hash.to_string()];
@@ -95,20 +95,28 @@ impl GraphOps {
                     self.graph.remove_nodes_by_file(file).await?;
                 }
 
-                let subgraph_repos = Repo::new_clone_multi_detect(
-                    repo_url,
-                    username.clone(),
-                    pat.clone(),
+                let subgraph_repos = Repo::new_multi_detect(
+                    &repo_path,
+                    Some(repo_url.to_string()),
                     modified_files.clone(),
-                    Vec::new(),
-                    commit,
+                    vec![stored_hash.to_string(), current_hash.to_string()],
                     use_lsp,
                 )
                 .await?;
 
-                for repo in &subgraph_repos.0 {
-                    self.graph = repo.build_graph_inner::<Neo4jGraph>().await?;
-                }
+                let (nodes_before_reassign, edges_before_reassign) = self.graph.get_graph_size();
+                info!(
+                    "[DEBUG]  Graph  BEFORE build {} nodes, {} edges",
+                    nodes_before_reassign, edges_before_reassign
+                );
+
+                subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
+
+                let (nodes_after_reassign, edges_after_reassign) = self.graph.get_graph_size();
+                info!(
+                    "[DEBUG]  Graph  AFTER build {} nodes, {} edges",
+                    nodes_after_reassign, edges_after_reassign
+                );
 
                 let (nodes_after, edges_after) = self.graph.get_graph_size_async().await?;
                 info!(
@@ -161,7 +169,7 @@ impl GraphOps {
         &mut self,
         btree_graph: &BTreeMapGraph,
     ) -> anyhow::Result<(u32, u32)> {
-        self.graph.ensure_connected().await?;
+        let _ = self.graph.ensure_connected().await?;
 
         debug!("preparing node upload {}", btree_graph.nodes.len());
         let node_queries: Vec<(String, BoltMap)> = btree_graph

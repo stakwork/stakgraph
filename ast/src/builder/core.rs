@@ -29,14 +29,6 @@ impl Repo {
     }
 
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
-        #[cfg(feature = "neo4j")]
-        {
-            use crate::lang::graphs::neo4j_utils::Neo4jConnectionManager;
-            if let Err(e) = Neo4jConnectionManager::initialize_from_env().await {
-                info!("Failed to initialize Neo4j connection: {}", e);
-            }
-        }
-
         let mut graph = G::new();
 
         self.add_repository_and_language_nodes(&mut graph).await?;

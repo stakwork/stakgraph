@@ -4,7 +4,7 @@ use crate::types::{
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
 use ast::lang::Graph;
-use ast::repo::Repo;
+use ast::repo::{clone_repo, Repo};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::{extract::State, Json};
@@ -73,6 +73,8 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
     let repo_path = &final_repo_path;
     let repo_url = &final_repo_url;
 
+    clone_repo(&repo_url, &repo_path, username.clone(), pat.clone(), None).await?;
+
     let current_hash = match get_commit_hash(&repo_path).await {
         Ok(hash) => hash,
         Err(e) => {
@@ -98,6 +100,10 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
 
     if let Some(hash) = &stored_hash {
         if hash == &current_hash {
+            info!(
+                "Repository already processed with hash: {}\n\n",
+                current_hash
+            );
             let (nodes, edges) = graph_ops.graph.get_graph_size();
             return Ok(Json(ProcessResponse {
                 status: "success".to_string(),
