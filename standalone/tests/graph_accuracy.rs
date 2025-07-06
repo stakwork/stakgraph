@@ -23,20 +23,20 @@ async fn assert_graph_accuracy<G: Graph>(graph: &G, phase: &str) {
         classes.iter().map(|c| &c.name).collect::<Vec<_>>()
     );
     assert!(
-        classes.iter().any(|c| c.name == "Alpha"),
-        "[{}] Missing class Alpha",
+        classes.iter().any(|c| c.name == "database"),
+        "[{}] Missing class ",
         phase
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    println!(
-        "[{}] Functions: {:?}",
-        phase,
-        functions.iter().map(|f| &f.name).collect::<Vec<_>>()
-    );
     assert!(
         functions.iter().any(|f| f.name == "main"),
         "[{}] Missing function main",
+        phase
+    );
+    assert!(
+        functions.iter().any(|c| c.name == "Alpha"),
+        "[{}] Missing class Alpha",
         phase
     );
 
@@ -44,7 +44,6 @@ async fn assert_graph_accuracy<G: Graph>(graph: &G, phase: &str) {
     println!("[{}] Calls edges: {}", phase, calls);
 
     // TODO: Add more detailed assertions for endpoints, data models, etc.
-    // For multi-language, you can filter by file extension or directory as needed.
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -67,11 +66,9 @@ async fn test_graph_accuracy() {
     let array_graph = repos.build_graphs_inner::<ArrayGraph>().await.unwrap();
     assert_graph_accuracy(&array_graph, "ArrayGraph BEFORE").await;
 
-    // BTreeMapGraph
     let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
     assert_graph_accuracy(&btree_graph, "BTreeMapGraph BEFORE").await;
 
-    // Neo4jGraph
     #[cfg(feature = "neo4j")]
     {
         let mut graph_ops = GraphOps::new();
@@ -94,27 +91,40 @@ async fn test_graph_accuracy() {
         .await
         .unwrap(); //to pull it to the latest commit
 
-    let changed_files = get_changed_files_between(&repo_path, BEFORE_COMMIT, AFTER_COMMIT);
+    let changed_files = get_changed_files_between(&repo_path, BEFORE_COMMIT, AFTER_COMMIT)
+        .await
+        .unwrap();
 
     //TODO: Assert Changed files
+    println!("==>>Changed files: {:?}", changed_files);
 
-    let repos = Repo::new_multi_detect(
-        &repo_path,
-        Some(REPO_URL.to_string()),
-        changed_files.await.unwrap(),
-        vec![BEFORE_COMMIT.to_string(), AFTER_COMMIT.to_string()],
-        USE_LSP,
-    )
-    .await
-    .unwrap();
+    assert!(
+        changed_files.len() == 3,
+        "Expected 3 changed files, found: {}",
+        changed_files.len()
+    );
+    let expected_files = ["alpha.go", "beta.go", "delta.go"];
+    for file in expected_files {
+        assert!(
+            changed_files.contains(&file.to_string()),
+            "Expected changed file {} not found",
+            file
+        );
+    }
 
-    let array_graph = repos.build_graphs_inner::<ArrayGraph>().await.unwrap();
-    assert_graph_accuracy(&array_graph, "ArrayGraph AFTER").await;
+    let new_repos = Repo::new_multi_detect(&repo_path, None, Vec::new(), Vec::new(), USE_LSP)
+        .await
+        .unwrap();
 
-    let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
-    assert_graph_accuracy(&btree_graph, "BTreeMapGraph AFTER").await;
+    let new_array_graph = new_repos.build_graphs_inner::<ArrayGraph>().await.unwrap();
+    assert_graph_accuracy(&new_array_graph, "ArrayGraph AFTER").await;
 
-    // Neo4jGraph (incremental update)
+    let new_btree_graph = new_repos
+        .build_graphs_inner::<BTreeMapGraph>()
+        .await
+        .unwrap();
+    assert_graph_accuracy(&new_btree_graph, "BTreeMapGraph AFTER").await;
+
     #[cfg(feature = "neo4j")]
     {
         let mut graph_ops = GraphOps::new(); //should connect to thesame DB
@@ -132,12 +142,11 @@ async fn test_graph_accuracy() {
             .unwrap();
         assert_graph_accuracy(&graph_ops.graph, "Neo4jGraph AFTER").await;
 
-        let neo4j_graph = &graph_ops.graph;
+        let new_neo4j_graph = &graph_ops.graph;
 
-        // --- Consistency checks ---
-        let (array_nodes, array_edges) = array_graph.get_graph_size();
-        let (btree_nodes, btree_edges) = btree_graph.get_graph_size();
-        let (neo4j_nodes, neo4j_edges) = neo4j_graph.get_graph_size();
+        let (array_nodes, array_edges) = new_array_graph.get_graph_size();
+        let (btree_nodes, btree_edges) = new_btree_graph.get_graph_size();
+        let (neo4j_nodes, neo4j_edges) = new_neo4j_graph.get_graph_size();
 
         println!(
             "[CONSISTENCY] ArrayGraph: {} nodes, {} edges | BTreeMapGraph: {} nodes, {} edges | Neo4jGraph: {} nodes, {} edges",
@@ -181,7 +190,7 @@ async fn test_graph_accuracy() {
             .into_iter()
             .map(|n| n.name)
             .collect();
-        let neo4j_node_names: HashSet<_> = neo4j_graph
+        let neo4j_node_names: HashSet<_> = new_neo4j_graph
             .find_nodes_by_type(NodeType::Function)
             .into_iter()
             .map(|n| n.name)
