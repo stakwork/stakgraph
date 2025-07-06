@@ -1,0 +1,199 @@
+#[cfg(feature = "neo4j")]
+use ast::lang::graphs::graph_ops::GraphOps;
+
+use ast::lang::graphs::{ArrayGraph, BTreeMapGraph, Neo4jGraph};
+use ast::lang::{EdgeType, Graph, Node, NodeType};
+use ast::repo::{clone_repo, Repo};
+use lsp::git::get_changed_files_between;
+use std::collections::HashSet;
+
+const REPO_URL: &str = "https://github.com/fayekelmith/demorepo.git";
+const BEFORE_COMMIT: &str = "3a2bd5cc2e0a38ce80214a32ed06b2fb9430ab73";
+const AFTER_COMMIT: &str = "778b5202fca04a2cd5daed377c0063e9af52b24c";
+const USE_LSP: Option<bool> = Some(false);
+
+async fn assert_graph_accuracy<G: Graph>(graph: &G, phase: &str) {
+    let (num_nodes, num_edges) = graph.get_graph_size();
+    println!("[{}] Nodes: {}, Edges: {}", phase, num_nodes, num_edges);
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    println!(
+        "[{}] Classes: {:?}",
+        phase,
+        classes.iter().map(|c| &c.name).collect::<Vec<_>>()
+    );
+    assert!(
+        classes.iter().any(|c| c.name == "Alpha"),
+        "[{}] Missing class Alpha",
+        phase
+    );
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    println!(
+        "[{}] Functions: {:?}",
+        phase,
+        functions.iter().map(|f| &f.name).collect::<Vec<_>>()
+    );
+    assert!(
+        functions.iter().any(|f| f.name == "main"),
+        "[{}] Missing function main",
+        phase
+    );
+
+    let calls = graph.count_edges_of_type(EdgeType::Calls);
+    println!("[{}] Calls edges: {}", phase, calls);
+
+    // TODO: Add more detailed assertions for endpoints, data models, etc.
+    // For multi-language, you can filter by file extension or directory as needed.
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_graph_accuracy() {
+    let repo_path = Repo::get_path_from_url(REPO_URL).unwrap();
+
+    clone_repo(REPO_URL, &repo_path, None, None, Some(BEFORE_COMMIT))
+        .await
+        .unwrap();
+
+    let repos = Repo::new_multi_detect(
+        &repo_path,
+        Some(REPO_URL.to_string()),
+        Vec::new(),
+        Vec::new(),
+        USE_LSP,
+    )
+    .await
+    .unwrap();
+    let array_graph = repos.build_graphs_inner::<ArrayGraph>().await.unwrap();
+    assert_graph_accuracy(&array_graph, "ArrayGraph BEFORE").await;
+
+    // BTreeMapGraph
+    let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
+    assert_graph_accuracy(&btree_graph, "BTreeMapGraph BEFORE").await;
+
+    // Neo4jGraph
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph_ops = GraphOps::new();
+        graph_ops.clear().await.unwrap();
+        graph_ops
+            .update_full(
+                REPO_URL,
+                None,
+                None,
+                BEFORE_COMMIT,
+                Some(BEFORE_COMMIT),
+                USE_LSP,
+            )
+            .await
+            .unwrap();
+        assert_graph_accuracy(&graph_ops.graph, "Neo4jGraph BEFORE").await;
+    }
+
+    clone_repo(REPO_URL, &repo_path, None, None, Some(AFTER_COMMIT))
+        .await
+        .unwrap(); //to pull it to the latest commit
+
+    let changed_files = get_changed_files_between(&repo_path, BEFORE_COMMIT, AFTER_COMMIT);
+
+    //TODO: Assert Changed files
+
+    let repos = Repo::new_multi_detect(
+        &repo_path,
+        Some(REPO_URL.to_string()),
+        changed_files.await.unwrap(),
+        vec![BEFORE_COMMIT.to_string(), AFTER_COMMIT.to_string()],
+        USE_LSP,
+    )
+    .await
+    .unwrap();
+
+    let array_graph = repos.build_graphs_inner::<ArrayGraph>().await.unwrap();
+    assert_graph_accuracy(&array_graph, "ArrayGraph AFTER").await;
+
+    let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
+    assert_graph_accuracy(&btree_graph, "BTreeMapGraph AFTER").await;
+
+    // Neo4jGraph (incremental update)
+    #[cfg(feature = "neo4j")]
+    {
+        let mut graph_ops = GraphOps::new(); //should connect to thesame DB
+        graph_ops
+            .update_incremental(
+                REPO_URL,
+                None,
+                None,
+                AFTER_COMMIT,
+                BEFORE_COMMIT,
+                Some(AFTER_COMMIT),
+                USE_LSP,
+            )
+            .await
+            .unwrap();
+        assert_graph_accuracy(&graph_ops.graph, "Neo4jGraph AFTER").await;
+
+        let neo4j_graph = &graph_ops.graph;
+
+        // --- Consistency checks ---
+        let (array_nodes, array_edges) = array_graph.get_graph_size();
+        let (btree_nodes, btree_edges) = btree_graph.get_graph_size();
+        let (neo4j_nodes, neo4j_edges) = neo4j_graph.get_graph_size();
+
+        println!(
+            "[CONSISTENCY] ArrayGraph: {} nodes, {} edges | BTreeMapGraph: {} nodes, {} edges | Neo4jGraph: {} nodes, {} edges",
+            array_nodes, array_edges, btree_nodes, btree_edges, neo4j_nodes, neo4j_edges
+        );
+
+        assert_eq!(
+            array_nodes, btree_nodes,
+            "ArrayGraph and BTreeMapGraph node count mismatch"
+        );
+        assert_eq!(
+            array_nodes, neo4j_nodes,
+            "ArrayGraph and Neo4jGraph node count mismatch"
+        );
+        assert_eq!(
+            btree_nodes, neo4j_nodes,
+            "BTreeMapGraph and Neo4jGraph node count mismatch"
+        );
+
+        assert_eq!(
+            array_edges, btree_edges,
+            "ArrayGraph and BTreeMapGraph edge count mismatch"
+        );
+        assert_eq!(
+            array_edges, neo4j_edges,
+            "ArrayGraph and Neo4jGraph edge count mismatch"
+        );
+        assert_eq!(
+            btree_edges, neo4j_edges,
+            "BTreeMapGraph and Neo4jGraph edge count mismatch"
+        );
+
+        // Optionally: Compare node names for even deeper consistency
+        let array_node_names: HashSet<_> = array_graph
+            .find_nodes_by_type(NodeType::Function)
+            .into_iter()
+            .map(|n| n.name)
+            .collect();
+        let btree_node_names: HashSet<_> = btree_graph
+            .find_nodes_by_type(NodeType::Function)
+            .into_iter()
+            .map(|n| n.name)
+            .collect();
+        let neo4j_node_names: HashSet<_> = neo4j_graph
+            .find_nodes_by_type(NodeType::Function)
+            .into_iter()
+            .map(|n| n.name)
+            .collect();
+
+        assert_eq!(
+            array_node_names, btree_node_names,
+            "Function node names mismatch between ArrayGraph and BTreeMapGraph"
+        );
+        assert_eq!(
+            array_node_names, neo4j_node_names,
+            "Function node names mismatch between ArrayGraph and Neo4jGraph"
+        );
+    }
+}
