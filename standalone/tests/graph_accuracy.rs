@@ -1,7 +1,7 @@
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphOps;
 
-use ast::lang::graphs::{ArrayGraph, BTreeMapGraph, Neo4jGraph};
+use ast::lang::graphs::{ArrayGraph, BTreeMapGraph};
 use ast::lang::{EdgeType, Graph, Node, NodeType};
 use ast::repo::{clone_repo, Repo};
 use lsp::git::get_changed_files_between;
