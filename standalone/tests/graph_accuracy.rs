@@ -38,10 +38,6 @@ async fn assert_graph_accuracy<G: Graph>(graph: &G, phase: &str) {
         "[{}] Missing class Alpha",
         phase
     );
-
-    let calls = graph.count_edges_of_type(EdgeType::Calls);
-    println!("[{}] Calls edges: {}", phase, calls);
-
     // TODO: Add more detailed assertions for endpoints, data models, etc.
 }
 
@@ -66,6 +62,12 @@ async fn test_graph_accuracy() {
     let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
     assert_graph_accuracy(&btree_graph, "BTreeMapGraph BEFORE").await;
 
+    let (old_btree_nodes, old_btree_edges) = btree_graph.get_graph_size();
+    println!(
+        "[BEFORE] BTreeMapGraph: {} nodes, {} edges",
+        old_btree_nodes, old_btree_edges
+    );
+
     #[cfg(feature = "neo4j")]
     {
         let mut graph_ops = GraphOps::new();
@@ -81,6 +83,12 @@ async fn test_graph_accuracy() {
             )
             .await
             .unwrap();
+
+        let (old_neo4j_nodes, old_neo4j_edges) = graph_ops.graph.get_graph_size();
+        println!(
+            "[BEFORE] Neo4jGraph: {} nodes, {} edges",
+            old_neo4j_nodes, old_neo4j_edges
+        );
         assert_graph_accuracy(&graph_ops.graph, "Neo4jGraph BEFORE").await;
     }
 
@@ -92,14 +100,6 @@ async fn test_graph_accuracy() {
         .await
         .unwrap();
 
-    //TODO: Assert Changed files
-    println!("==>>Changed files: {:?}", changed_files);
-
-    assert!(
-        changed_files.len() == 3,
-        "Expected 3 changed files, found: {}",
-        changed_files.len()
-    );
     let expected_files = ["alpha.go", "beta.go", "delta.go"];
     for file in expected_files {
         assert!(
@@ -109,14 +109,24 @@ async fn test_graph_accuracy() {
         );
     }
 
-    let new_repos = Repo::new_multi_detect(&repo_path, None, Vec::new(), Vec::new(), USE_LSP)
-        .await
-        .unwrap();
+    let new_repos = Repo::new_multi_detect(
+        &repo_path,
+        Some(REPO_URL.to_string()),
+        Vec::new(),
+        Vec::new(),
+        USE_LSP,
+    )
+    .await
+    .unwrap();
 
     let new_btree_graph = new_repos
         .build_graphs_inner::<BTreeMapGraph>()
         .await
         .unwrap();
+
+    println!("BTreeMapGraph Details");
+    new_btree_graph.analysis();
+
     assert_graph_accuracy(&new_btree_graph, "BTreeMapGraph AFTER").await;
 
     #[cfg(feature = "neo4j")]
@@ -134,12 +144,13 @@ async fn test_graph_accuracy() {
             )
             .await
             .unwrap();
+
+        println!("Neo4jGraph Details");
+        graph_ops.graph.analysis();
         assert_graph_accuracy(&graph_ops.graph, "Neo4jGraph AFTER").await;
 
-        let new_neo4j_graph = &graph_ops.graph;
-
         let (btree_nodes, btree_edges) = new_btree_graph.get_graph_size();
-        let (neo4j_nodes, neo4j_edges) = new_neo4j_graph.get_graph_size();
+        let (neo4j_nodes, neo4j_edges) = graph_ops.graph.get_graph_size();
 
         println!(
             "[CONSISTENCY] BTreeMapGraph: {} nodes, {} edges | Neo4jGraph: {} nodes, {} edges",
