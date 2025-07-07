@@ -849,9 +849,6 @@ impl Neo4jGraph {
                     let edge: Edge = calls.clone().into();
                     txn_manager.add_edge(&edge);
                 }
-
-                let edge: Edge = calls.clone().into();
-                txn_manager.add_edge(&edge);
             }
         }
         for (test_call, ext_func, _class_call) in &tests {
