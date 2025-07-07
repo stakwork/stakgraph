@@ -38,7 +38,6 @@ impl Repo {
 
         let filez = fileys(&files)?;
         self.setup_lsp(&filez)?;
-
         self.process_libraries(&mut graph, &filez)?;
         self.process_import_sections(&mut graph, &filez)?;
         self.process_variables(&mut graph, &filez)?;
@@ -164,7 +163,6 @@ impl Repo {
             }
 
             let (parent_type, parent_file) = self.get_parent_info(&filepath);
-
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
         }
         self.send_status_progress(100, 100);
@@ -198,13 +196,6 @@ impl Repo {
         for (pkg_file, code) in pkg_files {
             info!("=> get_packages in... {:?}", pkg_file);
 
-            let mut file_data = self.prepare_file_data(&pkg_file, code);
-            file_data.meta.insert("lib".to_string(), "true".to_string());
-
-            let (parent_type, parent_file) = self.get_parent_info(&pkg_file.into());
-
-            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
-
             let libs = self.lang.get_libs::<G>(&code, &pkg_file)?;
             i += libs.len();
 
@@ -228,6 +219,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             let imports = self.lang.get_imports::<G>(&code, &filename)?;
 
             let import_section = combine_import_sections(imports);
@@ -254,6 +248,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             let variables = self.lang.get_vars::<G>(&code, &filename)?;
 
             i += variables.len();
@@ -309,6 +306,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             let qo = self
                 .lang
                 .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
@@ -344,6 +344,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             let q = self.lang.lang().instance_definition_query();
             let instances =
                 self.lang
@@ -354,6 +357,9 @@ impl Repo {
         let mut i = 0;
         info!("=> get_traits...");
         for (filename, code) in filez {
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             let traits = self.lang.get_traits::<G>(&code, &filename)?;
             i += traits.len();
 
@@ -376,6 +382,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             if let Some(dmf) = self.lang.lang().data_model_path_filter() {
                 if !filename.contains(&dmf) {
                     continue;
@@ -417,6 +426,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             let (funcs, tests) =
                 self.lang
                     .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
@@ -448,6 +460,9 @@ impl Repo {
         for (filename, code) in filez {
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             if self.lang.lang().is_router_file(&filename, &code) {
                 let pages = self.lang.get_pages(&code, &filename, &self.lsp_tx, graph)?;
                 i += pages.len();
@@ -488,6 +503,9 @@ impl Repo {
         i = 0;
         info!("=> get_component_templates");
         for (filename, code) in filez {
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             if let Some(ext) = self.lang.lang().template_ext() {
                 if filename.ends_with(ext) {
                     let template_edges = self
@@ -518,6 +536,9 @@ impl Repo {
             info!("=> get_page_component_renders");
             let mut page_renders_count = 0;
             for (filename, code) in filez {
+                if !self.lang.kind.is_source_file(filename) {
+                    continue;
+                }
                 let page_edges = self.lang.lang().page_component_renders_finder(
                     filename,
                     code,
@@ -545,6 +566,9 @@ impl Repo {
         let mut cnt = 0;
         info!("=> get_endpoints...");
         for (filename, code) in filez {
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             self.send_status_progress(cnt, filez.len());
             cnt += 1;
             if let Some(epf) = self.lang.lang().endpoint_path_filter() {
@@ -567,6 +591,9 @@ impl Repo {
 
         info!("=> get_endpoint_groups...");
         for (filename, code) in filez {
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             if self.lang.lang().is_test_file(&filename) {
                 continue;
             }
@@ -592,6 +619,9 @@ impl Repo {
         let mut i = 0;
         info!("=> get_import_edges...");
         for (filename, code) in filez {
+            if !self.lang.kind.is_source_file(filename) {
+                continue;
+            }
             if let Some(import_query) = self.lang.lang().imports_query() {
                 let q = self.lang.q(&import_query, &NodeType::Import);
                 let import_edges =
@@ -612,6 +642,9 @@ impl Repo {
         if self.lang.lang().use_integration_test_finder() {
             info!("=> get_integration_tests...");
             for (filename, code) in filez {
+                if !self.lang.kind.is_source_file(filename) {
+                    continue;
+                }
                 self.send_status_progress(cnt, filez.len());
                 cnt += 1;
                 if !self.lang.lang().is_test_file(&filename) {
@@ -635,6 +668,9 @@ impl Repo {
             let mut cnt = 0;
             info!("=> get_function_calls...");
             for (filename, code) in filez {
+                if !self.lang.kind.is_source_file(filename) {
+                    continue;
+                }
                 self.send_status_progress(cnt, filez.len());
                 cnt += 1;
                 let all_calls = self

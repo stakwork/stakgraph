@@ -64,7 +64,7 @@ impl Language {
             Self::Rust => vec!["rs"],
             Self::Go => vec!["go"],
             Self::Python => vec!["py", "ipynb"],
-            Self::Ruby => vec!["rb"],
+            Self::Ruby => vec!["rb", "erb", "haml", "slim", "html"],
             Self::Kotlin => vec!["kt", "kts", "java"],
             Self::Swift => vec!["swift"],
             Self::Java => vec!["java", "gradle", "gradlew"],
@@ -293,6 +293,20 @@ impl Language {
         } else {
             return true; //dirs, lang, repo
         }
+    }
+    pub fn is_source_file(&self, file_name: &str) -> bool {
+        if self.is_package_file(file_name) {
+            return true;
+        }
+
+        if let Some(ext) = file_name.split('.').last() {
+            if self.exts().contains(&ext) {
+                return true;
+            } else {
+                return false;
+            }
+        }
+        false
     }
 }
 
