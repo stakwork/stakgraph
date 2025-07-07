@@ -831,6 +831,25 @@ impl Neo4jGraph {
                 let edge = Edge::uses(calls.source.clone(), ext_nd);
                 txn_manager.add_edge(&edge);
             } else {
+                let target_in_file = self
+                    .find_node_by_name_in_file_async(
+                        NodeType::Function,
+                        &calls.target.name,
+                        &calls.source.file,
+                    )
+                    .await;
+                if let Some(target_function) = target_in_file {
+                    let edge = Edge::new(
+                        EdgeType::Calls,
+                        NodeRef::from(calls.source.clone(), NodeType::Function),
+                        NodeRef::from((&target_function).into(), NodeType::Function),
+                    );
+                    txn_manager.add_edge(&edge);
+                } else {
+                    let edge: Edge = calls.clone().into();
+                    txn_manager.add_edge(&edge);
+                }
+
                 let edge: Edge = calls.clone().into();
                 txn_manager.add_edge(&edge);
             }
