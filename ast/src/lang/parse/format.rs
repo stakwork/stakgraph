@@ -367,7 +367,16 @@ impl Lang {
                         }
                     } else {
                         // FALLBACK to find?
-                        return Ok(self.lang().handler_finder(
+                        if let Some(handler_name) = endp.meta.get("handler") {
+                            if let Some(handler_func) = graph
+                                .find_nodes_by_name(NodeType::Function, &handler_name)
+                                .first()
+                            {
+                                handler = Some(Edge::handler(&endp, handler_func));
+                                return Ok(vec![(endp, handler)]);
+                            }
+                        }
+                        let results = self.lang().handler_finder(
                             endp,
                             &|handler, suffix| {
                                 graph.find_node_by_name_and_file_end_with(
@@ -378,7 +387,9 @@ impl Lang {
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                             params,
-                        ));
+                        );
+
+                        return Ok(results);
                     }
                 }
             }
