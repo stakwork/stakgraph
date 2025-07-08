@@ -285,7 +285,8 @@ impl Stack for Python {
         endpoint: NodeData,
         find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
         find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
-        _handler_params: HandlerParams,
+        _find_fn: &dyn Fn(&str) -> Option<NodeData>,
+        _params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(handler) = endpoint.meta.get("handler") {
             if handler.contains('.') {

@@ -331,6 +331,7 @@ impl Lang {
         if let Some(graph) = graph {
             if self.lang().use_handler_finder() {
                 // find handler manually (not LSP)
+                let endp_clone = endp.clone();
                 return Ok(self.lang().handler_finder(
                     endp,
                     &|handler, suffix| {
@@ -341,6 +342,10 @@ impl Lang {
                         )
                     },
                     &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
+                    &|handler_name| {
+                        node_keys_finder(handler_name, graph, file, endp_clone.start.clone())
+                            .map(|nk| nk.into())
+                    },
                     params,
                 ));
             } else {
@@ -379,6 +384,10 @@ impl Lang {
                                 None => None,
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
+                            &|handler| {
+                                node_keys_finder(handler, graph, file, endp.start.clone())
+                                    .map(|nk| nk.into())
+                            },
                             params,
                         ));
                     }

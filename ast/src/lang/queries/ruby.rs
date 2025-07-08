@@ -259,6 +259,7 @@ impl Stack for Ruby {
         endpoint: NodeData,
         find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
         find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
+        _find_fn: &dyn Fn(&str) -> Option<NodeData>,
         params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if endpoint.meta.get("handler").is_none() {

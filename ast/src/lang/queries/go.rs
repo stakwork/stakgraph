@@ -151,6 +151,35 @@ impl Stack for Go {
             ) @{FUNCTION_CALL}"
         )
     }
+    fn use_handler_finder(&self) -> bool {
+        true
+    }
+    fn handler_finder(
+        &self,
+        endpoint: NodeData,
+        _find_fn_in_file: &dyn Fn(&str, &str) -> Option<NodeData>,
+        _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
+        find_fn: &dyn Fn(&str) -> Option<NodeData>,
+        _params: HandlerParams,
+    ) -> Vec<(NodeData, Option<Edge>)> {
+        let mut results = Vec::new();
+
+        if let Some(handler) = endpoint.meta.get("handler") {
+            if let Some(handler) = find_fn(&handler) {
+                //make sure you pass the suffix of the file
+                let edge = Edge::handler(&endpoint, &handler);
+                results.push((endpoint, Some(edge)));
+            } else {
+                println!(
+                    "===> Handler '{}' not found in  '{}'",
+                    handler, endpoint.name
+                );
+                results.push((endpoint, None));
+            }
+        }
+
+        results
+    }
     //     fn endpoint_handler_queries(&self) -> Vec<String> {
     //         let q1 = r#"("func"
     //     parameters: (parameter_list

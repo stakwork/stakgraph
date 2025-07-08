@@ -84,7 +84,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let class_function_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(class_function_edges.len(), 4, "Expected 4 methods");
+    assert_eq!(class_function_edges.len(), 5, "Expected 5 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     assert_eq!(data_models.len(), 5, "Expected 5 data models");

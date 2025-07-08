@@ -447,7 +447,8 @@ impl Stack for ReactTs {
         endpoint: NodeData,
         find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
         _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
-        _handler_params: HandlerParams,
+        _find_fn: &dyn Fn(&str) -> Option<NodeData>,
+        _params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(verb) = endpoint.meta.get("verb") {
             let handler_name = verb;
