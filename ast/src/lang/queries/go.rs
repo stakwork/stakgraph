@@ -170,10 +170,6 @@ impl Stack for Go {
                 let edge = Edge::handler(&endpoint, &handler);
                 results.push((endpoint, Some(edge)));
             } else {
-                println!(
-                    "===> Handler '{}' not found in  '{}'",
-                    handler, endpoint.name
-                );
                 results.push((endpoint, None));
             }
         }

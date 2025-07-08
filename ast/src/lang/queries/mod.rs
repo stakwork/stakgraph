@@ -200,19 +200,22 @@ pub trait Stack {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        find_fn_in_file: &dyn Fn(&str, &str) -> Option<NodeData>,
+        _find_fn_in_file: &dyn Fn(&str, &str) -> Option<NodeData>,
         _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
-        _find_fn: &dyn Fn(&str) -> Option<NodeData>,
+        find_fn: &dyn Fn(&str) -> Option<NodeData>,
         _params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
+        let mut results = Vec::new();
         if let Some(handler) = endpoint.meta.get("handler") {
-            if let Some(nd) = find_fn_in_file(handler, &endpoint.file) {
-                //make sure you pass the suffix of the file
-                let edge = Edge::handler(&endpoint, &nd);
-                return vec![(endpoint, Some(edge))];
+            if let Some(handler) = find_fn(&handler) {
+                let edge = Edge::handler(&endpoint, &handler);
+                results.push((endpoint, Some(edge)));
+            } else {
+                results.push((endpoint, None));
             }
         }
-        Vec::new()
+
+        results
     }
     fn integration_test_query(&self) -> Option<String> {
         None

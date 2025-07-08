@@ -62,10 +62,6 @@ fn find_only_one_function_file<G: Graph>(
         // NOT empty functions (interfaces)
         if !node.body.is_empty() && current_file != node.file {
             //Not same file
-            println!(
-                " ===> found function in different file: {:?} != {:?}",
-                node.file, current_file
-            );
             target_files_starts.push((node.file.clone(), node.start));
         } else if current_file == node.file && node.start != source_start && !node.body.is_empty() {
             // Same file, but different locations
