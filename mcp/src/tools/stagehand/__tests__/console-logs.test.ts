@@ -5,14 +5,15 @@
 
 import { test, expect } from '@playwright/test';
 import { call } from '../tools.js';
-import { getOrCreateStagehand, clearConsoleLogs, getConsoleLogs } from '../utils.js';
+import { getOrCreateStagehand, clearConsoleLogs, getConsoleLogs, getSessionId } from '../utils.js';
 import type { ConsoleLog } from '../utils.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type { Stagehand } from '@browserbasehq/stagehand';
 
-// Helper function to extract log text from CallToolResult
-function extractLogText(result: CallToolResult): string {
-  return (result.content[0] as { type: 'text'; text: string }).text;
+// Helper function to extract log text from CallToolResult 
+function extractLogs(result: CallToolResult): ConsoleLog[] {
+  const text = (result.content[0] as { type: 'text'; text: string }).text;
+  return JSON.parse(text);
 }
 
 test.describe('Stagehand Console Logs', () => {
@@ -32,6 +33,37 @@ test.describe('Stagehand Console Logs', () => {
 
   test.beforeEach(async () => {
     clearConsoleLogs();
+  });
+
+  test('should verify session ID is created and consistent', async () => {
+    console.log('🧪 Testing session ID functionality...');
+    
+    const utilSessionId = getSessionId();
+    console.log(`🔍 Got session ID from utility: ${utilSessionId}`);
+    expect(utilSessionId).toBeTruthy();
+    
+    const sessionResult = await call('stagehand_session', {}) as CallToolResult;
+    const sessionText = (sessionResult.content[0] as { type: 'text'; text: string }).text;
+    const sessionInfo = JSON.parse(sessionText);
+    console.log(`🔍 Got session info from tool: ${JSON.stringify(sessionInfo)}`);
+    
+    expect(sessionInfo.session_id).toBe(utilSessionId);
+    expect(sessionInfo.active).toBe(true);
+    
+    await stagehand.page.goto(`data:text/html,<html><body><script>console.log('Testing session ID')</script></body></html>`);
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    const logsResult = await call('stagehand_logs', {}) as CallToolResult;
+    const logs = extractLogs(logsResult);
+    
+    console.log(`🔍 Captured ${logs.length} console logs with session ID`);
+    expect(logs.length).toBeGreaterThan(0);
+    
+    const logWithSessionId = logs.find(log => log.text.includes('Testing session ID'));
+    expect(logWithSessionId).toBeDefined();
+    expect(logWithSessionId?.sessionId).toBe(utilSessionId);
+    
+    console.log('✅ Session ID functionality works properly!');
   });
 
   test('should demonstrate real debugging workflow: find and capture JavaScript errors', async () => {
@@ -89,8 +121,7 @@ test.describe('Stagehand Console Logs', () => {
 
     // Now capture the logs - this is what a developer would do when debugging
     const result = await call('stagehand_logs', {}) as CallToolResult;
-    const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs = extractLogs(result);
 
     console.log(`🔍 CAPTURED ${logs.length} console logs during debugging session:`);
     logs.forEach((log, i) => {
@@ -112,6 +143,9 @@ test.describe('Stagehand Console Logs', () => {
     expect(errorLog).toBeDefined();
     expect(warningLog).toBeDefined();
     expect(analyticsLog).toBeDefined();
+
+    const sessionId = getSessionId();
+    expect(logs.every(log => log.sessionId === sessionId)).toBe(true);
 
     console.log('✅ SUCCESS: Console logs tool captured real debugging session');
     console.log(`   📊 Found page load, user interaction, error, warning, and analytics logs`);
@@ -196,8 +230,7 @@ test.describe('Stagehand Console Logs', () => {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     const result = await call('stagehand_logs', {}) as CallToolResult;
-    const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs = extractLogs(result);
 
     console.log(`🔍 CAPTURED ${logs.length} performance & API logs:`);
     logs.forEach((log, i) => {
@@ -227,18 +260,35 @@ test.describe('Stagehand Console Logs', () => {
   });
 
   test('should analyze real website console activity and inject custom monitoring', async () => {
-    console.log('🧪 REAL SCENARIO: Analyzing GitHub for console activity and adding custom monitoring...');
+    console.log('🧪 REAL SCENARIO: Analyzing webpage console activity and adding custom monitoring...');
 
-    await stagehand.page.goto('https://github.com');
-    console.log('📄 Navigated to GitHub (real production website)');
+    const monitoringPage = `
+      <html>
+        <head><title>Test Monitoring Page</title></head>
+        <body>
+          <h1>Test Page for Console Monitoring</h1>
+          <div id="content">Sample Content</div>
+          <script>
+            console.log('Page loaded with default scripts');
+            console.info('Environment info:', {
+              userAgent: navigator.userAgent,
+              viewport: { width: window.innerWidth, height: window.innerHeight }
+            });
+          </script>
+        </body>
+      </html>
+    `;
+
+    await stagehand.page.goto(`data:text/html,${encodeURIComponent(monitoringPage)}`);
+    console.log('📄 Navigated to test monitoring page');
 
     // Wait to capture any existing logs from the site
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     // Inject custom monitoring - realistic use case for external agents
     await stagehand.page.evaluate(() => {
       // Custom monitoring that an agent might inject
-      console.log('AGENT_MONITOR: Starting GitHub page analysis', {
+      console.log('AGENT_MONITOR: Starting page analysis', {
         url: window.location.href,
         userAgent: navigator.userAgent.substring(0, 50),
         timestamp: new Date().toISOString()
@@ -276,22 +326,21 @@ test.describe('Stagehand Console Logs', () => {
       });
     });
 
-    console.log('💉 Injected custom monitoring code into GitHub page');
+    console.log('💉 Injected custom monitoring code into page');
 
     // Wait for monitoring to collect data
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise(resolve => setTimeout(resolve, 300));
 
     const result = await call('stagehand_logs', {}) as CallToolResult;
-    const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs = extractLogs(result);
 
-    console.log(`🔍 CAPTURED ${logs.length} logs from live GitHub page + custom monitoring:`);
+    console.log(`🔍 CAPTURED ${logs.length} logs from page + custom monitoring:`);
 
-    // Separate GitHub's logs from our custom monitoring
-    const githubLogs = logs.filter(log => !log.text.includes('AGENT_'));
+    // Separate page's logs from our custom monitoring
+    const pageLogs = logs.filter(log => !log.text.includes('AGENT_'));
     const agentLogs = logs.filter(log => log.text.includes('AGENT_'));
 
-    console.log(`   📊 GitHub native logs: ${githubLogs.length}`);
+    console.log(`   📊 Page native logs: ${pageLogs.length}`);
     console.log(`   🤖 Custom agent logs: ${agentLogs.length}`);
 
     agentLogs.forEach((log, i) => {
@@ -301,7 +350,7 @@ test.describe('Stagehand Console Logs', () => {
     // Verify our custom monitoring worked
     expect(agentLogs.length).toBeGreaterThanOrEqual(4);
 
-    const monitorStartLog = agentLogs.find(log => log.text.includes('AGENT_MONITOR: Starting GitHub'));
+    const monitorStartLog = agentLogs.find(log => log.text.includes('AGENT_MONITOR: Starting page'));
     const perfLog = agentLogs.find(log => log.text.includes('AGENT_PERF: Page timing'));
     const networkLog = agentLogs.find(log => log.text.includes('AGENT_NETWORK: Monitoring'));
     const frameworkLog = agentLogs.find(log => log.text.includes('AGENT_FRAMEWORKS: Detected'));
@@ -311,8 +360,8 @@ test.describe('Stagehand Console Logs', () => {
     expect(networkLog).toBeDefined();
     expect(frameworkLog).toBeDefined();
 
-    console.log('✅ SUCCESS: Custom monitoring injected and captured on live website');
-    console.log('   🌐 Proved tool works with real production websites');
+    console.log('✅ SUCCESS: Custom monitoring injected and captured on page');
+    console.log('   🌐 Proved tool works with web pages');
     console.log('   🤖 Demonstrated external agent monitoring capabilities');
     console.log('   📈 Collected performance and framework detection data');
   });
@@ -435,8 +484,7 @@ test.describe('Stagehand Console Logs', () => {
     await new Promise(resolve => setTimeout(resolve, 300));
 
     const result = await call('stagehand_logs', {}) as CallToolResult;
-    const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs = extractLogs(result);
 
     console.log(`🔍 CAPTURED ${logs.length} e-commerce tracking logs:`);
 
@@ -507,8 +555,7 @@ test.describe('Stagehand Console Logs', () => {
 
     // Check Session 1 logs
     let result = await call('stagehand_logs', {}) as CallToolResult;
-    let logText = extractLogText(result);
-    let logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    let logs = extractLogs(result);
 
     console.log(`   📊 Session 1 captured: ${logs.length} authentication logs`);
     expect(logs.some((log: ConsoleLog) => log.text.includes('AUTH: Login page loaded'))).toBe(true);
@@ -551,8 +598,7 @@ test.describe('Stagehand Console Logs', () => {
 
     // Check Session 2 logs (should not include Session 1)
     result = await call('stagehand_logs', {}) as CallToolResult;
-    logText = extractLogText(result);
-    logs = JSON.parse(logText.split(':\n')[1]);
+    logs = extractLogs(result);
 
     console.log(`   📊 Session 2 captured: ${logs.length} dashboard logs`);
     console.log('   🔍 Verifying session isolation...');

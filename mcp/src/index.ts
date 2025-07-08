@@ -10,6 +10,7 @@ import { App as SageApp } from "./sage/src/app.js";
 import dotenv from "dotenv";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
+import { getSessionId, getOrCreateStagehand } from "./tools/stagehand/utils.js";
 
 dotenv.config();
 
@@ -29,6 +30,30 @@ mcp_routes(app);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
+
+getOrCreateStagehand()
+  .then(() => {
+    console.log(
+      `Server initialized with Stagehand session ID: ${getSessionId()}`
+    );
+  })
+  .catch((err) => {
+    console.error("Failed to initialize Stagehand session:", err);
+  });
+
+app.use((req, res, next) => {
+  res.setHeader("X-Stagehand-Session-ID", getSessionId() || "none");
+  next();
+});
+
+app.get("/stagehand/session", (req, res) => {
+  const sessionId = getSessionId();
+  res.json({
+    session_id: sessionId,
+    timestamp: new Date().toISOString(),
+    active: sessionId !== null,
+  });
+});
 
 try {
   new SageApp(app);

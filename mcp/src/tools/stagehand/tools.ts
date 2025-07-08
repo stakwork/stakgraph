@@ -2,7 +2,12 @@ import { z } from "zod";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Tool } from "../index.js";
 import { parseSchema } from "../utils.js";
-import { getOrCreateStagehand, sanitize, getConsoleLogs } from "./utils.js";
+import {
+  getOrCreateStagehand,
+  sanitize,
+  getConsoleLogs,
+  getSessionId,
+} from "./utils.js";
 import { AgentProviderType } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
 
@@ -64,7 +69,14 @@ export const AgentSchema = z.object({
     ),
 });
 
-export const LogsSchema = z.object({});
+export const LogsSchema = z.object({
+  sessionId: z
+    .string()
+    .optional()
+    .describe("Optional session ID to filter logs by specific browser session"),
+});
+
+export const SessionSchema = z.object({});
 
 // Tools
 export const NavigateTool: Tool = {
@@ -115,6 +127,13 @@ export const LogsTool: Tool = {
   inputSchema: parseSchema(LogsSchema),
 };
 
+export const SessionTool: Tool = {
+  name: "stagehand_session",
+  description:
+    "Get the current Stagehand browser session ID. Use this to track which browser instance you are using.",
+  inputSchema: parseSchema(SessionSchema),
+};
+
 export const TOOLS: Tool[] = [
   NavigateTool,
   ActTool,
@@ -123,6 +142,7 @@ export const TOOLS: Tool[] = [
   ScreenshotTool,
   AgentTool,
   LogsTool,
+  SessionTool,
 ];
 
 type TextResult = {
@@ -234,9 +254,25 @@ export async function call(
       }
 
       case LogsTool.name: {
-        LogsSchema.parse(args); // Validate even though no args expected
-        const logs = getConsoleLogs();
+        const parsedArgs = LogsSchema.parse(args);
+        const logs = getConsoleLogs(parsedArgs.sessionId);
         return success(JSON.stringify(logs, null, 2));
+      }
+
+      case SessionTool.name: {
+        SessionSchema.parse(args);
+        const sessionId = getSessionId();
+        return success(
+          JSON.stringify(
+            {
+              session_id: sessionId,
+              timestamp: new Date().toISOString(),
+              active: sessionId !== null,
+            },
+            null,
+            2
+          )
+        );
       }
 
       default:
