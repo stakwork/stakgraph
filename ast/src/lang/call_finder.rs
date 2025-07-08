@@ -5,6 +5,7 @@ pub fn func_target_file_finder<G: Graph>(
     _operand: &Option<String>,
     graph: &G,
     current_file: &str, // Add current file parameter
+    source_start: usize,
 ) -> Option<(String, usize)> {
     log_cmd(format!(
         "func_target_file_finder {:?} from file {:?}",
@@ -12,7 +13,7 @@ pub fn func_target_file_finder<G: Graph>(
     ));
 
     // First try: find only one function file
-    if let Some(tf) = find_only_one_function_file(func_name, graph) {
+    if let Some(tf) = find_only_one_function_file(func_name, graph, source_start) {
         return Some(tf);
     }
 
@@ -36,12 +37,16 @@ pub fn func_target_file_finder<G: Graph>(
     None
 }
 
-fn find_only_one_function_file<G: Graph>(func_name: &str, graph: &G) -> Option<(String, usize)> {
+fn find_only_one_function_file<G: Graph>(
+    func_name: &str,
+    graph: &G,
+    source_start: usize,
+) -> Option<(String, usize)> {
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     for node in nodes {
         // NOT empty functions (interfaces)
-        if !node.body.is_empty() {
+        if !node.body.is_empty() && (node.start != source_start) {
             target_files_starts.push((node.file.clone(), node.start));
         }
     }
@@ -172,10 +177,11 @@ fn _func_target_files_finder<G: Graph>(
     func_name: &str,
     operand: &Option<String>,
     graph: &G,
-) -> Option<(String,usize)> {
+    source_start: usize,
+) -> Option<(String, usize)> {
     log_cmd(format!("func_target_file_finder {:?}", func_name));
     let mut tf = None;
-    if let Some(tf_) = find_only_one_function_file(func_name, graph) {
+    if let Some(tf_) = find_only_one_function_file(func_name, graph, source_start) {
         tf = Some(tf_);
     } else if let Some(_op) = operand {
         // if let Some(tf_) = find_function_with_operand(&op, func_name, graph) {

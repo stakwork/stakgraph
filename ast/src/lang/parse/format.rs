@@ -689,9 +689,13 @@ impl Lang {
                                 external_func = Some(t);
                             }
                         } else {
-                            if let Some(one_func) =
-                                func_target_file_finder(&called, &None, graph, file)
-                            {
+                            if let Some(one_func) = func_target_file_finder(
+                                &called,
+                                &None,
+                                graph,
+                                file,
+                                fc.source.start,
+                            ) {
                                 log_cmd(format!(
                                     "==> ? ONE target for {:?} {}",
                                     called, &one_func.0
@@ -747,7 +751,9 @@ impl Lang {
                 // fc.target = NodeKeys::new(&body, &tf);
                 } else {
                     // FALLBACK to find?
-                    if let Some(tf) = func_target_file_finder(&called, &None, graph, file) {
+                    if let Some(tf) =
+                        func_target_file_finder(&called, &None, graph, file, fc.source.start)
+                    {
                         log_cmd(format!(
                             "==> ? (no lsp) ONE target for {:?} {}",
                             called, &tf.0
