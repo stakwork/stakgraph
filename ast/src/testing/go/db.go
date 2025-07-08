@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 
 	"gorm.io/driver/postgres"
@@ -19,6 +21,44 @@ type Person struct {
 	Name  string `json:"name"`
 	Email string `json:"email"`
 }
+
+type LeaderboardEntry struct {
+    Name  string `json:"name"`
+    Score int    `json:"score"`
+}
+
+type bountyHandler struct {
+    db *bountyDB
+}
+
+type bountyDB struct{}
+
+func (db *bountyDB) GetBountiesLeaderboard() []LeaderboardEntry {
+    return []LeaderboardEntry{
+        {Name: "Carol", Score: 200},
+        {Name: "Dave", Score: 180},
+    }
+}
+
+func (db database) GetPeopleLeaderboard() []LeaderboardEntry {
+    return []LeaderboardEntry{
+        {Name: "Alice", Score: 100},
+        {Name: "Bob", Score: 90},
+    }
+}
+
+func (h *bountyHandler) GetBountiesLeaderboard(w http.ResponseWriter, _ *http.Request) {
+    leaderBoard := h.db.GetBountiesLeaderboard()
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(leaderBoard)
+}
+
+func GetLeaderboard(w http.ResponseWriter, r *http.Request) {
+    leaderboard := DB.GetPeopleLeaderboard()
+    w.WriteHeader(http.StatusOK)
+    json.NewEncoder(w).Encode(leaderboard)
+}
+
 
 func (p *Person) TableName() string {
 	return "people"

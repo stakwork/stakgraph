@@ -22,11 +22,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     if use_lsp == true {
-        assert_eq!(num_nodes, 67, "Expected 67 nodes");
-        assert_eq!(num_edges, 100, "Expected 100 edges");
+        assert_eq!(num_nodes, 76, "Expected 76 nodes");
+        assert_eq!(num_edges, 122, "Expected 122 edges");
     } else {
-        assert_eq!(num_nodes, 33, "Expected 33 nodes");
-        assert_eq!(num_edges, 53, "Expected 53 edges");
+        assert_eq!(num_nodes, 42, "Expected 42 nodes");
+        assert_eq!(num_edges, 68, "Expected 68 edges");
     }
 
     let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go");
@@ -87,7 +87,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     assert_eq!(class_function_edges.len(), 4, "Expected 4 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    assert_eq!(data_models.len(), 2, "Expected 2 data models");
+    assert_eq!(data_models.len(), 5, "Expected 5 data models");
     assert!(
         data_models
             .iter()
@@ -96,7 +96,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
+    assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
 
     let get_endpoint = endpoints
         .iter()
@@ -155,27 +155,49 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
-    assert_eq!(handler_edges_count, 2, "Expected 2 handler edges");
+    assert_eq!(handler_edges_count, 4, "Expected 4 handler edges");
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(function_calls, 6, "Expected 6 function calls");
+    assert_eq!(function_calls, 8, "Expected 8 function calls");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
-    assert_eq!(operands, 4, "Expected 4 operands");
+    assert_eq!(operands, 5, "Expected 5 operands");
 
     let of = graph.count_edges_of_type(EdgeType::Of);
     assert_eq!(of, 1, "Expected 1 of edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 40, "Expected 40 contains edges");
+    assert_eq!(contains, 50, "Expected 50 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     assert_eq!(variables.len(), 1, "Expected 1 variables");
 
     if use_lsp {
         let import_edges = graph.count_edges_of_type(EdgeType::Imports);
-        assert_eq!(import_edges, 3, "Expected 10 import edges with lsp");
+        assert_eq!(import_edges, 4, "Expected 4 import edges with lsp");
     }
+    let handler_fn = graph
+        .find_nodes_by_name(NodeType::Function, "GetBountiesLeaderboard")
+        .into_iter()
+        .find(|n| n.file.ends_with("db.go") && n.body.contains("http.ResponseWriter"))
+        .map(|nd| Node::new(NodeType::Function, nd))
+        .expect("Handler method GetBountiesLeaderboard not found");
+
+    let db_fn = graph
+        .find_nodes_by_name(NodeType::Function, "GetBountiesLeaderboard")
+        .into_iter()
+        .find(|n| {
+            n.file.ends_with("db.go")
+                && n.body.contains("[]LeaderboardEntry")
+                && !n.body.contains("http.ResponseWriter")
+        })
+        .map(|nd| Node::new(NodeType::Function, nd))
+        .expect("DB method GetBountiesLeaderboard not found");
+
+    assert!(
+        graph.has_edge(&handler_fn, &db_fn, EdgeType::Calls),
+        "Expected handler to call DB method"
+    );
     Ok(())
 }
 
