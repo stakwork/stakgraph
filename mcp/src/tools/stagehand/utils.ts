@@ -1,12 +1,16 @@
 import { Stagehand } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
+import { v4 as uuidv4 } from "uuid";
 
 let STAGEHAND: Stagehand | null = null;
+let SESSION_ID: string | null = null;
+let SESSION_CREATED_AT: string | null = null;
 
 export interface ConsoleLog {
   timestamp: string;
   type: string;
   text: string;
+  sessionId: string;
   location: {
     url: string;
     lineNumber: number;
@@ -23,6 +27,11 @@ export async function getOrCreateStagehand() {
   }
   let provider = getProvider();
   console.log("initializing stagehand!", provider.model);
+
+  SESSION_ID = uuidv4();
+  SESSION_CREATED_AT = new Date().toISOString();
+  console.log(`Created new Stagehand session with ID: ${SESSION_ID}`);
+
   const sh = new Stagehand({
     env: "LOCAL",
     domSettleTimeoutMs: 30000,
@@ -47,6 +56,7 @@ export async function getOrCreateStagehand() {
       timestamp: new Date().toISOString(),
       type: msg.type(),
       text: msg.text(),
+      sessionId: SESSION_ID as string,
       location: msg.location(),
     });
   });
@@ -84,10 +94,46 @@ export function addConsoleLog(log: ConsoleLog): void {
   }
 }
 
-export function getConsoleLogs(): ConsoleLog[] {
+export function getConsoleLogs(sessionId?: string): ConsoleLog[] {
+  if (sessionId) {
+    return CONSOLE_LOGS.filter((log) => log.sessionId === sessionId);
+  }
   return [...CONSOLE_LOGS];
 }
 
 export function clearConsoleLogs(): void {
   CONSOLE_LOGS = [];
+}
+
+export function getSessionId(): string | null {
+  return SESSION_ID;
+}
+
+export function getSessionInfo() {
+  return {
+    sessionId: SESSION_ID,
+    createdAt: SESSION_CREATED_AT,
+    logCount: CONSOLE_LOGS.length,
+    active: STAGEHAND !== null,
+    browserInfo: STAGEHAND
+      ? {
+          initialized: true,
+          url: STAGEHAND.page.url(),
+        }
+      : {
+          initialized: false,
+        },
+  };
+}
+
+export async function exportSessionDetails() {
+  const sessionInfo = getSessionInfo();
+  const logs = getConsoleLogs();
+
+  return {
+    session: sessionInfo,
+    logs: logs,
+    timestamp: new Date().toISOString(),
+    exportType: "session_details",
+  };
 }

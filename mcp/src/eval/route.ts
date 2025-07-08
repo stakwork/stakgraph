@@ -1,7 +1,11 @@
 import express, { Express } from "express";
 import { evaluate } from "./stagehand.js";
 import { promises as dns } from "dns";
-import { getConsoleLogs } from "../tools/stagehand/utils.js";
+import {
+  getConsoleLogs,
+  getSessionId,
+  exportSessionDetails,
+} from "../tools/stagehand/utils.js";
 
 export async function evalRoutes(app: Express) {
   app.post("/evaluate", async (req: express.Request, res: express.Response) => {
@@ -25,7 +29,7 @@ export async function evalRoutes(app: Express) {
       console.error("Evaluation failed:", error);
       res.status(500).json({
         error: "Evaluation failed",
-        message: error instanceof Error ? error.message : "Unknown error"
+        message: error instanceof Error ? error.message : "Unknown error",
       });
     }
   });
@@ -36,29 +40,82 @@ export async function evalRoutes(app: Express) {
   // - Client: const stream = new EventSource('/console-logs/stream')
   // - Perfect for live monitoring during automation runs
   // - Implementation: Modify addConsoleLog() to broadcast to streaming clients
-  app.get("/console-logs", async (req: express.Request, res: express.Response) => {
+  app.get(
+    "/console-logs",
+    async (req: express.Request, res: express.Response) => {
+      try {
+        const logs = getConsoleLogs();
+        const sessionId = getSessionId();
+
+        res.json({
+          logs,
+          timestamp: new Date().toISOString(),
+          count: logs.length,
+          metadata: {
+            session_active: true,
+            access_method: "http_rest",
+            session_id: sessionId,
+          },
+        });
+      } catch (error) {
+        console.error("Console logs retrieval failed:", error);
+        res.status(500).json({
+          error: "Console logs retrieval failed",
+          message: error instanceof Error ? error.message : "Unknown error",
+          logs: [],
+          count: 0,
+        });
+      }
+    }
+  );
+
+  app.get("/session", async (req: express.Request, res: express.Response) => {
     try {
-      const logs = getConsoleLogs();
+      const sessionId = getSessionId();
 
       res.json({
-        logs,
+        session_id: sessionId,
         timestamp: new Date().toISOString(),
-        count: logs.length,
-        metadata: {
-          session_active: true,
-          access_method: "http_rest"
-        }
+        active: sessionId !== null,
       });
     } catch (error) {
-      console.error("Console logs retrieval failed:", error);
+      console.error("Session ID retrieval failed:", error);
       res.status(500).json({
-        error: "Console logs retrieval failed",
+        error: "Session ID retrieval failed",
         message: error instanceof Error ? error.message : "Unknown error",
-        logs: [],
-        count: 0
       });
     }
   });
+
+  app.get(
+    "/export-session",
+    async (req: express.Request, res: express.Response) => {
+      try {
+        const sessionDetails = await exportSessionDetails();
+
+        if (req.query.download === "true") {
+          const sessionId = getSessionId();
+          const timestamp = new Date().toISOString().replace(/:/g, "-");
+          const filename = `stagehand-session-${sessionId}-${timestamp}.json`;
+
+          res.setHeader("Content-Type", "application/json");
+          res.setHeader(
+            "Content-Disposition",
+            `attachment; filename=${filename}`
+          );
+          res.json(sessionDetails);
+        } else {
+          res.json(sessionDetails);
+        }
+      } catch (error) {
+        console.error("Session export failed:", error);
+        res.status(500).json({
+          error: "Session export failed",
+          message: error instanceof Error ? error.message : "Unknown error",
+        });
+      }
+    }
+  );
 }
 
 export async function resolve_browser_url(
