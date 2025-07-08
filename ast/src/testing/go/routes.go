@@ -19,9 +19,12 @@ func NewRouter() *http.Server {
 	r := initChi()
 
 	r.Group(func(r chi.Router) {
-		r.Get("/person/{id}", GetPerson)
-		r.Post("/person", CreatePerson)
-	})
+        r.Get("/person/{id}", GetPerson)
+        r.Post("/person", CreatePerson)
+        r.Get("/leaderboard", GetLeaderboard)
+        bh := &bountyHandler{db: &bountyDB{}}
+        r.Get("/bounties/leaderboard", bh.GetBountiesLeaderboard)
+    })
 
 	PORT := os.Getenv("PORT")
 	if PORT == "" {
