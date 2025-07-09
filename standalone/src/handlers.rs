@@ -280,6 +280,6 @@ fn resolve_repo(body: &ProcessBody) -> Result<(String, String, Option<String>, O
 }
 fn is_valid_github_url(url: &str) -> bool {
     let https_re = regex::Regex::new(r"^https://github\.com/[^/]+/[^/]+(\.git)?/?$").unwrap();
-    let ssh_re = regex::Regex::new(r"^git@github\.com:[^/]+/[^/]+(\.git)?$").unwrap();
+    let ssh_re = regex::Regex::new(r"^git@github\.com:[^/]+/[^/]+(\.git)?/?$").unwrap();
     https_re.is_match(url) || ssh_re.is_match(url)
 }
