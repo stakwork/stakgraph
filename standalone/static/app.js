@@ -63,13 +63,14 @@ const App = () => {
 
   const handleRepoUrlChange = (event) => {
     const value = event.target.value;
+    setRepoUrl(value);
     console.log("handleRepoUrlChange", value);
     const repoName = utils.getRepoNameFromUrl(value);
     if (repoName) {
       console.log("repoName", repoName);
       setCurrentRepoName(repoName);
     }
-    if (value && !isValidGithubUrl(value)) {
+    if (value && !utils.isValidGithubUrl(value)) {
       setRepoUrlError("Please enter a valid GitHub repository URL.");
     } else {
       setRepoUrlError("");
@@ -81,15 +82,8 @@ const App = () => {
   const handlePatChange = (event) => {
     setPat(event.target.value);
   };
-  function isValidGithubUrl(url) {
-    // Accepts https://github.com/user/repo or git@github.com:user/repo.git
-    return (
-      /^https:\/\/github\.com\/[^\/]+\/[^\/]+(\.git)?\/?$/.test(url.trim()) ||
-      /^git@github\.com:[^\/]+\/[^\/]+(\.git)?$/.test(url.trim())
-    );
-  }
 
-  const btnDisabled = !repoUrl || isLoading || !isValidGithubUrl(repoUrl);
+  const btnDisabled = !repoUrl || isLoading || !utils.isValidGithubUrl(repoUrl);
 
   const handleSubmit = async () => {
     console.log("handleSubmit", repoUrl);
