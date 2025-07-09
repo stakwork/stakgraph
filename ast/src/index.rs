@@ -10,6 +10,10 @@ export REPO_URL="https://github.com/stakwork/sphinx-tribes.git,https://github.co
 export OUTPUT_NAME=tribes
 cargo run --bin index
 
+export REPO_URL="https://github.com/stakwork/sphinx-tribes.git"
+export OUTPUT_NAME=tribes
+cargo run --bin index
+
 export REPO_URL="https://github.com/stakwork/demo-repo.git"
 
 export REPO_URL="https://github.com/stakwork/sphinx-tribes-frontend.git"

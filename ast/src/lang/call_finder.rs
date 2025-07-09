@@ -5,8 +5,16 @@ pub fn node_keys_finder<G: Graph>(
     graph: &G,
     current_file: &str,
     source_start: usize,
+    source_node_type: NodeType,
 ) -> Option<NodeKeys> {
-    match func_target_file_finder(func_name, &None, graph, current_file, source_start) {
+    match func_target_file_finder(
+        func_name,
+        &None,
+        graph,
+        current_file,
+        source_start,
+        source_node_type,
+    ) {
         Some((file, start)) => Some(NodeKeys::new(func_name, &file, start)),
         None => None,
     }
@@ -18,6 +26,7 @@ pub fn func_target_file_finder<G: Graph>(
     graph: &G,
     current_file: &str, // Add current file parameter
     source_start: usize,
+    source_node_type: NodeType,
 ) -> Option<(String, usize)> {
     log_cmd(format!(
         "func_target_file_finder {:?} from file {:?}",
@@ -25,7 +34,13 @@ pub fn func_target_file_finder<G: Graph>(
     ));
 
     // First try: find only one function file
-    if let Some(tf) = find_only_one_function_file(func_name, graph, source_start, current_file) {
+    if let Some(tf) = find_only_one_function_file(
+        func_name,
+        graph,
+        source_start,
+        current_file,
+        source_node_type,
+    ) {
         return Some(tf);
     }
 
@@ -55,23 +70,24 @@ fn find_only_one_function_file<G: Graph>(
     graph: &G,
     source_start: usize,
     current_file: &str,
+    source_node_type: NodeType,
 ) -> Option<(String, usize)> {
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     for node in nodes {
+        let is_same = node.start == source_start && node.file == current_file;
         // NOT empty functions (interfaces)
-        if !node.body.is_empty() && current_file != node.file {
-            //Not same file
-            target_files_starts.push((node.file.clone(), node.start));
-        } else if current_file == node.file && node.start != source_start && !node.body.is_empty() {
-            // Same file, but different locations
-            target_files_starts.push((node.file.clone(), node.start));
+        if !node.body.is_empty() {
+            if !is_same || source_node_type != NodeType::Function {
+                target_files_starts.push((node.file.clone(), node.start));
+            }
         }
     }
+
     if target_files_starts.len() == 1 {
         return Some(target_files_starts[0].clone());
     }
-    // TODO: disclue "mock"
+    // TODO: disclude "mock"
     log_cmd(format!("::: found more than one {:?}", func_name));
     target_files_starts.retain(|x| !x.0.contains("mock"));
     if target_files_starts.len() == 1 {
@@ -137,7 +153,7 @@ fn find_function_in_same_directory<G: Graph>(
     func_name: &str,
     current_file: &str,
     graph: &G,
-    _source_start: usize,
+    source_start: usize,
 ) -> Option<(String, usize)> {
     let current_dir = std::path::Path::new(current_file)
         .parent()
@@ -153,7 +169,7 @@ fn find_function_in_same_directory<G: Graph>(
         current_file,
         current_dir
     ));
-    for node in nodes {
+    for node in &nodes {
         // dont return like Label->label
         if node.name != func_name && node.name.to_lowercase() == func_name.to_lowercase() {
             return None;
@@ -164,11 +180,14 @@ fn find_function_in_same_directory<G: Graph>(
                 .and_then(|p| p.to_str())
             {
                 if node_dir == current_dir && !node.file.contains("mock") {
-                    log_cmd(format!(
-                        "::: found function in same directory! file: {:?}",
-                        current_file
-                    ));
-                    same_dir_files.push((node.file.clone(), node.start));
+                    let is_same = node.start == source_start && node.file == current_file;
+                    if !is_same {
+                        log_cmd(format!(
+                            "::: found function in same directory! file: {:?}",
+                            current_file
+                        ));
+                        same_dir_files.push((node.file.clone(), node.start));
+                    }
                 }
             }
         }
@@ -190,25 +209,6 @@ fn log_cmd(cmd: String) {
     //     tracing::info!("{}", cmd);
     // }
     tracing::debug!("{}", cmd);
-}
-
-fn _func_target_files_finder<G: Graph>(
-    func_name: &str,
-    operand: &Option<String>,
-    graph: &G,
-    source_start: usize,
-    current_file: &str,
-) -> Option<(String, usize)> {
-    log_cmd(format!("func_target_file_finder {:?}", func_name));
-    let mut tf = None;
-    if let Some(tf_) = find_only_one_function_file(func_name, graph, source_start, current_file) {
-        tf = Some(tf_);
-    } else if let Some(_op) = operand {
-        // if let Some(tf_) = find_function_with_operand(&op, func_name, graph) {
-        //     tf = Some(tf_);
-        // }
-    }
-    tf
 }
 
 fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {

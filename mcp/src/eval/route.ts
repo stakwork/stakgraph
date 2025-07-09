@@ -1,7 +1,8 @@
 import express, { Express } from "express";
 import { evaluate } from "./stagehand.js";
 import { promises as dns } from "dns";
-import { getConsoleLogs } from "../tools/stagehand/utils.js";
+import { getConsoleLogs, startAction, getActionLogs } from "../tools/stagehand/utils.js";
+import { randomUUID } from "crypto";
 
 export async function evalRoutes(app: Express) {
   app.post("/evaluate", async (req: express.Request, res: express.Response) => {
@@ -19,8 +20,17 @@ export async function evalRoutes(app: Express) {
         return;
       }
 
+      // Generate unique action ID for this evaluation
+      const actionId = `eval_${randomUUID()}_${Date.now()}`;
+      startAction(actionId);
+
       const result = await evaluate(test_url, prompt);
-      res.json(result);
+      
+      // Add action_id to response
+      res.json({
+        ...result,
+        action_id: actionId
+      });
     } catch (error) {
       console.error("Evaluation failed:", error);
       res.status(500).json({
@@ -38,17 +48,36 @@ export async function evalRoutes(app: Express) {
   // - Implementation: Modify addConsoleLog() to broadcast to streaming clients
   app.get("/console-logs", async (req: express.Request, res: express.Response) => {
     try {
-      const logs = getConsoleLogs();
+      const actionId = req.query.action_id as string;
+      let logs: any[];
+      let accessMethod: string;
+      
+      if (actionId) {
+        // Get action-specific logs
+        logs = getActionLogs(actionId);
+        accessMethod = "http_rest_action_specific";
+      } else {
+        // Fall back to global logs (backward compatibility)
+        logs = getConsoleLogs();
+        accessMethod = "http_rest_global";
+      }
 
-      res.json({
+      const response: any = {
         logs,
         timestamp: new Date().toISOString(),
         count: logs.length,
         metadata: {
           session_active: true,
-          access_method: "http_rest"
+          access_method: accessMethod
         }
-      });
+      };
+
+      // Include action_id in response if provided
+      if (actionId) {
+        response.action_id = actionId;
+      }
+
+      res.json(response);
     } catch (error) {
       console.error("Console logs retrieval failed:", error);
       res.status(500).json({

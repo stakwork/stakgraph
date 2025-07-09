@@ -409,39 +409,16 @@ impl Graph for ArrayGraph {
                     }
                 }
             } else {
-                if let Some(target_function) = self.find_node_by_name_in_file(
-                    NodeType::Function,
-                    &fc.target.name,
-                    &fc.source.file,
-                ) {
-                    let edge_key = (
-                        fc.source.name.clone(),
-                        fc.source.file.clone(),
-                        target_function.name.clone(),
-                        target_function.file.clone(),
-                    );
+                let edge_key = (
+                    fc.source.name.clone(),
+                    fc.source.file.clone(),
+                    fc.target.name.clone(),
+                    fc.source.file.clone(),
+                );
 
-                    if !unique_edges.contains(&edge_key) {
-                        unique_edges.insert(edge_key);
-                        let edge = Edge::new(
-                            EdgeType::Calls,
-                            NodeRef::from(fc.source.clone(), NodeType::Function),
-                            NodeRef::from((&target_function).into(), NodeType::Function),
-                        );
-                        self.add_edge(edge);
-                    }
-                } else {
-                    let edge_key = (
-                        fc.source.name.clone(),
-                        fc.source.file.clone(),
-                        fc.target.name.clone(),
-                        fc.source.file.clone(),
-                    );
-
-                    if !unique_edges.contains(&edge_key) {
-                        unique_edges.insert(edge_key);
-                        self.add_edge(fc.into());
-                    }
+                if !unique_edges.contains(&edge_key) {
+                    unique_edges.insert(edge_key);
+                    self.add_edge(fc.into());
                 }
             }
         }
