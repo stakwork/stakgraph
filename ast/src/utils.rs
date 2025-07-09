@@ -9,7 +9,9 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
+
 pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
+    let print_root = std::env::var("PRINT_ROOT").unwrap_or_else(|_| "ast/examples".to_string());
     use serde_jsonlines::write_json_lines;
     match std::env::var("OUTPUT_FORMAT")
         .unwrap_or_else(|_| "jsonl".to_string())
@@ -17,27 +19,27 @@ pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Resu
     {
         "jsonl" => {
             if let Some(array_graph) = as_array_graph(graph) {
-                let nodepath = format!("ast/examples/{}-nodes.jsonl", name);
+                let nodepath = format!("{print_root}/{name}-nodes.jsonl");
                 write_json_lines(nodepath, &array_graph.nodes)?;
-                let edgepath = format!("ast/examples/{}-edges.jsonl", name);
+                let edgepath = format!("{print_root}/{name}-edges.jsonl");
                 write_json_lines(edgepath, &array_graph.edges)?;
             } else if let Some(btreemap_graph) = as_btreemap_graph(graph) {
-                let nodepath = format!("ast/examples/{}-nodes.jsonl", name);
+                let nodepath = format!("{print_root}/{name}-nodes.jsonl");
                 let node_values: Vec<_> = btreemap_graph.nodes.values().collect();
                 write_json_lines(nodepath, &node_values)?;
-                let edgepath = format!("ast/examples/{}-edges.jsonl", name);
+                let edgepath = format!("{print_root}/{name}-edges.jsonl");
                 let edge_values = btreemap_graph.to_array_graph_edges();
                 write_json_lines(edgepath, &edge_values)?;
             } else {
                 //seriolize the whole graph otherwise
                 let pretty = serde_json::to_string_pretty(&graph)?;
-                let path = format!("ast/examples/{}.json", name);
+                let path = format!("{print_root}/{name}.json");
                 std::fs::write(path, pretty)?;
             }
         }
         _ => {
             let pretty = serde_json::to_string_pretty(&graph)?;
-            let path = format!("ast/examples/{}.json", name);
+            let path = format!("{print_root}/{name}.json");
             std::fs::write(path, pretty)?;
         }
     }
@@ -68,7 +70,6 @@ pub fn create_node_key(node: &Node) -> String {
     let name = &node_data.name;
     let file = &node_data.file;
     let start = node_data.start.to_string();
-    let meta = &node_data.meta;
 
     let mut result = String::new();
 
@@ -80,10 +81,6 @@ pub fn create_node_key(node: &Node) -> String {
     result.push('-');
     result.push_str(&sanitize_string(&start));
 
-    if let Some(v) = meta.get("verb") {
-        result.push('-');
-        result.push_str(&sanitize_string(v));
-    }
     result
 }
 
@@ -125,11 +122,6 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
     result.push_str(&sanitize_string(file));
     result.push('-');
     result.push_str(&sanitize_string(&start));
-
-    if let Some(v) = &node_ref.node_data.verb {
-        result.push('-');
-        result.push_str(&sanitize_string(v));
-    }
 
     result
 }

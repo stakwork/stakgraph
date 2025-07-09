@@ -334,11 +334,13 @@ impl Lang {
                 return Ok(self.lang().handler_finder(
                     endp,
                     &|handler, suffix| {
-                        graph.find_node_by_name_and_file_end_with(
-                            NodeType::Function,
-                            handler,
-                            suffix,
-                        )
+                        graph
+                            .find_node_by_name_and_file_end_with(
+                                NodeType::Function,
+                                handler,
+                                suffix,
+                            )
+                            .map(|nd| nd.into())
                     },
                     &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                     params,
@@ -362,7 +364,7 @@ impl Lang {
                                     log_cmd(format!("HANDLER def, not found: {:?}", handler_name));
                                 }
                                 let target = NodeData::name_file(&handler_name, &target_file);
-                                handler = Some(Edge::handler(&endp, &target));
+                                handler = Some(Edge::handler(&endp, target.into()));
                             }
                         }
                     } else {
@@ -376,6 +378,7 @@ impl Lang {
                                 endp.clone().start,
                                 NodeType::Endpoint,
                             ) {
+                                //
                                 Some(node_key) => Some(node_key.into()),
                                 None => None,
                             },

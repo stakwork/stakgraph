@@ -445,14 +445,14 @@ impl Stack for ReactTs {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeKeys>,
         _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(verb) = endpoint.meta.get("verb") {
             let handler_name = verb;
             if let Some(handler_node) = find_fn(handler_name, &endpoint.file) {
-                let edge = Edge::handler(&endpoint, &handler_node);
+                let edge = Edge::handler(&endpoint, handler_node);
                 return vec![(endpoint, Some(edge))];
             }
         }

@@ -62,7 +62,6 @@ pub fn find_def<G: Graph>(
                 name: caller_name.to_string(),
                 file: ex.file.to_string(),
                 start: caller_start,
-                verb: None,
             };
             return Ok(Some(Edge::new(
                 EdgeType::Calls,

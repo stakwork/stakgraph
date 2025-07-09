@@ -596,15 +596,6 @@ impl Graph for ArrayGraph {
             self.edges.extend(edges);
         }
     }
-    fn prefix_paths(&mut self, root: &str) {
-        for node in &mut self.nodes {
-            node.add_root(root);
-        }
-
-        for edge in &mut self.edges {
-            edge.add_root(root);
-        }
-    }
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         self.nodes
             .iter()

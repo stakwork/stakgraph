@@ -57,8 +57,6 @@ impl Repo {
             self.lang.kind.clone(),
         );
 
-        // graph.prefix_paths(&self.root_less_tmp());
-
         println!("done!");
         let (num_of_nodes, num_of_edges) = graph.get_graph_size();
         println!(

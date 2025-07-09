@@ -148,11 +148,11 @@ impl Edge {
             NodeRef::from(c.into(), NodeType::Class),
         )
     }
-    pub fn handler(e: &NodeData, f: &NodeData) -> Edge {
+    pub fn handler(e: &NodeData, f: NodeKeys) -> Edge {
         Edge::new(
             EdgeType::Handler,
             NodeRef::from(e.into(), NodeType::Endpoint),
-            NodeRef::from(f.into(), NodeType::Function),
+            NodeRef::from(f, NodeType::Function),
         )
     }
     pub fn renders(e: &NodeData, f: &NodeData) -> Edge {

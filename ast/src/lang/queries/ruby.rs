@@ -257,7 +257,7 @@ impl Stack for Ruby {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeKeys>,
         find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
@@ -343,7 +343,7 @@ impl Stack for Ruby {
                     if let Some(verb) = verb_map.get(&nd.name) {
                         endp_.add_verb(verb);
                     }
-                    inter.push((endp_, nd));
+                    inter.push((endp_, nd.into()));
                 }
             }
         }
@@ -357,7 +357,7 @@ impl Stack for Ruby {
                         src.name = pathy;
                     }
                 }
-                let edge = Edge::handler(&src, &target);
+                let edge = Edge::handler(&src, target.clone());
                 (src.clone(), Some(edge))
             })
             .collect::<Vec<(NodeData, Option<Edge>)>>();

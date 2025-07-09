@@ -18,6 +18,8 @@ use std::time::Instant;
 use tokio::sync::broadcast;
 use tracing::info;
 
+use ast::utils::print_json;
+
 pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
     let rx = app_state.tx.subscribe();
 
@@ -217,6 +219,7 @@ pub async fn ingest(
 
     graph_ops.graph.clear().await?;
 
+    info!("Uploading to Neo4j...");
     let (nodes, edges) = graph_ops.upload_btreemap_to_neo4j(&btree_graph).await?;
     graph_ops.graph.create_indexes().await?;
 
@@ -229,6 +232,11 @@ pub async fn ingest(
         "\n\n ==>> Total ingest time: {:.2?} \n\n",
         start_total.elapsed()
     );
+
+    // FIXME rm this
+    if std::env::var("PRINT_ROOT").is_ok() {
+        print_json(&btree_graph, "standalone")?;
+    }
 
     Ok(Json(ProcessResponse {
         status: "success".to_string(),

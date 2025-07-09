@@ -608,14 +608,8 @@ impl Neo4jGraph {
                 let name = row.get::<String>("name").unwrap_or_default();
                 let file = row.get::<String>("file").unwrap_or_default();
                 let start = row.get::<i64>("start").unwrap_or_default() as usize;
-                let verb = row.get::<String>("verb").ok();
 
-                return Some(NodeKeys {
-                    name,
-                    file,
-                    start,
-                    verb,
-                });
+                return Some(NodeKeys { name, file, start });
             }
         }
         None
@@ -657,17 +651,6 @@ impl Neo4jGraph {
     ) -> Option<NodeData> {
         let nodes = self.find_nodes_by_name_async(node_type, name).await;
         nodes.into_iter().find(|node| node.file.ends_with(suffix))
-    }
-    pub async fn prefix_paths_async(&self, root: &str) -> Result<()> {
-        let connection = self.ensure_connected().await?;
-        let mut txn_manager = TransactionManager::new(&connection);
-
-        let (query_str, params) = prefix_paths_query(root);
-        txn_manager.add_query((query_str, params));
-
-        txn_manager.execute().await?;
-
-        Ok(())
     }
 
     pub async fn add_node_with_parent_async(
@@ -1179,9 +1162,6 @@ impl Graph for Neo4jGraph {
                 .await
                 .unwrap_or_default()
         });
-    }
-    fn prefix_paths(&mut self, root: &str) {
-        sync_fn(|| async { self.prefix_paths_async(root).await.unwrap_or_default() });
     }
 
     fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData> {

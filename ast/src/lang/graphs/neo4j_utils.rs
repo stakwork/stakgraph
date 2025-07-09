@@ -615,21 +615,6 @@ pub fn class_includes_query() -> String {
     MERGE (c)-[:IMPORTS]->(m)"
         .to_string()
 }
-pub fn prefix_paths_query(root: &str) -> (String, BoltMap) {
-    let mut params = BoltMap::new();
-    let root = if root.ends_with('/') {
-        root.to_string()
-    } else {
-        format!("{}/", root)
-    };
-    boltmap_insert_str(&mut params, "root", &root);
-
-    let query = "MATCH (n)
-    WHERE n.file IS NOT NULL AND NOT n.file STARTS WITH $root
-    SET n.file = $root + n.file";
-
-    (query.to_string(), params)
-}
 
 pub fn add_node_with_parent_query(
     node_type: &NodeType,

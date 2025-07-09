@@ -283,7 +283,7 @@ impl Stack for Python {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeKeys>,
         find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
@@ -303,21 +303,21 @@ impl Stack for Python {
 
                 for module_path in possible_module_paths {
                     if let Some(nd) = find_fn(function_name, &module_path) {
-                        let edge = Edge::handler(&endpoint, &nd);
+                        let edge = Edge::handler(&endpoint, nd);
                         return vec![(endpoint, Some(edge))];
                     }
                 }
                 let py_files = find_fns_in("py");
                 for func in py_files {
                     if func.name == function_name {
-                        let edge = Edge::handler(&endpoint, &func);
+                        let edge = Edge::handler(&endpoint, func.into());
                         return vec![(endpoint, Some(edge))];
                     }
                 }
             } else {
                 // Flask/FastAPI Style
                 if let Some(nd) = find_fn(handler, &endpoint.file) {
-                    let edge = Edge::handler(&endpoint, &nd);
+                    let edge = Edge::handler(&endpoint, nd);
                     return vec![(endpoint, Some(edge))];
                 }
             }

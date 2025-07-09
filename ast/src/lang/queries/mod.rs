@@ -19,7 +19,7 @@ pub mod typescript;
 
 use crate::lang::asg::Operand;
 use crate::lang::graphs::Edge;
-use crate::lang::{Function, NodeData, NodeType};
+use crate::lang::{Function, NodeData, NodeKeys, NodeType};
 use anyhow::Result;
 use lsp::Language as LspLanguage;
 use lsp::{CmdSender, Position};
@@ -200,14 +200,14 @@ pub trait Stack {
     fn handler_finder(
         &self,
         endpoint: NodeData,
-        find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
+        find_fn: &dyn Fn(&str, &str) -> Option<NodeKeys>,
         _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         if let Some(handler) = endpoint.meta.get("handler") {
             if let Some(nd) = find_fn(handler, &endpoint.file) {
                 //make sure you pass the suffix of the file
-                let edge = Edge::handler(&endpoint, &nd);
+                let edge = Edge::handler(&endpoint, nd);
                 return vec![(endpoint, Some(edge))];
             }
         }

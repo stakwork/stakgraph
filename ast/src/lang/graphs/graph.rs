@@ -74,7 +74,6 @@ pub trait Graph: Default + Debug {
         child_meta_key: &str,
     );
     fn get_data_models_within(&mut self, lang: &Lang);
-    fn prefix_paths(&mut self, root: &str);
 
     //Specific
     fn find_endpoint(&self, name: &str, file: &str, verb: &str) -> Option<NodeData>;

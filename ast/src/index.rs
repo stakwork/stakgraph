@@ -34,7 +34,7 @@ async fn main() -> Result<()> {
 
     let repo_path = env::var("REPO_PATH").ok();
     let repo_urls = env::var("REPO_URL").ok();
-    let use_lsp = env::var("USE_LSP").ok().map(|v| v == "true");
+    let use_lsp = env::var("USE_LSP").ok().map(|v| v == "true" || v == "1");
     if repo_path.is_none() && repo_urls.is_none() {
         return Err(anyhow::anyhow!("no REPO_PATH or REPO_URL"));
     }

@@ -22,8 +22,6 @@ pub struct UniqueKey {
 pub struct NodeKeys {
     pub name: String,
     pub file: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verb: Option<String>,
     pub start: usize,
 }
 
@@ -32,7 +30,6 @@ impl NodeKeys {
         Self {
             name: name.to_string(),
             file: file.to_string(),
-            verb: None,
             start: start,
         }
     }
@@ -45,7 +42,15 @@ impl From<&NodeData> for NodeKeys {
         NodeKeys {
             name: d.name.clone(),
             file: d.file.clone(),
-            verb: d.meta.get("verb").map(|s| s.to_string()),
+            start: d.start,
+        }
+    }
+}
+impl From<NodeData> for NodeKeys {
+    fn from(d: NodeData) -> Self {
+        NodeKeys {
+            name: d.name,
+            file: d.file,
             start: d.start,
         }
     }
@@ -167,21 +172,18 @@ impl NodeData {
     }
 }
 
-impl From<NodeKeys> for NodeData {
-    fn from(keys: NodeKeys) -> Self {
-        let mut meta = BTreeMap::new();
-        if let Some(verb) = keys.verb {
-            meta.insert("verb".to_string(), verb);
-        }
-        NodeData {
-            name: keys.name,
-            file: keys.file,
-            start: keys.start,
-            meta,
-            ..Default::default()
-        }
-    }
-}
+// impl From<NodeKeys> for NodeData {
+//     fn from(keys: NodeKeys) -> Self {
+//         let meta = BTreeMap::new();
+//         NodeData {
+//             name: keys.name,
+//             file: keys.file,
+//             start: keys.start,
+//             meta,
+//             ..Default::default()
+//         }
+//     }
+// }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Operand {
