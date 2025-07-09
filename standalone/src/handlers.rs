@@ -262,6 +262,14 @@ fn resolve_repo(body: &ProcessBody) -> Result<(String, String, Option<String>, O
         )));
     }
 
+    if let Some(ref url) = repo_url {
+        if !is_valid_github_url(url) {
+            return Err(AppError::Anyhow(anyhow::anyhow!(
+                "REPO_URL must be a valid GitHub repository URL"
+            )));
+        }
+    }
+
     if let Some(path) = repo_path {
         Ok((path, repo_url.unwrap_or_default(), username, pat))
     } else {
@@ -269,4 +277,9 @@ fn resolve_repo(body: &ProcessBody) -> Result<(String, String, Option<String>, O
         let tmp_path = Repo::get_path_from_url(&url)?;
         Ok((tmp_path, url, username, pat))
     }
+}
+fn is_valid_github_url(url: &str) -> bool {
+    let https_re = regex::Regex::new(r"^https://github\.com/[^/]+/[^/]+(\.git)?/?$").unwrap();
+    let ssh_re = regex::Regex::new(r"^git@github\.com:[^/]+/[^/]+(\.git)?$").unwrap();
+    https_re.is_match(url) || ssh_re.is_match(url)
 }
