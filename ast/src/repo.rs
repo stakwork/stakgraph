@@ -66,7 +66,19 @@ impl Repos {
         self.build_graphs_inner().await
     }
     pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
-        let mut graph = G::new(String::new(), Language::Typescript);
+        let all_languages: Vec<Language> = self
+            .0
+            .iter()
+            .map(|repo| repo.lang.kind.clone())
+            .collect::<Vec<_>>()
+            .into_iter()
+            .collect();
+
+        let mut graph = if all_languages.len() == 1 {
+            G::new(String::new(), all_languages[0].clone())
+        } else {
+            G::new_multi(String::new(), all_languages)
+        };
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
             let subgraph = repo.build_graph_inner().await?;

@@ -14,6 +14,12 @@ pub trait Graph: Default + Debug {
     {
         Self::default()
     }
+    fn new_multi(_root: String, _lang_kinds: Vec<Language>) -> Self
+    where
+        Self: Sized,
+    {
+        Self::default()
+    }
     fn with_capacity(_nodes: usize, _edges: usize, _root: String, _lang_kind: Language) -> Self
     where
         Self: Sized,

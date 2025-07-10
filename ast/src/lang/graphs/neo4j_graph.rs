@@ -39,16 +39,16 @@ pub struct Neo4jGraph {
     connection: Arc<Mutex<Option<Neo4jConnection>>>,
     config: Neo4jConfig,
     root: String,
-    lang_kind: Language,
+    lang_kinds: Vec<Language>,
 }
 
 impl Neo4jGraph {
-    pub fn with_config(config: Neo4jConfig, root: String, lang_kind: Language) -> Self {
+    pub fn with_config(config: Neo4jConfig, root: String, lang_kinds: Vec<Language>) -> Self {
         Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
             config,
             root,
-            lang_kind,
+            lang_kinds,
         }
     }
 
@@ -99,6 +99,16 @@ impl Neo4jGraph {
             .await
             .clone()
             .context("Neo4j Connection is not established")
+    }
+
+    fn is_file_supported(&self, file_path: &str) -> bool {
+        if self.lang_kinds.is_empty() {
+            return true;
+        }
+
+        self.lang_kinds
+            .iter()
+            .any(|lang| lang.is_from_language(file_path))
     }
 
     pub async fn create_indexes(&self) -> anyhow::Result<()> {
@@ -234,7 +244,7 @@ impl Default for Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
             config: Neo4jConfig::default(),
             root: String::new(),
-            lang_kind: Language::Typescript,
+            lang_kinds: Vec::new(),
         }
     }
 }
@@ -279,7 +289,7 @@ impl Neo4jGraph {
 
         let lang_nodes: Vec<NodeData> = nodes
             .into_iter()
-            .filter(|n| self.lang_kind.is_from_language(&n.file))
+            .filter(|n| self.is_file_supported(&n.file))
             .collect();
 
         lang_nodes
@@ -302,9 +312,7 @@ impl Neo4jGraph {
             .await
             .into_iter();
 
-        let lang_nodes: Vec<NodeData> = nodes
-            .filter(|n| self.lang_kind.is_from_language(&n.file))
-            .collect();
+        let lang_nodes: Vec<NodeData> = nodes.filter(|n| self.is_file_supported(&n.file)).collect();
 
         lang_nodes.into_iter().next()
     }
@@ -440,7 +448,7 @@ impl Neo4jGraph {
 
         let lang_nodes: Vec<NodeData> = nodes
             .into_iter()
-            .filter(|n| self.lang_kind.is_from_language(&n.file))
+            .filter(|n| self.is_file_supported(&n.file))
             .collect();
 
         lang_nodes
@@ -459,7 +467,7 @@ impl Neo4jGraph {
         let nodes = execute_node_query(&connection, query, params).await;
         let lang_nodes: Vec<NodeData> = nodes
             .into_iter()
-            .filter(|n| self.lang_kind.is_from_language(&n.file))
+            .filter(|n| self.is_file_supported(&n.file))
             .collect();
 
         lang_nodes
@@ -1018,7 +1026,7 @@ impl Graph for Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
             config: Neo4jConfig::default(),
             root,
-            lang_kind,
+            lang_kinds: vec![lang_kind],
         }
     }
     fn with_capacity(_nodes: usize, _edges: usize, root: String, lang_kind: Language) -> Self
@@ -1029,7 +1037,15 @@ impl Graph for Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
             config: Neo4jConfig::default(),
             root,
-            lang_kind,
+            lang_kinds: vec![lang_kind],
+        }
+    }
+    fn new_multi(root: String, lang_kinds: Vec<Language>) -> Self {
+        Neo4jGraph {
+            connection: Arc::new(Mutex::new(None)),
+            config: Neo4jConfig::default(),
+            root,
+            lang_kinds,
         }
     }
     fn analysis(&self) {
