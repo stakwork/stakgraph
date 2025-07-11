@@ -109,10 +109,12 @@ impl EdgeQueryBuilder {
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
 
-        // println!(
-        //     "[EdgeQueryBuilder] source_key: {}, target_key: {}",
-        //     source_key, target_key
-        // );
+        if &self.edge.edge == &EdgeType::Renders {
+            println!(
+                "[EdgeQueryBuilder] source_key: {}, target_key: {}",
+                source_key, target_key
+            );
+        }
 
         let query = format!(
             "MATCH (source:{} {{node_key: $source_key}}),

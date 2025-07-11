@@ -525,7 +525,18 @@ impl Repo {
                             NodeType::File,
                             &edge.source.node_data.file,
                         );
+                        println!(
+                            "🔍 DEBUG: Adding Renders edge: {} -> {}",
+                            edge.source.node_data.name, edge.target.node_data.name
+                        );
                         graph.add_edge(edge);
+
+                        let renders_count =
+                            graph.count_edges_of_type(crate::lang::EdgeType::Renders);
+                        println!(
+                            "🔍 DEBUG: Total Renders edges after addition: {}",
+                            renders_count
+                        );
                     }
                 }
             }
@@ -549,8 +560,12 @@ impl Repo {
                     },
                 );
                 page_renders_count += page_edges.len();
-                for edge in page_edges {
-                    graph.add_edge(edge);
+                for (edge_idx, edge) in page_edges.iter().enumerate() {
+                    println!(
+                        "🔍 DEBUG: Page render edge {}: {:?} -> {:?}",
+                        edge_idx, edge.source.node_data.name, edge.target.node_data.name
+                    );
+                    graph.add_edge(edge.clone());
                 }
             }
             info!("=> got {} page component renders", page_renders_count);
