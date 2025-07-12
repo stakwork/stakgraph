@@ -12,6 +12,7 @@ async function runAgent() {
         url: "http://localhost:3000/sse",
         headers: {
           Authorization: `Bearer ${process.env.API_TOKEN}`,
+          "mcp-session-id": "my-session-id-123",
         },
       },
     });

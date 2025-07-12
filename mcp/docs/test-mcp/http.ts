@@ -1,7 +1,6 @@
 import { experimental_createMCPClient } from "ai";
 import * as dotenv from "dotenv";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { randomUUID } from "crypto";
 
 dotenv.config();
 
@@ -11,10 +10,10 @@ async function runAgent() {
       transport: new StreamableHTTPClientTransport(
         new URL("http://localhost:3000/mcp"),
         {
+          sessionId: "my-session-id-1235",
           requestInit: {
             headers: {
               authorization: `Bearer asdfasdf`,
-              "x-session-id": randomUUID(),
             },
           },
         }
@@ -26,7 +25,7 @@ async function runAgent() {
 
     const result = await tools.stagehand_navigate.execute(
       {
-        url: "https://community.sphinx.chat/leaderboard",
+        url: "https://community.sphinx.chat/bounties",
       },
       {
         toolCallId: "1",
@@ -45,6 +44,15 @@ async function runAgent() {
       }
     );
     console.log(result2);
+
+    const result3 = await tools.stagehand_logs.execute(
+      {},
+      {
+        toolCallId: "3",
+        messages: [],
+      }
+    );
+    console.log(result3);
   } catch (error) {
     console.error("Error setting up MCP client:", error);
   }

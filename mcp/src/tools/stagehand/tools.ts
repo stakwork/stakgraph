@@ -2,12 +2,7 @@ import { z } from "zod";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Tool } from "../index.js";
 import { parseSchema } from "../utils.js";
-import {
-  getOrCreateStagehand,
-  sanitize,
-  getConsoleLogs,
-  getCurrentPlaywrightSessionId,
-} from "./utils.js";
+import { getOrCreateStagehand, sanitize, getConsoleLogs } from "./utils.js";
 import { AgentProviderType } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
 
@@ -69,7 +64,9 @@ export const AgentSchema = z.object({
     ),
 });
 
-export const LogsSchema = z.object({});
+export const LogsSchema = z.object({
+  verbose: z.boolean().optional().default(false),
+});
 
 // Tools
 export const NavigateTool: Tool = {
@@ -147,9 +144,10 @@ type SimpleResult = TextResult | ImageResult;
 
 export async function call(
   name: string,
-  args: Record<string, any>
+  args: Record<string, any>,
+  sessionId?: string
 ): Promise<CallToolResult> {
-  const stagehand = await getOrCreateStagehand();
+  const stagehand = await getOrCreateStagehand(sessionId);
 
   const error = (msg: string): CallToolResult => ({
     content: [{ type: "text" as const, text: msg }],
@@ -239,10 +237,17 @@ export async function call(
       }
 
       case LogsTool.name: {
-        LogsSchema.parse(args); // Validate even though no args expected
-        const playwrightSessionId = getCurrentPlaywrightSessionId();
-        const logs = getConsoleLogs(playwrightSessionId);
-        return success(JSON.stringify(logs, null, 2));
+        const parsedArgs = LogsSchema.parse(args);
+        const logs = getConsoleLogs(sessionId || "default-session-id");
+        if (parsedArgs.verbose) {
+          return success(JSON.stringify(logs, null, 2));
+        } else {
+          let log_str = "";
+          for (const log of logs) {
+            log_str += `${log.text}\n`;
+          }
+          return success(log_str);
+        }
       }
 
       default:

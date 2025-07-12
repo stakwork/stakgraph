@@ -9,16 +9,6 @@ let STATE: {
   };
 } = {};
 
-let CURRENT_PLAYWRIGHT_SESSION_ID: string | undefined;
-
-export function setCurrentPlaywrightSessionId(sessionId: string | undefined) {
-  CURRENT_PLAYWRIGHT_SESSION_ID = sessionId || "default-session-id";
-}
-
-export function getCurrentPlaywrightSessionId() {
-  return CURRENT_PLAYWRIGHT_SESSION_ID || "default-session-id";
-}
-
 export interface ConsoleLog {
   timestamp: string;
   type: string;
@@ -34,7 +24,7 @@ const MAX_LOGS = parseInt(process.env.STAGEHAND_MAX_CONSOLE_LOGS || "1000");
 const MAX_SESSIONS = 25; // LRU limit for stagehand instances
 
 export async function getOrCreateStagehand(sessionIdMaybe?: string) {
-  const sessionId = sessionIdMaybe || getCurrentPlaywrightSessionId();
+  const sessionId = sessionIdMaybe || "default-session-id";
 
   console.log("getOrCreateStagehand SESSION ID", sessionId);
   if (STATE[sessionId]) {
@@ -79,7 +69,11 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
 
   // Check if we need to evict old sessions (LRU)
   if (Object.keys(STATE).length > MAX_SESSIONS) {
-    console.log(`[LRU] Session limit exceeded: ${Object.keys(STATE).length}/${MAX_SESSIONS}`);
+    console.log(
+      `[LRU] Session limit exceeded: ${
+        Object.keys(STATE).length
+      }/${MAX_SESSIONS}`
+    );
     await evictOldestSession();
   }
   return sh;
@@ -143,11 +137,18 @@ async function evictOldestSession(): Promise<void> {
   try {
     await STATE[oldestSessionId].stagehand.close();
   } catch (error) {
-    console.error(`[LRU] Error closing stagehand for session ${oldestSessionId}:`, error);
+    console.error(
+      `[LRU] Error closing stagehand for session ${oldestSessionId}:`,
+      error
+    );
   }
 
   // Remove from STATE
   delete STATE[oldestSessionId];
 
-  console.log(`[LRU] Sessions after eviction: ${Object.keys(STATE).length}/${MAX_SESSIONS}`);
+  console.log(
+    `[LRU] Sessions after eviction: ${
+      Object.keys(STATE).length
+    }/${MAX_SESSIONS}`
+  );
 }
