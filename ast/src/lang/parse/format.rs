@@ -437,7 +437,7 @@ impl Lang {
                 func.start = node.start_position().row;
                 func.end = node.end_position().row;
                 // parent
-                parent = self.lang.find_function_parent(
+                let maybe_parent = self.lang.find_function_parent(
                     node,
                     code,
                     file,
@@ -450,8 +450,16 @@ impl Lang {
                     },
                     parent_type.as_deref(),
                 )?;
-                if let Some(pp) = &parent {
-                    func.add_operand(&pp.source.name);
+                if let Some(p) = maybe_parent.clone() {
+                    let class_node_data = &p.source;
+                    if graph
+                        .find_nodes_by_name(NodeType::Class, &class_node_data.name)
+                        .len()
+                        > 0
+                    {
+                        parent = maybe_parent;
+                        func.add_operand(&p.source.name);
+                    }
                 }
                 // requests to endpoints
                 if let Some(rq) = self.lang.request_finder() {

@@ -109,6 +109,9 @@ import NewPerson from "./components/NewPerson";"#
         "People.tsx should import Person and useStore from ./Person"
     );
 
+    let files = graph.find_nodes_by_type(NodeType::File);
+    assert_eq!(files.len(), 12, "Expected 12 files");
+
     let new_person_import = imports
         .iter()
         .find(|imp| imp.file == "src/testing/react/src/components/NewPerson.tsx")

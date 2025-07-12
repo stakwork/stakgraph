@@ -46,6 +46,9 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     assert_eq!(functions.len(), 26, "Expected 26 Function nodes");
 
+    let files = graph.find_nodes_by_type(NodeType::File);
+    assert_eq!(files.len(), 20, "Expected 20 files");
+
     let items_page_func = functions
         .iter()
         .find(|f| f.name == "ItemsPage")

@@ -19,8 +19,8 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     graph.analysis();
 
-    assert_eq!(num_nodes, 55, "Expected 55 nodes");
-    assert_eq!(num_edges, 54, "Expected 54 edges");
+    assert_eq!(num_nodes, 56, "Expected 56 nodes");
+    assert_eq!(num_edges, 55, "Expected 55 edges");
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -56,7 +56,7 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    assert_eq!(data_models.len(), 16, "Expected 16 data models");
+    assert_eq!(data_models.len(), 17, "Expected 17 data models");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     assert_eq!(requests.len(), 1, "Expected 1 request");

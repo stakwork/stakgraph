@@ -72,9 +72,9 @@ impl Language {
             Self::Toml => vec!["toml"],
             // how to separate ts and js?
             Self::Typescript => vec!["ts", "js"],
-            Self::React => vec!["jsx", "tsx", "ts", "js"],
-            Self::Svelte => vec!["svelte", "ts", "js"],
-            Self::Angular => vec!["ts", "js"],
+            Self::React => vec!["jsx", "tsx", "ts", "js", "html", "css"],
+            Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
+            Self::Angular => vec!["ts", "js", "html", "css"],
             Self::Cpp => vec!["cpp", "h"],
         }
     }
