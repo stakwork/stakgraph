@@ -6,13 +6,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
-import { setCurrentPlaywrightSessionId } from "./stagehand/utils.js";
 
 export class MCPServer {
   server: Server;
 
   // to support multiple simultaneous connections
   transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+
+  initializedSessions: Set<string> = new Set(); // Track which sessions are initialized
 
   constructor(server: Server) {
     this.server = server;
@@ -23,77 +24,118 @@ export class MCPServer {
   }
 
   async handleGetRequest(req: Request, res: Response) {
-    // if server does not offer an SSE stream at this endpoint.
-    // res.status(405).set('Allow', 'POST').send('Method Not Allowed')
+    const mcpSessionId = req.headers["mcp-session-id"] as string | undefined;
 
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    const playwrightSessionId = req.headers["x-session-id"] as
-      | string
-      | undefined;
-    setCurrentPlaywrightSessionId(playwrightSessionId);
-
-    if (!sessionId || !this.transports[sessionId]) {
+    if (!mcpSessionId) {
       res
         .status(400)
         .json(
-          this.createErrorResponse("Bad Request: invalid session ID or method.")
+          this.createErrorResponse(
+            "Bad Request: missing mcp-session-id header."
+          )
         );
       return;
     }
 
-    const transport = this.transports[sessionId];
-    await transport.handleRequest(req, res);
+    const transport = this.transports[mcpSessionId];
+    if (!transport) {
+      res
+        .status(400)
+        .json(
+          this.createErrorResponse("Bad Request: no active session found.")
+        );
+      return;
+    }
 
-    return;
+    await transport.handleRequest(req, res);
   }
 
   async handlePostRequest(req: Request, res: Response) {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
-    const playwrightSessionId = req.headers["x-session-id"] as
-      | string
-      | undefined;
-    let transport: StreamableHTTPServerTransport;
-
-    setCurrentPlaywrightSessionId(playwrightSessionId);
+    const mcpSessionId = req.headers["mcp-session-id"] as string | undefined;
 
     try {
-      // reuse existing transport
-      if (sessionId && this.transports[sessionId]) {
-        transport = this.transports[sessionId];
+      if (mcpSessionId) {
+        // If this is an initialize request and we already have this session, clean it up first
+        if (
+          this.isInitializeRequest(req.body) &&
+          this.transports[mcpSessionId]
+        ) {
+          console.log(
+            `Cleaning up existing session ${mcpSessionId} for reconnection`
+          );
+          this.cleanupSession(mcpSessionId);
+        }
+
+        // Reuse existing transport (only if not cleaned up above)
+        if (this.transports[mcpSessionId]) {
+          const transport = this.transports[mcpSessionId];
+          await transport.handleRequest(req, res, req.body);
+          return;
+        }
+
+        // Only create new transport if this is an initialize request
+        if (!this.isInitializeRequest(req.body)) {
+          res
+            .status(400)
+            .json(
+              this.createErrorResponse(
+                "Bad Request: Session not found. Please initialize first."
+              )
+            );
+          return;
+        }
+
+        // Create new transport for this session
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => mcpSessionId,
+        });
+
+        await this.server.connect(transport);
+        this.transports[mcpSessionId] = transport;
         await transport.handleRequest(req, res, req.body);
         return;
       }
 
-      // create new transport
-      if (!sessionId && this.isInitializeRequest(req.body)) {
+      // Handle no session ID case
+      if (this.isInitializeRequest(req.body)) {
+        const newSessionId = randomUUID();
         const transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
+          sessionIdGenerator: () => newSessionId,
         });
 
         await this.server.connect(transport);
         await transport.handleRequest(req, res, req.body);
 
-        // session ID will only be available (if in not Stateless-Mode)
-        // after handling the first request
-        const sessionId = transport.sessionId;
-        if (sessionId) {
-          this.transports[sessionId] = transport;
-        }
-
+        this.transports[newSessionId] = transport;
+        this.initializedSessions.add(newSessionId);
         return;
       }
 
       res
         .status(400)
         .json(
-          this.createErrorResponse("Bad Request: invalid session ID or method.")
+          this.createErrorResponse(
+            "Bad Request: missing mcp-session-id header or invalid request."
+          )
         );
-      return;
     } catch (error) {
       console.error("Error handling MCP request:", error);
+
+      if (mcpSessionId) {
+        this.cleanupSession(mcpSessionId);
+      }
+
       res.status(500).json(this.createErrorResponse("Internal server error."));
-      return;
     }
+  }
+
+  cleanupSession(mcpSessionId: string) {
+    if (this.transports[mcpSessionId]) {
+      const transport = this.transports[mcpSessionId];
+      transport.close();
+      delete this.transports[mcpSessionId];
+    }
+    this.initializedSessions.delete(mcpSessionId);
   }
 
   private createErrorResponse(message: string): JSONRPCError {

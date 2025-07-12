@@ -9,16 +9,6 @@ let STATE: {
   };
 } = {};
 
-let CURRENT_PLAYWRIGHT_SESSION_ID: string | undefined;
-
-export function setCurrentPlaywrightSessionId(sessionId: string | undefined) {
-  CURRENT_PLAYWRIGHT_SESSION_ID = sessionId || "default-session-id";
-}
-
-export function getCurrentPlaywrightSessionId() {
-  return CURRENT_PLAYWRIGHT_SESSION_ID || "default-session-id";
-}
-
 export interface ConsoleLog {
   timestamp: string;
   type: string;
@@ -37,7 +27,7 @@ const MAX_ACTIONS = 100; // LRU limit
 const ACTION_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
 export async function getOrCreateStagehand(sessionIdMaybe?: string) {
-  const sessionId = sessionIdMaybe || getCurrentPlaywrightSessionId();
+  const sessionId = sessionIdMaybe || "default-session-id";
 
   if (STATE[sessionId]) {
     console.log("sessionId exists:", sessionId);
