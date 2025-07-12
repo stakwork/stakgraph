@@ -9,11 +9,7 @@ import { randomUUID } from "crypto";
 
 export class MCPServer {
   server: Server;
-
-  // to support multiple simultaneous connections
   transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
-
-  initializedSessions: Set<string> = new Set(); // Track which sessions are initialized
 
   constructor(server: Server) {
     this.server = server;
@@ -107,7 +103,6 @@ export class MCPServer {
         await transport.handleRequest(req, res, req.body);
 
         this.transports[newSessionId] = transport;
-        this.initializedSessions.add(newSessionId);
         return;
       }
 
@@ -135,7 +130,6 @@ export class MCPServer {
       transport.close();
       delete this.transports[mcpSessionId];
     }
-    this.initializedSessions.delete(mcpSessionId);
   }
 
   private createErrorResponse(message: string): JSONRPCError {

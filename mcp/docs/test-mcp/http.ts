@@ -10,7 +10,7 @@ async function runAgent() {
       transport: new StreamableHTTPClientTransport(
         new URL("http://localhost:3000/mcp"),
         {
-          // sessionId: "my-session-id-123",
+          sessionId: "my-session-id-1235",
           requestInit: {
             headers: {
               authorization: `Bearer asdfasdf`,
