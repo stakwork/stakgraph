@@ -42,6 +42,16 @@ impl Neo4jConnectionManager {
             Err(e) => Err(anyhow::anyhow!("Failed to connect to Neo4j: {}", e)),
         }
     }
+
+    pub async fn initialize_from_env() -> Result<Neo4jConnection> {
+        let uri =
+            std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://localhost:7687".to_string());
+        let username = std::env::var("NEO4J_USERNAME").unwrap_or_else(|_| "neo4j".to_string());
+        let password = std::env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "testtest".to_string());
+        let database = std::env::var("NEO4J_DATABASE").unwrap_or_else(|_| "neo4j".to_string());
+
+        Self::initialize(&uri, &username, &password, &database).await
+    }
 }
 
 pub struct NodeQueryBuilder {
@@ -109,12 +119,10 @@ impl EdgeQueryBuilder {
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
 
-        if &self.edge.edge == &EdgeType::Renders {
-            println!(
-                "[EdgeQueryBuilder] source_key: {}, target_key: {}",
-                source_key, target_key
-            );
-        }
+        // println!(
+        //     "[EdgeQueryBuilder] source_key: {}, target_key: {}",
+        //     source_key, target_key
+        // );
 
         let query = format!(
             "MATCH (source:{} {{node_key: $source_key}}),
@@ -353,14 +361,18 @@ pub fn count_nodes_edges_query() -> String {
 }
 pub fn graph_node_analysis_query() -> String {
     "MATCH (n) 
-     RETURN n.node_key as node_key
-     ORDER BY node_key"
+     RETURN labels(n)[1] as node_type, n.name as name, n.file as file, n.start as start, 
+            n.end as end, n.body as body, n.data_type as data_type, n.docs as docs, 
+            n.hash as hash, n.meta as meta
+     ORDER BY node_type, name"
         .to_string()
 }
 pub fn graph_edges_analysis_query() -> String {
     "MATCH (source)-[r]->(target) 
-     RETURN source.node_key as source_key, type(r) as edge_type, target.node_key as target_key
-     ORDER BY source_key, edge_type, target_key"
+     RETURN labels(source)[1] as source_type, source.name as source_name, source.file as source_file, source.start as source_start,
+            type(r) as edge_type, labels(target)[1] as target_type, 
+            target.name as target_name, target.file as target_file, target.start as target_start
+     ORDER BY source_type, source_name, edge_type, target_type, target_name"
         .to_string()
 }
 pub fn count_edges_by_type_query(edge_type: &EdgeType) -> (String, BoltMap) {
@@ -669,7 +681,6 @@ pub fn add_node_with_parent_query(
         parent_type.to_string(),
         node_type.to_string()
     );
-
     queries.push((query_str, params));
     queries
 }
