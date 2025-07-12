@@ -10,10 +10,10 @@ async function runAgent() {
       transport: new StreamableHTTPClientTransport(
         new URL("http://localhost:3000/mcp"),
         {
+          // sessionId: "my-session-id-123",
           requestInit: {
             headers: {
               authorization: `Bearer asdfasdf`,
-              "x-session-id": "my-session-id-123",
             },
           },
         }
@@ -25,7 +25,7 @@ async function runAgent() {
 
     const result = await tools.stagehand_navigate.execute(
       {
-        url: "https://community.sphinx.chat/leaderboard",
+        url: "https://community.sphinx.chat/bounties",
       },
       {
         toolCallId: "1",
