@@ -26,8 +26,8 @@ impl Stack for Swift {
         Some(format!(
             r#"
             (import_declaration
-                (identifier) @{IMPORTS}
-            )
+                (identifier) 
+            ) @{IMPORTS}
             "#
         ))
     }

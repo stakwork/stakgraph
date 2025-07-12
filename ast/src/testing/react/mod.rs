@@ -512,4 +512,12 @@ async fn test_react_typescript() {
     test_react_typescript_generic::<BTreeMapGraph>()
         .await
         .unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        test_react_typescript_generic::<Neo4jGraph>().await.unwrap();
+    }
 }

@@ -238,4 +238,12 @@ async fn test_nextjs() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_nextjs_generic::<ArrayGraph>().await.unwrap();
     test_nextjs_generic::<BTreeMapGraph>().await.unwrap();
+
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        test_nextjs_generic::<Neo4jGraph>().await.unwrap();
+    }
 }
