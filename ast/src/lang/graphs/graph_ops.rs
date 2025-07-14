@@ -143,7 +143,7 @@ impl GraphOps {
         username: Option<String>,
         pat: Option<String>,
         current_hash: &str,
-        commit: Option<&str>,
+        revs: Vec<String>,
         use_lsp: Option<bool>,
     ) -> Result<(u32, u32)> {
         let repos = Repo::new_clone_multi_detect(
@@ -151,8 +151,7 @@ impl GraphOps {
             username.clone(),
             pat.clone(),
             Vec::new(),
-            Vec::new(),
-            commit,
+            revs,
             use_lsp,
         )
         .await?;

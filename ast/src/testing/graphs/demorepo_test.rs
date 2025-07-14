@@ -222,10 +222,9 @@ async fn test_demorepo() {
     let repo_url = "https://github.com/fayekelmith/demorepo";
     let use_lsp = Some(get_use_lsp());
 
-    let repos =
-        Repo::new_clone_multi_detect(repo_url, None, None, Vec::new(), Vec::new(), None, use_lsp)
-            .await
-            .unwrap();
+    let repos = Repo::new_clone_multi_detect(repo_url, None, None, Vec::new(), Vec::new(), use_lsp)
+        .await
+        .unwrap();
 
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_demorepo_generic::<ArrayGraph>(&repos).await.unwrap();

@@ -138,7 +138,6 @@ impl Repo {
         pat: Option<String>,
         files_filter: Vec<String>,
         revs: Vec<String>,
-        commit: Option<&str>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
         let urls = urls
@@ -164,16 +163,19 @@ impl Repo {
             let gurl = GitUrl::parse(url)
                 .map_err(|e| anyhow!("Failed to parse Git URL for {}: {}", url, e))?;
             let root = format!("/tmp/{}", gurl.fullname);
-            println!("Cloning repo to {:?}...", &root);
-            clone_repo(url, &root, username.clone(), pat.clone(), commit)
-                .await
-                .map_err(|e| anyhow!("Failed to clone repo {} at root {}: {}", url, root, e))?;
             // Extract the revs for this specific repository
             let repo_revs = if revs_per_repo > 0 {
                 revs[i * revs_per_repo..(i + 1) * revs_per_repo].to_vec()
             } else {
                 Vec::new()
             };
+
+            println!("Cloning repo to {:?}...", &root);
+            let commit_for_repo = repo_revs.get(0).map(|s| s.as_str());
+            clone_repo(url, &root, username.clone(), pat.clone(), commit_for_repo)
+                .await
+                .map_err(|e| anyhow!("Failed to clone repo {} at root {}: {}", url, root, e))?;
+
             let detected = Self::new_multi_detect(
                 &root,
                 Some(url.clone()),

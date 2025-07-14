@@ -13,7 +13,7 @@ pub struct ProcessBody {
     pub username: Option<String>,
     pub pat: Option<String>,
     pub use_lsp: Option<bool>,
-    pub commit: Option<String>,
+    pub revs: Option<String>,
 }
 #[derive(Serialize, Deserialize)]
 pub struct ProcessResponse {

@@ -135,7 +135,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
                 username.clone(),
                 pat.clone(),
                 &current_hash,
-                None,
+                Vec::new(),
                 use_lsp,
             )
             .await?
@@ -197,7 +197,7 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (_final_repo_path, final_repo_url, username, pat, commit) = resolve_repo(&body)?;
+    let (_final_repo_path, final_repo_url, username, pat, revs) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
 
     let repo_url = final_repo_url.clone();
@@ -209,8 +209,7 @@ pub async fn ingest(
         username.clone(),
         pat.clone(),
         Vec::new(),
-        Vec::new(),
-        commit.as_deref(),
+        revs,
         use_lsp,
     )
     .await
@@ -272,13 +271,7 @@ fn env_not_empty(key: &str) -> Option<String> {
 
 fn resolve_repo(
     body: &ProcessBody,
-) -> Result<(
-    String,
-    String,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-)> {
+) -> Result<(String, String, Option<String>, Option<String>, Vec<String>)> {
     let repo_path = body
         .repo_path
         .clone()
@@ -286,19 +279,23 @@ fn resolve_repo(
     let repo_url = body.repo_url.clone().or_else(|| env_not_empty("REPO_URL"));
     let username = body.username.clone().or_else(|| env_not_empty("USERNAME"));
     let pat = body.pat.clone().or_else(|| env_not_empty("PAT"));
-    let commit = body.commit.clone();
 
     if repo_path.is_none() && repo_url.is_none() {
         return Err(AppError::Anyhow(anyhow::anyhow!(
             "Neither REPO_PATH nor REPO_URL is set in the body or environment"
         )));
     }
+    let revs = body
+        .revs
+        .clone()
+        .map(|r| r.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
 
     if let Some(path) = repo_path {
-        Ok((path, repo_url.unwrap_or_default(), username, pat, commit))
+        Ok((path, repo_url.unwrap_or_default(), username, pat, revs))
     } else {
         let url = repo_url.unwrap();
         let tmp_path = Repo::get_path_from_url(&url)?;
-        Ok((tmp_path, url, username, pat, commit))
+        Ok((tmp_path, url, username, pat, revs))
     }
 }
