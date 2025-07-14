@@ -16,8 +16,7 @@ async fn main() -> Result<()> {
         .map(|r| r.split(',').map(|s| s.to_string()).collect())
         .unwrap_or_default();
 
-    let repos =
-        Repo::new_clone_multi_detect(&url, None, None, Vec::new(), revs, None, use_lsp).await?;
+    let repos = Repo::new_clone_multi_detect(&url, None, None, Vec::new(), revs, use_lsp).await?;
     let graph = repos.build_graphs().await?;
     println!(
         "Final Graph => {} nodes and {} edges",

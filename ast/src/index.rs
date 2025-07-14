@@ -55,7 +55,6 @@ async fn main() -> Result<()> {
             pat.clone(),
             Vec::new(),
             revs.clone(),
-            None,
             use_lsp,
         )
         .await?

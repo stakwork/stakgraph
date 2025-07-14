@@ -37,7 +37,7 @@ async fn test_graph_update() {
             None,
             None,
             before_commit,
-            Some(before_commit),
+            vec![before_commit.to_string()],
             use_lsp,
         )
         .await
