@@ -17,6 +17,7 @@ axum = { version = "0.7", features = ["ws", "multipart", "macros"] }
 futures = "0.3.31"
 test-log = "0.*"
 base64 = "0.21"
+regex = "1.11.1"
 
 [features]
 neo4j = ["ast/neo4j"]
