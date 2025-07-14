@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use tracing::debug;
 use tree_sitter::{Language, Parser, Query, Tree};
+use regex::Regex;
 
 pub struct Ruby(Language);
 
@@ -459,7 +460,8 @@ impl Stack for Ruby {
         }
         // let is_underscore = pagename.as_ref().unwrap().starts_with("_");
         let is_view = file_name.contains("/views/");
-        is_view && is_good_ext
+        let is_partial = pagename.as_ref().map_or(false, |name| name.starts_with("_"));
+        is_view && is_good_ext && (is_partial || true)
     }
     fn extra_page_finder(
         &self,
@@ -476,6 +478,13 @@ impl Stack for Ruby {
         let p = std::path::Path::new(file_path);
         let func_name = remove_all_extensions(p);
         let parent_name = p.parent()?.file_name()?.to_str()?;
+        
+        let is_partial = func_name.starts_with("_");
+
+        if is_partial {
+            return None;
+        }
+        
         println!("func_name: {}, parent_name: {}", func_name, parent_name);
         let controller_handler = find_fn(
             &func_name,
@@ -495,6 +504,253 @@ impl Stack for Ruby {
         println!("no handler found for {} {}", func_name, file_path);
         None
     }
+    fn page_component_renders_finder(
+        &self,
+        file_path: &str,
+        code: &str,
+        _selector_map: &std::collections::HashMap<String, String>,
+        find_page_fn: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Vec<Edge> {
+        let mut edges = Vec::new();
+        
+        if !is_template_file(file_path) && !file_path.ends_with(".rb") {
+            return edges;
+        }
+
+        if let Some(current_page) = find_page_fn(file_path) {
+            let partials = extract_partials_from_text(code);
+            
+            for partial_name in partials {
+                let mut paths_to_try = Vec::new();
+                
+                let current_dir = std::path::Path::new(file_path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "".to_string());
+                    
+                let namespace_path = if current_dir.contains("/views/") {
+                    current_dir.split("/views/").nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                
+                if partial_name.starts_with('/') {
+                    paths_to_try.push(format!("app/views{}", partial_name));
+                }
+                else if partial_name.contains("::") {
+                    let parts: Vec<&str> = partial_name.split("::").collect();
+                    paths_to_try.push(format!("app/views/{}", parts.join("/").to_case(Case::Snake)));
+                }
+                else {
+                    paths_to_try.push(format!("{}/{}", current_dir, partial_name));
+                    
+                    paths_to_try.push(format!("{}/shared/{}", current_dir, partial_name));
+                    
+                    if let Some(parent_dir) = std::path::Path::new(&current_dir).parent() {
+                        paths_to_try.push(format!("{}/shared/{}", parent_dir.display(), partial_name));
+                    }
+                    
+                    paths_to_try.push(format!("app/views/shared/{}", partial_name));
+                    
+                    paths_to_try.push(format!("app/views/layouts/{}", partial_name));
+                }
+                
+                let mut final_paths = Vec::new();
+                for path in paths_to_try {
+                    let path_without_ext = if let Some(idx) = path.rfind('.') {
+                        &path[..idx]
+                    } else {
+                        &path
+                    };
+                    
+                    let file_name = std::path::Path::new(path_without_ext)
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    
+                    let dir = std::path::Path::new(path_without_ext)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    
+                    if !file_name.starts_with('_') {
+                        let with_underscore = if dir.is_empty() {
+                            format!("_{}", file_name)
+                        } else {
+                            format!("{}/_{}", dir, file_name)
+                        };
+                        final_paths.push(with_underscore);
+                    }
+                    
+                    final_paths.push(path_without_ext.to_string());
+                }
+                
+                for path in final_paths {
+                    if path.contains('.') {
+                        if let Some(partial_page) = find_page_fn(&path) {
+                            edges.push(Edge::new(
+                                EdgeType::Renders,
+                                NodeRef::from(current_page.clone(), NodeType::Page),
+                                NodeRef::from(partial_page, NodeType::Page),
+                            ));
+                            break;
+                        }
+                    } else {
+                        for ext in get_supported_extensions() {
+                            let test_path = format!("{}{}", path, ext);
+                            if let Some(partial_page) = find_page_fn(&test_path) {
+                                edges.push(Edge::new(
+                                    EdgeType::Renders,
+                                    NodeRef::from(current_page.clone(), NodeType::Page),
+                                    NodeRef::from(partial_page, NodeType::Page),
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        edges
+    }
+
+fn add_partial_edge(
+    edges: &mut Vec<Edge>,
+    file_path: &str,
+    partial_path: &str,
+    current_page: &NodeData,
+    find_page_fn: &dyn Fn(&str) -> Option<NodeData>,
+) {
+    let partial_path = partial_path.trim();
+    
+    if partial_path.is_empty() || 
+       partial_path.starts_with(":") || 
+       partial_path == "true" || 
+       partial_path == "false" ||
+       partial_path.starts_with("@") ||
+       partial_path.contains("<%") || 
+       partial_path.contains("%>") {
+        return;
+    }
+    
+    let mut full_partial_path = String::new();
+    
+    if partial_path.contains("//") {
+        let parts: Vec<&str> = partial_path.split("//").collect();
+        full_partial_path = format!("app/views/{}", parts.join("/"));
+    }
+    else if partial_path.starts_with('/') {
+        full_partial_path = format!("app/views{}", partial_path);
+    }
+    else if partial_path.starts_with('~') {
+        full_partial_path = format!("app/views/{}", &partial_path[1..]);
+    }
+    else if partial_path.contains("::") {
+        let parts: Vec<&str> = partial_path.split("::").collect();
+        full_partial_path = format!("app/views/{}", parts.join("/").to_case(Case::Snake));
+    }
+    else {
+        let current_dir = std::path::Path::new(file_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "".to_string());
+            
+        if partial_path.contains('/') {
+            full_partial_path = format!("{}/{}", current_dir, partial_path);
+        } else {
+            let namespace_path = if current_dir.contains("/views/") {
+                current_dir.split("/views/").nth(1).unwrap_or("")
+            } else {
+                ""
+            };
+            
+            let controller_namespace = if namespace_path.contains('/') {
+                namespace_path.split('/').next().unwrap_or("")
+            } else {
+                namespace_path
+            };
+            
+            if !namespace_path.is_empty() {
+                let namespaced_path = format!("{}/{}/{}", current_dir, controller_namespace, partial_path);
+                if try_with_partial_path(edges, &namespaced_path, current_page, find_page_fn) {
+                    return;
+                }
+                
+                let shared_path = format!("{}/shared/{}", current_dir, partial_path);
+                if try_with_partial_path(edges, &shared_path, current_page, find_page_fn) {
+                    return;
+                }
+            }
+            
+            full_partial_path = format!("{}/{}", current_dir, partial_path);
+        }
+    }
+    
+    if full_partial_path.contains('.') {
+        try_with_partial_path(edges, full_partial_path.as_str(), current_page, find_page_fn);
+    } else {
+        for ext in get_supported_extensions() {
+            let test_path = format!("{}{}", full_partial_path, ext);
+            if try_with_partial_path(edges, test_path.as_str(), current_page, find_page_fn) {
+                break;
+            }
+        }
+    }
+}
+
+fn try_with_partial_path(
+    edges: &mut Vec<Edge>,
+    path: &str,
+    current_page: &NodeData,
+    find_page_fn: &dyn Fn(&str) -> Option<NodeData>,
+) -> bool {
+    let file_name = std::path::Path::new(path).file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    
+    let dir = std::path::Path::new(path).parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    
+    let partial_file_name = if !file_name.starts_with('_') {
+        format!("_{}", file_name)
+    } else {
+        file_name.clone()
+    };
+    
+    let test_path_with_underscore = if dir.is_empty() {
+        partial_file_name.clone()
+    } else {
+        format!("{}/{}", dir, partial_file_name)
+    };
+    
+    if let Some(partial_page) = find_page_fn(&test_path_with_underscore) {
+        edges.push(Edge::new(
+            EdgeType::Renders,
+            NodeRef::from(current_page.into(), NodeType::Page),
+            NodeRef::from(partial_page.into(), NodeType::Page),
+        ));
+        return true;
+    }
+    
+    let non_partial_path = if dir.is_empty() {
+        file_name.strip_prefix('_').unwrap_or(&file_name).to_string()
+    } else {
+        format!("{}/{}", dir, file_name.strip_prefix('_').unwrap_or(&file_name))
+    };
+    
+    if let Some(partial_page) = find_page_fn(&non_partial_path) {
+        edges.push(Edge::new(
+            EdgeType::Renders,
+            NodeRef::from(current_page.into(), NodeType::Page),
+            NodeRef::from(partial_page.into(), NodeType::Page),
+        ));
+        return true;
+    }
+    
+    false
+}
     fn direct_class_calls(&self) -> bool {
         true
     }
@@ -572,6 +828,9 @@ impl Stack for Ruby {
         }
         results
     }
+    fn template_ext(&self) -> Option<&str> {
+        Some(".erb")
+    }
 }
 
 fn remove_all_extensions(path: &Path) -> String {
@@ -605,3 +864,418 @@ fn trim_array_string(s: &str) -> String {
 // fn is_controller(nd: &NodeData, controller: &str) -> bool {
 //     nd.file.ends_with(&format!("{}_controller.rb", controller))
 // }
+
+fn get_supported_extensions() -> Vec<&'static str> {
+    vec![
+        ".erb", ".haml", ".slim",
+        ".html.erb", ".html.haml", ".html.slim", ".html.liquid",
+        ".js.erb", ".json.jbuilder", ".js.coffee", ".coffee",
+        ".text.erb", ".txt.erb",
+        ".xml.builder", ".xml.erb",
+        ".atom.builder", ".rss.builder",
+        ".rabl", ".builder",
+        ".pdf.erb", ".xlsx.erb", ".csv.erb",
+        ".css.erb", ".sass", ".scss",
+        ".liquid",
+        ".text.erb", ".html.erb", ".text.haml", ".html.haml"
+    ]
+}
+
+fn is_template_file(file_path: &str) -> bool {
+    get_supported_extensions().iter().any(|ext| file_path.ends_with(ext))
+}
+
+fn get_render_patterns() -> Vec<&'static str> {
+    vec![
+        "render partial:", 
+        "render :partial =>",
+        "render partial =>",
+        "render(",
+        "render :",
+        "render '",
+        "render \"",
+        "<%= render",
+        "<%- render",
+        "<% render",
+        "= render",
+        "- render",
+        "~ render",
+        "| render",
+        ">= render",
+        "render layout:",
+        "render template:",
+        "render action:",
+        "render inline:",
+        "render file:",
+        "= partial",
+        "= render partial:",
+        "render 'shared/",
+        "render \"shared/",
+        "render object:",
+        "render collection:",
+        "render model:",
+        "render locals:",
+        "render formats:",
+        "render(@",
+        "render_to_string",
+        "render formats: [",
+        "json.partial!",
+        "json.array!",
+        "content_for"
+    ]
+}
+
+fn extract_dynamic_partial(code: &str, start_idx: usize) -> Option<(usize, String)> {
+    let mut end_idx = start_idx;
+    let max_search = std::cmp::min(code.len(), start_idx + 200);
+    
+    while end_idx < max_search {
+        if let Some(interpolation) = code[end_idx..max_search].find("#{") {
+            let interp_start = end_idx + interpolation;
+            if let Some(interp_end) = code[interp_start..max_search].find("}") {
+                let full_interp_end = interp_start + interp_end + 1;
+                return Some((full_interp_end, "dynamic_partial".to_string()));
+            }
+        }
+
+        if code[end_idx..max_search].contains("collection:") {
+            let collection_pos = code[end_idx..max_search].find("collection:").unwrap() + end_idx + 11;
+            let search_area = &code[collection_pos..max_search];
+            
+            if search_area.contains("partial:") {
+                let partial_pos = search_area.find("partial:").unwrap() + 8;
+                let partial_area = &search_area[partial_pos..];
+                if let Some(end_quote) = partial_area.find(|c| c == '\'' || c == '"') {
+                    return Some((collection_pos + partial_pos + end_quote, "collection_partial".to_string()));
+                }
+            }
+            
+            if let Some(var_end) = search_area.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                let collection_name = &search_area[..var_end];
+                let singular = inflection_rs::inflection::singularize(collection_name);
+                return Some((collection_pos + var_end, format!("_{}", singular)));
+            }
+        }
+        
+        if code[end_idx..max_search].contains("object:") {
+            let object_pos = code[end_idx..max_search].find("object:").unwrap() + end_idx + 7;
+            let search_area = &code[object_pos..max_search];
+            
+            if let Some(var_end) = search_area.find(|c: char| !c.is_alphanumeric() && c != '_') {
+                let object_name = &search_area[..var_end];
+                return Some((object_pos + var_end, format!("_{}", object_name)));
+            }
+        }
+        
+        if code[end_idx..max_search].contains("partial:") || code[end_idx..max_search].contains(":partial") {
+            let partial_pos = if code[end_idx..max_search].contains("partial:") {
+                code[end_idx..max_search].find("partial:").unwrap() + end_idx + 8
+            } else {
+                code[end_idx..max_search].find(":partial").unwrap() + end_idx + 8
+            };
+            
+            let search_area = &code[partial_pos..max_search];
+            
+            if !search_area.trim_start().starts_with('\'') && !search_area.trim_start().starts_with('"') {
+                let potential_var = search_area.trim_start().split_whitespace().next().unwrap_or("");
+                if !potential_var.is_empty() && !potential_var.starts_with(':') && !potential_var.contains("=>") {
+                    return Some((partial_pos + potential_var.len(), "variable_partial".to_string()));
+                }
+            }
+        }
+        
+        end_idx += 1;
+    }
+    
+    None
+}
+
+fn extract_partials_from_text(text: &str) -> Vec<String> {
+    let mut partials = Vec::new();
+    
+    let re_partial = Regex::new(r#"partial:\s*['"]([^'"]+)['"]"#).unwrap();
+    for cap in re_partial.captures_iter(text) {
+        if let Some(partial) = cap.get(1) {
+            partials.push(partial.as_str().to_string());
+        }
+    }
+    
+    let re_render = Regex::new(r#"render\s+['"]([^'"]+)['"]"#).unwrap();
+    for cap in re_render.captures_iter(text) {
+        if let Some(partial) = cap.get(1) {
+            partials.push(partial.as_str().to_string());
+        }
+    }
+    
+    let re_haml = Regex::new(r#"=\s*render\s+partial:\s*['"]([^'"]+)['"]"#).unwrap();
+    for cap in re_haml.captures_iter(text) {
+        if let Some(partial) = cap.get(1) {
+            partials.push(partial.as_str().to_string());
+        }
+    }
+    
+    let re_erb = Regex::new(r#"<%=?\s*render\s+partial:\s*['"]([^'"]+)['"]"#).unwrap();
+    for cap in re_erb.captures_iter(text) {
+        if let Some(partial) = cap.get(1) {
+            partials.push(partial.as_str().to_string());
+        }
+    }
+    
+    let re_with_var = Regex::new(r#"render\s*\([^)]*partial:\s*['"]([^'"]+)['"]"#).unwrap();
+    for cap in re_with_var.captures_iter(text) {
+        if let Some(partial) = cap.get(1) {
+            partials.push(partial.as_str().to_string());
+        }
+    }
+    
+    partials
+}
+
+impl Ruby {
+    fn page_component_renders_finder(
+        &self,
+        file_path: &str,
+        code: &str,
+        _selector_map: &std::collections::HashMap<String, String>,
+        find_page_fn: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Vec<Edge> {
+        let mut edges = Vec::new();
+        
+        if !is_template_file(file_path) && !file_path.ends_with(".rb") {
+            return edges;
+        }
+
+        if let Some(current_page) = find_page_fn(file_path) {   
+            let partials = extract_partials_from_text(code);
+            
+            for partial_name in partials {
+                let mut paths_to_try = Vec::new();
+                
+                let current_dir = std::path::Path::new(file_path)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "".to_string());
+                    
+                let namespace_path = if current_dir.contains("/views/") {
+                    current_dir.split("/views/").nth(1).unwrap_or("")
+                } else {
+                    ""
+                };
+                
+                if partial_name.starts_with('/') {
+                    paths_to_try.push(format!("app/views{}", partial_name));
+                }
+                else if partial_name.contains("::") {
+                    let parts: Vec<&str> = partial_name.split("::").collect();
+                    paths_to_try.push(format!("app/views/{}", parts.join("/").to_case(Case::Snake)));
+                }
+                else {
+                    paths_to_try.push(format!("{}/{}", current_dir, partial_name));
+                    
+                    paths_to_try.push(format!("{}/shared/{}", current_dir, partial_name));
+                    
+                    if let Some(parent_dir) = std::path::Path::new(&current_dir).parent() {
+                        paths_to_try.push(format!("{}/shared/{}", parent_dir.display(), partial_name));
+                    }
+                    
+                    paths_to_try.push(format!("app/views/shared/{}", partial_name));
+                    
+                    paths_to_try.push(format!("app/views/layouts/{}", partial_name));
+                }
+                
+                let mut final_paths = Vec::new();
+                for path in paths_to_try {
+                    let path_without_ext = if let Some(idx) = path.rfind('.') {
+                        &path[..idx]
+                    } else {
+                        &path
+                    };
+                    
+                    let file_name = std::path::Path::new(path_without_ext)
+                        .file_name()
+                        .map(|f| f.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    
+                    let dir = std::path::Path::new(path_without_ext)
+                        .parent()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    
+                    if !file_name.starts_with('_') {
+                        let with_underscore = if dir.is_empty() {
+                            format!("_{}", file_name)
+                        } else {
+                            format!("{}/_{}", dir, file_name)
+                        };
+                        final_paths.push(with_underscore);
+                    }
+                    
+                    final_paths.push(path_without_ext.to_string());
+                }
+
+                for path in final_paths {
+                    if path.contains('.') {
+                        if let Some(partial_page) = find_page_fn(&path) {
+                            edges.push(Edge::new(
+                                EdgeType::Renders,
+                                NodeRef::from(current_page.clone(), NodeType::Page),
+                                NodeRef::from(partial_page, NodeType::Page),
+                            ));
+                            break;
+                        }
+                    } else {
+                        for ext in get_supported_extensions() {
+                            let test_path = format!("{}{}", path, ext);
+                            if let Some(partial_page) = find_page_fn(&test_path) {
+                                edges.push(Edge::new(
+                                    EdgeType::Renders,
+                                    NodeRef::from(current_page.clone(), NodeType::Page),
+                                    NodeRef::from(partial_page, NodeType::Page),
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        edges
+    }
+
+fn add_partial_edge(
+    edges: &mut Vec<Edge>,
+    file_path: &str,
+    partial_path: &str,
+    current_page: &NodeData,
+    find_page_fn: &dyn Fn(&str) -> Option<NodeData>,
+) {
+    let partial_path = partial_path.trim();
+    
+    if partial_path.is_empty() || 
+       partial_path.starts_with(":") || 
+       partial_path == "true" || 
+       partial_path == "false" ||
+       partial_path.starts_with("@") ||
+       partial_path.contains("<%") || 
+       partial_path.contains("%>") {
+        return;
+    }
+    
+    let mut full_partial_path = String::new();
+    
+    if partial_path.contains("//") {
+        let parts: Vec<&str> = partial_path.split("//").collect();
+        full_partial_path = format!("app/views/{}", parts.join("/"));
+    }
+    else if partial_path.starts_with('/') {
+        full_partial_path = format!("app/views{}", partial_path);
+    }
+    else if partial_path.starts_with('~') {
+        full_partial_path = format!("app/views/{}", &partial_path[1..]);
+    }
+    else if partial_path.contains("::") {
+        let parts: Vec<&str> = partial_path.split("::").collect();
+        full_partial_path = format!("app/views/{}", parts.join("/").to_case(Case::Snake));
+    }
+    else {
+        let current_dir = std::path::Path::new(file_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|| "".to_string());
+            
+        if partial_path.contains('/') {
+            full_partial_path = format!("{}/{}", current_dir, partial_path);
+        } else {
+            let namespace_path = if current_dir.contains("/views/") {
+                current_dir.split("/views/").nth(1).unwrap_or("")
+            } else {
+                ""
+            };
+            
+            let controller_namespace = if namespace_path.contains('/') {
+                namespace_path.split('/').next().unwrap_or("")
+            } else {
+                namespace_path
+            };
+            
+            if !namespace_path.is_empty() {
+                let namespaced_path = format!("{}/{}/{}", current_dir, controller_namespace, partial_path);
+                if try_with_partial_path(edges, &namespaced_path, current_page, find_page_fn) {
+                    return;
+                }
+                
+                let shared_path = format!("{}/shared/{}", current_dir, partial_path);
+                if try_with_partial_path(edges, &shared_path, current_page, find_page_fn) {
+                    return;
+                }
+            }
+
+            full_partial_path = format!("{}/{}", current_dir, partial_path);
+        }
+    }
+    
+    if full_partial_path.contains('.') {
+        try_with_partial_path(edges, full_partial_path.as_str(), current_page, find_page_fn);
+    } else {
+        for ext in get_supported_extensions() {
+            let test_path = format!("{}{}", full_partial_path, ext);
+            if try_with_partial_path(edges, test_path.as_str(), current_page, find_page_fn) {
+                break;
+            }
+        }
+    }
+}
+
+fn try_with_partial_path(
+    edges: &mut Vec<Edge>,
+    path: &str,
+    current_page: &NodeData,
+    find_page_fn: &dyn Fn(&str) -> Option<NodeData>,
+) -> bool {
+    let file_name = std::path::Path::new(path).file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    
+    let dir = std::path::Path::new(path).parent()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    
+    let partial_file_name = if !file_name.starts_with('_') {
+        format!("_{}", file_name)
+    } else {
+        file_name.clone()
+    };
+    
+    let test_path_with_underscore = if dir.is_empty() {
+        partial_file_name.clone()
+    } else {
+        format!("{}/{}", dir, partial_file_name)
+    };
+    
+    if let Some(partial_page) = find_page_fn(&test_path_with_underscore) {
+        edges.push(Edge::new(
+            EdgeType::Renders,
+            NodeRef::from(current_page.into(), NodeType::Page),
+            NodeRef::from(partial_page.into(), NodeType::Page),
+        ));
+        return true;
+    }
+    
+    let non_partial_path = if dir.is_empty() {
+        file_name.strip_prefix('_').unwrap_or(&file_name).to_string()
+    } else {
+        format!("{}/{}", dir, file_name.strip_prefix('_').unwrap_or(&file_name))
+    };
+    
+    if let Some(partial_page) = find_page_fn(&non_partial_path) {
+        edges.push(Edge::new(
+            EdgeType::Renders,
+            NodeRef::from(current_page.into(), NodeType::Page),
+            NodeRef::from(partial_page.into(), NodeType::Page),
+        ));
+        return true;
+    }
+    
+    false
+}
