@@ -32,6 +32,27 @@ impl Stack for Go {
     // fn is_lib_file(&self, file_name: &str) -> bool {
     //     file_name.contains("/go/pkg/mod/")
     // }
+
+    fn skip_file_with_path_contains(&self, file_name: &str) -> bool {
+        // Skip Go standard library and system files
+        if file_name.contains("/go/src/")
+            || file_name.contains("/go/pkg/")
+            || file_name.starts_with("/usr")
+            || file_name.ends_with("_test.go")
+        {
+            return true;
+        }
+
+        // Skip Go module cache unless allowed via env
+        if file_name.contains("/go/pkg/mod/") {
+            let allow_mods = std::env::var("ALLOW_MODS").unwrap_or("true".to_string());
+            if allow_mods == "false" {
+                return true;
+            }
+        }
+
+        false
+    }
     fn lib_query(&self) -> Option<String> {
         Some(format!(
             r#"(command
