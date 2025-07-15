@@ -90,30 +90,12 @@ pub fn create_node_key(node: &Node) -> String {
 }
 
 pub fn get_use_lsp() -> bool {
-    println!("===-==> Getting use LSP");
-    env::set_var("LSP_SKIP_POST_CLONE", "true");
-    delete_react_testing_node_modules().ok();
+    //env::set_var("LSP_SKIP_POST_CLONE", "true");
     let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
     if lsp == "true" || lsp == "1" {
         return true;
     }
     false
-}
-
-fn delete_react_testing_node_modules() -> std::io::Result<()> {
-    let path = std::path::Path::new("src/testing/react/node_modules");
-    if path.exists() {
-        std::fs::remove_dir_all(path)?;
-    }
-    let path = std::path::Path::new("src/testing/typescript/node_modules");
-    if path.exists() {
-        std::fs::remove_dir_all(path)?;
-    }
-    let path = std::path::Path::new("/tmp/fayekelmith/demorepo/frontend/node_modules");
-    if path.exists() {
-        std::fs::remove_dir_all(path)?;
-    }
-    Ok(())
 }
 
 pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
