@@ -12,12 +12,14 @@ export function generatePlaywrightTest(url, trackingData) {
     assertions,
     userInfo,
     time,
+    formElementChanges,
   } = trackingData;
 
   if (
     (!clicks || !clicks.clickDetails || clicks.clickDetails.length === 0) &&
     (!inputChanges || inputChanges.length === 0) &&
-    (!assertions || assertions.length === 0)
+    (!assertions || assertions.length === 0) &&
+    (!formElementChanges || formElementChanges.length === 0)
   ) {
     return generateEmptyTest(url);
   }
@@ -37,7 +39,13 @@ export function generatePlaywrightTest(url, trackingData) {
       height: ${userInfo.windowSize[1]} 
     });
   
-  ${generateUserInteractions(clicks, inputChanges, focusChanges, assertions)}
+  ${generateUserInteractions(
+    clicks,
+    inputChanges,
+    focusChanges,
+    assertions,
+    formElementChanges
+  )}
 
     await page.waitForTimeout(2500);
   });`;
@@ -51,26 +59,92 @@ export function generatePlaywrightTest(url, trackingData) {
  * @param {Array} inputChanges - Input change data
  * @param {Array} focusChanges - Focus change data
  * @param {Array} assertions - Assertions to add
+ * @param {Array} formElementChanges - Form element changes (checkbox, radio, select)
  * @returns {string} - Generated interactions code
  */
 function generateUserInteractions(
   clicks,
   inputChanges,
   focusChanges,
-  assertions = []
+  assertions = [],
+  formElementChanges = []
 ) {
   const allEvents = [];
+  const processedSelectors = new Set();
+  const formElementTimestamps = {};
+
+  if (formElementChanges && formElementChanges.length > 0) {
+    const formElementsBySelector = {};
+
+    formElementChanges.forEach((change) => {
+      const selector = change.elementSelector;
+      if (!formElementsBySelector[selector]) {
+        formElementsBySelector[selector] = [];
+      }
+      formElementsBySelector[selector].push(change);
+    });
+
+    Object.entries(formElementsBySelector).forEach(([selector, changes]) => {
+      changes.sort((a, b) => a.timestamp - b.timestamp);
+
+      if (changes[0].type === "checkbox" || changes[0].type === "radio") {
+        const latestChange = changes[changes.length - 1];
+        allEvents.push({
+          type: "form",
+          formType: latestChange.type,
+          selector: latestChange.elementSelector,
+          value: latestChange.value,
+          checked: latestChange.checked,
+          timestamp: latestChange.timestamp,
+        });
+        formElementTimestamps[selector] = latestChange.timestamp;
+      } else if (changes[0].type === "select") {
+        let lastValue = null;
+        changes.forEach((change) => {
+          if (change.value !== lastValue) {
+            allEvents.push({
+              type: "form",
+              formType: change.type,
+              selector: change.elementSelector,
+              value: change.value,
+              text: change.text,
+              timestamp: change.timestamp,
+            });
+            formElementTimestamps[selector] = change.timestamp;
+            lastValue = change.value;
+          }
+        });
+      }
+
+      processedSelectors.add(selector);
+    });
+  }
 
   if (clicks && clicks.clickDetails && clicks.clickDetails.length > 0) {
     clicks.clickDetails.forEach((clickDetail) => {
       const [x, y, selector, timestamp] = clickDetail;
-      allEvents.push({
-        type: "click",
-        x,
-        y,
-        selector,
-        timestamp,
-      });
+
+      const shouldSkip =
+        processedSelectors.has(selector) ||
+        Object.entries(formElementTimestamps).some(
+          ([formSelector, formTimestamp]) => {
+            return (
+              (selector.includes(formSelector) ||
+                formSelector.includes(selector)) &&
+              Math.abs(timestamp - formTimestamp) < 500
+            );
+          }
+        );
+
+      if (!shouldSkip) {
+        allEvents.push({
+          type: "click",
+          x,
+          y,
+          selector,
+          timestamp,
+        });
+      }
     });
   }
 
@@ -81,12 +155,18 @@ function generateUserInteractions(
     );
 
     completedInputs.forEach((change) => {
-      inputEvents.push({
-        type: "input",
-        selector: change.elementSelector,
-        value: change.value,
-        timestamp: change.timestamp,
-      });
+      if (
+        !processedSelectors.has(change.elementSelector) &&
+        !change.elementSelector.includes('type="checkbox"') &&
+        !change.elementSelector.includes('type="radio"')
+      ) {
+        inputEvents.push({
+          type: "input",
+          selector: change.elementSelector,
+          value: change.value,
+          timestamp: change.timestamp,
+        });
+      }
     });
 
     allEvents.push(...inputEvents);
@@ -106,11 +186,28 @@ function generateUserInteractions(
 
   allEvents.sort((a, b) => a.timestamp - b.timestamp);
 
+  const uniqueEvents = [];
+  const processedFormActions = new Set();
+
+  allEvents.forEach((event) => {
+    if (event.type === "form") {
+      const eventKey = `${event.formType}-${event.selector}-${
+        event.checked !== undefined ? event.checked : event.value
+      }`;
+      if (!processedFormActions.has(eventKey)) {
+        uniqueEvents.push(event);
+        processedFormActions.add(eventKey);
+      }
+    } else {
+      uniqueEvents.push(event);
+    }
+  });
+
   let actionsCode = "";
   let previousTimestamp = null;
   let generatedSelectors = new Set();
 
-  allEvents.forEach((event, index) => {
+  uniqueEvents.forEach((event, index) => {
     if (previousTimestamp !== null) {
       const delay = event.timestamp - previousTimestamp;
       if (delay > 100 && event.type !== "assertion") {
@@ -149,6 +246,41 @@ function generateUserInteractions(
 
         generatedSelectors.add(playwrightSelector);
       }
+    } else if (event.type === "form") {
+      const playwrightSelector = convertToPlaywrightSelector(event.selector);
+
+      if (event.formType === "checkbox" || event.formType === "radio") {
+        const action = event.checked ? "check" : "uncheck";
+        const comment = `${
+          event.formType === "checkbox" ? "Checkbox" : "Radio"
+        } ${index + 1}: ${action} ${playwrightSelector}`;
+
+        actionsCode += `  
+    // ${comment}
+    await page.locator('${playwrightSelector}').${action}();
+  `;
+      } else if (event.formType === "select") {
+        const comment = `Select ${index + 1}: Choose option "${
+          event.text || event.value
+        }" in ${playwrightSelector}`;
+
+        let selectMethod, selectValue;
+        if (event.text && event.text.trim() !== "") {
+          selectMethod = "label";
+          selectValue = event.text;
+        } else {
+          selectMethod = "value";
+          selectValue = event.value;
+        }
+
+        actionsCode += `  
+    // ${comment}
+    await page.locator('${playwrightSelector}').selectOption({ ${selectMethod}: '${selectValue.replace(
+          /'/g,
+          "\\'"
+        )}' });
+  `;
+      }
     } else if (event.type === "assertion") {
       const playwrightSelector = convertToPlaywrightSelector(event.selector);
       let assertionCode = "";
@@ -174,6 +306,12 @@ function generateUserInteractions(
             /'/g,
             "\\'"
           )}');`;
+          break;
+        case "isChecked":
+          assertionCode = `await expect(page.locator('${playwrightSelector}')).toBeChecked();`;
+          break;
+        case "isNotChecked":
+          assertionCode = `await expect(page.locator('${playwrightSelector}')).not.toBeChecked();`;
           break;
         default:
           assertionCode = `await expect(page.locator('${playwrightSelector}')).toBeVisible();`;

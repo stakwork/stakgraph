@@ -9,6 +9,10 @@ const Frame = () => {
   const [popups, setPopups] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [showInput, setShowInput] = useState(false);
+  const [checkboxValue, setCheckboxValue] = useState(false);
+  const [radioValue, setRadioValue] = useState("option1");
+  const [selectValue, setSelectValue] = useState("apple");
+  const [showFormElements, setShowFormElements] = useState(false);
 
   // Function to create and show popup
   const showPopup = (message, popupClass) => {
@@ -70,6 +74,28 @@ const Frame = () => {
     setShowInput(!showInput);
   };
 
+  const toggleFormElements = () => {
+    setShowFormElements(!showFormElements);
+  };
+
+  const handleCheckboxChange = (event) => {
+    const checked = event.target.checked;
+    setCheckboxValue(checked);
+    showPopup(`Checkbox: ${checked ? "Checked" : "Unchecked"}`, "popup-form");
+  };
+
+  const handleRadioChange = (event) => {
+    const value = event.target.value;
+    setRadioValue(value);
+    showPopup(`Radio: Selected ${value}`, "popup-form");
+  };
+
+  const handleSelectChange = (event) => {
+    const value = event.target.value;
+    setSelectValue(value);
+    showPopup(`Select: Chose ${value}`, "popup-form");
+  };
+
   useEffect(() => {
     const messageHandler = (event) => {
       if (event.data && event.data.type === "staktrak-show-popup") {
@@ -101,6 +127,9 @@ const Frame = () => {
         <button onClick=${toggleInput}>
           ${showInput ? "Hide Input" : "Show Input"}
         </button>
+        <button onClick=${toggleFormElements}>
+          ${showFormElements ? "Hide Form Elements" : "Show Form Elements"}
+        </button>
       </div>
 
       ${showInput &&
@@ -115,6 +144,76 @@ const Frame = () => {
             value=${inputValue}
             onInput=${handleInputChange}
           />
+        </div>
+      `}
+      ${showFormElements &&
+      html`
+        <div class="form-elements">
+          <div class="form-group">
+            <label>
+              <input
+                type="checkbox"
+                data-testid="staktrak-checkbox"
+                checked=${checkboxValue}
+                onChange=${handleCheckboxChange}
+              />
+              Test Checkbox
+            </label>
+          </div>
+
+          <div class="form-group">
+            <fieldset>
+              <legend>Test Radio Buttons</legend>
+              <label>
+                <input
+                  type="radio"
+                  name="test-radio"
+                  value="option1"
+                  data-testid="staktrak-radio-1"
+                  checked=${radioValue === "option1"}
+                  onChange=${handleRadioChange}
+                />
+                Option 1
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="test-radio"
+                  value="option2"
+                  data-testid="staktrak-radio-2"
+                  checked=${radioValue === "option2"}
+                  onChange=${handleRadioChange}
+                />
+                Option 2
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="test-radio"
+                  value="option3"
+                  data-testid="staktrak-radio-3"
+                  checked=${radioValue === "option3"}
+                  onChange=${handleRadioChange}
+                />
+                Option 3
+              </label>
+            </fieldset>
+          </div>
+
+          <div class="form-group select-group">
+            <label for="test-select">Test Select:</label>
+            <select
+              id="test-select"
+              data-testid="staktrak-select"
+              value=${selectValue}
+              onChange=${handleSelectChange}
+            >
+              <option value="apple">Apple</option>
+              <option value="banana">Banana</option>
+              <option value="cherry">Cherry</option>
+              <option value="durian">Durian</option>
+            </select>
+          </div>
         </div>
       `}
       ${popups.map(

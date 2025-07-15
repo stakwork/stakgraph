@@ -12,10 +12,11 @@ use anyhow::{anyhow, Context, Result};
 use lsp_types::{GotoDefinitionResponse, Hover, Location};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::mpsc;
+use tokio::sync::mpsc;
+use tokio::sync::oneshot::Sender as OneShotSender;
 use tracing::{error, info};
 
-pub type CmdAndRes = (Cmd, std::sync::mpsc::Sender<Res>);
+pub type CmdAndRes = (Cmd, OneShotSender<Res>);
 pub type CmdReceiver = mpsc::Receiver<CmdAndRes>;
 pub type CmdSender = mpsc::Sender<CmdAndRes>;
 
@@ -36,10 +37,21 @@ pub enum Cmd {
 }
 impl Cmd {
     pub fn send(self, tx: &mpsc::Sender<CmdAndRes>) -> Result<Res> {
-        let (res_tx, res_rx) = mpsc::channel();
-        tx.send((self, res_tx))?;
-        Ok(res_rx.recv()?)
+        let (res_tx, res_rx) = tokio::sync::oneshot::channel();
+        let result = sync_fn(|| async {
+            tx.send((self, res_tx)).await?;
+            Ok(res_rx.await?)
+        });
+        result
     }
+}
+
+pub fn sync_fn<T, F, Fut>(async_fn: F) -> T
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = T>,
+{
+    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
 }
 
 #[derive(Debug)]
@@ -184,7 +196,7 @@ async fn spawn_inner(
     lang: &Language,
     root_dir_abs: &PathBuf,
     root_dir_rel: &PathBuf,
-    cmd_rx: CmdReceiver,
+    mut cmd_rx: CmdReceiver,
 ) -> Result<()> {
     let executable = lang.lsp_exec();
     info!("child process starting: {}", executable);
@@ -226,7 +238,7 @@ async fn spawn_inner(
         .map_err(|e| anyhow!("bad indexed rx {:?}", e))?;
     info!("indexed!!! {:?}", lang);
 
-    while let Ok((cmd, res_tx)) = cmd_rx.recv() {
+    while let Some((cmd, res_tx)) = cmd_rx.recv().await {
         // debug!("got cmd: {:?}", cmd);
         match conn.handle(cmd).await {
             Ok(res) => {
@@ -249,6 +261,8 @@ async fn spawn_inner(
     if let Err(e) = mainloop_task.await {
         error!("error in lsp mainloop: {:?}", e);
     }
+
+    info!("{:?} LSP client stopped!", lang);
     Ok(())
 }
 

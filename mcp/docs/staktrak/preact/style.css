@@ -39,6 +39,86 @@ input:focus {
   outline: none;
 }
 
+.form-elements {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #333;
+  border-radius: 5px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  margin: 8px 0;
+  cursor: pointer;
+  margin-right: 15px;
+}
+
+.form-group label {
+  display: inline-block;
+  margin-right: 15px;
+  min-width: 100px;
+  vertical-align: middle;
+}
+
+.select-group {
+  display: flex;
+  align-items: center;
+  margin: 15px 0;
+}
+
+.select-group label {
+  margin-right: -3px;
+  flex-shrink: 0;
+}
+
+select {
+  background-color: #333;
+  color: #fff;
+  border: 2px solid #666;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 5px;
+  font-size: 16px;
+  cursor: pointer;
+  min-width: 200px;
+  vertical-align: middle;
+}
+
+select:focus {
+  border-color: #888;
+  outline: none;
+}
+
+option {
+  background-color: #333;
+  color: #fff;
+  padding: 5px;
+}
+
+fieldset {
+  border: 1px solid #666;
+  border-radius: 5px;
+  padding: 10px;
+  margin: 15px 0;
+}
+
+legend {
+  padding: 0 10px;
+  font-weight: bold;
+}
+
 .content-section {
   margin: 20px 0;
   padding: 15px;
@@ -97,5 +177,11 @@ input:focus {
 .popup-selection {
   background-color: #9c27b0;
   border: 2px solid #ba68c8;
+  color: #ffffff;
+}
+
+.popup-form {
+  background-color: #00bcd4;
+  border: 2px solid #4dd0e1;
   color: #ffffff;
 }

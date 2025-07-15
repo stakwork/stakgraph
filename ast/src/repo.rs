@@ -313,7 +313,7 @@ impl Repo {
     }
     fn start_lsp(root: &str, lang: &Lang, lsp: bool) -> Result<Option<CmdSender>> {
         Ok(if lsp {
-            let (tx, rx) = std::sync::mpsc::channel();
+            let (tx, rx) = tokio::sync::mpsc::channel(10000);
             spawn_analyzer(&root.into(), &lang.kind, rx)?;
             Some(tx)
         } else {

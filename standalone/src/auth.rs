@@ -33,6 +33,16 @@ pub async fn bearer_auth(
         }
     }
 
+    let api_token_header = headers
+        .get("x-api-token")
+        .and_then(|header| header.to_str().ok());
+
+    if let Some(token) = api_token_header {
+        if token == expected_token {
+            return Ok(next.run(request).await);
+        }
+    }
+
     Err(StatusCode::UNAUTHORIZED)
 }
 

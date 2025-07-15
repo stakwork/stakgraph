@@ -43,6 +43,7 @@ var userBehaviour = (function () {
       documentInput: null,
       mouseUp: null,
       keyDown: null,
+      formElementChange: null,
     },
     mutationObserver: null,
     eventsFunctions: {
@@ -91,6 +92,20 @@ var userBehaviour = (function () {
           path,
           getTimeStamp(),
         ]);
+
+        const target = e.target;
+        if (
+          target.tagName === "INPUT" &&
+          (target.type === "checkbox" || target.type === "radio")
+        ) {
+          results.formElementChanges.push({
+            elementSelector: getElementSelector(target),
+            type: target.type,
+            checked: target.checked,
+            value: target.value,
+            timestamp: getTimeStamp(),
+          });
+        }
       },
       mouseMovement: (e) => {
         mem.mousePosition = [e.clientX, e.clientY, getTimeStamp()];
@@ -140,6 +155,32 @@ var userBehaviour = (function () {
           timestamp: getTimeStamp(),
           action: "intermediate",
         });
+      },
+      formElementChange: (e) => {
+        const target = e.target;
+        const selector = getElementSelector(target);
+
+        if (target.tagName === "SELECT") {
+          const selectedOption = target.options[target.selectedIndex];
+          results.formElementChanges.push({
+            elementSelector: selector,
+            type: "select",
+            value: target.value,
+            text: selectedOption ? selectedOption.text : "",
+            timestamp: getTimeStamp(),
+          });
+        } else if (
+          target.tagName === "INPUT" &&
+          (target.type === "checkbox" || target.type === "radio")
+        ) {
+          results.formElementChanges.push({
+            elementSelector: selector,
+            type: target.type,
+            checked: target.checked,
+            value: target.value,
+            timestamp: getTimeStamp(),
+          });
+        }
       },
       focusChange: (e) => {
         const target = e.target;
@@ -406,6 +447,7 @@ var userBehaviour = (function () {
       focusChanges: [],
       navigationHistory: [],
       formInteractions: [],
+      formElementChanges: [],
       touchEvents: [],
       mediaInteractions: [],
       windowSizes: [],
@@ -463,6 +505,27 @@ var userBehaviour = (function () {
                   );
                 });
               }
+            }
+
+            if (
+              node.nodeName === "SELECT" ||
+              (node.nodeName === "INPUT" &&
+                (node.type === "checkbox" || node.type === "radio"))
+            ) {
+              node.addEventListener(
+                "change",
+                mem.eventsFunctions.formElementChange
+              );
+            } else if (node.querySelectorAll) {
+              const formElements = node.querySelectorAll(
+                'select, input[type="checkbox"], input[type="radio"]'
+              );
+              formElements.forEach((element) => {
+                element.addEventListener(
+                  "change",
+                  mem.eventsFunctions.formElementChange
+                );
+              });
             }
           });
         }
@@ -579,6 +642,17 @@ var userBehaviour = (function () {
         .forEach((form) =>
           form.addEventListener("submit", mem.eventsFunctions.formInteraction)
         );
+
+      document
+        .querySelectorAll('select, input[type="checkbox"], input[type="radio"]')
+        .forEach((element) => {
+          element.addEventListener(
+            "change",
+            mem.eventsFunctions.formElementChange
+          );
+        });
+
+      mem.eventListeners.formElementChange = true;
     }
     //Touch Events
     if (user_config.touchEvents) {
@@ -647,6 +721,17 @@ var userBehaviour = (function () {
 
     document.removeEventListener("mouseup", mem.eventsFunctions.mouseUp);
     document.removeEventListener("keydown", mem.eventsFunctions.keyDown);
+
+    if (mem.eventListeners.formElementChange) {
+      document
+        .querySelectorAll('select, input[type="checkbox"], input[type="radio"]')
+        .forEach((element) => {
+          element.removeEventListener(
+            "change",
+            mem.eventsFunctions.formElementChange
+          );
+        });
+    }
 
     if (mem.mutationObserver) {
       mem.mutationObserver.disconnect();

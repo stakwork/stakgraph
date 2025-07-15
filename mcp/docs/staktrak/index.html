@@ -197,8 +197,25 @@
                 selectedText = event.data.text || "";
                 selectedSelector = event.data.selector || "";
 
+                const isCheckbox =
+                  selectedSelector.includes('input[type="checkbox"]') ||
+                  selectedSelector.includes("checkbox");
+                const isRadio =
+                  selectedSelector.includes('input[type="radio"]') ||
+                  selectedSelector.includes("radio");
+
                 if (selectedText && selectedSelector) {
-                  addAssertion();
+                  if (isCheckbox || isRadio) {
+                    const assertionType = confirm(
+                      "Is this a checked state assertion? Click OK for 'isChecked', Cancel for 'isNotChecked'"
+                    )
+                      ? "isChecked"
+                      : "isNotChecked";
+
+                    addAssertion(assertionType);
+                  } else {
+                    addAssertion();
+                  }
                   assertionCount++;
                 }
               }
@@ -293,7 +310,7 @@
 
       modeBtn.disabled = true;
 
-      function addAssertion() {
+      function addAssertion(assertionType = null) {
         if (!selectedSelector) {
           showPopup("No element selected", "error");
           return;
@@ -302,7 +319,10 @@
         let type = "isVisible";
         let value = "";
 
-        if (selectedText && selectedText.trim() !== "") {
+        if (assertionType) {
+          type = assertionType;
+          value = "";
+        } else if (selectedText && selectedText.trim() !== "") {
           type = "hasText";
           value = selectedText;
         }
