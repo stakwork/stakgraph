@@ -881,14 +881,16 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
-pub fn remove_nodes_by_file_query(file_path: &str) -> (String, BoltMap) {
+pub fn remove_nodes_by_file_query(file_path: &str, root: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     // let file_name = file_path.split('/').last().unwrap_or(file_path);
     boltmap_insert_str(&mut params, "file_name", file_path);
+    boltmap_insert_str(&mut params, "root", root);
 
     let query = "
         MATCH (n)
-        WHERE n.file = $file_name OR n.file ENDS WITH $file_name
+        WHERE (n.file = $file_name OR n.file ENDS WITH $file_name)
+        AND n.file STARTS WITH $root
         WITH DISTINCT n
         OPTIONAL MATCH (n)-[r]-() 
         DELETE r
@@ -1067,4 +1069,19 @@ pub fn clear_graph_query() -> String {
      ])
      DETACH DELETE n"
         .to_string()
+}
+
+pub fn clear_existing_graph_query(root: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "root", root);
+
+    let query = "MATCH (n)
+                 WHERE any(label IN labels(n) WHERE label IN [
+                   'Function', 'Test', 'Datamodel', 'File', 'Endpoint',
+                   'Var', 'Request', 'Library', 'Directory', 'Page',
+                   'Class', 'Trait', 'Repository', 'Import', 'Instance',
+                   'E2etest', 'Language', 'Feature'
+                 ]) AND n.file STARTS WITH $root
+                 DETACH DELETE n";
+    (query.to_string(), params)
 }

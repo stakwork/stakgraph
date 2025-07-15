@@ -201,4 +201,9 @@ impl GraphOps {
         debug!("upload complete! nodes: {}, edges: {}", nodes, edges);
         Ok((nodes, edges))
     }
+
+    pub async fn clear_existing_graph(&mut self, root: &str) -> Result<()> {
+        self.graph.clear_existing_graph(root).await?;
+        Ok(())
+    }
 }

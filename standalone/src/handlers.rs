@@ -10,7 +10,7 @@ use axum::response::IntoResponse;
 use axum::{extract::State, Json};
 use broadcast::error::RecvError;
 use futures::stream;
-use lsp::git::get_commit_hash;
+use lsp::{git::get_commit_hash, strip_tmp};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,6 +65,11 @@ pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoRes
 
 #[axum::debug_handler]
 pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
+    if body.repo_url.clone().unwrap_or_default().contains(",") {
+        return Err(AppError::Anyhow(anyhow::anyhow!(
+            "Multiple repositories are not supported in a single request"
+        )));
+    }
     let (final_repo_path, final_repo_url, username, pat, _) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
 
@@ -197,7 +202,7 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (_final_repo_path, final_repo_url, username, pat, commit) = resolve_repo(&body)?;
+    let (_, final_repo_url, username, pat, commit) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
 
     let repo_url = final_repo_url.clone();
@@ -229,8 +234,11 @@ pub async fn ingest(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    info!("Clearing old data...");
-    graph_ops.graph.clear().await?;
+    for repo in &repos.0 {
+        let stripped_root = strip_tmp(&repo.root).display().to_string();
+        info!("Clearing old data for {}...", stripped_root);
+        graph_ops.clear_existing_graph(&stripped_root).await?;
+    }
 
     let start_upload = Instant::now();
 

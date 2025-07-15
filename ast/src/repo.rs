@@ -430,7 +430,6 @@ impl Repo {
                         if self.should_not_include(path, &relative_path) {
                             continue;
                         }
-
                         all_files.push(path.to_path_buf());
                     }
                 }
@@ -444,6 +443,10 @@ impl Repo {
     fn should_not_include(&self, path: &std::path::Path, relative_path: &str) -> bool {
         let conf = self.merge_config_with_lang();
         let fname = path.display().to_string();
+
+        if !conf.only_include_files.is_empty() {
+            return !only_files(path, &conf.only_include_files);
+        }
 
         if path.components().any(|c| {
             lsp::language::junk_directories().contains(&c.as_os_str().to_str().unwrap_or(""))
@@ -483,9 +486,6 @@ impl Repo {
         }
 
         if skip_end(&fname, &conf.skip_file_ends) {
-            return true;
-        }
-        if !conf.only_include_files.is_empty() && !only_files(path, &conf.only_include_files) {
             return true;
         }
         false
