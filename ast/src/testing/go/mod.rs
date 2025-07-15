@@ -259,6 +259,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     }
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
+
     edges_count += function_calls;
     assert_eq!(function_calls, 8, "Expected 8 function calls");
 

@@ -140,7 +140,6 @@ import NewPerson from "./components/NewPerson";"#
     } else {
         assert_eq!(functions.len(), 16, "Expected 16 functions/components");
     }
-
     let mut sorted_functions = functions.clone();
     sorted_functions.sort_by(|a, b| a.name.cmp(&b.name));
 
