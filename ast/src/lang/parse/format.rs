@@ -779,6 +779,9 @@ impl Lang {
             }
             if let LspRes::GotoDefinition(Some(gt)) = res {
                 let target_file = gt.file.display().to_string();
+                if self.lang.skip_file_with_path_contains(&target_file) {
+                    return Ok(None);
+                }
                 if let Some(t) =
                     graph.find_node_by_name_in_file(NodeType::Function, &called, &target_file)
                 {
