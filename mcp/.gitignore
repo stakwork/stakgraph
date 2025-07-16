@@ -39,3 +39,9 @@ data/*
 .claude/
 screenshots/
 tmp/
+tests/*.spec.js
+tests/*.spec.ts
+!tests/.gitkeep
+!tests/playwright.config.js
+playwright-report/
+test-results/

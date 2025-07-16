@@ -17,10 +17,8 @@ pub struct ProcessBody {
 }
 #[derive(Serialize, Deserialize)]
 pub struct ProcessResponse {
-    pub status: String,
-    pub message: String,
-    pub nodes: usize,
-    pub edges: usize,
+    pub nodes: u32,
+    pub edges: u32,
 }
 #[derive(Serialize, Deserialize)]
 pub struct FetchRepoBody {

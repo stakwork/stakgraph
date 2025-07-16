@@ -26,6 +26,8 @@ RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html
 COPY ./textarea ./textarea
 COPY ./app ./app
+RUN mkdir -p ./tests
+COPY ./tests/playwright.config.js ./tests/playwright.config.js
 
 # Build the application
 RUN yarn build

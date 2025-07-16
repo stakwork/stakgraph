@@ -110,14 +110,11 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
                 current_hash
             );
             let (nodes, edges) = graph_ops.graph.get_graph_size();
-            return Ok(Json(ProcessResponse {
-                status: "success".to_string(),
-                message: "Repository already processed".to_string(),
-                nodes: nodes as usize,
-                edges: edges as usize,
-            }));
+            return Ok(Json(ProcessResponse { nodes, edges }));
         }
     }
+
+    let (prev_nodes, prev_edges) = graph_ops.graph.get_graph_size();
 
     let (nodes, edges) = if let Some(hash) = stored_hash {
         info!("Updating repository hash from {} to {}", hash, current_hash);
@@ -150,11 +147,12 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         total_start.elapsed()
     );
 
+    let delta_nodes = nodes - prev_nodes;
+    let delta_edges = edges - prev_edges;
+
     Ok(Json(ProcessResponse {
-        status: "success".to_string(),
-        message: "Repository processed successfully".to_string(),
-        nodes: nodes as usize,
-        edges: edges as usize,
+        nodes: delta_nodes,
+        edges: delta_edges,
     }))
 }
 
@@ -162,12 +160,7 @@ pub async fn clear_graph() -> Result<Json<ProcessResponse>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
     let (nodes, edges) = graph_ops.clear().await?;
-    Ok(Json(ProcessResponse {
-        status: "success".to_string(),
-        message: "Graph cleared".to_string(),
-        nodes: nodes as usize,
-        edges: edges as usize,
-    }))
+    Ok(Json(ProcessResponse { nodes, edges }))
 }
 
 pub async fn fetch_repo(body: Json<FetchRepoBody>) -> Result<Json<FetchRepoResponse>> {
@@ -266,12 +259,7 @@ pub async fn ingest(
         }
     }
 
-    Ok(Json(ProcessResponse {
-        status: "success".to_string(),
-        message: "Repository ingested fully".to_string(),
-        nodes: nodes as usize,
-        edges: edges as usize,
-    }))
+    Ok(Json(ProcessResponse { nodes, edges }))
 }
 
 fn env_not_empty(key: &str) -> Option<String> {

@@ -12,15 +12,17 @@ export type Direction = "up" | "down" | "both";
 
 export const Data_Bank = Q.Data_Bank;
 
-const delay_start = parseInt(process.env.DELAY_START || "0") || 0;
-
-setTimeout(async () => {
-  try {
-    await db.createIndexes();
-  } catch (error) {
-    console.error("Error creating indexes:", error);
-  }
-}, delay_start);
+const no_db = process.env.NO_DB === "true" || process.env.NO_DB === "1";
+if (!no_db) {
+  const delay_start = parseInt(process.env.DELAY_START || "0") || 0;
+  setTimeout(async () => {
+    try {
+      await db.createIndexes();
+    } catch (error) {
+      console.error("Error creating indexes:", error);
+    }
+  }, delay_start);
+}
 
 class Db {
   private driver: Driver;
@@ -434,7 +436,11 @@ class Db {
   }
 }
 
-export const db = new Db();
+export let db: Db;
+
+if (!no_db) {
+  db = new Db();
+}
 
 interface MergeQuery {
   query: string;

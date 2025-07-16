@@ -94,9 +94,12 @@ test.describe("Stagehand Console Logs", () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Now capture the logs - this is what a developer would do when debugging
-    const result = (await call("stagehand_logs", {})) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(":\n")[1]);
+    console.log("===> logText", logText);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(
       `🔍 CAPTURED ${logs.length} console logs during debugging session:`
@@ -221,9 +224,11 @@ test.describe("Stagehand Console Logs", () => {
     // Wait for all async operations to complete
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const result = (await call("stagehand_logs", {})) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(":\n")[1]);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(`🔍 CAPTURED ${logs.length} performance & API logs:`);
     logs.forEach((log, i) => {
@@ -331,9 +336,11 @@ test.describe("Stagehand Console Logs", () => {
     // Wait for monitoring to collect data
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const result = (await call("stagehand_logs", {})) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(":\n")[1]);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(
       `🔍 CAPTURED ${logs.length} logs from live GitHub page + custom monitoring:`
@@ -505,9 +512,11 @@ test.describe("Stagehand Console Logs", () => {
     // Wait for all async operations
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    const result = (await call("stagehand_logs", {})) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(":\n")[1]);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(`🔍 CAPTURED ${logs.length} e-commerce tracking logs:`);
 
@@ -600,9 +609,11 @@ test.describe("Stagehand Console Logs", () => {
     await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Check Session 1 logs
-    let result = (await call("stagehand_logs", {})) as CallToolResult;
+    let result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     let logText = extractLogText(result);
-    let logs: ConsoleLog[] = JSON.parse(logText.split(":\n")[1]);
+    let logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(`   📊 Session 1 captured: ${logs.length} authentication logs`);
     expect(
@@ -654,9 +665,11 @@ test.describe("Stagehand Console Logs", () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Check Session 2 logs (should not include Session 1)
-    result = (await call("stagehand_logs", {})) as CallToolResult;
+    result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     logText = extractLogText(result);
-    logs = JSON.parse(logText.split(":\n")[1]);
+    logs = JSON.parse(logText);
 
     console.log(`   📊 Session 2 captured: ${logs.length} dashboard logs`);
     console.log("   🔍 Verifying session isolation...");

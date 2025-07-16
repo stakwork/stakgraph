@@ -1,4 +1,5 @@
-import { db, Direction, Data_Bank } from "./neo4j.js";
+import { db, Data_Bank } from "./neo4j.js";
+import type { Direction } from "./neo4j.js";
 import archy from "archy";
 import { buildTree, alphabetizeNodeLabels } from "./codemap.js";
 import { extractNodesFromRecord } from "./codebody_files.js";

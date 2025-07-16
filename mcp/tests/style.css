@@ -1,0 +1,139 @@
+body {
+  background-color: #1a1a1a;
+  color: #ffffff;
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+iframe {
+  width: 100%;
+  height: 500px;
+  border: 1px solid #333;
+  margin-bottom: 20px;
+}
+.controls {
+  margin-top: 20px;
+}
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 10px;
+}
+button.stop {
+  background-color: #f44336;
+}
+button.generate {
+  background-color: #2196f3;
+}
+button.save {
+  background-color: #9c27b0;
+}
+button.assert {
+  background-color: #ff9800;
+}
+button.mode {
+  background-color: #ff9800;
+}
+button.interact {
+  background-color: #9c27b0;
+}
+button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+#results {
+  margin-top: 20px;
+  background-color: #2a2a2a;
+  padding: 15px;
+  border-radius: 5px;
+  max-height: 300px;
+  overflow: auto;
+}
+#playwrightTest {
+  margin-top: 20px;
+  background-color: #2a2a2a;
+  padding: 15px;
+  border-radius: 5px;
+  max-height: 400px;
+  overflow: auto;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+.copy-btn {
+  margin-top: 10px;
+  background-color: #ff9800;
+}
+.save-controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.save-controls input {
+  padding: 8px;
+  border: 1px solid #555;
+  background-color: #333;
+  color: white;
+  border-radius: 4px;
+}
+.status {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 4px;
+  display: none;
+}
+.status.success {
+  background-color: #4caf50;
+  display: block;
+}
+.status.error {
+  background-color: #f44336;
+  display: block;
+}
+.popup {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 15px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: bold;
+  z-index: 1000;
+  transform: translateY(-100%);
+  transition: transform 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.popup.show {
+  transform: translateY(0);
+}
+
+.popup-success {
+  background-color: #4caf50;
+  border: 2px solid #6abf6e;
+  color: #ffffff;
+}
+
+.popup-error {
+  background-color: #f44336;
+  border: 2px solid #f66e66;
+  color: #ffffff;
+}
+
+.popup-info {
+  background-color: #2196f3;
+  border: 2px solid #66a6ff;
+  color: #ffffff;
+}
+
+.popup-warning {
+  background-color: #ff9800;
+  border: 2px solid #ffb84d;
+  color: #ffffff;
+}

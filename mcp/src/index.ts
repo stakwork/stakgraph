@@ -11,6 +11,7 @@ import { App as SageApp } from "./sage/src/app.js";
 import dotenv from "dotenv";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
+import { test_routes } from "./eval/test.js";
 
 dotenv.config();
 
@@ -48,6 +49,8 @@ app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 
 evalRoutes(app);
+
+test_routes(app);
 
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);
