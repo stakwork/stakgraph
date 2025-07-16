@@ -1,36 +1,48 @@
-FROM rust:1.87.0 AS builder
-
-WORKDIR /app
-
+FROM rust:1.87.0 AS planner
+WORKDIR /plan
 # Create a temporary workspace with only the 3 crates we need
 RUN echo '[workspace]' > Cargo.toml && \
     echo 'members = ["ast", "lsp", "standalone"]' >> Cargo.toml && \
     echo 'resolver = "2"' >> Cargo.toml
 
-# Copy ONLY the Cargo.toml files for our 3 crates
+# Copy only files needed for dependency calculations to create a stable dependency layer
 COPY ast/Cargo.toml ast/Cargo.toml
 COPY lsp/Cargo.toml lsp/Cargo.toml
 COPY standalone/Cargo.toml standalone/Cargo.toml
+COPY Cargo.lock .
 
-# Create dummy src files for all 3 crates
+# Create a dummy project structure (minimal files needed for cargo to calculate dependencies)
 RUN mkdir -p ast/src lsp/src standalone/src && \
-    echo "fn main() {}" > ast/src/main.rs && \
-    echo "fn main() {}" > lsp/src/main.rs && \
-    echo "fn main() {}" > standalone/src/main.rs
+    echo 'fn main() {}' > ast/src/lib.rs && \
+    echo 'fn main() {}' > lsp/src/lib.rs && \
+    echo 'fn main() {}' > standalone/src/main.rs
 
-# Build dependencies for standalone (this will pull in ast/lsp as workspace deps)
-RUN cargo build --release --bin standalone --features neo4j
+FROM rust:1.87.0 AS cacher
+WORKDIR /app
+COPY --from=planner /plan .
 
-# Remove dummy files and temp workspace
-RUN rm -rf ast/src lsp/src standalone/src
+# Build dependencies only (leveraging cargo's dependency caching)
+RUN cargo build --release --bin standalone --features neo4j && \
+    rm -rf ast/src lsp/src standalone/src
 
-# Copy actual source code
+FROM rust:1.87.0 AS builder
+WORKDIR /app
+
+COPY --from=cacher /app/target target
+COPY --from=cacher /usr/local/cargo /usr/local/cargo
+COPY --from=cacher /app/Cargo.toml .
+COPY --from=cacher /app/Cargo.lock .
+COPY --from=cacher /app/ast/Cargo.toml ./ast/
+COPY --from=cacher /app/lsp/Cargo.toml ./lsp/
+COPY --from=cacher /app/standalone/Cargo.toml ./standalone/
+
+# Now copy the actual source code
 COPY ast/src ast/src
 COPY lsp/src lsp/src
 COPY standalone/src standalone/src
 COPY standalone/static standalone/static
 
-# Build the actual application (only this rebuilds when source changes)
+# Build the application with the actual source (much faster now with all dependencies pre-built)
 RUN cargo build --release --bin standalone --features neo4j
 
 FROM sphinxlightning/stakgraph-lsp:latest

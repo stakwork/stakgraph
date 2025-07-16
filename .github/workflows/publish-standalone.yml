@@ -1,40 +1,59 @@
-name: Build and Publish Standalone Docker Image
-
+name: Build and Publish Stakgraph Standalone
 on:
-  release:
-    types: [published]
+  push:
+    branches:
+      - main
+    paths:
+      - 'standalone/**'
+      - 'ast/**'
+      - 'lsp/**'
+      - 'Dockerfile.standalone'
+      - '.github/workflows/standalone-build.yml'
 
 jobs:
-  build-and-push:
+  build-and-publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
+    name: Build and Publish Docker Image
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
+      
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Docker image
+      
+      # Setup cache
+      - name: Cache Docker layers
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+      
+      # Build and push the image
+      - name: Build and Push Docker Image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.standalone
-          platforms: linux/amd64,linux/arm64
+          file: ./Dockerfile.standalone
           push: true
-          # Use registry cache which is more reliable for multi-platform
-          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache
-          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache,mode=max
           tags: |
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}
             ghcr.io/stakwork/stakgraph-standalone:latest
+            ghcr.io/stakwork/stakgraph-standalone:${{ github.sha }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+          platforms: linux/amd64
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+      
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache 
