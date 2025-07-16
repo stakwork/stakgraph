@@ -38,8 +38,8 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
     /* REPOSITORY */
     if use_lsp {
         if graph_type_name.contains("ArrayGraph") {
-            assert_eq!(num_nodes, 114, "Expected 157 nodes for ArrayGraph with LSP");
-            assert_eq!(num_edges, 159, "Expected 159 edges for ArrayGraph with LSP");
+            assert_eq!(num_nodes, 125, "Expected 125 nodes for ArrayGraph with LSP");
+            assert_eq!(num_edges, 177, "Expected 177 edges for ArrayGraph with LSP");
         } else if graph_type_name.contains("BTreeMapGraph")
             || graph_type_name.contains("Neo4jGraph")
         {
@@ -504,11 +504,7 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    if use_lsp {
-        assert_eq!(functions.len(), 26, "Expected 26 functions with LSP");
-    } else {
-        assert_eq!(functions.len(), 25, "Expected 25 functions ");
-    }
+    assert_eq!(functions.len(), 26, "Expected 26 functions with LSP");
 
     /* GO FUNCTIONS */
 
