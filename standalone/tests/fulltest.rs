@@ -44,12 +44,12 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
             || graph_type_name.contains("Neo4jGraph")
         {
             assert_eq!(
-                num_nodes, 102,
-                "Expected 102 nodes for BTreeMapGraph with LSP"
+                num_nodes, 113,
+                "Expected 113 nodes for BTreeMapGraph with LSP"
             );
             assert_eq!(
-                num_edges, 148,
-                "Expected 148 edges for BTreeMapGraph with LSP"
+                num_edges, 166,
+                "Expected 166 edges for BTreeMapGraph with LSP"
             );
         }
     } else {
@@ -504,7 +504,11 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 26, "Expected 26 functions with LSP");
+    if use_lsp {
+        assert_eq!(functions.len(), 37, "Expected 37 functions with LSP");
+    } else {
+        assert_eq!(functions.len(), 26, "Expected 26 functions with LSP");
+    }
 
     /* GO FUNCTIONS */
 
@@ -512,7 +516,15 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
         .iter()
         .filter(|f| f.file.ends_with(".go"))
         .collect();
-    assert_eq!(go_functions.len(), 15, "Expected 15 Go functions");
+    if use_lsp {
+        assert_eq!(go_functions.len(), 26, "Expected 26 Go functions with LSP");
+    } else {
+        assert_eq!(
+            go_functions.len(),
+            15,
+            "Expected 15 Go functions without LSP"
+        );
+    }
 
     let main_fn = functions
         .iter()
@@ -756,11 +768,7 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
-    if use_lsp {
-        assert_eq!(calls_edges_count, 21, "Expected 21 calls edges with LSP");
-    } else {
-        assert_eq!(calls_edges_count, 22, "Expected 22 calls edges without LSP");
-    }
+    assert_eq!(calls_edges_count, 22, "Expected 22 calls edges without LSP");
 
     let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
     edges_count += renders_edges_count;
@@ -773,6 +781,9 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
 
     let of_edges_count = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges_count;
+
+    let uses_edges_count = graph.count_edges_of_type(EdgeType::Uses);
+    edges_count += uses_edges_count;
 
     /* ACCOUNT FOR ALL NODES AND EDGES */
     assert_eq!(
@@ -948,12 +959,9 @@ async fn fulltest() {
         );
         let neo4j_graph = Neo4jGraph::default();
         neo4j_graph.clear().await.unwrap();
-        if !use_lsp {
-            let neo4j_graph = repo.build_graphs_inner::<Neo4jGraph>().await.unwrap();
-            fulltest_generic(&neo4j_graph, use_lsp).await;
-        } else {
-            info!("Skipping Neo4j test with LSP enabled to avoid hanging");
-        }
+
+        let neo4j_graph = repo.build_graphs_inner::<Neo4jGraph>().await.unwrap();
+        fulltest_generic(&neo4j_graph, use_lsp).await;
     }
 
     fulltest_generic(&array_graph, use_lsp).await;
