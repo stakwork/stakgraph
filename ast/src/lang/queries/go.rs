@@ -39,6 +39,8 @@ impl Stack for Go {
             || file_name.contains("/go/src/fmt")
             || file_name.contains("/go/src/builtin")
             || file_name.contains("/go/src/io")
+            || file_name.contains("/opt/hostedtoolcache/")
+            || file_name.contains("nix/store/")
         {
             return true;
         }
