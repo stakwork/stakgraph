@@ -241,11 +241,18 @@ impl Repo {
         let mut repos: Vec<Repo> = Vec::new();
         for l in filtered_langs {
             let thelang = Lang::from_language(l);
-            // Run post-clone commands
-            for cmd in thelang.kind.post_clone_cmd() {
-                Self::run_cmd(&cmd, &root).map_err(|e| {
+            // Run post-clone commands   
+            
+            let run_post_clone = files_filter.iter().any(|f| thelang.kind.is_package_file(f));
+
+            if run_post_clone {
+                for cmd in thelang.kind.post_clone_cmd() {
+                    Self::run_cmd(&cmd, &root).map_err(|e| {
                     Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
                 })?;
+                }
+            } else {
+                info!("Skipping post-clone commands");
             }
             // Start LSP server
             let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
