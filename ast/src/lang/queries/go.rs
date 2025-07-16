@@ -35,20 +35,18 @@ impl Stack for Go {
 
     fn skip_file_with_path_contains(&self, file_name: &str) -> bool {
         // Skip Go standard library and system files
-        if file_name.contains("/go/src/")
-            || file_name.contains("/go/pkg/")
-            || file_name.starts_with("/usr")
-            || file_name.ends_with("_test.go")
+        if file_name.contains("/go/src/os")
+            || file_name.contains("/go/src/fmt")
+            || file_name.contains("/go/src/builtin")
+            || file_name.contains("/go/src/io")
         {
             return true;
         }
 
-        // Skip Go module cache unless allowed via env
-        if file_name.contains("/go/pkg/mod/") {
-            let allow_mods = std::env::var("ALLOW_MODS").unwrap_or("true".to_string());
-            if allow_mods == "false" {
-                return true;
-            }
+        // Allow Go modules to be included if ALLOW_LIBS is set to true
+        let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string()) == "true";
+        if file_name.contains("/go/pkg/mod/") && allow_libs {
+            return true;
         }
 
         false
