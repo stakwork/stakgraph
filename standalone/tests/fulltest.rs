@@ -959,7 +959,6 @@ async fn fulltest() {
         );
         let neo4j_graph = Neo4jGraph::default();
         neo4j_graph.clear().await.unwrap();
-
         let neo4j_graph = repo.build_graphs_inner::<Neo4jGraph>().await.unwrap();
         fulltest_generic(&neo4j_graph, use_lsp).await;
     }
