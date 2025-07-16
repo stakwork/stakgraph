@@ -238,8 +238,15 @@ impl Repo {
         for l in filtered_langs {
             let thelang = Lang::from_language(l);
             // Run post-clone commands
-            for cmd in thelang.kind.post_clone_cmd() {
-                Self::run_cmd(&cmd, &root)?;
+
+            let run_post_clone = files_filter.iter().any(|f| thelang.kind.is_package_file(f));
+
+            if run_post_clone {
+                for cmd in thelang.kind.post_clone_cmd() {
+                    Self::run_cmd(&cmd, &root)?;
+                }
+            } else {
+                info!("Skipping post-clone commands");
             }
             // Start LSP server
             let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
