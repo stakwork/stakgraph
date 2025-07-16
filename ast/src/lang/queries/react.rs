@@ -96,18 +96,15 @@ impl Stack for ReactTs {
         if file_name.contains("/typescript/lib/")
             || file_name.ends_with(".d.ts")
             || file_name.contains("/@types/")
-            || file_name.starts_with("/usr")
             || file_name.contains(".nvm/")
         {
             return true;
         }
 
         //Allow node_moludes libraries unless denied via env
-        if file_name.contains("/node_modules/") {
-            let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string());
-            if allow_libs == "false" {
-                return true;
-            }
+        let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string()) == "true";
+        if file_name.contains("/node_modules/") && allow_libs {
+            return true;
         }
 
         false
