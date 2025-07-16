@@ -35,14 +35,11 @@ impl Stack for Go {
 
     fn skip_file_with_path_contains(&self, file_name: &str) -> bool {
         // Skip Go standard library and system files
-        if file_name.contains("/go/src/os")
-            || file_name.contains("/go/src/fmt")
-            || file_name.contains("/go/src/builtin")
-            || file_name.contains("/go/src/io")
-            || file_name.contains("/opt/hostedtoolcache/")
-            || file_name.contains("nix/store/")
-        {
-            return true;
+        let stdlib_patterns = ["/src/os/", "/src/fmt/", "/src/builtin/", "/src/io/"];
+        for pat in stdlib_patterns.iter() {
+            if file_name.contains(pat) {
+                return true;
+            }
         }
 
         // Allow Go modules to be included if ALLOW_LIBS is set to true
