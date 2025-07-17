@@ -214,20 +214,6 @@ async fn test_demorepo_generic<G: Graph>(repos: &Repos) -> Result<()> {
         contains
     );
 
-    // if use_lsp {
-    //     assert_eq!(
-    //         contains, 108,
-    //         "Expected 108 edges of type Contains, found {}",
-    //         contains
-    //     );
-    // } else {
-    //     assert_eq!(
-    //         contains, 95,
-    //         "Expected 95 edges of type Contains, found {}",
-    //         contains
-    //     );
-    // }
-
     Ok(())
 }
 
