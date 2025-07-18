@@ -106,7 +106,8 @@ impl Repo {
                 let parent = parts.join("/");
                 (NodeType::Directory, parent)
             } else {
-                (NodeType::Repository, "main".to_string())
+                let repo_file = strip_tmp(&self.root).display().to_string();
+                (NodeType::Repository, repo_file)
             };
 
             let dir_name = dir_no_tmp.rsplit('/').next().unwrap().to_string();
@@ -282,10 +283,11 @@ impl Repo {
         } else {
             ("".to_string(), format!("{:?}", self.lang.kind))
         };
-        debug!("add repository...");
+        info!("add repository... {}", self.root.display());
+        let repo_file = strip_tmp(&self.root).display().to_string();
         let mut repo_data = NodeData {
             name: format!("{}/{}", org, repo_name),
-            file: format!("main"),
+            file: repo_file.clone(),
             hash: Some(commit_hash.to_string()),
             ..Default::default()
         };
@@ -298,7 +300,12 @@ impl Repo {
             file: strip_tmp(&self.root).display().to_string(),
             ..Default::default()
         };
-        graph.add_node_with_parent(NodeType::Language, lang_data, NodeType::Repository, "main");
+        graph.add_node_with_parent(
+            NodeType::Language,
+            lang_data,
+            NodeType::Repository,
+            &repo_file,
+        );
         self.send_status_progress(100, 100);
         Ok(())
     }

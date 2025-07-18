@@ -19,20 +19,15 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     graph.analysis();
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
-    if use_lsp {
-        assert_eq!(num_nodes, 52, "Expected 52 nodes");
-        assert!(num_edges >= 72 && num_edges <= 77, "Expected 72-77 edges");
-    } else {
-        assert_eq!(num_nodes, 49, "Expected 49 nodes");
-        assert_eq!(num_edges, 69, "Expected 69 edges");
-    }
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
     }
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "typescript",
@@ -44,7 +39,17 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
-    let pkg_files = graph.find_nodes_by_name(NodeType::File, "package.json");
+    let repository = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repository.len();
+    assert_eq!(repository.len(), 1, "Expected 1 repository node");
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
+
+    let pkg_files = files
+        .iter()
+        .filter(|f| f.name == "package.json")
+        .collect::<Vec<_>>();
     assert_eq!(pkg_files.len(), 1, "Expected 1 package.json file");
     assert_eq!(
         pkg_files[0].name, "package.json",
@@ -52,6 +57,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
 
     for imp in &imports {
         let import_lines: Vec<&str> = imp
@@ -83,45 +89,53 @@ import {{ sequelize }} from "./config.js";"#
         "Model import body is incorrect"
     );
 
+    let libraries = graph.find_nodes_by_type(NodeType::Library);
+    nodes_count += libraries.len();
+    assert_eq!(libraries.len(), 11, "Expected 11 libraries");
+
     let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
     if use_lsp == true {
         assert_eq!(functions.len(), 9, "Expected 9 functions");
     } else {
         assert_eq!(functions.len(), 6, "Expected 6 functions");
     }
 
-    let requests = graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(requests.len(), 2, "Expected 2 requests");
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
+    assert_eq!(classes.len(), 5, "Expected 5 classes");
+
+    let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
+    assert_eq!(directories.len(), 2, "Expected 2 directories");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls_edges_count;
     assert_eq!(calls_edges_count, 2, "Expected 2 calls edges");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     assert_eq!(data_models.len(), 4, "Expected 4 data models");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += variables.len();
     assert_eq!(variables.len(), 4, "Expected 4 variables");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-
-    if use_lsp {
-        assert!(
-            contains >= 51 && contains <= 53,
-            "Expected 51 contains edges"
-        );
-    } else {
-        assert_eq!(contains, 53, "Expected 53 contains edges");
-    }
+    edges_count += contains;
+    assert_eq!(contains, 53, "Expected 53 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
+    edges_count += import_edges_count;
     if use_lsp {
-        assert!(
-            import_edges_count >= 10 && import_edges_count <= 15,
-            "Expected 10-15 import edges"
-        );
+        assert_eq!(import_edges_count, 15, "Expected 15 import edges");
     } else {
         assert_eq!(import_edges_count, 12, "Expected 12 import edges");
     }
+
+    let handlers = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handlers;
+    assert_eq!(handlers, 2, "Expected 2 handler edges");
 
     let create_person_fn = functions
         .iter()
@@ -142,6 +156,16 @@ import {{ sequelize }} from "./config.js";"#
         .expect("getPerson function not found");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    nodes_count += endpoints.len();
+    assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
+
+    let uses = graph.count_edges_of_type(EdgeType::Uses);
+    edges_count += uses;
+    if use_lsp {
+        assert_eq!(uses, 5, "Expected 5 uses edges");
+    } else {
+        assert_eq!(uses, 0, "Expected 0 uses edges");
+    }
 
     let post_person_endpoint = endpoints
         .iter()
@@ -171,6 +195,19 @@ import {{ sequelize }} from "./config.js";"#
     assert!(
         graph.has_edge(&get_person_endpoint, &get_person_fn, EdgeType::Handler),
         "Expected '/person/:id' GET endpoint to be handled by getPerson"
+    );
+
+    let (nodes, edges) = graph.get_graph_size();
+
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {} nodes, found {}",
+        nodes_count, nodes
+    );
+    assert_eq!(
+        edges as usize, edges_count,
+        "Expected {} edges, found {}",
+        edges_count, edges
     );
     Ok(())
 }

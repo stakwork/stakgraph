@@ -81,14 +81,17 @@ impl Graph for ArrayGraph {
     fn extend_graph(&mut self, other: Self) {
         for node in &other.nodes {
             let key = create_node_key(node);
-            self.node_keys.insert(key);
+            if !self.node_keys.contains(&key) {
+                self.node_keys.insert(key);
+                self.nodes.push(node.clone());
+            }
         }
         for edge in &other.edges {
             let key = self.create_edge_key(edge);
-            self.edge_keys.insert(key);
+            if self.edge_keys.insert(key) {
+                self.edges.push(edge.clone());
+            }
         }
-        self.nodes.extend(other.nodes);
-        self.edges.extend(other.edges);
         self.errors.extend(other.errors);
     }
 
@@ -104,8 +107,12 @@ impl Graph for ArrayGraph {
     }
 
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
-        let new_node = Node::new(node_type, node_data);
+        let new_node = Node::new(node_type.clone(), node_data);
         let key = create_node_key(&new_node);
+
+        if node_type == NodeType::Directory {
+            println!("Adding directory node: {}", key);
+        }
 
         if !self.node_keys.contains(&key) {
             self.node_keys.insert(key);
