@@ -21,19 +21,8 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     graph.analysis();
 
-<<<<<<< HEAD
     let mut nodes_count = 0;
     let mut edges_count = 0;
-=======
-    let (num_nodes, num_edges) = graph.get_graph_size();
-    if use_lsp {
-        assert_eq!(num_nodes, 51, "Expected 51 nodes");
-        assert_eq!(num_edges, 90, "Expected 90 edges");
-    } else {
-        assert_eq!(num_nodes, 41, "Expected 41 nodes");
-        assert_eq!(num_edges, 67, "Expected 68 edges");
-    }
->>>>>>> e16740a (select only lib concerned methods)
 
     let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go");
     nodes_count += language_nodes.len();
@@ -270,11 +259,8 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     }
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
-<<<<<<< HEAD
-
     edges_count += function_calls;
-=======
->>>>>>> e16740a (select only lib concerned methods)
+
     assert_eq!(function_calls, 8, "Expected 8 function calls");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
@@ -299,16 +285,10 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
         assert_eq!(import_edges, 4, "Expected 4 import edges with lsp");
     }
 
-<<<<<<< HEAD
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 50, "Expected 50 uses edges with lsp");
-=======
-    let uses_edges = graph.count_edges_of_type(EdgeType::Uses);
-    if use_lsp {
-        assert_eq!(uses_edges, 18, "Expected 18 uses edges with lsp");
->>>>>>> e16740a (select only lib concerned methods)
+        assert_eq!(uses, 18, "Expected 18 uses edges with lsp");
     }
 
     let handler_fn = graph
