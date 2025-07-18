@@ -43,7 +43,7 @@ export async function runPlaywrightTests(
     const { test } = req.query;
 
     if (!test || typeof test !== "string") {
-      res.status(400).json({ error: "Test parameter is required" });
+      res.status(400).json({ error: "Test name is required" });
       return;
     }
 
@@ -225,9 +225,9 @@ export async function getTestByName(
   res: Response
 ): Promise<void> {
   try {
-    const { name } = req.params;
+    const { name } = req.query;
 
-    if (!name) {
+    if (!name || typeof name !== "string") {
       res.status(400).json({ error: "Test name is required" });
       return;
     }
@@ -277,9 +277,9 @@ export async function deleteTestByName(
   res: Response
 ): Promise<void> {
   try {
-    const { name } = req.params;
+    const { name } = req.query;
 
-    if (!name) {
+    if (!name || typeof name !== "string") {
       res.status(400).json({ error: "Test name is required" });
       return;
     }
@@ -322,18 +322,76 @@ export async function deleteTestByName(
   }
 }
 
+export async function generatePlaywrightTest(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { url, trackingData } = req.body;
+
+    if (!url || !trackingData) {
+      res.status(400).json({
+        success: false,
+        error: "URL and tracking data are required",
+      });
+      return;
+    }
+
+    const playwrightGeneratorPath = path.join(
+      __dirname,
+      "../../tests/playwright-generator.js"
+    );
+
+    try {
+      const module = await import(playwrightGeneratorPath);
+      const testCode = module.generatePlaywrightTest(url, trackingData);
+
+      res.json({
+        success: true,
+        testCode,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || "Error generating test code",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
 export function test_routes(app: Express) {
   app.get("/test", runPlaywrightTests);
   app.get("/test/list", listTests);
   app.get("/test/get", getTestByName);
   app.get("/test/delete", deleteTestByName);
-  app.get("/test/save", saveTest);
+  app.post("/test/save", saveTest);
+  app.post("/api/generate-test", generatePlaywrightTest);
 
   app.get("/tests", (req, res) => {
     res.sendFile(path.join(__dirname, "../../tests/tests.html"));
   });
-  const static_files = ["app.js", "style.css", "hooks.js"];
+
+  const static_files = [
+    "app.js",
+    "style.css",
+    "hooks.js",
+    "playwright-generator.js",
+    "staktrak.js",
+  ];
+
   serveStaticFiles(app, static_files);
+
+  app.get("/tests/frame.html", (req, res) => {
+    res.sendFile(path.join(__dirname, "../../tests/frame.html"));
+  });
 }
 
 function serveStaticFiles(

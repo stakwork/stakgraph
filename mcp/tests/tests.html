@@ -3,11 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>stakgraph tests</title>
+    <meta
+      name="description"
+      content="StakTrak - Automated Playwright Test Generator"
+    />
+    <meta name="theme-color" content="#1e293b" />
+    <title>StakTrak - Playwright Test Generator</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <link
+      rel="icon"
+      type="image/svg+xml"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2338bdf8'%3E%3Cpath d='M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z'/%3E%3C/svg%3E"
+    />
+
     <link rel="stylesheet" href="/tests/style.css" />
+
+    <script type="module" src="/tests/playwright-generator.js"></script>
+
+    <script src="/tests/staktrak.js"></script>
+
     <script type="module" src="/tests/app.js"></script>
+
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        console.log("DOMContentLoaded fired");
+        if (window.PlaywrightGenerator) {
+          console.log("PlaywrightGenerator is available on page load");
+        } else {
+          console.warn(
+            "PlaywrightGenerator not available on page load, will try to load dynamically"
+          );
+        }
+      });
+    </script>
   </head>
   <body>
     <div id="app"></div>
+    <noscript>
+      <div style="padding: 2rem; text-align: center">
+        Please enable JavaScript to use StakTrak Test Generator.
+      </div>
+    </noscript>
   </body>
 </html>
