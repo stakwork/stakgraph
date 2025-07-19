@@ -10,7 +10,7 @@ use anyhow::Result;
 use std::str::FromStr;
 
 pub async fn test_nextjs_generic<G: Graph>() -> Result<(), anyhow::Error> {
-    let use_lsp = get_use_lsp() && false; // To activete LSP_SKIP_CLONE = true, helps with tsx issues
+    let use_lsp = get_use_lsp();
     let repo = Repo::new(
         "src/testing/nextjs",
         Lang::from_str("tsx").unwrap(),
@@ -27,7 +27,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     assert_eq!(num_nodes, 114, "Expected 114 nodes in Next.js");
-    assert_eq!(num_edges, 161, "Expected 161 edges in Next.js");
+    if use_lsp {
+        assert_eq!(num_edges, 176, "Expected 176 edges in Next.js");
+    } else {
+        assert_eq!(num_edges, 161, "Expected 161 edges in Next.js");
+    }
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
@@ -40,7 +44,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<(), anyhow::Error> {
     assert_eq!(endpoints.len(), 6, "Expected 6 Endpoint nodes");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
-    println!("Requests: {:#?}", requests);
     assert_eq!(requests.len(), 9, "Expected 9 Request nodes");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
