@@ -148,6 +148,7 @@ export async function get_repo_map(
     const record = r.records[0];
     const tokenizer = await createByModelName("gpt-4");
     const tree = await buildTree(record, "down", tokenizer);
+    alphabetizeNodeLabels(tree.root);
     const text = archy(tree.root);
     finalText += text;
     finalText += "\n\n";
