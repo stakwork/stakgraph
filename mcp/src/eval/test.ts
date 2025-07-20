@@ -34,16 +34,17 @@ const ensureSpecExtension = (filename: string): string => {
   return `${filename}.spec.js`;
 };
 
-// Run Playwright tests
-export async function runPlaywrightTests(
+// Run Playwright test
+export async function runPlaywrightTest(
   req: Request,
   res: Response
 ): Promise<void> {
   try {
     const { test } = req.query;
+    console.log("===> runPlaywrightTest", test);
 
     if (!test || typeof test !== "string") {
-      res.status(400).json({ error: "Test parameter is required" });
+      res.status(400).json({ error: "Test name is required" });
       return;
     }
 
@@ -125,6 +126,7 @@ export async function runPlaywrightTests(
 export async function saveTest(req: Request, res: Response): Promise<void> {
   try {
     const { name, text } = req.body;
+    console.log("===> saveTest", name);
 
     if (!name || !text) {
       res.status(400).json({ error: "Name and text are required" });
@@ -173,6 +175,7 @@ export async function saveTest(req: Request, res: Response): Promise<void> {
 export async function listTests(req: Request, res: Response): Promise<void> {
   try {
     const testsDir = getTestsDir();
+    console.log("===> listTests", testsDir);
 
     // Check if tests directory exists
     try {
@@ -225,9 +228,10 @@ export async function getTestByName(
   res: Response
 ): Promise<void> {
   try {
-    const { name } = req.params;
+    const { name } = req.query;
+    console.log("===> getTestByName", name);
 
-    if (!name) {
+    if (!name || typeof name !== "string") {
       res.status(400).json({ error: "Test name is required" });
       return;
     }
@@ -277,9 +281,10 @@ export async function deleteTestByName(
   res: Response
 ): Promise<void> {
   try {
-    const { name } = req.params;
+    const { name } = req.query;
+    console.log("===> deleteTestByName", name);
 
-    if (!name) {
+    if (!name || typeof name !== "string") {
       res.status(400).json({ error: "Test name is required" });
       return;
     }
@@ -322,18 +327,75 @@ export async function deleteTestByName(
   }
 }
 
+export async function generatePlaywrightTest(
+  req: Request,
+  res: Response
+): Promise<void> {
+  try {
+    const { url, trackingData } = req.body;
+
+    if (!url || !trackingData) {
+      res.status(400).json({
+        success: false,
+        error: "URL and tracking data are required",
+      });
+      return;
+    }
+
+    const playwrightGeneratorPath = path.join(
+      __dirname,
+      "../../tests/playwright-generator.js"
+    );
+
+    try {
+      const module = await import(playwrightGeneratorPath);
+      const testCode = module.generatePlaywrightTest(url, trackingData);
+
+      res.json({
+        success: true,
+        testCode,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({
+        success: false,
+        error: error.message || "Error generating test code",
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
 export function test_routes(app: Express) {
-  app.get("/test", runPlaywrightTests);
+  app.get("/test", runPlaywrightTest);
   app.get("/test/list", listTests);
   app.get("/test/get", getTestByName);
   app.get("/test/delete", deleteTestByName);
-  app.get("/test/save", saveTest);
+  app.post("/test/save", saveTest);
 
   app.get("/tests", (req, res) => {
     res.sendFile(path.join(__dirname, "../../tests/tests.html"));
   });
-  const static_files = ["app.js", "style.css", "hooks.js"];
+
+  const static_files = [
+    "app.js",
+    "style.css",
+    "hooks.js",
+    "playwright-generator.js",
+    "staktrak.js",
+  ];
+
   serveStaticFiles(app, static_files);
+
+  app.get("/tests/frame.html", (req, res) => {
+    res.sendFile(path.join(__dirname, "../../tests/frame.html"));
+  });
 }
 
 function serveStaticFiles(

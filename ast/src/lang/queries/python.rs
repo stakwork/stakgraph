@@ -28,21 +28,15 @@ impl Stack for Python {
         }
         Ok(parser.parse(code, None).context("failed to parse")?)
     }
+
     fn lib_query(&self) -> Option<String> {
         Some(format!(
-            "(variable_assignment
-	name: (variable_name) @{LIBRARY_NAME}
-    value: (word) @{LIBRARY_VERSION}
-) @{LIBRARY}"
+            r#"[
+            (word) @{LIBRARY_NAME}
+                ] @{LIBRARY}
+             "#
         ))
     }
-    // fn imports_query(&self) -> Option<String> {
-    //     Some(format!(
-    //         "(module
-    //             [(import_statement)+ (import_from_statement)+] @{IMPORTS}
-    //         )"
-    //     ))
-    // }
 
     fn imports_query(&self) -> Option<String> {
         Some(format!(

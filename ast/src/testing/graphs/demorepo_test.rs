@@ -16,10 +16,10 @@ async fn test_demorepo_generic<G: Graph>(repos: &Repos) -> Result<()> {
 
     if use_lsp {
         assert_eq!(num_nodes, 145, "Expected 145 nodes in the graph");
-        assert_eq!(num_edges, 204, "Expected 204 edges in the graph");
+        assert_eq!(num_edges, 216, "Expected 216 edges in the graph");
     } else {
         assert_eq!(num_nodes, 102, "Expected 102 nodes in the graph");
-        assert_eq!(num_edges, 132, "Expected 132 edges in the graph");
+        assert_eq!(num_edges, 144, "Expected 144 edges in the graph");
     }
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
@@ -58,7 +58,6 @@ async fn test_demorepo_generic<G: Graph>(repos: &Repos) -> Result<()> {
         2,
         "Expected at least one Request node (React/TSX frontend)"
     );
-    println!("Requests: {:?}", requests);
     assert!(
         requests.iter().any(|r| r.name == "${api.host}/person"),
         "Expected at least one Request node for 'GET /person'"
@@ -209,8 +208,8 @@ async fn test_demorepo_generic<G: Graph>(repos: &Repos) -> Result<()> {
     );
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     assert_eq!(
-        contains, 95,
-        "Expected 95 edges of type Contains, found {}",
+        contains, 107,
+        "Expected 107 edges of type Contains, found {}",
         contains
     );
 

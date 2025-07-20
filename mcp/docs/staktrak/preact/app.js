@@ -124,10 +124,13 @@ const Frame = () => {
       <button id="staktrak-div" onClick=${handleIdClick}>id</button>
 
       <div>
-        <button onClick=${toggleInput}>
+        <button onClick=${toggleInput} data-testid="staktrak-show-input">
           ${showInput ? "Hide Input" : "Show Input"}
         </button>
-        <button onClick=${toggleFormElements}>
+        <button
+          onClick=${toggleFormElements}
+          data-testid="staktrak-form-elements"
+        >
           ${showFormElements ? "Hide Form Elements" : "Show Form Elements"}
         </button>
       </div>

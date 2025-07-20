@@ -1,6 +1,4 @@
-#None functional. 
-#This file is only here to make the ast directory a package.
-# `cd ast/src/testing/python/` 
-# Setup a virtual environment with `python3 -m venv venv`
-# Activate the virtual environment with `source venv/bin/activate`
-# Use `pip install -e .` to install the packages as specified in setup.py
+numpy
+tensorflow
+scikit-learn
+pandas

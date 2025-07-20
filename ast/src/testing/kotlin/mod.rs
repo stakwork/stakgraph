@@ -16,18 +16,17 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
 
     graph.analysis();
-
-    assert_eq!(num_nodes, 172, "Expected 172 nodes");
-    assert_eq!(num_edges, 200, "Expected 200 edges");
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
     }
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "kotlin",
@@ -38,6 +37,10 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "src/testing/kotlin",
         "Language node file path is incorrect"
     );
+
+    let repository = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repository.len();
+    assert_eq!(repository.len(), 1, "Expected 1 repository node");
 
     let build_gradle_files = graph.find_nodes_by_name(NodeType::File, "build.gradle.kts");
     assert_eq!(
@@ -51,9 +54,11 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
+    nodes_count += libraries.len();
     assert_eq!(libraries.len(), 58, "Expected 58 libraries");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
     assert_eq!(imports.len(), 9, "Expected 9 imports");
 
     let main_import_body = format!(
@@ -76,12 +81,11 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
     assert_eq!(classes.len(), 6, "Expected 6 classes");
 
-    let imports = graph.find_nodes_by_type(NodeType::Import);
-    assert_eq!(imports.len(), 9, "Expected 9 imports");
-
     let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += variables.len();
     assert_eq!(variables.len(), 9, "Expected 9 variables");
 
     let mut sorted_classes = classes.clone();
@@ -98,16 +102,16 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
     assert_eq!(functions.len(), 19, "Expected 19 functions");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     assert_eq!(data_models.len(), 1, "Expected 1 data model");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
+    nodes_count += requests.len();
     assert_eq!(requests.len(), 2, "Expected 2 requests");
-
-    let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 19, "Expected 19 functions");
 
     let function_names: Vec<&str> = functions.iter().map(|f| f.name.as_str()).collect();
     assert!(
@@ -140,10 +144,24 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls_edges_count;
     assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
+    edges_count += import_edges_count;
     assert_eq!(import_edges_count, 6, "Expected 6 import edges");
+
+    let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains_edges;
+    assert_eq!(contains_edges, 169, "Expected 169 contains edges");
+
+    let handler = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handler;
+    assert_eq!(handler, 0, "Expected 0 handler node");
+
+    let operand_edges_count = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operand_edges_count;
+    assert_eq!(operand_edges_count, 11, "Expected 11 operand edges");
 
     let main_activity = classes
         .iter()
@@ -437,6 +455,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
 
     let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
     assert_eq!(files.len(), 31, "Expected 31 files");
 
     let kotlin_files: Vec<_> = files.iter().filter(|f| f.name.ends_with(".kt")).collect();
@@ -456,6 +475,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
     assert_eq!(directories.len(), 35, "Expected 35 directories");
 
     let app_directory = directories
@@ -524,6 +544,19 @@ import com.kotlintestapp.db.PersonDatabase"#
     assert!(
         build_gradle_files.len() == 2,
         "Should have at least 2 build.gradle.kts files"
+    );
+
+    let (nodes, edges) = graph.get_graph_size();
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {} nodes, found {}",
+        nodes_count, nodes
+    );
+
+    assert_eq!(
+        edges as usize, edges_count,
+        "Expected {} edges, found {}",
+        edges_count, edges
     );
 
     Ok(())

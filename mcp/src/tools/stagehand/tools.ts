@@ -2,7 +2,7 @@ import { z } from "zod";
 import { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
-import { getOrCreateStagehand, sanitize, getConsoleLogs } from "./core.js";
+import { getOrCreateStagehand, sanitize, getConsoleLogs, getNetworkEntries } from "./core.js";
 import { AgentProviderType } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
 
@@ -68,6 +68,12 @@ export const LogsSchema = z.object({
   verbose: z.boolean().optional().default(false),
 });
 
+export const NetworkActivitySchema = z.object({
+  resource_type_filter: z.enum(['all', 'xhr', 'fetch']).optional().default('all'),
+  status_filter: z.enum(['all', 'success', 'failed']).optional().default('all'),
+  verbose: z.boolean().optional().default(false),
+});
+
 // Tools
 export const NavigateTool: Tool = {
   name: "stagehand_navigate",
@@ -117,6 +123,13 @@ export const LogsTool: Tool = {
   inputSchema: parseSchema(LogsSchema),
 };
 
+export const NetworkActivityTool: Tool = {
+  name: "stagehand_network_activity",
+  description:
+    "Monitor API calls during browser automation. Captures meaningful network activity with timing and metadata, filtering out resource noise. Supports filtering by request type (XHR and fetch requests) and HTTP status (success/failed).",
+  inputSchema: parseSchema(NetworkActivitySchema),
+};
+
 export const TOOLS: Tool[] = [
   NavigateTool,
   ActTool,
@@ -125,6 +138,7 @@ export const TOOLS: Tool[] = [
   ScreenshotTool,
   AgentTool,
   LogsTool,
+  NetworkActivityTool,
 ];
 
 type TextResult = {
@@ -247,6 +261,70 @@ export async function call(
             log_str += `${log.text}\n`;
           }
           return success(log_str);
+        }
+      }
+
+      case NetworkActivityTool.name: {
+        const parsedArgs = NetworkActivitySchema.parse(args);
+        const networkEntries = getNetworkEntries(sessionId || "default-session-id");
+
+        // Apply resource type filtering - default to showing only xhr and fetch (API calls)
+        let filteredEntries = networkEntries;
+        if (parsedArgs.resource_type_filter === 'all') {
+          // Show both xhr and fetch requests (API calls only)
+          filteredEntries = networkEntries.filter(entry =>
+            entry.resourceType === 'xhr' || entry.resourceType === 'fetch'
+          );
+        } else {
+          // Show specific type
+          filteredEntries = networkEntries.filter(entry =>
+            entry.resourceType === parsedArgs.resource_type_filter
+          );
+        }
+
+        // Apply status filtering
+        if (parsedArgs.status_filter === 'success') {
+          filteredEntries = filteredEntries.filter(entry =>
+            entry.status && entry.status >= 200 && entry.status < 400
+          );
+        } else if (parsedArgs.status_filter === 'failed') {
+          filteredEntries = filteredEntries.filter(entry =>
+            entry.status && entry.status >= 400
+          );
+        }
+        // 'all' status_filter requires no additional filtering
+
+        if (parsedArgs.verbose) {
+          return success(JSON.stringify(filteredEntries, null, 2));
+        } else {
+          // Generate comprehensive summary with all API data regardless of filters
+          const allEntries = getNetworkEntries(sessionId || "default-session-id");
+          const allApiEntries = allEntries.filter(entry =>
+            entry.resourceType === 'xhr' || entry.resourceType === 'fetch'
+          );
+
+          // Simple mode: comprehensive summary first, then filtered entries
+          const response = {
+            summary: {
+              total_entries: allApiEntries.length,
+              requests: allApiEntries.filter(e => e.type === 'request').length,
+              responses: allApiEntries.filter(e => e.type === 'response').length,
+              successful: allApiEntries.filter(e => e.status && e.status >= 200 && e.status < 400).length,
+              failed: allApiEntries.filter(e => e.status && e.status >= 400).length,
+              xhr_requests: allApiEntries.filter(e => e.resourceType === 'xhr').length,
+              fetch_requests: allApiEntries.filter(e => e.resourceType === 'fetch').length,
+              filtered_count: filteredEntries.length
+            },
+            entries: filteredEntries.map(entry => ({
+              method: entry.method,
+              url: entry.url,
+              type: entry.type,
+              status: entry.status,
+              duration: entry.duration,
+              resourceType: entry.resourceType
+            }))
+          };
+          return success(JSON.stringify(response, null, 2));
         }
       }
 

@@ -113,3 +113,46 @@ export function clean_node(n: Neo4jNode): Neo4jNode {
   }
   return n;
 }
+
+/**
+ * @param language The programming language name (case insensitive)
+ * @returns Array of file extensions including the dot (e.g. ['.js', '.jsx'])
+ */
+export function getExtensionsForLanguage(language: string): string[] {
+  const lang = language.toLowerCase();
+
+  const languageMap: Record<string, string[]> = {
+    javascript: [".js", ".jsx", ".cjs", ".mjs"],
+    typescript: [".ts", ".tsx", ".d.ts"],
+    python: [".py", ".pyi", ".pyw"],
+    ruby: [".rb", ".rake", ".gemspec"],
+    go: [".go"],
+    rust: [".rs"],
+    java: [".java"],
+    kotlin: [".kt", ".kts"],
+    swift: [".swift"],
+    c: [".c", ".h"],
+    cpp: [".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".h"],
+    csharp: [".cs"],
+    php: [".php"],
+    html: [".html", ".htm"],
+    css: [".css", ".scss", ".sass", ".less"],
+    shell: [".sh", ".bash", ".zsh"],
+    sql: [".sql"],
+    markdown: [".md", ".markdown"],
+    json: [".json"],
+    yaml: [".yml", ".yaml"],
+    xml: [".xml"],
+    svelte: [".svelte"],
+    vue: [".vue"],
+    angular: [
+      ".component.ts",
+      ".service.ts",
+      ".directive.ts",
+      ".pipe.ts",
+      ".module.ts",
+    ],
+  };
+
+  return languageMap[lang] || [];
+}

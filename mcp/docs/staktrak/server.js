@@ -20,7 +20,7 @@ app.get("/", (req, res) => {
 
 app.get("/preact/frame.html", (req, res) => {
   console.log("=> frame.html");
-  res.sendFile(path.join(__dirname, "frame.html"));
+  res.sendFile(path.join(__dirname, "preact/frame.html"));
 });
 
 app.get("/playwright-generator.js", (req, res) => {

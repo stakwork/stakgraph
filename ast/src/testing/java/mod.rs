@@ -16,17 +16,15 @@ pub async fn test_java_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
-
-    //graph.analysis();
-    assert_eq!(num_nodes, 43, "Expected 43 nodes");
-    assert_eq!(num_edges, 50, "Expected 50 edges");
-
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
     }
 
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
+
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "java",
@@ -38,6 +36,18 @@ pub async fn test_java_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
+    let repository = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repository.len();
+    assert_eq!(repository.len(), 1, "Expected 1 repository node");
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
+    assert_eq!(files.len(), 9, "Expected  files");
+
+    let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
+    assert_eq!(directories.len(), 10, "Expected 10 directory nodes");
+
     let pom_file = graph.find_nodes_by_name(NodeType::File, repo.lang.kind.pkg_files()[0]);
     assert_eq!(pom_file.len(), 1, "Expected pom.xml files");
     assert_eq!(
@@ -46,6 +56,7 @@ pub async fn test_java_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
     assert_eq!(imports.len(), 4, "Expected 4 imports");
 
     let main_import_body = format!(
@@ -71,12 +82,11 @@ import java.util.Optional;"#
     );
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
     assert_eq!(classes.len(), 3, "Expected 3 classes");
 
-    let imports = graph.find_nodes_by_type(NodeType::Import);
-    assert_eq!(imports.len(), 4, "Expected 4 imports");
-
     let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += variables.len();
     assert_eq!(variables.len(), 1, "Expected 1 variables");
 
     let mut sorted_classes = classes.clone();
@@ -90,22 +100,40 @@ import java.util.Optional;"#
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
     assert_eq!(functions.len(), 11, "Expected 11 functions");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     assert_eq!(data_models.len(), 1, "Expected 1 data model");
 
     let requests = graph.find_nodes_by_type(NodeType::Endpoint);
+    nodes_count += requests.len();
     assert_eq!(requests.len(), 2, "Expected 2 endpoints");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls_edges_count;
     assert_eq!(calls_edges_count, 2, "Expected at 2 calls edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
-    assert_eq!(import_edges_count, 2, "Expected at 2 import edges");
+    edges_count += import_edges_count;
+    assert_eq!(import_edges_count, 3, "Expected at 3 import edges");
 
     let instances = graph.find_nodes_by_type(NodeType::Instance);
-    assert_eq!(instances.len(), 0, "Expected 0 instances");
+    nodes_count += instances.len();
+    assert_eq!(instances.len(), 2, "Expected 2 instances");
+
+    let instance_edges_count = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += instance_edges_count;
+    assert_eq!(instance_edges_count, 2, "Expected at 2 instance edges");
+
+    let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains_edges_count;
+    assert_eq!(contains_edges_count, 46, "Expected at 46 contains edges");
+
+    let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handler_edges_count;
+    assert_eq!(handler_edges_count, 2, "Expected at 2 handler edges");
 
     let person_class = classes
         .iter()
@@ -180,6 +208,10 @@ import java.util.Optional;"#
         graph.has_edge(&person_model_file, &person_data_model, EdgeType::Contains),
         "Expected Person.java file to contain Person DataModel"
     );
+
+    let (nodes, edges) = graph.get_graph_size();
+    assert_eq!(nodes as usize, nodes_count, "Node count mismatch");
+    assert_eq!(edges as usize, edges_count, "Edge count mismatch");
     Ok(())
 }
 

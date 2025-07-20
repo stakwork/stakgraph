@@ -19,6 +19,12 @@ export const GetNodesSchema = z.object({
     .string()
     .optional()
     .describe("Comma-separated list of ref_ids to retrieve."),
+  language: z
+    .string()
+    .optional()
+    .describe(
+      "Filter nodes by programming language (e.g. 'javascript', 'python', 'typescript')"
+    ),
 });
 
 export const GetNodesTool: Tool = {
@@ -32,7 +38,9 @@ export async function getNodes(args: z.infer<typeof GetNodesSchema>) {
   const result = await G.get_nodes(
     args.node_type as NodeType,
     args.concise ?? false,
-    args.ref_ids?.split(",") ?? []
+    args.ref_ids?.split(",") ?? [],
+    "snippet",
+    args.language
   );
   return {
     content: [

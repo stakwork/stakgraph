@@ -87,9 +87,10 @@ jobs:
         working-directory: ./mcp
         run: |
           export TEST_REF_ID=1 
-          yarn run dev > server.log 2>&1 & #captuere logs
+          yarn run dev > server.log 2>&1 & #capture logs
 
       - name: Wait for the server
+        working-directory: ./mcp
         run: |
           tail -n +1 -f server.log &
           npx wait-on http://localhost:3000 -t 120000

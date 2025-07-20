@@ -40,7 +40,7 @@ pub async fn clone_repo(
 
 pub struct Repo {
     pub url: String,
-    pub root: PathBuf,
+    pub root: PathBuf, // the absolute path to the repo (/tmp/stakwork/hive)
     pub lang: Lang,
     pub lsp_tx: Option<CmdSender>,
     pub files_filter: Vec<String>,

@@ -39,6 +39,7 @@ data/*
 .claude/
 screenshots/
 tmp/
+
 tests/*.spec.js
 tests/*.spec.ts
 !tests/.gitkeep

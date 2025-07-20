@@ -50,7 +50,15 @@ export async function get_nodes(req: Request, res: Response) {
       ref_ids = (req.query.ref_ids as string).split(",");
     }
     const output = req.query.output as G.OutputFormat;
-    const result = await G.get_nodes(node_type, concise, ref_ids, output);
+    const language = req.query.language as string;
+
+    const result = await G.get_nodes(
+      node_type,
+      concise,
+      ref_ids,
+      output,
+      language
+    );
     if (output === "snippet") {
       res.send(result);
     } else {
@@ -77,6 +85,8 @@ export async function search(req: Request, res: Response) {
     const output = req.query.output as G.OutputFormat;
     let tests = isTrue(req.query.tests as string);
     const maxTokens = parseInt(req.query.max_tokens as string);
+    const language = req.query.language as string;
+
     if (maxTokens) {
       console.log("search with max tokens", maxTokens);
     }
@@ -88,7 +98,8 @@ export async function search(req: Request, res: Response) {
       maxTokens || 100000,
       method,
       output || "snippet",
-      tests
+      tests,
+      language
     );
     if (output === "snippet") {
       res.send(result);

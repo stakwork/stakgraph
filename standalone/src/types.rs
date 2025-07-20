@@ -3,10 +3,13 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub type Result<T> = std::result::Result<T, AppError>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ProcessBody {
     pub repo_url: Option<String>,
     pub repo_path: Option<String>,
@@ -15,7 +18,7 @@ pub struct ProcessBody {
     pub use_lsp: Option<bool>,
     pub commit: Option<String>,
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {
     pub nodes: u32,
     pub edges: u32,
@@ -30,6 +33,21 @@ pub struct FetchRepoResponse {
     pub repo_name: String,
     pub hash: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AsyncStatus {
+    InProgress,
+    Complete,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AsyncRequestStatus {
+    pub status: AsyncStatus,
+    pub result: Option<ProcessResponse>,
+}
+
+pub type AsyncStatusMap = Arc<Mutex<HashMap<String, AsyncRequestStatus>>>;
 
 #[derive(Debug)]
 pub enum AppError {

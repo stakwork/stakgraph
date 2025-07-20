@@ -37,6 +37,12 @@ export const SearchSchema = z.object({
     .optional()
     .default(100000)
     .describe("Limit the number of tokens."),
+  language: z
+    .string()
+    .optional()
+    .describe(
+      "Filter nodes by programming language (e.g. 'javascript', 'python', 'typescript')"
+    ),
 });
 
 export const SearchTool: Tool = {
@@ -53,7 +59,10 @@ export async function search(args: z.infer<typeof SearchSchema>) {
     (args.node_types as NodeType[]) ?? [],
     args.concise ?? false,
     args.max_tokens ?? 100000,
-    args.method ?? "fulltext"
+    args.method ?? "fulltext",
+    "snippet",
+    false,
+    args.language
   );
   return {
     content: [

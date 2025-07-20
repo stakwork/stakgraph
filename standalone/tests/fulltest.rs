@@ -29,8 +29,6 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
-    let graph_type_name = std::any::type_name::<G>();
-
     /*****
      *
      ** NODES TESTS **
@@ -46,6 +44,10 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
     assert_eq!(
         repo_node.name, "fayekelmith/demorepo",
         "Repository name is incorrect"
+    );
+    assert_eq!(
+        repo_node.file, "fayekelmith/demorepo",
+        "Repository file is incorrect"
     );
 
     /* LANGUAGE TESTS */
@@ -72,18 +74,7 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    let expected_directories = if graph_type_name.contains("ArrayGraph") {
-        8
-    } else {
-        4
-    };
-    assert_eq!(
-        directories.len(),
-        expected_directories,
-        "Expected {} directories for {}",
-        expected_directories,
-        graph_type_name
-    );
+    assert_eq!(directories.len(), 4, "Expected 4 directories");
 
     let frontend_dir = directories
         .iter()
@@ -126,18 +117,7 @@ async fn fulltest_generic<G: Graph>(graph: &G, use_lsp: bool) {
     /* GO FILES */
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    let expected_files = if graph_type_name.contains("ArrayGraph") {
-        29
-    } else {
-        22
-    };
-    assert_eq!(
-        files.len(),
-        expected_files,
-        "Expected {} files for {}",
-        expected_files,
-        graph_type_name
-    );
+    assert_eq!(files.len(), 22, "Expected 22 files");
 
     let go_files: Vec<_> = files.iter().filter(|f| f.name.ends_with(".go")).collect();
     assert_eq!(go_files.len(), 5, "Expected 5 Go files");

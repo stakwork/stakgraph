@@ -135,7 +135,8 @@ impl Repo {
             let fin = strip_tmp(&PathBuf::from(dirpath)).display().to_string();
             (NodeType::Directory, fin)
         } else {
-            (NodeType::Repository, "main".to_string())
+            let repo_file = strip_tmp(&self.root).display().to_string();
+            (NodeType::Repository, repo_file)
         }
     }
 }

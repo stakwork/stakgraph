@@ -4,7 +4,13 @@ import archy from "archy";
 import { buildTree, alphabetizeNodeLabels } from "./codemap.js";
 import { extractNodesFromRecord } from "./codebody_files.js";
 import { Neo4jNode, NodeType } from "./types.js";
-import { nameFileOnly, toReturnNode, formatNode, clean_node } from "./utils.js";
+import {
+  nameFileOnly,
+  toReturnNode,
+  formatNode,
+  clean_node,
+  getExtensionsForLanguage,
+} from "./utils.js";
 import { createByModelName } from "@microsoft/tiktokenizer";
 import { generate_services_config } from "./service.js";
 
@@ -16,14 +22,16 @@ export async function get_nodes(
   node_type: NodeType,
   concise: boolean,
   ref_ids: string[],
-  output: OutputFormat = "snippet"
+  output: OutputFormat = "snippet",
+  language?: string
 ) {
   let result: Neo4jNode[] = [];
   if (ref_ids.length > 0) {
-    result = await db.nodes_by_ref_ids(ref_ids);
+    result = await db.nodes_by_ref_ids(ref_ids, language);
   } else {
-    result = await db.nodes_by_type(node_type);
+    result = await db.nodes_by_type(node_type, language);
   }
+
   return toNodes(result, concise, output);
 }
 
@@ -37,10 +45,17 @@ export async function search(
   maxTokens: number,
   method: SearchMethod = "fulltext",
   output: OutputFormat = "snippet",
-  tests: boolean = false
+  tests: boolean = false,
+  language?: string
 ) {
   if (method === "vector") {
-    const result = await db.vectorSearch(query, limit, node_types);
+    const result = await db.vectorSearch(
+      query,
+      limit,
+      node_types,
+      0.7,
+      language
+    );
     return toNodes(result, concise, output);
   } else {
     const skip_node_types = tests ? [] : ["Test", "E2etest"];
@@ -49,7 +64,8 @@ export async function search(
       limit,
       node_types,
       skip_node_types as NodeType[],
-      maxTokens
+      maxTokens,
+      language
     );
     return toNodes(result, concise, output);
   }
@@ -145,12 +161,7 @@ export async function get_map(params: MapParams): Promise<string> {
   const tokenizer = await createByModelName("gpt-4");
 
   const tree = await buildTree(record, params.direction, tokenizer);
-  const sortedTreeNodes = [];
-  for (const node of tree.root.nodes) {
-    const sortedNode = alphabetizeNodeLabels(node);
-    sortedTreeNodes.push(sortedNode);
-  }
-  tree.root.nodes = sortedTreeNodes;
+  alphabetizeNodeLabels(tree.root);
 
   const text = archy(tree.root);
   let themap = ``;

@@ -20,16 +20,16 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     graph.analysis();
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
-    if use_lsp {
-        assert_eq!(num_nodes, 76, "Expected 76 nodes");
-        assert_eq!(num_edges, 122, "Expected 122 edges");
-    } else {
-        assert_eq!(num_nodes, 41, "Expected 41 nodes");
-        assert_eq!(num_edges, 67, "Expected 68 edges");
-    }
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
 
     let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go");
+    nodes_count += language_nodes.len();
+
+    let repo = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repo.len();
+    assert_eq!(repo.len(), 1, "Expected 1 repository node");
+
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "go",
@@ -40,7 +40,20 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
+    let libraries = graph.find_nodes_by_type(NodeType::Library);
+    nodes_count += libraries.len();
+    assert_eq!(libraries.len(), 4, "Expected 4 library nodes");
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
+    assert_eq!(files.len(), 6, "Expected at least 6 file nodes");
+
+    let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
+    assert_eq!(directories.len(), 0, "Expected 0 directory nodes");
+
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
     assert_eq!(imports.len(), 3, "Expected 3 imports");
 
     let main_import_body = format!(
@@ -64,6 +77,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
     assert_eq!(classes.len(), 1, "Expected 1 class");
     assert_eq!(
         classes[0].name, "database",
@@ -74,7 +88,12 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Class file path is incorrect"
     );
 
+    let instances = graph.find_nodes_by_type(NodeType::Instance);
+    nodes_count += instances.len();
+    assert_eq!(instances.len(), 1, "Expected 1 instance node");
+
     let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
     assert!(
         functions
             .iter()
@@ -87,6 +106,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     assert_eq!(class_function_edges.len(), 5, "Expected 5 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     assert_eq!(data_models.len(), 5, "Expected 5 data models");
     let person = data_models
         .iter()
@@ -118,6 +138,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    nodes_count += endpoints.len();
     if use_lsp {
         assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
     } else {
@@ -226,6 +247,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handler_edges_count;
     if use_lsp {
         assert_eq!(handler_edges_count, 4, "Expected 4 handler edges with lsp");
     } else {
@@ -236,23 +258,35 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     }
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += function_calls;
     assert_eq!(function_calls, 8, "Expected 8 function calls");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operands;
     assert_eq!(operands, 5, "Expected 5 operands");
 
     let of = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of;
     assert_eq!(of, 1, "Expected 1 of edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains;
     assert_eq!(contains, 50, "Expected 50 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += variables.len();
     assert_eq!(variables.len(), 1, "Expected 1 variables");
 
     let import_edges = graph.count_edges_of_type(EdgeType::Imports);
+    edges_count += import_edges;
     if use_lsp {
         assert_eq!(import_edges, 4, "Expected 4 import edges with lsp");
+    }
+
+    let uses = graph.count_edges_of_type(EdgeType::Uses);
+    edges_count += uses;
+    if use_lsp {
+        assert_eq!(uses, 50, "Expected 50 uses edges with lsp");
     }
 
     let handler_fn = graph
@@ -278,9 +312,6 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Expected handler to call DB method"
     );
 
-    let variables = graph.find_nodes_by_type(NodeType::Var);
-    assert_eq!(variables.len(), 1, "Expected 1 variables");
-
     let db_var = &variables[0];
     assert_eq!(db_var.name, "DB", "Variable name should be 'DB'");
     assert_eq!(
@@ -291,6 +322,19 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         db_var.body.contains("var DB database"),
         "DB variable should have correct declaration"
     );
+
+    let (nodes, edges) = graph.get_graph_size();
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {} nodes got {}",
+        nodes, nodes_count
+    );
+    assert_eq!(
+        edges as usize, edges_count,
+        "Expected {} edges got {}",
+        edges, edges_count
+    );
+
     Ok(())
 }
 

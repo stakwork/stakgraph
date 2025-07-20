@@ -6,6 +6,7 @@ let STATE: {
     stagehand: Stagehand;
     last_used: Date;
     logs: ConsoleLog[];
+    networkEntries: NetworkEntry[];
   };
 } = {};
 
@@ -20,7 +21,20 @@ export interface ConsoleLog {
   };
 }
 
+export interface NetworkEntry {
+  id: string;
+  timestamp: string;
+  type: 'request' | 'response';
+  method: string;
+  url: string;
+  status?: number;
+  duration?: number;
+  resourceType: string;
+  size?: number;
+}
+
 const MAX_LOGS = parseInt(process.env.STAGEHAND_MAX_CONSOLE_LOGS || "1000");
+const MAX_NETWORK_ENTRIES = parseInt(process.env.STAGEHAND_MAX_NETWORK_ENTRIES || "500");
 const MAX_SESSIONS = 25; // LRU limit for stagehand instances
 
 export async function getOrCreateStagehand(sessionIdMaybe?: string) {
@@ -55,6 +69,7 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     stagehand: sh,
     last_used: new Date(),
     logs: [],
+    networkEntries: [],
   };
 
   // Set up console log listener
@@ -65,6 +80,54 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
       text: msg.text(),
       location: msg.location(),
     });
+  });
+
+  // Set up network monitoring listeners
+  const requestStartTimes = new Map<string, number>();
+
+  sh.page.on("request", (request) => {
+    const requestId = `${request.method()}-${request.url()}-${Date.now()}`;
+    requestStartTimes.set(request.url(), Date.now());
+
+    addNetworkEntry(sessionId, {
+      id: requestId,
+      timestamp: new Date().toISOString(),
+      type: 'request',
+      method: request.method(),
+      url: request.url(),
+      resourceType: request.resourceType(),
+    });
+  });
+
+  sh.page.on("response", async (response) => {
+    const requestUrl = response.url();
+    const startTime = requestStartTimes.get(requestUrl);
+    const duration = startTime ? Date.now() - startTime : undefined;
+    const responseId = `${response.request().method()}-${requestUrl}-${Date.now()}`;
+
+    let size: number | undefined;
+    try {
+      const body = await response.body();
+      size = body.length;
+    } catch (error) {
+      // Some responses may not have accessible bodies
+      size = undefined;
+    }
+
+    addNetworkEntry(sessionId, {
+      id: responseId,
+      timestamp: new Date().toISOString(),
+      type: 'response',
+      method: response.request().method(),
+      url: requestUrl,
+      status: response.status(),
+      duration,
+      resourceType: response.request().resourceType(),
+      size,
+    });
+
+    // Clean up timing data
+    requestStartTimes.delete(requestUrl);
   });
 
   // Check if we need to evict old sessions (LRU)
@@ -97,6 +160,27 @@ export function getConsoleLogs(sessionId: string): ConsoleLog[] {
 export function clearConsoleLogs(sessionId: string): void {
   if (STATE[sessionId]) {
     STATE[sessionId].logs = [];
+  }
+}
+
+export function addNetworkEntry(sessionId: string, entry: NetworkEntry): void {
+  if (!STATE[sessionId]) {
+    return;
+  }
+  STATE[sessionId].networkEntries.push(entry);
+  if (STATE[sessionId].networkEntries.length > MAX_NETWORK_ENTRIES) {
+    STATE[sessionId].networkEntries.shift(); // FIFO rotation
+  }
+}
+
+export function getNetworkEntries(sessionId: string): NetworkEntry[] {
+  return [...(STATE[sessionId]?.networkEntries || [])];
+}
+
+// TODO: decide if this is needed, as network entries are captured fresh in each session
+export function clearNetworkEntries(sessionId: string): void {
+  if (STATE[sessionId]) {
+    STATE[sessionId].networkEntries = [];
   }
 }
 

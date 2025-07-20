@@ -18,11 +18,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     graph.analysis();
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 95, "Expected 95 nodes");
-    assert_eq!(num_edges, 140, "Expected 140 edges");
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
+
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "ruby",
@@ -32,6 +33,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         language_nodes[0].file, "src/testing/ruby",
         "Language node file path is incorrect"
     );
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
+    assert_eq!(files.len(), 28, "Expected 28 file nodes");
+
+    let repositories = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repositories.len();
+    assert_eq!(repositories.len(), 1, "Expected 1 repository node");
+
+    let libraries = graph.find_nodes_by_type(NodeType::Library);
+    nodes_count += libraries.len();
+    assert_eq!(libraries.len(), 5, "Expected 5 library nodes");
 
     let pkg_files = graph.find_nodes_by_name(NodeType::File, "Gemfile");
     assert_eq!(pkg_files.len(), 1, "Expected 1 Gemfile");
@@ -53,6 +66,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
     assert_eq!(imports.len(), 10, "Expected 10 import node");
 
     let import_body = imports
@@ -91,6 +105,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 7, "Expected 7 endpoints");
 
     let mut sorted_endpoints = endpoints.clone();
@@ -164,10 +179,16 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Endpoint file path is incorrect"
     );
 
+    let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += variables.len();
+    assert_eq!(variables.len(), 1, "Expected 1 variable nodes");
+
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handler_edges_count;
     assert_eq!(handler_edges_count, 7, "Expected 7 handler edges");
 
     let class_counts = graph.count_edges_of_type(EdgeType::ParentOf);
+    edges_count += class_counts;
     assert_eq!(class_counts, 6, "Expected 6 class edges");
 
     let class_calls =
@@ -176,6 +197,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     assert_eq!(class_calls.len(), 1, "Expected 1 class calls edges");
 
     let import_edges = graph.count_edges_of_type(EdgeType::Imports);
+    edges_count += import_edges;
     assert_eq!(import_edges, 4, "Expected 4 import edges");
 
     let imports_edges =
@@ -207,11 +229,23 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls;
     assert_eq!(calls, 14, "Expected 14 call edges");
     let contains = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains;
     assert_eq!(contains, 93, "Expected 93 contains edges");
 
+    let renders = graph.count_edges_of_type(EdgeType::Renders);
+    edges_count += renders;
+    assert_eq!(renders, 1, "Expected 1 render edges");
+
+    let operands = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operands;
+    assert_eq!(operands, 15, "Expected 15 operand edges");
+
     let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
+    assert_eq!(classes.len(), 13, "Expected 13 class nodes");
     let person_model = classes
         .iter()
         .find(|c| c.name == "Person" && c.file.ends_with("app/models/person.rb"))
@@ -296,6 +330,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
     let get_person_fn = functions
         .iter()
         .find(|f| {
@@ -399,6 +434,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     let people_table = data_models
         .iter()
         .find(|dm| dm.name == "people" && dm.file.ends_with("db/schema.rb"))
@@ -466,6 +502,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
+    nodes_count += pages.len();
     assert_eq!(pages.len(), 1, "Expected 1 page");
     let profile_page = &pages[0];
     assert_eq!(
@@ -482,6 +519,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     );
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
     assert_eq!(directories.len(), 10, "Expected 10 directories");
 
     let app_directory = directories
@@ -500,6 +538,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<(), anyhow::Error> {
     assert!(
         dir_relationship,
         "Expected Contains edge between app and controllers directories"
+    );
+
+    let (nodes, edges) = graph.get_graph_size();
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {} nodes",
+        nodes_count
+    );
+    assert_eq!(
+        edges as usize, edges_count,
+        "Expected {} edges",
+        edges_count
     );
 
     Ok(())

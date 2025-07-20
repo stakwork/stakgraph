@@ -1,10 +1,13 @@
 use crate::types::{
-    AppError, FetchRepoBody, FetchRepoResponse, ProcessBody, ProcessResponse, Result,
+    AppError, AsyncRequestStatus, AsyncStatus, FetchRepoBody, FetchRepoResponse, ProcessBody,
+    ProcessResponse, Result,
 };
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
 use ast::lang::Graph;
 use ast::repo::{clone_repo, Repo};
+use axum::extract::Path;
+use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::{extract::State, Json};
@@ -260,6 +263,120 @@ pub async fn ingest(
     }
 
     Ok(Json(ProcessResponse { nodes, edges }))
+}
+
+#[axum::debug_handler]
+pub async fn ingest_async(
+    State(state): State<Arc<AppState>>,
+    body: Json<ProcessBody>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let status_map = state.async_status.clone();
+
+    {
+        let mut map = status_map.lock().await;
+        map.insert(
+            request_id.clone(),
+            AsyncRequestStatus {
+                status: AsyncStatus::InProgress,
+                result: None,
+            },
+        );
+    }
+
+    let state_clone = state.clone();
+    let body_clone = body.clone();
+    let request_id_clone = request_id.clone();
+
+    //run ingest as a background task
+    tokio::spawn(async move {
+        let result = ingest(State(state_clone), body_clone).await;
+        let mut map = status_map.lock().await;
+
+        match result {
+            Ok(Json(resp)) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Complete,
+                    result: Some(resp),
+                },
+            ),
+            Err(e) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Failed(format!("{:?}", e)),
+                    result: None,
+                },
+            ),
+        }
+    });
+
+    Json(serde_json::json!({ "request_id": request_id }))
+}
+
+#[axum::debug_handler]
+pub async fn sync_async(
+    State(state): State<Arc<AppState>>,
+    body: Json<ProcessBody>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let status_map = state.async_status.clone();
+
+    {
+        let mut map = status_map.lock().await;
+        map.insert(
+            request_id.clone(),
+            AsyncRequestStatus {
+                status: AsyncStatus::InProgress,
+                result: None,
+            },
+        );
+    }
+    let body_clone = body.clone();
+    let request_id_clone = request_id.clone();
+
+    //run /sync as a background task
+    tokio::spawn(async move {
+        let result = process(body_clone).await;
+        let mut map = status_map.lock().await;
+
+        match result {
+            Ok(Json(resp)) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Complete,
+                    result: Some(resp),
+                },
+            ),
+            Err(e) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Failed(format!("{:?}", e)),
+                    result: None,
+                },
+            ),
+        }
+    });
+
+    Json(serde_json::json!({ "request_id": request_id }))
+}
+
+pub async fn get_status(
+    State(state): State<Arc<AppState>>,
+    Path(request_id): Path<String>,
+) -> impl IntoResponse {
+    let status_map = state.async_status.clone();
+    let map = status_map.lock().await;
+
+    if let Some(status) = map.get(&request_id) {
+        Json(status).into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Request ID {} not found", request_id),
+        )
+            .into_response()
+    }
 }
 
 fn env_not_empty(key: &str) -> Option<String> {

@@ -16,18 +16,22 @@ var userBehaviour = (function () {
     audioVideoInteraction: true,
     customEventRegistration: true,
     inputDebounceDelay: 2000,
+    multiClickInterval: 300,
+    filterAssertionClicks: true,
     processData: function (results) {
       console.log(results);
     },
   };
+
   var user_config = {};
   var mem = {
     processInterval: null,
     mouseInterval: null,
-    mousePosition: [], //x,y,timestamp
+    mousePosition: [],
     inputDebounceTimers: {},
     selectionMode: false,
     assertionDebounceTimer: null,
+    assertions: [],
     eventListeners: {
       scroll: null,
       click: null,
@@ -65,11 +69,9 @@ var userBehaviour = (function () {
           ) {
             node = el.localName;
 
-            // Use data-testid if available, otherwise fall back to class/id
             if (el.dataset && el.dataset.testid) {
               node += `[data-testid="${el.dataset.testid}"]`;
             } else {
-              // Only add classes and IDs if no data-testid
               if (el.className !== "") {
                 el.classList.forEach((clE) => {
                   if (clE !== "staktrak-selection-active") {
@@ -208,90 +210,49 @@ var userBehaviour = (function () {
           }
         }
       },
-      documentFocus: (e) => {
-        if (isInputOrTextarea(e.target)) {
-          mem.eventsFunctions.focusChange(e);
-        }
-      },
-      documentBlur: (e) => {
-        if (isInputOrTextarea(e.target)) {
-          mem.eventsFunctions.focusChange(e);
-        }
-      },
-      documentInput: (e) => {
-        if (isInputOrTextarea(e.target)) {
-          mem.eventsFunctions.inputChange(e);
-        }
-      },
-      pageNavigation: () => {
-        results.navigationHistory.push([location.href, getTimeStamp()]);
-      },
-      formInteraction: (e) => {
-        e.preventDefault(); // Prevent the form from submitting normally
-        results.formInteractions.push([e.target.name, getTimeStamp()]);
-        // Optionally, submit the form programmatically after tracking
-      },
       touchStart: (e) => {
-        results.touchEvents.push([
-          "touchstart",
-          e.touches[0].clientX,
-          e.touches[0].clientY,
-          getTimeStamp(),
-        ]);
-      },
-      mediaInteraction: (e) => {
-        results.mediaInteractions.push([
-          "play",
-          e.target.currentSrc,
-          getTimeStamp(),
-        ]);
+        if (e.touches && e.touches.length > 0) {
+          const touch = e.touches[0];
+          results.touchEvents.push({
+            type: "touchstart",
+            x: touch.clientX,
+            y: touch.clientY,
+            timestamp: getTimeStamp(),
+          });
+        }
       },
       mouseUp: (e) => {
-        if (!mem.selectionMode) return;
+        if (mem.selectionMode) {
+          const selection = window.getSelection();
+          if (selection && selection.toString().trim() !== "") {
+            const text = selection.toString();
 
-        const selection = window.getSelection();
-        if (selection && selection.toString().trim() !== "") {
-          const selectedText = selection.toString().trim();
-          let selectedElement = null;
+            let container = selection.getRangeAt(0).commonAncestorContainer;
 
-          if (selection.rangeCount > 0) {
-            const range = selection.getRangeAt(0);
-            selectedElement = range.commonAncestorContainer;
-
-            if (selectedElement.nodeType === 3) {
-              selectedElement = selectedElement.parentElement;
+            if (container.nodeType === 3) {
+              container = container.parentNode;
             }
-          }
 
-          const selector = selectedElement
-            ? getElementSelector(selectedElement)
-            : "";
+            const selector = getElementSelector(container);
 
-          if (mem.assertionDebounceTimer) {
-            clearTimeout(mem.assertionDebounceTimer);
-          }
+            if (mem.assertionDebounceTimer) {
+              clearTimeout(mem.assertionDebounceTimer);
+            }
 
-          mem.assertionDebounceTimer = setTimeout(() => {
-            results.assertions = results.assertions || [];
-
-            const hasSimilarAssertion = results.assertions.some(
-              (assertion) =>
-                assertion.selector === selector &&
-                Math.abs(assertion.timestamp - getTimeStamp()) < 1000
-            );
-
-            if (!hasSimilarAssertion) {
-              results.assertions.push({
+            mem.assertionDebounceTimer = setTimeout(() => {
+              const assertion = {
                 type: "hasText",
                 selector: selector,
-                value: selectedText,
+                value: text,
                 timestamp: getTimeStamp(),
-              });
+              };
+
+              mem.assertions.push(assertion);
 
               window.parent.postMessage(
                 {
                   type: "staktrak-selection",
-                  text: selectedText,
+                  text: text,
                   selector: selector,
                 },
                 "*"
@@ -299,65 +260,200 @@ var userBehaviour = (function () {
 
               window.parent.postMessage(
                 {
-                  type: "staktrak-show-popup",
-                  text: selectedText,
-                  selector: selector,
+                  type: "staktrak-popup",
+                  message: `Assertion added: hasText "${text.slice(0, 30)}${
+                    text.length > 30 ? "..." : ""
+                  }"`,
+                  type: "success",
                 },
                 "*"
               );
-            }
-
-            setTimeout(() => {
-              if (window.getSelection) {
-                if (window.getSelection().empty) {
-                  window.getSelection().empty();
-                } else if (window.getSelection().removeAllRanges) {
-                  window.getSelection().removeAllRanges();
-                }
-              }
-            }, 500);
-
-            mem.assertionDebounceTimer = null;
-          }, 500);
-        }
-      },
-      keyDown: (e) => {
-        if (mem.selectionMode && e.key === "Escape") {
-          setSelectionMode(false);
-          window.parent.postMessage(
-            { type: "staktrak-selection-mode-ended" },
-            "*"
-          );
+            }, 300);
+          }
         }
       },
     },
   };
+
   var results = {};
+
+  // All processing logic stays in the iframe
+  function processRecordedResults() {
+    if (
+      results.clicks &&
+      results.clicks.clickDetails &&
+      results.clicks.clickDetails.length > 0
+    ) {
+      const filteredClicks = filterClickDetails(
+        results.clicks.clickDetails,
+        mem.assertions
+      );
+
+      results.clicks.clickDetails = filteredClicks;
+    }
+
+    results.assertions = mem.assertions;
+
+    return results;
+  }
+
+  /**
+   * Filter and process click details to remove duplicates and assertion-related clicks
+   * @param {Array} clickDetails - Raw click data
+   * @param {Array} assertions - User assertions
+   * @returns {Array} - Filtered click data
+   */
+  function filterClickDetails(clickDetails, assertions) {
+    if (!clickDetails || !clickDetails.length) return [];
+
+    let filteredClicks = clickDetails;
+
+    // Filter out clicks that are related to assertions
+    if (user_config.filterAssertionClicks && assertions.length > 0) {
+      filteredClicks = filteredClicks.filter((clickDetail) => {
+        const clickSelector = clickDetail[2];
+        const clickTime = clickDetail[3];
+
+        return !assertions.some((assertion) => {
+          const assertionTime = assertion.timestamp;
+          const assertionSelector = assertion.selector;
+
+          const isCloseInTime = Math.abs(clickTime - assertionTime) < 1000;
+          const isSameElement =
+            clickSelector.includes(assertionSelector) ||
+            assertionSelector.includes(clickSelector) ||
+            (clickSelector.match(/\w+(?=[.#\[]|$)/) &&
+              assertionSelector.match(/\w+(?=[.#\[]|$)/) &&
+              clickSelector.match(/\w+(?=[.#\[]|$)/)[0] ===
+                assertionSelector.match(/\w+(?=[.#\[]|$)/)[0]);
+
+          return isCloseInTime && isSameElement;
+        });
+      });
+    }
+
+    // Group clicks by selector and remove rapid multi-clicks
+    const clicksBySelector = {};
+    filteredClicks.forEach((clickDetail) => {
+      const selector = clickDetail[2];
+      const timestamp = clickDetail[3];
+
+      if (!clicksBySelector[selector]) {
+        clicksBySelector[selector] = [];
+      }
+      clicksBySelector[selector].push({
+        detail: clickDetail,
+        timestamp,
+      });
+    });
+
+    const finalFilteredClicks = [];
+    Object.values(clicksBySelector).forEach((clicks) => {
+      clicks.sort((a, b) => a.timestamp - b.timestamp);
+
+      const resultClicks = [];
+      let lastClick = null;
+
+      clicks.forEach((click) => {
+        if (
+          !lastClick ||
+          click.timestamp - lastClick.timestamp > user_config.multiClickInterval
+        ) {
+          resultClicks.push(click);
+        }
+        lastClick = click;
+      });
+
+      resultClicks.forEach((click) => finalFilteredClicks.push(click.detail));
+    });
+
+    finalFilteredClicks.sort((a, b) => a[3] - b[3]);
+
+    return finalFilteredClicks;
+  }
+
+  function setupMutationObserver() {
+    const observerCallback = (mutationsList) => {
+      for (const mutation of mutationsList) {
+        if (mutation.type === "childList") {
+          mutation.addedNodes.forEach((node) => {
+            if (node.nodeType === 1) {
+              if (
+                node.tagName === "INPUT" ||
+                node.tagName === "SELECT" ||
+                node.tagName === "TEXTAREA"
+              ) {
+                attachFormElementListeners(node);
+              }
+
+              const formElements = node.querySelectorAll(
+                "input, select, textarea"
+              );
+              formElements.forEach((formElement) => {
+                attachFormElementListeners(formElement);
+              });
+            }
+          });
+        }
+      }
+    };
+
+    mem.mutationObserver = new MutationObserver(observerCallback);
+
+    mem.mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  function attachFormElementListeners(element) {
+    if (
+      element.tagName === "INPUT" &&
+      (element.type === "checkbox" || element.type === "radio")
+    ) {
+      element.addEventListener("change", mem.eventsFunctions.formElementChange);
+    } else if (element.tagName === "SELECT") {
+      element.addEventListener("change", mem.eventsFunctions.formElementChange);
+    } else if (element.tagName === "INPUT" || element.tagName === "TEXTAREA") {
+      element.addEventListener("input", mem.eventsFunctions.inputChange);
+      element.addEventListener("focus", mem.eventsFunctions.focusChange);
+      element.addEventListener("blur", mem.eventsFunctions.focusChange);
+    }
+  }
 
   function setSelectionMode(isActive) {
     mem.selectionMode = isActive;
+
     if (isActive) {
       document.body.classList.add("staktrak-selection-active");
+      document.addEventListener("mouseup", mem.eventsFunctions.mouseUp);
     } else {
       document.body.classList.remove("staktrak-selection-active");
-      if (mem.assertionDebounceTimer) {
-        clearTimeout(mem.assertionDebounceTimer);
-        mem.assertionDebounceTimer = null;
-      }
+      document.removeEventListener("mouseup", mem.eventsFunctions.mouseUp);
+      window.getSelection().removeAllRanges();
     }
+
+    window.parent.postMessage(
+      {
+        type: "staktrak-selection-mode-" + (isActive ? "started" : "ended"),
+      },
+      "*"
+    );
   }
 
   function isInputOrTextarea(element) {
     return (
-      element &&
-      (element.tagName === "INPUT" ||
-        element.tagName === "TEXTAREA" ||
-        element.tagName.toLowerCase() === "input" ||
-        element.tagName.toLowerCase() === "textarea")
+      element.tagName === "INPUT" ||
+      element.tagName === "TEXTAREA" ||
+      element.isContentEditable
     );
   }
 
   function getElementSelector(element) {
+    if (!element || element.nodeType !== 1) return "";
+
+    let selector = "";
+
     if (element.dataset && element.dataset.testid) {
       return `[data-testid="${element.dataset.testid}"]`;
     }
@@ -366,463 +462,345 @@ var userBehaviour = (function () {
       return `#${element.id}`;
     }
 
-    let selector = element.tagName.toLowerCase();
+    selector = element.tagName.toLowerCase();
 
     if (element.className) {
-      const classes = Array.from(element.classList)
-        .filter((cls) => cls !== "staktrak-selection-active")
-        .join(".");
-      if (classes) {
-        selector += `.${classes}`;
+      const classNames = Array.from(element.classList).filter(
+        (cls) => cls !== "staktrak-selection-active"
+      );
+
+      if (classNames.length > 0) {
+        selector += `.${classNames.join(".")}`;
       }
     }
 
-    if (selector !== element.tagName.toLowerCase()) {
-      return selector;
+    if (element.tagName === "INPUT" && element.type) {
+      selector += `[type="${element.type}"]`;
     }
 
-    let path = "";
-    let currentElement = element;
-    const maxDepth = 3;
-    let depth = 0;
-
-    while (
-      currentElement &&
-      currentElement !== document.body &&
-      depth < maxDepth
-    ) {
-      let elementSelector = currentElement.tagName.toLowerCase();
-
-      if (currentElement.id) {
-        elementSelector = `#${currentElement.id}`;
-      } else if (currentElement.className) {
-        const classes = Array.from(currentElement.classList)
-          .filter((cls) => cls !== "staktrak-selection-active")
-          .join(".");
-        if (classes) {
-          elementSelector += `.${classes}`;
-        }
-      } else if (currentElement.parentElement) {
-        const siblings = Array.from(
-          currentElement.parentElement.children
-        ).filter((el) => el.tagName === currentElement.tagName);
-
-        if (siblings.length > 1) {
-          const index = siblings.indexOf(currentElement) + 1;
-          elementSelector += `:nth-child(${index})`;
-        }
-      }
-
-      path = path ? `${elementSelector} > ${path}` : elementSelector;
-      currentElement = currentElement.parentElement;
-      depth++;
-    }
-
-    return path || selector;
+    return selector;
   }
 
   function resetResults() {
+    mem.assertions = [];
+
     results = {
-      userInfo: {
-        windowSize: [window.innerWidth, window.innerHeight],
-        appCodeName: navigator.appCodeName || "",
-        appName: navigator.appName || "",
-        vendor: navigator.vendor || "",
-        platform: navigator.platform || "",
-        userAgent: navigator.userAgent || "",
-      },
-      time: {
-        startTime: 0,
-        currentTime: 0,
-        stopTime: 0,
-      },
+      userInfo: user_config.userInfo
+        ? {
+            url: document.URL,
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            windowSize: [window.innerWidth, window.innerHeight],
+          }
+        : {},
+      pageNavigation: [],
       clicks: {
         clickCount: 0,
         clickDetails: [],
       },
-      mouseMovements: [],
-      mouseScroll: [],
       keyboardActivities: [],
+      mouseMovement: [],
+      mouseScroll: [],
       inputChanges: [],
       focusChanges: [],
-      navigationHistory: [],
-      formInteractions: [],
+      visibilitychanges: [],
+      windowSizes: [],
       formElementChanges: [],
       touchEvents: [],
-      mediaInteractions: [],
-      windowSizes: [],
-      visibilitychanges: [],
+      audioVideoInteractions: [],
       assertions: [],
     };
+
+    if (user_config.timeCount) {
+      results.time = {
+        startedAt: getTimeStamp(),
+        completedAt: 0,
+        totalSeconds: 0,
+      };
+    }
   }
-  resetResults();
 
   function getTimeStamp() {
-    return Date.now();
+    return new Date().getTime();
   }
 
   function config(ob) {
-    user_config = {};
-    Object.keys(defaults).forEach((i) => {
-      i in ob ? (user_config[i] = ob[i]) : (user_config[i] = defaults[i]);
-    });
-  }
-
-  function setupMutationObserver() {
-    const observerCallback = (mutationsList) => {
-      for (const mutation of mutationsList) {
-        if (mutation.type === "childList") {
-          mutation.addedNodes.forEach((node) => {
-            if (user_config.formInteractions) {
-              if (node.nodeName === "FORM") {
-                node.addEventListener(
-                  "submit",
-                  mem.eventsFunctions.formInteraction
-                );
-              } else if (node.querySelectorAll) {
-                const forms = node.querySelectorAll("form");
-                forms.forEach((form) => {
-                  form.addEventListener(
-                    "submit",
-                    mem.eventsFunctions.formInteraction
-                  );
-                });
-              }
-            }
-
-            if (user_config.audioVideoInteraction) {
-              if (node.nodeName === "VIDEO" || node.nodeName === "AUDIO") {
-                node.addEventListener(
-                  "play",
-                  mem.eventsFunctions.mediaInteraction
-                );
-              } else if (node.querySelectorAll) {
-                const media = node.querySelectorAll("video, audio");
-                media.forEach((mediaElement) => {
-                  mediaElement.addEventListener(
-                    "play",
-                    mem.eventsFunctions.mediaInteraction
-                  );
-                });
-              }
-            }
-
-            if (
-              node.nodeName === "SELECT" ||
-              (node.nodeName === "INPUT" &&
-                (node.type === "checkbox" || node.type === "radio"))
-            ) {
-              node.addEventListener(
-                "change",
-                mem.eventsFunctions.formElementChange
-              );
-            } else if (node.querySelectorAll) {
-              const formElements = node.querySelectorAll(
-                'select, input[type="checkbox"], input[type="radio"]'
-              );
-              formElements.forEach((element) => {
-                element.addEventListener(
-                  "change",
-                  mem.eventsFunctions.formElementChange
-                );
-              });
-            }
-          });
-        }
-      }
-    };
-
-    const observer = new MutationObserver(observerCallback);
-    observer.observe(document.body, { childList: true, subtree: true });
-
-    return observer;
+    user_config = { ...defaults, ...ob };
+    return userBehaviour;
   }
 
   function start() {
-    if (Object.keys(user_config).length !== Object.keys(defaults).length) {
-      console.log("no config provided. using default..");
-      user_config = defaults;
-    }
-    // TIME SET
-    if (user_config.timeCount !== undefined && user_config.timeCount) {
-      results.time.startTime = getTimeStamp();
-    }
-    // MOUSE MOVEMENTS
-    if (user_config.mouseMovement) {
-      mem.eventListeners.mouseMovement = window.addEventListener(
-        "mousemove",
-        mem.eventsFunctions.mouseMovement
-      );
-      mem.mouseInterval = setInterval(() => {
-        if (mem.mousePosition && mem.mousePosition.length) {
-          if (
-            !results.mouseMovements.length ||
-            (mem.mousePosition[0] !==
-              results.mouseMovements[results.mouseMovements.length - 1][0] &&
-              mem.mousePosition[1] !==
-                results.mouseMovements[results.mouseMovements.length - 1][1])
-          ) {
-            results.mouseMovements.push(mem.mousePosition);
-          }
-        }
-      }, defaults.mouseMovementInterval * 1000);
-    }
-    //CLICKS
+    resetResults();
+
     if (user_config.clicks) {
-      mem.eventListeners.click = window.addEventListener(
-        "click",
-        mem.eventsFunctions.click
-      );
+      mem.eventListeners.click = mem.eventsFunctions.click;
+      document.addEventListener("click", mem.eventListeners.click);
     }
-    //SCROLL
+
     if (user_config.mouseScroll) {
-      mem.eventListeners.scroll = window.addEventListener(
-        "scroll",
-        mem.eventsFunctions.scroll
-      );
+      mem.eventListeners.scroll = mem.eventsFunctions.scroll;
+      window.addEventListener("scroll", mem.eventListeners.scroll);
     }
-    //Window sizes
-    if (user_config.windowResize !== false) {
-      mem.eventListeners.windowResize = window.addEventListener(
-        "resize",
-        mem.eventsFunctions.windowResize
-      );
+
+    if (user_config.mouseMovement) {
+      mem.eventListeners.mouseMovement = mem.eventsFunctions.mouseMovement;
+      document.addEventListener("mousemove", mem.eventListeners.mouseMovement);
+      mem.mouseInterval = setInterval(function () {
+        if (
+          mem.mousePosition.length > 0 &&
+          mem.mousePosition[2] + 500 > getTimeStamp()
+        ) {
+          results.mouseMovement.push(mem.mousePosition);
+        }
+      }, user_config.mouseMovementInterval * 1000);
     }
-    //Before unload / visibilitychange
-    if (user_config.visibilitychange !== false) {
-      mem.eventListeners.visibilitychange = window.addEventListener(
+
+    if (user_config.windowResize) {
+      mem.eventListeners.windowResize = mem.eventsFunctions.windowResize;
+      window.addEventListener("resize", mem.eventListeners.windowResize);
+    }
+
+    if (user_config.visibilitychange) {
+      mem.eventListeners.visibilitychange =
+        mem.eventsFunctions.visibilitychange;
+      document.addEventListener(
         "visibilitychange",
-        mem.eventsFunctions.visibilitychange
+        mem.eventListeners.visibilitychange
       );
     }
-    //Keyboard Activity
+
     if (user_config.keyboardActivity) {
-      mem.eventListeners.keyboardActivity = window.addEventListener(
-        "keydown",
-        mem.eventsFunctions.keyboardActivity
-      );
-
+      mem.eventListeners.keyboardActivity =
+        mem.eventsFunctions.keyboardActivity;
       document.addEventListener(
-        "focus",
-        mem.eventsFunctions.documentFocus,
-        true
-      );
-      document.addEventListener("blur", mem.eventsFunctions.documentBlur, true);
-      document.addEventListener(
-        "input",
-        mem.eventsFunctions.documentInput,
-        true
-      );
-
-      mem.eventListeners.documentFocus = true;
-      mem.eventListeners.documentBlur = true;
-      mem.eventListeners.documentInput = true;
-    }
-    //Page Navigation
-    if (user_config.pageNavigation) {
-      window.history.pushState = ((f) =>
-        function pushState() {
-          var ret = f.apply(this, arguments);
-          window.dispatchEvent(new Event("pushstate"));
-          window.dispatchEvent(new Event("locationchange"));
-          return ret;
-        })(window.history.pushState);
-
-      window.addEventListener("popstate", mem.eventsFunctions.pageNavigation);
-      window.addEventListener("pushstate", mem.eventsFunctions.pageNavigation);
-      window.addEventListener(
-        "locationchange",
-        mem.eventsFunctions.pageNavigation
+        "keypress",
+        mem.eventListeners.keyboardActivity
       );
     }
-    //Form Interactions
+
     if (user_config.formInteractions) {
-      document
-        .querySelectorAll("form")
-        .forEach((form) =>
-          form.addEventListener("submit", mem.eventsFunctions.formInteraction)
-        );
+      const formElements = document.querySelectorAll("input, select, textarea");
+      formElements.forEach((element) => {
+        attachFormElementListeners(element);
+      });
 
-      document
-        .querySelectorAll('select, input[type="checkbox"], input[type="radio"]')
-        .forEach((element) => {
-          element.addEventListener(
-            "change",
-            mem.eventsFunctions.formElementChange
-          );
-        });
-
-      mem.eventListeners.formElementChange = true;
+      setupMutationObserver();
     }
-    //Touch Events
+
     if (user_config.touchEvents) {
-      mem.eventListeners.touchStart = window.addEventListener(
-        "touchstart",
-        mem.eventsFunctions.touchStart
-      );
+      mem.eventListeners.touchStart = mem.eventsFunctions.touchStart;
+      document.addEventListener("touchstart", mem.eventListeners.touchStart);
     }
-    //Audio & Video Interaction
-    if (user_config.audioVideoInteraction) {
-      document.querySelectorAll("video").forEach((video) => {
-        video.addEventListener("play", mem.eventsFunctions.mediaInteraction);
-        // Add other media events as needed
+
+    if (user_config.pageNavigation) {
+      const pushState = history.pushState;
+      history.pushState = function () {
+        pushState.apply(history, arguments);
+        results.pageNavigation.push({
+          type: "pushState",
+          url: document.URL,
+          timestamp: getTimeStamp(),
+        });
+      };
+
+      const replaceState = history.replaceState;
+      history.replaceState = function () {
+        replaceState.apply(history, arguments);
+        results.pageNavigation.push({
+          type: "replaceState",
+          url: document.URL,
+          timestamp: getTimeStamp(),
+        });
+      };
+
+      window.addEventListener("popstate", function () {
+        results.pageNavigation.push({
+          type: "popstate",
+          url: document.URL,
+          timestamp: getTimeStamp(),
+        });
       });
     }
 
-    document.addEventListener("mouseup", mem.eventsFunctions.mouseUp);
-    document.addEventListener("keydown", mem.eventsFunctions.keyDown);
-    mem.eventListeners.mouseUp = true;
-    mem.eventListeners.keyDown = true;
+    window.parent.postMessage({ type: "staktrak-setup" }, "*");
 
-    mem.mutationObserver = setupMutationObserver();
+    // Handle messages from parent
+    window.addEventListener("message", function (event) {
+      if (event.data && event.data.type) {
+        switch (event.data.type) {
+          case "staktrak-start":
+            resetResults();
+            break;
+
+          case "staktrak-stop":
+            userBehaviour.stop();
+            break;
+
+          case "staktrak-enable-selection":
+            setSelectionMode(true);
+            break;
+
+          case "staktrak-disable-selection":
+            setSelectionMode(false);
+            break;
+
+          case "staktrak-add-assertion":
+            if (event.data.assertion) {
+              mem.assertions.push({
+                type: event.data.assertion.type || "hasText",
+                selector: event.data.assertion.selector,
+                value: event.data.assertion.value || "",
+                timestamp: getTimeStamp(),
+              });
+            }
+            break;
+        }
+      }
+    });
+
+    return userBehaviour;
   }
 
   function processResults() {
-    for (const elementId in mem.inputDebounceTimers) {
-      clearTimeout(mem.inputDebounceTimers[elementId]);
-      delete mem.inputDebounceTimers[elementId];
+    if (user_config.timeCount) {
+      results.time.completedAt = getTimeStamp();
+      results.time.totalSeconds =
+        (results.time.completedAt - results.time.startedAt) / 1000;
     }
 
-    user_config.processData(result());
+    // Process all data in the iframe before sending to parent
+    const processedResults = processRecordedResults();
+
+    window.parent.postMessage(
+      {
+        type: "staktrak-results",
+        data: processedResults,
+      },
+      "*"
+    );
+
+    user_config.processData(processedResults);
+
     if (user_config.clearAfterProcess) {
       resetResults();
     }
   }
 
   function stop() {
-    clearInterval(mem.mouseInterval);
-    window.removeEventListener("scroll", mem.eventsFunctions.scroll);
-    window.removeEventListener("click", mem.eventsFunctions.click);
-    window.removeEventListener("mousemove", mem.eventsFunctions.mouseMovement);
-    window.removeEventListener("resize", mem.eventsFunctions.windowResize);
-    window.removeEventListener(
-      "visibilitychange",
-      mem.eventsFunctions.visibilitychange
-    );
-    window.removeEventListener("keydown", mem.eventsFunctions.keyboardActivity);
+    if (user_config.clicks) {
+      document.removeEventListener("click", mem.eventListeners.click);
+    }
 
-    document.removeEventListener(
-      "focus",
-      mem.eventsFunctions.documentFocus,
-      true
-    );
-    document.removeEventListener(
-      "blur",
-      mem.eventsFunctions.documentBlur,
-      true
-    );
-    document.removeEventListener(
-      "input",
-      mem.eventsFunctions.documentInput,
-      true
-    );
+    if (user_config.mouseScroll) {
+      window.removeEventListener("scroll", mem.eventListeners.scroll);
+    }
 
-    window.removeEventListener("touchstart", mem.eventsFunctions.touchStart);
+    if (user_config.mouseMovement) {
+      document.removeEventListener(
+        "mousemove",
+        mem.eventListeners.mouseMovement
+      );
+      clearInterval(mem.mouseInterval);
+    }
 
-    document.removeEventListener("mouseup", mem.eventsFunctions.mouseUp);
-    document.removeEventListener("keydown", mem.eventsFunctions.keyDown);
+    if (user_config.windowResize) {
+      window.removeEventListener("resize", mem.eventListeners.windowResize);
+    }
 
-    if (mem.eventListeners.formElementChange) {
-      document
-        .querySelectorAll('select, input[type="checkbox"], input[type="radio"]')
-        .forEach((element) => {
+    if (user_config.visibilitychange) {
+      document.removeEventListener(
+        "visibilitychange",
+        mem.eventListeners.visibilitychange
+      );
+    }
+
+    if (user_config.keyboardActivity) {
+      document.removeEventListener(
+        "keypress",
+        mem.eventListeners.keyboardActivity
+      );
+    }
+
+    if (user_config.formInteractions) {
+      const formElements = document.querySelectorAll("input, select, textarea");
+      formElements.forEach((element) => {
+        if (
+          element.tagName === "INPUT" &&
+          (element.type === "checkbox" || element.type === "radio")
+        ) {
           element.removeEventListener(
             "change",
             mem.eventsFunctions.formElementChange
           );
-        });
+        } else if (element.tagName === "SELECT") {
+          element.removeEventListener(
+            "change",
+            mem.eventsFunctions.formElementChange
+          );
+        } else if (
+          element.tagName === "INPUT" ||
+          element.tagName === "TEXTAREA"
+        ) {
+          element.removeEventListener("input", mem.eventsFunctions.inputChange);
+          element.removeEventListener("focus", mem.eventsFunctions.focusChange);
+          element.removeEventListener("blur", mem.eventsFunctions.focusChange);
+        }
+      });
+
+      if (mem.mutationObserver) {
+        mem.mutationObserver.disconnect();
+      }
     }
 
-    if (mem.mutationObserver) {
-      mem.mutationObserver.disconnect();
-      mem.mutationObserver = null;
+    if (user_config.touchEvents) {
+      document.removeEventListener("touchstart", mem.eventListeners.touchStart);
     }
 
-    if (mem.assertionDebounceTimer) {
-      clearTimeout(mem.assertionDebounceTimer);
-      mem.assertionDebounceTimer = null;
+    if (mem.selectionMode) {
+      setSelectionMode(false);
     }
 
     for (const elementId in mem.inputDebounceTimers) {
       clearTimeout(mem.inputDebounceTimers[elementId]);
-      delete mem.inputDebounceTimers[elementId];
     }
+    mem.inputDebounceTimers = {};
 
-    setSelectionMode(false);
-
-    results.time.stopTime = getTimeStamp();
     processResults();
+    return userBehaviour;
   }
 
   function result() {
-    if (
-      user_config.userInfo === false &&
-      userBehaviour.showResult().userInfo !== undefined
-    ) {
-      delete userBehaviour.showResult().userInfo;
-    }
-    if (user_config.timeCount !== undefined && user_config.timeCount) {
-      results.time.currentTime = getTimeStamp();
-    }
     return results;
   }
 
   function showConfig() {
-    if (Object.keys(user_config).length !== Object.keys(defaults).length) {
-      return defaults;
-    } else {
-      return user_config;
-    }
+    return user_config;
   }
 
   return {
-    showConfig: showConfig,
-    config: config,
-    start: start,
-    stop: stop,
-    showResult: result,
-    processResults: processResults,
-    registerCustomEvent: (eventName, callback) => {
-      window.addEventListener(eventName, callback);
-    },
-    enableSelectionMode: () => {
-      setSelectionMode(true);
-    },
-    disableSelectionMode: () => {
-      setSelectionMode(false);
+    config,
+    start,
+    stop,
+    result,
+    showConfig,
+    addAssertion: function (type, selector, value) {
+      mem.assertions.push({
+        type: type || "hasText",
+        selector: selector,
+        value: value || "",
+        timestamp: getTimeStamp(),
+      });
     },
   };
 })();
 
-window.addEventListener("DOMContentLoaded", () => {
-  setTimeout(() => {
-    window.parent.postMessage({ type: "staktrak-setup", status: "ready" }, "*");
-  }, 500);
-});
-
-window.addEventListener("message", (event) => {
-  if (event.data && event.data.type) {
-    switch (event.data.type) {
-      case "staktrak-start":
-        userBehaviour.start();
-        break;
-      case "staktrak-stop":
-        const results = userBehaviour.showResult();
-        window.parent.postMessage(
-          {
-            type: "staktrak-results",
-            data: results,
-          },
-          "*"
-        );
-        userBehaviour.stop();
-        break;
-      case "staktrak-enable-selection":
-        userBehaviour.enableSelectionMode();
-        break;
-      case "staktrak-disable-selection":
-        userBehaviour.disableSelectionMode();
-        break;
-    }
-  }
+// Initialize when DOM is ready
+document.addEventListener("DOMContentLoaded", function () {
+  userBehaviour
+    .config({
+      processData: function (results) {
+        console.log("StakTrak recording processed:", results);
+      },
+    })
+    .start();
 });

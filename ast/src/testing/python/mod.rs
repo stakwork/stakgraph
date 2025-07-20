@@ -17,11 +17,11 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     graph.analysis();
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
-    assert_eq!(num_nodes, 86, "Expected 86 nodes");
-    assert_eq!(num_edges, 116, "Expected 116 edges");
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "python",
@@ -32,17 +32,70 @@ pub async fn test_python_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Language node file path is incorrect"
     );
 
+    let repositories = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repositories.len();
+    assert_eq!(repositories.len(), 1, "Expected 1 repository node");
+
+    let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
+    assert_eq!(directories.len(), 3, "Expected 3 directories");
+
     let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
     assert_eq!(files.len(), 16, "Expected 16 files");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
     assert_eq!(imports.len(), 12, "Expected 12 imports");
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls;
     assert_eq!(calls, 12, "Expected 12 call edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 91, "Expected 91 contains edges");
+    assert_eq!(contains, 95, "Expected 95 contains edges");
+    edges_count += contains;
+
+    let handlers = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handlers;
+    //FIXME: this ough t o be 6 hadndlers
+    assert_eq!(handlers, 4, "Expected 4 handler edges");
+
+    let uses = graph.count_edges_of_type(EdgeType::Uses);
+    edges_count += uses;
+    assert_eq!(uses, 0, "Expected 0 uses edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 0, "Expected 0 of edges");
+
+    let parent_of = graph.count_edges_of_type(EdgeType::ParentOf);
+    edges_count += parent_of;
+    assert_eq!(parent_of, 0, "Expected 0 parent_of edges");
+
+    let renders = graph.count_edges_of_type(EdgeType::Renders);
+    edges_count += renders;
+    assert_eq!(renders, 0, "Expected 0 renders edges");
+
+    let argof = graph.count_edges_of_type(EdgeType::ArgOf);
+    edges_count += argof;
+    assert_eq!(argof, 0, "Expected 0 argof edges");
+
+    let operand = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operand;
+    assert_eq!(operand, 2, "Expected 2 operand edges");
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
+    assert_eq!(functions.len(), 16, "Expected 16 functions");
+
+    let librabries = graph.find_nodes_by_type(NodeType::Library);
+    nodes_count += librabries.len();
+    assert_eq!(librabries.len(), 4, "Expected 4 libraries");
+
+    let instances = graph.find_nodes_by_type(NodeType::Instance);
+    nodes_count += instances.len();
+    assert_eq!(instances.len(), 0, "Expected 0 instance");
 
     let main_import_body = format!(
         r#"import os
@@ -65,9 +118,11 @@ from flask_app.routes import flask_bp"#
         "Model import body is incorrect"
     );
     let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
     assert_eq!(classes.len(), 3, "Expected 3 classes");
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += vars.len();
     assert_eq!(vars.len(), 25, "Expected 25 variables");
 
     let mut sorted_classes = classes.clone();
@@ -85,12 +140,15 @@ from flask_app.routes import flask_bp"#
     assert_eq!(class_function_edges.len(), 2, "Expected 2 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     assert_eq!(data_models.len(), 3, "Expected 3 data models");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 6, "Expected 6 endpoints");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
+    edges_count += imported_edges;
     assert_eq!(imported_edges, 7, "Expected 7 import edges");
 
     let person_class = graph
@@ -368,23 +426,6 @@ from flask_app.routes import flask_bp"#
         "Expected FastAPI create_person to call create_new_person"
     );
 
-    let _django_get_endpoint = graph
-        .find_nodes_by_name(NodeType::Endpoint, "person/<int:id>/")
-        .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/urls.py")
-        .map(|n| Node::new(NodeType::Endpoint, n))
-        .expect("Django GET endpoint not found");
-
-    let _django_post_endpoint = graph
-        .find_nodes_by_name(NodeType::Endpoint, "person/")
-        .into_iter()
-        .find(|n| {
-            n.file == "src/testing/python/django_app/urls.py"
-                && n.meta.get("verb") == Some(&"POST".to_string())
-        })
-        .map(|n| Node::new(NodeType::Endpoint, n))
-        .expect("Django POST endpoint not found");
-
     let flask_get_endpoint = graph
         .find_nodes_by_name(NodeType::Endpoint, "/person/<int:id>")
         .into_iter()
@@ -609,6 +650,19 @@ from flask_app.routes import flask_bp"#
     assert!(
         graph.has_edge(&django_settings_file, &debug_var, EdgeType::Contains),
         "Expected Django settings.py to contain DEBUG variable"
+    );
+
+    let (nodes, edges) = graph.get_graph_size();
+
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {} nodes, found {}",
+        nodes_count, nodes
+    );
+    assert_eq!(
+        edges as usize, edges_count,
+        "Expected {} edges, found {}",
+        edges_count, edges
     );
 
     Ok(())

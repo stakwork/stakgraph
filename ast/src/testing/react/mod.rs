@@ -18,20 +18,15 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
 
     graph.analysis();
 
-    let (num_nodes, num_edges) = graph.get_graph_size();
-    if use_lsp == true {
-        assert_eq!(num_nodes, 76, "Expected 76 nodes");
-        assert_eq!(num_edges, 102, "Expected 102 edges");
-    } else {
-        assert_eq!(num_nodes, 70, "Expected 70 nodes");
-        assert_eq!(num_edges, 88, "Expected 88 edges");
-    }
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
 
     fn normalize_path(path: &str) -> String {
         path.replace("\\", "/")
     }
 
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
         language_nodes[0].name, "react",
@@ -42,6 +37,14 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
         "src/testing/react",
         "Language node file path is incorrect"
     );
+
+    let repository = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repository.len();
+    assert_eq!(repository.len(), 1, "Expected 1 repository node");
+
+    let libraries = graph.find_nodes_by_type(NodeType::Library);
+    nodes_count += libraries.len();
+    assert_eq!(libraries.len(), 18, "Expected 18 library nodes");
 
     let pkg_files = graph.find_nodes_by_name(NodeType::File, "package.json");
     assert_eq!(pkg_files.len(), 1, "Expected 1 package.json file");
@@ -67,6 +70,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<(), anyhow::Err
     );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += imports.len();
     for imp in &imports {
         let import_lines: Vec<&str> = imp
             .body
@@ -128,6 +132,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
     if use_lsp == true {
         assert_eq!(functions.len(), 23, "Expected 23 functions/components");
     } else {
@@ -293,6 +298,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
+    nodes_count += requests.len();
     assert_eq!(requests.len(), 2, "Expected 2 requests");
 
     let get_request = requests
@@ -318,6 +324,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
+    nodes_count += pages.len();
     assert_eq!(pages.len(), 2, "Expected 2 pages");
 
     let new_person_page = pages
@@ -335,6 +342,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += variables.len();
     assert_eq!(variables.len(), 6, "Expected 6 variables");
 
     let initial_state_var = variables
@@ -370,6 +378,7 @@ import NewPerson from "./components/NewPerson";"#
     }
 
     let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
+    edges_count += renders_edges_count;
     assert_eq!(renders_edges_count, 2, "Expected 2 renders edges");
 
     let people_page = pages
@@ -423,6 +432,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    nodes_count += data_models.len();
     assert_eq!(data_models.len(), 2, "Expected 2 data models");
 
     let person_data_model = data_models
@@ -472,13 +482,23 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains_edges_count;
     assert_eq!(
         contains_edges_count, 69,
         "Expected 69 contains edges, got {}",
         contains_edges_count
     );
 
+    let calls = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls;
+    assert_eq!(calls, 12, "Expected 12 calls edges");
+
+    let imports = graph.count_edges_of_type(EdgeType::Imports);
+    edges_count += imports;
+    assert_eq!(imports, 5, "Expected 5 imports edges");
+
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += file_nodes.len();
     let tsx_files = file_nodes
         .iter()
         .filter(|f| f.name.ends_with(".tsx"))
@@ -496,7 +516,26 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
     assert_eq!(directories.len(), 3, "Expected 3 directories");
+
+    let uses = graph.count_edges_of_type(EdgeType::Uses);
+    edges_count += uses;
+
+    if use_lsp {
+        assert_eq!(uses, 14, "Expected 14 uses edges");
+    }
+
+    let (nodes, edges) = graph.get_graph_size();
+
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {nodes} found {nodes_count} nodes"
+    );
+    assert_eq!(
+        edges as usize, edges_count,
+        "Expected {edges} found {edges_count} edges"
+    );
 
     Ok(())
 }
