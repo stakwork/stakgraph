@@ -1,4 +1,4 @@
 [workspace]
 
-members = ["ast", "lsp", "skill", "standalone"]
+members = ["ast", "lsp", "shared", "skill", "standalone"]
 resolver = "2"

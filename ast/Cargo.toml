@@ -64,6 +64,7 @@ lazy_static = "1.5.0"
 futures = "0.3.31"
 tiktoken-rs = "0.7.0"
 ignore = "0.4.23"
+shared ={ path = "../shared" }
 
 
 [[example]]

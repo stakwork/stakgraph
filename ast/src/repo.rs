@@ -6,6 +6,7 @@ use git_url_parse::GitUrl;
 use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
 use lsp::{git::git_clone, spawn_analyzer, strip_tmp, CmdSender};
+use shared::AsyncStatusMap;
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tokio::sync::broadcast::Sender;
@@ -46,6 +47,8 @@ pub struct Repo {
     pub files_filter: Vec<String>,
     pub revs: Vec<String>,
     pub status_tx: Option<Sender<StatusUpdate>>,
+    pub request_id: Option<String>,
+    pub async_status_map: Option<AsyncStatusMap>,
 }
 
 pub struct Repos(pub Vec<Repo>);
@@ -130,6 +133,8 @@ impl Repo {
             files_filter,
             revs,
             status_tx: None,
+            request_id: None,
+            async_status_map: None,
         })
     }
     pub async fn new_clone_multi_detect(
@@ -259,6 +264,8 @@ impl Repo {
                 files_filter: files_filter.clone(),
                 revs: revs.clone(),
                 status_tx: None,
+                request_id: None,
+                async_status_map: None,
             });
         }
         println!("REPOS!!! {:?}", repos);
@@ -294,6 +301,8 @@ impl Repo {
             files_filter,
             revs,
             status_tx: None,
+            request_id: None,
+            async_status_map: None,
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {

@@ -34,21 +34,6 @@ pub struct FetchRepoResponse {
     pub hash: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum AsyncStatus {
-    InProgress,
-    Complete,
-    Failed(String),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AsyncRequestStatus {
-    pub status: AsyncStatus,
-    pub result: Option<ProcessResponse>,
-}
-
-pub type AsyncStatusMap = Arc<Mutex<HashMap<String, AsyncRequestStatus>>>;
-
 #[derive(Debug)]
 pub enum AppError {
     Anyhow(anyhow::Error),

@@ -49,7 +49,7 @@ impl Repo {
         };
 
         let formatted_msg = format!("Step {}: {}", step, step_description);
-        
+
         let su = StatusUpdate {
             status: "".to_string(),
             message: formatted_msg,
@@ -59,7 +59,7 @@ impl Repo {
             stats: None,
             step_description: Some(step_description.to_string()),
         };
-        
+
         info!("status_update: {:?}", su);
         if let Some(status_tx) = &self.status_tx {
             if let Err(e) = status_tx.send(su) {
@@ -74,6 +74,14 @@ impl Repo {
         }
 
         let current_progress = ((progress as f64 / total_files as f64) * 100.0).min(100.0) as u32;
+        if let (Some(ref request_id), Some(ref status_map)) =
+            (&self.request_id, &self.async_status_map)
+        {
+            let mut map = crate::utils::sync_fn(|| status_map.lock());
+            if let Some(status) = map.get_mut(request_id) {
+                status.progress = current_progress;
+            }
+        }
         let now = std::time::Instant::now();
 
         static LAST_PROGRESS: std::sync::atomic::AtomicU32 =
@@ -117,7 +125,7 @@ impl Repo {
             stats: Some(stats),
             ..Default::default()
         };
-        
+
         debug!("stats update: {:?}", su);
         if let Some(status_tx) = &self.status_tx {
             if let Err(e) = status_tx.send(su) {

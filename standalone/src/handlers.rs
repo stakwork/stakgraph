@@ -217,6 +217,11 @@ pub async fn ingest(
     .await
     .map_err(|e| anyhow::anyhow!("Repo detection failed: {}", e))?;
 
+    for repo in &mut repos.0 {
+        repo.request_id = Some(request_id.clone());
+        repo.async_status_map = Some(status_map.clone());
+    }
+
     repos.set_status_tx(state.tx.clone()).await;
 
     let btree_graph = repos
@@ -280,6 +285,7 @@ pub async fn ingest_async(
             AsyncRequestStatus {
                 status: AsyncStatus::InProgress,
                 result: None,
+                progress: 0,
             },
         );
     }
@@ -299,6 +305,7 @@ pub async fn ingest_async(
                 AsyncRequestStatus {
                     status: AsyncStatus::Complete,
                     result: Some(resp),
+                    progress: 100,
                 },
             ),
             Err(e) => map.insert(
@@ -306,6 +313,7 @@ pub async fn ingest_async(
                 AsyncRequestStatus {
                     status: AsyncStatus::Failed(format!("{:?}", e)),
                     result: None,
+                    progress: 0,
                 },
             ),
         }
@@ -329,6 +337,7 @@ pub async fn sync_async(
             AsyncRequestStatus {
                 status: AsyncStatus::InProgress,
                 result: None,
+                progress: 0,
             },
         );
     }
@@ -346,6 +355,7 @@ pub async fn sync_async(
                 AsyncRequestStatus {
                     status: AsyncStatus::Complete,
                     result: Some(resp),
+                    progress: 100,
                 },
             ),
             Err(e) => map.insert(
@@ -353,6 +363,7 @@ pub async fn sync_async(
                 AsyncRequestStatus {
                     status: AsyncStatus::Failed(format!("{:?}", e)),
                     result: None,
+                    progress: 0,
                 },
             ),
         }
