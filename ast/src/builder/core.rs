@@ -45,9 +45,8 @@ impl Repo {
 
         self.process_libraries(&mut graph, &filez)?;
         self.process_import_sections(&mut graph, &filez)?;
-        self.process_variables(&mut graph, &filez)?;
-        self.process_classes(&mut graph, &filez)?;
-        self.process_instances_and_traits(&mut graph, &filez)?;
+        self.process_independent_nodes(&mut graph, &filez)?;
+        self.process_instances(&mut graph, &filez)?;
         self.process_data_models(&mut graph, &filez)?;
         self.process_functions_and_tests(&mut graph, &filez).await?;
         self.process_pages_and_templates(&mut graph, &filez)?;
@@ -297,23 +296,28 @@ impl Repo {
         info!("=> got {} import sections", import_count);
         Ok(())
     }
-    fn process_variables<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
-        self.send_status_update("process_variables", 7);
-        let mut i = 0;
+
+    fn process_independent_nodes<G: Graph>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+    ) -> Result<()> {
         let mut var_count = 0;
+        let mut class_count = 0;
+        let mut trait_count = 0;
         let total = filez.len();
 
-        info!("=> get_vars...");
-        for (filename, code) in filez {
-            i += 1;
-            if i % 20 == 0 || i == total {
-                self.send_status_progress(i, total);
+        info!("=> get_vars_and_classes...");
+        self.send_status_update("process_variables", 7);
+        for (i, (filename, code)) in filez.iter().enumerate() {
+            if i % 20 == 0 || i + 1 == total {
+                self.send_status_progress(i + 1, total);
             }
 
-            let variables = self.lang.get_vars::<G>(&code, &filename)?;
-
-            var_count += variables.len();
-            for variable in variables {
+            // Variables
+            let vars = self.lang.get_vars::<G>(code, filename)?;
+            var_count += vars.len();
+            for variable in vars {
                 graph.add_node_with_parent(
                     NodeType::Var,
                     variable.clone(),
@@ -321,13 +325,49 @@ impl Repo {
                     &variable.file,
                 );
             }
+
+            // Classes
+            let qo = self
+                .lang
+                .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
+            let classes_and_edges = self
+                .lang
+                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
+            class_count += classes_and_edges.len();
+            for (class, assoc_edges) in classes_and_edges {
+                graph.add_node_with_parent(
+                    NodeType::Class,
+                    class.clone(),
+                    NodeType::File,
+                    &class.file,
+                );
+                for edge in assoc_edges {
+                    graph.add_edge(edge);
+                }
+            }
+
+            // Traits
+            let traits = self.lang.get_traits::<G>(&code, &filename)?;
+            trait_count += traits.len();
+            for tr in traits {
+                graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
+            }
         }
+        self.send_status_update("process_classes", 8);
 
         let mut stats = std::collections::HashMap::new();
         stats.insert("variables".to_string(), var_count);
+        stats.insert("classes".to_string(), class_count);
+        stats.insert("traits".to_string(), trait_count);
         self.send_status_with_stats(stats);
 
-        info!("=> got {} all vars", var_count);
+        info!(
+            "=> got {} vars, {} classes, {} traits",
+            var_count, class_count, trait_count,
+        );
+        graph.class_inherits();
+        graph.class_includes();
+
         Ok(())
     }
     async fn add_repository_and_language_nodes<G: Graph>(&self, graph: &mut G) -> Result<()> {
@@ -374,60 +414,11 @@ impl Repo {
         self.send_status_progress(100, 100);
         Ok(())
     }
-    fn process_classes<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
-        self.send_status_update("process_classes", 8);
-        let mut i = 0;
-        let mut class_count = 0;
-        let total = filez.len();
 
-        info!("=> get_classes...");
-        for (filename, code) in filez {
-            i += 1;
-            if i % 20 == 0 || i == total {
-                self.send_status_progress(i, total);
-            }
-
-            if !self.lang.kind.is_source_file(&filename) {
-                continue;
-            }
-            let qo = self
-                .lang
-                .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
-            let classes = self
-                .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
-            class_count += classes.len();
-            for (class, assoc_edges) in classes {
-                graph.add_node_with_parent(
-                    NodeType::Class,
-                    class.clone(),
-                    NodeType::File,
-                    &class.file,
-                );
-                for edge in assoc_edges {
-                    graph.add_edge(edge);
-                }
-            }
-        }
-
-        let mut stats = std::collections::HashMap::new();
-        stats.insert("classes".to_string(), class_count);
-        self.send_status_with_stats(stats);
-
-        info!("=> got {} classes", class_count);
-        graph.class_inherits();
-        graph.class_includes();
-        Ok(())
-    }
-    fn process_instances_and_traits<G: Graph>(
-        &self,
-        graph: &mut G,
-        filez: &[(String, String)],
-    ) -> Result<()> {
+    fn process_instances<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
         self.send_status_update("process_instances_and_traits", 9);
         let mut cnt = 0;
         let mut instance_count = 0;
-        let mut trait_count = 0;
         let total = filez.len();
 
         info!("=> get_instances...");
@@ -448,25 +439,9 @@ impl Repo {
             graph.add_instances(instances);
         }
 
-        info!("=> get_traits...");
-        for (filename, code) in filez {
-            if !self.lang.kind.is_source_file(&filename) {
-                continue;
-            }
-            let traits = self.lang.get_traits::<G>(&code, &filename)?;
-            trait_count += traits.len();
-
-            for tr in traits {
-                graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
-            }
-        }
-
         let mut stats = std::collections::HashMap::new();
         stats.insert("instances".to_string(), instance_count);
-        stats.insert("traits".to_string(), trait_count);
         self.send_status_with_stats(stats);
-
-        info!("=> got {} traits", trait_count);
         Ok(())
     }
     fn process_data_models<G: Graph>(
