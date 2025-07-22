@@ -253,6 +253,13 @@ impl Language {
                 return Vec::new();
             }
         }
+        
+        if let Ok(check_pkg_json) = std::env::var("CHECK_PACKAGE_JSON") {
+            if check_pkg_json == "true" || check_pkg_json == "1" {
+                return Vec::new();
+            }
+        }
+        
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
@@ -267,6 +274,15 @@ impl Language {
             Self::Svelte => Vec::new(),
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
+        }
+    }
+
+    pub fn npm_install_cmd(&self) -> Option<&'static str> {
+        match self {
+            Self::Typescript | Self::React => Some("npm install --force"),
+            Self::Angular => Some("npm install --force"),
+            Self::Svelte => Some("npm install --force"),
+            _ => None,
         }
     }
 
