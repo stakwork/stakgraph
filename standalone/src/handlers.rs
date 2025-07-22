@@ -74,7 +74,11 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         )));
     }
     let (final_repo_path, final_repo_url, username, pat, _) = resolve_repo(&body)?;
-    let use_lsp = body.use_lsp;
+    let use_lsp = if body.use_lsp.unwrap_or_default() {
+        ast::utils::get_use_lsp_for_sync()
+    } else {
+        false
+    };
 
     let total_start = Instant::now();
 
@@ -129,7 +133,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
                 &current_hash,
                 &hash,
                 None,
-                use_lsp,
+                Some(use_lsp),
             )
             .await?
     } else {
@@ -141,7 +145,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
                 pat.clone(),
                 &current_hash,
                 None,
-                use_lsp,
+                Some(use_lsp),
             )
             .await?
     };
@@ -284,13 +288,17 @@ pub async fn ingest_async(
         );
     }
 
+    let mut ingest_body = body.0.clone();
+    if ingest_body.use_lsp.unwrap_or_default() {
+        ingest_body.use_lsp = Some(ast::utils::get_use_lsp());
+    }
+    
     let state_clone = state.clone();
-    let body_clone = body.clone();
     let request_id_clone = request_id.clone();
 
     //run ingest as a background task
     tokio::spawn(async move {
-        let result = ingest(State(state_clone), body_clone).await;
+        let result = ingest(State(state_clone), Json(ingest_body)).await;
         let mut map = status_map.lock().await;
 
         match result {
@@ -332,12 +340,17 @@ pub async fn sync_async(
             },
         );
     }
-    let body_clone = body.clone();
+    
+    let mut sync_body = body.0.clone();
+    if sync_body.use_lsp.unwrap_or_default() {
+        sync_body.use_lsp = Some(ast::utils::get_use_lsp_for_sync());
+    }
+    
     let request_id_clone = request_id.clone();
 
     //run /sync as a background task
     tokio::spawn(async move {
-        let result = process(body_clone).await;
+        let result = process(Json(sync_body)).await;
         let mut map = status_map.lock().await;
 
         match result {

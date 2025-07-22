@@ -100,6 +100,19 @@ pub fn get_use_lsp() -> bool {
     false
 }
 
+pub fn get_use_lsp_for_sync() -> bool {
+    println!("===-==> Getting use LSP for sync");
+    env::set_var("LSP_SKIP_POST_CLONE", "true");
+    env::set_var("CHECK_PACKAGE_JSON", "true");
+    env::set_var("IS_SYNC", "true");
+    delete_react_testing_node_modules().ok();
+    let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
+    if lsp == "true" || lsp == "1" {
+        return true;
+    }
+    false
+}
+
 fn delete_react_testing_node_modules() -> std::io::Result<()> {
     let path = std::path::Path::new("src/testing/react/node_modules");
     if path.exists() {

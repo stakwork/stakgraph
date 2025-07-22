@@ -21,20 +21,51 @@ pub async fn clone_repo(
     pat: Option<String>,
     commit: Option<&str>,
 ) -> Result<()> {
+    let mut package_json_changed = false;
+    
     // check if the path exists
     if fs::metadata(path).is_ok() {
+        let check_pkg_json_env = std::env::var("CHECK_PACKAGE_JSON").unwrap_or_default();
+        let check_pkg_json = check_pkg_json_env == "true" || check_pkg_json_env == "1";
+        
+        let mut old_package_json = String::new();
+        if check_pkg_json {
+            let package_json_path = format!("{}/package.json", path);
+            if let Ok(content) = fs::read_to_string(&package_json_path) {
+                old_package_json = content;
+            }
+        }
+        
         // delete unless SKIP_RECLONE is set
         let skip_reclone_env = std::env::var("SKIP_RECLONE").unwrap_or_default();
         let skip_reclone = skip_reclone_env == "true" || skip_reclone_env == "1";
         if !skip_reclone {
             fs::remove_dir_all(path).ok();
             git_clone(url, path, username, pat, commit).await?;
+            
+            if check_pkg_json && !old_package_json.is_empty() {
+                let package_json_path = format!("{}/package.json", path);
+                if let Ok(new_content) = fs::read_to_string(&package_json_path) {
+                    package_json_changed = old_package_json != new_content;
+                    if package_json_changed {
+                        info!("=> package.json changed, will run npm install");
+                    } else {
+                        info!("=> package.json unchanged, skipping npm install");
+                    }
+                }
+            }
         } else {
             info!("=> Skipping reclone for {:?}", path);
         }
     } else {
         git_clone(url, path, username, pat, commit).await?;
+        package_json_changed = true;
     }
+    
+    if package_json_changed {
+        std::env::remove_var("CHECK_PACKAGE_JSON");
+    }
+    
     Ok(())
 }
 
@@ -159,6 +190,12 @@ impl Repo {
         } else {
             revs.len() / urls.len()
         };
+        
+        let is_sync = std::env::var("IS_SYNC").unwrap_or_default() == "true";
+        if is_sync {
+            std::env::set_var("CHECK_PACKAGE_JSON", "true");
+        }
+        
         let mut repos: Vec<Repo> = Vec::new();
         for (i, url) in urls.iter().enumerate() {
             let gurl = GitUrl::parse(url)
@@ -297,6 +334,16 @@ impl Repo {
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
+        if cmd.starts_with("npm install") {
+            let check_pkg_json_env = std::env::var("CHECK_PACKAGE_JSON").unwrap_or_default();
+            let check_pkg_json = check_pkg_json_env == "true" || check_pkg_json_env == "1";
+            
+            if check_pkg_json {
+                info!("Skipping npm install as package.json didn't change");
+                return Ok(());
+            }
+        }
+        
         info!("Running cmd: {:?}", cmd);
         let mut arr = cmd.split(" ").collect::<Vec<&str>>();
         if arr.len() == 0 {
