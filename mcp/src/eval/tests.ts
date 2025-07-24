@@ -398,6 +398,7 @@ export function test_routes(app: Express) {
     "frame/app.js",
     "frame/style.css",
     "staktrak/dist/staktrak.js",
+    "staktrak/dist/replay.js",
     "staktrak/dist/playwright-generator.js",
   ];
 

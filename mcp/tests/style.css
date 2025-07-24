@@ -675,12 +675,25 @@ button.generate:disabled:hover {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   background-color: #1e1e1e;
   margin: 24px;
-  background-color: #1e1e1e;
   border-radius: 12px;
   text-align: center;
   color: #888888;
   font-size: 16px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-sizing: border-box;
+  max-width: calc(100% - 48px);
+  width: auto;
+  border: none;
+}
+
+.iframe-container.replaying {
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.iframe-container.replaying iframe {
+  border: none;
+  box-shadow: none;
 }
 
 .loading-indicator {
@@ -752,4 +765,240 @@ button.run-test:disabled::after {
     transform: translateX(0);
     opacity: 1;
   }
+}
+
+.replay-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+button.replay {
+  background-color: #6366f1;
+  border-color: #4f46e5;
+}
+
+button.replay:hover {
+  background-color: #4f46e5;
+}
+
+button.pause {
+  background-color: #f59e0b;
+  border-color: #d97706;
+}
+
+button.pause:hover {
+  background-color: #d97706;
+}
+
+button.resume {
+  background-color: #10b981;
+  border-color: #059669;
+}
+
+button.resume:hover {
+  background-color: #059669;
+}
+
+button.stop-replay {
+  background-color: #ef4444;
+  border-color: #dc2626;
+}
+
+button.stop-replay:hover {
+  background-color: #dc2626;
+}
+
+.speed-control {
+  position: relative;
+  display: inline-block;
+}
+
+.speed-button {
+  background-color: #4b5563;
+  border-color: #374151;
+  font-size: 0.75rem;
+  padding: 4px 8px;
+}
+
+.speed-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background-color: #1f2937;
+  border-radius: 6px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  z-index: 10;
+  min-width: 80px;
+  margin-top: 4px;
+  overflow: hidden;
+}
+
+.speed-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: center;
+  background-color: transparent;
+  border: none;
+  padding: 6px 12px;
+  color: white;
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.speed-dropdown button:hover {
+  background-color: #4b5563;
+}
+
+.speed-dropdown button.active {
+  background-color: #6366f1;
+  font-weight: bold;
+}
+
+.replay-progress-bar {
+  position: relative;
+  height: 24px;
+  background-color: #1f2937;
+  border-radius: 4px;
+  margin: 8px 16px;
+  overflow: hidden;
+}
+
+.replay-progress-inner {
+  height: 100%;
+  background-color: #6366f1;
+  transition: width 0.3s ease;
+}
+
+.replay-progress-text {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.5);
+}
+
+.iframe-container.replaying iframe {
+  pointer-events: none;
+}
+
+@keyframes click-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(8);
+    opacity: 0;
+  }
+}
+
+@keyframes click-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(8);
+    opacity: 0;
+  }
+}
+
+@keyframes pulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.replay-pulse {
+  animation: pulse 0.5s ease-in-out infinite;
+}
+
+.replay-cursor {
+  position: fixed;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background-color: rgba(255, 0, 0, 0.6);
+  border: 2px solid white;
+  box-shadow: 0 0 10px rgba(255, 0, 0, 0.8);
+  z-index: 9999;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transition: transform 0.5s ease-in-out, left 0.5s ease-in-out,
+    top 0.5s ease-in-out;
+}
+
+.click-ripple {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  background: rgba(255, 0, 0, 0.5);
+  border-radius: 50%;
+  z-index: 9998;
+  pointer-events: none;
+  animation: click-ripple 1s ease-out forwards;
+}
+
+.replay-overlay {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  color: white;
+  padding: 12px;
+  border-radius: 8px;
+  z-index: 9999;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.5);
+  max-width: 300px;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  transition: opacity 1s ease-out;
+  opacity: 1;
+}
+
+.replay-overlay.fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.replay-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.replay-info h3 {
+  margin: 0 0 5px 0;
+  font-size: 16px;
+  color: #3b82f6;
+}
+
+.replay-progress {
+  font-size: 14px;
+}
+
+.replay-action {
+  font-size: 12px;
+  word-break: break-all;
+  opacity: 0.8;
+}
+
+.replay-status-text {
+  font-weight: bold;
+  margin-top: 5px;
 }

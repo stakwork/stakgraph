@@ -8,6 +8,7 @@ import {
   useTestFiles,
   usePopup,
   useURL,
+  useIframeReplay,
 } from "./hooks.js";
 
 export const html = htm.bind(h);
@@ -41,7 +42,22 @@ const Staktrak = () => {
     toggleTestExpansion,
   } = useTestFiles();
 
+  const {
+    isReplaying,
+    isPaused,
+    replayStatus,
+    progress,
+    replaySpeed,
+    startReplay,
+    pauseReplay,
+    resumeReplay,
+    stopReplay,
+    changeReplaySpeed,
+  } = useIframeReplay(iframeRef);
+
   const [filenameInput, setFilenameInput] = useState("");
+  const [showSpeedControls, setShowSpeedControls] = useState(false);
+  const speedOptions = [0.5, 1, 1.5, 2, 3, 5];
 
   const handleRecord = () => {
     if (!isRecording) {
@@ -76,6 +92,63 @@ const Staktrak = () => {
     } else {
       showPopup("Failed to generate test", "error");
     }
+  };
+
+  const handleReplay = () => {
+    if (isReplaying) {
+      if (isPaused) {
+        resumeReplay();
+      } else {
+        pauseReplay();
+      }
+    } else {
+      if (trackingData) {
+        const success = startReplay(trackingData);
+
+        if (!success) {
+          if (
+            trackingData.clicks?.clickDetails &&
+            trackingData.clicks.clickDetails.length > 0
+          ) {
+            const simplifiedTrackingData = {
+              clicks: { clickDetails: trackingData.clicks.clickDetails },
+            };
+            startReplay(simplifiedTrackingData);
+          } else {
+            const directActions = [
+              {
+                type: "click",
+                selector: '[data-testid="staktrak-div"]',
+                timestamp: Date.now(),
+                x: 100,
+                y: 100,
+              },
+              {
+                type: "click",
+                selector: "button.staktrak-div",
+                timestamp: Date.now() + 1000,
+                x: 200,
+                y: 100,
+              },
+            ];
+
+            showPopup("Using direct actions for replay", "warning");
+            startReplay({ directActions });
+          }
+        }
+      } else {
+        showPopup("No tracking data available for replay", "error");
+      }
+    }
+  };
+
+  const handleStopReplay = () => {
+    stopReplay();
+  };
+
+  const handleSpeedChange = (speed) => {
+    changeReplaySpeed(speed);
+    setShowSpeedControls(false);
   };
 
   const copyTestToClipboard = () => {
@@ -154,6 +227,7 @@ const Staktrak = () => {
           <button
             class=${isRecording ? "stop" : "record"}
             onClick=${handleRecord}
+            disabled=${isReplaying}
           >
             ${isRecording
               ? html`<span class="btn-icon">⏹</span> Stop Recording`
@@ -162,7 +236,7 @@ const Staktrak = () => {
           <button
             class=${isAssertionMode ? "interact" : "assert"}
             onClick=${handleMode}
-            disabled=${!isRecording}
+            disabled=${!isRecording || isReplaying}
           >
             ${isAssertionMode
               ? html`<span class="btn-icon">🖱️</span> Interaction Mode`
@@ -171,19 +245,76 @@ const Staktrak = () => {
           <button
             class="generate"
             onClick=${handleGenerate}
-            disabled=${!canGenerate}
+            disabled=${!canGenerate || isReplaying}
           >
             <span class="btn-icon">⚙️</span> Generate Playwright Test
           </button>
+          <div class="replay-controls">
+            <button
+              class=${isReplaying ? (isPaused ? "resume" : "pause") : "replay"}
+              onClick=${handleReplay}
+              disabled=${!canGenerate || isRecording}
+            >
+              ${isReplaying
+                ? isPaused
+                  ? html`<span class="btn-icon">▶️</span> Resume Replay`
+                  : html`<span class="btn-icon">⏸️</span> Pause Replay`
+                : html`<span class="btn-icon">🔄</span> Replay in Iframe`}
+            </button>
+            ${isReplaying &&
+            html`
+              <button class="stop-replay" onClick=${handleStopReplay}>
+                <span class="btn-icon">⏹</span> Stop Replay
+              </button>
+              <div class="speed-control">
+                <button
+                  class="speed-button"
+                  onClick=${() => setShowSpeedControls(!showSpeedControls)}
+                >
+                  <span class="btn-icon">⚡</span> ${replaySpeed}x
+                </button>
+                ${showSpeedControls &&
+                html`
+                  <div class="speed-dropdown">
+                    ${speedOptions.map(
+                      (speed) => html`
+                        <button
+                          class=${replaySpeed === speed ? "active" : ""}
+                          onClick=${() => handleSpeedChange(speed)}
+                        >
+                          ${speed}x
+                        </button>
+                      `
+                    )}
+                  </div>
+                `}
+              </div>
+            `}
+          </div>
         </div>
       </header>
+
+      ${isReplaying &&
+      html`
+        <div class="replay-progress-bar">
+          <div
+            class="replay-progress-inner"
+            style="width: ${(progress.current /
+              Math.max(1, progress.total - 1)) *
+            100}%"
+          ></div>
+          <div class="replay-progress-text">
+            Step ${progress.current + 1} of ${progress.total} (${replayStatus})
+          </div>
+        </div>
+      `}
 
       <div class="main-content">
         ${selectedText &&
         html`<div class="selected-text" id="app-selection-display">
           Selected: "${selectedText}"
         </div>`}
-        <div class="iframe-container">
+        <div class="iframe-container ${isReplaying ? "replaying" : ""}">
           <iframe ref=${iframeRef} src=${url} id="trackingFrame"></iframe>
         </div>
 
@@ -194,7 +325,11 @@ const Staktrak = () => {
                   <span class="section-icon">📝</span> Generated Playwright Test
                 </h3>
                 <div class="save-controls">
-                  <button class="copy-btn" onClick=${copyTestToClipboard}>
+                  <button
+                    class="copy-btn"
+                    onClick=${copyTestToClipboard}
+                    disabled=${isReplaying}
+                  >
                     <span class="btn-icon">📋</span> Copy to Clipboard
                   </button>
                   <input
@@ -203,8 +338,13 @@ const Staktrak = () => {
                     placeholder="test-filename.spec.js"
                     value=${filenameInput}
                     onChange=${(e) => setFilenameInput(e.target.value)}
+                    disabled=${isReplaying}
                   />
-                  <button class="save" onClick=${handleSaveTest}>
+                  <button
+                    class="save"
+                    onClick=${handleSaveTest}
+                    disabled=${isReplaying}
+                  >
                     <span class="btn-icon">💾</span> Save to Disk
                   </button>
                 </div>
@@ -290,7 +430,7 @@ const Staktrak = () => {
                       <button
                         class="run-test"
                         onClick=${() => handleRunTest(file.filename)}
-                        disabled=${loadingTests[file.filename]}
+                        disabled=${loadingTests[file.filename] || isReplaying}
                       >
                         <span class="btn-icon">▶️</span> ${loadingTests[
                           file.filename
@@ -301,6 +441,7 @@ const Staktrak = () => {
                       <button
                         class="delete-test"
                         onClick=${() => handleDeleteTest(file.filename)}
+                        disabled=${isReplaying}
                       >
                         <span class="btn-icon">🗑️</span> Delete
                       </button>

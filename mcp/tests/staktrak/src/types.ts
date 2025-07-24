@@ -89,3 +89,48 @@ export interface Memory {
   listeners: Array<() => void>;
   postMessageListeners: Array<() => void>;
 }
+
+export enum ActionType {
+  CLICK = "click",
+  INPUT = "input",
+  SELECT = "select",
+  CHECK = "check",
+  UNCHECK = "uncheck",
+  WAIT = "wait",
+}
+
+export enum ReplayStatus {
+  IDLE = "idle",
+  PLAYING = "playing",
+  PAUSED = "paused",
+  COMPLETED = "completed",
+}
+
+export interface ReplayAction {
+  type: ActionType;
+  selector: string;
+  timestamp: number;
+  x?: number;
+  y?: number;
+  value?: string;
+}
+
+export interface ReplayState {
+  actions: ReplayAction[];
+  status: ReplayStatus;
+  currentActionIndex: number;
+  speed: number;
+  overlayVisible: boolean;
+}
+
+export interface ReplayProgress {
+  current: number;
+  total: number;
+}
+
+export interface ReplayOptions {
+  speed?: number;
+  initialDelay?: number;
+  minDelay?: number;
+  maxDelay?: number;
+}

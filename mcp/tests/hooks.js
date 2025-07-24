@@ -403,3 +403,420 @@ export function useURL(initialURL) {
 
   return { url, setUrl, handleUrlChange, navigateToUrl, iframeRef };
 }
+
+export function useIframeReplay(iframeRef) {
+  const { showPopup } = usePopup();
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [replaySpeed, setReplaySpeed] = useState(1);
+  const [replayStatus, setReplayStatus] = useState("idle");
+  const replayInitializedRef = useRef(false);
+
+  const prepareReplayActions = (trackingData) => {
+    if (!trackingData) {
+      console.error("No tracking data provided for replay");
+      return null;
+    }
+
+    if (!iframeRef?.current?.contentWindow) {
+      console.error("Iframe content window not available");
+      return null;
+    }
+
+    if (trackingData.directActions) {
+      return trackingData.directActions;
+    }
+
+    try {
+      if (
+        !trackingData.clicks?.clickDetails ||
+        !Array.isArray(trackingData.clicks.clickDetails)
+      ) {
+        if (Array.isArray(trackingData.clickDetails)) {
+          trackingData = {
+            ...trackingData,
+            clicks: { clickDetails: trackingData.clickDetails },
+          };
+        } else if (trackingData.clicks) {
+          const extractedClicks = [];
+          if (Array.isArray(trackingData.clicks)) {
+            trackingData.clicks.forEach((click) => {
+              if (click.x && click.y && click.selector) {
+                extractedClicks.push([
+                  click.x,
+                  click.y,
+                  click.selector,
+                  click.timestamp || Date.now(),
+                ]);
+              }
+            });
+            trackingData = {
+              ...trackingData,
+              clicks: { clickDetails: extractedClicks },
+            };
+          }
+        }
+      }
+
+      if (!trackingData.clicks && trackingData.rawClicks) {
+        const clickDetails = [];
+        trackingData.rawClicks.forEach((click) => {
+          const selector = click.selector || `[data-testid]`;
+          clickDetails.push([
+            click.x,
+            click.y,
+            selector,
+            click.timestamp || Date.now(),
+          ]);
+        });
+        trackingData = {
+          ...trackingData,
+          clicks: { clickDetails },
+        };
+      }
+
+      if (
+        !trackingData.clicks?.clickDetails ||
+        trackingData.clicks.clickDetails.length === 0
+      ) {
+        const fallbackActions = [
+          {
+            type: "click",
+            selector: '[data-testid="staktrak-div"]',
+            timestamp: Date.now(),
+            x: 100,
+            y: 100,
+          },
+          {
+            type: "click",
+            selector: "button.staktrak-div",
+            timestamp: Date.now() + 1000,
+            x: 200,
+            y: 100,
+          },
+        ];
+
+        return fallbackActions;
+      }
+
+      if (!iframeRef.current.contentWindow.convertToReplayActions) {
+        console.error("convertToReplayActions function not found in iframe");
+        return null;
+      }
+
+      const actions =
+        iframeRef.current.contentWindow.convertToReplayActions(trackingData);
+
+      if (!actions || actions.length === 0) {
+        console.error("No replay actions generated from tracking data");
+
+        const directActions = [];
+
+        if (trackingData.clicks?.clickDetails) {
+          trackingData.clicks.clickDetails.forEach(
+            ([x, y, selector, timestamp]) => {
+              if (selector) {
+                directActions.push({
+                  type: "click",
+                  selector: selector,
+                  timestamp: timestamp,
+                  x: x,
+                  y: y,
+                });
+              }
+            }
+          );
+        }
+
+        if (directActions.length > 0) {
+          return directActions;
+        }
+
+        return null;
+      }
+
+      return actions;
+    } catch (error) {
+      console.error("Error preparing replay actions:", error);
+      return null;
+    }
+  };
+
+  const startReplay = (trackingData) => {
+    if (!iframeRef?.current?.contentWindow) {
+      showPopup("Iframe not available for replay", "error");
+      return false;
+    }
+
+    const actions = prepareReplayActions(trackingData);
+    if (!actions || actions.length === 0) {
+      showPopup("No actions to replay", "warning");
+      return false;
+    }
+
+    setIsReplaying(true);
+    setIsPaused(false);
+    setReplayStatus("playing");
+    setProgress({ current: 0, total: actions.length });
+
+    try {
+      const cleanedActions = actions.map((action) => {
+        return {
+          type: action.type || "click",
+          selector: action.selector || "[data-testid]",
+          timestamp: action.timestamp || Date.now(),
+          x: action.x || 100,
+          y: action.y || 100,
+          value: action.value || "",
+        };
+      });
+
+      const container = document.querySelector(".iframe-container");
+      if (container) {
+        container.classList.add("replaying");
+      }
+
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: "staktrak-replay-actions",
+          actions: cleanedActions,
+        },
+        "*"
+      );
+
+      setTimeout(() => {
+        if (iframeRef.current && iframeRef.current.contentWindow) {
+          iframeRef.current.contentWindow.postMessage(
+            {
+              type: "staktrak-replay-start",
+              speed: replaySpeed,
+            },
+            "*"
+          );
+          showPopup("Test replay started", "info");
+        } else {
+          showPopup("Iframe not available for replay", "error");
+          setIsReplaying(false);
+
+          if (container) {
+            container.classList.remove("replaying");
+          }
+        }
+      }, 500);
+
+      return true;
+    } catch (error) {
+      console.error("Error starting replay:", error);
+      showPopup(`Error starting replay: ${error.message}`, "error");
+      setIsReplaying(false);
+
+      const container = document.querySelector(".iframe-container");
+      if (container) {
+        container.classList.remove("replaying");
+      }
+
+      return false;
+    }
+  };
+
+  const pauseReplay = () => {
+    if (!isReplaying || !iframeRef?.current?.contentWindow) return;
+
+    try {
+      iframeRef.current.contentWindow.postMessage(
+        { type: "staktrak-replay-pause" },
+        "*"
+      );
+      setIsPaused(true);
+      setReplayStatus("paused");
+      showPopup("Test replay paused", "info");
+    } catch (error) {
+      console.error("Error pausing replay:", error);
+      showPopup(`Error pausing replay: ${error.message}`, "error");
+    }
+  };
+
+  const resumeReplay = () => {
+    if (!isReplaying || !isPaused || !iframeRef?.current?.contentWindow) return;
+
+    try {
+      iframeRef.current.contentWindow.postMessage(
+        { type: "staktrak-replay-resume" },
+        "*"
+      );
+      setIsPaused(false);
+      setReplayStatus("playing");
+      showPopup("Test replay resumed", "info");
+    } catch (error) {
+      console.error("Error resuming replay:", error);
+      showPopup(`Error resuming replay: ${error.message}`, "error");
+    }
+  };
+
+  const stopReplay = () => {
+    if (!iframeRef?.current?.contentWindow) return;
+
+    try {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: "staktrak-replay-stop",
+        },
+        "*"
+      );
+
+      setIsReplaying(false);
+      setIsPaused(false);
+      setReplayStatus("idle");
+      showPopup("Test replay stopped", "warning");
+    } catch (error) {
+      console.error("Error stopping replay:", error);
+      showPopup(`Error stopping replay: ${error.message}`, "error");
+      setIsReplaying(false);
+      setIsPaused(false);
+      setReplayStatus("idle");
+
+      const container = document.querySelector(".iframe-container");
+      if (container) {
+        container.classList.remove("replaying");
+        container.classList.remove("replaying-fadeout");
+      }
+    }
+  };
+
+  const changeReplaySpeed = (speed) => {
+    if (!iframeRef?.current?.contentWindow) return;
+
+    const newSpeed = parseFloat(speed);
+    if (isNaN(newSpeed) || newSpeed <= 0) return;
+
+    try {
+      iframeRef.current.contentWindow.postMessage(
+        {
+          type: "staktrak-replay-speed",
+          speed: newSpeed,
+        },
+        "*"
+      );
+
+      setReplaySpeed(newSpeed);
+      showPopup(`Replay speed set to ${newSpeed}x`, "info");
+    } catch (error) {
+      console.error("Error changing replay speed:", error);
+      showPopup(`Error changing speed: ${error.message}`, "error");
+    }
+  };
+
+  useEffect(() => {
+    const checkReplayReady = () => {
+      if (!iframeRef?.current?.contentWindow) return;
+
+      try {
+        iframeRef.current.contentWindow.postMessage(
+          { type: "staktrak-replay-ping" },
+          "*"
+        );
+      } catch (error) {
+        console.error("Error checking replay ready state:", error);
+      }
+    };
+
+    const interval = setInterval(checkReplayReady, 1000);
+    checkReplayReady();
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [iframeRef]);
+
+  useEffect(() => {
+    const handleMessage = (event) => {
+      if (!event.data?.type) return;
+
+      switch (event.data.type) {
+        case "staktrak-replay-ready":
+          replayInitializedRef.current = true;
+          break;
+
+        case "staktrak-replay-progress":
+          setProgress({
+            current: event.data.currentAction,
+            total: event.data.totalActions,
+          });
+          break;
+
+        case "staktrak-replay-completed":
+          if (event.data.totalActions) {
+            setProgress({
+              current: event.data.totalActions - 1,
+              total: event.data.totalActions,
+            });
+          }
+          setReplayStatus("completed");
+          showPopup("Test replay completed", "success");
+          break;
+
+        case "staktrak-replay-fadeout":
+          const container = document.querySelector(".iframe-container");
+          if (container) {
+            container.classList.add("replaying-fadeout");
+          }
+
+          setTimeout(() => {
+            if (container) {
+              container.classList.remove("replaying");
+              container.classList.remove("replaying-fadeout");
+              setIsReplaying(false);
+              setIsPaused(false);
+            }
+          }, 1000);
+          break;
+
+        case "staktrak-replay-paused":
+          setIsPaused(true);
+          setReplayStatus("paused");
+          break;
+
+        case "staktrak-replay-resumed":
+          setIsPaused(false);
+          setReplayStatus("playing");
+          break;
+
+        case "staktrak-replay-stopped":
+          setIsReplaying(false);
+          setIsPaused(false);
+          setReplayStatus("idle");
+
+          const containerElement = document.querySelector(".iframe-container");
+          if (containerElement) {
+            containerElement.classList.remove("replaying");
+            containerElement.classList.remove("replaying-fadeout");
+          }
+          break;
+
+        case "staktrak-replay-error":
+          showPopup(`Error during replay: ${event.data.error}`, "error");
+          break;
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => {
+      window.removeEventListener("message", handleMessage);
+    };
+  }, []);
+
+  return {
+    isReplaying,
+    isPaused,
+    replayStatus,
+    progress,
+    replaySpeed,
+    startReplay,
+    pauseReplay,
+    resumeReplay,
+    stopReplay,
+    changeReplaySpeed,
+    isReplayReady: replayInitializedRef.current,
+  };
+}
