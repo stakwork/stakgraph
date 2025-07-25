@@ -259,6 +259,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += function_calls;
+
     assert_eq!(function_calls, 8, "Expected 8 function calls");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
@@ -286,7 +287,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 50, "Expected 50 uses edges with lsp");
+        assert_eq!(uses, 18, "Expected 18 uses edges with lsp");
     }
 
     let handler_fn = graph
