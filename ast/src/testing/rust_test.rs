@@ -15,6 +15,8 @@ pub async fn test_rust_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
+    graph.analysis();
+
     let mut nodes_count = 0;
     let mut edges_count = 0;
 
@@ -40,11 +42,15 @@ pub async fn test_rust_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 8, "Expected 8 files");
+    assert_eq!(files.len(), 9, "Expected 9 files");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
     assert_eq!(imports.len(), 5, "Expected 5 imports");
+
+    let traits = graph.find_nodes_by_type(NodeType::Trait);
+    nodes_count += traits.len();
+    assert_eq!(traits.len(), 1, "Expected 1 trait nodes");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
@@ -72,11 +78,15 @@ use std::net::SocketAddr;"#
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
-    assert_eq!(vars.len(), 5, "Expected 5 variables");
+    assert_eq!(vars.len(), 2, "Expected 2 variables");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 2, "Expected 2 data models");
+    assert_eq!(data_models.len(), 6, "Expected 6 data models");
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
+    assert_eq!(classes.len(), 4, "Expected 4 class node");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
@@ -84,19 +94,23 @@ use std::net::SocketAddr;"#
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imported_edges;
-    assert_eq!(imported_edges, 4, "Expected 4 import edges");
+    assert_eq!(imported_edges, 10, "Expected 10 import edges");
 
-    let calls_edges = graph.count_edges_of_type(EdgeType::Contains);
-    edges_count += calls_edges;
-    assert_eq!(calls_edges, 71, "Expected 71 contains edges");
+    let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains_edges;
+    assert_eq!(contains_edges, 76, "Expected 76 contains edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 19, "Expected 19 functions");
+    assert_eq!(functions.len(), 23, "Expected 23 functions");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
     assert_eq!(handlers, 6, "Expected 6 handler edges");
+
+    let implements = graph.count_edges_of_type(EdgeType::Implements);
+    edges_count += implements;
+    assert_eq!(implements, 1, "Expected 1 implements edge");
 
     let get_person_fn = functions
         .iter()

@@ -129,10 +129,28 @@ impl Stack for Rust {
     fn class_definition_query(&self) -> String {
         format!(
             r#"
-           (struct_item
-                name: (type_identifier) @class-name
-            ) @class-definition
+           [
+                (struct_item
+                    name: (type_identifier) @class-name
+                )
+                (enum_item
+                    name: (type_identifier) @class-name
+                )
+            ]@class-definition
             "#
+        )
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        Some(
+            r#"
+        (impl_item
+            trait: (type_identifier)? @trait-name
+            type: (type_identifier) @class-name
+            body: (declaration_list)?
+        ) @implements
+        "#
+            .to_string(),
         )
     }
 
@@ -253,9 +271,14 @@ impl Stack for Rust {
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
-                (struct_item
-                    name: (type_identifier) @struct-name
-                ) @struct
+                [
+                    (struct_item
+                        name: (type_identifier) @struct-name
+                    )
+                    (enum_item
+                        name: (type_identifier) @struct-name
+                    )
+                ]@struct
             "#
         ))
     }
@@ -312,12 +335,12 @@ impl Stack for Rust {
         }
     }
 
-    fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
-        callback(NodeType::Class, NodeType::Function, "operand");
-    }
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.to_string();
         path = path.replace("::", "/");
         path
+    }
+    fn filter_by_implements(&self) -> bool {
+        true
     }
 }

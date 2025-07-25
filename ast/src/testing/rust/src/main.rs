@@ -1,5 +1,6 @@
 mod db;
 mod routes;
+mod traits;
 
 use crate::db::init_db;
 use crate::routes::{
@@ -9,9 +10,26 @@ use crate::routes::{
 use anyhow::Result;
 use std::net::SocketAddr;
 
-const AXUM_PORT: u16 = 5002;
-const ACTIX_PORT: u16 = 5004;
-const ROCKET_PORT: u16 = 5006;
+enum PORT {
+    Axum = 5002,
+    Actix = 5004,
+    Rocket = 5006,
+}
+
+//should be DM and NOT Class 'cause there is no implementation
+enum CRATES {
+    STANDALONE = "standalone",
+    AST = "ast",
+    LSP = "lsp",
+    SKILL = "skill",
+}
+
+impl PORT {
+    fn as_u16(&self) -> u16 {
+        *self as u16
+    }
+}
+
 const ADDRESS: [u8; 4] = [0, 0, 0, 0];
 
 #[tokio::main]
@@ -20,9 +38,12 @@ async fn main() -> Result<()> {
     init_db().await?;
 
     println!("Starting servers...");
-    println!("Axum server on http://localhost:{}", AXUM_PORT);
-    println!("Actix server on http://localhost:{}", ACTIX_PORT);
-    println!("Rocket server on http://localhost:{}", ROCKET_PORT);
+    println!("Axum server on http://localhost:{}", PORT::Axum.as_u16());
+    println!("Actix server on http://localhost:{}", PORT::Actix.as_u16());
+    println!(
+        "Rocket server on http://localhost:{}",
+        PORT::Rocket.as_u16()
+    );
 
     // Run all three servers concurrently using select!
     tokio::select! {
@@ -82,4 +103,21 @@ async fn start_rocket_server() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Rocket server error: {:?}", e))?;
 
     Ok(())
+}
+
+//should be DM and Class Because of implementation of Display
+enum LANGUAGE {
+    Rust = "rust",
+    Python = "python",
+    JavaScript = "javascript",
+}
+
+impl Display for LANGUAGE {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LANGUAGE::Rust => write!(f, "Rust"),
+            LANGUAGE::Python => write!(f, "Python"),
+            LANGUAGE::JavaScript => write!(f, "JavaScript"),
+        }
+    }
 }
