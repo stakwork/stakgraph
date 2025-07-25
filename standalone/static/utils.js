@@ -16,6 +16,14 @@ export function getRepoNameFromUrl(url) {
   return repoName;
 }
 
+export function isValidGithubUrl(url) {
+  const trimmed = url.trim();
+
+  const httpsPattern = /^https:\/\/github\.com\/[^\/\s]+\/[^\/\s]+/;
+  const sshPattern = /^git@github\.com:[^\/\s]+\/[^\/\s]+/;
+  return httpsPattern.test(trimmed) || sshPattern.test(trimmed);
+}
+
 export const LoadingSvg = () => html`
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 150">
     <path
