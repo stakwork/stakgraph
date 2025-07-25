@@ -115,7 +115,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 7, "Expected 7 data models");
+    assert_eq!(data_models.len(), 8, "Expected 8 data models");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -123,7 +123,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 58, "Expected 58 contains edges");
+    assert_eq!(contains, 60, "Expected 60 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;

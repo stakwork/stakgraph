@@ -195,6 +195,18 @@ impl Stack for TypeScript {
         }
     }
 
+    /*
+    POSSIBLE QUERY FOR DATA MODEL that picks up interfaces without methods -- needs work
+    (interface_declaration
+        name: (type_identifier) @struct-name
+        body: (interface_body
+
+            (method_signature) @method
+            (#is_not? @method _)
+
+        )
+    ) @struct
+     */
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
