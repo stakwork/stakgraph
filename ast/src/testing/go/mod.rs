@@ -76,15 +76,16 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
         "Model import body is incorrect"
     );
 
-    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let mut classes = graph.find_nodes_by_type(NodeType::Class);
+    classes.sort_by(|a, b| a.name.cmp(&b.name));
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 1, "Expected 1 class");
+    assert_eq!(classes.len(), 2, "Expected 2 class");
     assert_eq!(
-        classes[0].name, "database",
+        classes[1].name, "database",
         "Class name should be 'database'"
     );
     assert_eq!(
-        classes[0].file, "src/testing/go/db.go",
+        classes[1].file, "src/testing/go/db.go",
         "Class file path is incorrect"
     );
 
@@ -103,11 +104,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let class_function_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(class_function_edges.len(), 5, "Expected 5 methods");
+    assert_eq!(class_function_edges.len(), 7, "Expected 7 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 5, "Expected 5 data models");
+    assert_eq!(data_models.len(), 6, "Expected 6 data models");
     let person = data_models
         .iter()
         .find(|dm| dm.name == "Person" && dm.file == "src/testing/go/db.go")
@@ -263,7 +264,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 5, "Expected 5 operands");
+    assert_eq!(operands, 7, "Expected 7 operands");
 
     let of = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of;
@@ -271,11 +272,15 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 50, "Expected 50 contains edges");
+    assert_eq!(contains, 57, "Expected 57 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
     assert_eq!(variables.len(), 1, "Expected 1 variables");
+
+    let trts = graph.find_nodes_by_type(NodeType::Trait);
+    nodes_count += trts.len();
+    assert_eq!(trts.len(), 1, "Expected 1 traits");
 
     let import_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges;

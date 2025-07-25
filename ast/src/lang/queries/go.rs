@@ -92,6 +92,7 @@ impl Stack for Go {
         format!(
             "(type_spec
                 name: (type_identifier) @{CLASS_NAME}
+                type: (struct_type)
             ) @{CLASS_DEFINITION}"
         )
     }
@@ -261,9 +262,25 @@ impl Stack for Go {
             "(type_declaration
                 (type_spec
                     name: (type_identifier) @{STRUCT_NAME}
-                    type: (_)
+                    type: (struct_type)
                 )
             ) @{STRUCT}"
+        ))
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (method_declaration
+                receiver: (parameter_list
+                    (parameter_declaration
+                        name: (identifier)
+                        type: (type_identifier) @{CLASS_NAME}
+                    )
+                )
+                name : (field_identifier) @interface-method
+            )@{IMPLEMENTS}
+             "#
         ))
     }
     fn data_model_within_query(&self) -> Option<String> {
