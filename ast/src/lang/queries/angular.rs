@@ -195,10 +195,17 @@ impl Stack for Angular {
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
-                (interface_declaration
-                    name: (type_identifier) @{STRUCT_NAME}
-                    body: (interface_body) @{STRUCT}
-                )
+                [
+                    (interface_declaration
+                        name: (type_identifier) @{STRUCT_NAME}
+                    )
+                    (type_alias_declaration
+                        name: (type_identifier) @{STRUCT_NAME}
+                    )
+                    (enum_declaration
+                        name: (identifier) @{STRUCT_NAME}
+                    )
+                ] @{STRUCT}
 
              "#
         ))

@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
 
-export interface StoreState {
+export type StoreState = {
   people: Person[];
   loading: boolean;
-}
+};
 
 export interface Person {
   id: number;
