@@ -50,3 +50,13 @@ export class TypeORMPerson {
   @Column({ unique: true })
   email!: string;
 }
+
+//should not be DM
+// interface TestInterface {
+//   operand1: number;
+//   operand2: number;
+//   add(): number;
+//   subtract?(): number;
+// }
+
+// TO FIGURE OUT QUERY THAT DOES NOT PICK IT UP AS DM

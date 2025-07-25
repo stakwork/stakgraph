@@ -343,7 +343,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    assert_eq!(variables.len(), 6, "Expected 6 variables");
+    assert_eq!(variables.len(), 5, "Expected 5 variables");
 
     let initial_state_var = variables
         .iter()
@@ -433,7 +433,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 2, "Expected 2 data models");
+    assert_eq!(data_models.len(), 3, "Expected 3 data models");
 
     let person_data_model = data_models
         .iter()

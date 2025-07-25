@@ -6,7 +6,9 @@ export interface PersonData {
   email: string;
 }
 
-export async function getPersonById(id: number): Promise<PersonData | null> {
+type IdType = number | string;
+
+export async function getPersonById(id: IdType): Promise<PersonData | null> {
   const person = await SequelizePerson.findByPk(id);
   if (!person) {
     return null;
@@ -18,7 +20,7 @@ export async function newPerson(personData: PersonData): Promise<PersonData> {
   return person.toJSON() as PersonData;
 }
 export class SequelizePersonService {
-  async getById(id: number): Promise<PersonData | null> {
+  async getById(id: IdType): Promise<PersonData | null> {
     const person = await SequelizePerson.findByPk(id);
     if (!person) {
       return null;
@@ -34,7 +36,7 @@ export class SequelizePersonService {
 export class TypeOrmPersonService {
   private respository = AppDataSource.getRepository(TypeORMPerson);
 
-  async getById(id: number): Promise<PersonData | null> {
+  async getById(id: IdType): Promise<PersonData | null> {
     const person = await this.respository.findOneBy({ id });
     if (!person) {
       return null;
@@ -50,7 +52,7 @@ export class TypeOrmPersonService {
 }
 
 export class PrismaPersonService {
-  async getById(id: number): Promise<PersonData | null> {
+  async getById(id: IdType): Promise<PersonData | null> {
     const person = await prisma.person.findUnique({
       where: { id },
     });
