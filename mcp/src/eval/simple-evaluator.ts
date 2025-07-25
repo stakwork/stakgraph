@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 import { generateObject } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
-import { getOrCreateStagehand } from "../tools/stagehand/utils.js";
+import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
 
 // Load environment variables
@@ -104,19 +104,21 @@ Example for element existence:
 export class SimpleEvaluator {
   stagehand: any;
   model: any;
-  currentProvider: 'anthropic' | 'openai';
+  currentProvider: "anthropic" | "openai";
+  sessionId: string;
 
-  constructor() {
-
+  constructor(sessionId: string) {
+    this.sessionId = sessionId;
     // Determine which LLM provider to use based on environment
-    this.currentProvider = process.env.LLM_PROVIDER === 'anthropic' ? 'anthropic' : 'openai';
+    this.currentProvider =
+      process.env.LLM_PROVIDER === "anthropic" ? "anthropic" : "openai";
 
     // Initialize the AI model for generateObject based on provider
     this.model = this.createModel(this.currentProvider);
   }
 
-  createModel(provider: 'anthropic' | 'openai') {
-    if (provider === 'anthropic') {
+  createModel(provider: "anthropic" | "openai") {
+    if (provider === "anthropic") {
       return anthropic("claude-3-5-sonnet-20241022");
     } else {
       return openai("gpt-4o");
@@ -125,21 +127,23 @@ export class SimpleEvaluator {
 
   async initStagehand() {
     if (!this.stagehand) {
-      this.stagehand = await getOrCreateStagehand();
+      this.stagehand = await getOrCreateStagehand(this.sessionId);
     }
     return this.stagehand;
   }
 
   private async sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   private isRetryableError(error: any): boolean {
-    return error.message?.includes("529") ||
-           error.message?.includes("Overloaded") ||
-           error.message?.includes("rate limit") ||
-           error.status === 429 ||
-           error.status === 529;
+    return (
+      error.message?.includes("529") ||
+      error.message?.includes("Overloaded") ||
+      error.message?.includes("rate limit") ||
+      error.status === 429 ||
+      error.status === 529
+    );
   }
 
   private calculateBackoffDelay(attempt: number): number {
@@ -158,7 +162,9 @@ export class SimpleEvaluator {
   }> {
     const userMessage = `Please create Stagehand test steps for this prompt:\n\n${prompt}\n\nBase URL: ${baseUrl}`;
 
-    console.log(`🤖 Using generateObject with ${this.currentProvider} provider...`);
+    console.log(
+      `🤖 Using generateObject with ${this.currentProvider} provider...`
+    );
 
     // Try current provider up to 3 times with exponential backoff
     let lastError: any;
@@ -166,7 +172,9 @@ export class SimpleEvaluator {
       try {
         if (attempt > 0) {
           const delay = this.calculateBackoffDelay(attempt - 1);
-          console.log(`⏳ Waiting ${Math.round(delay)}ms before retry ${attempt + 1}/3...`);
+          console.log(
+            `⏳ Waiting ${Math.round(delay)}ms before retry ${attempt + 1}/3...`
+          );
           await this.sleep(delay);
         }
 
@@ -178,9 +186,19 @@ export class SimpleEvaluator {
           temperature: 0.1,
         });
 
-        console.log(`✅ Successfully generated structured response with ${this.currentProvider}${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}!`);
-        console.log("🔍 DEBUG: Generated test criteria:", result.object.testCriteria);
-        console.log("🔍 DEBUG: Generated steps:", JSON.stringify(result.object.steps, null, 2));
+        console.log(
+          `✅ Successfully generated structured response with ${
+            this.currentProvider
+          }${attempt > 0 ? ` (attempt ${attempt + 1})` : ""}!`
+        );
+        console.log(
+          "🔍 DEBUG: Generated test criteria:",
+          result.object.testCriteria
+        );
+        console.log(
+          "🔍 DEBUG: Generated steps:",
+          JSON.stringify(result.object.steps, null, 2)
+        );
 
         return {
           steps: result.object.steps as Step[],
@@ -188,7 +206,10 @@ export class SimpleEvaluator {
         };
       } catch (error: any) {
         lastError = error;
-        console.error(`❌ Attempt ${attempt + 1}/3 failed with ${this.currentProvider}:`, error.message);
+        console.error(
+          `❌ Attempt ${attempt + 1}/3 failed with ${this.currentProvider}:`,
+          error.message
+        );
 
         if (!this.isRetryableError(error)) {
           // Non-retryable error, fail immediately
@@ -198,14 +219,21 @@ export class SimpleEvaluator {
     }
 
     // All retries with primary provider failed, try fallback provider
-    const fallbackProvider = this.currentProvider === 'anthropic' ? 'openai' : 'anthropic';
-    console.log(`🔄 Primary provider exhausted, switching to ${fallbackProvider} provider...`);
+    const fallbackProvider =
+      this.currentProvider === "anthropic" ? "openai" : "anthropic";
+    console.log(
+      `🔄 Primary provider exhausted, switching to ${fallbackProvider} provider...`
+    );
 
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         if (attempt > 0) {
           const delay = this.calculateBackoffDelay(attempt - 1);
-          console.log(`⏳ Waiting ${Math.round(delay)}ms before fallback retry ${attempt + 1}/2...`);
+          console.log(
+            `⏳ Waiting ${Math.round(delay)}ms before fallback retry ${
+              attempt + 1
+            }/2...`
+          );
           await this.sleep(delay);
         }
 
@@ -218,24 +246,43 @@ export class SimpleEvaluator {
           temperature: 0.1,
         });
 
-        console.log(`✅ Successfully generated steps with ${fallbackProvider} fallback${attempt > 0 ? ` (attempt ${attempt + 1})` : ''}!`);
-        console.log("🔍 DEBUG: Generated test criteria:", fallbackResult.object.testCriteria);
-        console.log("🔍 DEBUG: Generated steps:", JSON.stringify(fallbackResult.object.steps, null, 2));
+        console.log(
+          `✅ Successfully generated steps with ${fallbackProvider} fallback${
+            attempt > 0 ? ` (attempt ${attempt + 1})` : ""
+          }!`
+        );
+        console.log(
+          "🔍 DEBUG: Generated test criteria:",
+          fallbackResult.object.testCriteria
+        );
+        console.log(
+          "🔍 DEBUG: Generated steps:",
+          JSON.stringify(fallbackResult.object.steps, null, 2)
+        );
 
         return {
           steps: fallbackResult.object.steps as Step[],
           testCriteria: fallbackResult.object.testCriteria,
         };
       } catch (fallbackError: any) {
-        console.error(`❌ Fallback attempt ${attempt + 1}/2 failed with ${fallbackProvider}:`, fallbackError.message);
+        console.error(
+          `❌ Fallback attempt ${
+            attempt + 1
+          }/2 failed with ${fallbackProvider}:`,
+          fallbackError.message
+        );
 
         if (!this.isRetryableError(fallbackError)) {
-          throw new Error(`Step generation failed with both providers. Primary: ${lastError.message}, Fallback: ${fallbackError.message}`);
+          throw new Error(
+            `Step generation failed with both providers. Primary: ${lastError.message}, Fallback: ${fallbackError.message}`
+          );
         }
       }
     }
 
-    throw new Error(`Step generation failed with both providers after all retries. Primary: ${lastError.message}`);
+    throw new Error(
+      `Step generation failed with both providers after all retries. Primary: ${lastError.message}`
+    );
   }
 
   async executeSteps(steps: Step[], baseUrl: string): Promise<any[]> {
@@ -263,7 +310,10 @@ export class SimpleEvaluator {
               );
               results[i] = observeResult;
               console.log(`✅ Observed: ${step.instruction}`);
-              console.log(`🔍 DEBUG: Raw observe result:`, JSON.stringify(observeResult, null, 2));
+              console.log(
+                `🔍 DEBUG: Raw observe result:`,
+                JSON.stringify(observeResult, null, 2)
+              );
               console.log(
                 `📊 Found ${
                   Array.isArray(observeResult)
@@ -278,14 +328,19 @@ export class SimpleEvaluator {
                 const extractResult = await this.stagehand.page.extract(
                   step.instruction || "",
                   z.object({
-                    content: z.string().describe("The extracted text content")
+                    content: z.string().describe("The extracted text content"),
                   })
                 );
                 results[i] = extractResult;
                 console.log(`✅ Extracted: ${step.instruction}`);
-                console.log(`🔍 DEBUG: Raw extract result:`, JSON.stringify(extractResult, null, 2));
+                console.log(
+                  `🔍 DEBUG: Raw extract result:`,
+                  JSON.stringify(extractResult, null, 2)
+                );
               } catch (extractError: any) {
-                console.log(`⚠️ Extract step failed, will retry with exponential backoff...`);
+                console.log(
+                  `⚠️ Extract step failed, will retry with exponential backoff...`
+                );
 
                 if (this.isRetryableError(extractError)) {
                   // Try up to 2 more times with exponential backoff
@@ -294,33 +349,56 @@ export class SimpleEvaluator {
 
                   for (let retryAttempt = 0; retryAttempt < 2; retryAttempt++) {
                     const delay = this.calculateBackoffDelay(retryAttempt);
-                    console.log(`⏳ Waiting ${Math.round(delay)}ms before extract retry ${retryAttempt + 1}/2...`);
+                    console.log(
+                      `⏳ Waiting ${Math.round(delay)}ms before extract retry ${
+                        retryAttempt + 1
+                      }/2...`
+                    );
                     await this.sleep(delay);
 
                     try {
                       const retryResult = await this.stagehand.page.extract(
                         step.instruction || "",
                         z.object({
-                          content: z.string().describe("The extracted text content")
+                          content: z
+                            .string()
+                            .describe("The extracted text content"),
                         })
                       );
                       results[i] = retryResult;
-                      console.log(`✅ Extracted (retry ${retryAttempt + 1}): ${step.instruction}`);
-                      console.log(`🔍 DEBUG: Retry extract result:`, JSON.stringify(retryResult, null, 2));
+                      console.log(
+                        `✅ Extracted (retry ${retryAttempt + 1}): ${
+                          step.instruction
+                        }`
+                      );
+                      console.log(
+                        `🔍 DEBUG: Retry extract result:`,
+                        JSON.stringify(retryResult, null, 2)
+                      );
                       success = true;
                       break;
                     } catch (retryError: any) {
                       lastRetryError = retryError;
-                      console.log(`❌ Extract retry ${retryAttempt + 1}/2 failed:`, retryError.message);
+                      console.log(
+                        `❌ Extract retry ${retryAttempt + 1}/2 failed:`,
+                        retryError.message
+                      );
                     }
                   }
 
                   if (!success) {
-                    console.log(`❌ All extract retries exhausted. Provider overload persists.`);
-                    results[i] = { error: `Extract failed after all retries: ${lastRetryError.message}` };
+                    console.log(
+                      `❌ All extract retries exhausted. Provider overload persists.`
+                    );
+                    results[i] = {
+                      error: `Extract failed after all retries: ${lastRetryError.message}`,
+                    };
                   }
                 } else {
-                  console.log(`❌ Extract failed with non-retryable error:`, extractError);
+                  console.log(
+                    `❌ Extract failed with non-retryable error:`,
+                    extractError
+                  );
                   results[i] = { error: extractError.message };
                 }
               }
@@ -364,8 +442,14 @@ export class SimpleEvaluator {
   ): Promise<TestResult> {
     const failedCriteria: string[] = [];
 
-    console.log(`🔍 DEBUG: Starting evaluation with ${testCriteria.length} test criteria:`, testCriteria);
-    console.log(`🔍 DEBUG: Step results:`, JSON.stringify(stepResults, null, 2));
+    console.log(
+      `🔍 DEBUG: Starting evaluation with ${testCriteria.length} test criteria:`,
+      testCriteria
+    );
+    console.log(
+      `🔍 DEBUG: Step results:`,
+      JSON.stringify(stepResults, null, 2)
+    );
 
     // Analyze step results
     for (let i = 0; i < steps.length; i++) {
@@ -386,13 +470,17 @@ export class SimpleEvaluator {
         // For observe steps, check if elements were found
         if (!result || result.error) {
           console.log(`❌ Step failed due to error: ${result?.error}`);
-          console.log(`🔍 DEBUG: Adding to failed criteria: ${step.instruction}`);
+          console.log(
+            `🔍 DEBUG: Adding to failed criteria: ${step.instruction}`
+          );
           failedCriteria.push(step.instruction || "Unknown criterion");
         } else if (Array.isArray(result) && result.length === 0) {
           console.log(
             `❌ Step failed: No elements found matching the criteria`
           );
-          console.log(`🔍 DEBUG: Adding to failed criteria: ${step.instruction}`);
+          console.log(
+            `🔍 DEBUG: Adding to failed criteria: ${step.instruction}`
+          );
           failedCriteria.push(step.instruction || "Unknown criterion");
         } else if (Array.isArray(result) && result.length > 0) {
           console.log(
@@ -401,7 +489,9 @@ export class SimpleEvaluator {
           console.log(`🔍 DEBUG: Step content:`, result);
         } else {
           console.log(`❌ Step failed: Unexpected result structure`);
-          console.log(`🔍 DEBUG: Adding to failed criteria: ${step.instruction}`);
+          console.log(
+            `🔍 DEBUG: Adding to failed criteria: ${step.instruction}`
+          );
           failedCriteria.push(step.instruction || "Unknown criterion");
         }
       } else if (step.type === "extract") {
@@ -424,16 +514,32 @@ export class SimpleEvaluator {
           const wordMatches = criterion.match(/\b[a-zA-Z]{3,}\b/g) || [];
 
           const wordsToCheck = [
-            ...quotedMatches.map(w => w.replace(/['"]/g, '')),
-            ...wordMatches
-          ].filter(w => w.length > 2 && !['the', 'and', 'that', 'contains', 'word', 'page', 'title'].includes(w.toLowerCase()));
+            ...quotedMatches.map((w) => w.replace(/['"]/g, "")),
+            ...wordMatches,
+          ].filter(
+            (w) =>
+              w.length > 2 &&
+              ![
+                "the",
+                "and",
+                "that",
+                "contains",
+                "word",
+                "page",
+                "title",
+              ].includes(w.toLowerCase())
+          );
 
-          console.log(`🔍 DEBUG: Words to check: ${JSON.stringify(wordsToCheck)}`);
+          console.log(
+            `🔍 DEBUG: Words to check: ${JSON.stringify(wordsToCheck)}`
+          );
 
           for (const word of wordsToCheck) {
             const wordLower = word.toLowerCase();
             if (contentLower.includes(wordLower)) {
-              console.log(`🔍 DEBUG: Found matching word: "${wordLower}" in content`);
+              console.log(
+                `🔍 DEBUG: Found matching word: "${wordLower}" in content`
+              );
               criteriaMatched = true;
               break;
             }
@@ -455,7 +561,9 @@ export class SimpleEvaluator {
     }
 
     const status = failedCriteria.length === 0 ? "PASS" : "FAIL";
-    console.log(`🔍 DEBUG: Final evaluation - Failed criteria count: ${failedCriteria.length}`);
+    console.log(
+      `🔍 DEBUG: Final evaluation - Failed criteria count: ${failedCriteria.length}`
+    );
     console.log(`🔍 DEBUG: Failed criteria:`, failedCriteria);
     console.log(`🔍 DEBUG: Final status: ${status}`);
 

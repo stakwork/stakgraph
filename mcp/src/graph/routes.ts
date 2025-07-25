@@ -1,7 +1,15 @@
 import { Request, Response, NextFunction } from "express";
 import { Neo4jNode, node_type_descriptions, NodeType } from "./types.js";
-import { nameFileOnly, toReturnNode, isTrue } from "./utils.js";
+import {
+  nameFileOnly,
+  toReturnNode,
+  isTrue,
+  detectLanguagesAndPkgFiles,
+  cloneRepoToTmp,
+} from "./utils.js";
+import fs from "fs/promises";
 import * as G from "./graph.js";
+import { parseServiceFile } from "./service.js";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -50,7 +58,15 @@ export async function get_nodes(req: Request, res: Response) {
       ref_ids = (req.query.ref_ids as string).split(",");
     }
     const output = req.query.output as G.OutputFormat;
-    const result = await G.get_nodes(node_type, concise, ref_ids, output);
+    const language = req.query.language as string;
+
+    const result = await G.get_nodes(
+      node_type,
+      concise,
+      ref_ids,
+      output,
+      language
+    );
     if (output === "snippet") {
       res.send(result);
     } else {
@@ -77,6 +93,8 @@ export async function search(req: Request, res: Response) {
     const output = req.query.output as G.OutputFormat;
     let tests = isTrue(req.query.tests as string);
     const maxTokens = parseInt(req.query.max_tokens as string);
+    const language = req.query.language as string;
+
     if (maxTokens) {
       console.log("search with max tokens", maxTokens);
     }
@@ -88,7 +106,8 @@ export async function search(req: Request, res: Response) {
       maxTokens || 100000,
       method,
       output || "snippet",
-      tests
+      tests,
+      language
     );
     if (output === "snippet") {
       res.send(result);
@@ -110,10 +129,29 @@ export async function get_rules_files(req: Request, res: Response) {
   }
 }
 
-export async function get_services(_: Request, res: Response) {
+export async function get_services(req: Request, res: Response) {
   try {
-    const services = await G.get_services();
-    res.json(services);
+    if (req.query.clone === "true" && req.query.repo_url) {
+      const repoUrl = req.query.repo_url as string;
+      const username = req.query.username as string | undefined;
+      const pat = req.query.pat as string | undefined;
+      const commit = req.query.commit as string | undefined;
+
+      const repoDir = await cloneRepoToTmp(repoUrl, username, pat, commit);
+      const detected = await detectLanguagesAndPkgFiles(repoDir);
+
+      const services = [];
+      for (const { language, pkgFile } of detected) {
+        const body = await fs.readFile(pkgFile, "utf8");
+        const service = parseServiceFile(pkgFile, body, language);
+        services.push(service);
+      }
+      res.json(services);
+      return;
+    } else {
+      const services = await G.get_services();
+      res.json(services);
+    }
   } catch (error) {
     console.error("Error getting services config:", error);
     res

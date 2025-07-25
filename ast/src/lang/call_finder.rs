@@ -71,6 +71,10 @@ fn find_only_one_function_file<G: Graph>(
 ) -> Option<NodeData> {
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+    if nodes.len() == 0 {
+        log_cmd(format!("::: found zero {:?}", func_name));
+        return None;
+    }
     for node in nodes {
         let is_same = node.start == source_start && node.file == current_file;
         // NOT empty functions (interfaces)
@@ -160,7 +164,7 @@ fn find_function_in_same_directory<G: Graph>(
     let mut same_dir_files = Vec::new();
 
     log_cmd(format!(
-        "::: found {:?} nodes name: {:?} file: {:?} in dir: {:?}",
+        "::: dir found {:?} nodes name: {:?} file: {:?} in dir: {:?}",
         nodes.len(),
         func_name,
         current_file,

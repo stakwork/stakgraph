@@ -1,62 +1,4 @@
 <snippet>
-name: Function: NewRouter
-ref_id: test_ref_id
-file: stakwork/demo-repo/routes.go
-start: 17, end: 41
-```
-func NewRouter() *http.Server {
-	r := initChi()
-
-	r.Group(func(r chi.Router) {
-		r.Get("/person/{id}", GetPerson)
-		r.Post("/person", CreatePerson)
-		r.Get("/people", GetPeople)
-	})
-
-	PORT := os.Getenv("PORT")
-	if PORT == "" {
-		PORT = "5002"
-	}
-
-	server := &http.Server{Addr: ":" + PORT, Handler: r}
-
-	go func() {
-		fmt.Printf("Listening on port %s\n", PORT)
-		if err := server.ListenAndServe(); err != nil {
-			fmt.Printf("server err: %s\n", err.Error())
-		}
-	}()
-
-	return server
-}
-```
-</snippet>
-<snippet>
-name: Function: main
-ref_id: test_ref_id
-file: stakwork/demo-repo/main.go
-start: 14, end: 30
-```
-func main() {
-	fmt.Println("Hello, World!")
-	InitDB()
-
-	router := NewRouter()
-
-	shutdownSignal := make(chan os.Signal, 1)
-	signal.Notify(shutdownSignal, syscall.SIGINT, syscall.SIGTERM)
-	<-shutdownSignal
-
-	// shutdown web server
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := router.Shutdown(ctx); err != nil {
-		fmt.Printf("error shutting down server: %s", err.Error())
-	}
-}
-```
-</snippet>
-<snippet>
 name: File: main.go
 ref_id: test_ref_id
 file: stakwork/demo-repo/main.go
@@ -211,5 +153,63 @@ func initChi() *chi.Mux {
 	return r
 }
 
+```
+</snippet>
+<snippet>
+name: Function: NewRouter
+ref_id: test_ref_id
+file: stakwork/demo-repo/routes.go
+start: 17, end: 41
+```
+func NewRouter() *http.Server {
+	r := initChi()
+
+	r.Group(func(r chi.Router) {
+		r.Get("/person/{id}", GetPerson)
+		r.Post("/person", CreatePerson)
+		r.Get("/people", GetPeople)
+	})
+
+	PORT := os.Getenv("PORT")
+	if PORT == "" {
+		PORT = "5002"
+	}
+
+	server := &http.Server{Addr: ":" + PORT, Handler: r}
+
+	go func() {
+		fmt.Printf("Listening on port %s\n", PORT)
+		if err := server.ListenAndServe(); err != nil {
+			fmt.Printf("server err: %s\n", err.Error())
+		}
+	}()
+
+	return server
+}
+```
+</snippet>
+<snippet>
+name: Function: main
+ref_id: test_ref_id
+file: stakwork/demo-repo/main.go
+start: 14, end: 30
+```
+func main() {
+	fmt.Println("Hello, World!")
+	InitDB()
+
+	router := NewRouter()
+
+	shutdownSignal := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignal, syscall.SIGINT, syscall.SIGTERM)
+	<-shutdownSignal
+
+	// shutdown web server
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := router.Shutdown(ctx); err != nil {
+		fmt.Printf("error shutting down server: %s", err.Error())
+	}
+}
 ```
 </snippet>

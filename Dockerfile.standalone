@@ -1,29 +1,43 @@
-
-# Use rust as the build environment
 FROM rust:1.87.0 AS builder
 
-# Create app directory
 WORKDIR /app
 
-# Copy the srcs and Cargo.tomls
-COPY ast/src ast/src
+# Create a temporary workspace with only the 3 crates we need
+RUN echo '[workspace]' > Cargo.toml && \
+    echo 'members = ["ast", "lsp", "standalone"]' >> Cargo.toml && \
+    echo 'resolver = "2"' >> Cargo.toml
+
+# Copy ONLY the Cargo.toml files for our 3 crates
 COPY ast/Cargo.toml ast/Cargo.toml
-COPY lsp/src lsp/src
 COPY lsp/Cargo.toml lsp/Cargo.toml
-COPY standalone/src standalone/src
 COPY standalone/Cargo.toml standalone/Cargo.toml
+
+# Create dummy src files for all 3 crates
+RUN mkdir -p ast/src lsp/src standalone/src && \
+    echo "fn main() {}" > ast/src/main.rs && \
+    echo "fn main() {}" > lsp/src/main.rs && \
+    echo "fn main() {}" > standalone/src/main.rs
+
+# Build dependencies for standalone (this will pull in ast/lsp as workspace deps)
+RUN cargo build --release --bin standalone --features neo4j
+
+# Remove dummy files and temp workspace
+RUN rm -rf ast/src lsp/src standalone/src
+
+# Copy actual source code
+COPY ast/src ast/src
+COPY lsp/src lsp/src
+COPY standalone/src standalone/src
 COPY standalone/static standalone/static
 
-# Build the release version of your application
-RUN cargo build --release --manifest-path standalone/Cargo.toml --features neo4j
+# Build the actual application (only this rebuilds when source changes)
+RUN cargo build --release --bin standalone --features neo4j
 
-# lsp final image
 FROM sphinxlightning/stakgraph-lsp:latest
 
-# Set working directory
 WORKDIR /app
 
-COPY --from=builder /app/standalone/target/release/standalone /app/stakgraph
+COPY --from=builder /app/target/release/standalone /app/stakgraph
 COPY --from=builder /app/standalone/static /app/standalone/static
 
 CMD ["./stakgraph"]

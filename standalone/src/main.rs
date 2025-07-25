@@ -8,18 +8,19 @@ use axum::extract::Request;
 use axum::middleware::{self};
 use axum::{routing::get, routing::post, Router};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 use tracing::{debug_span, Span};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
-use types::Result;
+use types::{AsyncStatusMap, Result};
 
 #[derive(Clone)]
 struct AppState {
     tx: broadcast::Sender<StatusUpdate>,
     api_token: Option<String>, // Changed to Option<String>
+    async_status: AsyncStatusMap,
 }
 
 #[cfg(feature = "neo4j")]
@@ -35,11 +36,9 @@ async fn main() -> Result<()> {
 
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {
-        panic!(
-            "Failed to connect to the database: {:?}. The server will not start.",
-            e
-        );
+        panic!("Failed to connect to graph db: {:?}", e);
     }
+    graph_ops.graph.create_indexes().await?;
 
     let (tx, _rx) = broadcast::channel(10000);
 
@@ -60,7 +59,11 @@ async fn main() -> Result<()> {
         tracing::warn!("API_TOKEN not provided - authentication disabled");
     }
 
-    let app_state = Arc::new(AppState { tx, api_token });
+    let app_state = Arc::new(AppState {
+        tx,
+        api_token,
+        async_status: Arc::new(Mutex::new(std::collections::HashMap::new())),
+    });
 
     tracing::debug!("starting server");
     let cors_layer = CorsLayer::permissive();
@@ -69,9 +72,14 @@ async fn main() -> Result<()> {
 
     let mut protected_routes = Router::new()
         .route("/process", post(handlers::process))
+        .route("/sync", post(handlers::process))
         .route("/clear", post(handlers::clear_graph))
         .route("/ingest", post(handlers::ingest))
-        .route("/fetch-repo", post(handlers::fetch_repo));
+        .route("/ingest_async", post(handlers::ingest_async))
+        .route("/sync_async", post(handlers::sync_async))
+        .route("/status/:request_id", get(handlers::get_status))
+        .route("/fetch-repo", post(handlers::fetch_repo))
+        .route("/fetch-repos", get(handlers::fetch_repos));
 
     // Add bearer auth middleware only if API token is provided
     if app_state.api_token.is_some() {

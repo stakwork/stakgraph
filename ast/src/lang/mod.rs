@@ -183,7 +183,7 @@ impl Lang {
 
             let mut template_urls = Vec::new();
             let mut style_urls = Vec::new();
-            let mut component_name = String::new();
+            let mut component = NodeData::in_file(file);
 
             let class_query = self.q(&self.lang.class_definition_query(), &NodeType::Class);
             let mut class_cursor = QueryCursor::new();
@@ -196,15 +196,16 @@ impl Lang {
                         let mut nodes = class_match.nodes_for_capture_index(ci);
                         if let Some(node) = nodes.next() {
                             if o == &CLASS_NAME {
-                                component_name = node.utf8_text(code.as_bytes())?.to_string();
-                                break;
+                                component.name = node.utf8_text(code.as_bytes())?.to_string();
+                            } else if o == &CLASS_DEFINITION {
+                                component.start = node.start_position().row as usize;
                             }
                         }
                     }
                 }
             }
 
-            if component_name.is_empty() {
+            if component.name.is_empty() {
                 return Ok(Vec::new());
             }
 
@@ -245,7 +246,6 @@ impl Lang {
             }
 
             let mut edges = Vec::new();
-            let component = NodeData::name_file(&component_name, file);
 
             for template_url in template_urls {
                 let mut path = template_url;
@@ -265,7 +265,7 @@ impl Lang {
                 };
 
                 let template_name = std::path::Path::new(&path)
-                    .file_stem()
+                    .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or("template");
 
@@ -291,7 +291,7 @@ impl Lang {
                 };
 
                 let style_name = std::path::Path::new(&path)
-                    .file_stem()
+                    .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or("style");
 

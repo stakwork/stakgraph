@@ -53,3 +53,9 @@ ecosystem.config.js
 
 # Root level package-lock (empty, already ignored in mcp/)
 package-lock.json
+
+.neo4j
+
+# Tests
+standalone/tests/maps/map-*.html
+standalone.log

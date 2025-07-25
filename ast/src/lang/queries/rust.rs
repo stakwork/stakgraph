@@ -1,7 +1,6 @@
 use super::super::*;
 use super::consts::*;
 use anyhow::{Context, Result};
-use toml::Toml;
 use tree_sitter::{Language, Parser, Query, Tree};
 pub struct Rust(Language);
 
@@ -33,7 +32,29 @@ impl Stack for Rust {
     }
 
     fn lib_query(&self) -> Option<String> {
-        Toml::new().lib_query()
+        Some(format!(
+            r#"(document
+          (table 
+            (bare_key) @section (#eq? @section "dependencies")
+            (pair 
+              (bare_key) @{LIBRARY_NAME} 
+              (#not-eq? @{LIBRARY_NAME} "version")
+              [
+                ; Simple version string: package = "1.0.0"
+                (string) @{LIBRARY_VERSION}
+                
+                ; Inline table with version
+                (inline_table
+                  (pair
+                    (bare_key) @version_key (#eq? @version_key "version")
+                    (string) @{LIBRARY_VERSION}
+                  )
+                )
+              ]
+            ) @{LIBRARY}
+          )
+        )"#
+        ))
     }
 
     fn imports_query(&self) -> Option<String> {

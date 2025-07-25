@@ -1,5 +1,6 @@
 import express, { Request, Response } from "express";
-import { mcp_routes } from "./tools/index.js";
+import { mcp_routes } from "./tools/server.js";
+import { sse_routes } from "./tools/sse.js";
 import fileUpload from "express-fileupload";
 import * as r from "./graph/routes.js";
 import * as uploads from "./graph/uploads.js";
@@ -10,6 +11,7 @@ import { App as SageApp } from "./sage/src/app.js";
 import dotenv from "dotenv";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
+import { test_routes } from "./eval/tests.js";
 
 dotenv.config();
 
@@ -23,10 +25,13 @@ function swagger(_: Request, res: Response) {
 const app = express();
 app.use(cors());
 
-// MCP routes must come before body parsing middleware to preserve raw streams
-mcp_routes(app);
+// SSE routes must come before body parsing middleware to preserve raw streams
+sse_routes(app);
 
 app.use(express.json());
+
+mcp_routes(app);
+
 app.use(express.urlencoded({ extended: true }));
 app.use(fileUpload());
 
@@ -44,6 +49,8 @@ app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 
 evalRoutes(app);
+
+test_routes(app);
 
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);

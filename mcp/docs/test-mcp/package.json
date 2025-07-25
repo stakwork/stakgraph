@@ -1,0 +1,23 @@
+{
+  "name": "test-mcp-sse",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "sse": "ts-node sse.ts",
+    "agent": "ts-node agent.ts",
+    "http": "ts-node http.ts",
+    "http-mcp-client": "ts-node http-mcp-client.ts",
+    "test-lru": "ts-node test-lru.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.1",
+    "ai": "^4.3.16",
+    "aieo": "^0.1.12",
+    "dotenv": "^17.2.0"
+  }
+}

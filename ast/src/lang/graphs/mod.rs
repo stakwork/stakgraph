@@ -65,7 +65,7 @@ pub struct Edge {
     pub target: NodeRef,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
 #[serde(tag = "edge_type", content = "edge_data")]
 #[serde(rename_all = "UPPERCASE")]
 pub enum EdgeType {

@@ -1,4 +1,4 @@
-# docker build -t repo2graph .
+# docker buildx build --platform linux/amd64,linux/arm64 -t repo2graph .
 
 # Use an official Node.js runtime as a parent image
 FROM node:22-bookworm-slim
@@ -26,6 +26,17 @@ RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html
 COPY ./textarea ./textarea
 COPY ./app ./app
+RUN mkdir -p ./tests
+COPY ./tests/playwright.config.js ./tests/playwright.config.js
+COPY ./tests/tests.html ./tests/tests.html
+COPY ./tests/staktrak/dist/staktrak.js ./tests/staktrak/dist/staktrak.js
+COPY ./tests/staktrak/dist/playwright-generator.js ./tests/staktrak/dist/playwright-generator.js
+COPY ./tests/frame/app.js ./tests/frame/app.js
+COPY ./tests/frame/style.css ./tests/frame/style.css
+COPY ./tests/frame/frame.html ./tests/frame/frame.html
+COPY ./tests/app.js ./tests/app.js
+COPY ./tests/style.css ./tests/style.css
+COPY ./tests/hooks.js ./tests/hooks.js
 
 # Build the application
 RUN yarn build

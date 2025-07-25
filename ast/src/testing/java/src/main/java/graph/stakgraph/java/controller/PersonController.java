@@ -12,6 +12,8 @@ protected static String appName = "stakgraph";
 public class PersonController {
     private final PersonRepository repository;
 
+    private static final Person examplePerson = new Person("Alice", "alice@example.com");
+
     public PersonController(PersonRepository repository) {
         this.repository = repository;
     }

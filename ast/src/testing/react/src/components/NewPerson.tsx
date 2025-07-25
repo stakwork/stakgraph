@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import styled from 'styled-components';
-import * as api from '../api';
+import { useState } from "react";
+import styled from "styled-components";
+import * as api from "../api";
 
 const FormContainer = styled.div`
   max-width: 400px;
@@ -51,10 +51,10 @@ const SubmitButton = styled.button`
 `;
 
 function NewPerson() {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent): Promise<void> => {
     event.preventDefault();
 
     const newPerson = {
@@ -64,22 +64,22 @@ function NewPerson() {
 
     try {
       const response = await fetch(`${api.host}/person`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(newPerson),
       });
 
       if (!response.ok) {
-        console.error('Failed to add new person:', response.statusText);
+        console.error("Failed to add new person:", response.statusText);
         return;
       }
 
       const data = await response.json();
-      console.log('New person added:', data);
+      console.log("New person added:", data);
     } catch (error) {
-      console.error('Error adding new person:', error);
+      console.error("Error adding new person:", error);
     }
   };
 

@@ -23,9 +23,9 @@ export const PROVIDER_MODELS: Record<ProviderName, Provider> = {
 };
 
 export function getProvider(arg?: "anthropic" | "openai"): Provider {
-  let provider = PROVIDER_MODELS["openai"];
-  if (arg === "anthropic" || process.env.LLM_PROVIDER === "anthropic") {
-    provider = PROVIDER_MODELS["anthropic"];
+  let provider = PROVIDER_MODELS["anthropic"];
+  if (arg === "openai" || process.env.LLM_PROVIDER === "openai") {
+    provider = PROVIDER_MODELS["openai"];
   }
   return provider;
 }

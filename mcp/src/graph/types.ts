@@ -173,3 +173,27 @@ export interface ServiceParser {
   envRegex: RegExp;
   build(pkgFile: Neo4jNode): Service;
 }
+
+export enum Language {
+  Rust = "rust",
+  Go = " go",
+  Typescript = "typescript",
+  Python = "python",
+  Ruby = "ruby",
+  Kotlin = "kotlin",
+  Swift = "swift",
+  Java = "java",
+  Cpp = "cpp",
+}
+
+export const LANGUAGE_PACKAGE_FILES: Record<Language, string[]> = {
+  [Language.Rust]: ["Cargo.toml"],
+  [Language.Go]: ["go.mod"],
+  [Language.Typescript]: ["package.json"],
+  [Language.Python]: ["requirements.txt"],
+  [Language.Ruby]: ["Gemfile"],
+  [Language.Kotlin]: [".gradle.kts", ".gradle", ".properties"],
+  [Language.Swift]: ["Podfile", "Cartfile"],
+  [Language.Java]: ["pom.xml"],
+  [Language.Cpp]: ["CMakeLists.txt"],
+};

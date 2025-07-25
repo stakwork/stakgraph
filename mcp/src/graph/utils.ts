@@ -1,5 +1,9 @@
 import { Node, Neo4jNode, ReturnNode, NodeType, toNum } from "./types.js";
 import { Data_Bank } from "./neo4j.js";
+import { simpleGit } from "simple-git";
+import path from "path";
+import fg from "fast-glob";
+import { LANGUAGE_PACKAGE_FILES, Language } from "./types.js";
 
 export function isTrue(value: string): boolean {
   return value === "true" || value === "1" || value === "True";
@@ -112,4 +116,87 @@ export function clean_node(n: Neo4jNode): Neo4jNode {
     n.properties.token_count = toNum(n.properties.token_count);
   }
   return n;
+}
+
+/**
+ * @param language The programming language name (case insensitive)
+ * @returns Array of file extensions including the dot (e.g. ['.js', '.jsx'])
+ */
+export function getExtensionsForLanguage(language: string): string[] {
+  const lang = language.toLowerCase();
+
+  const languageMap: Record<string, string[]> = {
+    javascript: [".js", ".jsx", ".cjs", ".mjs"],
+    typescript: [".ts", ".tsx", ".d.ts"],
+    python: [".py", ".pyi", ".pyw"],
+    ruby: [".rb", ".rake", ".gemspec"],
+    go: [".go"],
+    rust: [".rs"],
+    java: [".java"],
+    kotlin: [".kt", ".kts"],
+    swift: [".swift"],
+    c: [".c", ".h"],
+    cpp: [".cpp", ".cc", ".cxx", ".hpp", ".hxx", ".h"],
+    csharp: [".cs"],
+    php: [".php"],
+    html: [".html", ".htm"],
+    css: [".css", ".scss", ".sass", ".less"],
+    shell: [".sh", ".bash", ".zsh"],
+    sql: [".sql"],
+    markdown: [".md", ".markdown"],
+    json: [".json"],
+    yaml: [".yml", ".yaml"],
+    xml: [".xml"],
+    svelte: [".svelte"],
+    vue: [".vue"],
+    angular: [
+      ".component.ts",
+      ".service.ts",
+      ".directive.ts",
+      ".pipe.ts",
+      ".module.ts",
+    ],
+  };
+
+  return languageMap[lang] || [];
+}
+
+export async function cloneRepoToTmp(
+  repoUrl: string,
+  username?: string,
+  pat?: string,
+  commit?: string
+): Promise<string> {
+  const repoName =
+    repoUrl
+      .split("/")
+      .pop()
+      ?.replace(/\.git$/, "") || "repo";
+  const cloneDir = path.join("/tmp", repoName + "-" + Date.now());
+
+  let url = repoUrl;
+  if (username && pat) {
+    url = repoUrl.replace("https://", `https://${username}:${pat}@`);
+  }
+
+  await simpleGit().clone(url, cloneDir);
+
+  if (commit) {
+    await simpleGit(cloneDir).checkout(commit);
+  }
+
+  return cloneDir;
+}
+export async function detectLanguagesAndPkgFiles(
+  repoDir: string
+): Promise<{ language: Language; pkgFile: string }[]> {
+  const detected: { language: Language; pkgFile: string }[] = [];
+  for (const lang of Object.values(Language)) {
+    const patterns = (LANGUAGE_PACKAGE_FILES[lang] || []).map((f) => `**/${f}`);
+    const found = await fg(patterns, { cwd: repoDir, absolute: true });
+    for (const pkgFile of found) {
+      detected.push({ language: lang, pkgFile });
+    }
+  }
+  return detected;
 }

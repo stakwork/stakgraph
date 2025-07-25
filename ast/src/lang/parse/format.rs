@@ -616,7 +616,7 @@ impl Lang {
                 lsp_tx,
             )?;
         }
-        log_cmd(format!("found function {:?}", func.name));
+        log_cmd(format!("found function {} in file {}", func.name, file));
         Ok(Some((
             func,
             parent,

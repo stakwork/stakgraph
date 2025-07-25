@@ -14,7 +14,7 @@ lazy_static! {
 }
 
 const DATA_BANK: &str = "Data_Bank";
-const BATCH_SIZE: usize = 500;
+const BATCH_SIZE: usize = 4096;
 
 pub struct Neo4jConnectionManager;
 
@@ -41,16 +41,6 @@ impl Neo4jConnectionManager {
             }
             Err(e) => Err(anyhow::anyhow!("Failed to connect to Neo4j: {}", e)),
         }
-    }
-
-    pub async fn initialize_from_env() -> Result<Neo4jConnection> {
-        let uri =
-            std::env::var("NEO4J_URI").unwrap_or_else(|_| "bolt://localhost:7687".to_string());
-        let username = std::env::var("NEO4J_USERNAME").unwrap_or_else(|_| "neo4j".to_string());
-        let password = std::env::var("NEO4J_PASSWORD").unwrap_or_else(|_| "testtest".to_string());
-        let database = std::env::var("NEO4J_DATABASE").unwrap_or_else(|_| "neo4j".to_string());
-
-        Self::initialize(&uri, &username, &password, &database).await
     }
 }
 
@@ -133,27 +123,62 @@ impl EdgeQueryBuilder {
         );
         (query, params)
     }
+}
 
-    pub fn build_from_keys(
-        source_key: &str,
-        target_key: &str,
-        edge_type: &EdgeType,
-    ) -> (String, BoltMap) {
-        let mut params = BoltMap::new();
-        boltmap_insert_str(&mut params, "source_key", source_key);
-        boltmap_insert_str(&mut params, "target_key", target_key);
+pub fn build_batch_edge_queries<I>(edges: I, batch_size: usize) -> Vec<(String, BoltMap)>
+where
+    I: Iterator<Item = (String, String, EdgeType)>,
+{
+    use itertools::Itertools;
+    use std::collections::HashMap;
 
-        // println!("[EdgeQueryBuilder] source_key: {}, target_key: {}, {:?}", source_key, target_key, edge_type);
+    // Group edges by type
+    let edges_by_type: HashMap<EdgeType, Vec<(String, String)>> = edges
+        .map(|(source, target, edge_type)| (edge_type, (source, target)))
+        .into_group_map();
 
-        let query = format!(
-            "MATCH (source {{node_key: $source_key}})
-            MATCH (target {{node_key: $target_key}})
-            MERGE (source)-[r:{}]->(target)
-            RETURN r",
-            edge_type.to_string()
-        );
-        (query, params)
-    }
+    // Create batched queries for each edge type
+    edges_by_type
+        .into_iter()
+        .flat_map(|(edge_type, type_edges)| {
+            // Batch the edges for this type
+            let chunks: Vec<Vec<(String, String)>> = type_edges
+                .into_iter()
+                .chunks(batch_size)
+                .into_iter()
+                .map(|chunk| chunk.collect())
+                .collect();
+
+            chunks
+                .into_iter()
+                .map(|chunk| {
+                    let edges_data: Vec<BoltMap> = chunk
+                        .into_iter()
+                        .map(|(source, target)| {
+                            let mut edge_map = BoltMap::new();
+                            boltmap_insert_str(&mut edge_map, "source", &source);
+                            boltmap_insert_str(&mut edge_map, "target", &target);
+                            edge_map
+                        })
+                        .collect();
+
+                    let mut params = BoltMap::new();
+                    boltmap_insert_list_of_maps(&mut params, "edges", edges_data);
+
+                    // could use MERGE instead of CREATE here...
+                    let query = format!(
+                        "UNWIND $edges AS edge
+                         MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
+                         CREATE (source)-[r:{}]->(target)
+                         RETURN count(r)",
+                        edge_type.to_string()
+                    );
+
+                    (query, params)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 pub struct TransactionManager<'a> {
@@ -189,15 +214,11 @@ impl<'a> TransactionManager<'a> {
         for (query_str, bolt_map) in self.queries {
             let mut query_obj = query(&query_str);
             if query_str.contains("$properties") {
-                let properties = boltmap_to_bolttype_map(&bolt_map);
-                query_obj = query_obj.param("properties", properties);
-
                 if let Some(BoltType::String(node_key)) = bolt_map.value.get("node_key") {
                     query_obj = query_obj.param("node_key", node_key.value.as_str());
                 }
-                if let Some(BoltType::String(ref_id)) = bolt_map.value.get("ref_id") {
-                    query_obj = query_obj.param("ref_id", ref_id.value.as_str());
-                }
+                let properties = boltmap_to_bolttype_map(bolt_map);
+                query_obj = query_obj.param("properties", properties);
             } else {
                 for (key, value) in bolt_map.value.iter() {
                     query_obj = query_obj.param(key.value.as_str(), value.clone());
@@ -214,25 +235,30 @@ pub async fn execute_batch(
     conn: &Neo4jConnection,
     queries: Vec<(String, BoltMap)>,
 ) -> Result<(), anyhow::Error> {
+    use itertools::Itertools;
+
     let total_chunks = (queries.len() as f64 / BATCH_SIZE as f64).ceil() as usize;
 
-    for (i, chunk) in queries.chunks(BATCH_SIZE).enumerate() {
-        debug!("Processing chunk {}/{}", i + 1, total_chunks);
+    let chunked_queries: Vec<Vec<_>> = queries
+        .into_iter()
+        .chunks(BATCH_SIZE)
+        .into_iter()
+        .map(|chunk| chunk.collect())
+        .collect();
+
+    for (i, chunk) in chunked_queries.into_iter().enumerate() {
+        info!("Processing chunk {}/{}", i + 1, total_chunks);
         let mut txn = conn.start_txn().await?;
 
         for (query_str, params) in chunk {
-            let mut query_obj = query(query_str);
+            let mut query_obj = query(&query_str);
 
             if query_str.contains("$properties") {
-                let properties = boltmap_to_bolttype_map(params);
-                query_obj = query_obj.param("properties", properties);
-
                 if let Some(BoltType::String(node_key)) = params.value.get("node_key") {
                     query_obj = query_obj.param("node_key", node_key.value.as_str());
                 }
-                if let Some(BoltType::String(ref_id)) = params.value.get("ref_id") {
-                    query_obj = query_obj.param("ref_id", ref_id.value.as_str());
-                }
+                let properties = boltmap_to_bolttype_map(params);
+                query_obj = query_obj.param("properties", properties);
             } else {
                 for (key, value) in params.value.iter() {
                     query_obj = query_obj.param(key.value.as_str(), value.clone());
@@ -251,6 +277,31 @@ pub async fn execute_batch(
             return Err(e.into());
         }
         debug!("Successfully committed chunk {}/{}", i + 1, total_chunks);
+    }
+    Ok(())
+}
+
+pub async fn execute_queries_simple(
+    conn: &Neo4jConnection,
+    queries: Vec<(String, BoltMap)>,
+) -> Result<(), anyhow::Error> {
+    let total_queries = queries.len();
+    for (i, (query_str, params)) in queries.into_iter().enumerate() {
+        info!("Processing query {}/{}", i + 1, total_queries);
+
+        let mut query_obj = query(&query_str);
+
+        // Add parameters
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        // Execute in a transaction
+        let mut txn = conn.start_txn().await?;
+        txn.run(query_obj).await?;
+        txn.commit().await?;
+
+        debug!("Successfully executed query {}/{}", i + 1, total_queries);
     }
     Ok(())
 }
@@ -300,18 +351,14 @@ pub fn count_nodes_edges_query() -> String {
 }
 pub fn graph_node_analysis_query() -> String {
     "MATCH (n) 
-     RETURN labels(n)[1] as node_type, n.name as name, n.file as file, n.start as start, 
-            n.end as end, n.body as body, n.data_type as data_type, n.docs as docs, 
-            n.hash as hash, n.meta as meta
-     ORDER BY node_type, name"
+     RETURN n.node_key as node_key
+     ORDER BY node_key"
         .to_string()
 }
 pub fn graph_edges_analysis_query() -> String {
     "MATCH (source)-[r]->(target) 
-     RETURN labels(source)[1] as source_type, source.name as source_name, source.file as source_file, source.start as source_start,
-            type(r) as edge_type, labels(target)[1] as target_type, 
-            target.name as target_name, target.file as target_file, target.start as target_start
-     ORDER BY source_type, source_name, edge_type, target_type, target_name"
+     RETURN source.node_key as source_key, type(r) as edge_type, target.node_key as target_key
+     ORDER BY source_key, edge_type, target_key"
         .to_string()
 }
 pub fn count_edges_by_type_query(edge_type: &EdgeType) -> (String, BoltMap) {
@@ -620,6 +667,7 @@ pub fn add_node_with_parent_query(
         parent_type.to_string(),
         node_type.to_string()
     );
+
     queries.push((query_str, params));
     queries
 }
@@ -833,14 +881,16 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
-pub fn remove_nodes_by_file_query(file_path: &str) -> (String, BoltMap) {
+pub fn remove_nodes_by_file_query(file_path: &str, root: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     // let file_name = file_path.split('/').last().unwrap_or(file_path);
     boltmap_insert_str(&mut params, "file_name", file_path);
+    boltmap_insert_str(&mut params, "root", root);
 
     let query = "
         MATCH (n)
-        WHERE n.file = $file_name OR n.file ENDS WITH $file_name
+        WHERE (n.file = $file_name OR n.file ENDS WITH $file_name)
+        AND n.file STARTS WITH $root
         WITH DISTINCT n
         OPTIONAL MATCH (n)-[r]-() 
         DELETE r
@@ -867,16 +917,21 @@ pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String,
 pub fn boltmap_insert_str(map: &mut BoltMap, key: &str, value: &str) {
     map.value.insert(key.into(), BoltType::String(value.into()));
 }
+pub fn boltmap_insert_map(map: &mut BoltMap, key: &str, value: BoltMap) {
+    map.value.insert(key.into(), BoltType::Map(value));
+}
+pub fn boltmap_insert_list_of_maps(map: &mut BoltMap, key: &str, value: Vec<BoltMap>) {
+    let list = neo4rs::BoltList {
+        value: value.into_iter().map(|m| BoltType::Map(m)).collect(),
+    };
+    map.value.insert(key.into(), BoltType::List(list));
+}
 pub fn boltmap_insert_int(map: &mut BoltMap, key: &str, value: i64) {
     map.value
         .insert(key.into(), BoltType::Integer(value.into()));
 }
-fn boltmap_to_bolttype_map(bolt_map: &BoltMap) -> BoltType {
-    let mut map = std::collections::HashMap::new();
-    for (k, v) in &bolt_map.value {
-        map.insert(k.clone(), v.clone());
-    }
-    BoltType::Map(BoltMap { value: map })
+fn boltmap_to_bolttype_map(bolt_map: BoltMap) -> BoltType {
+    BoltType::Map(bolt_map)
 }
 pub fn calculate_token_count(body: &str) -> Result<i64> {
     let bpe = &TOKENIZER;
@@ -1002,4 +1057,31 @@ pub fn has_edge_query(source: &Node, target: &Node, edge_type: &EdgeType) -> (St
     );
 
     (query, params)
+}
+
+pub fn clear_graph_query() -> String {
+    "MATCH (n)
+     WHERE any(label IN labels(n) WHERE label IN [
+       'Function', 'Test', 'Datamodel', 'File', 'Endpoint',
+       'Var', 'Request', 'Library', 'Directory', 'Page',
+       'Class', 'Trait', 'Repository', 'Import', 'Instance',
+       'E2etest', 'Language', 'Feature'
+     ])
+     DETACH DELETE n"
+        .to_string()
+}
+
+pub fn clear_existing_graph_query(root: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "root", root);
+
+    let query = "MATCH (n)
+                 WHERE any(label IN labels(n) WHERE label IN [
+                   'Function', 'Test', 'Datamodel', 'File', 'Endpoint',
+                   'Var', 'Request', 'Library', 'Directory', 'Page',
+                   'Class', 'Trait', 'Repository', 'Import', 'Instance',
+                   'E2etest', 'Language', 'Feature'
+                 ]) AND n.file STARTS WITH $root
+                 DETACH DELETE n";
+    (query.to_string(), params)
 }

@@ -78,12 +78,20 @@ impl Stack for Java {
     fn instance_definition_query(&self) -> Option<String> {
         Some(format!(
             r#"
+            [
             (field_declaration
                 (type_identifier) @{CLASS_NAME}
                 (variable_declarator
                     (identifier) @{INSTANCE_NAME}
                 )
+            )(local_variable_declaration
+                type: (type_identifier)@{CLASS_NAME}
+                (variable_declarator
+                    (identifier) @{INSTANCE_NAME}
+                )
+            
             )
+            ]@{INSTANCE}
             "#
         ))
     }

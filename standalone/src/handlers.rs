@@ -1,16 +1,19 @@
 use crate::types::{
-    AppError, FetchRepoBody, FetchRepoResponse, ProcessBody, ProcessResponse, Result,
+    AppError, AsyncRequestStatus, AsyncStatus, FetchRepoBody, FetchRepoResponse, ProcessBody,
+    ProcessResponse, Result,
 };
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
 use ast::lang::Graph;
 use ast::repo::{clone_repo, Repo};
+use axum::extract::Path;
+use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::IntoResponse;
 use axum::{extract::State, Json};
 use broadcast::error::RecvError;
 use futures::stream;
-use lsp::git::get_commit_hash;
+use lsp::{git::get_commit_hash, strip_tmp};
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
@@ -65,7 +68,12 @@ pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoRes
 
 #[axum::debug_handler]
 pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
-    let (final_repo_path, final_repo_url, username, pat) = resolve_repo(&body)?;
+    if body.repo_url.clone().unwrap_or_default().contains(",") {
+        return Err(AppError::Anyhow(anyhow::anyhow!(
+            "Multiple repositories are not supported in a single request"
+        )));
+    }
+    let (final_repo_path, final_repo_url, username, pat, _) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
 
     let total_start = Instant::now();
@@ -105,14 +113,11 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
                 current_hash
             );
             let (nodes, edges) = graph_ops.graph.get_graph_size();
-            return Ok(Json(ProcessResponse {
-                status: "success".to_string(),
-                message: "Repository already processed".to_string(),
-                nodes: nodes as usize,
-                edges: edges as usize,
-            }));
+            return Ok(Json(ProcessResponse { nodes, edges }));
         }
     }
+
+    let (prev_nodes, prev_edges) = graph_ops.graph.get_graph_size();
 
     let (nodes, edges) = if let Some(hash) = stored_hash {
         info!("Updating repository hash from {} to {}", hash, current_hash);
@@ -145,11 +150,12 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
         total_start.elapsed()
     );
 
+    let delta_nodes = nodes - prev_nodes;
+    let delta_edges = edges - prev_edges;
+
     Ok(Json(ProcessResponse {
-        status: "success".to_string(),
-        message: "Repository processed successfully".to_string(),
-        nodes: nodes as usize,
-        edges: edges as usize,
+        nodes: delta_nodes,
+        edges: delta_edges,
     }))
 }
 
@@ -157,12 +163,7 @@ pub async fn clear_graph() -> Result<Json<ProcessResponse>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
     let (nodes, edges) = graph_ops.clear().await?;
-    Ok(Json(ProcessResponse {
-        status: "success".to_string(),
-        message: "Graph cleared".to_string(),
-        nodes: nodes as usize,
-        edges: edges as usize,
-    }))
+    Ok(Json(ProcessResponse { nodes, edges }))
 }
 
 pub async fn fetch_repo(body: Json<FetchRepoBody>) -> Result<Json<FetchRepoResponse>> {
@@ -172,7 +173,23 @@ pub async fn fetch_repo(body: Json<FetchRepoBody>) -> Result<Json<FetchRepoRespo
     Ok(Json(FetchRepoResponse {
         status: "success".to_string(),
         repo_name: repo_node.name,
+        hash: repo_node.hash.unwrap_or_default(),
     }))
+}
+
+pub async fn fetch_repos() -> Result<Json<Vec<FetchRepoResponse>>> {
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await?;
+    let repo_nodes = graph_ops.fetch_repos().await;
+    let repos = repo_nodes
+        .into_iter()
+        .map(|node| FetchRepoResponse {
+            status: "success".to_string(),
+            repo_name: node.name,
+            hash: node.hash.unwrap_or_default(),
+        })
+        .collect();
+    Ok(Json(repos))
 }
 
 #[axum::debug_handler]
@@ -181,7 +198,7 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (_final_repo_path, final_repo_url, username, pat) = resolve_repo(&body)?;
+    let (_, final_repo_url, username, pat, commit) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
 
     let repo_url = final_repo_url.clone();
@@ -194,7 +211,7 @@ pub async fn ingest(
         pat.clone(),
         Vec::new(),
         Vec::new(),
-        None,
+        commit.as_deref(),
         use_lsp,
     )
     .await
@@ -213,17 +230,17 @@ pub async fn ingest(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let start_upload = Instant::now();
+    for repo in &repos.0 {
+        let stripped_root = strip_tmp(&repo.root).display().to_string();
+        info!("Clearing old data for {}...", stripped_root);
+        graph_ops.clear_existing_graph(&stripped_root).await?;
+    }
 
-    graph_ops.graph.clear().await?;
+    let start_upload = Instant::now();
 
     info!("Uploading to Neo4j...");
     let (nodes, edges) = graph_ops.upload_btreemap_to_neo4j(&btree_graph).await?;
     graph_ops.graph.create_indexes().await?;
-
-    if std::env::var("PRINT_ROOT").is_ok() {
-        ast::utils::print_json(&btree_graph, "standalone")?;
-    }
 
     info!(
         "\n\n ==>> Uploading to Neo4j took {:.2?} \n\n",
@@ -235,19 +252,172 @@ pub async fn ingest(
         start_total.elapsed()
     );
 
-    Ok(Json(ProcessResponse {
-        status: "success".to_string(),
-        message: "Repository ingested fully".to_string(),
-        nodes: nodes as usize,
-        edges: edges as usize,
-    }))
+    if let Ok(diry) = std::env::var("PRINT_ROOT") {
+        // add timestamp to the filename
+        let timestamp = Instant::now().elapsed().as_millis();
+        let filename = format!("{}/standalone-{}", diry, timestamp);
+        info!("Printing nodes and edges to files... {}", filename);
+        if let Err(e) = ast::utils::print_json(&btree_graph, &filename) {
+            tracing::warn!("Error printing nodes and edges to files: {}", e);
+        }
+    }
+
+    Ok(Json(ProcessResponse { nodes, edges }))
+}
+
+#[axum::debug_handler]
+pub async fn ingest_async(
+    State(state): State<Arc<AppState>>,
+    body: Json<ProcessBody>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let status_map = state.async_status.clone();
+    let mut rx = state.tx.subscribe();
+
+    {
+        let mut map = status_map.lock().await;
+        map.insert(
+            request_id.clone(),
+            AsyncRequestStatus {
+                status: AsyncStatus::InProgress,
+                result: None,
+                progress: 0,
+            },
+        );
+    }
+
+    let state_clone = state.clone();
+    let status_map_clone = status_map.clone();
+    let body_clone = body.clone();
+    let request_id_clone = request_id.clone();
+
+    tokio::spawn(async move {
+        while let Ok(update) = rx.recv().await {
+            let mut map = status_map_clone.lock().await;
+            if let Some(status) = map.get_mut(&request_id_clone) {
+                let total_steps = update.total_steps.max(1) as f64;
+                let step = update.step.max(1) as f64;
+                let step_progress = update.progress.min(100) as f64;
+
+                let overall_progress = (((step - 1.0) + (step_progress / 100.0)) / total_steps
+                    * 100.0)
+                    .min(100.0) as u32;
+                status.progress = overall_progress;
+            }
+        }
+    });
+
+    let request_id_clone = request_id.clone();
+
+    //run ingest as a background task
+    tokio::spawn(async move {
+        let result = ingest(State(state_clone), body_clone).await;
+        let mut map = status_map.lock().await;
+
+        match result {
+            Ok(Json(resp)) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Complete,
+                    result: Some(resp),
+                    progress: 100,
+                },
+            ),
+            Err(e) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Failed(format!("{:?}", e)),
+                    result: None,
+                    progress: 0,
+                },
+            ),
+        }
+    });
+
+    Json(serde_json::json!({ "request_id": request_id }))
+}
+
+#[axum::debug_handler]
+pub async fn sync_async(
+    State(state): State<Arc<AppState>>,
+    body: Json<ProcessBody>,
+) -> impl IntoResponse {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let status_map = state.async_status.clone();
+
+    {
+        let mut map = status_map.lock().await;
+        map.insert(
+            request_id.clone(),
+            AsyncRequestStatus {
+                status: AsyncStatus::InProgress,
+                result: None,
+                progress: 0,
+            },
+        );
+    }
+    let body_clone = body.clone();
+    let request_id_clone = request_id.clone();
+
+    //run /sync as a background task
+    tokio::spawn(async move {
+        let result = process(body_clone).await;
+        let mut map = status_map.lock().await;
+
+        match result {
+            Ok(Json(resp)) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Complete,
+                    result: Some(resp),
+                    progress: 100,
+                },
+            ),
+            Err(e) => map.insert(
+                request_id_clone,
+                AsyncRequestStatus {
+                    status: AsyncStatus::Failed(format!("{:?}", e)),
+                    result: None,
+                    progress: 0,
+                },
+            ),
+        }
+    });
+
+    Json(serde_json::json!({ "request_id": request_id }))
+}
+
+pub async fn get_status(
+    State(state): State<Arc<AppState>>,
+    Path(request_id): Path<String>,
+) -> impl IntoResponse {
+    let status_map = state.async_status.clone();
+    let map = status_map.lock().await;
+
+    if let Some(status) = map.get(&request_id) {
+        Json(status).into_response()
+    } else {
+        (
+            StatusCode::NOT_FOUND,
+            format!("Request ID {} not found", request_id),
+        )
+            .into_response()
+    }
 }
 
 fn env_not_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
-fn resolve_repo(body: &ProcessBody) -> Result<(String, String, Option<String>, Option<String>)> {
+fn resolve_repo(
+    body: &ProcessBody,
+) -> Result<(
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+)> {
     let repo_path = body
         .repo_path
         .clone()
@@ -255,6 +425,7 @@ fn resolve_repo(body: &ProcessBody) -> Result<(String, String, Option<String>, O
     let repo_url = body.repo_url.clone().or_else(|| env_not_empty("REPO_URL"));
     let username = body.username.clone().or_else(|| env_not_empty("USERNAME"));
     let pat = body.pat.clone().or_else(|| env_not_empty("PAT"));
+    let commit = body.commit.clone();
 
     if repo_path.is_none() && repo_url.is_none() {
         return Err(AppError::Anyhow(anyhow::anyhow!(
@@ -271,11 +442,11 @@ fn resolve_repo(body: &ProcessBody) -> Result<(String, String, Option<String>, O
     }
 
     if let Some(path) = repo_path {
-        Ok((path, repo_url.unwrap_or_default(), username, pat))
+        Ok((path, repo_url.unwrap_or_default(), username, pat, commit))
     } else {
         let url = repo_url.unwrap();
         let tmp_path = Repo::get_path_from_url(&url)?;
-        Ok((tmp_path, url, username, pat))
+        Ok((tmp_path, url, username, pat, commit))
     }
 }
 fn is_valid_github_url(url: &str) -> bool {

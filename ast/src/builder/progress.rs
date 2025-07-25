@@ -1,5 +1,6 @@
 use crate::repo::Repo;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::{debug, info};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -9,6 +10,8 @@ pub struct StatusUpdate {
     pub step: u32,
     pub total_steps: u32,
     pub progress: u32,
+    pub stats: Option<HashMap<String, usize>>,
+    pub step_description: Option<String>,
 }
 
 impl StatusUpdate {
@@ -25,13 +28,36 @@ impl StatusUpdate {
 
 impl Repo {
     pub fn send_status_update(&self, msg: &str, step: u32) {
+        let step_description = match msg {
+            "initialization" => "Initializing repository, directories, and files",
+            "setup_lsp" => "Initializing language server",
+            "process_libraries" => "Analyzing libraries",
+            "process_imports" => "Processing imports",
+            "process_variables" => "Analyzing variables",
+            "process_classes" => "Detecting classes",
+            "process_instances_and_traits" => "Processing traits",
+            "process_data_models" => "Analyzing data models",
+            "process_functions_and_tests" => "Processing functions and tests",
+            "process_pages_and_templates" => "Analyzing pages and templates",
+            "process_endpoints" => "Detecting endpoints",
+            "process_integration_tests" => "Processing tests",
+            "process_function_calls" => "Analyzing function calls",
+            "linking_graphs" => "Linking graphs",
+            _ => msg,
+        };
+
+        let formatted_msg = format!("Step {}: {}", step, step_description);
+
         let su = StatusUpdate {
             status: "".to_string(),
-            message: msg.to_string(),
+            message: formatted_msg,
             step,
-            total_steps: 16,
+            total_steps: 14,
             progress: 0,
+            stats: None,
+            step_description: Some(step_description.to_string()),
         };
+
         info!("status_update: {:?}", su);
         if let Some(status_tx) = &self.status_tx {
             if let Err(e) = status_tx.send(su) {
@@ -40,9 +66,12 @@ impl Repo {
         }
     }
 
-    pub fn send_status_progress(&self, progress: usize, total_files: usize) {
-        // return;
-        let current_progress = ((progress * 100) / total_files) as u32;
+    pub fn send_status_progress(&self, progress: usize, total_files: usize, step: u32) {
+        if total_files == 0 {
+            return;
+        }
+
+        let current_progress = ((progress as f64 / total_files as f64) * 100.0).min(100.0) as u32;
         let now = std::time::Instant::now();
 
         static LAST_PROGRESS: std::sync::atomic::AtomicU32 =
@@ -53,9 +82,9 @@ impl Repo {
         let last_progress = LAST_PROGRESS.load(std::sync::atomic::Ordering::Relaxed);
         let last_time_mutex = LAST_TIME.get_or_init(|| std::sync::Mutex::new(now));
 
-        let should_send = if current_progress != last_progress {
+        let should_send = if (current_progress as i32 - last_progress as i32).abs() >= 2 {
             let last_time = *last_time_mutex.lock().unwrap();
-            let time_elapsed = now.duration_since(last_time).as_millis() >= 100;
+            let time_elapsed = now.duration_since(last_time).as_millis() >= 50;
             let is_complete = current_progress >= 100;
             time_elapsed || is_complete
         } else {
@@ -67,8 +96,9 @@ impl Repo {
             *last_time_mutex.lock().unwrap() = now;
 
             let su = StatusUpdate {
-                total_steps: 16,
+                total_steps: 14,
                 progress: current_progress,
+                step,
                 ..Default::default()
             };
             debug!("progress: {:?}", su);
@@ -76,6 +106,21 @@ impl Repo {
                 if let Err(e) = status_tx.send(su) {
                     tracing::error!("Error sending progress update: {}", e);
                 }
+            }
+        }
+    }
+
+    pub fn send_status_with_stats(&self, stats: HashMap<String, usize>) {
+        let su = StatusUpdate {
+            total_steps: 14,
+            stats: Some(stats),
+            ..Default::default()
+        };
+
+        debug!("stats update: {:?}", su);
+        if let Some(status_tx) = &self.status_tx {
+            if let Err(e) = status_tx.send(su) {
+                tracing::error!("Error sending stats update: {}", e);
             }
         }
     }

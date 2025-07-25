@@ -3,42 +3,44 @@
  * Uses Playwright test framework
  */
 
-import { test, expect } from '@playwright/test';
-import { call } from '../tools.js';
-import { getOrCreateStagehand, clearConsoleLogs, getConsoleLogs } from '../utils.js';
-import type { ConsoleLog } from '../utils.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-import type { Stagehand } from '@browserbasehq/stagehand';
+import { test, expect } from "@playwright/test";
+import { call } from "../tools.js";
+import { getOrCreateStagehand, clearConsoleLogs } from "../core.js";
+import type { ConsoleLog } from "../core.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import type { Stagehand } from "@browserbasehq/stagehand";
 
 // Helper function to extract log text from CallToolResult
 function extractLogText(result: CallToolResult): string {
-  return (result.content[0] as { type: 'text'; text: string }).text;
+  return (result.content as any)[0].text;
 }
 
-test.describe('Stagehand Console Logs', () => {
+test.describe("Stagehand Console Logs", () => {
   let stagehand: Stagehand;
 
   test.beforeAll(async () => {
-    console.log('=== Initializing Stagehand for Console Logs Tests ===');
+    console.log("=== Initializing Stagehand for Console Logs Tests ===");
     stagehand = await getOrCreateStagehand();
   });
 
   test.afterAll(async () => {
     if (stagehand) {
       await stagehand.close();
-      console.log('=== Stagehand closed ===');
+      console.log("=== Stagehand closed ===");
     }
   });
 
   test.beforeEach(async () => {
-    clearConsoleLogs();
+    clearConsoleLogs("default-session-id");
   });
 
-  test('should demonstrate real debugging workflow: find and capture JavaScript errors', async () => {
-    console.log('🧪 REAL SCENARIO: Debugging a website with JavaScript errors...');
+  test("should demonstrate real debugging workflow: find and capture JavaScript errors", async () => {
+    console.log(
+      "🧪 REAL SCENARIO: Debugging a website with JavaScript errors..."
+    );
 
     // Clear logs to start fresh
-    clearConsoleLogs();
+    clearConsoleLogs("default-session-id");
 
     // Navigate to a page that has intentional JavaScript errors (common debugging scenario)
     const buggyPage = `
@@ -74,25 +76,34 @@ test.describe('Stagehand Console Logs', () => {
       </html>
     `;
 
-    await stagehand.page.goto(`data:text/html,${encodeURIComponent(buggyPage)}`);
-    console.log('📄 Navigated to buggy e-commerce page');
+    await stagehand.page.goto(
+      `data:text/html,${encodeURIComponent(buggyPage)}`
+    );
+    console.log("📄 Navigated to buggy e-commerce page");
 
     // Wait for page to load and logs to be captured
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Simulate user interaction that triggers the error
-    await stagehand.page.click('#add-item');
-    console.log('🖱️  Simulated user clicking "Add Item" button (triggers error)');
+    await stagehand.page.click("#add-item");
+    console.log(
+      '🖱️  Simulated user clicking "Add Item" button (triggers error)'
+    );
 
     // Wait for error logs to be captured
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Now capture the logs - this is what a developer would do when debugging
-    const result = await call('stagehand_logs', {}) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    console.log("===> logText", logText);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
-    console.log(`🔍 CAPTURED ${logs.length} console logs during debugging session:`);
+    console.log(
+      `🔍 CAPTURED ${logs.length} console logs during debugging session:`
+    );
     logs.forEach((log, i) => {
       console.log(`   ${i + 1}. [${log.type.toUpperCase()}] ${log.text}`);
     });
@@ -101,11 +112,21 @@ test.describe('Stagehand Console Logs', () => {
     expect(logs.length).toBeGreaterThan(4);
 
     // Check for specific debugging-relevant logs
-    const pageLoadLog = logs.find(log => log.text.includes('Page loaded - initializing'));
-    const userClickLog = logs.find(log => log.text.includes('User clicked add item'));
-    const errorLog = logs.find(log => log.type === 'error' && log.text.includes('Failed to add item'));
-    const warningLog = logs.find(log => log.type === 'warning' && log.text.includes('Falling back'));
-    const analyticsLog = logs.find(log => log.text.includes('Analytics: page_view'));
+    const pageLoadLog = logs.find((log) =>
+      log.text.includes("Page loaded - initializing")
+    );
+    const userClickLog = logs.find((log) =>
+      log.text.includes("User clicked add item")
+    );
+    const errorLog = logs.find(
+      (log) => log.type === "error" && log.text.includes("Failed to add item")
+    );
+    const warningLog = logs.find(
+      (log) => log.type === "warning" && log.text.includes("Falling back")
+    );
+    const analyticsLog = logs.find((log) =>
+      log.text.includes("Analytics: page_view")
+    );
 
     expect(pageLoadLog).toBeDefined();
     expect(userClickLog).toBeDefined();
@@ -113,13 +134,21 @@ test.describe('Stagehand Console Logs', () => {
     expect(warningLog).toBeDefined();
     expect(analyticsLog).toBeDefined();
 
-    console.log('✅ SUCCESS: Console logs tool captured real debugging session');
-    console.log(`   📊 Found page load, user interaction, error, warning, and analytics logs`);
-    console.log(`   🎯 This proves the tool works for real debugging scenarios!`);
+    console.log(
+      "✅ SUCCESS: Console logs tool captured real debugging session"
+    );
+    console.log(
+      `   📊 Found page load, user interaction, error, warning, and analytics logs`
+    );
+    console.log(
+      `   🎯 This proves the tool works for real debugging scenarios!`
+    );
   });
 
-  test('should capture performance monitoring and API tracking logs from SPA', async () => {
-    console.log('🧪 REAL SCENARIO: Monitoring a Single Page Application performance...');
+  test("should capture performance monitoring and API tracking logs from SPA", async () => {
+    console.log(
+      "🧪 REAL SCENARIO: Monitoring a Single Page Application performance..."
+    );
 
     // Simulate a realistic SPA with performance monitoring
     const spaPage = `
@@ -190,29 +219,49 @@ test.describe('Stagehand Console Logs', () => {
     `;
 
     await stagehand.page.goto(`data:text/html,${encodeURIComponent(spaPage)}`);
-    console.log('📄 Loaded SPA dashboard with performance monitoring');
+    console.log("📄 Loaded SPA dashboard with performance monitoring");
 
     // Wait for all async operations to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const result = await call('stagehand_logs', {}) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(`🔍 CAPTURED ${logs.length} performance & API logs:`);
     logs.forEach((log, i) => {
-      console.log(`   ${i + 1}. [${log.type.toUpperCase()}] ${log.text.substring(0, 80)}...`);
+      console.log(
+        `   ${i + 1}. [${log.type.toUpperCase()}] ${log.text.substring(
+          0,
+          80
+        )}...`
+      );
     });
 
     // Verify we captured all the realistic logging scenarios
     expect(logs.length).toBeGreaterThan(5);
 
-    const perfStartLog = logs.find(log => log.text.includes('PERF: Page load started'));
-    const apiRequestLog = logs.find(log => log.text.includes('API: Fetching user data'));
-    const apiResponseLog = logs.find(log => log.text.includes('API: Response received'));
-    const errorLog = logs.find(log => log.type === 'error' && log.text.includes('ANALYTICS: Service error'));
-    const warningLog = logs.find(log => log.type === 'warning' && log.text.includes('Using cached data'));
-    const perfCompleteLog = logs.find(log => log.text.includes('PERF: Page render complete'));
+    const perfStartLog = logs.find((log) =>
+      log.text.includes("PERF: Page load started")
+    );
+    const apiRequestLog = logs.find((log) =>
+      log.text.includes("API: Fetching user data")
+    );
+    const apiResponseLog = logs.find((log) =>
+      log.text.includes("API: Response received")
+    );
+    const errorLog = logs.find(
+      (log) =>
+        log.type === "error" && log.text.includes("ANALYTICS: Service error")
+    );
+    const warningLog = logs.find(
+      (log) => log.type === "warning" && log.text.includes("Using cached data")
+    );
+    const perfCompleteLog = logs.find((log) =>
+      log.text.includes("PERF: Page render complete")
+    );
 
     expect(perfStartLog).toBeDefined();
     expect(apiRequestLog).toBeDefined();
@@ -221,104 +270,131 @@ test.describe('Stagehand Console Logs', () => {
     expect(warningLog).toBeDefined();
     expect(perfCompleteLog).toBeDefined();
 
-    console.log('✅ SUCCESS: Captured comprehensive SPA monitoring logs');
-    console.log('   📊 Performance timing, API calls, errors, and fallback strategies');
-    console.log('   🎯 Perfect for debugging production SPA issues!');
+    console.log("✅ SUCCESS: Captured comprehensive SPA monitoring logs");
+    console.log(
+      "   📊 Performance timing, API calls, errors, and fallback strategies"
+    );
+    console.log("   🎯 Perfect for debugging production SPA issues!");
   });
 
-  test('should analyze real website console activity and inject custom monitoring', async () => {
-    console.log('🧪 REAL SCENARIO: Analyzing GitHub for console activity and adding custom monitoring...');
+  test("should analyze real website console activity and inject custom monitoring", async () => {
+    console.log(
+      "🧪 REAL SCENARIO: Analyzing GitHub for console activity and adding custom monitoring..."
+    );
 
-    await stagehand.page.goto('https://github.com');
-    console.log('📄 Navigated to GitHub (real production website)');
+    await stagehand.page.goto("https://github.com");
+    console.log("📄 Navigated to GitHub (real production website)");
 
     // Wait to capture any existing logs from the site
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
 
     // Inject custom monitoring - realistic use case for external agents
     await stagehand.page.evaluate(() => {
       // Custom monitoring that an agent might inject
-      console.log('AGENT_MONITOR: Starting GitHub page analysis', {
+      console.log("AGENT_MONITOR: Starting GitHub page analysis", {
         url: window.location.href,
         userAgent: navigator.userAgent.substring(0, 50),
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       });
 
       // Monitor for any JavaScript errors
-      window.addEventListener('error', (e) => {
-        console.error('AGENT_ERROR: JavaScript error detected', {
+      window.addEventListener("error", (e) => {
+        console.error("AGENT_ERROR: JavaScript error detected", {
           message: e.message,
           filename: e.filename,
-          line: e.lineno
+          line: e.lineno,
         });
       });
 
       // Track performance metrics (using legacy timing API for test purposes)
       const timing = (performance as any).timing;
-      console.info('AGENT_PERF: Page timing analysis', {
-        domContentLoaded: timing.domContentLoadedEventEnd - timing.navigationStart,
+      console.info("AGENT_PERF: Page timing analysis", {
+        domContentLoaded:
+          timing.domContentLoadedEventEnd - timing.navigationStart,
         pageLoad: timing.loadEventEnd - timing.navigationStart,
-        firstPaint: performance.getEntriesByType('paint')[0]?.startTime || 'unknown'
+        firstPaint:
+          performance.getEntriesByType("paint")[0]?.startTime || "unknown",
       });
 
       // Monitor network activity
-      console.log('AGENT_NETWORK: Monitoring fetch requests');
+      console.log("AGENT_NETWORK: Monitoring fetch requests");
 
       // Check for common frameworks/libraries
       const frameworks: string[] = [];
-      if ((window as any).jQuery) frameworks.push('jQuery');
-      if ((window as any).React) frameworks.push('React');
-      if ((window as any).Vue) frameworks.push('Vue');
+      if ((window as any).jQuery) frameworks.push("jQuery");
+      if ((window as any).React) frameworks.push("React");
+      if ((window as any).Vue) frameworks.push("Vue");
 
-      console.log('AGENT_FRAMEWORKS: Detected libraries', {
-        frameworks: frameworks.length ? frameworks : ['none detected'],
-        totalScripts: document.scripts.length
+      console.log("AGENT_FRAMEWORKS: Detected libraries", {
+        frameworks: frameworks.length ? frameworks : ["none detected"],
+        totalScripts: document.scripts.length,
       });
     });
 
-    console.log('💉 Injected custom monitoring code into GitHub page');
+    console.log("💉 Injected custom monitoring code into GitHub page");
 
     // Wait for monitoring to collect data
-    await new Promise(resolve => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
-    const result = await call('stagehand_logs', {}) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
-    console.log(`🔍 CAPTURED ${logs.length} logs from live GitHub page + custom monitoring:`);
+    console.log(
+      `🔍 CAPTURED ${logs.length} logs from live GitHub page + custom monitoring:`
+    );
 
     // Separate GitHub's logs from our custom monitoring
-    const githubLogs = logs.filter(log => !log.text.includes('AGENT_'));
-    const agentLogs = logs.filter(log => log.text.includes('AGENT_'));
+    const githubLogs = logs.filter((log) => !log.text.includes("AGENT_"));
+    const agentLogs = logs.filter((log) => log.text.includes("AGENT_"));
 
     console.log(`   📊 GitHub native logs: ${githubLogs.length}`);
     console.log(`   🤖 Custom agent logs: ${agentLogs.length}`);
 
     agentLogs.forEach((log, i) => {
-      console.log(`   ${i + 1}. [${log.type.toUpperCase()}] ${log.text.substring(0, 100)}...`);
+      console.log(
+        `   ${i + 1}. [${log.type.toUpperCase()}] ${log.text.substring(
+          0,
+          100
+        )}...`
+      );
     });
 
     // Verify our custom monitoring worked
     expect(agentLogs.length).toBeGreaterThanOrEqual(4);
 
-    const monitorStartLog = agentLogs.find(log => log.text.includes('AGENT_MONITOR: Starting GitHub'));
-    const perfLog = agentLogs.find(log => log.text.includes('AGENT_PERF: Page timing'));
-    const networkLog = agentLogs.find(log => log.text.includes('AGENT_NETWORK: Monitoring'));
-    const frameworkLog = agentLogs.find(log => log.text.includes('AGENT_FRAMEWORKS: Detected'));
+    const monitorStartLog = agentLogs.find((log) =>
+      log.text.includes("AGENT_MONITOR: Starting GitHub")
+    );
+    const perfLog = agentLogs.find((log) =>
+      log.text.includes("AGENT_PERF: Page timing")
+    );
+    const networkLog = agentLogs.find((log) =>
+      log.text.includes("AGENT_NETWORK: Monitoring")
+    );
+    const frameworkLog = agentLogs.find((log) =>
+      log.text.includes("AGENT_FRAMEWORKS: Detected")
+    );
 
     expect(monitorStartLog).toBeDefined();
     expect(perfLog).toBeDefined();
     expect(networkLog).toBeDefined();
     expect(frameworkLog).toBeDefined();
 
-    console.log('✅ SUCCESS: Custom monitoring injected and captured on live website');
-    console.log('   🌐 Proved tool works with real production websites');
-    console.log('   🤖 Demonstrated external agent monitoring capabilities');
-    console.log('   📈 Collected performance and framework detection data');
+    console.log(
+      "✅ SUCCESS: Custom monitoring injected and captured on live website"
+    );
+    console.log("   🌐 Proved tool works with real production websites");
+    console.log("   🤖 Demonstrated external agent monitoring capabilities");
+    console.log("   📈 Collected performance and framework detection data");
   });
 
-  test('should demonstrate user behavior tracking and A/B testing log analysis', async () => {
-    console.log('🧪 REAL SCENARIO: Tracking user behavior and A/B testing in e-commerce...');
+  test("should demonstrate user behavior tracking and A/B testing log analysis", async () => {
+    console.log(
+      "🧪 REAL SCENARIO: Tracking user behavior and A/B testing in e-commerce..."
+    );
 
     // Simulate an e-commerce page with A/B testing and user tracking
     const ecommercePage = `
@@ -416,36 +492,45 @@ test.describe('Stagehand Console Logs', () => {
       </html>
     `;
 
-    await stagehand.page.goto(`data:text/html,${encodeURIComponent(ecommercePage)}`);
-    console.log('📄 Loaded e-commerce product page with A/B testing');
+    await stagehand.page.goto(
+      `data:text/html,${encodeURIComponent(ecommercePage)}`
+    );
+    console.log("📄 Loaded e-commerce product page with A/B testing");
 
     // Wait for initial logs
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Simulate user interactions
-    await stagehand.page.click('#add-to-cart');
+    await stagehand.page.click("#add-to-cart");
     console.log('🛒 Simulated "Add to Cart" click');
 
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
-    await stagehand.page.click('#wishlist');
+    await stagehand.page.click("#wishlist");
     console.log('❤️  Simulated "Add to Wishlist" click (will trigger error)');
 
     // Wait for all async operations
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
-    const result = await call('stagehand_logs', {}) as CallToolResult;
+    const result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     const logText = extractLogText(result);
-    const logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    const logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(`🔍 CAPTURED ${logs.length} e-commerce tracking logs:`);
 
     // Categorize logs by type
-    const abTestLogs = logs.filter(log => log.text.includes('AB_TEST:'));
-    const analyticsLogs = logs.filter(log => log.text.includes('ANALYTICS:') || log.text.includes('ECOMMERCE:'));
-    const userActionLogs = logs.filter(log => log.text.includes('USER_ACTION:'));
-    const errorLogs = logs.filter(log => log.type === 'error');
-    const apiLogs = logs.filter(log => log.text.includes('API:'));
+    const abTestLogs = logs.filter((log) => log.text.includes("AB_TEST:"));
+    const analyticsLogs = logs.filter(
+      (log) =>
+        log.text.includes("ANALYTICS:") || log.text.includes("ECOMMERCE:")
+    );
+    const userActionLogs = logs.filter((log) =>
+      log.text.includes("USER_ACTION:")
+    );
+    const errorLogs = logs.filter((log) => log.type === "error");
+    const apiLogs = logs.filter((log) => log.text.includes("API:"));
 
     console.log(`   🧪 A/B Test logs: ${abTestLogs.length}`);
     console.log(`   📊 Analytics logs: ${analyticsLogs.length}`);
@@ -459,11 +544,19 @@ test.describe('Stagehand Console Logs', () => {
     expect(userActionLogs.length).toBeGreaterThanOrEqual(2);
     expect(errorLogs.length).toBeGreaterThanOrEqual(1);
 
-    const variantAssignment = logs.find(log => log.text.includes('User assigned to variant'));
-    const productView = logs.find(log => log.text.includes('Product viewed'));
-    const addToCart = logs.find(log => log.text.includes('Add to cart clicked'));
-    const wishlistError = logs.find(log => log.text.includes('Failed to add to wishlist'));
-    const conversion = logs.find(log => log.text.includes('Conversion recorded'));
+    const variantAssignment = logs.find((log) =>
+      log.text.includes("User assigned to variant")
+    );
+    const productView = logs.find((log) => log.text.includes("Product viewed"));
+    const addToCart = logs.find((log) =>
+      log.text.includes("Add to cart clicked")
+    );
+    const wishlistError = logs.find((log) =>
+      log.text.includes("Failed to add to wishlist")
+    );
+    const conversion = logs.find((log) =>
+      log.text.includes("Conversion recorded")
+    );
 
     expect(variantAssignment).toBeDefined();
     expect(productView).toBeDefined();
@@ -471,16 +564,24 @@ test.describe('Stagehand Console Logs', () => {
     expect(wishlistError).toBeDefined();
     expect(conversion).toBeDefined();
 
-    console.log('✅ SUCCESS: E-commerce tracking and A/B testing logs captured');
-    console.log('   🎯 User behavior, conversions, errors, and API calls tracked');
-    console.log('   💼 Perfect for real-world e-commerce debugging and optimization!');
+    console.log(
+      "✅ SUCCESS: E-commerce tracking and A/B testing logs captured"
+    );
+    console.log(
+      "   🎯 User behavior, conversions, errors, and API calls tracked"
+    );
+    console.log(
+      "   💼 Perfect for real-world e-commerce debugging and optimization!"
+    );
   });
 
-  test('should demonstrate multi-session log management for continuous monitoring', async () => {
-    console.log('🧪 REAL SCENARIO: Managing logs across multiple monitoring sessions...');
+  test("should demonstrate multi-session log management for continuous monitoring", async () => {
+    console.log(
+      "🧪 REAL SCENARIO: Managing logs across multiple monitoring sessions..."
+    );
 
     // Session 1: Monitor a login flow
-    console.log('📱 SESSION 1: Monitoring user login flow...');
+    console.log("📱 SESSION 1: Monitoring user login flow...");
     const loginPage = `
       <html><body>
         <form id="login-form">
@@ -501,25 +602,37 @@ test.describe('Stagehand Console Logs', () => {
       </body></html>
     `;
 
-    await stagehand.page.goto(`data:text/html,${encodeURIComponent(loginPage)}`);
+    await stagehand.page.goto(
+      `data:text/html,${encodeURIComponent(loginPage)}`
+    );
     await stagehand.page.click('button[type="submit"]');
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     // Check Session 1 logs
-    let result = await call('stagehand_logs', {}) as CallToolResult;
+    let result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     let logText = extractLogText(result);
-    let logs: ConsoleLog[] = JSON.parse(logText.split(':\n')[1]);
+    let logs: ConsoleLog[] = JSON.parse(logText);
 
     console.log(`   📊 Session 1 captured: ${logs.length} authentication logs`);
-    expect(logs.some((log: ConsoleLog) => log.text.includes('AUTH: Login page loaded'))).toBe(true);
-    expect(logs.some((log: ConsoleLog) => log.text.includes('AUTH: Login successful'))).toBe(true);
+    expect(
+      logs.some((log: ConsoleLog) =>
+        log.text.includes("AUTH: Login page loaded")
+      )
+    ).toBe(true);
+    expect(
+      logs.some((log: ConsoleLog) =>
+        log.text.includes("AUTH: Login successful")
+      )
+    ).toBe(true);
 
     // Clear logs for new session
-    console.log('🧹 Clearing logs between monitoring sessions...');
-    clearConsoleLogs();
+    console.log("🧹 Clearing logs between monitoring sessions...");
+    clearConsoleLogs("default-session-id");
 
     // Session 2: Monitor dashboard activity
-    console.log('📊 SESSION 2: Monitoring dashboard interactions...');
+    console.log("📊 SESSION 2: Monitoring dashboard interactions...");
     const dashboardPage = `
       <html><body>
         <div id="dashboard">
@@ -545,45 +658,67 @@ test.describe('Stagehand Console Logs', () => {
       </body></html>
     `;
 
-    await stagehand.page.goto(`data:text/html,${encodeURIComponent(dashboardPage)}`);
-    await stagehand.page.click('#refresh-data');
-    await new Promise(resolve => setTimeout(resolve, 300));
+    await stagehand.page.goto(
+      `data:text/html,${encodeURIComponent(dashboardPage)}`
+    );
+    await stagehand.page.click("#refresh-data");
+    await new Promise((resolve) => setTimeout(resolve, 300));
 
     // Check Session 2 logs (should not include Session 1)
-    result = await call('stagehand_logs', {}) as CallToolResult;
+    result = (await call("stagehand_logs", {
+      verbose: true,
+    })) as CallToolResult;
     logText = extractLogText(result);
-    logs = JSON.parse(logText.split(':\n')[1]);
+    logs = JSON.parse(logText);
 
     console.log(`   📊 Session 2 captured: ${logs.length} dashboard logs`);
-    console.log('   🔍 Verifying session isolation...');
+    console.log("   🔍 Verifying session isolation...");
 
     // Verify no Session 1 logs leaked into Session 2
-    const hasAuthLogs = logs.some((log: ConsoleLog) => log.text.includes('AUTH:'));
-    const hasDashboardLogs = logs.some((log: ConsoleLog) => log.text.includes('DASHBOARD:'));
+    const hasAuthLogs = logs.some((log: ConsoleLog) =>
+      log.text.includes("AUTH:")
+    );
+    const hasDashboardLogs = logs.some((log: ConsoleLog) =>
+      log.text.includes("DASHBOARD:")
+    );
 
-    expect(hasAuthLogs).toBe(false);  // Session 1 logs should be cleared
-    expect(hasDashboardLogs).toBe(true);  // Session 2 logs should be present
+    expect(hasAuthLogs).toBe(false); // Session 1 logs should be cleared
+    expect(hasDashboardLogs).toBe(true); // Session 2 logs should be present
     expect(logs.length).toBeGreaterThan(3);
 
     logs.forEach((log, i) => {
-      console.log(`   ${i + 1}. [${log.type.toUpperCase()}] ${log.text.substring(0, 80)}...`);
+      console.log(
+        `   ${i + 1}. [${log.type.toUpperCase()}] ${log.text.substring(
+          0,
+          80
+        )}...`
+      );
     });
 
     // Verify specific dashboard activities
-    const dashInit = logs.find(log => log.text.includes('DASHBOARD: Page initialized'));
-    const dataRefresh = logs.find(log => log.text.includes('DASHBOARD: Data refresh triggered'));
-    const slowWarning = logs.find(log => log.text.includes('DASHBOARD: Data source slow'));
-    const realtimeUpdate = logs.find(log => log.text.includes('DASHBOARD: Real-time update'));
+    const dashInit = logs.find((log) =>
+      log.text.includes("DASHBOARD: Page initialized")
+    );
+    const dataRefresh = logs.find((log) =>
+      log.text.includes("DASHBOARD: Data refresh triggered")
+    );
+    const slowWarning = logs.find((log) =>
+      log.text.includes("DASHBOARD: Data source slow")
+    );
+    const realtimeUpdate = logs.find((log) =>
+      log.text.includes("DASHBOARD: Real-time update")
+    );
 
     expect(dashInit).toBeDefined();
     expect(dataRefresh).toBeDefined();
     expect(slowWarning).toBeDefined();
     expect(realtimeUpdate).toBeDefined();
 
-    console.log('✅ SUCCESS: Multi-session log management works perfectly');
-    console.log('   🎯 Session isolation: Auth logs cleared, dashboard logs captured');
-    console.log('   🔄 Perfect for continuous monitoring workflows');
-    console.log('   💼 Enables clean separation of monitoring contexts');
+    console.log("✅ SUCCESS: Multi-session log management works perfectly");
+    console.log(
+      "   🎯 Session isolation: Auth logs cleared, dashboard logs captured"
+    );
+    console.log("   🔄 Perfect for continuous monitoring workflows");
+    console.log("   💼 Enables clean separation of monitoring contexts");
   });
 });
-

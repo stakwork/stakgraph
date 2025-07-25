@@ -194,7 +194,8 @@ pub fn strip_tmp(f: &Path) -> PathBuf {
     }
 }
 
-pub fn strip_root(f: &Path, root: &Path) -> PathBuf {
+pub(crate) fn strip_root(f: &Path, root: &Path) -> PathBuf {
+    // println!("strip_root: {:?} {:?}", f, root);
     if f.starts_with(root) {
         let endpart = f.strip_prefix(root).unwrap();
         endpart.into()

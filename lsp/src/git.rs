@@ -26,6 +26,7 @@ pub async fn git_clone(
     } else {
         info!("Repository doesn't exist at {}, cloning it", path);
         run("git", &["clone", &repo_url, "--single-branch", path]).await?;
+        info!("Cloned repo to {}", path);
     }
     if let Some(commit) = commit {
         checkout_commit(path, commit).await?;

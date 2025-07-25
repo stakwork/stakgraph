@@ -66,15 +66,15 @@ impl Language {
             Self::Python => vec!["py", "ipynb"],
             Self::Ruby => vec!["rb"],
             Self::Kotlin => vec!["kt", "kts", "java"],
-            Self::Swift => vec!["swift"],
+            Self::Swift => vec!["swift", "plist"],
             Self::Java => vec!["java", "gradle", "gradlew"],
             Self::Bash => vec!["sh"],
             Self::Toml => vec!["toml"],
             // how to separate ts and js?
             Self::Typescript => vec!["ts", "js"],
-            Self::React => vec!["jsx", "tsx", "ts", "js"],
-            Self::Svelte => vec!["svelte", "ts", "js"],
-            Self::Angular => vec!["ts", "js"],
+            Self::React => vec!["jsx", "tsx", "ts", "js", "html", "css"],
+            Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
+            Self::Angular => vec!["ts", "js", "html", "css"],
             Self::Cpp => vec!["cpp", "h"],
         }
     }
@@ -236,6 +236,11 @@ impl Language {
     }
 
     pub fn post_clone_cmd(&self) -> Vec<&'static str> {
+        if let Ok(use_lsp) = std::env::var("USE_LSP") {
+            if use_lsp == "false" || use_lsp == "0" {
+                return Vec::new();
+            }
+        }
         if let Ok(lsp_skip) = std::env::var("LSP_SKIP_POST_CLONE") {
             if lsp_skip == "true" || lsp_skip == "1" {
                 return Vec::new();

@@ -1,0 +1,187 @@
+body {
+  background-color: #2a2a2a;
+  color: #ffffff;
+  font-family: Arial, sans-serif;
+  margin: 0;
+  padding: 20px;
+  position: relative;
+}
+
+button {
+  background-color: #4a4a4a;
+  color: #ffffff;
+  border: 2px solid #666;
+  padding: 10px 20px;
+  margin: 10px;
+  cursor: pointer;
+  border-radius: 5px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+}
+
+button:hover {
+  background-color: #5a5a5a;
+}
+
+input {
+  background-color: #333;
+  color: #fff;
+  border: 2px solid #666;
+  padding: 10px;
+  margin: 10px;
+  width: 300px;
+  border-radius: 5px;
+  font-size: 16px;
+}
+
+input:focus {
+  border-color: #888;
+  outline: none;
+}
+
+.form-elements {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #333;
+  border-radius: 5px;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  margin: 8px 0;
+  cursor: pointer;
+  margin-right: 15px;
+}
+
+.form-group label {
+  display: inline-block;
+  margin-right: 15px;
+  min-width: 100px;
+  vertical-align: middle;
+}
+
+.select-group {
+  display: flex;
+  align-items: center;
+  margin: 15px 0;
+}
+
+.select-group label {
+  margin-right: -3px;
+  flex-shrink: 0;
+}
+
+select {
+  background-color: #333;
+  color: #fff;
+  border: 2px solid #666;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 5px;
+  font-size: 16px;
+  cursor: pointer;
+  min-width: 200px;
+  vertical-align: middle;
+}
+
+select:focus {
+  border-color: #888;
+  outline: none;
+}
+
+option {
+  background-color: #333;
+  color: #fff;
+  padding: 5px;
+}
+
+fieldset {
+  border: 1px solid #666;
+  border-radius: 5px;
+  padding: 10px;
+  margin: 15px 0;
+}
+
+legend {
+  padding: 0 10px;
+  font-weight: bold;
+}
+
+.content-section {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #333;
+  border-radius: 5px;
+}
+
+.staktrak-selection-active {
+  cursor: pointer;
+}
+
+/* Popup styles */
+.popup {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  padding: 15px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: bold;
+  z-index: 1000;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.popup.show {
+  transform: translateX(0);
+}
+
+/* Different popup styles for different buttons */
+.popup-testid {
+  background-color: #ff4444;
+  border: 2px solid #ff6666;
+  color: #ffffff;
+}
+
+.popup-class {
+  background-color: #44ff44;
+  border: 2px solid #66ff66;
+  color: #000000;
+}
+
+.popup-id {
+  background-color: #4444ff;
+  border: 2px solid #6666ff;
+  color: #ffffff;
+}
+
+.popup-input {
+  background-color: #ff9944;
+  border: 2px solid #ffaa66;
+  color: #ffffff;
+}
+
+.popup-selection {
+  background-color: #9c27b0;
+  border: 2px solid #ba68c8;
+  color: #ffffff;
+}
+
+.popup-form {
+  background-color: #00bcd4;
+  border: 2px solid #4dd0e1;
+  color: #ffffff;
+}

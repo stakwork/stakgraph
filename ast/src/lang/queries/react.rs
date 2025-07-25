@@ -128,111 +128,97 @@ impl Stack for ReactTs {
         )
     }
     // FIXME "render" is always discluded to avoid jsx classes
+
     fn function_definition_query(&self) -> String {
         format!(
             r#"[
-                (function_declaration
+            (function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (formal_parameters)? @{ARGUMENTS}
+                return_type: (type_annotation)? @{RETURN_TYPES}
+            )
+            (method_definition
+                name: (property_identifier) @{FUNCTION_NAME} (#not-eq? @{FUNCTION_NAME} "render")
+                parameters: (formal_parameters)? @{ARGUMENTS}
+                return_type: (type_annotation)? @{RETURN_TYPES}
+            )
+            (lexical_declaration
+                (variable_declarator
                     name: (identifier) @{FUNCTION_NAME}
-                    parameters: (formal_parameters) @{ARGUMENTS}
+                    value: (arrow_function
+                        parameters: (formal_parameters)? @{ARGUMENTS}
+                        return_type: (type_annotation)? @{RETURN_TYPES}
+                    )
                 )
-                (method_definition
-                    name: (property_identifier) @{FUNCTION_NAME} (#not-eq? @{FUNCTION_NAME} "render")
-                    parameters: (formal_parameters) @{ARGUMENTS}
-                )
+            )
+            (export_statement
                 (lexical_declaration
                     (variable_declarator
                         name: (identifier) @{FUNCTION_NAME}
                         value: (arrow_function
-                            parameters: (formal_parameters) @{ARGUMENTS}
+                            parameters: (formal_parameters)? @{ARGUMENTS}
+                            return_type: (type_annotation)? @{RETURN_TYPES}
                         )
                     )
                 )
-                (export_statement
-                    (lexical_declaration
-                        (variable_declarator
-                            name: (identifier) @{FUNCTION_NAME}
-                            value: (arrow_function
-                                parameters: (formal_parameters) @{ARGUMENTS}
-                            )
-                        )
-                    )
-                )
-                (export_statement
-                    (function_declaration
-                        name: (identifier) @{FUNCTION_NAME}
-                        parameters: (formal_parameters) @{ARGUMENTS}
-                    )
-                )
-                (variable_declarator
+            )
+            (export_statement
+                (function_declaration
                     name: (identifier) @{FUNCTION_NAME}
-                    value: (arrow_function
-                        parameters: (formal_parameters) @{ARGUMENTS}
+                    parameters: (formal_parameters)? @{ARGUMENTS}
+                    return_type: (type_annotation)? @{RETURN_TYPES}
+                )
+            )
+            (variable_declarator
+                name: (identifier) @{FUNCTION_NAME}
+                value: (arrow_function
+                    parameters: (formal_parameters)? @{ARGUMENTS}
+                    return_type: (type_annotation)? @{RETURN_TYPES}
+                )
+            )
+            (expression_statement
+                (assignment_expression
+                    left: (identifier) @{FUNCTION_NAME}
+                    right: (arrow_function
+                        parameters: (formal_parameters)? @{ARGUMENTS}
+                        return_type: (type_annotation)? @{RETURN_TYPES}
                     )
                 )
-                (expression_statement
-                    (assignment_expression
-                        left: (identifier) @{FUNCTION_NAME}
-                        right: (arrow_function
-                            parameters: (formal_parameters) @{ARGUMENTS}
-                        )
+            )
+            (public_field_definition
+                name: (property_identifier) @{FUNCTION_NAME}
+                value: [
+                    (function_expression
+                        parameters: (formal_parameters)? @{ARGUMENTS}
+                        return_type: (type_annotation)? @{RETURN_TYPES}
                     )
-                )
-                (public_field_definition
-                    name: (property_identifier) @{FUNCTION_NAME}
-                    value: [
-                        (function_expression
-                            parameters: (formal_parameters) @{ARGUMENTS}
-                        )
+                    (arrow_function
+                        parameters: (formal_parameters)? @{ARGUMENTS}
+                        return_type: (type_annotation)? @{RETURN_TYPES}
+                    )
+                ]
+            )
+            (pair
+                key: (property_identifier) @{FUNCTION_NAME}
+                value: [
+                    (function_expression
+                            parameters: (formal_parameters)? @{ARGUMENTS}
+                            return_type: (type_annotation)? @{RETURN_TYPES}
+                    )
+                    (arrow_function
+                            parameters: (formal_parameters)? @{ARGUMENTS}
+                            return_type: (type_annotation)? @{RETURN_TYPES}
+                    )
+                ]
+            )
+            (variable_declarator
+                name: (identifier) @{FUNCTION_NAME}
+                value: (call_expression
+                    function: (_)
+                    arguments: (arguments
                         (arrow_function
-                            parameters: (formal_parameters) @{ARGUMENTS}
-                        )
-                    ]
-                )
-                (pair
-                    key: (property_identifier) @{FUNCTION_NAME}
-                    value: [
-                        (function_expression
-                                parameters: (formal_parameters) @{ARGUMENTS}
-                        )
-                        (arrow_function
-                                parameters: (formal_parameters) @{ARGUMENTS}
-                        )
-                    ]
-                )
-                (variable_declarator
-                    name: (identifier) @{FUNCTION_NAME}
-                    value: (call_expression
-                        function: (_)
-                        arguments: (arguments
-                            (arrow_function
-                                parameters: (formal_parameters)
-                                body: (statement_block
-                                    (return_statement
-                                        [
-                                            (jsx_element)
-                                            (parenthesized_expression
-                                                (jsx_element)
-                                            )
-                                        ]
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-                (class_declaration
-                    name: (type_identifier) @{FUNCTION_NAME}
-                    (class_heritage
-                        (extends_clause
-                            value: (member_expression
-                                object: (identifier) @react (#eq @react "React")
-                                property: (property_identifier) @component (#eq @component "Component")
-                            )
-                        )
-                    )
-                    body: (class_body
-                        (method_definition
-                            name: (property_identifier) @render (#eq @render "render")
+                            parameters: (formal_parameters)
+                            return_type: (type_annotation)? @{RETURN_TYPES}
                             body: (statement_block
                                 (return_statement
                                     [
@@ -246,18 +232,46 @@ impl Stack for ReactTs {
                         )
                     )
                 )
-                (lexical_declaration
-                    (variable_declarator
-                        name: (identifier) @{FUNCTION_NAME}
-                        value: (call_expression
-                            function: (member_expression
-                                object: (identifier) @styled-object (#eq @styled-object "styled")
-                                property: (property_identifier) @styled-method
+            )
+            (class_declaration
+                name: (type_identifier) @{FUNCTION_NAME}
+                (class_heritage
+                    (extends_clause
+                        value: (member_expression
+                            object: (identifier) @react (#eq @react "React")
+                            property: (property_identifier) @component (#eq @component "Component")
+                        )
+                    )
+                )
+                body: (class_body
+                    (method_definition
+                        name: (property_identifier) @render (#eq @render "render")
+                        return_type: (type_annotation)? @{RETURN_TYPES}
+                        body: (statement_block
+                            (return_statement
+                                [
+                                    (jsx_element)
+                                    (parenthesized_expression
+                                        (jsx_element)
+                                    )
+                                ]
                             )
                         )
                     )
                 )
-            ] @{FUNCTION_DEFINITION}"#
+            )
+            (lexical_declaration
+                (variable_declarator
+                    name: (identifier) @{FUNCTION_NAME}
+                    value: (call_expression
+                        function: (member_expression
+                            object: (identifier) @styled-object (#eq @styled-object "styled")
+                            property: (property_identifier) @styled-method
+                        )
+                    )
+                )
+            )
+        ] @{FUNCTION_DEFINITION}"#
         )
     }
     fn data_model_query(&self) -> Option<String> {

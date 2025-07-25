@@ -3,13 +3,14 @@ import { TestResult } from "./types.js";
 
 export async function evaluate(
   test_url: string,
-  prompt: string
+  prompt: string,
+  sessionId: string | undefined
 ): Promise<TestResult> {
   console.log("🚀 Starting simple evaluation...");
   console.log(`📝 Prompt: ${prompt}`);
   console.log(`🌐 Test URL: ${test_url}`);
 
-  const evaluator = new SimpleEvaluator();
+  const evaluator = new SimpleEvaluator(sessionId || "default-session-id");
 
   try {
     const result = await evaluator.runTest(prompt, test_url);

@@ -158,7 +158,12 @@ jobs:
       - name: Check Fulltext Search
         working-directory: ./mcp
         run: |
-          curl -s -X GET "http://localhost:3000/search?query=NewRouter&output=snippet" -o ./testing/actual-fulltext-search.txt
+          curl -s -X GET "http://localhost:3000/search?query=NewRouter&output=snippet" | \
+          perl -0777 -ne '
+            my @snippets = split /(?=<snippet>)/, $_;
+            shift @snippets if $snippets[0] !~ /<snippet>/;
+            print join("", sort @snippets);
+          ' > ./testing/actual-fulltext-search.txt
           echo "$(<./testing/actual-fulltext-search.txt)"
 
       - name: Compare Fulltext Search Response with Expected Output

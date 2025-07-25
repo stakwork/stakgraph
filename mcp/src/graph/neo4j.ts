@@ -2,7 +2,11 @@ import neo4j, { Driver, Session } from "neo4j-driver";
 import fs from "fs";
 import readline from "readline";
 import { Node, Edge, Neo4jNode, NodeType, all_node_types } from "./types.js";
-import { create_node_key, deser_node } from "./utils.js";
+import {
+  create_node_key,
+  deser_node,
+  getExtensionsForLanguage,
+} from "./utils.js";
 import * as Q from "./queries.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
 import { v4 as uuidv4 } from "uuid";
@@ -12,15 +16,17 @@ export type Direction = "up" | "down" | "both";
 
 export const Data_Bank = Q.Data_Bank;
 
-const delay_start = parseInt(process.env.DELAY_START || "0") || 0;
-
-setTimeout(async () => {
-  try {
-    await db.createIndexes();
-  } catch (error) {
-    console.error("Error creating indexes:", error);
-  }
-}, delay_start);
+const no_db = process.env.NO_DB === "true" || process.env.NO_DB === "1";
+if (!no_db) {
+  const delay_start = parseInt(process.env.DELAY_START || "0") || 0;
+  setTimeout(async () => {
+    try {
+      await db.createIndexes();
+    } catch (error) {
+      console.error("Error creating indexes:", error);
+    }
+  }, delay_start);
+}
 
 class Db {
   private driver: Driver;
@@ -29,7 +35,7 @@ class Db {
     const uri = `neo4j://${process.env.NEO4J_HOST || "localhost:7687"}`;
     const user = process.env.NEO4J_USER || "neo4j";
     const pswd = process.env.NEO4J_PASSWORD || "testtest";
-    console.log("===> connecting to", uri, user, pswd);
+    console.log("===> connecting to", uri, user);
     this.driver = neo4j.driver(uri, neo4j.auth.basic(user, pswd));
   }
 
@@ -43,20 +49,34 @@ class Db {
     }
   }
 
-  async nodes_by_type(label: NodeType): Promise<Neo4jNode[]> {
+  async nodes_by_type(
+    label: NodeType,
+    language?: string
+  ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.LIST_QUERY, { node_label: label });
+      const extensions = language ? getExtensionsForLanguage(language) : [];
+      const r = await session.run(Q.LIST_QUERY, {
+        node_label: label,
+        extensions,
+      });
       return r.records.map((record) => deser_node(record, "f"));
     } finally {
       await session.close();
     }
   }
 
-  async nodes_by_ref_ids(ref_ids: string[]): Promise<Neo4jNode[]> {
+  async nodes_by_ref_ids(
+    ref_ids: string[],
+    language?: string
+  ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.REF_IDS_LIST_QUERY, { ref_ids });
+      const extensions = language ? getExtensionsForLanguage(language) : [];
+      const r = await session.run(Q.REF_IDS_LIST_QUERY, {
+        ref_ids,
+        extensions,
+      });
       return r.records.map((record) => deser_node(record, "n"));
     } finally {
       await session.close();
@@ -307,25 +327,28 @@ class Db {
     limit: number,
     node_types: NodeType[],
     skip_node_types: NodeType[],
-    maxTokens: number // Optional parameter for token limit
+    maxTokens: number, // Optional parameter for token limit
+    language?: string
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
 
-    const q = `name:${query}^10 OR file:*${query}^4 OR body:${query}^3 OR name:${query}*^2 OR body:${query}*`;
-    console.log("===> search query:", q, `node_types: ${node_types}`);
-    const q_escaped = prepareFulltextSearchQuery(q);
+    const q_escaped = prepareFulltextSearchQuery(query);
     console.log("===> search query escaped:", q_escaped);
 
     // skip Import nodes
     if (!skip_node_types.includes("Import")) {
       skip_node_types.push("Import");
     }
+
+    const extensions = language ? getExtensionsForLanguage(language) : [];
+
     try {
       const result = await session.run(Q.SEARCH_QUERY_COMPOSITE, {
         query: q_escaped,
         limit,
         node_types,
         skip_node_types,
+        extensions,
       });
       const nodes = result.records.map((record) => {
         const node: Neo4jNode = deser_node(record, "node");
@@ -362,17 +385,22 @@ class Db {
     query: string,
     limit: number,
     node_types: NodeType[],
-    similarityThreshold: number = 0.7
+    similarityThreshold: number = 0.7,
+    language?: string
   ): Promise<Neo4jNode[]> {
     let session: Session | null = null;
     try {
       session = this.driver.session();
       const embeddings = await vectorizeQuery(query);
+
+      const extensions = language ? getExtensionsForLanguage(language) : [];
+
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
         limit,
         node_types,
         similarityThreshold,
+        extensions,
       });
       return result.records.map((record) => {
         const node: Neo4jNode = deser_node(record, "node");
@@ -434,7 +462,11 @@ class Db {
   }
 }
 
-export const db = new Db();
+export let db: Db;
+
+if (!no_db) {
+  db = new Db();
+}
 
 interface MergeQuery {
   query: string;
@@ -530,65 +562,39 @@ async function execute_batch(session: Session, batch: MergeQuery[]) {
     throw error;
   }
 }
+
 /**
  * Prepares a fulltext search query for Neo4j by properly handling special characters
- *
- * @param searchQuery - The original search query
- * @returns A properly formatted search query for Neo4j fulltext search
  */
-export function prepareFulltextSearchQuery(searchQuery: string): string {
-  // If the query is very simple (no special operators), return it as is
-  if (!/[:^*]/.test(searchQuery)) {
-    return searchQuery;
-  }
+export function prepareFulltextSearchQuery(searchTerm: string): string {
+  console.log("===> prepareFulltextSearchQuery", searchTerm);
+  // Escape the raw search term first
+  const escapedTerm = escapeSearchTerm(searchTerm);
 
-  // For queries with field specifications and boosting, handle with care
-  const parts = searchQuery.split(/ OR /);
+  // Build the query with proper structure
+  const queryParts = [
+    `name:${escapedTerm}^10`,
+    `file:*${escapedTerm}*^4`,
+    `body:${escapedTerm}^3`,
+    `name:${escapedTerm}*^2`,
+    `body:${escapedTerm}*^1`,
+  ];
 
-  const processedParts = parts.map((part) => {
-    // Check if this part has a field specification (contains a colon)
-    const colonIndex = part.indexOf(":");
-    if (colonIndex === -1) {
-      return escapeSearchTerm(part);
-    }
-
-    // Extract field name and search value
-    const fieldName = part.substring(0, colonIndex);
-    let remaining = part.substring(colonIndex + 1);
-
-    // Handle boosting factor if present
-    let boostFactor = "";
-    const boostMatch = remaining.match(/\^(\d+)$/);
-    if (boostMatch) {
-      boostFactor = boostMatch[0]; // e.g., "^10"
-      remaining = remaining.substring(0, remaining.length - boostFactor.length);
-    }
-
-    // Handle wildcards carefully
-    if (remaining.includes("*")) {
-      // Preserve the wildcards, but escape other special characters
-      const segments = remaining.split("*");
-      const escapedSegments = segments.map((seg) => escapeSearchTerm(seg));
-      remaining = escapedSegments.join("*");
-    } else {
-      // No wildcards, just escape the term
-      remaining = escapeSearchTerm(remaining);
-    }
-
-    // Reconstruct the part
-    return `${fieldName}:${remaining}${boostFactor}`;
-  });
-
-  return processedParts.join(" OR ");
+  return queryParts.join(" OR ");
 }
 
 /**
- * Escapes only the characters that need escaping in search terms
- * (not field names, operators, or wildcards)
+ * Escapes special characters in search terms
  */
 function escapeSearchTerm(term: string): string {
-  // Characters that should be escaped in the actual search term
-  // Note: * is handled separately to preserve wildcards
+  // Handle phrases with spaces by wrapping in quotes
+  if (term.includes(" ")) {
+    // Escape quotes within the term and wrap the whole thing in quotes
+    const escapedTerm = term.replace(/"/g, '\\"');
+    return `"${escapedTerm}"`;
+  }
+
+  // For single terms, escape special characters
   const charsToEscape = [
     "+",
     "-",
@@ -608,13 +614,15 @@ function escapeSearchTerm(term: string): string {
     ":",
     "\\",
     "/",
+    "*",
   ];
 
   let result = term;
   for (const char of charsToEscape) {
-    // Create a regex that globally matches the character
-    const regex = new RegExp(`\\${char}`, "g");
-    // Replace with escaped version
+    const regex = new RegExp(
+      char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), // Removed the extra \\
+      "g"
+    );
     result = result.replace(regex, `\\${char}`);
   }
 

@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
 use crate::lang::graphs::BTreeMapGraph;
-use crate::lang::neo4j_utils::{add_node_query, EdgeQueryBuilder};
+use crate::lang::neo4j_utils::{add_node_query, build_batch_edge_queries};
 use crate::lang::{NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo};
 use anyhow::Result;
@@ -70,6 +70,12 @@ impl GraphOps {
             return Err(anyhow::anyhow!("Repo not found"));
         }
         Ok(repo[0].clone())
+    }
+
+    pub async fn fetch_repos(&mut self) -> Vec<NodeData> {
+        self.graph
+            .find_nodes_by_type_async(NodeType::Repository)
+            .await
     }
 
     pub async fn update_incremental(
@@ -171,7 +177,9 @@ impl GraphOps {
     ) -> anyhow::Result<(u32, u32)> {
         self.graph.ensure_connected().await?;
 
-        debug!("preparing node upload {}", btree_graph.nodes.len());
+        self.graph.create_indexes().await?;
+
+        info!("preparing node upload {}", btree_graph.nodes.len());
         let node_queries: Vec<(String, BoltMap)> = btree_graph
             .nodes
             .values()
@@ -180,23 +188,22 @@ impl GraphOps {
 
         debug!("executing node upload in batches");
         self.graph.execute_batch(node_queries).await?;
-        debug!("node upload complete");
+        info!("node upload complete");
 
-        debug!("preparing edge upload {}", btree_graph.edges.len());
-        let edge_queries: Vec<(String, BoltMap)> = btree_graph
-            .edges
-            .iter()
-            .map(|(source_key, target_key, edge_type)| {
-                EdgeQueryBuilder::build_from_keys(source_key, target_key, edge_type)
-            })
-            .collect();
+        info!("preparing edge upload {}", btree_graph.edges.len());
+        let edge_queries = build_batch_edge_queries(btree_graph.edges.iter().cloned(), 256);
 
         debug!("executing edge upload in batches");
-        self.graph.execute_batch(edge_queries).await?;
-        debug!("edge upload complete!");
+        self.graph.execute_simple(edge_queries).await?;
+        info!("edge upload complete!");
 
         let (nodes, edges) = self.graph.get_graph_size_async().await?;
         debug!("upload complete! nodes: {}, edges: {}", nodes, edges);
         Ok((nodes, edges))
+    }
+
+    pub async fn clear_existing_graph(&mut self, root: &str) -> Result<()> {
+        self.graph.clear_existing_graph(root).await?;
+        Ok(())
     }
 }

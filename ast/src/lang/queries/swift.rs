@@ -26,8 +26,8 @@ impl Stack for Swift {
         Some(format!(
             r#"
             (import_declaration
-                (identifier) @{IMPORTS}
-            )
+                (identifier) 
+            ) @{IMPORTS}
             "#
         ))
     }
@@ -49,7 +49,7 @@ impl Stack for Swift {
         format!(
             r#"
             (class_declaration
-                (type_identifier) @{CLASS_NAME}
+                name: (type_identifier) @{CLASS_NAME}
             ) @{CLASS_DEFINITION}
             "#
         )
@@ -94,7 +94,7 @@ impl Stack for Swift {
         }
         let parent_of = match parent {
             Some(p) => {
-                let query = self.q("(type_identifier) @class-name", &NodeType::Class);
+                let query = self.q("name: (type_identifier) @class-name", &NodeType::Class);
                 match query_to_ident(query, p, code)? {
                     Some(parent_name) => Some(Operand {
                         source: NodeKeys::new(&parent_name, file, p.start_position().row),

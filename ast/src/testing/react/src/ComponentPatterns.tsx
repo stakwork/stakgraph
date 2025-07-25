@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from "react";
 
 export function FunctionComponent({ text }: { text: string }) {
   return <div>{text}</div>;
@@ -15,15 +15,17 @@ export const ExportArrowComponent = ({ name }: { name: string }) => {
 let DirectAssignmentComponent: React.FC<{ id: string }>;
 DirectAssignmentComponent = ({ id }) => {
   const [data, setData] = useState<string | null>(null);
-  
+
   useEffect(() => {
     setData(id);
   }, [id]);
-  
+
   return <div>ID: {data}</div>;
 };
 
-const ExportDirectAssignmentComponent: React.FC<{ items: string[] }> = ({ items }) => {
+const ExportDirectAssignmentComponent: React.FC<{ items: string[] }> = ({
+  items,
+}) => {
   return (
     <ul>
       {items.map((item, index) => (
@@ -33,4 +35,8 @@ const ExportDirectAssignmentComponent: React.FC<{ items: string[] }> = ({ items 
   );
 };
 
-export { ArrowComponent, DirectAssignmentComponent, ExportDirectAssignmentComponent }; 
+export {
+  ArrowComponent,
+  DirectAssignmentComponent,
+  ExportDirectAssignmentComponent,
+};

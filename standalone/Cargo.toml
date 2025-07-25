@@ -18,6 +18,8 @@ futures = "0.3.31"
 test-log = "0.*"
 base64 = "0.21"
 regex = "1.11.1"
+uuid = "1.17.0"
 
 [features]
 neo4j = ["ast/neo4j"]
+fulltest = ["ast/fulltest"]

@@ -40,7 +40,7 @@ pub async fn clone_repo(
 
 pub struct Repo {
     pub url: String,
-    pub root: PathBuf,
+    pub root: PathBuf, // the absolute path to the repo (/tmp/stakwork/hive)
     pub lang: Lang,
     pub lsp_tx: Option<CmdSender>,
     pub files_filter: Vec<String>,
@@ -74,7 +74,7 @@ impl Repos {
         }
 
         if let Some(first_repo) = &self.0.get(0) {
-            first_repo.send_status_update("linking_graphs", 16);
+            first_repo.send_status_update("linking_graphs", 14);
         }
         info!("linking e2e tests");
         linker::link_e2e_tests(&mut graph)?;
@@ -161,10 +161,13 @@ impl Repo {
         };
         let mut repos: Vec<Repo> = Vec::new();
         for (i, url) in urls.iter().enumerate() {
-            let gurl = GitUrl::parse(url)?;
+            let gurl = GitUrl::parse(url)
+                .map_err(|e| anyhow!("Failed to parse Git URL for {}: {}", url, e))?;
             let root = format!("/tmp/{}", gurl.fullname);
             println!("Cloning repo to {:?}...", &root);
-            clone_repo(url, &root, username.clone(), pat.clone(), commit).await?;
+            clone_repo(url, &root, username.clone(), pat.clone(), commit)
+                .await
+                .map_err(|e| anyhow!("Failed to clone repo {} at root {}: {}", url, root, e))?;
             // Extract the revs for this specific repository
             let repo_revs = if revs_per_repo > 0 {
                 revs[i * revs_per_repo..(i + 1) * revs_per_repo].to_vec()
@@ -203,7 +206,8 @@ impl Repo {
                 skip_dirs: stringy(l.skip_dirs()),
                 ..Default::default()
             };
-            let source_files = walk_files(&root.into(), &conf)?;
+            let source_files = walk_files(&root.into(), &conf)
+                .map_err(|e| anyhow!("Failed to walk files at {}: {}", root, e))?;
             let has_pkg_file = source_files.iter().any(|f| {
                 let fname = f.display().to_string();
                 if l.pkg_files().is_empty() {
@@ -239,11 +243,13 @@ impl Repo {
             let thelang = Lang::from_language(l);
             // Run post-clone commands
             for cmd in thelang.kind.post_clone_cmd() {
-                Self::run_cmd(&cmd, &root)?;
+                Self::run_cmd(&cmd, &root)
+                    .map_err(|e| anyhow!("Failed to cmd {} in {}: {}", cmd, root, e))?;
             }
             // Start LSP server
             let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
-            let lsp_tx = Self::start_lsp(&root, &thelang, lsp_enabled)?;
+            let lsp_tx = Self::start_lsp(&root, &thelang, lsp_enabled)
+                .map_err(|e| anyhow!("Failed to start LSP: {}", e))?;
             // Add to repositories
             repos.push(Repo {
                 url: url.clone().map(|u| u.into()).unwrap_or_default(),
@@ -307,7 +313,7 @@ impl Repo {
     }
     fn start_lsp(root: &str, lang: &Lang, lsp: bool) -> Result<Option<CmdSender>> {
         Ok(if lsp {
-            let (tx, rx) = std::sync::mpsc::channel();
+            let (tx, rx) = tokio::sync::mpsc::channel(10000);
             spawn_analyzer(&root.into(), &lang.kind, rx)?;
             Some(tx)
         } else {
@@ -424,7 +430,6 @@ impl Repo {
                         if self.should_not_include(path, &relative_path) {
                             continue;
                         }
-
                         all_files.push(path.to_path_buf());
                     }
                 }
@@ -438,6 +443,10 @@ impl Repo {
     fn should_not_include(&self, path: &std::path::Path, relative_path: &str) -> bool {
         let conf = self.merge_config_with_lang();
         let fname = path.display().to_string();
+
+        if !conf.only_include_files.is_empty() {
+            return !only_files(path, &conf.only_include_files);
+        }
 
         if path.components().any(|c| {
             lsp::language::junk_directories().contains(&c.as_os_str().to_str().unwrap_or(""))
@@ -477,9 +486,6 @@ impl Repo {
         }
 
         if skip_end(&fname, &conf.skip_file_ends) {
-            return true;
-        }
-        if !conf.only_include_files.is_empty() && !only_files(path, &conf.only_include_files) {
             return true;
         }
         false

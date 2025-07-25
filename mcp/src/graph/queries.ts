@@ -97,6 +97,11 @@ export const LIST_QUERY = `
 WITH $node_label AS nodeLabel
 MATCH (f)
 WHERE any(label IN labels(f) WHERE label = nodeLabel)
+AND
+CASE
+  WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
+  ELSE f.file IS NOT NULL AND ANY(ext IN $extensions WHERE f.file ENDS WITH ext)
+END
 RETURN f
 `;
 
@@ -104,6 +109,11 @@ export const REF_IDS_LIST_QUERY = `
 WITH $ref_ids AS refIdList
 MATCH (n)
 WHERE n.ref_id IN refIdList
+AND
+CASE
+  WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
+  ELSE n.file IS NOT NULL AND ANY(ext IN $extensions WHERE n.file ENDS WITH ext)
+END
 RETURN n
 `;
 
@@ -160,6 +170,11 @@ WHERE
     WHEN $skip_node_types IS NULL OR size($skip_node_types) = 0 THEN true
     ELSE NOT ANY(label IN labels(node) WHERE label IN $skip_node_types)
   END
+  AND
+  CASE
+    WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
+    ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
+  END
 RETURN node, score
 ORDER BY score DESC
 LIMIT toInteger($limit)`;
@@ -187,6 +202,11 @@ WHERE
     ELSE ANY(label IN labels(node) WHERE label IN $node_types)
   END
   AND node.embeddings IS NOT NULL
+  AND
+  CASE
+    WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
+    ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
+  END
 WITH node, gds.similarity.cosine(node.embeddings, $embeddings) AS score
 WHERE score >= $similarityThreshold
 RETURN node, score

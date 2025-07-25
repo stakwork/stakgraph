@@ -30,14 +30,12 @@ impl Graph for BTreeMapGraph {
         Self::default()
     }
     fn analysis(&self) {
-        for (src_key, dst_key, edge_type) in &self.edges {
-            println!("Edge: {:?}: {:?} -> {:?}", edge_type, src_key, dst_key);
+        for (node_key, _node) in &self.nodes {
+            println!("Node: {}", node_key);
         }
-        for (node_key, node) in &self.nodes {
-            println!(
-                "Node: {:?} type: {:?} file: {:?}",
-                node_key, node.node_type, node.node_data.file
-            );
+
+        for (src_key, dst_key, edge_type) in &self.edges {
+            println!("Edge: {} - {:?} -> {}", src_key, edge_type, dst_key);
         }
     }
 

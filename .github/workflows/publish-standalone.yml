@@ -32,6 +32,9 @@ jobs:
           file: Dockerfile.standalone
           platforms: linux/amd64,linux/arm64
           push: true
+          # Use registry cache which is more reliable for multi-platform
+          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache
+          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache,mode=max
           tags: |
             ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}
             ghcr.io/stakwork/stakgraph-standalone:latest
