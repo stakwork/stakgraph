@@ -61,6 +61,7 @@ impl Lang {
         &self,
         q: &Query,
         code: &str,
+        _lsp_tx: &Option<CmdSender>,
         graph: &G,
     ) -> Result<Vec<Edge>> {
         let tree = self.lang.parse(&code, &NodeType::Class)?;

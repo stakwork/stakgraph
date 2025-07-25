@@ -461,7 +461,9 @@ impl Repo {
             if let Some(implements_query) = self.lang.lang().implements_query() {
                 let q = self.lang.q(&implements_query, &NodeType::Class);
                 for (_filename, code) in filez {
-                    let edges = self.lang.collect_implements_edges(&q, code, graph)?;
+                    let edges =
+                        self.lang
+                            .collect_implements_edges(&q, &code, &self.lsp_tx, graph)?;
                     for edge in edges {
                         graph.add_edge(edge);
                     }

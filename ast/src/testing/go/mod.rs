@@ -264,7 +264,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<(), anyhow::Error> {
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 7, "Expected 7 operands");
+    if use_lsp {
+        assert_eq!(operands, 9, "Expected 9 operands with lsp");
+    } else {
+        assert_eq!(operands, 7, "Expected 7 operands without lsp");
+    }
 
     let of = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of;
