@@ -62,3 +62,5 @@ pub const EXTRA_PROP: &str = "extra-prop";
 pub const DECORATOR_NAME: &str = "decorator_name";
 pub const TEMPLATE_KEY: &str = "key";
 pub const TEMPLATE_VALUE: &str = "value";
+
+pub const IMPLEMENTS: &str = "implements";
