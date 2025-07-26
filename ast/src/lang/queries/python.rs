@@ -71,11 +71,23 @@ impl Stack for Python {
             "#
         ))
     }
+    // To differentiate classes and Data Models, we make sure that every class has at least one method in it's body... does that work?
     fn class_definition_query(&self) -> String {
         format!(
-            "(class_definition
+            "
+            (class_definition
                 name: (identifier) @{CLASS_NAME}
-            ) @{CLASS_DEFINITION}"
+                superclasses: (argument_list
+                    (identifier)? @{CLASS_PARENT}
+                )
+                body: (block
+                    [
+                        (function_definition)+
+                        (decorated_definition)+
+                    ]
+                )
+            )@{CLASS_DEFINITION}
+            "
         )
     }
     // this captures both
@@ -240,6 +252,7 @@ impl Stack for Python {
             nd.add_verb("GET");
         }
     }
+    // Now we need to exclude class definitinos that have methods in their body
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             "(class_definition
@@ -268,6 +281,33 @@ impl Stack for Python {
                     object: (identifier) @{STRUCT_NAME} (#match? @{STRUCT_NAME} "^[A-Z].*")
                 )
             ]"#
+        ))
+    }
+
+    // A trait in python is an ABC class that inherits from ABC
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (class_definition
+                name: (identifier)@{TRAIT_NAME}
+                superclasses: (argument_list
+                    (identifier) @parent (#eq? @parent "ABC")
+                )
+            )@{TRAIT}
+            "#
+        ))
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (class_definition
+                name: (identifier)@{CLASS_NAME}
+                superclasses: (argument_list
+                    (identifier) @{TRAIT_NAME}
+                )
+            )@{IMPLEMENTS}  
+            "#
         ))
     }
 

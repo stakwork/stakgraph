@@ -457,6 +457,16 @@ impl Repo {
             for tr in traits {
                 graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
             }
+
+            if let Some(implements_query) = self.lang.lang().implements_query() {
+                let q = self.lang.q(&implements_query, &NodeType::Class);
+                for (_filename, code) in filez {
+                    let edges = self.lang.collect_implements_edges(&q, code, graph)?;
+                    for edge in edges {
+                        graph.add_edge(edge);
+                    }
+                }
+            }
         }
 
         let mut stats = std::collections::HashMap::new();

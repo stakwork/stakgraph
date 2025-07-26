@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String
 from database import Base
 from pydantic import BaseModel
 from typing import Optional
+from abc import ABC, abstractmethod
 
 
 class Person(Base):
@@ -41,3 +42,24 @@ class PersonResponse(BaseModel):
     id: int
     name: str
     email: str
+
+
+class Animal(ABC):
+
+    @abstractmethod
+    def make_sound(self) -> str:
+        pass
+
+    @abstractmethod
+    def move(self) -> str:
+        pass
+
+
+class Dog(Animal):
+    """Concrete class implementing the Animal ABC."""
+
+    def make_sound(self) -> str:
+        return "Woof!"
+
+    def move(self) -> str:
+        return "Runs on four legs"

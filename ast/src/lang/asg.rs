@@ -175,6 +175,10 @@ impl NodeData {
         self.meta
             .insert("includes".to_string(), modules.to_string());
     }
+    pub fn add_implements(&mut self, trait_name: &str) {
+        self.meta
+            .insert("implements".to_string(), trait_name.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
