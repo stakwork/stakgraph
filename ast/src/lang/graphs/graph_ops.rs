@@ -162,7 +162,7 @@ impl GraphOps {
         temp_graph.analysis();
 
         self.graph.clear().await?;
-        self.upload_btreemap_to_neo4j(&temp_graph).await?;
+        self.upload_btreemap_to_neo4j(&temp_graph, None).await?;
         self.graph.create_indexes().await?;
 
         self.graph
@@ -174,10 +174,22 @@ impl GraphOps {
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
         btree_graph: &BTreeMapGraph,
+        status_tx: Option<tokio::sync::broadcast::Sender<crate::repo::StatusUpdate>>,
     ) -> anyhow::Result<(u32, u32)> {
         self.graph.ensure_connected().await?;
-
         self.graph.create_indexes().await?;
+
+        if let Some(tx) = &status_tx {
+            let _ = tx.send(crate::repo::StatusUpdate {
+                status: "".to_string(),
+                message: "Step 15: Uploading nodes to Neo4j".to_string(),
+                step: 15,
+                total_steps: 16,
+                progress: 0,
+                stats: None,
+                step_description: Some("Uploading nodes to Neo4j".to_string()),
+            });
+        }
 
         info!("preparing node upload {}", btree_graph.nodes.len());
         let node_queries: Vec<(String, BoltMap)> = btree_graph
@@ -189,6 +201,18 @@ impl GraphOps {
         debug!("executing node upload in batches");
         self.graph.execute_batch(node_queries).await?;
         info!("node upload complete");
+
+        if let Some(tx) = &status_tx {
+            let _ = tx.send(crate::repo::StatusUpdate {
+                status: "".to_string(),
+                message: "Step 16: Uploading edges to Neo4j".to_string(),
+                step: 16,
+                total_steps: 16,
+                progress: 0,
+                stats: None,
+                step_description: Some("Uploading edges to Neo4j".to_string()),
+            });
+        }
 
         info!("preparing edge upload {}", btree_graph.edges.len());
         let edge_queries = build_batch_edge_queries(btree_graph.edges.iter().cloned(), 256);

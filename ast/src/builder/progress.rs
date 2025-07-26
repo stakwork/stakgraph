@@ -52,7 +52,7 @@ impl Repo {
             status: "".to_string(),
             message: formatted_msg,
             step,
-            total_steps: 14,
+            total_steps: 16,
             progress: 0,
             stats: None,
             step_description: Some(step_description.to_string()),
@@ -96,7 +96,7 @@ impl Repo {
             *last_time_mutex.lock().unwrap() = now;
 
             let su = StatusUpdate {
-                total_steps: 14,
+                total_steps: 16,
                 progress: current_progress,
                 step,
                 ..Default::default()
@@ -112,7 +112,7 @@ impl Repo {
 
     pub fn send_status_with_stats(&self, stats: HashMap<String, usize>) {
         let su = StatusUpdate {
-            total_steps: 14,
+            total_steps: 16,
             stats: Some(stats),
             ..Default::default()
         };

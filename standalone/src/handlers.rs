@@ -239,7 +239,9 @@ pub async fn ingest(
     let start_upload = Instant::now();
 
     info!("Uploading to Neo4j...");
-    let (nodes, edges) = graph_ops.upload_btreemap_to_neo4j(&btree_graph).await?;
+    let (nodes, edges) = graph_ops
+        .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
+        .await?;
     graph_ops.graph.create_indexes().await?;
 
     info!(

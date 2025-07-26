@@ -44,7 +44,7 @@ async fn test_graph_consistency() {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await.unwrap();
     let (neo4j_nodes, neo4j_edges) = graph_ops
-        .upload_btreemap_to_neo4j(&btree_graph)
+        .upload_btreemap_to_neo4j(&btree_graph, None)
         .await
         .unwrap();
 

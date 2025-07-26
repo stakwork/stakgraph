@@ -62,6 +62,14 @@ body {
   color: var(--text-color);
 }
 
+.app-header-title{
+  margin: 10px auto;
+  padding: 0;
+  font-weight: 500;
+  color: var(--text-color);
+  text-align: center;
+}
+
 .app-body {
   display: flex;
   flex-direction: column;

@@ -217,8 +217,9 @@ const App = () => {
   const handleBtnClick = repoExists ? handleSync : handleSubmit;
   return html`
     <div class="app-container">
+      <h1 class="app-header-title">StakGraph</h1>
       <div class="app-header">
-        <h2>${currentRepoName ? currentRepoName : "Stakgraph"}</h2>
+        <h2>${currentRepoName ? currentRepoName : " "}</h2>
       </div>
       <div class="app-body">
         <input
