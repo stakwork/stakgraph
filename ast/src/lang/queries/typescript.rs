@@ -242,6 +242,42 @@ impl Stack for TypeScript {
              "#
         ))
     }
+
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+                (interface_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    body: (interface_body
+                        (method_signature)+
+                    )
+                )
+                (type_alias_declaration
+                    name: (type_identifier)@{TRAIT_NAME}
+                    value: (object_type
+                            (method_signature)+
+                        )
+                )
+            ]@{TRAIT}
+            "#
+        ))
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (class_declaration
+                name: (type_identifier) @{CLASS_NAME}
+                (class_heritage
+                    (implements_clause
+                        (type_identifier) @{TRAIT_NAME}
+                    )
+                )
+            )@{IMPLEMENTS}
+            "#
+        ))
+    }
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
             r#"(

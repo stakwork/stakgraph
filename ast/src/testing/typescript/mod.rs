@@ -115,7 +115,11 @@ import {{ sequelize }} from "./config.js";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 8, "Expected 8 data models");
+    assert_eq!(data_models.len(), 10, "Expected 10 data models");
+
+    let trait_nodes = graph.find_nodes_by_type(NodeType::Trait);
+    nodes_count += trait_nodes.len();
+    assert_eq!(trait_nodes.len(), 2, "Expected 2 trait nodes");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -123,7 +127,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 60, "Expected 60 contains edges");
+    assert_eq!(contains, 64, "Expected 64 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -158,6 +162,10 @@ import {{ sequelize }} from "./config.js";"#
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
+
+    let implements = graph.count_edges_of_type(EdgeType::Implements);
+    edges_count += implements;
+    assert_eq!(implements, 3, "Expected 3 implements edges");
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
