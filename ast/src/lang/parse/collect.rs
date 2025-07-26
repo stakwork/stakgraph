@@ -49,10 +49,35 @@ impl Lang {
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let (cls, edges) = self.format_class_with_associations(&m, code, file, q, graph)?;
-            res.push((cls, edges));
+            if let Some((cls, edges)) =
+                self.format_class_with_associations(&m, code, file, q, graph)?
+            {
+                res.push((cls, edges));
+            }
         }
         Ok(res)
+    }
+    pub fn collect_implements_edges<G: Graph>(
+        &self,
+        q: &Query,
+        code: &str,
+        graph: &G,
+    ) -> Result<Vec<Edge>> {
+        let tree = self.lang.parse(&code, &NodeType::Class)?;
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
+        let mut edges = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let (class_name, trait_name) = self.format_implements(&m, code, q)?;
+            let class_nodes = graph.find_nodes_by_name(NodeType::Class, &class_name);
+            let trait_nodes = graph.find_nodes_by_name(NodeType::Trait, &trait_name);
+
+            if let (Some(class), Some(trait_)) = (class_nodes.first(), trait_nodes.first()) {
+                edges.push(Edge::implements(class, trait_));
+            }
+        }
+        Ok(edges)
     }
 
     pub fn collect_pages<G: Graph>(

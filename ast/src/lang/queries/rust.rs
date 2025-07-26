@@ -136,6 +136,19 @@ impl Stack for Rust {
         )
     }
 
+    fn implements_query(&self) -> Option<String> {
+        Some(
+            r#"
+        (impl_item
+            trait: (type_identifier)? @trait-name
+            type: (type_identifier) @class-name
+            body: (declaration_list)?
+        ) @implements
+        "#
+            .to_string(),
+        )
+    }
+
     fn function_definition_query(&self) -> String {
         format!(
             r#"
@@ -312,12 +325,12 @@ impl Stack for Rust {
         }
     }
 
-    fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
-        callback(NodeType::Class, NodeType::Function, "operand");
-    }
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.to_string();
         path = path.replace("::", "/");
         path
+    }
+    fn filter_by_implements(&self) -> bool {
+        true
     }
 }

@@ -4,7 +4,13 @@ import "./App.css";
 import People from "./components/People";
 import NewPerson from "./components/NewPerson";
 
-export const AppName: string = "My React App";
+enum APP_NAMES{
+  MyReactApp = "My React App"
+  MyApp = "My App"
+  MyDemoApp = "My Demo App"
+}
+
+export const AppName: string = APP_NAMES.MyReactApp;
 export const hostPort: string = "http://localhost:5002";
 
 function App() {

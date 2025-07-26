@@ -195,35 +195,87 @@ impl Stack for TypeScript {
         }
     }
 
+    /*
+    POSSIBLE QUERY FOR DATA MODEL that picks up interfaces without methods -- needs work
+    (interface_declaration
+        name: (type_identifier) @struct-name
+        body: (interface_body
+
+            (method_signature) @method
+            (#is_not? @method _)
+
+        )
+    ) @struct
+     */
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
-                ;; Find TypeScript interfaces related to the model
-                (interface_declaration
-                    name: (type_identifier) @{STRUCT_NAME} 
-                    body: (interface_body) @{STRUCT}
-                )
-                ;; sequelize
-                (class_declaration
-                    name: (type_identifier) @{STRUCT_NAME}
-                    (class_heritage
-                        (extends_clause
-                            value: (identifier) @model (#eq? @model "Model")
-                        )
+                [
+                    (interface_declaration
+                        name: (type_identifier) @{STRUCT_NAME} 
                     )
-                ) @{STRUCT}
-                ;; typeorm
-                (
-                    (decorator
-                        (call_expression
-                            function: (identifier) @entity (#eq? @entity "Entity")
-                        )
+                    (type_alias_declaration
+                        name: (type_identifier) @{STRUCT_NAME}
+                    )
+                    (enum_declaration
+                        name: (identifier) @{STRUCT_NAME}
                     )
                     (class_declaration
                         name: (type_identifier) @{STRUCT_NAME}
-                    ) @{STRUCT}
-                )
+                        (class_heritage
+                            (extends_clause
+                                value: (identifier) @model (#eq? @model "Model")
+                            )
+                        )
+                    ) 
+                    (
+                        (decorator
+                            (call_expression
+                                function: (identifier) @entity (#eq? @entity "Entity")
+                            )
+                        )
+                        (class_declaration
+                            name: (type_identifier) @{STRUCT_NAME}
+                        ) 
+                    )
+                ] @{STRUCT}
              "#
+        ))
+    }
+
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+                (interface_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    body: (interface_body
+                        (method_signature)+
+                    )
+                )
+                (type_alias_declaration
+                    name: (type_identifier)@{TRAIT_NAME}
+                    value: (object_type
+                            (method_signature)+
+                        )
+                )
+            ]@{TRAIT}
+            "#
+        ))
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (class_declaration
+                name: (type_identifier) @{CLASS_NAME}
+                (class_heritage
+                    (implements_clause
+                        (type_identifier) @{TRAIT_NAME}
+                    )
+                )
+            )@{IMPLEMENTS}
+            "#
         ))
     }
     fn data_model_within_query(&self) -> Option<String> {

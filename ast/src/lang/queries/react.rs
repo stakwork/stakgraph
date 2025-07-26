@@ -279,11 +279,13 @@ impl Stack for ReactTs {
             r#"[
                 (type_alias_declaration
                     name: (type_identifier) @{STRUCT_NAME}
-                ) @{STRUCT}
+                ) 
                 (interface_declaration
                     name: (type_identifier) @{STRUCT_NAME}
-                ) @{STRUCT}
-                ;; sequelize
+                )
+                (enum_declaration
+                    name: (identifier) @{STRUCT_NAME}
+                )
                 (class_declaration
                     name: (type_identifier) @{STRUCT_NAME}
                     (class_heritage
@@ -291,8 +293,7 @@ impl Stack for ReactTs {
                             value: (identifier) @model (#eq? @model "Model")
                         )
                     )
-                ) @{STRUCT}
-                ;; typeorm
+                ) 
                 (
                     (decorator
                         (call_expression
@@ -301,9 +302,10 @@ impl Stack for ReactTs {
                     )
                     (class_declaration
                         name: (type_identifier) @{STRUCT_NAME}
-                    ) @{STRUCT}
+                    ) 
                 )
-            ]"#
+            ] @{STRUCT}
+            "#
         ))
     }
     fn data_model_within_query(&self) -> Option<String> {

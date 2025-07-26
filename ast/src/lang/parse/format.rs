@@ -18,11 +18,12 @@ impl Lang {
         file: &str,
         q: &Query,
         graph: &G,
-    ) -> Result<(NodeData, Vec<Edge>)> {
+    ) -> Result<Option<(NodeData, Vec<Edge>)>> {
         let mut cls = NodeData::in_file(file);
         let mut associations = Vec::new();
         let mut association_type = None;
         let mut assocition_target = None;
+        let mut has_impl = false;
 
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == CLASS_NAME {
@@ -54,7 +55,28 @@ impl Lang {
             }
             Ok(())
         })?;
-        Ok((cls, associations))
+
+        if self.lang.filter_by_implements() {
+            if let Some(implements_query) = self.lang.implements_query() {
+                let implements_q = self.lang.q(&implements_query, &NodeType::Class);
+                let tree = self.lang.parse(code, &NodeType::Class)?;
+                let mut cursoe = QueryCursor::new();
+                let mut matches = cursoe.matches(&implements_q, tree.root_node(), code.as_bytes());
+                while let Some(m) = matches.next() {
+                    let (class_name, trait_name) =
+                        self.format_implements(&m, code, &implements_q)?;
+                    if class_name == cls.name {
+                        cls.add_implements(trait_name.as_str());
+                        has_impl = true;
+                        break;
+                    }
+                }
+            }
+            if !has_impl {
+                return Ok(None);
+            }
+        }
+        Ok(Some((cls, associations)))
     }
     pub fn format_library(
         &self,
@@ -253,6 +275,26 @@ impl Lang {
         })?;
         Ok(inst)
     }
+
+    pub fn format_implements(
+        &self,
+        m: &QueryMatch,
+        code: &str,
+        q: &Query,
+    ) -> Result<(String, String)> {
+        let mut class_name = String::new();
+        let mut trait_name = String::new();
+        Self::loop_captures(q, &m, code, |body, _node, o| {
+            if o == CLASS_NAME {
+                class_name = body;
+            } else if o == TRAIT_NAME {
+                trait_name = body;
+            }
+            Ok(())
+        })?;
+        Ok((class_name, trait_name))
+    }
+
     pub fn format_endpoint<G: Graph>(
         &self,
         m: &QueryMatch,

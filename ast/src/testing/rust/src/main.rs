@@ -1,5 +1,6 @@
 mod db;
 mod routes;
+mod traits;
 
 use crate::db::init_db;
 use crate::routes::{

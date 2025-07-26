@@ -81,6 +81,7 @@ pub enum EdgeType {
     Renders,  // Page -> Component
     #[serde(rename = "PARENT_OF")]
     ParentOf, // Class -> Class
+    Implements, // Class -> Trait
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -198,6 +199,13 @@ impl Edge {
             NodeRef::from(target.into(), target_type),
         )
     }
+    pub fn implements(class: &NodeData, tr: &NodeData) -> Edge {
+        Edge::new(
+            EdgeType::Implements,
+            NodeRef::from(class.into(), NodeType::Class),
+            NodeRef::from(tr.into(), NodeType::Trait),
+        )
+    }
 }
 
 impl From<Operand> for Edge {
@@ -256,6 +264,7 @@ impl ToString for EdgeType {
             EdgeType::Uses => "USES".to_string(),
             EdgeType::Includes => "INCLUDES".to_string(),
             EdgeType::Calls => "CALLS".to_string(),
+            EdgeType::Implements => "IMPLEMENTS".to_string(),
         }
     }
 }
@@ -275,6 +284,7 @@ impl FromStr for EdgeType {
             "HANDLER" => Ok(EdgeType::Handler),
             "RENDERS" => Ok(EdgeType::Renders),
             "PARENT_OF" => Ok(EdgeType::ParentOf),
+            "IMPLEMENTS" => Ok(EdgeType::Implements),
             _ => Err(anyhow::anyhow!("Invalid EdgeType: {}", s)),
         }
     }

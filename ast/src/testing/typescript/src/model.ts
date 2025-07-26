@@ -50,3 +50,20 @@ export class TypeORMPerson {
   @Column({ unique: true })
   email!: string;
 }
+
+// Trait but is not implemented on a class || Unfortunately get's picked up as a data model as well. Till we find a way to filter it out... ideally treesitter queries
+type CarType = {
+  model: string;
+  year: number;
+  startEngine(): string;
+};
+
+//should not be DM
+// interface TestInterface {
+//   operand1: number;
+//   operand2: number;
+//   add(): number;
+//   subtract?(): number;
+// }
+
+// TO FIGURE OUT QUERY THAT DOES NOT PICK IT UP AS DM
