@@ -82,7 +82,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 6, "Expected 6 classes");
+    assert_eq!(classes.len(), 8, "Expected 8 classes");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -92,22 +92,22 @@ import com.kotlintestapp.db.PersonDatabase"#
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
 
     assert_eq!(
-        sorted_classes[1].name, "ExampleInstrumentedTest",
+        sorted_classes[3].name, "ExampleInstrumentedTest",
         "Class name is incorrect"
     );
     assert_eq!(
-        normalize_path(&sorted_classes[1].file),
+        normalize_path(&sorted_classes[3].file),
         "src/testing/kotlin/app/src/androidTest/java/com/kotlintestapp/ExampleInstrumentedTest.kt",
         "Class file path is incorrect"
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 19, "Expected 19 functions");
+    assert_eq!(functions.len(), 21, "Expected 21 functions");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 1, "Expected 1 data model");
+    assert_eq!(data_models.len(), 3, "Expected 3 data model");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
@@ -153,7 +153,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 169, "Expected 169 contains edges");
+    assert_eq!(contains_edges, 175, "Expected 175 contains edges");
 
     let handler = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler;
@@ -161,7 +161,11 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let operand_edges_count = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operand_edges_count;
-    assert_eq!(operand_edges_count, 11, "Expected 11 operand edges");
+    assert_eq!(operand_edges_count, 13, "Expected 13 operand edges");
+
+    let parentof = graph.count_edges_of_type(EdgeType::ParentOf);
+    edges_count += parentof;
+    assert_eq!(parentof, 1, "Expected 1 parentOf edges");
 
     let main_activity = classes
         .iter()
@@ -383,16 +387,8 @@ import com.kotlintestapp.db.PersonDatabase"#
         "Expected Person.kt file to contain Person DataModel"
     );
 
-    let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges_count, 169, "Expected 169 contains edges");
-
     let operand_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(
-        operand_edges.len(),
-        11,
-        "Expected 11 class to function operand edges"
-    );
 
     let main_activity_operand = operand_edges
         .iter()

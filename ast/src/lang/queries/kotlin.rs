@@ -68,8 +68,14 @@ impl Stack for Kotlin {
         format!(
             r#"
             (class_declaration
-                (type_identifier) @{CLASS_NAME}
-            ) @{CLASS_DEFINITION}
+                (type_identifier)@{CLASS_NAME}
+                (delegation_specifier
+                    (constructor_invocation
+                        (user_type)@{CLASS_PARENT}
+                    )
+                )?
+                
+            )@{CLASS_DEFINITION}
         "#
         )
     }

@@ -83,7 +83,7 @@ import java.util.Optional;"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 3, "Expected 3 classes");
+    assert_eq!(classes.len(), 5, "Expected 5 classes");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -92,16 +92,16 @@ import java.util.Optional;"#
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
 
-    assert_eq!(sorted_classes[1].name, "Person", "Class name is incorrect");
+    assert_eq!(sorted_classes[3].name, "Person", "Class name is incorrect");
     assert_eq!(
-        normalize_path(&sorted_classes[1].file),
+        normalize_path(&sorted_classes[3].file),
         "src/testing/java/src/main/java/graph/stakgraph/java/model/Person.java",
         "Class file path is incorrect"
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 11, "Expected 11 functions");
+    assert_eq!(functions.len(), 13, "Expected 13 functions");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -114,6 +114,10 @@ import java.util.Optional;"#
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
     assert_eq!(calls_edges_count, 2, "Expected at 2 calls edges");
+
+    let parentof = graph.count_edges_of_type(EdgeType::ParentOf);
+    edges_count += parentof;
+    assert_eq!(parentof, 1, "Expected at 1 parentOf edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -129,7 +133,7 @@ import java.util.Optional;"#
 
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
-    assert_eq!(contains_edges_count, 46, "Expected at 46 contains edges");
+    assert_eq!(contains_edges_count, 50, "Expected at 50 contains edges");
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;

@@ -61,7 +61,6 @@ impl Stack for Java {
             r#"
                  (class_declaration
                     (identifier)@{CLASS_NAME}
-                    (class_body)@{CLASS_DEFINITION}
                     (superclass 
                         (type_identifier)@{CLASS_PARENT}
                     )?
@@ -70,7 +69,7 @@ impl Stack for Java {
                             (type_identifier)@{INCLUDED_MODULES}
                         )
                     )?
-                )
+                )@{CLASS_DEFINITION}
                 "#
         )
     }

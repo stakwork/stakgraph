@@ -27,3 +27,30 @@ public class Person {
     public void setName(String name) { this.name = name; }
     public void setEmail(String email) { this.email = email; }
 }
+
+class Animal {
+    String name;
+
+    public Animal(String name) {
+        this.name = name;
+    }
+
+    public void speak() {
+        System.out.println("I am " + name);
+    }
+}
+
+
+class Dog extends Animal {
+    String breed;
+
+    public Dog(String name, String breed) {
+        super(name);
+        this.breed = breed;
+    }
+
+    @Override 
+    public void speak() {
+        System.out.println("Woof! I'm a " + breed + " named " + name);
+    }
+}
