@@ -29,9 +29,9 @@ impl Stack for Go {
         }
         Ok(parser.parse(code, None).context("failed to parse")?)
     }
-    // fn is_lib_file(&self, file_name: &str) -> bool {
-    //     file_name.contains("/go/pkg/mod/")
-    // }
+    fn is_lib_file(&self, file_name: &str) -> bool {
+        file_name.contains("/go/pkg/mod/")
+    }
 
     fn skip_file_with_path_contains(&self, file_name: &str) -> bool {
         // Skip Go standard library and system files
@@ -45,7 +45,7 @@ impl Stack for Go {
         // Allow Go modules to be included if ALLOW_LIBS is set to true
         let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string()) == "true";
         if file_name.contains("/go/pkg/mod/") && allow_libs {
-            return true;
+            return false;
         }
 
         false
