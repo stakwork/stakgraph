@@ -288,7 +288,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 18, "Expected 18 uses edges with lsp");
+        assert_eq!(uses, 19, "Expected 19 uses edges with lsp");
     }
 
     let handler_fn = graph

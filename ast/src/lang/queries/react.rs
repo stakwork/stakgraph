@@ -104,7 +104,7 @@ impl Stack for ReactTs {
         //Allow node_moludes libraries unless denied via env
         let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string()) == "true";
         if file_name.contains("/node_modules/") && allow_libs {
-            return true;
+            return false;
         }
 
         false
