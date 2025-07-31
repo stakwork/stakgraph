@@ -9,7 +9,7 @@ const App = () => {
   const [repoUrl, setRepoUrl] = useState("");
   const [username, setUsername] = useState("");
   const [pat, setPat] = useState("");
-
+  const [repoUrlError, setRepoUrlError] = useState("");
   const [currentRepoName, setCurrentRepoName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [repoExists, setRepoExists] = useState(false);
@@ -69,12 +69,18 @@ const App = () => {
   });
 
   const handleRepoUrlChange = (event) => {
-    console.log("handleRepoUrlChange", event.target.value);
-    setRepoUrl(event.target.value);
-    const repoName = utils.getRepoNameFromUrl(event.target.value);
+    const value = event.target.value;
+    setRepoUrl(value);
+    console.log("handleRepoUrlChange", value);
+    const repoName = utils.getRepoNameFromUrl(value);
     if (repoName) {
       console.log("repoName", repoName);
       setCurrentRepoName(repoName);
+    }
+    if (value && !utils.isValidGithubUrl(value)) {
+      setRepoUrlError("Please enter a valid GitHub repository URL.");
+    } else {
+      setRepoUrlError("");
     }
   };
   const handleUsernameChange = (event) => {
@@ -84,7 +90,7 @@ const App = () => {
     setPat(event.target.value);
   };
 
-  const btnDisabled = !repoUrl || isLoading;
+  const btnDisabled = !repoUrl || isLoading || !utils.isValidGithubUrl(repoUrl);
 
   const handleSubmit = async () => {
     console.log("handleSubmit", repoUrl);
@@ -247,6 +253,7 @@ const App = () => {
           value=${repoUrl}
           onInput=${handleRepoUrlChange}
         />
+        ${repoUrlError && html`<div class="input-error">${repoUrlError}</div>`}
         <div class="input-horizontal-container">
           <input
             type="text"

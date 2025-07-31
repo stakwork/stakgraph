@@ -3364,6 +3364,7 @@ dependencies = [
  "base64 0.21.7",
  "futures",
  "lsp",
+ "regex",
  "serde",
  "serde_json",
  "shared",
