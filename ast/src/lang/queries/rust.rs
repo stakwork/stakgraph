@@ -158,15 +158,17 @@ impl Stack for Rust {
         format!(
             r#"
             (function_item
-              name: (identifier) @{FUNCTION_NAME}
-              parameters: (parameters) @{ARGUMENTS}
-              return_type: (type_identifier)? @{RETURN_TYPES}
-              body: (block)? @function.body) @{FUNCTION_DEFINITION}
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters) @{ARGUMENTS}
+                return_type: (type_identifier)? @{RETURN_TYPES}
+                body: (block)? @function.body
+            ) @{FUNCTION_DEFINITION}
               
             (function_signature_item
-              name: (identifier) @{FUNCTION_NAME}
-              parameters: (parameters) @{ARGUMENTS}
-              return_type: (type_identifier)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters) @{ARGUMENTS}
+                return_type: (type_identifier)? @{RETURN_TYPES}
+            ) @{FUNCTION_DEFINITION}
             
             (impl_item
               trait: (type_identifier)? @trait-name
@@ -350,27 +352,43 @@ impl Stack for Rust {
     fn find_function_parent(
         &self,
         node: TreeNode,
-        _code: &str,
+        code: &str,
         file: &str,
         func_name: &str,
         find_clas: &dyn Fn(&str) -> Option<NodeData>,
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
-        println!(
-            "Finding operand for: {func_name} with parent type {:?}",
-            parent_type
-        );
+        let mut function_start_position = 0;
         if parent_type.is_none() {
             return Ok(None);
         }
 
+        if let Some(body_node) = node.child_by_field_name("body") {
+            let mut function_items = Vec::new();
+            for i in 0..body_node.named_child_count() {
+                if let Some(child) = body_node.named_child(i) {
+                    if child.kind() == "function_item" {
+                        function_items.push(child);
+                    }
+                }
+            }
+
+            for func_item in function_items {
+                if let Some(name_node) = func_item.child_by_field_name("name") {
+                    let func_name_text = name_node.utf8_text(code.as_bytes())?;
+                    if func_name_text == func_name {
+                        function_start_position = func_item.start_position().row;
+                    }
+                }
+            }
+        }
         let parent_type = parent_type.unwrap();
         let nodedata = find_clas(parent_type);
 
         Ok(match nodedata {
             Some(class) => Some(Operand {
                 source: NodeKeys::new(&class.name, &class.file, class.start),
-                target: NodeKeys::new(func_name, file, node.start_position().row),
+                target: NodeKeys::new(func_name, file, function_start_position),
             }),
             None => None,
         })
