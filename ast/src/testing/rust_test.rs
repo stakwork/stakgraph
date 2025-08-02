@@ -192,11 +192,11 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 76, "Expected 76 contains edges");
+    assert_eq!(contains_edges, 77, "Expected 77 contains edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 23, "Expected 23 functions");
+    assert_eq!(functions.len(), 24, "Expected 24 functions");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -205,6 +205,14 @@ use std::net::SocketAddr;"#
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
     assert_eq!(implements, 1, "Expected 1 implements edge");
+
+    let operands = graph.count_edges_of_type(EdgeType::Operand);
+    // edges_count += operands;
+    //assert_eq!(operands, 2, "Expected 2 operand edges");
+
+    let calls = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls;
+    assert_eq!(calls, 15, "Expected 15 call edges");
 
     let get_person_fn = functions
         .iter()

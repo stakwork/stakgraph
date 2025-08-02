@@ -131,12 +131,12 @@ impl Stack for Rust {
             r#"
            [
                 (struct_item
-                    name: (type_identifier) @class-name
+                    name: (type_identifier) @{CLASS_NAME}
                 )
                 (enum_item
-                    name: (type_identifier) @class-name
+                    name: (type_identifier) @{CLASS_NAME}
                 )
-            ]@class-definition
+            ]@{CLASS_DEFINITION}
             "#
         )
     }
@@ -169,7 +169,8 @@ impl Stack for Rust {
               return_type: (type_identifier)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
             
             (impl_item
-              type: (_) @{PARENT_TYPE}
+              trait: (type_identifier)? @trait-name
+              type: (type_identifier) @{PARENT_TYPE}
               body: (declaration_list
                 (function_item
                   name: (identifier) @{FUNCTION_NAME}
@@ -184,19 +185,19 @@ impl Stack for Rust {
             r#"
                 (call_expression
                     function: [
-                        (identifier) @FUNCTION_NAME
+                        (identifier) @{FUNCTION_NAME}
                         ;; module method
                         (scoped_identifier
-                            path: (identifier) @PARENT_NAME
-                            name: (identifier) @FUNCTION_NAME
+                            path: (identifier) @{PARENT_NAME}
+                            name: (identifier) @{FUNCTION_NAME}
                         )
                         ;; chained call
                         (field_expression
-                            field: (field_identifier) @FUNCTION_NAME
+                            field: (field_identifier) @{FUNCTION_NAME}  
                         )
                     ]
-                    arguments: (arguments) @ARGUMENTS
-                ) @FUNCTION_CALL
+                    arguments: (arguments) @{ARGUMENTS}
+                ) @{FUNCTION_CALL}
                 "#
         )
     }
@@ -273,19 +274,19 @@ impl Stack for Rust {
             r#"
                 [
                     (struct_item
-                        name: (type_identifier) @struct-name
+                        name: (type_identifier) @{STRUCT_NAME}
                     )
                     (enum_item
-                        name: (type_identifier) @struct-name
+                        name: (type_identifier) @{STRUCT_NAME}
                     )
-                ]@struct
+                ]@{STRUCT}
             "#
         ))
     }
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
             r#"
-                (type_identifier) @struct-name
+                (type_identifier) @{STRUCT_NAME}
             "#,
         ))
     }
@@ -342,5 +343,30 @@ impl Stack for Rust {
     }
     fn filter_by_implements(&self) -> bool {
         true
+    }
+
+    fn find_function_parent(
+        &self,
+        node: TreeNode,
+        _code: &str,
+        file: &str,
+        func_name: &str,
+        find_clas: &dyn Fn(&str) -> Option<NodeData>,
+        parent_type: Option<&str>,
+    ) -> Result<Option<Operand>> {
+        if parent_type.is_none() {
+            return Ok(None);
+        }
+
+        let parent_type = parent_type.unwrap();
+        let nodedata = find_clas(parent_type);
+
+        Ok(match nodedata {
+            Some(class) => Some(Operand {
+                source: NodeKeys::new(&class.name, &class.file, class.start),
+                target: NodeKeys::new(func_name, file, node.start_position().row),
+            }),
+            None => None,
+        })
     }
 }
