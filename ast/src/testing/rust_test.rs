@@ -138,6 +138,12 @@ use std::net::SocketAddr;"#
         .map(|n| Node::new(NodeType::Class, n.clone()))
         .expect("Class 'Database' not found in db.rs");
 
+    let greeter = classes
+        .iter()
+        .find(|c| c.name == "Greeter" && c.file.ends_with("src/testing/rust/src/traits.rs"))
+        .map(|n| Node::new(NodeType::Class, n.clone()))
+        .expect("Expected a greeter");
+
     let dm_imports = graph.has_edge(&rocket_file, &person_dm, EdgeType::Imports);
     assert!(
         dm_imports,
@@ -213,6 +219,50 @@ use std::net::SocketAddr;"#
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
     assert_eq!(calls, 15, "Expected 15 call edges");
+
+    let get_person_by_id = functions
+        .iter()
+        .find(|f| f.name == "get_person_by_id" && f.file.ends_with("src/testing/rust/src/db.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected to find get_person_by_id");
+
+    let new_person = functions
+        .iter()
+        .find(|f| f.name == "new_person" && f.file.ends_with("src/testing/rust/src/db.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected to new_person");
+
+    assert!(
+        graph.has_edge(&database_class, &get_person_by_id, EdgeType::Operand),
+        "Expected OPERAND edge between Database and get_person_by_id"
+    );
+
+    assert!(
+        graph.has_edge(&database_class, &new_person, EdgeType::Operand),
+        "Expected OPERAND edge between Database and new_person"
+    );
+
+    let new_fn = functions
+        .iter()
+        .find(|f| f.name == "new" && f.file.ends_with("src/testing/rust/src/traits.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected to find new fn");
+
+    let greet_fn = functions
+        .iter()
+        .find(|n| n.name == "greet" && n.file.ends_with("src/testing/rust/src/traits.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected Greet function");
+
+    assert!(
+        graph.has_edge(&greeter, &new_fn, EdgeType::Operand),
+        "Expected an OPERAND edge between Greeter Class and New Function"
+    );
+
+    assert!(
+        graph.has_edge(&greeter, &greet_fn, EdgeType::Operand),
+        "Expected an OPERAND edge between Greeter Class and Greet Function"
+    );
 
     let get_person_fn = functions
         .iter()
