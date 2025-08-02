@@ -207,8 +207,8 @@ use std::net::SocketAddr;"#
     assert_eq!(implements, 1, "Expected 1 implements edge");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
-    // edges_count += operands;
-    //assert_eq!(operands, 2, "Expected 2 operand edges");
+    edges_count += operands;
+    assert_eq!(operands, 8, "Expected 8 operand edges");
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;

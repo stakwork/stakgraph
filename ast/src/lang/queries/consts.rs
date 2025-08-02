@@ -64,3 +64,4 @@ pub const TEMPLATE_KEY: &str = "key";
 pub const TEMPLATE_VALUE: &str = "value";
 
 pub const IMPLEMENTS: &str = "implements";
+pub const IMPLEMENTATION_BLOCK: &str = "implementation-block";

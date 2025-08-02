@@ -632,6 +632,26 @@ impl Lang {
                         }
                     }
                 }
+            } else if o == IMPLEMENTATION_BLOCK {
+                // adding parents in rust or languages where the Parent Class and Function definition are not in thesame unit
+                //FIXME: get the correct positions to the node to create the operand.
+                parent = self.lang.find_function_parent(
+                    node,
+                    code,
+                    file,
+                    &func.name,
+                    &|name| {
+                        graph
+                            .find_nodes_by_name(NodeType::Class, name)
+                            .first()
+                            .cloned()
+                    },
+                    parent_type.as_deref(),
+                )?;
+
+                if let Some(pp) = &parent {
+                    func.add_operand(&pp.source.name);
+                }
             }
             Ok(())
         })?;

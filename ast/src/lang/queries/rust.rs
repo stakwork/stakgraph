@@ -172,11 +172,13 @@ impl Stack for Rust {
               trait: (type_identifier)? @trait-name
               type: (type_identifier) @{PARENT_TYPE}
               body: (declaration_list
-                (function_item
-                  name: (identifier) @{FUNCTION_NAME}
-                  parameters: (parameters) @{ARGUMENTS}
-                  return_type: (type_identifier)? @{RETURN_TYPES}
-                  body: (block)? @method.body) @method)) @impl
+                        (function_item
+                        name: (identifier) @{FUNCTION_NAME}
+                        parameters: (parameters) @{ARGUMENTS}
+                        return_type: (type_identifier)? @{RETURN_TYPES}
+                        )@{FUNCTION_DEFINITION}
+                    ) 
+            ) @{IMPLEMENTATION_BLOCK}
             "#
         )
     }
@@ -354,6 +356,10 @@ impl Stack for Rust {
         find_clas: &dyn Fn(&str) -> Option<NodeData>,
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
+        println!(
+            "Finding operand for: {func_name} with parent type {:?}",
+            parent_type
+        );
         if parent_type.is_none() {
             return Ok(None);
         }
