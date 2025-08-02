@@ -1,0 +1,462 @@
+# StakGraph Documentation
+
+Welcome to the StakGraph documentation. StakGraph is a source code parser that uses Tree-sitter, LSP, and Neo4j to create software knowledge graphs for AI agents.
+
+![StakGraph Architecture](./mcp/docs/sg.png)
+
+## Overview
+
+StakGraph is a comprehensive tool for parsing source code repositories and building knowledge graphs that can be used by AI agents to understand codebases. It supports multiple programming languages and provides both command-line tools and web interfaces.
+
+### Key Features
+
+- **Multi-language Support**: Parse repositories written in various programming languages
+- **LSP Integration**: Use Language Server Protocol for enhanced code understanding
+- **Neo4j Graph Database**: Store and query code relationships efficiently
+- **Web Interface**: Visualize and explore code graphs through a web UI
+- **API Endpoints**: Programmatic access to parsed code data
+- **Docker Support**: Easy deployment and containerization
+
+## Architecture
+
+StakGraph is built as a Rust workspace with several components:
+
+### Core Components
+
+| Component      | Description                                      | Location      |
+| -------------- | ------------------------------------------------ | ------------- |
+| **ast**        | Main parsing engine with Tree-sitter integration | `ast/`        |
+| **lsp**        | Language Server Protocol client                  | `lsp/`        |
+| **shared**     | Common utilities and data structures             | `shared/`     |
+| **standalone** | Web server and API endpoints                     | `standalone/` |
+| **skill**      | AI agent integration                             | `skill/`      |
+| **mcp**        | Model Context Protocol server                    | `mcp/`        |
+
+### Technology Stack
+
+- **Backend**: Rust with Tokio for async runtime
+- **Parsing**: Tree-sitter for syntax analysis
+- **Database**: Neo4j for graph storage
+- **Web Framework**: Axum for HTTP server
+- **Frontend**: TypeScript/React for web interface
+- **Containerization**: Docker and Docker Compose
+
+## Getting Started
+
+### Prerequisites
+
+Before you begin, make sure you have:
+
+- **Rust**: Latest stable version (1.70+)
+- **Node.js**: Version 18+ for web interface
+- **Docker**: For Neo4j database
+- **Git**: For repository cloning
+
+### Installation
+
+1. **Clone the repository**:
+
+   ```bash
+   git clone https://github.com/stakwork/stakgraph.git
+   cd stakgraph
+   ```
+
+2. **Install Rust dependencies**:
+
+   ```bash
+   cargo build
+   ```
+
+3. **Install Node.js dependencies** (for web interface):
+   ```bash
+   cd mcp
+   npm install
+   ```
+
+## Language Support
+
+StakGraph supports parsing repositories written in the following languages:
+
+### Fully Supported ✅
+
+- **Golang**: Full syntax tree parsing and LSP integration
+- **React/TypeScript**: JSX and TypeScript support
+- **Ruby on Rails**: Ruby syntax and Rails conventions
+- **Python**: Python 3.x syntax and imports
+- **Swift**: iOS/macOS development
+- **Kotlin**: Android and JVM development
+- **Rust**: Systems programming
+- **Java**: Enterprise applications
+- **Angular**: Frontend framework
+- **Svelte**: Modern web framework
+
+### In Progress 🚧
+
+- **C**: Systems programming
+- **C#**: .NET development
+
+## Usage Examples
+
+### Basic Repository Parsing
+
+Parse a single repository:
+
+```bash
+export REPO_URL="https://github.com/username/repo-name.git"
+cargo run --bin index
+```
+
+### Multi-Repository Parsing
+
+Parse multiple related repositories:
+
+```bash
+export REPO_URL="https://github.com/stakwork/sphinx-tribes.git,https://github.com/stakwork/sphinx-tribes-frontend.git"
+cargo run --bin index
+```
+
+### Output Formats
+
+Generate different output formats:
+
+```bash
+# JSON Lines format (default)
+export OUTPUT_FORMAT=jsonl
+export OUTPUT_NAME=my-project
+cargo run --bin index
+
+# Neo4j direct import
+export OUTPUT_FORMAT=neo4j
+cargo run --bin index
+```
+
+## LSP Integration
+
+Language Server Protocol provides enhanced code understanding:
+
+### Installing LSP Servers
+
+**TypeScript/JavaScript**:
+
+```bash
+npm install -g typescript
+npm install -g typescript-language-server
+```
+
+**Go**:
+
+```bash
+go install golang.org/x/tools/gopls@latest
+```
+
+**Rust**:
+
+```bash
+rustup component add rust-analyzer
+```
+
+**Python**:
+
+```bash
+pip install python-lsp-server
+```
+
+### Using LSP
+
+Enable LSP for enhanced parsing:
+
+```bash
+USE_LSP=1 cargo run --bin index
+```
+
+## Web Interface
+
+### Starting the Web Server
+
+1. **Start Neo4j database**:
+
+   ```bash
+   cd mcp
+   docker-compose -f neo4j.yaml up -d
+   ```
+
+2. **Start the web server**:
+
+   ```bash
+   npm run dev
+   ```
+
+3. **Upload parsed data**:
+   ```bash
+   curl -X POST \
+     -F "nodes=@./ast/examples/tribes-nodes.jsonl" \
+     -F "edges=@./ast/examples/tribes-edges.jsonl" \
+     http://localhost:3000/upload
+   ```
+
+### Web Interface Features
+
+- **Graph Visualization**: Interactive code relationship graphs
+- **Search**: Find functions, classes, and relationships
+- **Navigation**: Explore code structure and dependencies
+- **API Access**: RESTful endpoints for programmatic access
+
+## API Endpoints
+
+### Core Endpoints
+
+| Endpoint  | Method | Description                  |
+| --------- | ------ | ---------------------------- |
+| `/upload` | POST   | Upload parsed code data      |
+| `/nodes`  | GET    | Retrieve graph nodes         |
+| `/edges`  | GET    | Retrieve graph edges         |
+| `/search` | GET    | Search for code entities     |
+| `/graph`  | GET    | Get graph visualization data |
+
+### Example API Usage
+
+```bash
+# Get all nodes
+curl http://localhost:3000/nodes
+
+# Search for functions
+curl "http://localhost:3000/search?q=function_name"
+
+# Get graph data
+curl http://localhost:3000/graph
+```
+
+## Docker Deployment
+
+### Standalone Mode
+
+Deploy the complete stack with Docker:
+
+```bash
+docker-compose up -d
+```
+
+### Custom Configuration
+
+Modify `docker-compose.yaml` for your environment:
+
+```yaml
+version: "3.8"
+services:
+  neo4j:
+    image: neo4j:5.0
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/password
+      - NEO4J_PLUGINS=["apoc"]
+
+  stakgraph:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      - neo4j
+```
+
+## Development
+
+### Project Structure
+
+```
+stakgraph/
+├── ast/                 # Main parsing engine
+│   ├── src/
+│   ├── examples/        # Usage examples
+│   └── testing/         # Test repositories
+├── lsp/                 # Language Server Protocol
+├── shared/              # Common utilities
+├── standalone/          # Web server
+├── skill/               # AI agent integration
+├── mcp/                 # Model Context Protocol
+└── treesitter/          # Tree-sitter grammars
+```
+
+### Running Tests
+
+Run all tests to ensure everything works:
+
+```bash
+# Basic tests
+cargo test
+
+# Tests with LSP enabled
+USE_LSP=1 cargo test
+
+# Full test suite
+cargo test --features fulltest
+```
+
+### Adding Language Support
+
+To add support for a new language:
+
+1. **Add Tree-sitter grammar** to `ast/Cargo.toml`
+2. **Implement parser** in `ast/src/lang/`
+3. **Add LSP support** if available
+4. **Create test cases** in `ast/src/testing/`
+
+Example for a new language:
+
+```rust
+// ast/src/lang/queries/new_language.rs
+pub const QUERIES: &[&str] = &[
+    "(function_definition) @function",
+    "(class_definition) @class",
+    "(import_statement) @import",
+];
+```
+
+## Examples
+
+### Python Repository
+
+```bash
+# Parse a Python project
+export REPO_URL="https://github.com/username/python-project.git"
+cargo run --example python
+```
+
+### Go Repository
+
+```bash
+# Parse a Go project
+export REPO_URL="https://github.com/username/go-project.git"
+cargo run --example minimal
+```
+
+### Multi-language Project
+
+```bash
+# Parse a project with multiple languages
+export REPO_URL="https://github.com/username/fullstack-project.git"
+cargo run --example tribes
+```
+
+## Configuration
+
+### Environment Variables
+
+| Variable        | Description                  | Default                 |
+| --------------- | ---------------------------- | ----------------------- |
+| `REPO_URL`      | Repository URL(s) to parse   | Required                |
+| `OUTPUT_FORMAT` | Output format (jsonl, neo4j) | `jsonl`                 |
+| `OUTPUT_NAME`   | Output file name prefix      | `output`                |
+| `USE_LSP`       | Enable LSP integration       | `false`                 |
+| `NEO4J_URI`     | Neo4j connection URI         | `bolt://localhost:7687` |
+
+### Configuration Files
+
+**Neo4j Configuration** (`mcp/conf/neo4j.conf`):
+
+```conf
+dbms.security.auth_enabled=false
+dbms.security.procedures.unrestricted=apoc.*
+```
+
+**Server Configuration** (`standalone/src/main.rs`):
+
+```rust
+#[tokio::main]
+async fn main() {
+    let app = create_app();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **LSP Not Working**:
+
+   - Ensure LSP servers are installed globally
+   - Check `USE_LSP=1` environment variable
+   - Verify LSP server is running
+
+2. **Neo4j Connection Issues**:
+
+   - Check if Neo4j container is running
+   - Verify connection URI and credentials
+   - Check firewall settings
+
+3. **Parsing Errors**:
+   - Ensure repository is accessible
+   - Check language support status
+   - Review error logs for specific issues
+
+### Debug Mode
+
+Enable debug logging:
+
+```bash
+RUST_LOG=debug cargo run --bin index
+```
+
+### Performance Optimization
+
+For large repositories:
+
+```bash
+# Use multiple threads
+RAYON_NUM_THREADS=8 cargo run --bin index
+
+# Limit memory usage
+export RUSTFLAGS="-C target-cpu=native"
+```
+
+## Contributing
+
+### Development Setup
+
+1. **Fork the repository**
+2. **Create a feature branch**
+3. **Make your changes**
+4. **Run tests**: `cargo test && USE_LSP=1 cargo test`
+5. **Submit a pull request**
+
+### Code Style
+
+- Follow Rust conventions
+- Add tests for new features
+- Update documentation
+- Use meaningful commit messages
+
+### Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run with LSP
+USE_LSP=1 cargo test
+
+# Run specific test
+cargo test test_name
+
+# Run integration tests
+cargo test --features fulltest
+```
+
+## Resources
+
+- [GitHub Repository](https://github.com/stakwork/stakgraph)
+- [Wiki Documentation](https://github.com/stakwork/stakgraph/wiki)
+- [Tree-sitter Documentation](https://tree-sitter.github.io/tree-sitter/)
+- [Neo4j Documentation](https://neo4j.com/docs/)
+- [Language Server Protocol](https://microsoft.github.io/language-server-protocol/)
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+_This documentation serves as a comprehensive guide to using StakGraph for code analysis and knowledge graph generation._

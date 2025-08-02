@@ -38,7 +38,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 20, "Expected 20 File nodes");
+    assert_eq!(file_nodes.len(), 21, "Expected 21 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -60,7 +60,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let directory_nodes = graph.find_nodes_by_type(NodeType::Directory);
     nodes += directory_nodes.len();
-    assert_eq!(directory_nodes.len(), 10, "Expected 10 Directory nodes");
+    assert_eq!(directory_nodes.len(), 11, "Expected 11 Directory nodes");
 
     let repository = graph.find_nodes_by_type(NodeType::Repository);
     nodes += repository.len();
@@ -119,7 +119,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
-    assert_eq!(pages.len(), 3, "Expected 3 Page nodes");
+    assert_eq!(pages.len(), 4, "Expected Page nodes");
 
     let app_page = pages
         .iter()
@@ -144,6 +144,14 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         })
         .map(|n| Node::new(NodeType::Page, n.clone()))
         .expect("Page 'Person' not found");
+
+    let _docs_page = pages
+        .iter()
+        .find(|p| {
+            p.name == "docs" && p.file.ends_with("nextjs/app/docs/page.mdx") && p.body == "/docs"
+        })
+        .map(|n| Node::new(NodeType::Page, n.clone()))
+        .expect("Page 'Docs' not found");
 
     let home_component = functions
         .iter()
@@ -201,7 +209,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 112, "Expected 112 Contains edges");
+    assert_eq!(contains, 114, "Expected 114 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;

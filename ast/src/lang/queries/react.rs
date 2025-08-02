@@ -642,7 +642,10 @@ impl Stack for ReactTs {
 
         // App Router
         if file_name.contains("/app/")
-            && (file_name.ends_with("/page.tsx") || file_name.ends_with("/page.jsx"))
+            && (file_name.ends_with("/page.tsx")
+                || file_name.ends_with("/page.jsx")
+                || file_name.ends_with("page.mdx")
+                || file_name.ends_with("page.md"))
         {
             return true;
         }
@@ -661,6 +664,8 @@ impl Stack for ReactTs {
                 || after.ends_with(".jsx")
                 || after.ends_with(".js")
                 || after.ends_with(".ts"))
+                || after.ends_with(".md")
+                || after.ends_with(".mdx")
             {
                 return false;
             }
@@ -797,7 +802,7 @@ fn route_from_path(path: &str) -> String {
 
         let after_app = after_app.strip_prefix('/').unwrap_or(after_app);
 
-        let page_suffixes = ["/page.tsx", "/page.jsx"];
+        let page_suffixes = ["/page.tsx", "/page.jsx", "/page.mdx", "/page.md"];
 
         let mut route = after_app;
         for suffix in &page_suffixes {
