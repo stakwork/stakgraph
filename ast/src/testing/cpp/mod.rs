@@ -140,12 +140,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert!(
-        (27..=31).contains(&contains),
-        "Expected ~29 contains edges, got {}",
-        contains
-    );
-
+    assert_eq!(contains, 30, "Expected 30 contains edges");
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
     assert_eq!(of_edges, 2, "Expected 2 of edge");
@@ -167,7 +162,34 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
-    assert_eq!(libraries.len(), 1, "Expected 1 libraries");
+    assert_eq!(libraries.len(), 2, "Expected 2 libraries");
+
+    let pkg_file = files
+        .iter()
+        .find(|f| f.name == "CMakeLists.txt" && f.file == "src/testing/cpp/CMakeLists.txt")
+        .map(|f| Node::new(NodeType::File, f.clone()))
+        .expect("CMakeLists.txt not found");
+
+    let sqlite_lib = libraries
+        .iter()
+        .find(|l| l.name == "SQLite3" && l.file == pkg_file.node_data.file)
+        .map(|l| Node::new(NodeType::Library, l.clone()))
+        .expect("sqlite3 library not found");
+
+    let json_lib = libraries
+        .iter()
+        .find(|l| l.name == "nlohmann_json" && l.file == pkg_file.node_data.file)
+        .map(|l| Node::new(NodeType::Library, l.clone()))
+        .expect("json library not found");
+
+    assert!(
+        graph.has_edge(&pkg_file, &sqlite_lib, EdgeType::Contains),
+        "Expected 'SQLite3' library to be contained in 'CMakeLists.txt'"
+    );
+    assert!(
+        graph.has_edge(&pkg_file, &json_lib, EdgeType::Contains),
+        "Expected 'nlohmann_json' library to be contained in 'CMakeLists.txt'"
+    );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
