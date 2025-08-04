@@ -1,5 +1,4 @@
-import { exec } from "child_process";
-import { promisify } from "util";
+import { getTestsDir, runPlaywrightTest } from "./runPlaywright.js";
 import fs from "fs/promises";
 import path from "path";
 import { Request, Response, Express } from "express";
@@ -7,30 +6,6 @@ import { fileURLToPath } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const execAsync = promisify(exec);
-
-// curl "http://localhost:3000/test?test=all"
-
-// Configurable base directory
-const getBaseDir = (): string => {
-  return process.env.PROJECT_ROOT || path.join(__dirname, "../..");
-};
-
-const getTestsDir = (): string => {
-  let testsDir: string;
-  if (process.env.TESTS_DIR) {
-    testsDir = process.env.TESTS_DIR;
-  } else {
-    testsDir = path.join(getBaseDir(), "tests");
-  }
-
-  if (!testsDir.endsWith("generated_tests")) {
-    testsDir = path.join(testsDir, "generated_tests");
-  }
-
-  return testsDir;
-};
 
 // Utility function to sanitize filename
 const sanitizeFilename = (filename: string): string => {
@@ -44,94 +19,6 @@ const ensureSpecExtension = (filename: string): string => {
   }
   return `${filename}.spec.js`;
 };
-
-// Run Playwright test
-export async function runPlaywrightTest(
-  req: Request,
-  res: Response
-): Promise<void> {
-  try {
-    const { test } = req.query;
-    console.log("===> runPlaywrightTest", test);
-
-    if (!test || typeof test !== "string") {
-      res.status(400).json({ error: "Test name is required" });
-      return;
-    }
-
-    // Validate test parameter to prevent command injection
-    const validTestPattern = /^[a-zA-Z0-9_\-\/\*\.]+$/;
-    if (!validTestPattern.test(test)) {
-      res.status(400).json({ error: "Invalid test name format" });
-      return;
-    }
-
-    // Check if tests directory exists
-    const testsDir = getTestsDir();
-    try {
-      await fs.access(testsDir);
-    } catch {
-      res.status(404).json({ error: "Tests directory not found" });
-      return;
-    }
-
-    // Construct the playwright command
-    let testPath: string;
-    if (test === "all") {
-      testPath = ".";
-    } else if (test.includes("*")) {
-      testPath = test;
-    } else {
-      // If it's a specific test file, ensure it has proper extension
-      testPath =
-        test.endsWith(".spec.js") || test.endsWith(".spec.ts")
-          ? `tests/${test}`
-          : `tests/${test}.spec.js`;
-    }
-
-    const command = `npx playwright test --config=tests/playwright.config.js ${testPath}`;
-
-    // Set timeout for the command
-    const { stdout, stderr } = await execAsync(command, {
-      cwd: getBaseDir(),
-      timeout: 60000,
-      env: { ...process.env, CI: "true" }, // Set CI mode for consistent output
-    });
-
-    res.json({
-      success: true,
-      testPath,
-      output: stdout,
-      errors: stderr || null,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error: any) {
-    // Handle different types of errors
-    if (error.code === "ENOENT") {
-      res.status(500).json({
-        success: false,
-        error: "Playwright not found. Make sure it's installed.",
-        timestamp: new Date().toISOString(),
-      });
-    } else if (error.killed && error.signal === "SIGTERM") {
-      res.status(408).json({
-        success: false,
-        error: "Test execution timed out",
-        timestamp: new Date().toISOString(),
-      });
-    } else {
-      // Test failures will come through here since playwright exits with non-zero code
-      res.json({
-        success: false,
-        testPath: req.query.test as string,
-        output: error.stdout || "",
-        errors: error.stderr || error.message,
-        exitCode: error.code,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  }
-}
 
 // Save a test file
 export async function saveTest(req: Request, res: Response): Promise<void> {
@@ -390,13 +277,13 @@ export function test_routes(app: Express) {
   app.get("/test/delete", deleteTestByName);
   app.post("/test/save", saveTest);
 
-  let tests_base_path = path.join(getBaseDir(), "tests");
+  const base = path.join(__dirname, "../../tests");
 
   app.get("/tests", (_req, res) => {
-    res.sendFile(path.join(tests_base_path, "tests.html"));
+    res.sendFile(path.join(base, "tests.html"));
   });
   app.get("/tests/frame/frame.html", (_req, res) => {
-    res.sendFile(path.join(tests_base_path, "frame/frame.html"));
+    res.sendFile(path.join(base, "frame/frame.html"));
   });
 
   const static_files = [
@@ -410,7 +297,7 @@ export function test_routes(app: Express) {
     "staktrak/dist/playwright-generator.js",
   ];
 
-  serveStaticFiles(app, static_files, tests_base_path);
+  serveStaticFiles(app, static_files, base);
 }
 
 function serveStaticFiles(app: Express, files: string[], basePath: string) {
