@@ -22,11 +22,7 @@ const getTestsDir = (): string => {
   if (process.env.TESTS_DIR) {
     testsDir = process.env.TESTS_DIR;
   } else {
-    testsDir = path.join(getBaseDir(), "tests");
-  }
-
-  if (!testsDir.endsWith("generated_tests")) {
-    testsDir = path.join(testsDir, "generated_tests");
+    testsDir = path.join(getBaseDir(), "tests", "generated_tests");
   }
 
   return testsDir;
@@ -77,34 +73,85 @@ export async function runPlaywrightTest(
 
     // Construct the playwright command
     let testPath: string;
-    if (test === "all") {
-      testPath = ".";
-    } else if (test.includes("*")) {
-      testPath = test;
-    } else {
-      // If it's a specific test file, ensure it has proper extension
-      testPath =
-        test.endsWith(".spec.js") || test.endsWith(".spec.ts")
-          ? `tests/${test}`
-          : `tests/${test}.spec.js`;
+    const isSpecific = test !== "all" && !test.includes("*");
+    const testFileName = isSpecific
+      ? test.endsWith(".spec.js") || test.endsWith(".spec.ts")
+        ? test
+        : `${test}.spec.js`
+      : test;
+    const sourcePath = isSpecific
+      ? path.join(testsDir, testFileName)
+      : testsDir;
+    testPath = testFileName;
+
+    if (isSpecific) {
+      try {
+        await fs.access(sourcePath);
+      } catch {
+        res.status(404).json({
+          error: `Test file not found: ${testFileName}`,
+          path: sourcePath,
+        });
+        return;
+      }
     }
 
-    const command = `npx playwright test --config=tests/playwright.config.js ${testPath}`;
+    const standardConfigPath = path.join(
+      getBaseDir(),
+      "tests",
+      "playwright.config.js"
+    );
+    const targetDir = path.join(getBaseDir(), "tests", "generated_tests");
+    const targetFile = path.join(targetDir, path.basename(testFileName));
 
-    // Set timeout for the command
-    const { stdout, stderr } = await execAsync(command, {
-      cwd: getBaseDir(),
-      timeout: 60000,
-      env: { ...process.env, CI: "true" }, // Set CI mode for consistent output
-    });
+    if (isSpecific) {
+      try {
+        await fs.mkdir(targetDir, { recursive: true });
+        await fs.copyFile(sourcePath, targetFile);
+      } catch (err: any) {
+        res.status(500).json({
+          error: `Failed to prepare test: ${err?.message || "Unknown error"}`,
+        });
+        return;
+      }
+    }
 
-    res.json({
-      success: true,
-      testPath,
-      output: stdout,
-      errors: stderr || null,
-      timestamp: new Date().toISOString(),
-    });
+    const runTarget = isSpecific
+      ? path.basename(testFileName)
+      : test === "all"
+      ? ""
+      : test;
+    const command =
+      `npx playwright test --config="${standardConfigPath}" ${runTarget}`.trim();
+
+    const cleanup = async () => {
+      if (isSpecific) {
+        try {
+          await fs.unlink(targetFile);
+        } catch {}
+      }
+    };
+
+    try {
+      const { stdout, stderr } = await execAsync(command, {
+        cwd: getBaseDir(),
+        timeout: 60000,
+        env: { ...process.env, CI: "true" },
+      });
+
+      await cleanup();
+
+      res.json({
+        success: true,
+        testPath,
+        output: stdout,
+        errors: stderr || null,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      await cleanup();
+      throw error;
+    }
   } catch (error: any) {
     // Handle different types of errors
     if (error.code === "ENOENT") {
