@@ -178,7 +178,7 @@ export async function get_services(req: Request, res: Response) {
       return;
     } else {
       const services = await G.get_services();
-      res.json(services);
+      res.json({ services });
     }
   } catch (error) {
     console.error("Error getting services config:", error);
