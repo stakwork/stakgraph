@@ -39,6 +39,23 @@ impl Stack for ReactTs {
     fn is_lib_file(&self, file_name: &str) -> bool {
         file_name.contains("node_modules/")
     }
+    fn skip_file_with_path_contains(&self, file_name: &str) -> bool {
+        if file_name.contains("/typescript/lib/")
+            || file_name.ends_with(".d.ts")
+            || file_name.contains("/@types/")
+            || file_name.contains(".nvm/")
+        {
+            return true;
+        }
+
+        //Allow node_moludes libraries unless denied via env
+        let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string()) == "true";
+        if file_name.contains("/node_modules/") && allow_libs {
+            return false;
+        }
+
+        false
+    }
 
     fn imports_query(&self) -> Option<String> {
         Some(format!(

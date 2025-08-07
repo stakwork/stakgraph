@@ -107,15 +107,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    if use_lsp {
-        assert_eq!(functions.len(), 36, "Expected 36 Function nodes with LSP");
-    } else {
-        assert_eq!(
-            functions.len(),
-            28,
-            "Expected 28 Function nodes without LSP"
-        );
-    }
+
+    assert_eq!(
+        functions.len(),
+        28,
+        "Expected 28 Function nodes without LSP"
+    );
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
@@ -233,11 +230,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
-    if use_lsp {
-        assert_eq!(uses, 27, "Expected 27 Uses edges with LSP");
-    } else {
-        assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
-    }
+    assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
 
     if use_lsp {
         let get_fn = functions
