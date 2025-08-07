@@ -1,14 +1,12 @@
 #!/bin/bash
 
-REPO_URLS=(
-  "https://github.com/stakwork/sphinx-tribes.git"
-  "https://github.com/stakwork/sphinx-tribes-frontend.git"
-)
+REPO_URLS="https://github.com/stakwork/sphinx-tribes.git,https://github.com/stakwork/sphinx-tribes-frontend.git"
 
-COMMITS=(
-  "1ae6eeea7cedbdd25c769b063a133673b66a79f3"      # sphinx-tribes
-  "c34119b044c3f55859cb650c2c105609209e9f04" # sphinx-tribes-frontend
-)
+
+# COMMITS=(
+#   "1ae6eeea7cedbdd25c769b063a133673b66a79f3"      # sphinx-tribes
+#   "c34119b044c3f55859cb650c2c105609209e9f04" # sphinx-tribes-frontend
+# )
 
 EXPECTED_MAP="./standalone/tests/maps/actual-leaderboard-map-response.html"
 ACTUAL_MAP="./standalone/tests/maps/leaderboard-map-response.html"
@@ -53,32 +51,32 @@ done
 echo "Node server is ready!"
 
 # Ingest each repo at the specified commit
-for i in "${!REPO_URLS[@]}"; do
-  REPO_URL="${REPO_URLS[$i]}"
-  COMMIT="${COMMITS[$i]}"
-  echo "Ingesting $REPO_URL at $COMMIT"
-  RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"repo_url\": \"$REPO_URL\", \"commit\": \"$COMMIT\"}" http://localhost:7799/ingest_async)
-  REQUEST_ID=$(echo "$RESPONSE" | grep -o '"request_id":"[^"]*' | grep -o '[^"]*$')
-  if [ -z "$REQUEST_ID" ]; then
-    echo "Failed to get request_id for $REPO_URL"
+echo "Ingesting repositories: $REPO_URLS"
+RESPONSE=$(curl -s -X POST -H "Content-Type: application/json" -d "{\"repo_url\": \"$REPO_URLS\"}" http://localhost:7799/ingest_async)
+REQUEST_ID=$(echo "$RESPONSE" | grep -o '"request_id":"[^"]*' | grep -o '[^"]*$')
+
+if [ -z "$REQUEST_ID" ]; then
+  echo "Failed to get request_id for repositories"
+  kill $RUST_PID $NODE_PID
+  exit 1
+fi
+
+# Monitor the single ingestion process
+while true; do
+  STATUS_JSON=$(curl -s http://localhost:7799/status/$REQUEST_ID)
+  STATUS=$(echo "$STATUS_JSON" | grep -o '"status":"[^"]*' | grep -o '[^"]*$')
+  
+  if [ "$STATUS" = "Complete" ]; then
+    echo "Ingest complete for both repositories!"
+    break
+  elif [[ "$STATUS" == Failed* ]]; then
+    echo "Ingest failed: $STATUS_JSON"
     kill $RUST_PID $NODE_PID
     exit 1
+  else
+    echo "Still processing repositories... ($STATUS)"
+    sleep 10
   fi
-  while true; do
-    STATUS_JSON=$(curl -s http://localhost:7799/status/$REQUEST_ID)
-    STATUS=$(echo "$STATUS_JSON" | grep -o '"status":"[^"]*' | grep -o '[^"]*$')
-    if [ "$STATUS" = "Complete" ]; then
-      echo "Ingest complete for $REPO_URL!"
-      break
-    elif [[ "$STATUS" == Failed* ]]; then
-      echo "Ingest failed for $REPO_URL: $STATUS_JSON"
-      kill $RUST_PID $NODE_PID
-      exit 1
-    else
-      echo "Still processing $REPO_URL... ($STATUS)"
-      sleep 10
-    fi
-  done
 done
 
 # Query the map endpoint for LeaderboardPage
