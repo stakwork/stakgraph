@@ -3,13 +3,11 @@
 REPO_URLS=(
   "https://github.com/stakwork/sphinx-tribes.git"
   "https://github.com/stakwork/sphinx-tribes-frontend.git"
-  "https://github.com/stakwork/hive.git"
 )
 
 COMMITS=(
   "1ae6eeea7cedbdd25c769b063a133673b66a79f3"      # sphinx-tribes
   "c34119b044c3f55859cb650c2c105609209e9f04" # sphinx-tribes-frontend
-  "1e177010249924160df3b9de000d446a6f5afded" # hive
 )
 
 EXPECTED_MAP="./standalone/tests/maps/actual-leaderboard-map-response.html"
