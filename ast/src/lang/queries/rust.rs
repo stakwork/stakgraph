@@ -131,12 +131,12 @@ impl Stack for Rust {
             r#"
            [
                 (struct_item
-                    name: (type_identifier) @class-name
+                    name: (type_identifier) @{CLASS_NAME}
                 )
                 (enum_item
-                    name: (type_identifier) @class-name
+                    name: (type_identifier) @{CLASS_NAME}
                 )
-            ]@class-definition
+            ]@{CLASS_DEFINITION}
             "#
         )
     }
@@ -158,24 +158,29 @@ impl Stack for Rust {
         format!(
             r#"
             (function_item
-              name: (identifier) @{FUNCTION_NAME}
-              parameters: (parameters) @{ARGUMENTS}
-              return_type: (type_identifier)? @{RETURN_TYPES}
-              body: (block)? @function.body) @{FUNCTION_DEFINITION}
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters) @{ARGUMENTS}
+                return_type: (type_identifier)? @{RETURN_TYPES}
+                body: (block)? @function.body
+            ) @{FUNCTION_DEFINITION}
               
             (function_signature_item
-              name: (identifier) @{FUNCTION_NAME}
-              parameters: (parameters) @{ARGUMENTS}
-              return_type: (type_identifier)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters) @{ARGUMENTS}
+                return_type: (type_identifier)? @{RETURN_TYPES}
+            ) @{FUNCTION_DEFINITION}
             
             (impl_item
-              type: (_) @{PARENT_TYPE}
+              trait: (type_identifier)? @trait-name
+              type: (type_identifier) @{PARENT_TYPE}
               body: (declaration_list
-                (function_item
-                  name: (identifier) @{FUNCTION_NAME}
-                  parameters: (parameters) @{ARGUMENTS}
-                  return_type: (type_identifier)? @{RETURN_TYPES}
-                  body: (block)? @method.body) @method)) @impl
+                        (function_item
+                        name: (identifier) @{FUNCTION_NAME}
+                        parameters: (parameters) @{ARGUMENTS}
+                        return_type: (type_identifier)? @{RETURN_TYPES}
+                        )@{FUNCTION_DEFINITION}
+                    ) 
+            ) @{IMPLEMENTATION_BLOCK}
             "#
         )
     }
@@ -184,19 +189,19 @@ impl Stack for Rust {
             r#"
                 (call_expression
                     function: [
-                        (identifier) @FUNCTION_NAME
+                        (identifier) @{FUNCTION_NAME}
                         ;; module method
                         (scoped_identifier
-                            path: (identifier) @PARENT_NAME
-                            name: (identifier) @FUNCTION_NAME
+                            path: (identifier) @{PARENT_NAME}
+                            name: (identifier) @{FUNCTION_NAME}
                         )
                         ;; chained call
                         (field_expression
-                            field: (field_identifier) @FUNCTION_NAME
+                            field: (field_identifier) @{FUNCTION_NAME}  
                         )
                     ]
-                    arguments: (arguments) @ARGUMENTS
-                ) @FUNCTION_CALL
+                    arguments: (arguments) @{ARGUMENTS}
+                ) @{FUNCTION_CALL}
                 "#
         )
     }
@@ -273,19 +278,19 @@ impl Stack for Rust {
             r#"
                 [
                     (struct_item
-                        name: (type_identifier) @struct-name
+                        name: (type_identifier) @{STRUCT_NAME}
                     )
                     (enum_item
-                        name: (type_identifier) @struct-name
+                        name: (type_identifier) @{STRUCT_NAME}
                     )
-                ]@struct
+                ]@{STRUCT}
             "#
         ))
     }
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
             r#"
-                (type_identifier) @struct-name
+                (type_identifier) @{STRUCT_NAME}
             "#,
         ))
     }
@@ -342,5 +347,50 @@ impl Stack for Rust {
     }
     fn filter_by_implements(&self) -> bool {
         true
+    }
+
+    fn find_function_parent(
+        &self,
+        node: TreeNode,
+        code: &str,
+        file: &str,
+        func_name: &str,
+        find_clas: &dyn Fn(&str) -> Option<NodeData>,
+        parent_type: Option<&str>,
+    ) -> Result<Option<Operand>> {
+        let mut function_start_position = 0;
+        if parent_type.is_none() {
+            return Ok(None);
+        }
+
+        if let Some(body_node) = node.child_by_field_name("body") {
+            let mut function_items = Vec::new();
+            for i in 0..body_node.named_child_count() {
+                if let Some(child) = body_node.named_child(i) {
+                    if child.kind() == "function_item" {
+                        function_items.push(child);
+                    }
+                }
+            }
+
+            for func_item in function_items {
+                if let Some(name_node) = func_item.child_by_field_name("name") {
+                    let func_name_text = name_node.utf8_text(code.as_bytes())?;
+                    if func_name_text == func_name {
+                        function_start_position = func_item.start_position().row;
+                    }
+                }
+            }
+        }
+        let parent_type = parent_type.unwrap();
+        let nodedata = find_clas(parent_type);
+
+        Ok(match nodedata {
+            Some(class) => Some(Operand {
+                source: NodeKeys::new(&class.name, &class.file, class.start),
+                target: NodeKeys::new(func_name, file, function_start_position),
+            }),
+            None => None,
+        })
     }
 }

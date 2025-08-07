@@ -138,6 +138,12 @@ use std::net::SocketAddr;"#
         .map(|n| Node::new(NodeType::Class, n.clone()))
         .expect("Class 'Database' not found in db.rs");
 
+    let greeter = classes
+        .iter()
+        .find(|c| c.name == "Greeter" && c.file.ends_with("src/testing/rust/src/traits.rs"))
+        .map(|n| Node::new(NodeType::Class, n.clone()))
+        .expect("Expected a greeter");
+
     let dm_imports = graph.has_edge(&rocket_file, &person_dm, EdgeType::Imports);
     assert!(
         dm_imports,
@@ -192,11 +198,11 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 76, "Expected 76 contains edges");
+    assert_eq!(contains_edges, 77, "Expected 77 contains edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 23, "Expected 23 functions");
+    assert_eq!(functions.len(), 24, "Expected 24 functions");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -205,6 +211,58 @@ use std::net::SocketAddr;"#
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
     assert_eq!(implements, 1, "Expected 1 implements edge");
+
+    let operands = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operands;
+    assert_eq!(operands, 8, "Expected 8 operand edges");
+
+    let calls = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += calls;
+    assert_eq!(calls, 15, "Expected 15 call edges");
+
+    let get_person_by_id = functions
+        .iter()
+        .find(|f| f.name == "get_person_by_id" && f.file.ends_with("src/testing/rust/src/db.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected to find get_person_by_id");
+
+    let new_person = functions
+        .iter()
+        .find(|f| f.name == "new_person" && f.file.ends_with("src/testing/rust/src/db.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected to new_person");
+
+    assert!(
+        graph.has_edge(&database_class, &get_person_by_id, EdgeType::Operand),
+        "Expected OPERAND edge between Database and get_person_by_id"
+    );
+
+    assert!(
+        graph.has_edge(&database_class, &new_person, EdgeType::Operand),
+        "Expected OPERAND edge between Database and new_person"
+    );
+
+    let new_fn = functions
+        .iter()
+        .find(|f| f.name == "new" && f.file.ends_with("src/testing/rust/src/traits.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected to find new fn");
+
+    let greet_fn = functions
+        .iter()
+        .find(|n| n.name == "greet" && n.file.ends_with("src/testing/rust/src/traits.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("Expected Greet function");
+
+    assert!(
+        graph.has_edge(&greeter, &new_fn, EdgeType::Operand),
+        "Expected an OPERAND edge between Greeter Class and New Function"
+    );
+
+    assert!(
+        graph.has_edge(&greeter, &greet_fn, EdgeType::Operand),
+        "Expected an OPERAND edge between Greeter Class and Greet Function"
+    );
 
     let get_person_fn = functions
         .iter()
