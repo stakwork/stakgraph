@@ -338,12 +338,86 @@ export async function deleteTestByName(
   }
 }
 
+export async function renameTest(req: Request, res: Response): Promise<void> {
+  try {
+    const { from, to } = req.body || {};
+
+    if (!from || !to) {
+      res.status(400).json({ error: "'from' and 'to' are required" });
+      return;
+    }
+
+    const fromName = ensureSpecExtension(sanitizeFilename(from));
+    const toName = ensureSpecExtension(sanitizeFilename(to));
+
+    const testsDir = getTestsDir();
+
+    try {
+      await fs.access(testsDir);
+    } catch {
+      res.status(404).json({ error: "Tests directory not found" });
+      return;
+    }
+
+    const fromPath = path.join(testsDir, fromName);
+    const toPath = path.join(testsDir, toName);
+
+    try {
+      await fs.access(fromPath);
+
+      // Prevent overwriting existing destination
+      try {
+        await fs.access(toPath);
+        res.status(409).json({
+          success: false,
+          error: "Destination test file already exists",
+        });
+        return;
+      } catch {}
+
+      await fs.rename(fromPath, toPath);
+
+      const stats = await fs.stat(toPath);
+      res.json({
+        success: true,
+        message: "Test file renamed successfully",
+        from: fromName,
+        to: toName,
+        size: stats.size,
+        modified: stats.mtime.toISOString(),
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      if (error.code === "ENOENT") {
+        res.status(404).json({
+          success: false,
+          error: "Source test file not found",
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
+
 export function test_routes(app: Express) {
   app.get("/test", runPlaywrightTest);
   app.get("/test/list", listTests);
   app.get("/test/get", getTestByName);
   app.get("/test/delete", deleteTestByName);
   app.post("/test/save", saveTest);
+  app.post("/test/rename", renameTest);
 
   let tests_base_path = path.join(getBaseDir(), "tests");
 
