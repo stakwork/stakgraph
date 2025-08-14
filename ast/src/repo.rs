@@ -66,6 +66,9 @@ impl Repos {
         self.build_graphs_inner().await
     }
     pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
+        if self.0.is_empty() {
+            return Err(Error::Custom("Language is not supported".into()));
+        }
         let mut graph = G::new(String::new(), Language::Typescript);
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
@@ -236,6 +239,13 @@ impl Repo {
             .into_iter()
             .filter(|lang| !overridden_langs.contains(lang))
             .collect();
+
+        if filtered_langs.is_empty() {
+            return Err(Error::Custom(format!(
+                "Language is not supported yet: {}",
+                root
+            )));
+        }
         // Then, set up each repository with LSP
         let mut repos: Vec<Repo> = Vec::new();
         for l in filtered_langs {
