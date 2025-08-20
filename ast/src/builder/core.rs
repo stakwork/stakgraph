@@ -1,9 +1,14 @@
 use super::utils::*;
+#[cfg(feature = "neo4j")]
+use crate::lang::graphs::utils::GraphUploader;
 use crate::lang::graphs::Graph;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 
-use crate::lang::{asg::NodeData, graphs::NodeType};
+use crate::lang::{
+    asg::NodeData,
+    graphs::{EdgeType, NodeType},
+};
 use crate::lang::{ArrayGraph, BTreeMapGraph};
 use crate::repo::Repo;
 use git_url_parse::GitUrl;
@@ -30,31 +35,386 @@ impl Repo {
     }
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
+        let graph_root_str = graph_root.clone();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         let mut stats = std::collections::HashMap::new();
 
+        #[cfg(feature = "neo4j")]
+        let mut btree_graph = BTreeMapGraph::new(graph_root_str, self.lang.kind.clone());
+        #[cfg(feature = "neo4j")]
+        let mut uploader = GraphUploader::new().await?;
+
         self.send_status_update("initialization", 1);
         self.add_repository_and_language_nodes(&mut graph).await?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.add_repository_and_language_nodes(&mut btree_graph)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Repository)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Language)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Repository,
+                    NodeType::Language,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         let files = self.collect_and_add_directories(&mut graph)?;
         stats.insert("directories".to_string(), files.len());
+        #[cfg(feature = "neo4j")]
+        {
+            self.collect_and_add_directories(&mut btree_graph)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Directory)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Repository,
+                    NodeType::Directory,
+                    EdgeType::Contains,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Directory,
+                    NodeType::Directory,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
 
         let filez = self.process_and_add_files(&mut graph, &files).await?;
         stats.insert("files".to_string(), filez.len());
         self.send_status_with_stats(stats.clone());
         self.send_status_progress(100, 100, 1);
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_and_add_files(&mut btree_graph, &files).await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::File)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Directory,
+                    NodeType::File,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
 
         self.setup_lsp(&filez)?;
 
         self.process_libraries(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_libraries(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Library)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Library,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_import_sections(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_import_sections(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Import)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Import,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_variables(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_variables(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Var)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Var,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_classes(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_classes(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Class)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Class,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_instances_and_traits(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_instances_and_traits(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Instance)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Trait)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Instance,
+                    EdgeType::Contains,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Trait,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_data_models(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_data_models(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::DataModel)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::DataModel,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_functions_and_tests(&mut graph, &filez).await?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_functions_and_tests(&mut btree_graph, &filez)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Function)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Test)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Request)
+                .await?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::E2eTest)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Function,
+                    EdgeType::Contains,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Test,
+                    EdgeType::Contains,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::E2eTest,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_pages_and_templates(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_pages_and_templates(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Page)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Page,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.process_endpoints(&mut graph, &filez)?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.process_endpoints(&mut btree_graph, &filez)?;
+            uploader
+                .upload_nodes_by_type(&btree_graph, NodeType::Endpoint)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Endpoint,
+                    EdgeType::Contains,
+                )
+                .await?;
+        }
+
         self.finalize_graph(&mut graph, &filez, &mut stats).await?;
+        #[cfg(feature = "neo4j")]
+        {
+            self.finalize_graph(&mut btree_graph, &filez, &mut stats)
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Function,
+                    NodeType::Function,
+                    EdgeType::Calls,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Test,
+                    NodeType::Function,
+                    EdgeType::Calls,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::File,
+                    NodeType::Import,
+                    EdgeType::Imports,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Endpoint,
+                    NodeType::Function,
+                    EdgeType::Handler,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Page,
+                    NodeType::Function,
+                    EdgeType::Renders,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Class,
+                    NodeType::Class,
+                    EdgeType::ParentOf,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Class,
+                    NodeType::Trait,
+                    EdgeType::Implements,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Instance,
+                    NodeType::Class,
+                    EdgeType::Of,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Function,
+                    NodeType::Function,
+                    EdgeType::Uses,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Class,
+                    NodeType::Function,
+                    EdgeType::Operand,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Function,
+                    NodeType::Var,
+                    EdgeType::ArgOf,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Request,
+                    NodeType::Endpoint,
+                    EdgeType::Calls,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::E2eTest,
+                    NodeType::Function,
+                    EdgeType::Calls,
+                )
+                .await?;
+        }
+
         let graph = filter_by_revs(
             &self.root.to_str().unwrap(),
             self.revs.clone(),

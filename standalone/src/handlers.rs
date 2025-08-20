@@ -239,6 +239,7 @@ pub async fn ingest(
         "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
         start_build.elapsed()
     );
+
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
@@ -248,13 +249,9 @@ pub async fn ingest(
         graph_ops.clear_existing_graph(&stripped_root).await?;
     }
 
-    let start_upload = Instant::now();
-
-    info!("Uploading to Neo4j...");
-    let (nodes, edges) = graph_ops
-        .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
-        .await?;
     graph_ops.graph.create_indexes().await?;
+
+    let (nodes, edges) = btree_graph.get_graph_size();
 
     let _ = state.tx.send(ast::repo::StatusUpdate {
         status: "Complete".to_string(),
@@ -268,11 +265,6 @@ pub async fn ingest(
         ])),
         step_description: Some("Graph building completed".to_string()),
     });
-
-    info!(
-        "\n\n ==>> Uploading to Neo4j took {:.2?} \n\n",
-        start_upload.elapsed()
-    );
 
     info!(
         "\n\n ==>> Total ingest time: {:.2?} \n\n",

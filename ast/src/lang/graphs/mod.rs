@@ -12,6 +12,9 @@ pub mod neo4j_utils;
 #[cfg(feature = "neo4j")]
 pub mod graph_ops;
 
+#[cfg(feature = "neo4j")]
+pub mod utils;
+
 use std::str::FromStr;
 
 pub use array_graph::*;
