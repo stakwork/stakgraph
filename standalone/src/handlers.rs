@@ -226,15 +226,12 @@ pub async fn ingest(
 
     repos.set_status_tx(state.tx.clone()).await;
 
-    let btree_graph = repos
-        .build_graphs_btree_with_neo4j_upload()
-        .await
-        .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
-                "Failed to build graphs: {}",
-                e
-            )))
-        })?;
+    let btree_graph = repos.build_graphs_btree().await.map_err(|e| {
+        WebError(shared::Error::Custom(format!(
+            "Failed to build graphs: {}",
+            e
+        )))
+    })?;
     info!(
         "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
         start_build.elapsed()

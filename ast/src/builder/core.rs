@@ -39,25 +39,24 @@ impl Repo {
         let mut stats = std::collections::HashMap::new();
 
         #[cfg(feature = "neo4j")]
-        let mut btree_graph = BTreeMapGraph::new(graph_root, self.lang.kind.clone());
-        #[cfg(feature = "neo4j")]
         let mut uploader = GraphUploader::new().await?;
+        #[cfg(feature = "neo4j")]
+        let use_incremental = crate::lang::graphs::utils::should_use_incremental_upload();
 
         self.send_status_update("initialization", 1);
         self.add_repository_and_language_nodes(&mut graph).await?;
         #[cfg(feature = "neo4j")]
-        {
-            self.add_repository_and_language_nodes(&mut btree_graph)
+        if use_incremental {
+            self.add_repository_and_language_nodes(&mut graph).await?;
+            uploader
+                .upload_nodes_by_type(&graph, NodeType::Repository)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Repository)
-                .await?;
-            uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Language)
+                .upload_nodes_by_type(&graph, NodeType::Language)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Repository,
                     NodeType::Language,
                     EdgeType::Contains,
@@ -68,14 +67,14 @@ impl Repo {
         let files = self.collect_and_add_directories(&mut graph)?;
         stats.insert("directories".to_string(), files.len());
         #[cfg(feature = "neo4j")]
-        {
-            self.collect_and_add_directories(&mut btree_graph)?;
+        if use_incremental {
+            self.collect_and_add_directories(&mut graph)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Directory)
+                .upload_nodes_by_type(&graph, NodeType::Directory)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Repository,
                     NodeType::Directory,
                     EdgeType::Contains,
@@ -83,7 +82,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Directory,
                     NodeType::Directory,
                     EdgeType::Contains,
@@ -96,14 +95,14 @@ impl Repo {
         self.send_status_with_stats(stats.clone());
         self.send_status_progress(100, 100, 1);
         #[cfg(feature = "neo4j")]
-        {
-            self.process_and_add_files(&mut btree_graph, &files).await?;
+        if use_incremental {
+            self.process_and_add_files(&mut graph, &files).await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::File)
+                .upload_nodes_by_type(&graph, NodeType::File)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Directory,
                     NodeType::File,
                     EdgeType::Contains,
@@ -115,14 +114,14 @@ impl Repo {
 
         self.process_libraries(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_libraries(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_libraries(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Library)
+                .upload_nodes_by_type(&graph, NodeType::Library)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Library,
                     EdgeType::Contains,
@@ -132,14 +131,14 @@ impl Repo {
 
         self.process_import_sections(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_import_sections(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_import_sections(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Import)
+                .upload_nodes_by_type(&graph, NodeType::Import)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Import,
                     EdgeType::Contains,
@@ -149,14 +148,12 @@ impl Repo {
 
         self.process_variables(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_variables(&mut btree_graph, &filez)?;
-            uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Var)
-                .await?;
+        if use_incremental {
+            self.process_variables(&mut graph, &filez)?;
+            uploader.upload_nodes_by_type(&graph, NodeType::Var).await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Var,
                     EdgeType::Contains,
@@ -166,14 +163,14 @@ impl Repo {
 
         self.process_classes(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_classes(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_classes(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Class)
+                .upload_nodes_by_type(&graph, NodeType::Class)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Class,
                     EdgeType::Contains,
@@ -183,17 +180,17 @@ impl Repo {
 
         self.process_instances_and_traits(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_instances_and_traits(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_instances_and_traits(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Instance)
+                .upload_nodes_by_type(&graph, NodeType::Instance)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Trait)
+                .upload_nodes_by_type(&graph, NodeType::Trait)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Instance,
                     EdgeType::Contains,
@@ -201,7 +198,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Trait,
                     EdgeType::Contains,
@@ -211,14 +208,14 @@ impl Repo {
 
         self.process_data_models(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_data_models(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_data_models(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::DataModel)
+                .upload_nodes_by_type(&graph, NodeType::DataModel)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::DataModel,
                     EdgeType::Contains,
@@ -228,24 +225,23 @@ impl Repo {
 
         self.process_functions_and_tests(&mut graph, &filez).await?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_functions_and_tests(&mut btree_graph, &filez)
+        if use_incremental {
+            self.process_functions_and_tests(&mut graph, &filez).await?;
+            uploader
+                .upload_nodes_by_type(&graph, NodeType::Function)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Function)
+                .upload_nodes_by_type(&graph, NodeType::Test)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Test)
+                .upload_nodes_by_type(&graph, NodeType::Request)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Request)
-                .await?;
-            uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::E2eTest)
+                .upload_nodes_by_type(&graph, NodeType::E2eTest)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Function,
                     EdgeType::Contains,
@@ -253,7 +249,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Test,
                     EdgeType::Contains,
@@ -261,7 +257,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::E2eTest,
                     EdgeType::Contains,
@@ -271,14 +267,14 @@ impl Repo {
 
         self.process_pages_and_templates(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_pages_and_templates(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_pages_and_templates(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Page)
+                .upload_nodes_by_type(&graph, NodeType::Page)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Page,
                     EdgeType::Contains,
@@ -288,14 +284,14 @@ impl Repo {
 
         self.process_endpoints(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
-        {
-            self.process_endpoints(&mut btree_graph, &filez)?;
+        if use_incremental {
+            self.process_endpoints(&mut graph, &filez)?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Endpoint)
+                .upload_nodes_by_type(&graph, NodeType::Endpoint)
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Endpoint,
                     EdgeType::Contains,
@@ -320,12 +316,11 @@ impl Repo {
         // }
 
         #[cfg(feature = "neo4j")]
-        {
-            self.finalize_graph(&mut btree_graph, &filez, &mut stats)
-                .await?;
+        if use_incremental {
+            self.finalize_graph(&mut graph, &filez, &mut stats).await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Function,
                     EdgeType::Calls,
@@ -333,7 +328,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Test,
                     NodeType::Function,
                     EdgeType::Calls,
@@ -341,7 +336,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Request,
                     EdgeType::Calls,
@@ -349,7 +344,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Request,
                     NodeType::Endpoint,
                     EdgeType::Calls,
@@ -357,7 +352,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Import,
                     EdgeType::Imports,
@@ -365,7 +360,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Endpoint,
                     NodeType::Function,
                     EdgeType::Handler,
@@ -373,7 +368,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Page,
                     NodeType::Function,
                     EdgeType::Renders,
@@ -381,7 +376,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Class,
                     EdgeType::ParentOf,
@@ -389,7 +384,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Trait,
                     EdgeType::Implements,
@@ -397,7 +392,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Instance,
                     NodeType::Class,
                     EdgeType::Of,
@@ -405,7 +400,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Function,
                     EdgeType::Uses,
@@ -413,7 +408,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Function,
                     EdgeType::Operand,
@@ -421,7 +416,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Var,
                     EdgeType::ArgOf,
@@ -430,7 +425,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Page,
                     EdgeType::Renders,
@@ -439,21 +434,21 @@ impl Repo {
 
             // Upload all additional nodes that may have been added during finalize_graph
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Function)
+                .upload_nodes_by_type(&graph, NodeType::Function)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Test)
+                .upload_nodes_by_type(&graph, NodeType::Test)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::Request)
+                .upload_nodes_by_type(&graph, NodeType::Request)
                 .await?;
             uploader
-                .upload_nodes_by_type(&btree_graph, NodeType::E2eTest)
+                .upload_nodes_by_type(&graph, NodeType::E2eTest)
                 .await?;
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Function,
                     EdgeType::Uses,
@@ -461,7 +456,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Var,
                     EdgeType::ArgOf,
@@ -469,7 +464,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Function,
                     EdgeType::Operand,
@@ -477,7 +472,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Instance,
                     NodeType::Class,
                     EdgeType::Of,
@@ -485,7 +480,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Trait,
                     EdgeType::Implements,
@@ -493,7 +488,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Class,
                     NodeType::Class,
                     EdgeType::ParentOf,
@@ -502,7 +497,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::DataModel,
                     EdgeType::Contains,
@@ -510,7 +505,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Var,
                     EdgeType::Contains,
@@ -518,7 +513,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Import,
                     EdgeType::Contains,
@@ -527,7 +522,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Function,
                     EdgeType::Imports,
@@ -535,7 +530,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Var,
                     EdgeType::Imports,
@@ -544,7 +539,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::DataModel,
                     EdgeType::Imports,
@@ -552,7 +547,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Class,
                     EdgeType::Imports,
@@ -560,7 +555,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Instance,
                     EdgeType::Imports,
@@ -569,7 +564,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Library,
                     EdgeType::Imports,
@@ -577,7 +572,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Page,
                     EdgeType::Imports,
@@ -585,7 +580,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Endpoint,
                     EdgeType::Imports,
@@ -594,7 +589,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Request,
                     EdgeType::Imports,
@@ -602,7 +597,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::E2eTest,
                     EdgeType::Imports,
@@ -610,7 +605,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::File,
                     NodeType::Trait,
                     EdgeType::Imports,
@@ -619,7 +614,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Function,
                     NodeType::Var,
                     EdgeType::Contains,
@@ -628,7 +623,7 @@ impl Repo {
 
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Repository,
                     NodeType::File,
                     EdgeType::Contains,
@@ -636,7 +631,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Repository,
                     NodeType::Directory,
                     EdgeType::Contains,
@@ -644,7 +639,7 @@ impl Repo {
                 .await?;
             uploader
                 .upload_edges_between_types(
-                    &btree_graph,
+                    &graph,
                     NodeType::Repository,
                     NodeType::Language,
                     EdgeType::Contains,

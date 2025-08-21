@@ -15,12 +15,12 @@ impl GraphUploader {
         Ok(Self { graph_ops })
     }
 
-    pub async fn upload_nodes_by_type(
+    pub async fn upload_nodes_by_type<G: Graph>(
         &mut self,
-        btree_graph: &BTreeMapGraph,
+        graph: &G,
         node_type: NodeType,
     ) -> Result<()> {
-        let nodes = btree_graph.find_nodes_by_type(node_type.clone());
+        let nodes = graph.find_nodes_by_type(node_type.clone());
         if nodes.is_empty() {
             return Ok(());
         }
@@ -33,14 +33,14 @@ impl GraphUploader {
         self.graph_ops.graph.execute_batch(queries).await
     }
 
-    pub async fn upload_edges_between_types(
+    pub async fn upload_edges_between_types<G: Graph>(
         &mut self,
-        btree_graph: &BTreeMapGraph,
+        graph: &G,
         source_type: NodeType,
         target_type: NodeType,
         edge_type: EdgeType,
     ) -> Result<()> {
-        let edges = btree_graph.find_nodes_with_edge_type(
+        let edges = graph.find_nodes_with_edge_type(
             source_type.clone(),
             target_type.clone(),
             edge_type.clone(),
@@ -87,4 +87,10 @@ pub fn tests_sources(tests_filter: Option<&str>) -> Vec<NodeType> {
         sources.push(NodeType::E2eTest);
     }
     sources
+}
+
+pub fn should_use_incremental_upload() -> bool {
+    std::env::var("USE_INCREMENTAL_UPLOAD")
+        .map(|val| val == "true" || val == "1")
+        .unwrap_or(false)
 }
