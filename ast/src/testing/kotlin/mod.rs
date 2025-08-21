@@ -149,7 +149,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
-    assert_eq!(import_edges_count, 6, "Expected 16 import edges");
+    assert_eq!(import_edges_count, 6, "Expected 6 import edges");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
