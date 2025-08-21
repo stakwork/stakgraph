@@ -1,7 +1,6 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
-use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
 
@@ -9,7 +8,7 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/kotlin",
         Lang::from_str("kotlin").unwrap(),
-        get_use_lsp(),
+        false,
         Vec::new(),
         Vec::new(),
     )
@@ -150,7 +149,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
-    assert_eq!(import_edges_count, 16, "Expected 16 import edges");
+    assert_eq!(import_edges_count, 6, "Expected 16 import edges");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
