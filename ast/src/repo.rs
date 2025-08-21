@@ -65,6 +65,37 @@ impl Repos {
     pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {
         self.build_graphs_inner().await
     }
+
+    #[cfg(feature = "neo4j")]
+    pub async fn build_graphs_btree_with_neo4j_upload(&self) -> Result<BTreeMapGraph> {
+        use crate::lang::graphs::utils::GraphUploader;
+        use crate::lang::graphs::{EdgeType, NodeType};
+
+        let graph = self.build_graphs_inner().await?;
+
+        let mut uploader = GraphUploader::new().await?;
+
+        uploader
+            .upload_edges_between_types(
+                &graph,
+                NodeType::Request,
+                NodeType::Endpoint,
+                EdgeType::Calls,
+            )
+            .await?;
+
+        uploader
+            .upload_edges_between_types(
+                &graph,
+                NodeType::E2eTest,
+                NodeType::Function,
+                EdgeType::Calls,
+            )
+            .await?;
+
+        info!("Cross-repo linking edges uploaded to Neo4j");
+        Ok(graph)
+    }
     pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));

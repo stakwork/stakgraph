@@ -35,12 +35,11 @@ impl Repo {
     }
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
-        let graph_root_str = graph_root.clone();
-        let mut graph = G::new(graph_root, self.lang.kind.clone());
+        let mut graph = G::new(graph_root.clone(), self.lang.kind.clone());
         let mut stats = std::collections::HashMap::new();
 
         #[cfg(feature = "neo4j")]
-        let mut btree_graph = BTreeMapGraph::new(graph_root_str, self.lang.kind.clone());
+        let mut btree_graph = BTreeMapGraph::new(graph_root, self.lang.kind.clone());
         #[cfg(feature = "neo4j")]
         let mut uploader = GraphUploader::new().await?;
 
@@ -397,20 +396,13 @@ impl Repo {
                     EdgeType::ArgOf,
                 )
                 .await?;
+
             uploader
                 .upload_edges_between_types(
                     &btree_graph,
-                    NodeType::Request,
-                    NodeType::Endpoint,
-                    EdgeType::Calls,
-                )
-                .await?;
-            uploader
-                .upload_edges_between_types(
-                    &btree_graph,
-                    NodeType::E2eTest,
-                    NodeType::Function,
-                    EdgeType::Calls,
+                    NodeType::Class,
+                    NodeType::Page,
+                    EdgeType::Renders,
                 )
                 .await?;
         }
