@@ -304,6 +304,21 @@ impl Repo {
         }
 
         self.finalize_graph(&mut graph, &filez, &mut stats).await?;
+
+        //Causes more harm than good
+        // #[cfg(feature = "neo4j")]
+        // {
+        //     self.lang
+        //         .lang()
+        //         .clean_graph(&mut |parent_type, child_type, child_meta_key| {
+        //             uploader.graph_ops.graph.filter_out_nodes_without_children(
+        //                 parent_type,
+        //                 child_type,
+        //                 child_meta_key,
+        //             );
+        //         });
+        // }
+
         #[cfg(feature = "neo4j")]
         {
             self.finalize_graph(&mut btree_graph, &filez, &mut stats)
@@ -321,6 +336,22 @@ impl Repo {
                     &btree_graph,
                     NodeType::Test,
                     NodeType::Function,
+                    EdgeType::Calls,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Function,
+                    NodeType::Request,
+                    EdgeType::Calls,
+                )
+                .await?;
+            uploader
+                .upload_edges_between_types(
+                    &btree_graph,
+                    NodeType::Request,
+                    NodeType::Endpoint,
                     EdgeType::Calls,
                 )
                 .await?;
