@@ -740,11 +740,6 @@ impl Graph for BTreeMapGraph {
                         result.push((src_node.node_data.clone(), dst_node.node_data.clone()));
                     }
                 }
-            } else {
-                println!(
-                    "Edge type mismatch: {:?} != {:?}, src_key: {}, dst_key: {}",
-                    edge, edge_type, src_key, dst_key
-                );
             }
         }
 
