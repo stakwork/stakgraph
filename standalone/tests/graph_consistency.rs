@@ -13,7 +13,7 @@ async fn clear_neo4j() {
 #[cfg(feature = "neo4j")]
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_graph_consistency() {
-    use ast::lang::graphs::{BTreeMapGraph, EdgeType};
+    use ast::lang::graphs::EdgeType;
     use ast::lang::Graph;
     use ast::repo::Repo;
     use tracing::info;
@@ -29,8 +29,9 @@ async fn test_graph_consistency() {
             .await
             .unwrap();
 
-    let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
+    let btree_graph = repos.build_graphs_btree_with_neo4j_upload().await.unwrap();
 
+    info!("BTreeMapGraph analysis...");
     btree_graph.analysis();
 
     let btree_node_count = btree_graph.nodes.len();
@@ -43,15 +44,12 @@ async fn test_graph_consistency() {
 
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await.unwrap();
-    let (neo4j_nodes, neo4j_edges) = graph_ops
-        .upload_btreemap_to_neo4j(&btree_graph, None)
-        .await
-        .unwrap();
+    let (neo4j_nodes, neo4j_edges) = graph_ops.graph.get_graph_size();
 
-    info!(
-        "Neo4j upload result: {} nodes, {} edges",
-        neo4j_nodes, neo4j_edges
-    );
+    info!("Neo4jGraph analysis...");
+    graph_ops.graph.analysis();
+
+    info!("Neo4jGraph: {} nodes, {} edges", neo4j_nodes, neo4j_edges);
 
     assert_eq!(
         btree_node_count, neo4j_nodes as usize,

@@ -731,17 +731,14 @@ impl Graph for BTreeMapGraph {
         edge_type: EdgeType,
     ) -> Vec<(NodeData, NodeData)> {
         let mut result = Vec::new();
-        let source_prefix = format!("{:?}-", source_type).to_lowercase();
-        let target_prefix = format!("{:?}-", target_type).to_lowercase();
         for (src_key, dst_key, edge) in &self.edges {
-            if *edge == edge_type
-                && src_key.starts_with(&source_prefix)
-                && dst_key.starts_with(&target_prefix)
-            {
+            if *edge == edge_type {
                 if let (Some(src_node), Some(dst_node)) =
                     (self.nodes.get(src_key), self.nodes.get(dst_key))
                 {
-                    result.push((src_node.node_data.clone(), dst_node.node_data.clone()));
+                    if src_node.node_type == source_type && dst_node.node_type == target_type {
+                        result.push((src_node.node_data.clone(), dst_node.node_data.clone()));
+                    }
                 }
             }
         }
