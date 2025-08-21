@@ -10,6 +10,7 @@ use crate::utils::{
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
+use ast::lang::graphs::utils::should_use_incremental_upload;
 use ast::lang::{Graph, NodeType};
 use ast::repo::{clone_repo, Repo};
 use axum::extract::{Path, Query};
@@ -226,17 +227,6 @@ pub async fn ingest(
 
     repos.set_status_tx(state.tx.clone()).await;
 
-    let btree_graph = repos.build_graphs_btree().await.map_err(|e| {
-        WebError(shared::Error::Custom(format!(
-            "Failed to build graphs: {}",
-            e
-        )))
-    })?;
-    info!(
-        "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
-        start_build.elapsed()
-    );
-
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
@@ -244,6 +234,26 @@ pub async fn ingest(
         let stripped_root = strip_tmp(&repo.root).display().to_string();
         info!("Clearing old data for {}...", stripped_root);
         graph_ops.clear_existing_graph(&stripped_root).await?;
+    }
+
+    let btree_graph = repos.build_graphs_btree().await.map_err(|e| {
+        WebError(shared::Error::Custom(format!(
+            "Failed to build graphs: {}",
+            e
+        )))
+    })?;
+
+    info!(
+        "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
+        start_build.elapsed()
+    );
+
+    if !should_use_incremental_upload() {
+        let (nodes, edges) = graph_ops
+            .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
+            .await?;
+
+        info!("Uploaded {} nodes and {} edges to Neo4j", nodes, edges);
     }
 
     graph_ops.graph.create_indexes().await?;

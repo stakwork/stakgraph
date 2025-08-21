@@ -30,6 +30,8 @@ impl GraphUploader {
             .map(|node| add_node_query(&node_type, node))
             .collect();
 
+        println!("===>>Uploading {} nodes to Neo4j", nodes.len());
+
         self.graph_ops.graph.execute_batch(queries).await
     }
 
