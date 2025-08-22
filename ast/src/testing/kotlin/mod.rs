@@ -123,7 +123,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 21, "Expected 21 functions with LSP");
+        assert_eq!(functions.len(), 22, "Expected 22 functions with LSP");
     } else {
         assert_eq!(functions.len(), 21, "Expected 21 functions without LSP");
     }
