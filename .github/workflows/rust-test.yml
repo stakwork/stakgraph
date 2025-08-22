@@ -53,5 +53,44 @@ jobs:
       - name: Run rust test
         run: cargo test
 
+      # Install Java, kotlin-language-server, and Ruby LSPs so USE_LSP=true tests can spawn language servers
+      - name: Install OpenJDK 17 and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk jq
+
+      - name: Install kotlin-language-server (match Dockerfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip curl
+          set -eux
+          sudo mkdir -p /opt/kotlin-language-server /tmp/kls
+          echo "Downloading kotlin-language-server..."
+          curl -fSL --create-dirs -o /tmp/kls/kls.zip "https://github.com/fwcd/kotlin-language-server/releases/latest/download/server.zip"
+          unzip /tmp/kls/kls.zip -d /tmp/kls
+          if [ -d /tmp/kls/server ]; then
+            sudo cp -r /tmp/kls/server/* /opt/kotlin-language-server/
+          else
+            echo "ERROR: /tmp/kls/server directory not found after unzip"; ls -la /tmp/kls; exit 1
+          fi
+          if [ -f /opt/kotlin-language-server/bin/kotlin-language-server ]; then
+            sudo ln -sf /opt/kotlin-language-server/bin/kotlin-language-server /usr/local/bin/kotlin-language-server
+          elif [ -f /opt/kotlin-language-server/kotlin-language-server ]; then
+            sudo ln -sf /opt/kotlin-language-server/kotlin-language-server /usr/local/bin/kotlin-language-server
+          else
+            echo "ERROR: kotlin-language-server executable not found in /opt/kotlin-language-server"; ls -la /opt/kotlin-language-server || true; ls -la /tmp/kls || true; exit 1
+          fi
+          sudo chmod +x /usr/local/bin/kotlin-language-server
+          rm -rf /tmp/kls
+
+      - name: Install Ruby and Ruby LSPs (match Dockerfile)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby-full build-essential
+          # Install common Ruby LSP servers and bundler (as in Dockerfile)
+          sudo gem install --no-document ruby-lsp solargraph bundler || true
+          solargraph --version || true
+          ruby-lsp --version || true
+
       - name: Run rust test with LSP
         run: USE_LSP=true cargo test
