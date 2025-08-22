@@ -17,10 +17,12 @@ async function doTheThing() {
       role: "system",
       content: "you are an expert developer",
     };
+    // const content = "my name is Evan Feenstra. please look me up online and tell me what you find";
+    const content =
+      "please add a comment on top of src/store.ts explain wha the file does";
     const userMessageContent: ModelMessage = {
       role: "user",
-      content:
-        "please add a comment on top of src/store.ts explain wha the file does",
+      content,
     };
     const messages = [systemMessage, userMessageContent];
 

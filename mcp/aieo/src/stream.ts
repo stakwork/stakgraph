@@ -14,12 +14,21 @@ interface CallModelOptions {
   parser?: (fullResponse: string) => void;
   thinkingSpeed?: ThinkingSpeed;
   cwd?: string;
+  executablePath?: string;
 }
 
 export async function callModel(opts: CallModelOptions): Promise<string> {
-  const { provider, apiKey, messages, tools, parser, thinkingSpeed, cwd } =
-    opts;
-  const model = await getModel(provider, apiKey, cwd);
+  const {
+    provider,
+    apiKey,
+    messages,
+    tools,
+    parser,
+    thinkingSpeed,
+    cwd,
+    executablePath,
+  } = opts;
+  const model = await getModel(provider, apiKey, cwd, executablePath);
   const providerOptions = getProviderOptions(provider, thinkingSpeed);
   console.log(`Calling ${provider} with options:`, providerOptions);
   const result = streamText({
@@ -31,6 +40,7 @@ export async function callModel(opts: CallModelOptions): Promise<string> {
   });
   let fullResponse = "";
   for await (const part of result.fullStream) {
+    console.log(part);
     switch (part.type) {
       case "error":
         throw part.error;

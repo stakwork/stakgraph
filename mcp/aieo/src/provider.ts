@@ -25,7 +25,8 @@ const SOTA = {
 export async function getModel(
   provider: Provider,
   apiKey: string,
-  cwd?: string
+  cwd?: string,
+  executablePath?: string
 ) {
   switch (provider) {
     case "anthropic":
@@ -44,18 +45,26 @@ export async function getModel(
       });
       return openai(SOTA[provider]);
     case "claude_code":
-      const customProvider = createClaudeCode({
-        defaultSettings: {
-          // Skip permission prompts for all operations
-          permissionMode: "bypassPermissions",
-          // Set working directory for file operations
-          cwd: cwd,
-        },
-      });
-      if (cwd) {
-        console.log("creating claude code model at", cwd);
+      try {
+        const customProvider = createClaudeCode({
+          defaultSettings: {
+            pathToClaudeCodeExecutable: executablePath,
+            // Skip permission prompts for all operations
+            permissionMode: "bypassPermissions",
+            // Set working directory for file operations
+            cwd: cwd,
+          },
+        });
+        if (cwd) {
+          console.log("creating claude code model at", cwd);
+        }
+        return customProvider(SOTA[provider]);
+      } catch (error) {
+        console.error("Failed to create Claude Code provider:", error);
+        throw new Error(
+          "Claude Code CLI not available or not properly installed. Make sure Claude Code is installed and accessible in the environment where this code runs."
+        );
       }
-      return customProvider(SOTA[provider]);
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
