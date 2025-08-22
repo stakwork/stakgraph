@@ -110,6 +110,7 @@ pub struct CoverageStat {
 pub struct CoverageTotals {
     pub functions: Option<CoverageStat>,
     pub endpoints: Option<CoverageStat>,
+    pub e2e_tests: Option<CoverageStat>,
 }
 
 #[derive(Deserialize)]

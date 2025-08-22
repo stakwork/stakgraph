@@ -34,6 +34,7 @@ pub struct GraphCoverageStat {
 pub struct GraphCoverageTotals {
     pub functions: Option<GraphCoverageStat>,
     pub endpoints: Option<GraphCoverageStat>,
+    pub e2e_tests: Option<GraphCoverageStat>,
 }
 
 impl GraphOps {
@@ -526,9 +527,26 @@ impl GraphOps {
             });
         }
 
+        // Count e2e tests
+        let e2e_tests = self
+            .graph
+            .find_nodes_by_type_async(NodeType::E2eTest)
+            .await;
+        let e2e_test_total = e2e_tests.iter().filter(|e| in_scope(e)).count();
+        let e2e_tests_stat = if e2e_test_total > 0 {
+            Some(GraphCoverageStat {
+                total: e2e_test_total,
+                covered: 0, // TODO: implement e2e test coverage tracking
+                percent: 0.0,
+            })
+        } else {
+            None
+        };
+
         Ok(GraphCoverageTotals {
             functions: functions_stat,
             endpoints: endpoints_stat,
+            e2e_tests: e2e_tests_stat,
         })
     }
 

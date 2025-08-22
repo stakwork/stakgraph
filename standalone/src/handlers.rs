@@ -679,6 +679,7 @@ pub async fn coverage_handler(
     Ok(Json(CoverageTotals {
         functions: map_stat(totals.functions),
         endpoints: map_stat(totals.endpoints),
+        e2e_tests: map_stat(totals.e2e_tests),
     }))
 }
 
