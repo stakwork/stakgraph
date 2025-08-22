@@ -14,7 +14,7 @@ async fn clear_neo4j() {
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_graph_consistency() {
     use ast::lang::graphs::EdgeType;
-    use ast::lang::Graph;
+    use ast::lang::{BTreeMapGraph, Graph};
     use ast::repo::Repo;
     use tracing::info;
 
@@ -29,9 +29,8 @@ async fn test_graph_consistency() {
             .await
             .unwrap();
 
-    let btree_graph = repos.build_graphs_btree_with_neo4j_upload().await.unwrap();
+    let btree_graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
 
-    info!("BTreeMapGraph analysis...");
     btree_graph.analysis();
 
     let btree_node_count = btree_graph.nodes.len();
@@ -44,24 +43,25 @@ async fn test_graph_consistency() {
 
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await.unwrap();
-    let (neo4j_nodes, neo4j_edges) = graph_ops.graph.get_graph_size();
+    let (neo4j_nodes, neo4j_edges) = graph_ops
+        .upload_btreemap_to_neo4j(&btree_graph, None)
+        .await
+        .unwrap();
 
-    info!("Neo4jGraph analysis...");
-    graph_ops.graph.analysis();
-
-    info!("Neo4jGraph: {} nodes, {} edges", neo4j_nodes, neo4j_edges);
-
-    assert!(
-        btree_node_count <= neo4j_nodes as usize,
-        "Node count mismatch: BTreeMapGraph={} Neo4j={}",
-        btree_node_count,
-        neo4j_nodes
+    info!(
+        "Neo4j upload result: {} nodes, {} edges",
+        neo4j_nodes, neo4j_edges
     );
-    assert!(
-        btree_edge_count <= neo4j_edges as usize,
+
+    assert_eq!(
+        btree_node_count, neo4j_nodes as usize,
+        "Node count mismatch: BTreeMapGraph={} Neo4j={}",
+        btree_node_count, neo4j_nodes
+    );
+    assert_eq!(
+        btree_edge_count, neo4j_edges as usize,
         "Edge count mismatch: BTreeMapGraph={} Neo4j={}",
-        btree_edge_count,
-        neo4j_edges
+        btree_edge_count, neo4j_edges
     );
 
     for edge_type in [
@@ -78,15 +78,13 @@ async fn test_graph_consistency() {
     ] {
         let btree_count = btree_graph.count_edges_of_type(edge_type.clone());
         let neo4j_count = graph_ops.graph.count_edges_of_type(edge_type.clone());
-        assert!(
-            btree_count <= neo4j_count,
+        assert_eq!(
+            btree_count, neo4j_count,
             "Edge count mismatch for {:?}: BTreeMapGraph={} Neo4j={}",
-            edge_type,
-            btree_count,
-            neo4j_count
+            edge_type, btree_count, neo4j_count
         );
         info!(
-            "EdgeType {:?}: BTreeMapGraph={} Neo4j={}",
+            "  EdgeType {:?}: BTreeMapGraph={} Neo4j={}",
             edge_type, btree_count, neo4j_count
         );
     }
