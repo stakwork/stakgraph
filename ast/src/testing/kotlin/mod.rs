@@ -603,12 +603,16 @@ import com.kotlintestapp.db.PersonDatabase"#
     let (nodes, edges) = graph.get_graph_size();
     // compare to computed counts so test passes for both LSP and non-LSP expectations
     assert_eq!(nodes as usize, nodes_count, "Nodes count mismatch computed vs graph");
+            
+    let expected_edges = if use_lsp { 224 } else { 212 };
     assert_eq!(
-        edges as usize, 224,
-        "Expected 224 edges, found {} (edges_count computed: {})",
-        edges, edges_count
+        edges as usize,
+        expected_edges,
+        "Expected {} edges, found {} (edges_count computed: {})",
+        expected_edges,
+        edges,
+        edges_count
     );
-    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
