@@ -59,6 +59,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk jq unzip curl
 
+      - name: Set JAVA_HOME
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
+          java -version
+
       - name: Install Kotlin compiler via SDKMAN (reliable method)
         run: |
           # Install SDKMAN for Kotlin installation
