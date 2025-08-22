@@ -12,6 +12,11 @@ impl Kotlin {
 }
 
 impl Stack for Kotlin {
+    fn identifier_query(&self) -> String {
+
+        "(simple_identifier) @identifier\n(identifier) @identifier".to_string()
+    }
+    
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
         Query::new(&self.0, q).unwrap()
     }
