@@ -1,4 +1,4 @@
-import { CoreMessage } from "ai";
+import { ModelMessage } from "ai";
 import { v4 as uuidv4 } from "uuid";
 
 export interface Conversation {
@@ -10,7 +10,7 @@ export interface Conversation {
 export interface ConversationData {
   id: string;
   summary: string;
-  messages: CoreMessage[];
+  messages: ModelMessage[];
   lastUpdated: number;
 }
 
@@ -31,7 +31,9 @@ export abstract class ConversationStorage {
   abstract deleteConversationData(conversationId: string): Promise<boolean>;
 
   // Shared functionality that works across platforms
-  async createConversation(messages: CoreMessage[]): Promise<ConversationData> {
+  async createConversation(
+    messages: ModelMessage[]
+  ): Promise<ConversationData> {
     const id = uuidv4();
     const initialMessage = messages.find((msg) => msg.role === "user");
     const summary = initialMessage
@@ -51,7 +53,7 @@ export abstract class ConversationStorage {
 
   async addMessageToConversation(
     conversationId: string,
-    message: CoreMessage
+    message: ModelMessage
   ): Promise<ConversationData> {
     const conversation = await this.getConversation(conversationId);
     if (!conversation) {

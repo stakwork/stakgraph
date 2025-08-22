@@ -7,4 +7,10 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   clean: true,
+  noExternal: [
+    "@ai-sdk/anthropic",
+    "@ai-sdk/google",
+    "@ai-sdk/openai",
+    "@ai-sdk/provider-utils",
+  ], // Bundle AI SDK dependencies to avoid version conflicts
 });
