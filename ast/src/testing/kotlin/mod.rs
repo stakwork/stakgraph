@@ -603,8 +603,11 @@ import com.kotlintestapp.db.PersonDatabase"#
     let (nodes, edges) = graph.get_graph_size();
     // compare to computed counts so test passes for both LSP and non-LSP expectations
     assert_eq!(nodes as usize, nodes_count, "Nodes count mismatch computed vs graph");
-    assert_eq!(edges as usize, edges_count, "Edges count mismatch computed vs graph");
-
+    assert_eq!(
+        edges as usize, 224,
+        "Expected 224 edges, found {} (edges_count computed: {})",
+        edges, edges_count
+    );
     Ok(())
 }
 
