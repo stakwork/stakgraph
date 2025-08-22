@@ -59,6 +59,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openjdk-17-jdk jq
 
+      - name: Install Kotlin compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y kotlin
+          kotlin -version
+
       - name: Install kotlin-language-server (match Dockerfile)
         run: |
           sudo apt-get update
@@ -82,15 +88,28 @@ jobs:
           fi
           sudo chmod +x /usr/local/bin/kotlin-language-server
           rm -rf /tmp/kls
+          # Verify kotlin-language-server can run
+          kotlin-language-server --version || echo "Version check failed but continuing"
 
       - name: Install Ruby and Ruby LSPs (match Dockerfile)
         run: |
           sudo apt-get update
           sudo apt-get install -y ruby-full build-essential
           # Install common Ruby LSP servers and bundler (as in Dockerfile)
-          sudo gem install --no-document ruby-lsp solargraph bundler || true
+          sudo gem install --no-document ruby-lsp solargraph bundler
+          # Add Ruby gem binaries to PATH
+          echo "$HOME/.gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" >> $GITHUB_PATH
+          echo "/usr/local/bin" >> $GITHUB_PATH
+          echo "/var/lib/gems/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" >> $GITHUB_PATH
           solargraph --version || true
           ruby-lsp --version || true
 
+      - name: Verify LSP installations are in PATH
+        run: |
+          echo "Current PATH: $PATH"
+          which kotlin-language-server || echo "kotlin-language-server not found in PATH"
+          which solargraph || echo "solargraph not found in PATH"
+          which ruby-lsp || echo "ruby-lsp not found in PATH"
+
       - name: Run rust test with LSP
-        run: USE_LSP=true cargo test
+        run: USE_LSP=true cargo test -- --test-threads=1
