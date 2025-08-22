@@ -16,6 +16,7 @@ RUN apt-get update && apt-get install -y \
     ruby-dev \
     libyaml-dev \
     default-jdk \
+    openjdk-17-jre-headless \
     unzip \
     build-essential \
     automake \
@@ -24,6 +25,10 @@ RUN apt-get update && apt-get install -y \
     sed \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# Set JAVA_HOME for Kotlin LSP
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV PATH=$JAVA_HOME/bin:$PATH
 
 # rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup.sh \

@@ -152,7 +152,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
-    assert_eq!(import_edges_count, 6, "Expected 6 import edges");
+    assert_eq!(import_edges_count, 16, "Expected 16 import edges");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
@@ -553,8 +553,8 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
 
     assert_eq!(
-        edges as usize, 212,
-        "Expected 212 edges, found {} (edges_count computed: {})",
+        edges as usize, 222,
+        "Expected 222 edges, found {} (edges_count computed: {})",
         edges, edges_count
     );
 
