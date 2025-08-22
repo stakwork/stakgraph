@@ -71,7 +71,9 @@ jobs:
       - name: Install kotlin-language-server (match Dockerfile)
         run: |
           set -eux
-          sudo mkdir -p /opt/kotlin-language-server /tmp/kls
+
+          sudo mkdir -p /opt/kotlin-language-server
+          mkdir -p /tmp/kls
           echo "Downloading kotlin-language-server..."
           curl -fSL --create-dirs -o /tmp/kls/kls.zip "https://github.com/fwcd/kotlin-language-server/releases/latest/download/server.zip"
           unzip /tmp/kls/kls.zip -d /tmp/kls
@@ -96,8 +98,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ruby-full build-essential
-          # Install common Ruby LSP servers and bundler (as in Dockerfile)
-          sudo gem install --no-document ruby-lsp solargraph bundler
+          # Install common Ruby LSP servers and bundler into the runner user's home
+          # Use --user-install to avoid creating root-owned files that the runner can't modify
+          gem install --user-install --no-document ruby-lsp solargraph bundler
           # Add Ruby gem binaries to PATH
           echo "$HOME/.gem/ruby/$(ruby -e 'puts RUBY_VERSION[/^\d+\.\d+/]')/bin" >> $GITHUB_PATH
           echo "/usr/local/bin" >> $GITHUB_PATH
