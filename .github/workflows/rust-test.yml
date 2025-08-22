@@ -57,18 +57,19 @@ jobs:
       - name: Install OpenJDK 17 and jq
         run: |
           sudo apt-get update
-          sudo apt-get install -y openjdk-17-jdk jq
+          sudo apt-get install -y openjdk-17-jdk jq unzip curl
 
-      - name: Install Kotlin compiler
+      - name: Install Kotlin compiler via SDKMAN (reliable method)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y kotlin
+          # Install SDKMAN for Kotlin installation
+          curl -s "https://get.sdkman.io" | bash
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          sdk install kotlin
           kotlin -version
+          echo "$HOME/.sdkman/candidates/kotlin/current/bin" >> $GITHUB_PATH
 
       - name: Install kotlin-language-server (match Dockerfile)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y unzip curl
           set -eux
           sudo mkdir -p /opt/kotlin-language-server /tmp/kls
           echo "Downloading kotlin-language-server..."
@@ -107,6 +108,7 @@ jobs:
       - name: Verify LSP installations are in PATH
         run: |
           echo "Current PATH: $PATH"
+          which kotlin || echo "kotlin compiler not found in PATH"
           which kotlin-language-server || echo "kotlin-language-server not found in PATH"
           which solargraph || echo "solargraph not found in PATH"
           which ruby-lsp || echo "ruby-lsp not found in PATH"
