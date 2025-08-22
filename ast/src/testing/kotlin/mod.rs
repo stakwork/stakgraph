@@ -613,6 +613,7 @@ import com.kotlintestapp.db.PersonDatabase"#
         edges,
         edges_count
     );
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
