@@ -5,7 +5,6 @@ use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
 use streaming_iterator::StreamingIterator;
-use tracing::debug;
 use tree_sitter::QueryMatch;
 
 use super::utils::{find_def, is_capitalized, log_cmd, trim_quotes};
@@ -18,7 +17,7 @@ impl Lang {
         file: &str,
         q: &Query,
         graph: &G,
-    ) -> Result<Option<(NodeData, Vec<Edge>)>> {
+    ) -> Result<Option<(NodeData, Vec<Edge>)>> { 
         let mut cls = NodeData::in_file(file);
         let mut associations = Vec::new();
         let mut association_type = None;
@@ -697,6 +696,15 @@ impl Lang {
             }
             Ok(())
         })?;
+       
+        let lname = test.name.to_lowercase();
+        let mut kind = "unit";
+        if lname.contains("e2e") {
+            kind = "e2e";
+        } else if lname.contains("integration") {
+            kind = "integration";
+        }
+        test.meta.insert("test_kind".into(), kind.into());
         Ok(test)
     }
     pub fn format_function_call<G: Graph>(
@@ -905,27 +913,38 @@ impl Lang {
     ) -> Result<(NodeData, NodeType)> {
         trace!("format_integration_test");
         let mut nd = NodeData::in_file(file);
-        let mut e2e_test_name = None;
-    let mut tt = NodeType::UnitTest;
+        let mut raw_name = String::new();
+        let mut tt = NodeType::UnitTest;
         Self::loop_captures(q, &m, code, |body, node, o| {
-            if o == HANDLER {
-                nd.name = trim_quotes(&body).to_string();
-            }
             if o == INTEGRATION_TEST {
                 nd.body = body.clone();
                 nd.start = node.start_position().row;
                 nd.end = node.end_position().row;
-            }
-            if o == E2E_TEST_NAME {
-                e2e_test_name = Some(trim_quotes(&body).to_string());
+            } else if o == TEST_NAME || o == E2E_TEST_NAME {
+                raw_name = trim_quotes(&body).to_string();
             }
             Ok(())
         })?;
-        if let Some(e2e_test_name) = e2e_test_name {
-            nd.name = e2e_test_name;
+        nd.name = raw_name.clone();
+        let lower = raw_name.to_lowercase();
+        if lower.contains("e2e") {
             tt = NodeType::E2eTest;
-            debug!("E2E_TEST_NAME {:?}", nd.name);
+        } else if lower.contains("integration") || lower.contains(" api") || lower.contains("api ") {
+            tt = NodeType::IntegrationTest;
         }
+        if tt == NodeType::UnitTest {
+            if nd.body.contains("page.") || nd.body.contains("cy.") || nd.body.contains("browser.") {
+                tt = NodeType::E2eTest;
+            } else {
+                let fetches = nd.body.matches("fetch(").count();
+                if fetches > 1 || nd.body.contains("axios(") {
+                    tt = NodeType::IntegrationTest;
+                }
+            }
+        }
+        if tt == NodeType::E2eTest { nd.meta.insert("test_kind".into(), "e2e".into()); }
+        else if tt == NodeType::IntegrationTest { nd.meta.insert("test_kind".into(), "integration".into()); }
+        else { nd.meta.insert("test_kind".into(), "unit".into()); }
         Ok((nd, tt))
     }
     pub fn format_integration_test_call<G: Graph>(
