@@ -840,7 +840,7 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        for (calls, ext_func, class_call) in &funcs {
+    for (calls, ext_func, class_call) in &funcs {
             if let Some(cls_call) = class_call {
                 let edge = Edge::new(
                     EdgeType::Calls,
@@ -861,7 +861,19 @@ impl Neo4jGraph {
                 txn_manager.add_edge(&edge);
             }
         }
-    for edge in test_edges { txn_manager.add_edge(&edge); }
+        for edge in &test_edges {
+            if matches!(edge.source.node_type, NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest)
+                && edge.target.node_type == NodeType::Function
+            {
+                let keys = &edge.target.node_data; 
+                let mut nd = NodeData::name_file(&keys.name, &keys.file);
+                nd.start = keys.start;
+                nd.end = keys.start;
+                if nd.body.is_empty() { nd.body = "// external function".into(); }
+                txn_manager.add_node(&NodeType::Function, &nd);
+            }
+        }
+        for edge in test_edges { txn_manager.add_edge(&edge); }
         for edge in int_tests {
             txn_manager.add_edge(&edge);
         }

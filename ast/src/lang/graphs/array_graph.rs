@@ -375,7 +375,7 @@ impl Graph for ArrayGraph {
         ),
     ) {
         let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
-        for (fc, ext_func, class_call) in funcs {
+    for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
                     EdgeType::Calls,
@@ -421,7 +421,26 @@ impl Graph for ArrayGraph {
             }
         }
 
-    for edge in test_edges { self.add_edge(edge); }
+        for edge in &test_edges {
+            if matches!(edge.source.node_type, NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest)
+                && edge.target.node_type == NodeType::Function
+            {
+                let keys = &edge.target.node_data; 
+                let tname = &keys.name;
+                let tfile = &keys.file;
+                if self
+                    .find_node_by_name_in_file(NodeType::Function, tname, tfile)
+                    .is_none()
+                {
+                    let mut nd = NodeData::name_file_start(tname, tfile, keys.start);
+                    nd.end = keys.start;
+                    nd.body = "// external function".into();
+                    self.add_node(NodeType::Function, nd);
+                }
+            }
+        }
+
+        for edge in test_edges { self.add_edge(edge); }
         for edge in int_tests {
             self.add_edge(edge);
         }
