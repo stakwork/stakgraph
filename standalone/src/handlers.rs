@@ -10,6 +10,7 @@ use crate::utils::{
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
+use ast::lang::graphs::utils::should_use_incremental_upload;
 use ast::lang::{Graph, NodeType};
 use ast::repo::{clone_repo, Repo};
 use axum::extract::{Path, Query};
@@ -226,19 +227,6 @@ pub async fn ingest(
 
     repos.set_status_tx(state.tx.clone()).await;
 
-    let btree_graph = repos
-        .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
-        .await
-        .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
-                "Failed to build graphs: {}",
-                e
-            )))
-        })?;
-    info!(
-        "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
-        start_build.elapsed()
-    );
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
@@ -248,13 +236,29 @@ pub async fn ingest(
         graph_ops.clear_existing_graph(&stripped_root).await?;
     }
 
-    let start_upload = Instant::now();
+    let btree_graph = repos.build_graphs_btree().await.map_err(|e| {
+        WebError(shared::Error::Custom(format!(
+            "Failed to build graphs: {}",
+            e
+        )))
+    })?;
 
-    info!("Uploading to Neo4j...");
-    let (nodes, edges) = graph_ops
-        .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
-        .await?;
+    info!(
+        "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
+        start_build.elapsed()
+    );
+
+    if !should_use_incremental_upload() {
+        let (nodes, edges) = graph_ops
+            .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
+            .await?;
+
+        info!("Uploaded {} nodes and {} edges to Neo4j", nodes, edges);
+    }
+
     graph_ops.graph.create_indexes().await?;
+
+    let (nodes, edges) = btree_graph.get_graph_size();
 
     let _ = state.tx.send(ast::repo::StatusUpdate {
         status: "Complete".to_string(),
@@ -268,11 +272,6 @@ pub async fn ingest(
         ])),
         step_description: Some("Graph building completed".to_string()),
     });
-
-    info!(
-        "\n\n ==>> Uploading to Neo4j took {:.2?} \n\n",
-        start_upload.elapsed()
-    );
 
     info!(
         "\n\n ==>> Total ingest time: {:.2?} \n\n",

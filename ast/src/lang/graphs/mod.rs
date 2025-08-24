@@ -1,7 +1,6 @@
 pub mod array_graph;
 pub mod btreemap_graph;
 pub mod graph;
-pub mod utils;
 
 #[cfg(feature = "neo4j")]
 pub mod neo4j_graph;
@@ -11,6 +10,9 @@ pub mod neo4j_utils;
 
 #[cfg(feature = "neo4j")]
 pub mod graph_ops;
+
+#[cfg(feature = "neo4j")]
+pub mod utils;
 
 use std::str::FromStr;
 

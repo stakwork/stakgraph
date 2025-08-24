@@ -1,4 +1,71 @@
-use super::NodeType;
+use super::neo4j_utils::*;
+use super::*;
+use crate::lang::graphs::graph_ops::GraphOps;
+use neo4rs::BoltMap;
+use shared::error::Result;
+
+pub struct GraphUploader {
+    pub graph_ops: GraphOps,
+}
+
+impl GraphUploader {
+    pub async fn new() -> Result<Self> {
+        let mut graph_ops = GraphOps::new();
+        graph_ops.connect().await?;
+        Ok(Self { graph_ops })
+    }
+
+    pub async fn upload_nodes_by_type<G: Graph>(
+        &mut self,
+        graph: &G,
+        node_type: NodeType,
+    ) -> Result<()> {
+        let nodes = graph.find_nodes_by_type(node_type.clone());
+        if nodes.is_empty() {
+            return Ok(());
+        }
+
+        let queries: Vec<(String, BoltMap)> = nodes
+            .iter()
+            .map(|node| add_node_query(&node_type, node))
+            .collect();
+
+        println!("===>>Uploading {} nodes to Neo4j", nodes.len());
+
+        self.graph_ops.graph.execute_batch(queries).await
+    }
+
+    pub async fn upload_edges_between_types<G: Graph>(
+        &mut self,
+        graph: &G,
+        source_type: NodeType,
+        target_type: NodeType,
+        edge_type: EdgeType,
+    ) -> Result<()> {
+        let edges = graph.find_nodes_with_edge_type(
+            source_type.clone(),
+            target_type.clone(),
+            edge_type.clone(),
+        );
+        if edges.is_empty() {
+            return Ok(());
+        }
+
+        let queries: Vec<(String, BoltMap)> = edges
+            .iter()
+            .map(|(source, target)| {
+                let edge = Edge::new(
+                    edge_type.clone(),
+                    NodeRef::from(source.into(), source_type.clone()),
+                    NodeRef::from(target.into(), target_type.clone()),
+                );
+                add_edge_query(&edge)
+            })
+            .collect();
+
+        self.graph_ops.graph.execute_simple(queries).await
+    }
+}
 
 pub fn tests_sources(tests_filter: Option<&str>) -> Vec<NodeType> {
     let unit = tests_filter
@@ -22,4 +89,10 @@ pub fn tests_sources(tests_filter: Option<&str>) -> Vec<NodeType> {
         sources.push(NodeType::E2eTest);
     }
     sources
+}
+
+pub fn should_use_incremental_upload() -> bool {
+    std::env::var("USE_INCREMENTAL_UPLOAD")
+        .map(|val| val == "true" || val == "1")
+        .unwrap_or(false)
 }

@@ -13,8 +13,8 @@ async fn clear_neo4j() {
 #[cfg(feature = "neo4j")]
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_graph_consistency() {
-    use ast::lang::graphs::{BTreeMapGraph, EdgeType};
-    use ast::lang::Graph;
+    use ast::lang::graphs::EdgeType;
+    use ast::lang::{BTreeMapGraph, Graph};
     use ast::repo::Repo;
     use tracing::info;
 
@@ -84,10 +84,10 @@ async fn test_graph_consistency() {
             edge_type, btree_count, neo4j_count
         );
         info!(
-            "✅ EdgeType {:?}: BTreeMapGraph={} Neo4j={}",
+            "  EdgeType {:?}: BTreeMapGraph={} Neo4j={}",
             edge_type, btree_count, neo4j_count
         );
     }
 
-    info!("✅ BTreeMapGraph and Neo4j upload counts are consistent!");
+    info!("BTreeMapGraph and Neo4j upload counts are consistent!");
 }
