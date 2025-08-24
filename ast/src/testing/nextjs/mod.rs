@@ -223,7 +223,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += integration_test.len();
     assert_eq!(integration_test.len(), 4, "Expected 4 IntegrationTest nodes");
 
-    
+
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
     assert_eq!(e2e_tests.len(), 4, "Expected 4 E2eTest nodes");
@@ -231,7 +231,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;
     if use_lsp {
-        assert_eq!(import, 16, "Expected 16 Imports edges with LSP");
+        assert_eq!(import, 17, "Expected 17 Imports edges with LSP");
     } else {
         assert_eq!(import, 0, "Expected 0 Imports edge without LSP");
     }
@@ -247,7 +247,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-        assert_eq!(uses, 43, "Expected 43 Uses edges with LSP");
+        assert_eq!(uses, 46, "Expected 46 Uses edges with LSP");
     } else {
         assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
