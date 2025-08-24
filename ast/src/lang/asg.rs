@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use crate::lang::Edge;
 
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::neo4j_utils::{boltmap_insert_int, boltmap_insert_str};
@@ -196,6 +197,31 @@ pub struct Calls {
     pub source: NodeKeys,
     pub target: NodeKeys,
     pub operand: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestRecord {
+    pub node: NodeData,
+    pub kind: NodeType,          
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edge: Option<Edge>,   
+}
+
+impl TestRecord {
+    pub fn new(node: NodeData, kind: NodeType, edge: Option<Edge>) -> Self {
+        Self { node, kind, edge }
+    }
+    pub fn test_kind(&self) -> String {
+        self.node
+            .meta
+            .get("test_kind")
+            .cloned()
+            .unwrap_or_else(|| match self.kind {
+                NodeType::IntegrationTest => "integration".into(),
+                NodeType::E2eTest => "e2e".into(),
+                _ => "unit".into(),
+            })
+    }
 }
 
 impl FromStr for NodeType {

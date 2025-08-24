@@ -1,6 +1,7 @@
 use super::{neo4j_utils::*, *};
 use crate::utils::sync_fn;
 use crate::{lang::Function, lang::Node, Lang};
+use crate::lang::asg::TestRecord;
 use lsp::Language;
 use neo4rs::{query, BoltMap, Graph as Neo4jConnection};
 use shared::{Context, Error, Result};
@@ -825,22 +826,7 @@ impl Neo4jGraph {
         txn_manager.execute().await
     }
 
-    pub(super) async fn add_test_node_async(
-        &self,
-        test_data: NodeData,
-        test_type: NodeType,
-        test_edge: Option<Edge>,
-    ) -> Result<()> {
-        let connection = self.ensure_connected().await?;
-        let queries = add_test_node_query(&test_data, &test_type, &test_edge);
 
-        let mut txn_manager = TransactionManager::new(&connection);
-        for query in queries {
-            txn_manager.add_query(query);
-        }
-
-        txn_manager.execute().await
-    }
     pub(super) async fn add_calls_async(
         &self,
         calls: (
@@ -1263,12 +1249,18 @@ impl Graph for Neo4jGraph {
                 .unwrap_or_default()
         });
     }
-    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
-        sync_fn(|| async {
-            self.add_test_node_async(test_data, test_type, test_edge)
-                .await
-                .unwrap_or_default()
-        });
+    fn add_tests(&mut self, tests: Vec<TestRecord>) {
+        for tr in tests {
+            self.add_node_with_parent(
+                tr.kind.clone(),
+                tr.node.clone(),
+                NodeType::File,
+                &tr.node.file,
+            );
+            if let Some(edge) = tr.edge.clone() {
+                self.add_edge(edge);
+            }
+        }
     }
     fn add_calls(
         &mut self,

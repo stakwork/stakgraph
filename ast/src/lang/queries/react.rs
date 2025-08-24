@@ -369,6 +369,23 @@ impl Stack for ReactTs {
             ]"#
         ))
     }
+    fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+                (call_expression
+                    function: (identifier) @pwtest (#eq? @pwtest "test")
+                    arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
+                ) @{E2E_TEST}
+                (call_expression
+                    function: (member_expression
+                        object: (identifier) @pwtest2 (#eq? @pwtest2 "test")
+                        property: (property_identifier) @mod (#match? @mod "^(only|skip|fixme|fail|slow)$")
+                    )
+                    arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
+                ) @{E2E_TEST}
+            ]"#
+        ))
+    }
     fn endpoint_finders(&self) -> Vec<String> {
         vec![format!(
             r#"
@@ -766,6 +783,10 @@ impl Stack for ReactTs {
             || file_name.ends_with(".test.tsx")
             || file_name.ends_with(".test.jsx")
             || file_name.ends_with(".test.js")
+            || file_name.ends_with(".e2e.ts")
+            || file_name.ends_with(".e2e.tsx")
+            || file_name.ends_with(".e2e.jsx")
+            || file_name.ends_with(".e2e.js")
             || file_name.ends_with(".spec.ts")
             || file_name.ends_with(".spec.tsx")
             || file_name.ends_with(".spec.jsx")

@@ -729,35 +729,6 @@ pub fn add_functions_query(
     }
     queries
 }
-pub fn add_test_node_query(
-    test_data: &NodeData,
-    test_type: &NodeType,
-    test_edge: &Option<Edge>,
-) -> Vec<(String, BoltMap)> {
-    let mut queries = Vec::new();
-
-    queries.push(add_node_query(test_type, test_data));
-
-    let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "test_type", &test_type.to_string());
-    boltmap_insert_str(&mut params, "test_name", &test_data.name);
-    boltmap_insert_str(&mut params, "test_file", &test_data.file);
-    boltmap_insert_int(&mut params, "test_start", test_data.start as i64);
-
-    let query_str = format!(
-        "MATCH (test:{} {{name: $test_name, file: $test_file, start: $test_start}}),
-               (file:File {{file: $test_file}})
-         MERGE (file)-[:CONTAINS]->(test)",
-        test_type.to_string()
-    );
-
-    queries.push((query_str, params));
-
-    if let Some(edge) = test_edge {
-        queries.push(add_edge_query(edge));
-    }
-    queries
-}
 
 pub fn add_page_query(page_data: &NodeData, edge_opt: &Option<Edge>) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();

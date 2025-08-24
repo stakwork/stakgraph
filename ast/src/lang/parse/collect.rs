@@ -141,7 +141,7 @@ impl Lang {
         Ok(res)
     }
     pub fn collect_tests(&self, q: &Query, code: &str, file: &str) -> Result<Vec<Function>> {
-    let tree = self.lang.parse(&code, &NodeType::UnitTest)?;
+        let tree = self.lang.parse(&code, &NodeType::UnitTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -226,7 +226,7 @@ impl Lang {
         }
         let q = self.q(
             &self.lang.integration_test_query().unwrap(),
-            &NodeType::UnitTest,
+            &NodeType::IntegrationTest,
         );
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, caller_node, code.as_bytes());
@@ -251,9 +251,9 @@ impl Lang {
         }
         let q = self.q(
             &self.lang.integration_test_query().unwrap(),
-            &NodeType::UnitTest,
+            &NodeType::IntegrationTest,
         );
-        let tree = self.lang.parse(&code, &NodeType::UnitTest)?;
+        let tree = self.lang.parse(&code, &NodeType::IntegrationTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -270,6 +270,28 @@ impl Lang {
                 tt.clone(),
             );
             res.push((nd, tt, test_edge_opt));
+        }
+        Ok(res)
+    }
+    pub fn collect_e2e_tests(
+        &self,
+        code: &str,
+        file: &str,
+    ) -> Result<Vec<NodeData>> {
+        if self.lang.e2e_test_query().is_none() {
+            return Ok(Vec::new());
+        }
+    let q = self.q(&self.lang.e2e_test_query().unwrap(), &NodeType::E2eTest);
+    let tree = self.lang.parse(&code, &NodeType::E2eTest)?;
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+        let mut res = Vec::new();
+        while let Some(m) = matches.next() {
+            let (mut nd, tt) = self.format_integration_test(&m, code, file, &q)?;
+            if tt != NodeType::E2eTest {
+                nd.meta.insert("test_kind".into(), "e2e".into());
+            }
+            res.push(nd);
         }
         Ok(res)
     }

@@ -222,6 +222,7 @@ pub trait Stack {
     fn integration_test_query(&self) -> Option<String> {
         None
     }
+    fn e2e_test_query(&self) -> Option<String> { None }
     fn use_integration_test_finder(&self) -> bool {
         false
     }

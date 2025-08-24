@@ -347,16 +347,17 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
-        self.add_node_with_parent(
-            test_type,
-            test_data.clone(),
-            NodeType::File,
-            &test_data.file,
-        );
-
-        if let Some(edge) = test_edge {
-            self.add_edge(edge);
+    fn add_tests(&mut self, tests: Vec<TestRecord>) {
+        for tr in tests {
+            self.add_node_with_parent(
+                tr.kind.clone(),
+                tr.node.clone(),
+                NodeType::File,
+                &tr.node.file,
+            );
+            if let Some(edge) = tr.edge.clone() {
+                self.add_edge(edge);
+            }
         }
     }
     // Add calls only between function definitions not between function calls

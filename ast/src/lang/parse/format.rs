@@ -916,7 +916,7 @@ impl Lang {
         let mut raw_name = String::new();
         let mut tt = NodeType::UnitTest;
         Self::loop_captures(q, &m, code, |body, node, o| {
-            if o == INTEGRATION_TEST {
+            if o == INTEGRATION_TEST || o == E2E_TEST {
                 nd.body = body.clone();
                 nd.start = node.start_position().row;
                 nd.end = node.end_position().row;
