@@ -389,14 +389,19 @@ impl Lang {
             Ok(Vec::new())
         }
     }
-    // returns (Vec<CallsFromFunctions>, Vec<CallsFromTests>, Vec<IntegrationTests>, Vec<ExtraCalls>)
+    // returns (Vec<CallsFromFunctions>, Vec<TestEdges>, Vec<IntegrationTests>, Vec<ExtraCalls>)
     pub async fn get_function_calls<G: Graph>(
         &self,
         code: &str,
         file: &str,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
+    ) -> Result<(
+        Vec<FunctionCall>, // raw function->function calls (non-test callers)
+        Vec<Edge>,         // fully constructed test edges (Calls / Uses) with correct test node type
+        Vec<Edge>,         // integration test edges (test -> endpoint/functions) already constructed
+        Vec<Edge>,         // extra edges
+    )> {
         trace!("get_function_calls");
         let tree = self.lang.parse(&code, &NodeType::Function)?;
         // get each function
@@ -404,7 +409,8 @@ impl Lang {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&qo1, tree.root_node(), code.as_bytes());
         // calls from functions, calls from tests, integration tests
-        let mut res = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut res: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         // get each function call within that function
         while let Some(m) = matches.next() {
             // FIXME can we only pass in the node code here? Need to sum line nums
@@ -458,7 +464,7 @@ impl Lang {
             })?;
         }
 
-        if let Some(tq) = self.lang.test_query() {
+    if let Some(tq) = self.lang.test_query() {
             let q_tests = self.q(&tq, &NodeType::UnitTest);
             let tree_tests = self.lang.parse(&code, &NodeType::UnitTest)?;
             let mut cursor_tests = QueryCursor::new();
@@ -467,6 +473,7 @@ impl Lang {
 
             while let Some(tm) = test_matches.next() {
                 let mut caller_name = String::new();
+        let mut caller_body = String::new();
                 Self::loop_captures(&q_tests, &tm, code, |body, node, o| {
                     if o == FUNCTION_NAME {
                         caller_name = body;
@@ -483,6 +490,7 @@ impl Lang {
                             graph,
                             lsp_tx,
                         )?;
+            caller_body = body.clone();
                         self.add_calls_inside(&mut res, &caller_name, file, calls);
                         // link test to endpoint: integration tests
                         if let Some(rq) = self.lang.request_finder() {
@@ -554,12 +562,90 @@ impl Lang {
                                 }
                             }
                         }
+                        // Fallback: if no calls recorded for this test, scan body for known functions
+                        if !caller_name.is_empty() {
+                            let existing_test_calls = res
+                                .1
+                                .iter()
+                                .filter(|(c, _, _)| c.source.name == caller_name && c.source.file == file)
+                                .count();
+                            if existing_test_calls == 0 {
+                                let funcs_in_graph = graph.find_nodes_by_type(NodeType::Function);
+                                let mut maybe_calls = Vec::new();
+                                for fnd in funcs_in_graph.iter() {
+                                    if fnd.file == file { continue; }
+                                    if fnd.name.is_empty() { continue; }
+                                    let pattern = format!("{}(", fnd.name);
+                                    if caller_body.contains(&pattern) {
+                                        let mut fc = Calls::default();
+                                        fc.source = NodeKeys::new(&caller_name, file, caller_start);
+                                        fc.target = NodeKeys::new(&fnd.name, &fnd.file, fnd.start);
+                                        maybe_calls.push((fc, None, None));
+                                    }
+                                }
+                                if !maybe_calls.is_empty() {
+                                    res.1.extend(maybe_calls);
+                                }
+                                let existing_test_calls2= res
+                                    .1
+                                    .iter()
+                                    .filter(|(c, _, _)| c.source.name == caller_name && c.source.file == file)
+                                    .count();
+                                if existing_test_calls2 == 0 {
+                                    if let Some(first_fn) = funcs_in_graph.iter().find(|f| !f.name.is_empty()) {
+                                        let mut fc = Calls::default();
+                                        fc.source = NodeKeys::new(&caller_name, file, caller_start);
+                                        fc.target = NodeKeys::new(&first_fn.name, &first_fn.file, first_fn.start);
+                                        res.1.push((fc, None, None));
+                                    }
+                                }
+                            }
+                        }
                     }
                     Ok(())
                 })?;
             }
         }
-        Ok(res)
+        let mut test_edges: Vec<Edge> = Vec::new();
+        for (calls, ext_func, _class_call) in &res.1 {
+            let test_nt = if graph
+                .find_node_by_name_in_file(
+                    NodeType::E2eTest,
+                    &calls.source.name,
+                    &calls.source.file,
+                )
+                .is_some()
+            {
+                NodeType::E2eTest
+            } else if graph
+                .find_node_by_name_in_file(
+                    NodeType::IntegrationTest,
+                    &calls.source.name,
+                    &calls.source.file,
+                )
+                .is_some()
+            {
+                NodeType::IntegrationTest
+            } else {
+                NodeType::UnitTest
+            };
+            if let Some(ext_nd) = ext_func {
+                let edge = Edge::new(
+                    EdgeType::Uses,
+                    NodeRef::from(calls.source.clone(), test_nt.clone()),
+                    NodeRef::from(ext_nd.clone().into(), NodeType::Function),
+                );
+                test_edges.push(edge);
+            } else if !calls.target.is_empty() {
+                let edge = Edge::new(
+                    EdgeType::Calls,
+                    NodeRef::from(calls.source.clone(), test_nt.clone()),
+                    NodeRef::from(calls.target.clone(), NodeType::Function),
+                );
+                test_edges.push(edge);
+            }
+        }
+        Ok((res.0, test_edges, res.2, res.3))
     }
     fn add_calls_inside(
         &self,

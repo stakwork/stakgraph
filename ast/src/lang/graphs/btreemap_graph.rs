@@ -361,8 +361,8 @@ impl Graph for BTreeMapGraph {
         }
     }
     // Add calls only between function definitions not between function calls
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)) {
-        let (funcs, tests, int_tests, extras) = calls;
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<Edge>, Vec<Edge>, Vec<Edge>)) {
+        let (funcs, test_edges, int_tests, extras) = calls;
         let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
 
         for (fc, ext_func, class_call) in funcs {
@@ -412,40 +412,7 @@ impl Graph for BTreeMapGraph {
             }
         }
 
-        for (tc, ext_func, _) in tests {
-            if let Some(ext_nd) = ext_func {
-                let edge_key = (
-                    tc.source.name.clone(),
-                    tc.source.file.clone(),
-                    ext_nd.name.clone(),
-                    ext_nd.file.clone(),
-                );
-
-                if !unique_edges.contains(&edge_key) {
-                    unique_edges.insert(edge_key);
-
-                    let edge = Edge::uses(tc.source, &ext_nd);
-                    self.add_edge(edge);
-                    let ext_node = Node::new(NodeType::Function, ext_nd.clone());
-                    let ext_key = create_node_key(&ext_node);
-                    if !self.nodes.contains_key(&ext_key) {
-                        self.nodes.insert(ext_key, ext_node);
-                    }
-                }
-            } else {
-                let edge_key = (
-                    tc.source.name.clone(),
-                    tc.source.file.clone(),
-                    tc.target.name.clone(),
-                    tc.source.file.clone(),
-                );
-
-                if !unique_edges.contains(&edge_key) {
-                    unique_edges.insert(edge_key);
-                    self.add_edge(Edge::new_test_call(tc));
-                }
-            }
-        }
+    for edge in test_edges { self.add_edge(edge); }
 
         for edge in int_tests {
             self.add_edge(edge);

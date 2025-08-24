@@ -367,9 +367,9 @@ impl Graph for ArrayGraph {
     //Add calls between function definitions not calls
     fn add_calls(
         &mut self,
-        (funcs, tests, int_tests, extras): (
+        (funcs, test_edges, int_tests, extras): (
             Vec<FunctionCall>,
-            Vec<FunctionCall>,
+            Vec<Edge>,
             Vec<Edge>,
             Vec<Edge>,
         ),
@@ -421,40 +421,7 @@ impl Graph for ArrayGraph {
             }
         }
 
-        for (tc, ext_func, _) in tests {
-            if let Some(ext_nd) = ext_func {
-                let edge_key = (
-                    tc.source.name.clone(),
-                    tc.source.file.clone(),
-                    ext_nd.name.clone(),
-                    ext_nd.file.clone(),
-                );
-
-                if !unique_edges.contains(&edge_key) {
-                    unique_edges.insert(edge_key);
-                    self.add_edge(Edge::uses(tc.source, &ext_nd));
-
-                    if self
-                        .find_node_by_name_in_file(NodeType::Function, &ext_nd.name, &ext_nd.file)
-                        .is_none()
-                    {
-                        self.add_node(NodeType::Function, ext_nd);
-                    }
-                }
-            } else {
-                let edge_key = (
-                    tc.source.name.clone(),
-                    tc.source.file.clone(),
-                    tc.target.name.clone(),
-                    tc.source.file.clone(),
-                );
-
-                if !unique_edges.contains(&edge_key) {
-                    unique_edges.insert(edge_key);
-                    self.add_edge(Edge::new_test_call(tc));
-                }
-            }
-        }
+    for edge in test_edges { self.add_edge(edge); }
         for edge in int_tests {
             self.add_edge(edge);
         }

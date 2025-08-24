@@ -79,7 +79,7 @@ pub trait Graph: Default + Debug {
             }
         }
     }
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>));
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<Edge>, Vec<Edge>, Vec<Edge>));
     fn filter_out_nodes_without_children(
         &mut self,
         parent_type: NodeType,

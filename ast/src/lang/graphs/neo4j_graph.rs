@@ -831,12 +831,12 @@ impl Neo4jGraph {
         &self,
         calls: (
             Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
-            Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
+            Vec<Edge>,
             Vec<Edge>,
             Vec<Edge>,
         ),
     ) -> Result<()> {
-        let (funcs, tests, int_tests, extras) = calls;
+        let (funcs, test_edges, int_tests, extras) = calls;
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
@@ -861,16 +861,7 @@ impl Neo4jGraph {
                 txn_manager.add_edge(&edge);
             }
         }
-        for (test_call, ext_func, _class_call) in &tests {
-            if let Some(ext_nd) = ext_func {
-                txn_manager.add_node(&NodeType::Function, ext_nd);
-                let edge = Edge::uses(test_call.source.clone(), ext_nd);
-                txn_manager.add_edge(&edge);
-            } else {
-                let edge = Edge::new_test_call(test_call.clone());
-                txn_manager.add_edge(&edge);
-            }
-        }
+    for edge in test_edges { txn_manager.add_edge(&edge); }
         for edge in int_tests {
             txn_manager.add_edge(&edge);
         }
@@ -1266,7 +1257,7 @@ impl Graph for Neo4jGraph {
         &mut self,
         calls: (
             Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
-            Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
+            Vec<Edge>,
             Vec<Edge>,
             Vec<Edge>,
         ),
