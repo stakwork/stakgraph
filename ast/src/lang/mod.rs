@@ -346,7 +346,6 @@ impl Lang {
                 Some("e2e") => NodeType::E2eTest,
                 _ => NodeType::UnitTest,
             };
-              //TODO: Add edge relationships with other nodes
             tests.push(TestRecord::new(nd, kind, None));
         }
         if let Some(tq) = self.lang.test_query() {
@@ -359,7 +358,6 @@ impl Lang {
                     Some("e2e") => NodeType::E2eTest,
                     _ => NodeType::UnitTest,
                 };
-                //TODO: Add edge relationships with other nodes
                 tests.push(TestRecord::new(nd, kind, None));
             }
         }
