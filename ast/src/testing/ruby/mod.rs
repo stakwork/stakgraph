@@ -234,7 +234,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let import_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges;
     if use_lsp {
-    assert_eq!(import_edges, 0, "Expected 0 import edges with lsp");
+    assert_eq!(import_edges, 14, "Expected 14 import edges with lsp");
     } else {
         assert_eq!(import_edges, 4, "Expected 4 import edges");
     }
@@ -618,7 +618,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         nodes_count
     );
 
-    let expected_edges = if use_lsp { 152 } else { 140 };
+    let expected_edges = if use_lsp { 166 } else { 140 };
 
     assert_eq!(
         edges as usize,

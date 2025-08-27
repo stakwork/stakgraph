@@ -177,7 +177,17 @@ impl Stack for Ruby {
         Ok(parent_of)
     }
     fn identifier_query(&self) -> String {
-        format!("name: [(constant) (scope_resolution)] @identifier")
+        format!(r#"[
+            (constant) @identifier
+            (identifier) @identifier
+            (scope_resolution
+                scope: (_)
+                name: (_)
+            ) @identifier
+            (call
+                method: (identifier) @identifier
+            )
+        ]"#)
     }
     fn data_model_name(&self, dm_name: &str) -> String {
         inflection::pluralize(dm_name).to_lowercase()
