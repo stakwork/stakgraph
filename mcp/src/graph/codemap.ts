@@ -1,5 +1,10 @@
 import { Record } from "neo4j-driver";
-import { deser_node, deser_multi, getNodeLabel } from "./utils.js";
+import {
+  deser_node,
+  deser_multi,
+  getNodeLabel,
+  getNodeSummaryLabel,
+} from "./utils.js";
 import { TikTokenizer } from "@microsoft/tiktokenizer";
 import { BoltInt, EdgeType, Neo4jNode } from "./types.js";
 
@@ -26,7 +31,8 @@ interface Relationship {
 export async function buildTree(
   record: Record,
   direction: string = "down",
-  tokenizer: TikTokenizer
+  tokenizer: TikTokenizer,
+  summary: boolean = false
 ): Promise<Tree> {
   if (!record) {
     throw new Error("failed to get record");
@@ -95,11 +101,19 @@ export async function buildTree(
 
   // Create TreeNodes for all Neo4j nodes
   for (const [id, node] of nodeMap.entries()) {
-    let label = getNodeLabel(node);
-    if (node.properties?.body) {
-      const tokens = tokenizer.encode(node.properties.body, []);
-      total_tokens += tokens.length;
-      label = `${label} (${tokens.length})`;
+    let label = "";
+    if (summary) {
+      // more in-depth node-specific summary
+      label = getNodeSummaryLabel(node);
+    } else {
+      label = getNodeLabel(node);
+      if (node.properties?.token_count) {
+        label = `${label} (${node.properties.token_count})`;
+      } else if (node.properties?.body) {
+        const tokens = tokenizer.encode(node.properties.body, []);
+        total_tokens += tokens.length;
+        label = `${label} (${tokens.length})`;
+      }
     }
     treeNodeMap.set(id, {
       label,

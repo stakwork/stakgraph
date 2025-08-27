@@ -19,6 +19,7 @@ import fs from "fs/promises";
 import * as G from "./graph.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
+import { get_context } from "../tools/explore/tool.js";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -55,6 +56,16 @@ export function authMiddleware(
     return;
   }
   next();
+}
+
+export async function explore(req: Request, res: Response) {
+  const prompt = req.query.prompt as string;
+  if (!prompt) {
+    res.status(400).json({ error: "Missing prompt" });
+    return;
+  }
+  const result = await get_context(prompt);
+  res.json({ result });
 }
 
 export async function get_nodes(req: Request, res: Response) {
@@ -273,10 +284,14 @@ export async function get_repo_map(req: Request, res: Response) {
     const name = req.query.name as string;
     const ref_id = req.query.ref_id as string;
     const node_type = req.query.node_type as NodeType;
+    const include_functions_and_classes =
+      req.query.include_functions_and_classes === "true" ||
+      req.query.include_functions_and_classes === "1";
     const html = await G.get_repo_map(
       name || "",
       ref_id || "",
-      node_type || "Repository"
+      node_type || "Repository",
+      include_functions_and_classes
     );
     res.send(`<pre>\n${html}\n</pre>`);
   } catch (error) {

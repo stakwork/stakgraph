@@ -36,6 +36,55 @@ impl Stack for ReactTs {
                 )"#
         ))
     }
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        // 1. Path based (strongest signal)
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        if f.contains("/__e2e__/")
+            || f.contains("/e2e/")
+            || f.contains(".e2e.")
+            || fname.starts_with("e2e.")
+            || fname.starts_with("e2e_")
+            || fname.starts_with("e2e-")
+            || fname.contains("e2e.test")
+            || fname.contains("e2e.spec")
+        {
+            return NodeType::E2eTest;
+        }
+        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") {
+            return NodeType::IntegrationTest;
+        }
+        if f.contains("/unit/") || f.contains(".unit.") {
+            return NodeType::UnitTest;
+        }
+
+        let lower_name = name.to_lowercase();
+        // 2. Explicit tokens in test name
+        if lower_name.contains("e2e") {
+            return NodeType::E2eTest;
+        }
+        if lower_name.contains("integration") {
+            return NodeType::IntegrationTest;
+        }
+
+        // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
+        let body_l = body.to_lowercase();
+    let has_playwright_import = body_l.contains("@playwright/test");
+    let has_browser_actions = body_l.contains("page.goto(") || body_l.contains("page.click(") || body_l.contains("page.evaluate(");
+    let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
+    let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
+    if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
+            return NodeType::E2eTest;
+        }
+
+        // Treat heavy network usage as integration. Avoid upgrading just for a variable 'page.'
+        let network_markers = ["fetch(", "axios.", "axios(", "supertest(", "request(", "/api/"];
+        if network_markers.iter().any(|m| body_l.contains(m)) {
+            return NodeType::IntegrationTest;
+        }
+
+        NodeType::UnitTest
+    }
     fn is_lib_file(&self, file_name: &str) -> bool {
         file_name.contains("node_modules/")
     }
@@ -321,30 +370,35 @@ impl Stack for ReactTs {
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
-                    (call_expression
-                        function: (identifier) @it (#match? @it "^(it|test)$")
-                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                    )
-                    (call_expression
-                        function: (member_expression
+                (call_expression
+                    function: (identifier) @it (#match? @it "^(it|test)$")
+                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                )
+                (call_expression
+                    function: (member_expression
                         object: (identifier) @it (#match? @it "^(it|test)$")
                         property: (property_identifier)?
-                        )
-                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                     )
-                    (call_expression
-                        function: (member_expression
-                            object: (member_expression
-                                object: (identifier) @cypress (#eq? @cypress "Cypress")
-                                property: (property_identifier) @commands (#eq? @commands "Commands")
-                            )
-                            property: (property_identifier) @add (#eq? @add "add")
+                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                )
+                (call_expression
+                    function: (member_expression
+                        object: (member_expression
+                            object: (identifier) @it2 (#match? @it2 "^(it|test)$")
+                            property: (property_identifier) @each (#eq? @each "each")
                         )
-                        arguments: (arguments
-                            (string) @{FUNCTION_NAME}
-                        )
+                        property: (property_identifier)?
                     )
-                ] @{FUNCTION_DEFINITION}"#
+                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                )
+                (call_expression
+                    function: (member_expression
+                        object: (identifier) @it3 (#match? @it3 "^(it|test)$")
+                        property: (property_identifier) @mod (#match? @mod "^(only|skip|todo|concurrent)$")
+                    )
+                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                )
+            ] @{FUNCTION_DEFINITION}"#
         ))
     }
     fn integration_test_query(&self) -> Option<String> {
@@ -352,21 +406,32 @@ impl Stack for ReactTs {
             r#"[
                 (call_expression
                     function: (identifier) @describe (#eq? @describe "describe")
-                    arguments: (arguments
-                        [ (string) (template_string) ] @{E2E_TEST_NAME} (#match? @{E2E_TEST_NAME} "(?i)e2e")
-                        (_)
-                    )
+                    arguments: (arguments [ (string) (template_string) ] @{TEST_NAME} (_))
                 ) @{INTEGRATION_TEST}
                 (call_expression
                     function: (member_expression
-                        object: (identifier) @test (#eq? @test "test")
-                        property: (property_identifier) @desc (#eq? @desc "describe")
+                        object: (identifier) @describe2 (#eq? @describe2 "describe")
+                        property: (property_identifier) @mod (#match? @mod "^(only|skip|each)$")
                     )
-                    arguments: (arguments
-                        [ (string) (template_string) ] @{E2E_TEST_NAME} (#match? @{E2E_TEST_NAME} "(?i)e2e")
-                        (_)
-                    )
+                    arguments: (arguments [ (string) (template_string) ] @{TEST_NAME} (_))
                 ) @{INTEGRATION_TEST}
+            ]"#
+        ))
+    }
+    fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+                (call_expression
+                    function: (identifier) @pwtest (#eq? @pwtest "test")
+                    arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
+                ) @{E2E_TEST}
+                (call_expression
+                    function: (member_expression
+                        object: (identifier) @pwtest2 (#eq? @pwtest2 "test")
+                        property: (property_identifier) @mod (#match? @mod "^(only|skip|fixme|fail|slow)$")
+                    )
+                    arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
+                ) @{E2E_TEST}
             ]"#
         ))
     }
@@ -767,7 +832,14 @@ impl Stack for ReactTs {
             || file_name.ends_with(".test.tsx")
             || file_name.ends_with(".test.jsx")
             || file_name.ends_with(".test.js")
-            || file_name.ends_with(".test.ts")
+            || file_name.ends_with(".e2e.ts")
+            || file_name.ends_with(".e2e.tsx")
+            || file_name.ends_with(".e2e.jsx")
+            || file_name.ends_with(".e2e.js")
+            || file_name.ends_with(".spec.ts")
+            || file_name.ends_with(".spec.tsx")
+            || file_name.ends_with(".spec.jsx")
+            || file_name.ends_with(".spec.js")
     }
 
     fn is_test(&self, _func_name: &str, func_file: &str) -> bool {

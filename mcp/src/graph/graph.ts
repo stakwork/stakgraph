@@ -83,7 +83,9 @@ export async function search(
     );
     return toNodes(result, concise, output);
   } else {
-    const skip_node_types = tests ? [] : ["Test", "E2etest"];
+    const skip_node_types = tests
+      ? []
+      : ["UnitTest", "IntegrationTest", "E2etest"];
     const result = await db.search(
       query,
       limit,
@@ -208,7 +210,8 @@ export async function get_subtree(p: MapParams) {
 export async function get_repo_map(
   name: string,
   ref_id: string,
-  node_type: NodeType = "Repository"
+  node_type: NodeType = "Repository",
+  include_functions_and_classes: boolean = false
 ): Promise<string> {
   let names = [name];
   if (name === "" && ref_id === "" && node_type === "Repository") {
@@ -217,7 +220,12 @@ export async function get_repo_map(
   }
   let finalText = "";
   for (const name of names) {
-    const r = await db.get_repo_subtree(name, ref_id, node_type);
+    const r = await db.get_repo_subtree(
+      name,
+      ref_id,
+      node_type,
+      include_functions_and_classes
+    );
     const record = r.records[0];
     const tokenizer = await createByModelName("gpt-4");
     const tree = await buildTree(record, "down", tokenizer);
@@ -227,6 +235,25 @@ export async function get_repo_map(
     finalText += "\n\n";
   }
   return finalText;
+}
+
+export async function get_file_map(file_end: string): Promise<string> {
+  const f = await db.get_file_ends_with(file_end);
+  const tokenizer = await createByModelName("gpt-4");
+  const record = await get_subtree({
+    node_type: "File",
+    name: "",
+    ref_id: f.ref_id as string,
+    depth: 1,
+    tests: false,
+    direction: "down",
+    trim: [],
+  });
+
+  const tree = await buildTree(record, "down", tokenizer, true);
+  alphabetizeNodeLabels(tree.root);
+  const text = archy(tree.root);
+  return text;
 }
 
 export async function get_map(params: MapParams): Promise<string> {

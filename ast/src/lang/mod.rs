@@ -327,21 +327,51 @@ impl Lang {
         let name = name_node.node.utf8_text(code.as_bytes())?;
         Ok(Some(name.to_string()))
     }
-    // returns (Vec<Function>, Vec<Test>)
+    // returns (Vec<Function>, Vec<TestRecord>)
     pub fn get_functions_and_tests<G: Graph>(
         &self,
         code: &str,
         file: &str,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
-    ) -> Result<(Vec<Function>, Vec<Function>)> {
+    ) -> Result<(Vec<Function>, Vec<TestRecord>)> {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx)?;
-        let (funcs, mut tests) = self.lang.filter_tests(funcs1);
+        let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
+        let mut tests: Vec<TestRecord> = Vec::new();
+        for t in filtered_tests.iter() {
+            let nd = t.0.clone();
+            let kind = match nd.meta.get("test_kind").map(|s| s.as_str()) {
+                Some("integration") => NodeType::IntegrationTest,
+                Some("e2e") => NodeType::E2eTest,
+                _ => NodeType::UnitTest,
+            };
+              //TODO: Add edge relationships with other nodes
+            tests.push(TestRecord::new(nd, kind, None));
+        }
         if let Some(tq) = self.lang.test_query() {
-            let qo2 = self.q(&tq, &NodeType::Test);
+            let qo2 = self.q(&tq, &NodeType::UnitTest);
             let more_tests = self.collect_tests(&qo2, code, file)?;
-            tests.extend(more_tests);
+            for mt in more_tests {
+                let nd = mt.0.clone();
+                let kind = match nd.meta.get("test_kind").map(|s| s.as_str()) {
+                    Some("integration") => NodeType::IntegrationTest,
+                    Some("e2e") => NodeType::E2eTest,
+                    _ => NodeType::UnitTest,
+                };
+                //TODO: Add edge relationships with other nodes
+                tests.push(TestRecord::new(nd, kind, None));
+            }
+        }
+        if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {
+            for (nd, tt, edge) in int_tests {
+                tests.push(TestRecord::new(nd, tt, edge));
+            }
+        }
+        if let Ok(e2e_tests) = self.collect_e2e_tests(code, file) {
+            for nd in e2e_tests {
+                tests.push(TestRecord::new(nd, NodeType::E2eTest, None));
+            }
         }
         Ok((funcs, tests))
     }
@@ -429,8 +459,8 @@ impl Lang {
         }
 
         if let Some(tq) = self.lang.test_query() {
-            let q_tests = self.q(&tq, &NodeType::Test);
-            let tree_tests = self.lang.parse(&code, &NodeType::Test)?;
+            let q_tests = self.q(&tq, &NodeType::UnitTest);
+            let tree_tests = self.lang.parse(&code, &NodeType::UnitTest)?;
             let mut cursor_tests = QueryCursor::new();
             let mut test_matches =
                 cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
@@ -515,7 +545,7 @@ impl Lang {
                                                 NodeKeys::new(&caller_name, file, caller_start);
                                             let edge = Edge::new(
                                                 EdgeType::Calls,
-                                                NodeRef::from(source, NodeType::Test),
+                                                NodeRef::from(source, NodeType::UnitTest),
                                                 NodeRef::from(ep.into(), NodeType::Endpoint),
                                             );
                                             res.2.push(edge);

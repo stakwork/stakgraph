@@ -6,6 +6,7 @@ import { GetRulesFilesTool } from "./get_rules_files.js";
 import { RepoMapTool } from "./repo_map.js";
 import { ShortestPathTool } from "./shortest_path.js";
 import { SearchTool } from "./search.js";
+import { ExploreTool } from "./explore.js";
 
 export * from "./search.js";
 export * from "./get_nodes.js";
@@ -15,6 +16,7 @@ export * from "./get_code.js";
 export * from "./get_rules_files.js";
 export * from "./repo_map.js";
 export * from "./shortest_path.js";
+export * from "./explore.js";
 
 export const ALL_TOOLS = [
   SearchTool,
@@ -25,4 +27,5 @@ export const ALL_TOOLS = [
   GetCodeTool,
   ShortestPathTool,
   GetRulesFilesTool,
+  ExploreTool,
 ];

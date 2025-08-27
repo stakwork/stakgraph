@@ -22,6 +22,10 @@ RUN yarn
 # Copy the rest of your application code
 COPY ./tsconfig.json ./tsconfig.json
 COPY ./src ./src
+
+# Install dependencies in src/aieo
+RUN cd src/aieo && yarn
+
 RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html
 COPY ./textarea ./textarea

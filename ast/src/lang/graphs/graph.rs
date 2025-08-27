@@ -1,5 +1,6 @@
 use crate::lang::{Edge, Lang, Node, NodeType};
 use crate::lang::{Function, FunctionCall};
+use crate::lang::asg::TestRecord;
 use lsp::Language;
 use shared::Result;
 use std::collections::HashSet;
@@ -65,7 +66,17 @@ pub trait Graph: Default + Debug {
     fn add_page(&mut self, page: (NodeData, Option<Edge>));
     fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>);
     fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>);
-    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>);
+    fn add_tests(&mut self, tests: Vec<TestRecord>) {
+        for tr in tests {
+            self.add_node_with_parent(
+                tr.kind.clone(),
+                tr.node.clone(),
+                NodeType::File,
+                &tr.node.file,
+            );
+            for e in tr.edges.clone() { self.add_edge(e); }
+        }
+    }
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>));
     fn filter_out_nodes_without_children(
         &mut self,

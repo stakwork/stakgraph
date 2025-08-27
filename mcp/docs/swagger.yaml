@@ -18,7 +18,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, Test, E2etest]
+            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, UnitTest, IntegrationTest, E2etest]
         - name: concise
           in: query
           description: Only include name and file in returned data
@@ -88,7 +88,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, Test, E2etest]
+            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, UnitTest, IntegrationTest, E2etest]
         - name: method
           in: query
           description: Search method to use
@@ -132,7 +132,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, Test, E2etest]
+            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, UnitTest, IntegrationTest, E2etest]
         - name: name
           in: query
           description: Name of the starting node
@@ -220,7 +220,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, Test, E2etest]
+            enum: [Page, Function, Class, Trait, Datamodel, Request, Endpoint, UnitTest, IntegrationTest, E2etest]
         - name: name
           in: query
           description: Name of the node

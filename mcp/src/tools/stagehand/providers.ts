@@ -1,13 +1,13 @@
-export type ProviderName = "anthropic" | "openai";
+export type Provider = "anthropic" | "openai";
 
-export interface Provider {
-  name: ProviderName;
+export interface ProviderData {
+  name: Provider;
   model: string;
   computer_use_model: string;
   api_key_env_var_name: string;
 }
 
-export const PROVIDER_MODELS: Record<ProviderName, Provider> = {
+export const PROVIDER_MODELS: Record<Provider, ProviderData> = {
   anthropic: {
     name: "anthropic",
     model: "claude-3-7-sonnet-latest",
@@ -22,7 +22,7 @@ export const PROVIDER_MODELS: Record<ProviderName, Provider> = {
   },
 };
 
-export function getProvider(arg?: "anthropic" | "openai"): Provider {
+export function getProvider(arg?: "anthropic" | "openai"): ProviderData {
   let provider = PROVIDER_MODELS["anthropic"];
   if (arg === "openai" || process.env.LLM_PROVIDER === "openai") {
     provider = PROVIDER_MODELS["openai"];

@@ -41,7 +41,9 @@ pub const REQUEST_CALL: &str = "call";
 pub const ENDPOINT_GROUP: &str = "endpoint-group";
 
 pub const INTEGRATION_TEST: &str = "integration-test";
+pub const E2E_TEST: &str = "e2e-test";
 pub const E2E_TEST_NAME: &str = "e2e-test-name";
+pub const TEST_NAME: &str = "test-name";
 
 pub const STRUCT: &str = "struct";
 pub const STRUCT_NAME: &str = "struct-name";

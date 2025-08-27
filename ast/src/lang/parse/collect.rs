@@ -141,7 +141,7 @@ impl Lang {
         Ok(res)
     }
     pub fn collect_tests(&self, q: &Query, code: &str, file: &str) -> Result<Vec<Function>> {
-        let tree = self.lang.parse(&code, &NodeType::Test)?;
+        let tree = self.lang.parse(&code, &NodeType::UnitTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -226,7 +226,7 @@ impl Lang {
         }
         let q = self.q(
             &self.lang.integration_test_query().unwrap(),
-            &NodeType::Test,
+            &NodeType::IntegrationTest,
         );
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, caller_node, code.as_bytes());
@@ -249,11 +249,16 @@ impl Lang {
         if self.lang.integration_test_query().is_none() {
             return Ok(Vec::new());
         }
+        let f = file.replace('\\', "/");
+        if !(f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") || f.contains("integration")) {
+            // Skip describe promotion unless path OR filename signals integration intent
+            return Ok(Vec::new());
+        }
         let q = self.q(
             &self.lang.integration_test_query().unwrap(),
-            &NodeType::Test,
+            &NodeType::IntegrationTest,
         );
-        let tree = self.lang.parse(&code, &NodeType::Test)?;
+        let tree = self.lang.parse(&code, &NodeType::IntegrationTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -270,6 +275,38 @@ impl Lang {
                 tt.clone(),
             );
             res.push((nd, tt, test_edge_opt));
+        }
+        Ok(res)
+    }
+    pub fn collect_e2e_tests(
+        &self,
+        code: &str,
+        file: &str,
+    ) -> Result<Vec<NodeData>> {
+        if self.lang.e2e_test_query().is_none() {
+            return Ok(Vec::new());
+        }
+        let f = file.replace('\\', "/");
+        let lower_code = code.to_lowercase();
+        let playwright = lower_code.contains("@playwright/test");
+        let has_cypress = lower_code.contains("cy.");
+        let has_puppeteer = lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        let filename_e2e = fname.starts_with("e2e.") || fname.starts_with("e2e_") || fname.starts_with("e2e-") || fname.contains("e2e.test") || fname.contains("e2e.spec");
+        if !(f.contains("/__e2e__/") || f.contains("/e2e/") || f.contains(".e2e.") || playwright || has_cypress || has_puppeteer || filename_e2e) {
+            return Ok(Vec::new());
+        }
+        let q = self.q(&self.lang.e2e_test_query().unwrap(), &NodeType::E2eTest);
+    let tree = self.lang.parse(&code, &NodeType::E2eTest)?;
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+        let mut res = Vec::new();
+        while let Some(m) = matches.next() {
+            let (mut nd, tt) = self.format_integration_test(&m, code, file, &q)?;
+            if tt != NodeType::E2eTest {
+                nd.meta.insert("test_kind".into(), "e2e".into());
+            }
+            res.push(nd);
         }
         Ok(res)
     }

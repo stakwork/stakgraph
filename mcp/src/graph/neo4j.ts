@@ -106,7 +106,7 @@ class Db {
   ) {
     const disclude: NodeType[] = ["File", "Directory", "Repository"];
     if (include_tests === false) {
-      disclude.push("Test", "E2etest");
+      disclude.push("UnitTest", "IntegrationTest", "E2etest");
     }
     const label_filter = this.skip_string(disclude);
     const session = this.driver.session();
@@ -135,24 +135,43 @@ class Db {
     }
   }
 
+  async get_file_ends_with(file_end: string): Promise<Neo4jNode> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.FILE_ENDS_WITH_QUERY, {
+        file_name: file_end,
+      });
+      return r.records.map((record) => deser_node(record, "f"))[0];
+    } finally {
+      await session.close();
+    }
+  }
+
   async get_repo_subtree(
     name: string,
     ref_id: string,
-    node_type: NodeType = "Repository"
+    node_type: NodeType = "Repository",
+    include_functions_and_classes: boolean = false
   ) {
-    const disclude: NodeType[] = all_node_types().filter(
+    // include if functions and classes should be included
+    let disclude: NodeType[] = all_node_types().filter(
       (type: NodeType) =>
         type !== "File" && type !== "Directory" && type !== "Repository"
     );
+    if (include_functions_and_classes) {
+      console.log("including functions and classes");
+      disclude = disclude.filter(
+        (type) => type !== "Function" && type !== "Class"
+      );
+    }
     const session = this.driver.session();
     console.log("get_repo_subtree", name, ref_id, this.skip_string(disclude));
     try {
-      return await session.run(Q.SUBGRAPH_QUERY, {
+      return await session.run(Q.REPO_SUBGRAPH_QUERY, {
         node_label: node_type,
         node_name: name,
         ref_id: ref_id || "",
         depth: 10,
-        direction: "down",
         label_filter: this.skip_string(disclude),
         trim: [],
       });

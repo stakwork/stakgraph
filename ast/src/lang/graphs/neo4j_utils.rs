@@ -729,35 +729,6 @@ pub fn add_functions_query(
     }
     queries
 }
-pub fn add_test_node_query(
-    test_data: &NodeData,
-    test_type: &NodeType,
-    test_edge: &Option<Edge>,
-) -> Vec<(String, BoltMap)> {
-    let mut queries = Vec::new();
-
-    queries.push(add_node_query(test_type, test_data));
-
-    let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "test_type", &test_type.to_string());
-    boltmap_insert_str(&mut params, "test_name", &test_data.name);
-    boltmap_insert_str(&mut params, "test_file", &test_data.file);
-    boltmap_insert_int(&mut params, "test_start", test_data.start as i64);
-
-    let query_str = format!(
-        "MATCH (test:{} {{name: $test_name, file: $test_file, start: $test_start}}),
-               (file:File {{file: $test_file}})
-         MERGE (file)-[:CONTAINS]->(test)",
-        test_type.to_string()
-    );
-
-    queries.push((query_str, params));
-
-    if let Some(edge) = test_edge {
-        queries.push(add_edge_query(edge));
-    }
-    queries
-}
 
 pub fn add_page_query(page_data: &NodeData, edge_opt: &Option<Edge>) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
@@ -803,6 +774,7 @@ pub fn add_calls_query(
     funcs: &[(Calls, Option<NodeData>, Option<NodeData>)],
     tests: &[(Calls, Option<NodeData>, Option<NodeData>)],
     int_tests: &[Edge],
+    extras: &[Edge],
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
@@ -835,14 +807,13 @@ pub fn add_calls_query(
             let edge = Edge::uses(test_call.source.clone(), ext_nd);
             queries.push(add_edge_query(&edge));
         } else {
-            let edge = Edge::new_test_call(test_call.clone());
+            let edge = Edge::from_test_call(test_call);
             queries.push(add_edge_query(&edge));
         }
     }
 
-    for edge in int_tests {
-        queries.push(add_edge_query(edge));
-    }
+    for edge in int_tests { queries.push(add_edge_query(edge)); }
+    for edge in extras { queries.push(add_edge_query(edge)); }
 
     queries
 }
@@ -1066,29 +1037,13 @@ pub fn has_edge_query(source: &Node, target: &Node, edge_type: &EdgeType) -> (St
 }
 
 pub fn clear_graph_query() -> String {
-    "MATCH (n)
-     WHERE any(label IN labels(n) WHERE label IN [
-       'Function', 'Test', 'Datamodel', 'File', 'Endpoint',
-       'Var', 'Request', 'Library', 'Directory', 'Page',
-       'Class', 'Trait', 'Repository', 'Import', 'Instance',
-       'E2etest', 'Language', 'Feature'
-     ])
-     DETACH DELETE n"
-        .to_string()
+    "MATCH (n:Data_Bank) DETACH DELETE n".to_string()
 }
 
 pub fn clear_existing_graph_query(root: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "root", root);
-
-    let query = "MATCH (n)
-                 WHERE any(label IN labels(n) WHERE label IN [
-                   'Function', 'Test', 'Datamodel', 'File', 'Endpoint',
-                   'Var', 'Request', 'Library', 'Directory', 'Page',
-                   'Class', 'Trait', 'Repository', 'Import', 'Instance',
-                   'E2etest', 'Language', 'Feature'
-                 ]) AND n.file STARTS WITH $root
-                 DETACH DELETE n";
+    let query = "MATCH (n:Data_Bank) WHERE n.file STARTS WITH $root DETACH DELETE n";
     (query.to_string(), params)
 }
 

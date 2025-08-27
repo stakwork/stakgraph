@@ -347,16 +347,15 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    fn add_test_node(&mut self, test_data: NodeData, test_type: NodeType, test_edge: Option<Edge>) {
-        self.add_node_with_parent(
-            test_type,
-            test_data.clone(),
-            NodeType::File,
-            &test_data.file,
-        );
-
-        if let Some(edge) = test_edge {
-            self.add_edge(edge);
+    fn add_tests(&mut self, tests: Vec<TestRecord>) {
+        for tr in tests {
+            self.add_node_with_parent(
+                tr.kind.clone(),
+                tr.node.clone(),
+                NodeType::File,
+                &tr.node.file,
+            );
+            for e in tr.edges.iter() { self.add_edge(e.clone()); }
         }
     }
     // Add calls only between function definitions not between function calls
@@ -441,7 +440,7 @@ impl Graph for BTreeMapGraph {
 
                 if !unique_edges.contains(&edge_key) {
                     unique_edges.insert(edge_key);
-                    self.add_edge(Edge::new_test_call(tc));
+                    self.add_edge(Edge::from_test_call(&tc));
                 }
             }
         }

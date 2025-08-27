@@ -19,12 +19,12 @@ export function isTrue(value: string): boolean {
 
 export const IS_TEST = isTrue(process.env.TEST_REF_ID as string);
 
-export function rightLabel(node: Neo4jNode): string {
+export function rightLabel(node: Neo4jNode): NodeType {
   let label = node.labels[0];
   if (label === Data_Bank) {
     label = node.labels[1] || "";
   }
-  return label;
+  return label as NodeType;
 }
 
 export function toReturnNode(node: Neo4jNode): ReturnNode {
@@ -34,7 +34,7 @@ export function toReturnNode(node: Neo4jNode): ReturnNode {
   delete properties.text_embeddings;
   delete properties.embeddings;
   return {
-    node_type: rightLabel(node) as NodeType,
+    node_type: rightLabel(node),
     ref_id,
     properties,
   };
@@ -53,6 +53,40 @@ export function getNodeLabel(node: any) {
     throw new Error("Node has no labels");
   }
   let label = rightLabel(node);
+  const props = node.properties;
+  let name = props.name;
+  if (props.verb) {
+    return `${label}: ${props.verb} ${name}`;
+  } else {
+    return `${label}: ${name}`;
+  }
+}
+
+export function getNodeSummaryLabel(node: Neo4jNode) {
+  if (!node.labels) {
+    console.log("Node has no labels:", node);
+    throw new Error("Node has no labels");
+  }
+  let label = rightLabel(node);
+
+  // entire body
+  if (label === "Import" || label === "Datamodel" || label === "Request") {
+    return `${label}: \n${node.properties.body}`;
+  }
+  // first 5 lines of body
+  if (label === "Function" || label == "Var" || label === "Endpoint") {
+    const lines =
+      node.properties.start != node.properties.end
+        ? `lines ${node.properties.start} - ${node.properties.end}`
+        : `line ${node.properties.start}`;
+    let lab = `${label}: ${node.properties.name} (${lines})`;
+    const bod = node.properties.body?.split("\n").slice(0, 10).join("\n");
+    if (bod) {
+      lab += `\n${bod}`;
+    }
+    return lab;
+  }
+
   const props = node.properties;
   let name = props.name;
   if (props.verb) {
@@ -122,6 +156,9 @@ export function clean_node(n: Neo4jNode): Neo4jNode {
   }
   if (n.properties.token_count) {
     n.properties.token_count = toNum(n.properties.token_count);
+  }
+  if (n.properties.ref_id) {
+    n.ref_id = n.properties.ref_id;
   }
   return n;
 }

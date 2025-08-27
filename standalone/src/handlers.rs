@@ -1,5 +1,5 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, CoverageParams, CoverageStat, CoverageTotals, EmbedCodeParams,
+    AsyncRequestStatus, AsyncStatus, CoverageParams, CoverageStat, Coverage, EmbedCodeParams,
     FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, ProcessBody, ProcessResponse, Result,
     UncoveredParams, UncoveredResponse, VectorSearchParams, VectorSearchResult, WebError,
     WebhookPayload,
@@ -650,36 +650,20 @@ fn resolve_repo(
 #[axum::debug_handler]
 pub async fn coverage_handler(
     Query(params): Query<CoverageParams>,
-) -> Result<Json<CoverageTotals>> {
-    let node_type = params.node_type.unwrap_or_else(|| "both".to_string());
-    let include_functions = node_type == "both" || node_type.eq_ignore_ascii_case("function");
-    let include_endpoints = node_type == "both" || node_type.eq_ignore_ascii_case("endpoint");
-
+) -> Result<Json<Coverage>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
     let totals = graph_ops
         .get_coverage(
-            include_functions,
-            include_endpoints,
             params.root.as_deref(),
-            params.tests.as_deref(),
         )
         .await?;
 
-    let map_stat =
-        |s: Option<ast::lang::graphs::graph_ops::GraphCoverageStat>| -> Option<CoverageStat> {
-            s.map(|v| CoverageStat {
-                total: v.total,
-                covered: v.covered,
-                percent: v.percent,
-            })
-        };
-
-    Ok(Json(CoverageTotals {
-        functions: map_stat(totals.functions),
-        endpoints: map_stat(totals.endpoints),
-        e2e_tests: map_stat(totals.e2e_tests),
+    Ok(Json(Coverage {
+    unit_tests: totals.unit_tests.map(|s| CoverageStat { total: s.total, covered: s.covered, percent: s.percent }),
+    integration_tests: totals.integration_tests.map(|s| CoverageStat { total: s.total, covered: s.covered, percent: s.percent }),
+    e2e_tests: totals.e2e_tests.map(|s| CoverageStat { total: s.total, covered: s.covered, percent: s.percent }),
     }))
 }
 

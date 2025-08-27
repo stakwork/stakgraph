@@ -41,7 +41,8 @@ export type NodeType =
   | "Trait"
   | "Library"
   | "Function"
-  | "Test"
+  | "UnitTest"
+  | "IntegrationTest"
   | "E2etest"
   | "Endpoint"
   | "Request"
@@ -92,7 +93,8 @@ export function relevant_node_types(): NodeType[] {
     "Datamodel",
     "Request",
     "Endpoint",
-    "Test",
+    "UnitTest",
+    "IntegrationTest",
     "E2etest",
     "Var",
     "Message",
@@ -112,7 +114,8 @@ export function all_node_types(): NodeType[] {
     "Trait",
     "Library",
     "Function",
-    "Test",
+    "UnitTest",
+    "IntegrationTest",
     "E2etest",
     "Endpoint",
     "Request",
@@ -156,7 +159,10 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "A reusable collection of code or modules providing functionality that can be imported and used in other projects.",
     Function:
       "A function or method definition in source code, representing executable logic within a program, including backend logic and frontend components.",
-    Test: "A test case in source code, representing a specific scenario or condition that can be executed to verify the correctness of the code.",
+    UnitTest:
+      "A unit-level test verifying a single function, component, or module in isolation.",
+    IntegrationTest:
+      "A test exercising multiple components or an API boundary (e.g. HTTP) without full end-to-end tooling.",
     E2etest:
       "A end-to-end test in source code, representing a complete scenario of user interactions or system operations.",
     Endpoint:
@@ -171,6 +177,12 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Person: "A person working on the project.",
     Video: "A recorded video conversation between stakeholders.",
   };
+}
+
+export function normalizeNodeType(label: string): NodeType | undefined {
+  if (label === "Test") return "UnitTest";
+  if (label === "E2eTest") return "E2etest";
+  return all_node_types().find((t) => t === label) as NodeType | undefined;
 }
 
 export function toNum(bi: BoltInt): number {

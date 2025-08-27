@@ -88,6 +88,10 @@ jobs:
         working-directory: ./mcp
         run: yarn install
 
+      - name: Install dependencies in src/aieo
+        working-directory: ./mcp
+        run: cd src/aieo && yarn
+
       - name: Start Node Server
         working-directory: ./mcp
         run: |

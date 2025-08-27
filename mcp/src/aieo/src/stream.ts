@@ -4,7 +4,7 @@ import {
   getModel,
   getProviderOptions,
   ThinkingSpeed,
-} from "./provider";
+} from "./provider.js";
 
 interface CallModelOptions {
   provider: Provider;

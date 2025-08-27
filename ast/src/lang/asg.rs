@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::collections::BTreeMap;
 use std::str::FromStr;
+use crate::lang::Edge;
 
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::neo4j_utils::{boltmap_insert_int, boltmap_insert_str};
@@ -180,6 +181,12 @@ impl NodeData {
         self.meta
             .insert("implements".to_string(), trait_name.to_string());
     }
+    pub fn add_component(&mut self) {
+        self.meta.insert("component".to_string(), "true".to_string());
+    }
+    pub fn add_test_kind(&mut self, test_kind: &str) {
+        self.meta.insert("test_kind".to_string(), test_kind.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -195,6 +202,32 @@ pub struct Calls {
     pub operand: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TestRecord {
+    pub node: NodeData,
+    pub kind: NodeType,
+    pub edges: Vec<Edge>,
+}
+
+impl TestRecord {
+    pub fn new(node: NodeData, kind: NodeType, edge: Option<Edge>) -> Self {
+        let mut edges = Vec::new();
+        if let Some(e) = edge { edges.push(e); }
+        Self { node, kind, edges }
+    }
+    pub fn test_kind(&self) -> String {
+        self.node
+            .meta
+            .get("test_kind")
+            .cloned()
+            .unwrap_or_else(|| match self.kind {
+                NodeType::IntegrationTest => "integration".into(),
+                NodeType::E2eTest => "e2e".into(),
+                _ => "unit".into(),
+            })
+    }
+}
+
 impl FromStr for NodeType {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
@@ -203,7 +236,8 @@ impl FromStr for NodeType {
             "Trait" => Ok(NodeType::Trait),
             "Instance" => Ok(NodeType::Instance),
             "Function" => Ok(NodeType::Function),
-            "Test" => Ok(NodeType::Test),
+            "UnitTest" => Ok(NodeType::UnitTest),
+            "IntegrationTest" => Ok(NodeType::IntegrationTest),
             "E2etest" => Ok(NodeType::E2eTest),
             "File" => Ok(NodeType::File),
             "Repository" => Ok(NodeType::Repository),
@@ -230,7 +264,8 @@ impl ToString for NodeType {
             NodeType::Import => "Import".to_string(),
             NodeType::Instance => "Instance".to_string(),
             NodeType::Function => "Function".to_string(),
-            NodeType::Test => "Test".to_string(),
+            NodeType::UnitTest => "UnitTest".to_string(),
+            NodeType::IntegrationTest => "IntegrationTest".to_string(),
             NodeType::E2eTest => "E2etest".to_string(),
             NodeType::Endpoint => "Endpoint".to_string(),
             NodeType::Request => "Request".to_string(),

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import * as dotenv from "dotenv";
-import { generateObject } from "ai";
+import { generateObject, LanguageModel } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
@@ -118,11 +118,12 @@ export class SimpleEvaluator {
   }
 
   createModel(provider: "anthropic" | "openai") {
-    if (provider === "anthropic") {
-      return anthropic("claude-3-5-sonnet-20241022");
-    } else {
-      return openai("gpt-4o");
-    }
+    // if (provider === "anthropic") {
+    //   return anthropic("claude-3-5-sonnet-20241022");
+    // } else {
+    //   return openai("gpt-5");
+    // }
+    return anthropic("claude-3-5-sonnet-20241022");
   }
 
   async initStagehand() {

@@ -137,6 +137,12 @@ export const REPOSITORIES_QUERY = `
 MATCH (r:Repository) RETURN r
 `;
 
+export const FILE_ENDS_WITH_QUERY = `
+MATCH (f:File)
+WHERE f.file ENDS WITH $file_name
+RETURN f
+`;
+
 export const PAGES_QUERY = `
 MATCH (page:Page)
 RETURN DISTINCT page
@@ -311,6 +317,65 @@ RETURN startNode,
        relationships,
        COLLECT(DISTINCT import) AS imports,
        COLLECT(DISTINCT file) AS files
+`;
+
+export const REPO_SUBGRAPH_QUERY = `
+WITH $node_label AS nodeLabel,
+     $node_name as nodeName,
+     $ref_id as refId,
+     $label_filter as labelFilter,
+     $depth as depth,
+     $trim as trim
+
+// Find the start node using either ref_id or name+label
+OPTIONAL MATCH (fByName {name: nodeName})
+WHERE any(label IN labels(fByName) WHERE label = nodeLabel)
+
+OPTIONAL MATCH (fByRefId {ref_id: refId})
+WHERE refId <> ''
+
+// ref_id takes precedence over name+label
+WITH CASE
+       WHEN fByRefId IS NOT NULL THEN fByRefId
+       ELSE fByName
+     END AS f,
+     labelFilter, depth, trim
+WHERE f IS NOT NULL
+
+// Get downward paths using CONTAINS relationship only
+CALL apoc.path.expandConfig(f, {
+    relationshipFilter: "CONTAINS>",
+    uniqueness: "NODE_PATH",
+    minLevel: 1,
+    maxLevel: depth,
+    labelFilter: labelFilter
+})
+YIELD path
+
+// Filter out paths containing trimmed nodes
+WITH f AS startNode, path, trim
+WHERE NONE(n IN nodes(path) WHERE n.name IN trim)
+
+WITH startNode, COLLECT(DISTINCT path) AS filteredPaths
+
+// Extract all nodes from paths
+UNWIND filteredPaths AS path
+UNWIND nodes(path) AS node
+WITH startNode, filteredPaths, COLLECT(DISTINCT node) AS allNodes
+
+// Extract all relationships from paths
+UNWIND filteredPaths AS path
+UNWIND relationships(path) AS rel
+WITH startNode, allNodes, COLLECT(DISTINCT {
+    source: id(startNode(rel)),
+    target: id(endNode(rel)),
+    type: type(rel),
+    properties: properties(rel)
+}) AS relationships
+
+RETURN startNode,
+       allNodes,
+       relationships
 `;
 
 export const SHORTEST_PATH_QUERY = `

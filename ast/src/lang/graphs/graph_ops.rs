@@ -24,17 +24,17 @@ pub struct GraphOps {
 }
 
 #[derive(Debug, Clone)]
-pub struct GraphCoverageStat {
+pub struct CoverageStat {
     pub total: usize,
     pub covered: usize,
     pub percent: f64,
 }
 
 #[derive(Debug, Clone)]
-pub struct GraphCoverageTotals {
-    pub functions: Option<GraphCoverageStat>,
-    pub endpoints: Option<GraphCoverageStat>,
-    pub e2e_tests: Option<GraphCoverageStat>,
+pub struct GraphCoverage {
+    pub unit_tests: Option<CoverageStat>,
+    pub integration_tests: Option<CoverageStat>,
+    pub e2e_tests: Option<CoverageStat>,
 }
 
 impl GraphOps {
@@ -221,6 +221,76 @@ impl GraphOps {
             .update_repository_hash(repo_url, current_hash)
             .await?;
         Ok(self.graph.get_graph_size_async().await?)
+    }
+
+    pub async fn get_coverage(
+        &mut self,
+        root: Option<&str>,
+    ) -> Result<GraphCoverage> {
+        self.graph.ensure_connected().await?;
+        let in_scope = |n: &NodeData| root.map_or(true, |r| n.file.starts_with(r));
+        let unit = self.graph.find_nodes_by_type_async(NodeType::UnitTest).await;
+        let integration = self.graph.find_nodes_by_type_async(NodeType::IntegrationTest).await;
+        let e2e = self.graph.find_nodes_by_type_async(NodeType::E2eTest).await;
+
+        // UnitTest covered if Calls -> Function.
+        // IntegrationTest covered if Calls -> Function OR Endpoint.
+        // E2eTest covered if Calls -> Function OR Endpoint OR Page.
+        let unit_calls_funcs = self
+            .graph
+            .find_nodes_with_edge_type_async(NodeType::UnitTest, NodeType::Function, EdgeType::Calls)
+            .await;
+        let integration_calls_funcs = self
+            .graph
+            .find_nodes_with_edge_type_async(NodeType::IntegrationTest, NodeType::Function, EdgeType::Calls)
+            .await;
+        let integration_calls_endpoints = self
+            .graph
+            .find_nodes_with_edge_type_async(NodeType::IntegrationTest, NodeType::Endpoint, EdgeType::Calls)
+            .await;
+        let e2e_calls_funcs = self
+            .graph
+            .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Function, EdgeType::Calls)
+            .await;
+        let e2e_calls_endpoints = self
+            .graph
+            .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Endpoint, EdgeType::Calls)
+            .await;
+        let e2e_calls_pages = self
+            .graph
+            .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Page, EdgeType::Calls)
+            .await;
+
+        let collect_covered = |calls: &Vec<(NodeData, NodeData)>| -> HashSet<String> {
+            calls.iter().map(|(src,_ )| format!("{}:{}:{}", src.name, src.file, src.start)).collect()
+        };
+        let unit_covered = collect_covered(&unit_calls_funcs);
+        let integration_covered = {
+            let mut set = collect_covered(&integration_calls_funcs);
+            for k in collect_covered(&integration_calls_endpoints) { set.insert(k); }
+            set
+        };
+        let e2e_covered = {
+            let mut set = collect_covered(&e2e_calls_funcs);
+            for k in collect_covered(&e2e_calls_endpoints) { set.insert(k); }
+            for k in collect_covered(&e2e_calls_pages) { set.insert(k); }
+            set
+        };
+
+        let build = |tests: Vec<NodeData>, covered: &HashSet<String>| -> Option<CoverageStat> {
+            let filtered: Vec<NodeData> = tests.into_iter().filter(|n| in_scope(n)).collect();
+            let total = filtered.len();
+            if total == 0 { return None; }
+            let covered_count = filtered.iter().filter(|n| covered.contains(&format!("{}:{}:{}", n.name, n.file, n.start))).count();
+            let percent = if total == 0 { 0.0 } else { (covered_count as f64 / total as f64) * 100.0 };
+            Some(CoverageStat { total, covered: covered_count, percent: (percent * 100.0).round() / 100.0 })
+        };
+
+        Ok(GraphCoverage {
+            unit_tests: build(unit, &unit_covered),
+            integration_tests: build(integration, &integration_covered),
+            e2e_tests: build(e2e, &e2e_covered),
+        })
     }
 
     pub async fn upload_btreemap_to_neo4j(
@@ -429,126 +499,6 @@ impl GraphOps {
         Ok(count)
     }
 
-    pub async fn get_coverage(
-        &mut self,
-        include_functions: bool,
-        include_endpoints: bool,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-    ) -> Result<GraphCoverageTotals> {
-        self.graph.ensure_connected().await?;
-
-        let in_scope = |n: &NodeData| root.map_or(true, |r| n.file.starts_with(r));
-        let mut covered_function_keys = HashSet::new();
-
-        if include_functions || include_endpoints {
-            let sources = tests_sources(tests_filter);
-
-            for source_nt in sources {
-                let pairs = self
-                    .graph
-                    .find_nodes_with_edge_type_async(
-                        source_nt.clone(),
-                        NodeType::Function,
-                        EdgeType::Calls,
-                    )
-                    .await;
-                for (_, target) in pairs.into_iter() {
-                    if in_scope(&target) {
-                        covered_function_keys
-                            .insert(create_node_key(&Node::new(NodeType::Function, target)));
-                    }
-                }
-            }
-        }
-
-        let mut functions_stat = None;
-        if include_functions {
-            let functions = self
-                .graph
-                .find_nodes_by_type_async(NodeType::Function)
-                .await;
-            let functions_total = functions.iter().filter(|f| in_scope(f)).count();
-            let functions_covered = covered_function_keys.len();
-            let percent = if functions_total == 0 {
-                0.0
-            } else {
-                let p = (functions_covered as f64 / functions_total as f64) * 100.0;
-                let pow = 100.0;
-                (p * pow).round() / pow
-            };
-            functions_stat = Some(GraphCoverageStat {
-                total: functions_total,
-                covered: functions_covered,
-                percent,
-            });
-        }
-
-        let mut endpoints_stat = None;
-        if include_endpoints {
-            let endpoints = self
-                .graph
-                .find_nodes_by_type_async(NodeType::Endpoint)
-                .await;
-            let total_endpoints = endpoints.iter().filter(|e| in_scope(e)).count();
-            let mut covered_endpoints = 0usize;
-            if total_endpoints > 0 {
-                for endpoint in &endpoints {
-                    if !in_scope(endpoint) {
-                        continue;
-                    }
-                    let handlers = self.graph.find_handlers_for_endpoint_async(endpoint).await;
-                    let mut covered = false;
-                    for h in handlers {
-                        if in_scope(&h)
-                            && covered_function_keys
-                                .contains(&create_node_key(&Node::new(NodeType::Function, h)))
-                        {
-                            covered = true;
-                            break;
-                        }
-                    }
-                    if covered {
-                        covered_endpoints += 1;
-                    }
-                }
-            }
-            let percent = if total_endpoints == 0 {
-                0.0
-            } else {
-                let p = (covered_endpoints as f64 / total_endpoints as f64) * 100.0;
-                let pow = 100.0;
-                (p * pow).round() / pow
-            };
-            endpoints_stat = Some(GraphCoverageStat {
-                total: total_endpoints,
-                covered: covered_endpoints,
-                percent,
-            });
-        }
-
-        // Count e2e tests
-        let e2e_tests = self
-            .graph
-            .find_nodes_by_type_async(NodeType::E2eTest)
-            .await;
-        let e2e_test_total = e2e_tests.iter().filter(|e| in_scope(e)).count();
-        let e2e_tests_stat = if e2e_test_total > 0 {
-            Some(GraphCoverageStat {
-                total: e2e_test_total,
-                covered: 0, // TODO: implement e2e test coverage tracking
-                percent: 0.0,
-            })
-        } else {
-            None
-        };
-
-        Ok(GraphCoverageTotals {
-            functions: functions_stat,
-            endpoints: endpoints_stat,
-            e2e_tests: e2e_tests_stat,
-        })
-    }
 
     pub async fn list_uncovered(
         &mut self,

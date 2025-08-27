@@ -179,6 +179,7 @@ pub trait Stack {
     fn is_test_file(&self, _filename: &str) -> bool {
         false
     }
+    fn classify_test(&self, _name: &str, _file: &str, _body: &str) -> NodeType { NodeType::UnitTest }
     fn add_endpoint_verb(&self, _nd: &mut NodeData, _call: &Option<String>) {}
     fn update_endpoint(&self, _nd: &mut NodeData, _call: &Option<String>) {}
     // this one should be the same for all langs?
@@ -222,6 +223,7 @@ pub trait Stack {
     fn integration_test_query(&self) -> Option<String> {
         None
     }
+    fn e2e_test_query(&self) -> Option<String> { None }
     fn use_integration_test_finder(&self) -> bool {
         false
     }

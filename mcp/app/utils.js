@@ -14,7 +14,8 @@ export const NODE_TYPE_COLORS = {
   Trait: "#3B6EB5", // Darker light blue
   Library: "#A83333", // Darker pink
   Function: "#C67000", // Darker light orange
-  Test: "#B7940A", // Darker yellow
+  UnitTest: "#B7940A", // Darker yellow
+  IntegrationTest: "#D1A70D", // Yellow Brown
   E2etest: "#7C4A85", // Darker lavender
   Endpoint: "#385D8A", // Darker blue gray
   Request: "#6B4A7A", // Darker medium purple

@@ -1,9 +1,9 @@
 use super::utils::*;
-use crate::lang::graphs::Graph;
+use crate::lang::{graphs::Graph, linker::link_tests};
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 
-use crate::lang::{asg::NodeData, graphs::NodeType};
+use crate::lang::{asg::{NodeData, TestRecord}, graphs::NodeType};
 use crate::lang::{ArrayGraph, BTreeMapGraph};
 use crate::repo::Repo;
 use git_url_parse::GitUrl;
@@ -554,21 +554,13 @@ impl Repo {
             if !self.lang.kind.is_source_file(&filename) {
                 continue;
             }
-            let (funcs, tests) =
-                self.lang
-                    .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
+            let (funcs, tests) = self
+                .lang
+                .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
             graph.add_functions(funcs.clone());
             test_count += tests.len();
-
-            for test in tests {
-                graph.add_node_with_parent(
-                    NodeType::Test,
-                    test.0.clone(),
-                    NodeType::File,
-                    &test.0.file,
-                );
-            }
+            graph.add_tests(tests);
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -807,9 +799,11 @@ impl Repo {
                 let int_tests = self.lang.collect_integration_tests(code, filename, graph)?;
                 integration_test_count += int_tests.len();
                 _i += int_tests.len();
-                for (nd, tt, edge_opt) in int_tests {
-                    graph.add_test_node(nd, tt, edge_opt);
-                }
+                let test_records: Vec<TestRecord> = int_tests
+                    .into_iter()
+                    .map(|(nd, tt, edge_opt)| TestRecord::new(nd, tt, edge_opt))
+                    .collect();
+                graph.add_tests(test_records);
             }
         }
         stats.insert("integration_tests".to_string(), integration_test_count);
@@ -843,6 +837,8 @@ impl Repo {
             stats.insert("function_calls".to_string(), function_call_count);
             info!("=> got {} function calls", _i);
         }
+
+        link_tests(graph)?;
 
         self.lang
             .lang()

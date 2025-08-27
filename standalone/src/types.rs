@@ -94,9 +94,7 @@ pub struct VectorSearchParams {
 
 #[derive(Deserialize)]
 pub struct CoverageParams {
-    pub node_type: Option<String>,
     pub root: Option<String>,
-    pub tests: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -106,10 +104,14 @@ pub struct CoverageStat {
     pub percent: f64,
 }
 
+/// Coverage report per test category.
+/// unit_tests: unit test nodes that call at least one function.
+/// integration_tests: integration test nodes that call any function/resource.
+/// e2e_tests: e2e/system tests that exercise endpoints/pages/requests.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CoverageTotals {
-    pub functions: Option<CoverageStat>,
-    pub endpoints: Option<CoverageStat>,
+pub struct Coverage {
+    pub unit_tests: Option<CoverageStat>,
+    pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
 }
 

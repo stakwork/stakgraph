@@ -5,6 +5,54 @@ use regex::Regex;
 use shared::{Context, Error, Result};
 use std::path::PathBuf;
 use tracing::info;
+
+
+pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
+    let tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    if tests.is_empty() { return Ok(()); }
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    if endpoints.is_empty() { return Ok(()); }
+    let mut added = 0;
+    for t in &tests {
+        let body_lc = t.body.to_lowercase();
+        for ep in &endpoints {
+            if body_lc.contains(&ep.name.to_lowercase()) {
+                let edge = Edge::test_calls(NodeType::IntegrationTest, t, NodeType::Endpoint, ep);
+                graph.add_edge(edge);
+                added += 1;
+            }
+        }
+    }
+    info!("linked {} integration test edges", added);
+    Ok(())
+}
+
+pub fn link_e2e_tests_pages<G: Graph>(graph: &mut G) -> Result<()> {
+    let tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    if tests.is_empty() { return Ok(()); }
+    let pages = graph.find_nodes_by_type(NodeType::Page);
+    if pages.is_empty() { return Ok(()); }
+    let mut added = 0;
+    for t in &tests {
+        let body_lc = t.body.to_lowercase();
+        for p in &pages {
+            if body_lc.contains(&p.name.to_lowercase()) {
+                let edge = Edge::test_calls(NodeType::E2eTest, t, NodeType::Page, p);
+                graph.add_edge(edge);
+                added += 1;
+            }
+        }
+    }
+    info!("linked {} e2e test->page edges", added);
+    Ok(())
+}
+
+pub fn link_tests<G: Graph>(graph: &mut G) -> Result<()> {
+    link_integration_tests(graph)?;
+    link_e2e_tests_pages(graph)?;
+    link_e2e_tests(graph)?;
+    Ok(())
+}
 pub fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let mut e2e_tests = Vec::new();
     let mut frontend_functions = Vec::new();

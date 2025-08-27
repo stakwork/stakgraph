@@ -4,7 +4,7 @@
   "description": "MCP Server with Stackgraph tool",
   "type": "module",
   "scripts": {
-    "dev": "node --loader ts-node/esm src/index.ts",
+    "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node build/index.js",
     "test": "playwright test",
@@ -19,14 +19,14 @@
     "cursor-tools": "./build/index.js"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^1.2.12",
+    "@ai-sdk/anthropic": "^2.0.6",
     "@anthropic-ai/sdk": "^0.37.0",
     "@browserbasehq/stagehand": "^2.4.3",
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.11.4",
     "@octokit/rest": "^21.1.1",
     "@playwright/test": "^1.53.0",
-    "ai": "^4.3.16",
+    "ai": "^5.0.22",
     "archy": "^1.0.0",
     "axios": "^1.9.0",
     "cors": "^2.8.5",

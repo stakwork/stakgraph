@@ -76,6 +76,10 @@ server
       case stakgraph.GetRulesFilesTool.name: {
         return await stakgraph.getRulesFiles();
       }
+      case stakgraph.ExploreTool.name: {
+        const fa = stakgraph.ExploreSchema.parse(args);
+        return await stakgraph.explore(fa);
+      }
       default:
         if (name.startsWith("stagehand_")) {
           return await stagehand.call(name, args || {}, extra.sessionId);

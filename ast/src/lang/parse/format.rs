@@ -5,7 +5,6 @@ use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
 use streaming_iterator::StreamingIterator;
-use tracing::debug;
 use tree_sitter::QueryMatch;
 
 use super::utils::{find_def, is_capitalized, log_cmd, trim_quotes};
@@ -18,7 +17,7 @@ impl Lang {
         file: &str,
         q: &Query,
         graph: &G,
-    ) -> Result<Option<(NodeData, Vec<Edge>)>> {
+    ) -> Result<Option<(NodeData, Vec<Edge>)>> { 
         let mut cls = NodeData::in_file(file);
         let mut associations = Vec::new();
         let mut association_type = None;
@@ -640,6 +639,17 @@ impl Lang {
             return Ok(None);
         }
 
+        if matches!(self.kind, Language::React) {
+            let titled_name = !func.name.is_empty() && func.name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+            let body = func.body.as_str();
+            let has_jsx = body.contains("<>") || body.contains("</") || body.contains("/>") || body.contains("<Fragment") || body.contains("<fragment");
+            //styled components
+            let is_styled = body.contains("styled.");
+            if (titled_name && has_jsx) || is_styled {
+                func.add_component();
+            }
+        }
+
         let mut return_types = Vec::new();
         for t in return_type_data_models {
             return_types.push(Edge::contains(
@@ -686,6 +696,12 @@ impl Lang {
             }
             Ok(())
         })?;
+        let tt = self.lang.classify_test(&test.name, file, &test.body);
+        match tt {
+            NodeType::E2eTest => test.add_test_kind("e2e"),
+            NodeType::IntegrationTest => test.add_test_kind("integration"),
+            _ => test.add_test_kind("unit"),
+        }
         Ok(test)
     }
     pub fn format_function_call<G: Graph>(
@@ -894,28 +910,23 @@ impl Lang {
     ) -> Result<(NodeData, NodeType)> {
         trace!("format_integration_test");
         let mut nd = NodeData::in_file(file);
-        let mut e2e_test_name = None;
-        let mut tt = NodeType::Test;
+        let mut raw_name = String::new();
         Self::loop_captures(q, &m, code, |body, node, o| {
-            if o == HANDLER {
-                nd.name = trim_quotes(&body).to_string();
-            }
-            if o == INTEGRATION_TEST {
+            if o == INTEGRATION_TEST || o == E2E_TEST {
                 nd.body = body.clone();
                 nd.start = node.start_position().row;
                 nd.end = node.end_position().row;
-            }
-            if o == E2E_TEST_NAME {
-                e2e_test_name = Some(trim_quotes(&body).to_string());
+            } else if o == TEST_NAME || o == E2E_TEST_NAME {
+                raw_name = trim_quotes(&body).to_string();
             }
             Ok(())
         })?;
-        if let Some(e2e_test_name) = e2e_test_name {
-            nd.name = e2e_test_name;
-            tt = NodeType::E2eTest;
-            debug!("E2E_TEST_NAME {:?}", nd.name);
-        }
-        Ok((nd, tt))
+    nd.name = raw_name.clone();
+    let tt = self.lang.classify_test(&nd.name, file, &nd.body);
+    if tt == NodeType::E2eTest { nd.add_test_kind("e2e"); }
+    else if tt == NodeType::IntegrationTest { nd.add_test_kind("integration"); }
+    else { nd.add_test_kind("unit"); }
+    Ok((nd, tt))
     }
     pub fn format_integration_test_call<G: Graph>(
         &self,
@@ -994,7 +1005,7 @@ impl Lang {
         let source = NodeKeys::new(&caller_name, file, 0);
         let edge = Edge::new(
             EdgeType::Calls,
-            NodeRef::from(source, NodeType::Test),
+            NodeRef::from(source, NodeType::IntegrationTest),
             NodeRef::from(endpoint, NodeType::Endpoint),
         );
         Ok(Some(edge))

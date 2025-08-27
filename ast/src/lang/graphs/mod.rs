@@ -36,7 +36,8 @@ pub enum NodeType {
     Trait,
     Instance,
     Function,
-    Test,
+    UnitTest,
+    IntegrationTest,
     #[serde(rename = "E2etest")]
     E2eTest,
     Endpoint,
@@ -109,17 +110,37 @@ impl Edge {
             target,
         }
     }
-    fn new_test_call(m: Calls) -> Edge {
-        Edge::new(
-            EdgeType::Calls,
-            NodeRef::from(m.source, NodeType::Test),
-            NodeRef::from(m.target, NodeType::Function),
-        )
-    }
+        pub fn from_test_call(call: &Calls) -> Edge {
+            let lname = call.source.name.to_lowercase();
+            let tt = if lname.contains("e2e") { NodeType::E2eTest } else if lname.contains("integration") { NodeType::IntegrationTest } else { NodeType::UnitTest };
+            let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
+            src_nd.start = call.source.start;
+            let mut tgt_nd = NodeData::name_file(&call.target.name, &call.target.file);
+            tgt_nd.start = call.target.start;
+            Edge::test_calls(tt, &src_nd, NodeType::Function, &tgt_nd)
+        }
     pub fn linked_e2e_test_call(source: &NodeData, target: &NodeData) -> Edge {
         Edge::new(
             EdgeType::Calls,
             NodeRef::from(source.into(), NodeType::E2eTest),
+            NodeRef::from(target.into(), NodeType::Function),
+        )
+    }
+     pub fn test_calls(test_type: NodeType, source: &NodeData, target_type: NodeType, target: &NodeData) -> Edge {
+        let tt = match test_type {
+            NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => test_type,
+            _ => NodeType::UnitTest,
+        };
+        Edge::new(
+            EdgeType::Calls,
+            NodeRef::from(source.into(), tt),
+            NodeRef::from(target.into(), target_type),
+        )
+    }
+    pub fn linked_integration_test_call(source: &NodeData, target: &NodeData) -> Edge {
+        Edge::new(
+            EdgeType::Calls,
+            NodeRef::from(source.into(), NodeType::IntegrationTest),
             NodeRef::from(target.into(), NodeType::Function),
         )
     }
