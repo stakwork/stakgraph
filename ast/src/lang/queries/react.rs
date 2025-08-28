@@ -77,9 +77,14 @@ impl Stack for ReactTs {
             return NodeType::E2eTest;
         }
 
-        // Treat heavy network usage as integration. Avoid upgrading just for a variable 'page.'
-        let network_markers = ["fetch(", "axios.", "axios(", "supertest(", "request(", "/api/"];
-        if network_markers.iter().any(|m| body_l.contains(m)) {
+       const NETWORK_MARKERS: [&str; 11] = [
+            "fetch(", "axios.", "axios(", "supertest(", "request(", "new request(",
+            "/api/", "http://", "https://", "globalthis.fetch", "cy.request("
+        ];
+        if NETWORK_MARKERS.iter().any(|m| body_l.contains(m)) {
+            return NodeType::IntegrationTest;
+        }
+       if NETWORK_MARKERS.iter().any(|m| body_l.contains(m)) {
             return NodeType::IntegrationTest;
         }
 

@@ -225,10 +225,10 @@ impl GraphOps {
 
     pub async fn get_coverage(
         &mut self,
-        root: Option<&str>,
+        repo: Option<&str>,
     ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
-        let in_scope = |n: &NodeData| root.map_or(true, |r| n.file.starts_with(r));
+        let in_scope = |n: &NodeData| repo.map_or(true, |r| n.file.starts_with(r));
         let unit = self.graph.find_nodes_by_type_async(NodeType::UnitTest).await;
         let integration = self.graph.find_nodes_by_type_async(NodeType::IntegrationTest).await;
         let e2e = self.graph.find_nodes_by_type_async(NodeType::E2eTest).await;

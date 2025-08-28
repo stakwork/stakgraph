@@ -205,15 +205,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    #[cfg(feature = "neo4j")]
-    {
-        //TODO: Resolve why this happens
-        assert!(calls == 89 || calls == 84, "Expected 89 (in-memory) or 84 (neo4j) Calls edges, found {calls}");
-    }
-    #[cfg(not(feature = "neo4j"))]
-    {
-        assert_eq!(calls, 89, "Expected 89 Calls edges");
-    }
+    assert_eq!(calls, 84, "Expected 84 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
@@ -225,11 +217,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    assert_eq!(tests.len(), 7, "Expected 7 UnitTest nodes");
+    assert_eq!(tests.len(), 6, "Expected 6 UnitTest nodes");
 
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes += integration_test.len();
-    assert_eq!(integration_test.len(), 12, "Expected 12 IntegrationTest nodes");
+    assert_eq!(integration_test.len(), 13, "Expected 13 IntegrationTest nodes");
 
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);

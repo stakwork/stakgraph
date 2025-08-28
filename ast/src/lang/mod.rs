@@ -545,7 +545,7 @@ impl Lang {
                                                 NodeKeys::new(&caller_name, file, caller_start);
                                             let edge = Edge::new(
                                                 EdgeType::Calls,
-                                                NodeRef::from(source, NodeType::UnitTest),
+                                                NodeRef::from(source, NodeType::IntegrationTest),
                                                 NodeRef::from(ep.into(), NodeType::Endpoint),
                                             );
                                             res.2.push(edge);

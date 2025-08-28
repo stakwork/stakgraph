@@ -656,7 +656,7 @@ pub async fn coverage_handler(
 
     let totals = graph_ops
         .get_coverage(
-            params.root.as_deref(),
+            params.repo.as_deref(),
         )
         .await?;
 
