@@ -51,5 +51,10 @@ pub async fn run(body: CodecovBody) -> Result<Report> {
     }
     Ok(report)
 }
-fn providers() -> Vec<Box<dyn TestCoverage>> { vec![Box::new(coverage::typescript::TypeScriptCoverage)] }
+fn providers() -> Vec<Box<dyn TestCoverage>> { 
+    vec![
+        Box::new(coverage::typescript::TypeScriptCoverage),
+        Box::new(coverage::python::PythonCoverage),
+    ] 
+}
 

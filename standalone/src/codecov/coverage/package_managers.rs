@@ -63,7 +63,19 @@ impl PackageManager {
             PackageManager::Npm => ("npm", vec!["install".to_string()]),
             PackageManager::Yarn => ("yarn", vec!["install".to_string()]),
             PackageManager::Pnpm => ("pnpm", vec!["install".to_string()]),
-            PackageManager::Pip => ("pip", vec!["install".to_string(), "-r".to_string(), "requirements.txt".to_string()]),
+            PackageManager::Pip => {
+                let pip_cmd = if std::process::Command::new("pip3")
+                    .arg("--version")
+                    .output()
+                    .map(|out| out.status.success())
+                    .unwrap_or(false)
+                {
+                    "pip3"
+                } else {
+                    "pip"
+                };
+                (pip_cmd, vec!["install".to_string()])
+            },
             PackageManager::Cargo => ("cargo", vec!["build".to_string()]),
             PackageManager::Maven => ("mvn", vec!["install".to_string()]),
             PackageManager::Gradle => ("gradle", vec!["build".to_string()]),
@@ -75,7 +87,19 @@ impl PackageManager {
             PackageManager::Npm => ("npm", vec!["run".to_string(), script_name.to_string()]),
             PackageManager::Yarn => ("yarn", vec!["run".to_string(), script_name.to_string()]),
             PackageManager::Pnpm => ("pnpm", vec!["run".to_string(), script_name.to_string()]),
-            PackageManager::Pip => ("python", vec!["-m".to_string(), script_name.to_string()]),
+            PackageManager::Pip => {
+                let python_cmd = if std::process::Command::new("python3")
+                    .arg("--version")
+                    .output()
+                    .map(|out| out.status.success())
+                    .unwrap_or(false)
+                {
+                    "python3"
+                } else {
+                    "python"
+                };
+                (python_cmd, vec!["-m".to_string(), script_name.to_string()])
+            },
             PackageManager::Cargo => ("cargo", vec![script_name.to_string()]),
             PackageManager::Maven => ("mvn", vec![script_name.to_string()]),
             PackageManager::Gradle => ("gradle", vec![script_name.to_string()]),

@@ -10,3 +10,11 @@ async fn codecov_hive_repo() {
     let res = run(body).await;
     assert!(res.is_ok(), "coverage run failed: {:?}", res.err());
 }
+
+#[tokio::test]
+#[ignore]
+async fn codecov_openhtf_repo() {
+    let body = CodecovBody { repo_url: "https://github.com/google/openhtf".into(), username: None, pat: None, commit: None };
+    let res = run(body).await;
+    assert!(res.is_ok(), "Python coverage run failed: {:?}", res.err());
+}

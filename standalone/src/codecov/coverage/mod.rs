@@ -3,6 +3,7 @@ use shared::Result;
 use std::path::{Path, PathBuf};
 
 pub mod typescript;
+pub mod python;
 pub mod package_managers;
 pub mod test_runners;
 pub mod coverage_tools;
