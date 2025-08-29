@@ -4,6 +4,7 @@ mod handlers;
 mod types;
 mod utils;
 mod webhook;
+mod codecov;
 
 use ast::repo::StatusUpdate;
 use axum::extract::Request;
@@ -86,7 +87,8 @@ async fn main() -> Result<()> {
         .route("/search", post(handlers::vector_search_handler))
         .route("/tests/coverage", get(handlers::coverage_handler))
         .route("/tests/uncovered", get(handlers::uncovered_handler))
-        .route("/tests/has", get(handlers::has_handler));
+    .route("/tests/has", get(handlers::has_handler))
+    .route("/codecov", post(handlers::codecov_handler));
 
     // Add bearer auth middleware only if API token is provided
     if app_state.api_token.is_some() {

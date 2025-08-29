@@ -168,6 +168,30 @@ pub struct HasParams {
 pub struct HasResponse {
     pub covered: bool,
 }
+#[derive(Serialize, Clone)]
+pub struct Metric {
+    pub total: u64,
+    pub covered: u64,
+    pub pct: f64,
+}
+
+#[derive(Serialize, Clone)]
+pub struct LanguageReport {
+    pub language: String,
+    pub lines: Option<Metric>,
+    pub branches: Option<Metric>,
+    pub functions: Option<Metric>,
+    pub statements: Option<Metric>,
+}
+
+#[derive(Serialize)]
+pub struct Report {
+    pub repo_url: String,
+    pub commit: String,
+    pub generated_at: String,
+    pub languages: Vec<LanguageReport>,
+    pub errors: Vec<String>,
+}
 
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {

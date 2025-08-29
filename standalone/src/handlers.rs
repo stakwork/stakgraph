@@ -29,6 +29,8 @@ use std::time::Duration;
 use std::time::Instant;
 use tokio::sync::broadcast;
 use tracing::info;
+use crate::codecov;
+use crate::codecov::CodecovBody;
 
 pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoResponse {
     let rx = app_state.tx.subscribe();
@@ -748,4 +750,12 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
         )
         .await?;
     Ok(Json(HasResponse { covered }))
+}
+
+#[axum::debug_handler]
+pub async fn codecov_handler(Json(body): Json<CodecovBody>) -> impl IntoResponse {
+    match codecov::run(body).await {
+        Ok(report) => Json(serde_json::json!({"report": report})).into_response(),
+        Err(e) => WebError(e).into_response(),
+    }
 }
