@@ -5,6 +5,7 @@ use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use super::incremental_upload::{IncrementalUploadHandle, UploadEvent};
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct BTreeMapGraph {
@@ -12,6 +13,8 @@ pub struct BTreeMapGraph {
     pub edges: BTreeSet<(String, String, EdgeType)>,
     #[serde(skip)]
     edge_keys: HashSet<String>,
+    #[serde(skip)]
+    upload_tx: Option<IncrementalUploadHandle>,
 }
 
 impl Graph for BTreeMapGraph {
@@ -20,6 +23,7 @@ impl Graph for BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
             edge_keys: HashSet::new(),
+            upload_tx: None,
         }
     }
 
@@ -40,7 +44,14 @@ impl Graph for BTreeMapGraph {
     }
 
     fn extend_graph(&mut self, other: Self) {
+        let has_upload = self.upload_tx.is_some();
+        if has_upload {
+            if let Some(h)=&self.upload_tx { for (_k,n) in &other.nodes { let _=h.0.send(UploadEvent::Node(n.node_type.clone(), n.node_data.clone())); } }
+        }
         self.nodes.extend(other.nodes);
+        if has_upload {
+            if let Some(h)=&self.upload_tx { for (s,t,e) in &other.edges { let edge = Edge{ edge: e.clone(), source: NodeRef::from(self.nodes.get(s).unwrap().node_data.clone().into(), self.nodes.get(s).unwrap().node_type.clone()), target: NodeRef::from(self.nodes.get(t).unwrap().node_data.clone().into(), self.nodes.get(t).unwrap().node_type.clone()) }; let _=h.0.send(UploadEvent::Edge(edge)); } }
+        }
         self.edges.extend(other.edges);
     }
 
@@ -52,12 +63,14 @@ impl Graph for BTreeMapGraph {
         let target_key = create_node_key_from_ref(&edge.target);
         let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge);
         self.edge_keys.insert(edge_key);
-        self.edges.insert((source_key, target_key, edge.edge));
+    self.edges.insert((source_key.clone(), target_key.clone(), edge.edge.clone()));
+    if let Some(h) = &self.upload_tx { let _ = h.0.send(UploadEvent::Edge(edge)); }
     }
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
         let node = Node::new(node_type.clone(), node_data.clone());
         let node_key = create_node_key(&node);
         self.nodes.insert(node_key.clone(), node);
+    if let Some(h) = &self.upload_tx { let _ = h.0.send(UploadEvent::Node(node_type, node_data)); }
     }
 
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
@@ -811,12 +824,19 @@ impl BTreeMapGraph {
         }
     }
 }
+impl BTreeMapGraph {
+    pub fn enable_incremental_upload(&mut self, neo: super::neo4j_graph::Neo4jGraph) {
+        if self.upload_tx.is_none() { self.upload_tx = Some(IncrementalUploadHandle::new(neo)); }
+    }
+    pub fn finalize_incremental_upload(&mut self) { if let Some(h)=&self.upload_tx { h.stop(); } }
+}
 impl Default for BTreeMapGraph {
     fn default() -> Self {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
             edge_keys: HashSet::new(),
+            upload_tx: None,
         }
     }
 }

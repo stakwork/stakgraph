@@ -2,6 +2,7 @@ pub mod array_graph;
 pub mod btreemap_graph;
 pub mod graph;
 pub mod utils;
+pub mod incremental_upload;
 
 #[cfg(feature = "neo4j")]
 pub mod neo4j_graph;

@@ -227,19 +227,6 @@ pub async fn ingest(
 
     repos.set_status_tx(state.tx.clone()).await;
 
-    let btree_graph = repos
-        .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
-        .await
-        .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
-                "Failed to build graphs: {}",
-                e
-            )))
-        })?;
-    info!(
-        "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
-        start_build.elapsed()
-    );
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
@@ -249,13 +236,56 @@ pub async fn ingest(
         graph_ops.clear_existing_graph(&stripped_root).await?;
     }
 
-    let start_upload = Instant::now();
+    let incremental = std::env::var("INCREMENTAL_INGEST")
+        .map(|v| !(v == "0" || v.eq_ignore_ascii_case("false") || v.eq_ignore_ascii_case("off")))
+        .unwrap_or(true);
 
-    info!("Uploading to Neo4j...");
-    let (nodes, edges) = graph_ops
-        .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
-        .await?;
-    graph_ops.graph.create_indexes().await?;
+    let (nodes, edges, btree_graph) = if incremental {
+        let mut btree_graph = ast::lang::graphs::BTreeMapGraph::new(
+            String::new(),
+            repos.0[0].lang.kind.clone(),
+        );
+        btree_graph.enable_incremental_upload(graph_ops.graph.clone());
+        for repo in &repos.0 {
+            let sub = repo
+                .build_graph_inner::<ast::lang::graphs::BTreeMapGraph>()
+                .await
+                .map_err(|e| WebError(shared::Error::Custom(format!("Failed subgraph build: {}", e))))?;
+            btree_graph.extend_graph(sub);
+        }
+        info!(
+            "\n\n ==>>Building (with incremental upload) took {:.2?} \n\n",
+            start_build.elapsed()
+        );
+        ast::lang::linker::link_e2e_tests(&mut btree_graph).map_err(|e| WebError(shared::Error::Custom(format!("link_e2e_tests failed: {}", e))))?;
+        ast::lang::linker::link_api_nodes(&mut btree_graph).map_err(|e| WebError(shared::Error::Custom(format!("link_api_nodes failed: {}", e))))?;
+        btree_graph.finalize_incremental_upload();
+        graph_ops.graph.create_indexes().await?;
+        let (nodes, edges) = graph_ops.graph.get_graph_size();
+        (nodes, edges, btree_graph)
+    } else {
+        info!("Incremental ingest disabled via INCREMENTAL_INGEST env; using legacy bulk upload path");
+        let mut btree_graph = repos
+            .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
+            .await
+            .map_err(|e| WebError(shared::Error::Custom(format!("Failed to build graphs: {}", e))))?;
+        info!(
+            "\n\n ==>>Building BTreeMapGraph (legacy) took {:.2?} \n\n",
+            start_build.elapsed()
+        );
+        ast::lang::linker::link_e2e_tests(&mut btree_graph).map_err(|e| WebError(shared::Error::Custom(format!("link_e2e_tests failed: {}", e))))?;
+        ast::lang::linker::link_api_nodes(&mut btree_graph).map_err(|e| WebError(shared::Error::Custom(format!("link_api_nodes failed: {}", e))))?;
+        let start_upload = Instant::now();
+        let (nodes, edges) = graph_ops
+            .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
+            .await?;
+        graph_ops.graph.create_indexes().await?;
+        info!(
+            "\n\n ==>> Uploading to Neo4j (legacy bulk) took {:.2?} \n\n",
+            start_upload.elapsed()
+        );
+        (nodes, edges, btree_graph)
+    };
 
     let _ = state.tx.send(ast::repo::StatusUpdate {
         status: "Complete".to_string(),
@@ -269,11 +299,6 @@ pub async fn ingest(
         ])),
         step_description: Some("Graph building completed".to_string()),
     });
-
-    info!(
-        "\n\n ==>> Uploading to Neo4j took {:.2?} \n\n",
-        start_upload.elapsed()
-    );
 
     info!(
         "\n\n ==>> Total ingest time: {:.2?} \n\n",
