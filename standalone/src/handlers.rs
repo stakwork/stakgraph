@@ -230,16 +230,8 @@ pub async fn ingest(
     let btree_graph = repos
         .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
         .await
-        .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
-                "Failed to build graphs: {}",
-                e
-            )))
-        })?;
-    info!(
-        "\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n",
-        start_build.elapsed()
-    );
+        .map_err(|e| WebError(shared::Error::Custom(format!("Failed to build graphs: {}", e))))?;
+    info!("\n\n ==>>Building BTreeMapGraph took {:.2?} \n\n", start_build.elapsed());
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
@@ -251,11 +243,14 @@ pub async fn ingest(
 
     let start_upload = Instant::now();
 
-    info!("Uploading to Neo4j...");
-    let (nodes, edges) = graph_ops
-        .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
-        .await?;
-    graph_ops.graph.create_indexes().await?;
+    let (nodes, edges) = if std::env::var("STREAM_UPLOAD").is_ok() {
+        graph_ops.graph.get_graph_size()
+    } else {
+        info!("Uploading to Neo4j...");
+        let res = graph_ops.upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone())).await?;
+        graph_ops.graph.create_indexes().await?;
+        res
+    };
 
     let _ = state.tx.send(ast::repo::StatusUpdate {
         status: "Complete".to_string(),

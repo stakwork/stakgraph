@@ -65,7 +65,7 @@ impl Repos {
     pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {
         self.build_graphs_inner().await
     }
-    pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
+    pub async fn build_graphs_inner<G: Graph + 'static>(&self) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }

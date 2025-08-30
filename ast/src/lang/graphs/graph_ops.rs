@@ -214,7 +214,9 @@ impl GraphOps {
         temp_graph.analysis();
 
         self.graph.clear().await?;
-        self.upload_btreemap_to_neo4j(&temp_graph, None).await?;
+        if std::env::var("STREAM_UPLOAD").is_err() {
+            self.upload_btreemap_to_neo4j(&temp_graph, None).await?;
+        }
         self.graph.create_indexes().await?;
 
         self.graph
