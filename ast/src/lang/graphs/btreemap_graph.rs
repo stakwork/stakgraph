@@ -4,7 +4,7 @@ use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming;
 
@@ -804,6 +804,31 @@ impl BTreeMapGraph {
             ))
         } else {
             None
+        }
+    }
+
+    pub fn apply_coverage_flags(&mut self, covered_files: &HashMap<String, Vec<(u32,u32)>>) {
+        use crate::lang::NodeType;
+        for node in self.nodes.values_mut() {
+            let file = &node.node_data.file;
+            if let Some(ranges) = covered_files.get(file) {
+                let start = node.node_data.start as u32;
+                let end = node.node_data.end as u32;
+                let mut covered = false;
+                for (rs,re) in ranges {
+                    if re < &start { continue; }
+                    if rs > &end { break; }
+                    if rs <= &end && re >= &start { covered = true; break; }
+                }
+                if matches!(node.node_type, NodeType::Function | NodeType::Endpoint | NodeType::Page | NodeType::Class | NodeType::Trait | NodeType::Request | NodeType::Var) {
+                    let val = if covered { "true" } else { "false" };
+                    node.node_data.meta.insert("test_covered".into(), val.into());
+                }
+            } else {
+                if !node.node_data.meta.contains_key("test_covered") {
+                    node.node_data.meta.insert("test_covered".into(), "false".into());
+                }
+            }
         }
     }
 }
