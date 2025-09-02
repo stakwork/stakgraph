@@ -3,6 +3,49 @@ use ast::lang::NodeType;
 use shared::Result;
 use std::str::FromStr;
 
+use std::collections::HashMap;
+use std::path::Path;
+
+pub async fn run_coverage(repo_root: &Path, repo_url: &str) {
+    if let Some(repo_path_str) = repo_root.to_str() {
+        let commit = lsp::git::get_commit_hash(repo_path_str).await.ok().unwrap_or_default();
+        let _ = shared::codecov::run(repo_path_str, repo_url, &commit);
+    }
+}
+
+pub fn covered_line_ranges(repo_root: &Path) -> HashMap<String, Vec<(u32,u32)>> {
+    let mut covered_map = HashMap::new();
+    let final_path = repo_root.join("coverage/coverage-final.json");
+    if let Ok(bytes) = std::fs::read(&final_path) {
+        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            if let Some(files_obj) = json.as_object() {
+                for (file, data) in files_obj.iter() {
+                    if let Some(lines_obj) = data.get("l").and_then(|v| v.as_object()) {
+                        let mut covered_lines: Vec<u32> = lines_obj.iter()
+                            .filter_map(|(ln, hits)| if hits.as_i64().unwrap_or(0) > 0 { ln.parse::<u32>().ok() } else { None })
+                            .collect();
+                        covered_lines.sort_unstable();
+                        if !covered_lines.is_empty() {
+                            let mut ranges: Vec<(u32,u32)> = Vec::new();
+                            let mut start = covered_lines[0];
+                            let mut prev = covered_lines[0];
+                            for &ln in &covered_lines[1..] {
+                                if ln == prev + 1 { prev = ln; continue; }
+                                ranges.push((start, prev));
+                                start = ln; prev = ln;
+                            }
+                            ranges.push((start, prev));
+                            covered_map.insert(file.clone(), ranges);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    covered_map
+}
+
+
 use crate::types::{UncoveredNode, UncoveredNodeConcise, UncoveredResponse, UncoveredResponseItem};
 
 pub fn parse_node_type(node_type: &str) -> Result<NodeType> {

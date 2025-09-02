@@ -1,5 +1,5 @@
 pub mod utils;
-pub mod coverage; // full implementation centralized
+pub mod coverage;
 
 use crate::Result;
 use chrono::Utc;

@@ -241,11 +241,22 @@ pub async fn ingest(
     }
 
     let start_build = Instant::now();
-    let btree_graph = repos
+
+    for repo in &repos.0 { crate::utils::run_coverage(&repo.root, &repo_url).await; }
+
+    let mut btree_graph = repos
         .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
         .await
         .map_err(|e| WebError(shared::Error::Custom(format!("Failed to build graphs: {}", e))))?;
+
     let build_s = start_build.elapsed().as_secs_f64();
+
+    //TODO: Process multiple repos (when we add support for multiple languages)
+    if let Some(first_repo) = repos.0.first() {
+        let covered_map = crate::utils::covered_line_ranges(&first_repo.root);
+        if !covered_map.is_empty() { btree_graph.apply_coverage_flags(&covered_map); }
+    }
+
     info!(
         "[perf][ingest] phase=build repo={} streaming={} s={:.2}",
         final_repo_url, streaming, build_s
@@ -746,8 +757,7 @@ pub async fn uncovered_handler(Query(params): Query<UncoveredParams>) -> Result<
             &NodeType::Endpoint,
             concise,
         ))
-    } else {
-        None
+    } else {        None
     };
 
     let response = UncoveredResponse {
