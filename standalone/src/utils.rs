@@ -4,17 +4,46 @@ use shared::Result;
 use std::str::FromStr;
 
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 
 pub async fn run_coverage(repo_root: &Path, repo_url: &str) {
     if let Some(repo_path_str) = repo_root.to_str() {
         let commit = lsp::git::get_commit_hash(repo_path_str).await.ok().unwrap_or_default();
-        let _ = shared::codecov::run(repo_path_str, repo_url, &commit);
+        match shared::codecov::run(repo_path_str, repo_url, &commit) {
+            Ok(report) => tracing::info!("coverage run ok repo={} commit={} langs={} errors={}", repo_url, commit, report.languages.len(), report.errors.len()),
+            Err(e) => tracing::warn!("coverage run failed repo={} commit={} err={}", repo_url, commit, e),
+        }
     }
 }
 
 pub fn covered_line_ranges(repo_root: &Path) -> HashMap<String, Vec<(u32,u32)>> {
-    let mut covered_map = HashMap::new();
+    fn normalize_variants(original: &str, repo_root: &Path) -> Vec<String> {
+        let mut out: HashSet<String> = HashSet::new();
+        let orig = original.to_string();
+        out.insert(orig.clone());
+
+        if let Some(stripped) = orig.strip_prefix("/private") {
+            out.insert(stripped.to_string());
+        }
+
+        if let Some(repo_str) = repo_root.to_str() {
+            let mut candidate_roots: Vec<&str> = vec![repo_str];
+            if let Some(stripped) = repo_str.strip_prefix("/private") { candidate_roots.push(stripped); }
+            for root in candidate_roots {
+                if orig.starts_with(root) {
+                    let rel = orig[root.len()..].trim_start_matches('/');
+                    if !rel.is_empty() {
+                        out.insert(rel.to_string());
+                        out.insert(format!("./{}", rel));
+                    }
+                }
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    let mut covered_map: HashMap<String, Vec<(u32,u32)>> = HashMap::new();
     let final_path = repo_root.join("coverage/coverage-final.json");
     if let Ok(bytes) = std::fs::read(&final_path) {
         if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
@@ -25,17 +54,20 @@ pub fn covered_line_ranges(repo_root: &Path) -> HashMap<String, Vec<(u32,u32)>> 
                             .filter_map(|(ln, hits)| if hits.as_i64().unwrap_or(0) > 0 { ln.parse::<u32>().ok() } else { None })
                             .collect();
                         covered_lines.sort_unstable();
-                        if !covered_lines.is_empty() {
-                            let mut ranges: Vec<(u32,u32)> = Vec::new();
-                            let mut start = covered_lines[0];
-                            let mut prev = covered_lines[0];
-                            for &ln in &covered_lines[1..] {
-                                if ln == prev + 1 { prev = ln; continue; }
-                                ranges.push((start, prev));
-                                start = ln; prev = ln;
-                            }
+                        if covered_lines.is_empty() { continue; }
+                        let mut ranges: Vec<(u32,u32)> = Vec::new();
+                        let mut start = covered_lines[0];
+                        let mut prev = covered_lines[0];
+                        for &ln in &covered_lines[1..] {
+                            if ln == prev + 1 { prev = ln; continue; }
                             ranges.push((start, prev));
-                            covered_map.insert(file.clone(), ranges);
+                            start = ln; prev = ln;
+                        }
+                        ranges.push((start, prev));
+
+                        for variant in normalize_variants(file, repo_root) {
+                            // Insert only if absent; identical ranges for same file variants
+                            covered_map.entry(variant).or_insert_with(|| ranges.clone());
                         }
                     }
                 }

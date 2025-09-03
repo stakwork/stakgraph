@@ -3,7 +3,10 @@ use crate::codecov::coverage::{
 	coverage_tools::CoverageTool,
 	execution::{find_test_files, read_package_json_scripts, CommandRunner},
 	package_managers::PackageManager,
-	test_runners::{TestRunner, TestScript},
+	test_runners::{
+		coverage_dependency, coverage_reporter_args, detect_from_package_json, get_runner,
+		CoverageStyle, TestScript,
+	},
 };
 use crate::codecov::utils::{has_any_files_with_ext, parse_summary_or_final};
 use crate::codecov::LanguageReport;
@@ -19,7 +22,7 @@ impl TypeScriptCoverage {
 		test_scripts: &[TestScript],
 	) -> Result<()> {
 		for script in test_scripts {
-			if let Some(dep) = script.runner.coverage_dependency() {
+			if let Some(dep) = coverage_dependency(&script.runner_id) {
 				if !self.check_dependency_available(repo_path, dep) {
 					let package_manager =
 						PackageManager::primary_for_repo(repo_path).unwrap_or(PackageManager::Npm);
@@ -45,45 +48,48 @@ impl TypeScriptCoverage {
 	fn execute_test_script(&self, repo_path: &Path, script: &TestScript) -> Result<()> {
 		let package_manager =
 			PackageManager::primary_for_repo(repo_path).unwrap_or(PackageManager::Npm);
-		match script.runner {
-			TestRunner::Vitest if script.has_coverage => {
-				let args = vec![
-					"vitest",
-					"--coverage",
-					"--coverage.reporter=json-summary",
-					"--coverage.reporter=json",
-					"--coverage.reportsDirectory=./coverage",
-				];
-				CommandRunner::run(repo_path, "npx", &args)
-			}
-			TestRunner::Jest if script.has_coverage => {
-				let args = vec![
-					"jest",
-					"--coverage",
-					"--coverageReporters=json-summary",
-					"--coverageReporters=json",
-					"--coverageDirectory=./coverage",
-				];
-				CommandRunner::run(repo_path, "npx", &args)
-			}
-			_ => {
-				if script.has_coverage {
-					let (cmd, args) = package_manager.run_script_cmd(&script.name);
-					CommandRunner::run_with_string_args(repo_path, cmd, &args)
-				} else {
-					let (script_cmd, script_args) = package_manager.run_script_cmd(&script.name);
-					let mut args = vec![
-						"c8".to_string(),
-						"--reporter=json-summary".to_string(),
-						"--reporter=json".to_string(),
-						"--reports-dir=./coverage".to_string(),
-						script_cmd.to_string(),
-					];
-					args.extend(script_args);
-					let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-					CommandRunner::run(repo_path, "npx", &str_args)
+		let runner = get_runner(&script.runner_id);
+		if let Some(runner_spec) = runner {
+			match runner_spec.coverage_style {
+				CoverageStyle::Vitest => {
+					if script.has_coverage {
+						if let Some(mut args) = coverage_reporter_args(&script.runner_id, "./coverage") {
+							args.insert(0, runner_spec.id.to_string());
+							let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+							return CommandRunner::run(repo_path, "npx", &str_args);
+						}
+					}
 				}
+				CoverageStyle::Jest => {
+					if script.has_coverage {
+						if let Some(mut args) = coverage_reporter_args(&script.runner_id, "./coverage") {
+							args.insert(0, runner_spec.id.to_string());
+							let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+							return CommandRunner::run(repo_path, "npx", &str_args);
+						}
+					}
+				}
+				CoverageStyle::Jasmine | CoverageStyle::Mocha => {
+					// We'll wrap with c8 if script itself doesn't already produce coverage.
+				}
+				CoverageStyle::Generic => {}
 			}
+		}
+		if script.has_coverage {
+			let (cmd, args) = package_manager.run_script_cmd(&script.name);
+			CommandRunner::run_with_string_args(repo_path, cmd, &args)
+		} else {
+			let (script_cmd, script_args) = package_manager.run_script_cmd(&script.name);
+			let mut args = vec![
+				"c8".to_string(),
+				"--reporter=json-summary".to_string(),
+				"--reporter=json".to_string(),
+				"--reports-dir=./coverage".to_string(),
+				script_cmd.to_string(),
+			];
+			args.extend(script_args);
+			let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+			CommandRunner::run(repo_path, "npx", &str_args)
 		}
 	}
 }
@@ -128,7 +134,7 @@ impl TestCoverage for TypeScriptCoverage {
 			}
 		}
 		if let Ok(Some(scripts)) = read_package_json_scripts(repo_path) {
-			let test_scripts = TestRunner::detect_from_package_json(&scripts);
+			let test_scripts = detect_from_package_json(&scripts);
 			if !test_scripts.is_empty() {
 				self.install_coverage_dependencies(repo_path, &test_scripts)?;
 				return Ok(());
@@ -149,7 +155,7 @@ impl TestCoverage for TypeScriptCoverage {
 
 	fn execute(&self, repo_path: &Path) -> Result<()> {
 		if let Ok(Some(scripts)) = read_package_json_scripts(repo_path) {
-			let test_scripts = TestRunner::detect_from_package_json(&scripts);
+			let test_scripts = detect_from_package_json(&scripts);
 			for script in &test_scripts {
 				if let Ok(()) = self.execute_test_script(repo_path, script) {
 					return Ok(());
