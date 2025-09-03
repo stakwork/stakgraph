@@ -1,5 +1,4 @@
 use crate::{Error, Result};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -101,23 +100,4 @@ pub fn find_test_files(repo_path: &Path, extensions: &[&str]) -> Vec<PathBuf> {
     test_files
 }
 
-pub fn read_package_json_scripts(repo_path: &Path) -> Result<Option<HashMap<String, String>>> {
-    let pkg_path = repo_path.join("package.json");
-    if !pkg_path.exists() {
-        return Ok(None);
-    }
-    let pkg_content = fs::read_to_string(pkg_path)?;
-    let pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)
-        .map_err(|e| Error::Custom(format!("Failed to parse package.json: {}", e)))?;
-    if let Some(scripts) = pkg_json.get("scripts").and_then(|s| s.as_object()) {
-        let mut result = HashMap::new();
-        for (key, value) in scripts {
-            if let Some(script) = value.as_str() {
-                result.insert(key.clone(), script.to_string());
-            }
-        }
-        Ok(Some(result))
-    } else {
-        Ok(None)
-    }
-}
+

@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use crate::codecov::coverage::execution::CommandRunner;
+use crate::{Error, Result};
+use crate::codecov::coverage::package_managers::PackageManager;
 
 
 #[derive(Debug, Clone)]
@@ -93,6 +96,60 @@ pub fn detect_from_package_json(scripts: &HashMap<String, String>) -> Vec<TestSc
         }
     }
     out
+}
+pub fn detect_runners(_repo_path: &std::path::Path, scripts: &HashMap<String,String>, deps: &[String]) -> Vec<String> {
+    let mut runners: Vec<String> = Vec::new();
+    // From scripts
+    for ts in detect_from_package_json(scripts) { if !runners.contains(&ts.runner_id) { runners.push(ts.runner_id); } }
+    // From dependencies
+    let deps_lower: Vec<String> = deps.iter().map(|d| d.to_lowercase()).collect();
+    for spec in registry() {
+        if deps_lower.iter().any(|d| spec.detect_tokens.iter().any(|tok| d.contains(&tok.to_lowercase()))) {
+            if !runners.iter().any(|r| r == spec.id) { runners.push(spec.id.to_string()); }
+        }
+    }
+    runners
+}
+
+pub fn execute_with_fallback(
+    repo_path: &std::path::Path,
+    script: &TestScript,
+    max_attempts: usize,
+) -> Result<()> {
+    let package_manager = PackageManager::primary_for_repo(repo_path).unwrap_or(PackageManager::Npm);
+    let mut attempt = 0usize;
+    let runner_spec = get_runner(&script.runner_id);
+    let reports_dir = "./coverage";
+    loop {
+        attempt += 1;
+        if let Some(spec) = runner_spec {
+            if script.has_coverage {
+                if let Some(mut args) = coverage_reporter_args(&script.runner_id, reports_dir) {
+                    args.insert(0, spec.id.to_string());
+                    let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+                    if CommandRunner::run(repo_path, "npx", &str_args).is_ok() { return Ok(()); }
+                }
+            }
+        }
+        let (script_cmd, script_args) = package_manager.run_script_cmd(&script.name);
+        let mut args = vec![
+            "c8".to_string(),
+            "--reporter=json-summary".to_string(),
+            "--reporter=json".to_string(),
+            "--reports-dir=./coverage".to_string(),
+            script_cmd.to_string(),
+        ];
+        args.extend(script_args);
+        if CommandRunner::run(repo_path, "npx", &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>()).is_ok() {
+            return Ok(());
+        }
+        if let Some(spec) = runner_spec {
+            let args = vec![spec.id.to_string(), "--coverage".to_string()];
+            if CommandRunner::run(repo_path, "npx", &args.iter().map(|s| s.as_str()).collect::<Vec<&str>>()).is_ok() { return Ok(()); }
+        }
+
+        if attempt >= max_attempts { return Err(Error::Custom("all coverage attempts failed".into())); }
+    }
 }
 
 pub fn coverage_dependency(runner_id: &str) -> Option<&'static str> {

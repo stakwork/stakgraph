@@ -1,17 +1,16 @@
 use super::TestCoverage;
 use crate::codecov::coverage::{
 	coverage_tools::CoverageTool,
-	execution::{find_test_files, read_package_json_scripts, CommandRunner},
+	execution::{find_test_files, CommandRunner},
 	package_managers::PackageManager,
 	test_runners::{
-		coverage_dependency, coverage_reporter_args, detect_from_package_json, get_runner,
-		CoverageStyle, TestScript,
+		coverage_dependency, detect_from_package_json, execute_with_fallback, TestScript, detect_runners,
 	},
 };
 use crate::codecov::utils::{has_any_files_with_ext, parse_summary_or_final};
 use crate::codecov::LanguageReport;
 use crate::{Error, Result};
-use std::path::{Path, PathBuf};
+use std::{collections::HashMap, fs, path::{Path, PathBuf}};
 
 pub struct TypeScriptCoverage;
 
@@ -46,51 +45,8 @@ impl TypeScriptCoverage {
 	}
 
 	fn execute_test_script(&self, repo_path: &Path, script: &TestScript) -> Result<()> {
-		let package_manager =
-			PackageManager::primary_for_repo(repo_path).unwrap_or(PackageManager::Npm);
-		let runner = get_runner(&script.runner_id);
-		if let Some(runner_spec) = runner {
-			match runner_spec.coverage_style {
-				CoverageStyle::Vitest => {
-					if script.has_coverage {
-						if let Some(mut args) = coverage_reporter_args(&script.runner_id, "./coverage") {
-							args.insert(0, runner_spec.id.to_string());
-							let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-							return CommandRunner::run(repo_path, "npx", &str_args);
-						}
-					}
-				}
-				CoverageStyle::Jest => {
-					if script.has_coverage {
-						if let Some(mut args) = coverage_reporter_args(&script.runner_id, "./coverage") {
-							args.insert(0, runner_spec.id.to_string());
-							let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-							return CommandRunner::run(repo_path, "npx", &str_args);
-						}
-					}
-				}
-				CoverageStyle::Jasmine | CoverageStyle::Mocha => {
-					// We'll wrap with c8 if script itself doesn't already produce coverage.
-				}
-				CoverageStyle::Generic => {}
-			}
-		}
-		if script.has_coverage {
-			let (cmd, args) = package_manager.run_script_cmd(&script.name);
-			CommandRunner::run_with_string_args(repo_path, cmd, &args)
-		} else {
-			let (script_cmd, script_args) = package_manager.run_script_cmd(&script.name);
-			let mut args = vec![
-				"c8".to_string(),
-				"--reporter=json-summary".to_string(),
-				"--reporter=json".to_string(),
-				"--reports-dir=./coverage".to_string(),
-				script_cmd.to_string(),
-			];
-			args.extend(script_args);
-			let str_args: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-			CommandRunner::run(repo_path, "npx", &str_args)
-		}
+		// Use new generic executor with fallback attempts.
+		execute_with_fallback(repo_path, script, 3)
 	}
 }
 
@@ -133,7 +89,7 @@ impl TestCoverage for TypeScriptCoverage {
 				CommandRunner::run(repo_path, cmd, &args)?;
 			}
 		}
-		if let Ok(Some(scripts)) = read_package_json_scripts(repo_path) {
+		if let Some(scripts) = self.read_test_scripts(repo_path)? {
 			let test_scripts = detect_from_package_json(&scripts);
 			if !test_scripts.is_empty() {
 				self.install_coverage_dependencies(repo_path, &test_scripts)?;
@@ -154,12 +110,19 @@ impl TestCoverage for TypeScriptCoverage {
 	}
 
 	fn execute(&self, repo_path: &Path) -> Result<()> {
-		if let Ok(Some(scripts)) = read_package_json_scripts(repo_path) {
+		if let Some(scripts) = self.read_test_scripts(repo_path)? {
 			let test_scripts = detect_from_package_json(&scripts);
 			for script in &test_scripts {
 				if let Ok(()) = self.execute_test_script(repo_path, script) {
-					return Ok(());
+					if repo_path.join("coverage/coverage-summary.json").exists() { return Ok(()); }
 				}
+			}
+			let deps = self.read_test_dependencies(repo_path)?;
+			let runner_ids = detect_runners(repo_path, &scripts, &deps);
+			for rid in runner_ids {
+				let pseudo = TestScript { name: "test".into(), runner_id: rid.clone(), has_coverage: true };
+				let _ = self.execute_test_script(repo_path, &pseudo);
+				if repo_path.join("coverage/coverage-summary.json").exists() { return Ok(()); }
 			}
 		}
 		if !repo_path.join("coverage/coverage-summary.json").exists() {
@@ -224,5 +187,49 @@ impl TestCoverage for TypeScriptCoverage {
 		.map(|n| cov_dir.join(n))
 		.filter(|p| p.exists())
 		.collect()
+	}
+
+	fn read_test_scripts(&self, repo_path: &Path) -> Result<Option<std::collections::HashMap<String,String>>> {
+		    let pkg_path = repo_path.join("package.json");
+    if !pkg_path.exists() {
+        return Ok(None);
+    }
+    let pkg_content = fs::read_to_string(pkg_path)?;
+    let pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)
+        .map_err(|e| Error::Custom(format!("Failed to parse package.json: {}", e)))?;
+    if let Some(scripts) = pkg_json.get("scripts").and_then(|s| s.as_object()) {
+        let mut result = HashMap::new();
+        for (key, value) in scripts {
+            if let Some(script) = value.as_str() {
+                result.insert(key.clone(), script.to_string());
+            }
+        }
+        Ok(Some(result))
+    } else {
+        Ok(None)
+    }
+	}
+
+	fn read_test_dependencies(&self, repo_path: &Path) -> Result<Vec<String>> {
+		 let pkg_path = repo_path.join("package.json");
+    if !pkg_path.exists() {
+        return Ok(vec![]);
+    }
+    let pkg_content = fs::read_to_string(pkg_path)?;
+    let pkg_json: serde_json::Value = serde_json::from_str(&pkg_content)
+        .map_err(|e| Error::Custom(format!("Failed to parse package.json: {}", e)))?;
+    let mut deps = Vec::new();
+    if let Some(obj) = pkg_json.get("dependencies").and_then(|v| v.as_object()) {
+        for k in obj.keys() { deps.push(k.clone()); }
+    }
+    if let Some(obj) = pkg_json.get("devDependencies").and_then(|v| v.as_object()) {
+        for k in obj.keys() { if !deps.contains(k) { deps.push(k.clone()); } }
+    }
+    Ok(deps)
+	}
+
+	fn discover_test_files(&self, repo_path: &Path) -> Result<Vec<PathBuf>> {
+		let extensions = &["js", "ts", "jsx", "tsx"]; // minimal list here
+		Ok(find_test_files(repo_path, extensions))
 	}
 }

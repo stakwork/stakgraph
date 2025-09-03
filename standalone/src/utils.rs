@@ -45,35 +45,32 @@ pub fn covered_line_ranges(repo_root: &Path) -> HashMap<String, Vec<(u32,u32)>> 
 
     let mut covered_map: HashMap<String, Vec<(u32,u32)>> = HashMap::new();
     let final_path = repo_root.join("coverage/coverage-final.json");
-    if let Ok(bytes) = std::fs::read(&final_path) {
-        if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            if let Some(files_obj) = json.as_object() {
-                for (file, data) in files_obj.iter() {
-                    if let Some(lines_obj) = data.get("l").and_then(|v| v.as_object()) {
-                        let mut covered_lines: Vec<u32> = lines_obj.iter()
-                            .filter_map(|(ln, hits)| if hits.as_i64().unwrap_or(0) > 0 { ln.parse::<u32>().ok() } else { None })
-                            .collect();
-                        covered_lines.sort_unstable();
-                        if covered_lines.is_empty() { continue; }
-                        let mut ranges: Vec<(u32,u32)> = Vec::new();
-                        let mut start = covered_lines[0];
-                        let mut prev = covered_lines[0];
-                        for &ln in &covered_lines[1..] {
-                            if ln == prev + 1 { prev = ln; continue; }
-                            ranges.push((start, prev));
-                            start = ln; prev = ln;
-                        }
-                        ranges.push((start, prev));
-
-                        for variant in normalize_variants(file, repo_root) {
-                            // Insert only if absent; identical ranges for same file variants
-                            covered_map.entry(variant).or_insert_with(|| ranges.clone());
-                        }
-                    }
-                }
-            }
+    if !final_path.exists() { tracing::info!("coverage final not found path={}", final_path.display()); return covered_map; }
+    let bytes = match std::fs::read(&final_path) { Ok(b) => b, Err(e) => { tracing::warn!("read coverage file failed err={}", e); return covered_map; } };
+    let json: serde_json::Value = match serde_json::from_slice(&bytes) { Ok(j) => j, Err(e) => { tracing::warn!("parse coverage json failed err={}", e); return covered_map; } };
+    let Some(files_obj) = json.as_object() else { return covered_map; };
+    let mut total_files = 0usize; let mut files_with_hits = 0usize; let mut total_hit_lines = 0usize; let mut sample: Vec<String> = Vec::new();
+    for (file, data) in files_obj.iter() {
+        total_files += 1;
+        let (Some(stmt_map), Some(s_map)) = (data.get("statementMap"), data.get("s")) else { continue; };
+        let (Some(stmt_obj), Some(s_obj)) = (stmt_map.as_object(), s_map.as_object()) else { continue; };
+        let mut line_set: HashSet<u32> = HashSet::new();
+        for (id, loc_val) in stmt_obj.iter() {
+            if let Some(hit_val) = s_obj.get(id) { if hit_val.as_i64().unwrap_or(0) > 0 { if let Some(loc_obj) = loc_val.as_object() { if let (Some(start_obj), Some(end_obj)) = (loc_obj.get("start"), loc_obj.get("end")) { if let (Some(sl), Some(el)) = (start_obj.get("line").and_then(|v| v.as_u64()), end_obj.get("line").and_then(|v| v.as_u64())) { let (sl_u, el_u) = (sl as u32, el as u32); for l in sl_u..=el_u { line_set.insert(l); } } } } } }
         }
+        if line_set.is_empty() { continue; }
+        files_with_hits += 1;
+        let mut covered_lines: Vec<u32> = line_set.into_iter().collect();
+        total_hit_lines += covered_lines.len();
+        covered_lines.sort_unstable();
+        let mut ranges: Vec<(u32,u32)> = Vec::new(); let mut start = covered_lines[0]; let mut prev = covered_lines[0];
+        for &ln in &covered_lines[1..] { if ln == prev + 1 { prev = ln; continue; } ranges.push((start, prev)); start = ln; prev = ln; }
+        ranges.push((start, prev));
+        if sample.len() < 3 { sample.push(format!("{}:{} lines {} ranges", file, covered_lines.len(), ranges.len())); }
+        for variant in normalize_variants(file, repo_root) { covered_map.entry(variant).or_insert_with(|| ranges.clone()); }
     }
+    tracing::info!("coverage parsed file={} with_files={} hit_lines={} sample={:?}", total_files, files_with_hits, total_hit_lines, sample);
+    if files_with_hits == 0 { tracing::info!("coverage contains zero hit lines (possibly tests not instrumented or mismatch)"); }
     covered_map
 }
 
