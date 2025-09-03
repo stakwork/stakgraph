@@ -3,75 +3,105 @@ use ast::lang::NodeType;
 use shared::Result;
 use std::str::FromStr;
 
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 pub async fn run_coverage(repo_root: &Path, repo_url: &str) {
-    if let Some(repo_path_str) = repo_root.to_str() {
-        let commit = lsp::git::get_commit_hash(repo_path_str).await.ok().unwrap_or_default();
-        match shared::codecov::run(repo_path_str, repo_url, &commit) {
-            Ok(report) => tracing::info!("coverage run ok repo={} commit={} langs={} errors={}", repo_url, commit, report.languages.len(), report.errors.len()),
-            Err(e) => tracing::warn!("coverage run failed repo={} commit={} err={}", repo_url, commit, e),
+    if let Some(root) = repo_root.to_str() {
+        let commit = lsp::git::get_commit_hash(root).await.ok().unwrap_or_default();
+        if let Err(e) = shared::codecov::run(root, repo_url, &commit) {
+            tracing::warn!("coverage run failed repo={} commit={} err={}", repo_url, commit, e);
         }
     }
 }
 
-pub fn covered_line_ranges(repo_root: &Path) -> HashMap<String, Vec<(u32,u32)>> {
-    fn normalize_variants(original: &str, repo_root: &Path) -> Vec<String> {
-        let mut out: HashSet<String> = HashSet::new();
-        let orig = original.to_string();
-        out.insert(orig.clone());
+pub fn normalize_coverage_path_variants(original: &str, repo_root: &Path) -> Vec<String> {
+    let mut out: HashSet<String> = HashSet::new();
 
-        if let Some(stripped) = orig.strip_prefix("/private") {
-            out.insert(stripped.to_string());
+    let mut push = |s: &str| { if !s.is_empty() { out.insert(s.to_string()); } };
+
+    let mut base_forms = Vec::new();
+    base_forms.push(original.to_string());
+    if let Some(stripped) = original.strip_prefix("/private") { base_forms.push(stripped.to_string()); }
+
+    // Root related forms
+    let (root_str, tail, last_two) = if let Some(r) = repo_root.to_str() {
+        let tail = repo_root.file_name().and_then(|s| s.to_str()).map(|s| s.to_string());
+        let comps: Vec<&str> = r.split('/').filter(|c| !c.is_empty()).collect();
+        let last_two = (comps.len() >= 2).then(|| format!("{}/{}", comps[comps.len()-2], comps[comps.len()-1]));
+        (Some(r.to_string()), tail, last_two)
+    } else { (None, None, None) };
+
+    let mut root_forms: Vec<String> = Vec::new();
+    if let Some(r) = &root_str { root_forms.push(r.clone()); }
+    if let Some(r) = &root_str { if let Some(stripped) = r.strip_prefix("/private") { root_forms.push(stripped.to_string()); } }
+    if let Some(r) = &root_str { if let Some(stripped) = r.strip_prefix("/tmp/") { root_forms.push(stripped.to_string()); } }
+    if let Some(lt) = &last_two { root_forms.push(lt.clone()); }
+    root_forms.sort_unstable();
+    root_forms.dedup();
+
+    // Always include the full base forms themselves.
+    for b in &base_forms { push(b); }
+
+    for base in &base_forms {
+        for root in &root_forms {
+            if base.starts_with(root) {
+                let rel = base[root.len()..].trim_start_matches('/');
+                if rel.is_empty() { continue; }
+                push(rel);
+                push(&format!("./{}", rel));
+                if let Some(t) = &tail { push(&format!("{}/{}", t, rel)); push(&format!("./{}/{}", t, rel)); }
+                if let Some(lt) = &last_two { push(&format!("{}/{}", lt, rel)); }
+                if let Some(r) = &root_str { if let Some(tmp) = r.strip_prefix("/tmp/") { push(&format!("{}/{}", tmp, rel)); } }
+            }
         }
+    }
 
-        if let Some(repo_str) = repo_root.to_str() {
-            let mut candidate_roots: Vec<&str> = vec![repo_str];
-            if let Some(stripped) = repo_str.strip_prefix("/private") { candidate_roots.push(stripped); }
-            for root in candidate_roots {
-                if orig.starts_with(root) {
-                    let rel = orig[root.len()..].trim_start_matches('/');
-                    if !rel.is_empty() {
-                        out.insert(rel.to_string());
-                        out.insert(format!("./{}", rel));
+    out.into_iter().collect()
+}
+
+pub fn covered_line_ranges(repo_root: &Path) -> HashMap<String, Vec<(u32,u32)>> {
+
+    let mut covered: HashMap<String, Vec<(u32,u32)>> = HashMap::new();
+    let path = repo_root.join("coverage/coverage-final.json");
+    if !path.exists() { return covered; }
+    let bytes = match std::fs::read(&path) { Ok(b) => b, Err(_) => return covered };
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return covered }; 
+    let Some(files_obj) = json.as_object() else { return covered }; 
+    let mut files_with_hits = 0usize; let mut total_hit_lines = 0usize; let mut sample: Vec<String> = Vec::new();
+    for (file, data) in files_obj.iter() {
+        let (Some(stmt_map), Some(s_map)) = (data.get("statementMap"), data.get("s")) else { continue; };
+        let (Some(stmt_obj), Some(s_obj)) = (stmt_map.as_object(), s_map.as_object()) else { continue; };
+        let mut lines: HashSet<u32> = HashSet::new();
+        for (id, loc) in stmt_obj.iter() {
+            if s_obj.get(id).and_then(|v| v.as_i64()).unwrap_or(0) <= 0 { continue; }
+            if let Some(loc_obj) = loc.as_object() {
+                if let (Some(s), Some(e)) = (loc_obj.get("start"), loc_obj.get("end")) {
+                    if let (Some(sl), Some(el)) = (s.get("line").and_then(|v| v.as_u64()), e.get("line").and_then(|v| v.as_u64())) {
+                        for l in sl as u32..=el as u32 { lines.insert(l); }
                     }
                 }
             }
         }
-        out.into_iter().collect()
-    }
-
-    let mut covered_map: HashMap<String, Vec<(u32,u32)>> = HashMap::new();
-    let final_path = repo_root.join("coverage/coverage-final.json");
-    if !final_path.exists() { tracing::info!("coverage final not found path={}", final_path.display()); return covered_map; }
-    let bytes = match std::fs::read(&final_path) { Ok(b) => b, Err(e) => { tracing::warn!("read coverage file failed err={}", e); return covered_map; } };
-    let json: serde_json::Value = match serde_json::from_slice(&bytes) { Ok(j) => j, Err(e) => { tracing::warn!("parse coverage json failed err={}", e); return covered_map; } };
-    let Some(files_obj) = json.as_object() else { return covered_map; };
-    let mut total_files = 0usize; let mut files_with_hits = 0usize; let mut total_hit_lines = 0usize; let mut sample: Vec<String> = Vec::new();
-    for (file, data) in files_obj.iter() {
-        total_files += 1;
-        let (Some(stmt_map), Some(s_map)) = (data.get("statementMap"), data.get("s")) else { continue; };
-        let (Some(stmt_obj), Some(s_obj)) = (stmt_map.as_object(), s_map.as_object()) else { continue; };
-        let mut line_set: HashSet<u32> = HashSet::new();
-        for (id, loc_val) in stmt_obj.iter() {
-            if let Some(hit_val) = s_obj.get(id) { if hit_val.as_i64().unwrap_or(0) > 0 { if let Some(loc_obj) = loc_val.as_object() { if let (Some(start_obj), Some(end_obj)) = (loc_obj.get("start"), loc_obj.get("end")) { if let (Some(sl), Some(el)) = (start_obj.get("line").and_then(|v| v.as_u64()), end_obj.get("line").and_then(|v| v.as_u64())) { let (sl_u, el_u) = (sl as u32, el as u32); for l in sl_u..=el_u { line_set.insert(l); } } } } } }
-        }
-        if line_set.is_empty() { continue; }
+        if lines.is_empty() { continue; }
         files_with_hits += 1;
-        let mut covered_lines: Vec<u32> = line_set.into_iter().collect();
+        let mut covered_lines: Vec<u32> = lines.into_iter().collect();
         total_hit_lines += covered_lines.len();
         covered_lines.sort_unstable();
-        let mut ranges: Vec<(u32,u32)> = Vec::new(); let mut start = covered_lines[0]; let mut prev = covered_lines[0];
-        for &ln in &covered_lines[1..] { if ln == prev + 1 { prev = ln; continue; } ranges.push((start, prev)); start = ln; prev = ln; }
+        let mut ranges: Vec<(u32,u32)> = Vec::new();
+        let mut start = covered_lines[0];
+        let mut prev = covered_lines[0];
+        for &ln in &covered_lines[1..] {
+            if ln == prev + 1 { prev = ln; continue; }
+            ranges.push((start, prev));
+            start = ln; prev = ln;
+        }
         ranges.push((start, prev));
         if sample.len() < 3 { sample.push(format!("{}:{} lines {} ranges", file, covered_lines.len(), ranges.len())); }
-        for variant in normalize_variants(file, repo_root) { covered_map.entry(variant).or_insert_with(|| ranges.clone()); }
+        for variant in normalize_coverage_path_variants(file, repo_root) { covered.insert(variant, ranges.clone()); }
     }
-    tracing::info!("coverage parsed file={} with_files={} hit_lines={} sample={:?}", total_files, files_with_hits, total_hit_lines, sample);
-    if files_with_hits == 0 { tracing::info!("coverage contains zero hit lines (possibly tests not instrumented or mismatch)"); }
-    covered_map
+    tracing::info!("coverage parsed files_with_hits={} hit_lines={} sample={:?}", files_with_hits, total_hit_lines, sample);
+    covered
 }
 
 

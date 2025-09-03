@@ -253,18 +253,20 @@ pub async fn ingest(
 
     //TODO: Process multiple repos (when we add support for multiple languages)
     if let Some(first_repo) = repos.0.first() {
-    let covered_map = crate::utils::covered_line_ranges(&first_repo.root);
-        let before = btree_graph.nodes.len();
+        let covered_map = crate::utils::covered_line_ranges(&first_repo.root);
+        let total_nodes = btree_graph.nodes.len();
         btree_graph.apply_coverage_flags(&covered_map);
-        let mut total_flagged = 0usize;
+        let mut flagged = 0usize;
         let mut covered_true = 0usize;
         for n in btree_graph.nodes.values() {
             if let Some(v) = n.node_data.meta.get("test_covered") {
-                total_flagged += 1;
-                if v == "true" { covered_true += 1; }
+                flagged += 1;
+                if v == "true" {
+                    covered_true += 1;
+                }
             }
         }
-        info!("coverage applied files={} nodes_flagged={} covered_true={} total_nodes={}", covered_map.len(), total_flagged, covered_true, before);
+        info!("coverage summary files={} nodes_flagged={} covered_true={} total_nodes={}", covered_map.len(), flagged, covered_true, total_nodes);
     }
 
     info!(
