@@ -820,12 +820,8 @@ impl BTreeMapGraph {
                     if rs > &end { break; }
                     if rs <= &end && re >= &start { covered = true; break; }
                 }
-                if matches!(node.node_type, NodeType::Function | NodeType::Endpoint | NodeType::Page | NodeType::Class | NodeType::Trait | NodeType::Request | NodeType::Var) {
-                    node.node_data.test_covered(covered);
-                }
-            } else {
-                if !node.node_data.meta.contains_key("test_covered") {
-                   node.node_data.test_covered(false);
+                if covered && matches!(node.node_type, NodeType::Function | NodeType::Endpoint | NodeType::Page | NodeType::Class | NodeType::Trait | NodeType::Request | NodeType::Var) {
+                    node.node_data.test_covered(true);
                 }
             }
         }

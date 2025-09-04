@@ -188,7 +188,9 @@ impl NodeData {
         self.meta.insert("test_kind".to_string(), test_kind.to_string());
     }
     pub fn test_covered(&mut self, covered: bool) {
-        self.meta.insert("test_covered".to_string(), if covered { "true".into() } else { "false".into() });
+        if covered {
+            self.meta.insert("test_covered".to_string(), "true".into());
+        }
     }
 }
 
