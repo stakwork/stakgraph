@@ -809,8 +809,6 @@ impl BTreeMapGraph {
 
     pub fn apply_coverage_flags(&mut self, covered_files: &HashMap<String, Vec<(u32,u32)>>) {
         use crate::lang::NodeType;
-        let mut any_true = false;
-        let mut any_true_shift = false;
         for node in self.nodes.values_mut() {
             let file = &node.node_data.file;
             if let Some(ranges) = covered_files.get(file) {
@@ -823,45 +821,12 @@ impl BTreeMapGraph {
                     if rs <= &end && re >= &start { covered = true; break; }
                 }
                 if matches!(node.node_type, NodeType::Function | NodeType::Endpoint | NodeType::Page | NodeType::Class | NodeType::Trait | NodeType::Request | NodeType::Var) {
-                    if covered { any_true = true; }
                     node.node_data.test_covered(covered);
                 }
             } else {
                 if !node.node_data.meta.contains_key("test_covered") {
                    node.node_data.test_covered(false);
                 }
-            }
-        }
-        if !any_true {
-            for node in self.nodes.values_mut() {
-                if node.node_data.meta.get("test_covered") == Some(&"true".into()) {
-                    continue;
-                }
-                let Some(ranges) = covered_files.get(&node.node_data.file) else { continue; };
-
-                let start = (node.node_data.start as u32) + 1;
-                let end = (node.node_data.end as u32) + 1;
-                let mut covered = false;
-                for (rs,re) in ranges { 
-                    if re < &start { 
-                        continue; 
-                    }
-
-                    if rs > &end {
-                        break;
-                    }
-                    if rs <= &end && re >= &start {
-                        covered = true;
-                        break;
-                    }
-                }
-                if covered && matches!(node.node_type, NodeType::Function | NodeType::Endpoint | NodeType::Page | NodeType::Class | NodeType::Trait | NodeType::Request | NodeType::Var) {
-                    node.node_data.test_covered(true);
-                    any_true_shift = true;
-                }
-            }
-            if any_true_shift {
-                tracing::info!("coverage applied with line +1 shift");
             }
         }
     }
