@@ -841,20 +841,29 @@ async function executePlaywrightAction(
       case "click":
         if (action.selector) {
           const element = await waitForElement(action.selector);
-          if (element) {
-            const htmlElement = element as HTMLElement;
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+                      if (element) {
+              const htmlElement = element as HTMLElement;
+              const originalBorder = htmlElement.style.border;
+              const originalBoxShadow = htmlElement.style.boxShadow;
+              const originalOutline = htmlElement.style.outline;
+              
+              htmlElement.style.border = "4px solid #ff6b6b";
+              htmlElement.style.boxShadow = "0 0 20px rgba(255, 107, 107, 0.8), 0 0 40px rgba(255, 107, 107, 0.4)";
+              htmlElement.style.outline = "2px solid #ff6b6b";
+              htmlElement.style.transform = "scale(1.02)";
+              htmlElement.style.transition = "all 0.3s ease-in-out";
+              
+              htmlElement.style.animation = "staktrak-click-pulse 0.6s ease-in-out";
 
-            const originalBorder = htmlElement.style.border;
-            htmlElement.style.border = "3px solid #ff6b6b";
-            htmlElement.style.boxShadow = "0 0 10px rgba(255, 107, 107, 0.5)";
+              htmlElement.click();
 
-            htmlElement.click();
-
-            setTimeout(() => {
-              htmlElement.style.border = originalBorder;
-              htmlElement.style.boxShadow = "";
-            }, 300);
+              setTimeout(() => {
+                htmlElement.style.border = originalBorder;
+                htmlElement.style.boxShadow = originalBoxShadow;
+                htmlElement.style.outline = originalOutline;
+                htmlElement.style.transform = "";
+                htmlElement.style.animation = "";
+              }, 600);
           } else {
             throw new Error(`Element not found: ${action.selector}`);
           }
@@ -867,13 +876,30 @@ async function executePlaywrightAction(
             | HTMLInputElement
             | HTMLTextAreaElement;
           if (element) {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+            const originalBorder = element.style.border;
+            const originalBoxShadow = element.style.boxShadow;
+            const originalOutline = element.style.outline;
+            
+            element.style.border = "3px solid #3b82f6";
+            element.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.6), inset 0 0 10px rgba(59, 130, 246, 0.2)";
+            element.style.outline = "2px solid #3b82f6";
+            element.style.transform = "scale(1.01)";
+            element.style.transition = "all 0.3s ease-in-out";
+            element.style.animation = "staktrak-fill-pulse 0.8s ease-in-out";
 
             element.focus();
             element.value = "";
             element.value = String(action.value);
             element.dispatchEvent(new Event("input", { bubbles: true }));
             element.dispatchEvent(new Event("change", { bubbles: true }));
+            
+            setTimeout(() => {
+              element.style.border = originalBorder;
+              element.style.boxShadow = originalBoxShadow;
+              element.style.outline = originalOutline;
+              element.style.transform = "";
+              element.style.animation = "";
+            }, 800);
           } else {
             throw new Error(`Input element not found: ${action.selector}`);
           }
@@ -889,11 +915,28 @@ async function executePlaywrightAction(
             element &&
             (element.type === "checkbox" || element.type === "radio")
           ) {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+            const originalBorder = element.style.border;
+            const originalBoxShadow = element.style.boxShadow;
+            const originalOutline = element.style.outline;
+            
+            element.style.border = "3px solid #10b981";
+            element.style.boxShadow = "0 0 15px rgba(16, 185, 129, 0.6)";
+            element.style.outline = "2px solid #10b981";
+            element.style.transform = "scale(1.05)";
+            element.style.transition = "all 0.3s ease-in-out";
+            element.style.animation = "staktrak-check-pulse 0.5s ease-in-out";
 
             if (!element.checked) {
               element.click();
             }
+            
+            setTimeout(() => {
+              element.style.border = originalBorder;
+              element.style.boxShadow = originalBoxShadow;
+              element.style.outline = originalOutline;
+              element.style.transform = "";
+              element.style.animation = "";
+            }, 500);
           } else {
             throw new Error(
               `Checkbox/radio element not found: ${action.selector}`
@@ -908,11 +951,28 @@ async function executePlaywrightAction(
             action.selector
           )) as HTMLInputElement;
           if (element && element.type === "checkbox") {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+            const originalBorder = element.style.border;
+            const originalBoxShadow = element.style.boxShadow;
+            const originalOutline = element.style.outline;
+            
+            element.style.border = "3px solid #f59e0b";
+            element.style.boxShadow = "0 0 15px rgba(245, 158, 11, 0.6)";
+            element.style.outline = "2px solid #f59e0b";
+            element.style.transform = "scale(1.05)";
+            element.style.transition = "all 0.3s ease-in-out";
+            element.style.animation = "staktrak-uncheck-pulse 0.5s ease-in-out";
 
             if (element.checked) {
               element.click();
             }
+            
+            setTimeout(() => {
+              element.style.border = originalBorder;
+              element.style.boxShadow = originalBoxShadow;
+              element.style.outline = originalOutline;
+              element.style.transform = "";
+              element.style.animation = "";
+            }, 500);
           } else {
             throw new Error(`Checkbox element not found: ${action.selector}`);
           }
@@ -925,10 +985,27 @@ async function executePlaywrightAction(
             action.selector
           )) as HTMLSelectElement;
           if (element && element.tagName === "SELECT") {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+            const originalBorder = element.style.border;
+            const originalBoxShadow = element.style.boxShadow;
+            const originalOutline = element.style.outline;
+            
+            element.style.border = "3px solid #8b5cf6";
+            element.style.boxShadow = "0 0 15px rgba(139, 92, 246, 0.6)";
+            element.style.outline = "2px solid #8b5cf6";
+            element.style.transform = "scale(1.02)";
+            element.style.transition = "all 0.3s ease-in-out";
+            element.style.animation = "staktrak-select-pulse 0.7s ease-in-out";
 
             element.value = String(action.value);
             element.dispatchEvent(new Event("change", { bubbles: true }));
+            
+            setTimeout(() => {
+              element.style.border = originalBorder;
+              element.style.boxShadow = originalBoxShadow;
+              element.style.outline = originalOutline;
+              element.style.transform = "";
+              element.style.animation = "";
+            }, 700);
           } else {
             throw new Error(`Select element not found: ${action.selector}`);
           }
@@ -960,13 +1037,32 @@ async function executePlaywrightAction(
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (element) {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+            const htmlElement = element as HTMLElement;
+            const originalBorder = htmlElement.style.border;
+            const originalBoxShadow = htmlElement.style.boxShadow;
+            const originalOutline = htmlElement.style.outline;
+            
+            htmlElement.style.border = "2px solid #06b6d4";
+            htmlElement.style.boxShadow = "0 0 10px rgba(6, 182, 212, 0.5)";
+            htmlElement.style.outline = "1px solid #06b6d4";
+            htmlElement.style.transform = "scale(1.01)";
+            htmlElement.style.transition = "all 0.2s ease-in-out";
+            htmlElement.style.animation = "staktrak-hover-pulse 1s ease-in-out";
+            
             element.dispatchEvent(
               new MouseEvent("mouseover", { bubbles: true })
             );
             element.dispatchEvent(
               new MouseEvent("mouseenter", { bubbles: true })
             );
+            
+            setTimeout(() => {
+              htmlElement.style.border = originalBorder;
+              htmlElement.style.boxShadow = originalBoxShadow;
+              htmlElement.style.outline = originalOutline;
+              htmlElement.style.transform = "";
+              htmlElement.style.animation = "";
+            }, 1000);
           } else {
             throw new Error(`Element not found for hover: ${action.selector}`);
           }
@@ -979,8 +1075,26 @@ async function executePlaywrightAction(
             action.selector
           )) as HTMLElement;
           if (element && typeof element.focus === "function") {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
+            const originalBorder = element.style.border;
+            const originalBoxShadow = element.style.boxShadow;
+            const originalOutline = element.style.outline;
+            
+            element.style.border = "3px solid #6366f1";
+            element.style.boxShadow = "0 0 15px rgba(99, 102, 241, 0.6), inset 0 0 10px rgba(99, 102, 241, 0.2)";
+            element.style.outline = "2px solid #6366f1";
+            element.style.transform = "scale(1.01)";
+            element.style.transition = "all 0.3s ease-in-out";
+            element.style.animation = "staktrak-focus-pulse 0.6s ease-in-out";
+            
             element.focus();
+            
+            setTimeout(() => {
+              element.style.border = originalBorder;
+              element.style.boxShadow = originalBoxShadow;
+              element.style.outline = originalOutline;
+              element.style.transform = "";
+              element.style.animation = "";
+            }, 600);
           } else {
             throw new Error(
               `Element not found or not focusable: ${action.selector}`
@@ -1574,19 +1688,75 @@ function ensureStylesInDocument(doc: Document): void {
   style.id = "staktrak-highlight-styles";
   style.textContent = `
     .staktrak-text-highlight {
-      background-color: #3b82f6 !important;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
       color: white !important;
-      padding: 2px 4px !important;
-      border-radius: 3px !important;
+      padding: 3px 6px !important;
+      border-radius: 6px !important;
       font-weight: bold !important;
-      box-shadow: 0 0 8px rgba(59, 130, 246, 0.6) !important;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 24px rgba(29, 78, 216, 0.4) !important;
       animation: staktrak-text-pulse 2s ease-in-out !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
     }
 
     @keyframes staktrak-text-pulse {
-      0% { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
-      50% { background-color: #1d4ed8; box-shadow: 0 0 15px rgba(29, 78, 216, 0.8); }
-      100% { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
+      0% { 
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 24px rgba(29, 78, 216, 0.4);
+        transform: scale(1);
+      }
+      50% { 
+        background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        box-shadow: 0 0 20px rgba(29, 78, 216, 1), 0 0 40px rgba(30, 64, 175, 0.6);
+        transform: scale(1.05);
+      }
+      100% { 
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 24px rgba(29, 78, 216, 0.4);
+        transform: scale(1);
+      }
+    }
+
+    @keyframes staktrak-click-pulse {
+      0% { transform: scale(1.02); box-shadow: 0 0 20px rgba(255, 107, 107, 0.8), 0 0 40px rgba(255, 107, 107, 0.4); }
+      50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(255, 107, 107, 1), 0 0 60px rgba(255, 107, 107, 0.6); }
+      100% { transform: scale(1.02); box-shadow: 0 0 20px rgba(255, 107, 107, 0.8), 0 0 40px rgba(255, 107, 107, 0.4); }
+    }
+
+    @keyframes staktrak-fill-pulse {
+      0% { transform: scale(1.01); box-shadow: 0 0 15px rgba(59, 130, 246, 0.6), inset 0 0 10px rgba(59, 130, 246, 0.2); }
+      50% { transform: scale(1.03); box-shadow: 0 0 25px rgba(59, 130, 246, 0.9), inset 0 0 15px rgba(59, 130, 246, 0.4); }
+      100% { transform: scale(1.01); box-shadow: 0 0 15px rgba(59, 130, 246, 0.6), inset 0 0 10px rgba(59, 130, 246, 0.2); }
+    }
+
+    @keyframes staktrak-check-pulse {
+      0% { transform: scale(1.05); box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+      50% { transform: scale(1.08); box-shadow: 0 0 25px rgba(16, 185, 129, 0.9); }
+      100% { transform: scale(1.05); box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+    }
+
+    @keyframes staktrak-uncheck-pulse {
+      0% { transform: scale(1.05); box-shadow: 0 0 15px rgba(245, 158, 11, 0.6); }
+      50% { transform: scale(1.08); box-shadow: 0 0 25px rgba(245, 158, 11, 0.9); }
+      100% { transform: scale(1.05); box-shadow: 0 0 15px rgba(245, 158, 11, 0.6); }
+    }
+
+    @keyframes staktrak-select-pulse {
+      0% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 92, 246, 0.6); }
+      50% { transform: scale(1.04); box-shadow: 0 0 25px rgba(139, 92, 246, 0.9); }
+      100% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 92, 246, 0.6); }
+    }
+
+    @keyframes staktrak-hover-pulse {
+      0% { transform: scale(1.01); box-shadow: 0 0 10px rgba(6, 182, 212, 0.5); }
+      50% { transform: scale(1.02); box-shadow: 0 0 20px rgba(6, 182, 212, 0.8); }
+      100% { transform: scale(1.01); box-shadow: 0 0 10px rgba(6, 182, 212, 0.5); }
+    }
+
+    @keyframes staktrak-focus-pulse {
+      0% { transform: scale(1.01); box-shadow: 0 0 15px rgba(99, 102, 241, 0.6), inset 0 0 10px rgba(99, 102, 241, 0.2); }
+      50% { transform: scale(1.03); box-shadow: 0 0 25px rgba(99, 102, 241, 0.9), inset 0 0 15px rgba(99, 102, 241, 0.4); }
+      100% { transform: scale(1.01); box-shadow: 0 0 15px rgba(99, 102, 241, 0.6), inset 0 0 10px rgba(99, 102, 241, 0.2); }
     }
   `;
 
@@ -1688,31 +1858,31 @@ async function verifyExpectation(action: PlaywrightAction): Promise<void> {
       }
       break;
 
-    case "toContainText":
-      const textElement = await waitForElement(action.selector, action.value);
-      if (
-        !textElement ||
-        !textElement.textContent?.includes(String(action.value || ""))
-      ) {
-        throw new Error(
-          `Element does not contain text "${action.value}": ${action.selector}`
-        );
-      }
-      break;
+          case "toContainText":
+        const textElement = await waitForElement(action.selector, String(action.value || ""));
+        if (
+          !textElement ||
+          !textElement.textContent?.includes(String(action.value || ""))
+        ) {
+          throw new Error(
+            `Element does not contain text "${action.value}": ${action.selector}`
+          );
+        }
+        break;
 
-    case "toHaveText":
-      const exactTextElement = await waitForElement(
-        action.selector,
-        action.value
-      );
-      if (
-        !exactTextElement ||
-        exactTextElement.textContent?.trim() !== String(action.value || "")
-      ) {
-        throw new Error(
-          `Element does not have exact text "${action.value}": ${action.selector}`
+      case "toHaveText":
+        const exactTextElement = await waitForElement(
+          action.selector,
+          String(action.value || "")
         );
-      }
+        if (
+          !exactTextElement ||
+          exactTextElement.textContent?.trim() !== String(action.value || "")
+        ) {
+          throw new Error(
+            `Element does not have exact text "${action.value}": ${action.selector}`
+          );
+        }
       break;
 
     case "toBeChecked":
