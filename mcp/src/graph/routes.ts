@@ -28,6 +28,8 @@ import { db } from "./neo4j.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
 import { get_context } from "../tools/explore/tool.js";
+import { callGenerateObject } from "../aieo/src/stream.js";
+import { z } from "zod";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -73,6 +75,30 @@ export async function explore(req: Request, res: Response) {
     return;
   }
   const result = await get_context(prompt);
+  res.json({ result });
+}
+
+export async function understand(req: Request, res: Response) {
+  const prompt = req.query.prompt as string;
+  if (!prompt) {
+    res.status(400).json({ error: "Missing prompt" });
+    return;
+  }
+  const ctx = await get_context(prompt);
+  const result = await callGenerateObject({
+    provider: "anthropic",
+    apiKey: process.env.ANTHROPIC_API_KEY as string,
+    prompt: ctx,
+    schema: z.object({
+      function_names: z
+        .array(z.string())
+        .describe("functions or react components"),
+      file_names: z.array(z.string()),
+      datamodel_names: z.array(z.string()),
+      endpoint_names: z.array(z.string()),
+      page_names: z.array(z.string()),
+    }),
+  });
   res.json({ result });
 }
 
