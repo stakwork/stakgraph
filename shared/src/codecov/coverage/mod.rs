@@ -1,5 +1,6 @@
 use crate::codecov::LanguageReport;
 use crate::Result;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub mod typescript;
@@ -32,6 +33,10 @@ pub trait TestCoverage: Send + Sync {
     fn artifact_paths(&self, _: &Path) -> Vec<PathBuf> {
         Vec::new()
     }
+    // Language-specific optional hooks (JS/TS providers override)
+    fn read_test_scripts(&self, _repo_path: &Path) -> Result<Option<HashMap<String,String>>> { Ok(None) }
+    fn read_test_dependencies(&self, _repo_path: &Path) -> Result<Vec<String>> { Ok(vec![]) }
+    fn discover_test_files(&self, _repo_path: &Path) -> Result<Vec<PathBuf>> { Ok(vec![]) }
     fn run(&self, repo_path: &Path) -> Result<Option<LanguageReport>> {
         if !self.detect(repo_path) {
             return Ok(None);
