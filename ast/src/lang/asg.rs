@@ -187,6 +187,10 @@ impl NodeData {
     pub fn add_test_kind(&mut self, test_kind: &str) {
         self.meta.insert("test_kind".to_string(), test_kind.to_string());
     }
+    pub fn add_interface(&mut self, interface: &str) {
+        if interface.is_empty() { return; }
+        self.meta.insert("interface".to_string(), interface.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
