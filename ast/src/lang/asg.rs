@@ -187,6 +187,11 @@ impl NodeData {
     pub fn add_test_kind(&mut self, test_kind: &str) {
         self.meta.insert("test_kind".to_string(), test_kind.to_string());
     }
+    pub fn test_covered(&mut self, covered: bool) {
+        if covered {
+            self.meta.insert("test_covered".to_string(), "true".into());
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
