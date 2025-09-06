@@ -580,11 +580,19 @@ class Db {
   ): Promise<HintExtraction> {
     const truncated = answer.slice(0, 8000);
     const schema = z.object({
-      function_names: z.array(z.string()).describe("functions or react components"),
-      file_names: z.array(z.string()).describe("file names or file paths"),
-      datamodel_names: z.array(z.string()).describe("database models, schemas, or data structures"),
-      endpoint_names: z.array(z.string()).describe("API endpoints, routes, or URLs"),
-      page_names: z.array(z.string()).describe("web pages, components, or views"),
+      function_names: z
+        .array(z.string())
+        .describe("functions or react components"),
+      file_names: z.array(z.string()).describe("complete file path"),
+      datamodel_names: z
+        .array(z.string())
+        .describe("database models, schemas, or data structures"),
+      endpoint_names: z
+        .array(z.string())
+        .describe("API endpoint name e.g /api/person"),
+      page_names: z
+        .array(z.string())
+        .describe("web pages, components, or views"),
     });
     try {
       return await callGenerateObject({

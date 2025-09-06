@@ -96,7 +96,7 @@ MATCH (n:Hint {node_key: $node_key}) RETURN n
 
 export const FIND_NODES_BY_NAME_QUERY = `
 MATCH (n:{LABEL})
-WHERE n.name = $name
+WHERE n.name ENDS WITH $name
 RETURN n
 LIMIT 5
 `;
