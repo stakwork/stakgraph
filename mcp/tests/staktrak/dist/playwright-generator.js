@@ -30,10 +30,8 @@ function convertToPlaywrightSelector(clickDetail) {
   if (selectors.tagName === "input") {
     const type = clickDetail.elementInfo.attributes.type;
     const name = clickDetail.elementInfo.attributes.name;
-    if (type)
-      return `input[type="${type}"]`;
-    if (name)
-      return `input[name="${name}"]`;
+    if (type) return `input[type="${type}"]`;
+    if (name) return `input[name="${name}"]`;
   }
   if (selectors.xpath) {
     return `xpath=${selectors.xpath}`;
@@ -41,8 +39,7 @@ function convertToPlaywrightSelector(clickDetail) {
   return selectors.tagName;
 }
 function isValidCSSSelector(selector) {
-  if (!selector || selector.trim() === "")
-    return false;
+  if (!selector || selector.trim() === "") return false;
   try {
     if (typeof document !== "undefined") {
       document.querySelector(selector);
@@ -54,8 +51,7 @@ function isValidCSSSelector(selector) {
 }
 function generatePlaywrightTest(url, trackingData) {
   var _a;
-  if (!trackingData)
-    return generateEmptyTest(url);
+  if (!trackingData) return generateEmptyTest(url);
   const { clicks, inputChanges, assertions, userInfo, formElementChanges } = trackingData;
   if (!((_a = clicks == null ? void 0 : clicks.clickDetails) == null ? void 0 : _a.length) && !(inputChanges == null ? void 0 : inputChanges.length) && !(assertions == null ? void 0 : assertions.length) && !(formElementChanges == null ? void 0 : formElementChanges.length)) {
     return generateEmptyTest(url);
@@ -377,22 +373,17 @@ function generateAssertionCode(event) {
   return code;
 }
 function escapeTextForAssertion(text) {
-  if (!text)
-    return "";
+  if (!text) return "";
   return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").trim();
 }
 function cleanTextForGetByText(text) {
-  if (!text)
-    return "";
+  if (!text) return "";
   return text.replace(/\s+/g, " ").replace(/\n+/g, " ").trim();
 }
 function isTextAmbiguous(text) {
-  if (!text)
-    return true;
-  if (text.length < 6)
-    return true;
-  if (text.split(/\s+/).length <= 2)
-    return true;
+  if (!text) return true;
+  if (text.length < 6) return true;
+  if (text.split(/\s+/).length <= 2) return true;
   return false;
 }
 if (typeof window !== "undefined") {

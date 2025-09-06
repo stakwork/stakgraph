@@ -36,9 +36,9 @@ var userBehaviour = (() => {
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
   // src/index.ts
-  var src_exports = {};
-  __export(src_exports, {
-    default: () => src_default
+  var index_exports = {};
+  __export(index_exports, {
+    default: () => index_default
   });
 
   // src/utils.ts
@@ -95,10 +95,8 @@ var userBehaviour = (() => {
     if (tagName === "input") {
       const type = element.type;
       const name = element.name;
-      if (type)
-        fallbacks.push(`input[type="${type}"]`);
-      if (name)
-        fallbacks.push(`input[name="${name}"]`);
+      if (type) fallbacks.push(`input[type="${type}"]`);
+      if (name) fallbacks.push(`input[name="${name}"]`);
     }
     const contextualSelector = generateContextualSelector(element);
     if (contextualSelector) {
@@ -136,8 +134,7 @@ var userBehaviour = (() => {
   var generateTextBasedSelector = (element, text) => {
     const tagName = element.tagName.toLowerCase();
     const cleanText = text.replace(/"/g, '\\"').trim();
-    if (cleanText.length === 0 || cleanText.length > 50)
-      return null;
+    if (cleanText.length === 0 || cleanText.length > 50) return null;
     if (tagName === "button" || tagName === "a" || element.getAttribute("role") === "button") {
       return `text=${cleanText}`;
     }
@@ -146,31 +143,23 @@ var userBehaviour = (() => {
   var generateClassBasedSelector = (element) => {
     const tagName = element.tagName.toLowerCase();
     const classList = element.classList;
-    if (!classList.length)
-      return tagName;
+    if (!classList.length) return tagName;
     const safeClasses = Array.from(classList).filter((cls) => {
-      if (cls.includes("_") && cls.match(/[0-9a-f]{6}/))
-        return false;
-      if (cls.includes("module__"))
-        return false;
-      if (cls.includes("emotion-"))
-        return false;
-      if (cls.includes("css-"))
-        return false;
-      if (cls.length > 30)
-        return false;
+      if (cls.includes("_") && cls.match(/[0-9a-f]{6}/)) return false;
+      if (cls.includes("module__")) return false;
+      if (cls.includes("emotion-")) return false;
+      if (cls.includes("css-")) return false;
+      if (cls.length > 30) return false;
       return /^[a-zA-Z][a-zA-Z0-9-]*$/.test(cls);
     });
-    if (safeClasses.length === 0)
-      return tagName;
+    if (safeClasses.length === 0) return tagName;
     const limitedClasses = safeClasses.slice(0, 3);
     return `${tagName}.${limitedClasses.join(".")}`;
   };
   var generateContextualSelector = (element) => {
     const tagName = element.tagName.toLowerCase();
     const parent = element.parentElement;
-    if (!parent)
-      return null;
+    if (!parent) return null;
     if (tagName === "button" && parent.tagName === "NAV") {
       return "nav button";
     }
@@ -201,8 +190,7 @@ var userBehaviour = (() => {
       const part = index > 1 ? `${tagName}[${index}]` : tagName;
       parts.unshift(part);
       current = current.parentElement;
-      if (parts.length > 10)
-        break;
+      if (parts.length > 10) break;
     }
     return "/" + parts.join("/");
   };
@@ -236,8 +224,7 @@ var userBehaviour = (() => {
     ];
     importantAttrs.forEach((attr) => {
       const value = htmlEl.getAttribute(attr);
-      if (value)
-        attrs[attr] = value;
+      if (value) attrs[attr] = value;
     });
     return attrs;
   };
@@ -246,8 +233,7 @@ var userBehaviour = (() => {
     return strategies.primary;
   };
   var filterClickDetails = (clickDetails, assertions, config) => {
-    if (!clickDetails.length)
-      return [];
+    if (!clickDetails.length) return [];
     let filtered = config.filterAssertionClicks ? clickDetails.filter(
       (click) => !assertions.some(
         (assertion) => Math.abs(click.timestamp - assertion.timestamp) < 1e3 && (click.selectors.primary.includes(assertion.selector) || assertion.selector.includes(click.selectors.primary) || click.selectors.fallbacks.some(
@@ -258,8 +244,7 @@ var userBehaviour = (() => {
     const clicksBySelector = {};
     filtered.forEach((click) => {
       const key = click.selectors.primary;
-      if (!clicksBySelector[key])
-        clicksBySelector[key] = [];
+      if (!clicksBySelector[key]) clicksBySelector[key] = [];
       clicksBySelector[key].push(click);
     });
     const result = [];
@@ -363,8 +348,7 @@ var userBehaviour = (() => {
       let level = 0;
       const maxTraversalDepth = Number((_a = window.STAKTRAK_CONFIG) == null ? void 0 : _a.maxTraversalDepth) || 10;
       const extractSource = (source) => {
-        if (!source)
-          return null;
+        if (!source) return null;
         return {
           fileName: source.fileName,
           lineNumber: source.lineNumber,
@@ -473,8 +457,7 @@ var userBehaviour = (() => {
         file.lines.sort((a, b) => a - b);
       });
       const formatComponentsForChat = (components) => {
-        if (components.length === 0)
-          return void 0;
+        if (components.length === 0) return void 0;
         const sortedComponents = components.sort((a, b) => a.level - b.level).slice(0, 3);
         const componentLines = sortedComponents.map((c) => {
           const nameToUse = c.name || "Unknown";
@@ -1036,25 +1019,19 @@ var userBehaviour = (() => {
       }
     }
     const labelMatch = locatorCall.match(/getByLabel\(['"](.*?)['"]\)/);
-    if (labelMatch)
-      return `getByLabel:${labelMatch[1]}`;
+    if (labelMatch) return `getByLabel:${labelMatch[1]}`;
     const placeholderMatch = locatorCall.match(
       /getByPlaceholder\(['"](.*?)['"]\)/
     );
-    if (placeholderMatch)
-      return `getByPlaceholder:${placeholderMatch[1]}`;
+    if (placeholderMatch) return `getByPlaceholder:${placeholderMatch[1]}`;
     const testIdMatch = locatorCall.match(/getByTestId\(['"](.*?)['"]\)/);
-    if (testIdMatch)
-      return `getByTestId:${testIdMatch[1]}`;
+    if (testIdMatch) return `getByTestId:${testIdMatch[1]}`;
     const titleMatch = locatorCall.match(/getByTitle\(['"](.*?)['"]\)/);
-    if (titleMatch)
-      return `getByTitle:${titleMatch[1]}`;
+    if (titleMatch) return `getByTitle:${titleMatch[1]}`;
     const altMatch = locatorCall.match(/getByAltText\(['"](.*?)['"]\)/);
-    if (altMatch)
-      return `getByAltText:${altMatch[1]}`;
+    if (altMatch) return `getByAltText:${altMatch[1]}`;
     const locatorMatch = locatorCall.match(/locator\(['"](.*?)['"]\)/);
-    if (locatorMatch)
-      return locatorMatch[1];
+    if (locatorMatch) return locatorMatch[1];
     const locatorWithOptionsMatch = locatorCall.match(
       /locator\(['"](.*?)['"],\s*\{\s*hasText:\s*['"](.*?)['"]\s*\}/
     );
@@ -1089,13 +1066,10 @@ var userBehaviour = (() => {
       const innerSelector = parseLocatorCall(filterHasNotMatch[1]);
       return `${baseSelector}:filter-has-not("${innerSelector}")`;
     }
-    if (chainCall.includes("first()"))
-      return `${baseSelector}:first`;
-    if (chainCall.includes("last()"))
-      return `${baseSelector}:last`;
+    if (chainCall.includes("first()")) return `${baseSelector}:first`;
+    if (chainCall.includes("last()")) return `${baseSelector}:last`;
     const nthMatch = chainCall.match(/nth\((\d+)\)/);
-    if (nthMatch)
-      return `${baseSelector}:nth(${nthMatch[1]})`;
+    if (nthMatch) return `${baseSelector}:nth(${nthMatch[1]})`;
     const andMatch = chainCall.match(/and\(page\.(.+?)\)/);
     if (andMatch) {
       const otherSelector = parseLocatorCall(andMatch[1]);
@@ -1112,8 +1086,7 @@ var userBehaviour = (() => {
       return `${baseSelector} >> ${innerSelector}`;
     }
     const locatorChainMatch = chainCall.match(/^locator\(['"](.*?)['"]\)/);
-    if (locatorChainMatch)
-      return `${baseSelector} >> ${locatorChainMatch[1]}`;
+    if (locatorChainMatch) return `${baseSelector} >> ${locatorChainMatch[1]}`;
     return `${baseSelector}:${chainCall}`;
   }
   function extractSelectorFromArg(selectorArg) {
@@ -1288,13 +1261,22 @@ var userBehaviour = (() => {
             if (element) {
               const htmlElement = element;
               const originalBorder = htmlElement.style.border;
-              htmlElement.style.border = "3px solid #ff6b6b";
-              htmlElement.style.boxShadow = "0 0 10px rgba(255, 107, 107, 0.5)";
+              const originalBoxShadow = htmlElement.style.boxShadow;
+              const originalOutline = htmlElement.style.outline;
+              htmlElement.style.border = "4px solid #ff6b6b";
+              htmlElement.style.boxShadow = "0 0 20px rgba(255, 107, 107, 0.8), 0 0 40px rgba(255, 107, 107, 0.4)";
+              htmlElement.style.outline = "2px solid #ff6b6b";
+              htmlElement.style.transform = "scale(1.02)";
+              htmlElement.style.transition = "all 0.3s ease-in-out";
+              htmlElement.style.animation = "staktrak-click-pulse 0.6s ease-in-out";
               htmlElement.click();
               setTimeout(() => {
                 htmlElement.style.border = originalBorder;
-                htmlElement.style.boxShadow = "";
-              }, 300);
+                htmlElement.style.boxShadow = originalBoxShadow;
+                htmlElement.style.outline = originalOutline;
+                htmlElement.style.transform = "";
+                htmlElement.style.animation = "";
+              }, 600);
             } else {
               throw new Error(`Element not found: ${action.selector}`);
             }
@@ -1304,11 +1286,27 @@ var userBehaviour = (() => {
           if (action.selector && action.value !== void 0) {
             const element = await waitForElement(action.selector);
             if (element) {
+              const originalBorder = element.style.border;
+              const originalBoxShadow = element.style.boxShadow;
+              const originalOutline = element.style.outline;
+              element.style.border = "3px solid #3b82f6";
+              element.style.boxShadow = "0 0 15px rgba(59, 130, 246, 0.6), inset 0 0 10px rgba(59, 130, 246, 0.2)";
+              element.style.outline = "2px solid #3b82f6";
+              element.style.transform = "scale(1.01)";
+              element.style.transition = "all 0.3s ease-in-out";
+              element.style.animation = "staktrak-fill-pulse 0.8s ease-in-out";
               element.focus();
               element.value = "";
               element.value = String(action.value);
               element.dispatchEvent(new Event("input", { bubbles: true }));
               element.dispatchEvent(new Event("change", { bubbles: true }));
+              setTimeout(() => {
+                element.style.border = originalBorder;
+                element.style.boxShadow = originalBoxShadow;
+                element.style.outline = originalOutline;
+                element.style.transform = "";
+                element.style.animation = "";
+              }, 800);
             } else {
               throw new Error(`Input element not found: ${action.selector}`);
             }
@@ -1320,9 +1318,25 @@ var userBehaviour = (() => {
               action.selector
             );
             if (element && (element.type === "checkbox" || element.type === "radio")) {
+              const originalBorder = element.style.border;
+              const originalBoxShadow = element.style.boxShadow;
+              const originalOutline = element.style.outline;
+              element.style.border = "3px solid #10b981";
+              element.style.boxShadow = "0 0 15px rgba(16, 185, 129, 0.6)";
+              element.style.outline = "2px solid #10b981";
+              element.style.transform = "scale(1.05)";
+              element.style.transition = "all 0.3s ease-in-out";
+              element.style.animation = "staktrak-check-pulse 0.5s ease-in-out";
               if (!element.checked) {
                 element.click();
               }
+              setTimeout(() => {
+                element.style.border = originalBorder;
+                element.style.boxShadow = originalBoxShadow;
+                element.style.outline = originalOutline;
+                element.style.transform = "";
+                element.style.animation = "";
+              }, 500);
             } else {
               throw new Error(
                 `Checkbox/radio element not found: ${action.selector}`
@@ -1336,9 +1350,25 @@ var userBehaviour = (() => {
               action.selector
             );
             if (element && element.type === "checkbox") {
+              const originalBorder = element.style.border;
+              const originalBoxShadow = element.style.boxShadow;
+              const originalOutline = element.style.outline;
+              element.style.border = "3px solid #f59e0b";
+              element.style.boxShadow = "0 0 15px rgba(245, 158, 11, 0.6)";
+              element.style.outline = "2px solid #f59e0b";
+              element.style.transform = "scale(1.05)";
+              element.style.transition = "all 0.3s ease-in-out";
+              element.style.animation = "staktrak-uncheck-pulse 0.5s ease-in-out";
               if (element.checked) {
                 element.click();
               }
+              setTimeout(() => {
+                element.style.border = originalBorder;
+                element.style.boxShadow = originalBoxShadow;
+                element.style.outline = originalOutline;
+                element.style.transform = "";
+                element.style.animation = "";
+              }, 500);
             } else {
               throw new Error(`Checkbox element not found: ${action.selector}`);
             }
@@ -1350,8 +1380,24 @@ var userBehaviour = (() => {
               action.selector
             );
             if (element && element.tagName === "SELECT") {
+              const originalBorder = element.style.border;
+              const originalBoxShadow = element.style.boxShadow;
+              const originalOutline = element.style.outline;
+              element.style.border = "3px solid #8b5cf6";
+              element.style.boxShadow = "0 0 15px rgba(139, 92, 246, 0.6)";
+              element.style.outline = "2px solid #8b5cf6";
+              element.style.transform = "scale(1.02)";
+              element.style.transition = "all 0.3s ease-in-out";
+              element.style.animation = "staktrak-select-pulse 0.7s ease-in-out";
               element.value = String(action.value);
               element.dispatchEvent(new Event("change", { bubbles: true }));
+              setTimeout(() => {
+                element.style.border = originalBorder;
+                element.style.boxShadow = originalBoxShadow;
+                element.style.outline = originalOutline;
+                element.style.transform = "";
+                element.style.animation = "";
+              }, 700);
             } else {
               throw new Error(`Select element not found: ${action.selector}`);
             }
@@ -1380,12 +1426,29 @@ var userBehaviour = (() => {
           if (action.selector) {
             const element = await waitForElement(action.selector);
             if (element) {
+              const htmlElement = element;
+              const originalBorder = htmlElement.style.border;
+              const originalBoxShadow = htmlElement.style.boxShadow;
+              const originalOutline = htmlElement.style.outline;
+              htmlElement.style.border = "2px solid #06b6d4";
+              htmlElement.style.boxShadow = "0 0 10px rgba(6, 182, 212, 0.5)";
+              htmlElement.style.outline = "1px solid #06b6d4";
+              htmlElement.style.transform = "scale(1.01)";
+              htmlElement.style.transition = "all 0.2s ease-in-out";
+              htmlElement.style.animation = "staktrak-hover-pulse 1s ease-in-out";
               element.dispatchEvent(
                 new MouseEvent("mouseover", { bubbles: true })
               );
               element.dispatchEvent(
                 new MouseEvent("mouseenter", { bubbles: true })
               );
+              setTimeout(() => {
+                htmlElement.style.border = originalBorder;
+                htmlElement.style.boxShadow = originalBoxShadow;
+                htmlElement.style.outline = originalOutline;
+                htmlElement.style.transform = "";
+                htmlElement.style.animation = "";
+              }, 1e3);
             } else {
               throw new Error(`Element not found for hover: ${action.selector}`);
             }
@@ -1397,7 +1460,23 @@ var userBehaviour = (() => {
               action.selector
             );
             if (element && typeof element.focus === "function") {
+              const originalBorder = element.style.border;
+              const originalBoxShadow = element.style.boxShadow;
+              const originalOutline = element.style.outline;
+              element.style.border = "3px solid #6366f1";
+              element.style.boxShadow = "0 0 15px rgba(99, 102, 241, 0.6), inset 0 0 10px rgba(99, 102, 241, 0.2)";
+              element.style.outline = "2px solid #6366f1";
+              element.style.transform = "scale(1.01)";
+              element.style.transition = "all 0.3s ease-in-out";
+              element.style.animation = "staktrak-focus-pulse 0.6s ease-in-out";
               element.focus();
+              setTimeout(() => {
+                element.style.border = originalBorder;
+                element.style.boxShadow = originalBoxShadow;
+                element.style.outline = originalOutline;
+                element.style.transform = "";
+                element.style.animation = "";
+              }, 600);
             } else {
               throw new Error(
                 `Element not found or not focusable: ${action.selector}`
@@ -1692,8 +1771,7 @@ var userBehaviour = (() => {
           } else {
             element = label.querySelector("input, textarea, select");
           }
-          if (element)
-            matches.push(element);
+          if (element) matches.push(element);
         }
       }
       return matches;
@@ -1889,25 +1967,80 @@ var userBehaviour = (() => {
     return null;
   }
   function ensureStylesInDocument(doc) {
-    if (doc.querySelector("#staktrak-highlight-styles"))
-      return;
+    if (doc.querySelector("#staktrak-highlight-styles")) return;
     const style = doc.createElement("style");
     style.id = "staktrak-highlight-styles";
     style.textContent = `
     .staktrak-text-highlight {
-      background-color: #3b82f6 !important;
+      background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
       color: white !important;
-      padding: 2px 4px !important;
-      border-radius: 3px !important;
+      padding: 3px 6px !important;
+      border-radius: 6px !important;
       font-weight: bold !important;
-      box-shadow: 0 0 8px rgba(59, 130, 246, 0.6) !important;
+      box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 24px rgba(29, 78, 216, 0.4) !important;
       animation: staktrak-text-pulse 2s ease-in-out !important;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3) !important;
+      border: 1px solid rgba(255, 255, 255, 0.2) !important;
     }
 
     @keyframes staktrak-text-pulse {
-      0% { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
-      50% { background-color: #1d4ed8; box-shadow: 0 0 15px rgba(29, 78, 216, 0.8); }
-      100% { background-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.6); }
+      0% { 
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 24px rgba(29, 78, 216, 0.4);
+        transform: scale(1);
+      }
+      50% { 
+        background: linear-gradient(135deg, #1d4ed8, #1e40af);
+        box-shadow: 0 0 20px rgba(29, 78, 216, 1), 0 0 40px rgba(30, 64, 175, 0.6);
+        transform: scale(1.05);
+      }
+      100% { 
+        background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.8), 0 0 24px rgba(29, 78, 216, 0.4);
+        transform: scale(1);
+      }
+    }
+
+    @keyframes staktrak-click-pulse {
+      0% { transform: scale(1.02); box-shadow: 0 0 20px rgba(255, 107, 107, 0.8), 0 0 40px rgba(255, 107, 107, 0.4); }
+      50% { transform: scale(1.05); box-shadow: 0 0 30px rgba(255, 107, 107, 1), 0 0 60px rgba(255, 107, 107, 0.6); }
+      100% { transform: scale(1.02); box-shadow: 0 0 20px rgba(255, 107, 107, 0.8), 0 0 40px rgba(255, 107, 107, 0.4); }
+    }
+
+    @keyframes staktrak-fill-pulse {
+      0% { transform: scale(1.01); box-shadow: 0 0 15px rgba(59, 130, 246, 0.6), inset 0 0 10px rgba(59, 130, 246, 0.2); }
+      50% { transform: scale(1.03); box-shadow: 0 0 25px rgba(59, 130, 246, 0.9), inset 0 0 15px rgba(59, 130, 246, 0.4); }
+      100% { transform: scale(1.01); box-shadow: 0 0 15px rgba(59, 130, 246, 0.6), inset 0 0 10px rgba(59, 130, 246, 0.2); }
+    }
+
+    @keyframes staktrak-check-pulse {
+      0% { transform: scale(1.05); box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+      50% { transform: scale(1.08); box-shadow: 0 0 25px rgba(16, 185, 129, 0.9); }
+      100% { transform: scale(1.05); box-shadow: 0 0 15px rgba(16, 185, 129, 0.6); }
+    }
+
+    @keyframes staktrak-uncheck-pulse {
+      0% { transform: scale(1.05); box-shadow: 0 0 15px rgba(245, 158, 11, 0.6); }
+      50% { transform: scale(1.08); box-shadow: 0 0 25px rgba(245, 158, 11, 0.9); }
+      100% { transform: scale(1.05); box-shadow: 0 0 15px rgba(245, 158, 11, 0.6); }
+    }
+
+    @keyframes staktrak-select-pulse {
+      0% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 92, 246, 0.6); }
+      50% { transform: scale(1.04); box-shadow: 0 0 25px rgba(139, 92, 246, 0.9); }
+      100% { transform: scale(1.02); box-shadow: 0 0 15px rgba(139, 92, 246, 0.6); }
+    }
+
+    @keyframes staktrak-hover-pulse {
+      0% { transform: scale(1.01); box-shadow: 0 0 10px rgba(6, 182, 212, 0.5); }
+      50% { transform: scale(1.02); box-shadow: 0 0 20px rgba(6, 182, 212, 0.8); }
+      100% { transform: scale(1.01); box-shadow: 0 0 10px rgba(6, 182, 212, 0.5); }
+    }
+
+    @keyframes staktrak-focus-pulse {
+      0% { transform: scale(1.01); box-shadow: 0 0 15px rgba(99, 102, 241, 0.6), inset 0 0 10px rgba(99, 102, 241, 0.2); }
+      50% { transform: scale(1.03); box-shadow: 0 0 25px rgba(99, 102, 241, 0.9), inset 0 0 15px rgba(99, 102, 241, 0.4); }
+      100% { transform: scale(1.01); box-shadow: 0 0 15px rgba(99, 102, 241, 0.6), inset 0 0 10px rgba(99, 102, 241, 0.2); }
     }
   `;
     doc.head.appendChild(style);
@@ -1976,8 +2109,7 @@ var userBehaviour = (() => {
   }
   async function verifyExpectation(action) {
     var _a, _b;
-    if (!action.selector)
-      return;
+    if (!action.selector) return;
     switch (action.expectation) {
       case "toBeVisible":
         const element = await waitForElement(action.selector);
@@ -1986,7 +2118,7 @@ var userBehaviour = (() => {
         }
         break;
       case "toContainText":
-        const textElement = await waitForElement(action.selector, action.value);
+        const textElement = await waitForElement(action.selector, String(action.value || ""));
         if (!textElement || !((_a = textElement.textContent) == null ? void 0 : _a.includes(String(action.value || "")))) {
           throw new Error(
             `Element does not contain text "${action.value}": ${action.selector}`
@@ -1996,7 +2128,7 @@ var userBehaviour = (() => {
       case "toHaveText":
         const exactTextElement = await waitForElement(
           action.selector,
-          action.value
+          String(action.value || "")
         );
         if (!exactTextElement || ((_b = exactTextElement.textContent) == null ? void 0 : _b.trim()) !== String(action.value || "")) {
           throw new Error(
@@ -2195,8 +2327,7 @@ var userBehaviour = (() => {
   }
   function getPlaywrightReplayState() {
     const state = playwrightReplayRef.current;
-    if (!state)
-      return null;
+    if (!state) return null;
     return {
       actions: state.actions,
       status: state.status,
@@ -2208,8 +2339,7 @@ var userBehaviour = (() => {
   function initPlaywrightReplay() {
     window.addEventListener("message", (event) => {
       const { data } = event;
-      if (!data || !data.type)
-        return;
+      if (!data || !data.type) return;
       switch (data.type) {
         case "staktrak-playwright-replay-start":
           if (data.testCode) {
@@ -2595,12 +2725,10 @@ var userBehaviour = (() => {
       );
     }
     setupMessageHandling() {
-      if (this.memory.alwaysListeners.length > 0)
-        return;
+      if (this.memory.alwaysListeners.length > 0) return;
       const messageHandler = (event) => {
         var _a;
-        if (!((_a = event.data) == null ? void 0 : _a.type))
-          return;
+        if (!((_a = event.data) == null ? void 0 : _a.type)) return;
         switch (event.data.type) {
           case "staktrak-start":
             this.resetResults();
@@ -2742,6 +2870,6 @@ var userBehaviour = (() => {
     initPlaywrightReplay();
   };
   document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", initializeStakTrak) : initializeStakTrak();
-  var src_default = userBehaviour;
-  return __toCommonJS(src_exports);
+  var index_default = userBehaviour;
+  return __toCommonJS(index_exports);
 })();
