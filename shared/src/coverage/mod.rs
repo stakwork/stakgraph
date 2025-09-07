@@ -8,3 +8,5 @@ pub mod types;
 pub mod languages{
     pub mod typescript;
 }
+
+pub use types::*;
