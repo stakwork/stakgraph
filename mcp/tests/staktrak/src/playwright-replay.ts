@@ -1689,28 +1689,30 @@ async function verifyExpectation(action: PlaywrightAction): Promise<void> {
       break;
 
     case "toContainText":
-      const textElement = await waitForElement(action.selector, action.value);
+      const textValue = String(action.value || "");
+      const textElement = await waitForElement(action.selector, textValue);
       if (
         !textElement ||
-        !textElement.textContent?.includes(String(action.value || ""))
+        !textElement.textContent?.includes(textValue)
       ) {
         throw new Error(
-          `Element does not contain text "${action.value}": ${action.selector}`
+          `Element does not contain text "${textValue}": ${action.selector}`
         );
       }
       break;
 
     case "toHaveText":
+      const exactTextValue = String(action.value || "");
       const exactTextElement = await waitForElement(
         action.selector,
-        action.value
+        exactTextValue
       );
       if (
         !exactTextElement ||
-        exactTextElement.textContent?.trim() !== String(action.value || "")
+        exactTextElement.textContent?.trim() !== exactTextValue
       ) {
         throw new Error(
-          `Element does not have exact text "${action.value}": ${action.selector}`
+          `Element does not have exact text "${exactTextValue}": ${action.selector}`
         );
       }
       break;

@@ -30,10 +30,8 @@ function convertToPlaywrightSelector(clickDetail) {
   if (selectors.tagName === "input") {
     const type = clickDetail.elementInfo.attributes.type;
     const name = clickDetail.elementInfo.attributes.name;
-    if (type)
-      return `input[type="${type}"]`;
-    if (name)
-      return `input[name="${name}"]`;
+    if (type) return `input[type="${type}"]`;
+    if (name) return `input[name="${name}"]`;
   }
   if (selectors.xpath) {
     return `xpath=${selectors.xpath}`;
@@ -41,8 +39,7 @@ function convertToPlaywrightSelector(clickDetail) {
   return selectors.tagName;
 }
 function isValidCSSSelector(selector) {
-  if (!selector || selector.trim() === "")
-    return false;
+  if (!selector || selector.trim() === "") return false;
   try {
     if (typeof document !== "undefined") {
       document.querySelector(selector);
@@ -52,12 +49,94 @@ function isValidCSSSelector(selector) {
     return false;
   }
 }
+function generateUrlPattern(url, options = {}) {
+  if (!url) return { pattern: "", useRegex: false, assertionType: "exact" };
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const search = urlObj.search;
+    const dynamicPatterns = [
+      /\/\d{4,}(?:\/|$)/,
+      /\/[a-f0-9]{8,}(?:-[a-f0-9]{4,})*(?:\/|$)/i,
+      /\/[A-Z0-9_]{20,}(?:\/|$)/i,
+      /\/[a-z0-9]{25,}(?:\/|$)/i,
+      /\/[a-z0-9]{15,}(?:\/|$)/i
+    ];
+    const hasDynamicSegments = dynamicPatterns.some((pattern) => pattern.test(pathname));
+    const workspacePattern = /^\/w\/[^\/]+\/(.+)$/;
+    const workspaceMatch = pathname.match(workspacePattern);
+    if (workspaceMatch && options.preferContains !== false) {
+      const section = workspaceMatch[1];
+      return {
+        pattern: `/${section}`,
+        useRegex: false,
+        assertionType: "contains"
+      };
+    }
+    const workspaceRootPattern = /^\/w\/[^\/]+$/;
+    if (workspaceRootPattern.test(pathname) && options.preferContains !== false) {
+      return {
+        pattern: pathname,
+        useRegex: false,
+        assertionType: "exact"
+      };
+    }
+    if (hasDynamicSegments) {
+      let regexPattern = pathname.replace(/\/\d{4,}(?=\/|$)/g, "/\\d+").replace(/\/[a-f0-9]{8,}(?:-[a-f0-9]{4,})*(?=\/|$)/gi, "/[a-f0-9-]+").replace(/\/[A-Z0-9_]{20,}(?=\/|$)/gi, "/[A-Z0-9_-]+").replace(/\/[a-z0-9]{25,}(?=\/|$)/gi, "/[a-z0-9]+").replace(/\/[a-z0-9]{15,}(?=\/|$)/gi, "/[a-z0-9]+").replace(/\//g, "\\/").replace(/\./g, "\\.");
+      if (search) {
+        regexPattern += "\\" + search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      }
+      regexPattern += "$";
+      return { pattern: regexPattern, useRegex: true, assertionType: "regex" };
+    } else {
+      if (options.preferRelative !== false && pathname !== "/") {
+        return {
+          pattern: pathname + search,
+          useRegex: false,
+          assertionType: "exact"
+        };
+      }
+      return {
+        pattern: url,
+        useRegex: false,
+        assertionType: "exact"
+      };
+    }
+  } catch (e) {
+    return { pattern: url, useRegex: false, assertionType: "exact" };
+  }
+}
+function isSameRoute(url1, url2) {
+  try {
+    const url1Obj = new URL(url1);
+    const url2Obj = new URL(url2);
+    return url1Obj.protocol === url2Obj.protocol && url1Obj.host === url2Obj.host && url1Obj.pathname === url2Obj.pathname;
+  } catch (e) {
+    return url1 === url2;
+  }
+}
+function getUrlDisplayName(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    if (pathname === "/" || pathname === "") {
+      return "homepage";
+    }
+    const segments = pathname.split("/").filter((s) => s.length > 0);
+    const lastSegment = segments[segments.length - 1];
+    if (lastSegment && /^\d+$|^[a-f0-9-]{8,}$/i.test(lastSegment) && segments.length > 1) {
+      return segments[segments.length - 2];
+    }
+    return lastSegment || "page";
+  } catch (e) {
+    return "page";
+  }
+}
 function generatePlaywrightTest(url, trackingData) {
   var _a;
-  if (!trackingData)
-    return generateEmptyTest(url);
-  const { clicks, inputChanges, assertions, userInfo, formElementChanges } = trackingData;
-  if (!((_a = clicks == null ? void 0 : clicks.clickDetails) == null ? void 0 : _a.length) && !(inputChanges == null ? void 0 : inputChanges.length) && !(assertions == null ? void 0 : assertions.length) && !(formElementChanges == null ? void 0 : formElementChanges.length)) {
+  if (!trackingData) return generateEmptyTest(url);
+  const { clicks, inputChanges, assertions, userInfo, formElementChanges, pageNavigation } = trackingData;
+  if (!((_a = clicks == null ? void 0 : clicks.clickDetails) == null ? void 0 : _a.length) && !(inputChanges == null ? void 0 : inputChanges.length) && !(assertions == null ? void 0 : assertions.length) && !(formElementChanges == null ? void 0 : formElementChanges.length) && !(pageNavigation == null ? void 0 : pageNavigation.length)) {
     return generateEmptyTest(url);
   }
   return `import { test, expect } from '@playwright/test';
@@ -80,7 +159,8 @@ function generatePlaywrightTest(url, trackingData) {
     inputChanges,
     trackingData.focusChanges,
     assertions,
-    formElementChanges
+    formElementChanges,
+    pageNavigation || []
   )}
   
     await page.waitForTimeout(432);
@@ -100,7 +180,7 @@ function generateEmptyTest(url) {
     console.log('No user interactions to replay');
   });`;
 }
-function generateUserInteractions(clicks, inputChanges, focusChanges, assertions = [], formElementChanges = []) {
+function generateUserInteractions(clicks, inputChanges, focusChanges, assertions = [], formElementChanges = [], pageNavigation = []) {
   var _a;
   const allEvents = [];
   const processedSelectors = /* @__PURE__ */ new Set();
@@ -147,6 +227,33 @@ function generateUserInteractions(clicks, inputChanges, focusChanges, assertions
         });
       }
       processedSelectors.add(selector);
+    });
+  }
+  if (pageNavigation == null ? void 0 : pageNavigation.length) {
+    const uniqueNavigations = [];
+    let lastUrl = "";
+    pageNavigation.sort((a, b) => a.timestamp - b.timestamp).forEach((nav) => {
+      if (!isSameRoute(nav.url, lastUrl)) {
+        uniqueNavigations.push(nav);
+        lastUrl = nav.url;
+      }
+    });
+    uniqueNavigations.forEach((nav) => {
+      const { pattern, useRegex, assertionType } = generateUrlPattern(nav.url, {
+        preferRelative: true,
+        preferContains: true
+      });
+      const urlDisplayName = getUrlDisplayName(nav.url);
+      allEvents.push({
+        type: "navigation",
+        url: nav.url,
+        urlPattern: pattern,
+        useRegex,
+        assertionType,
+        timestamp: nav.timestamp,
+        isUserAction: false,
+        text: urlDisplayName
+      });
     });
   }
   if ((_a = clicks == null ? void 0 : clicks.clickDetails) == null ? void 0 : _a.length) {
@@ -265,6 +372,9 @@ function generateUserInteractions(clicks, inputChanges, focusChanges, assertions
       case "assertion":
         code += generateAssertionCode(event);
         break;
+      case "navigation":
+        code += generateNavigationCode(event);
+        break;
     }
   });
   return code;
@@ -376,23 +486,62 @@ function generateAssertionCode(event) {
   }
   return code;
 }
+function generateNavigationCode(event) {
+  let code = "";
+  if (!event.urlPattern || !event.url) return code;
+  const urlDisplayName = event.text || getUrlDisplayName(event.url);
+  switch (event.assertionType) {
+    case "contains":
+      code += `  // Assert URL contains ${urlDisplayName} section
+`;
+      if (event.urlPattern && !event.urlPattern.match(/[.*+?^${}()|[\]\\]/)) {
+        code += `  await expect(page).toHaveURL('${event.urlPattern}');
+
+`;
+      } else {
+        code += `  await expect(page).toHaveURL(/${event.urlPattern}/);
+
+`;
+      }
+      break;
+    case "regex":
+      code += `  // Assert URL matches ${urlDisplayName} page pattern
+`;
+      code += `  await expect(page).toHaveURL(/${event.urlPattern}/);
+
+`;
+      break;
+    case "exact":
+    default:
+      if (event.urlPattern.startsWith("/") && !event.urlPattern.startsWith("http")) {
+        code += `  // Assert URL path is ${urlDisplayName} page
+`;
+        code += `  await expect(page).toHaveURL('${event.urlPattern}');
+
+`;
+      } else {
+        code += `  // Assert exact URL for ${urlDisplayName} page
+`;
+        code += `  await expect(page).toHaveURL('${event.urlPattern}');
+
+`;
+      }
+      break;
+  }
+  return code;
+}
 function escapeTextForAssertion(text) {
-  if (!text)
-    return "";
+  if (!text) return "";
   return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").trim();
 }
 function cleanTextForGetByText(text) {
-  if (!text)
-    return "";
+  if (!text) return "";
   return text.replace(/\s+/g, " ").replace(/\n+/g, " ").trim();
 }
 function isTextAmbiguous(text) {
-  if (!text)
-    return true;
-  if (text.length < 6)
-    return true;
-  if (text.split(/\s+/).length <= 2)
-    return true;
+  if (!text) return true;
+  if (text.length < 6) return true;
+  if (text.split(/\s+/).length <= 2) return true;
   return false;
 }
 if (typeof window !== "undefined") {
@@ -401,6 +550,10 @@ if (typeof window !== "undefined") {
     convertToPlaywrightSelector,
     escapeTextForAssertion,
     cleanTextForGetByText,
-    isTextAmbiguous
+    isTextAmbiguous,
+    generateUrlPattern,
+    isSameRoute,
+    getUrlDisplayName,
+    generateNavigationCode
   };
 }

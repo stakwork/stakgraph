@@ -32,6 +32,12 @@ export interface ComponentInfo {
   type: 'function' | 'class';
 }
 
+export interface PageNavigation {
+  type: 'pushState' | 'replaceState' | 'popstate';
+  url: string;
+  timestamp: number;
+}
+
 // Add to types.ts
 export interface ClickDetail {
   x: number;
@@ -157,13 +163,15 @@ export interface ReplayProgress {
 }
 
 export interface PlaywrightAction {
-  type: 'goto' | 'click' | 'fill' | 'check' | 'uncheck' | 'selectOption' | 'waitForTimeout' | 'expect' | 'setViewportSize' | 'waitForLoadState' | 'waitForSelector' | 'waitFor' | 'hover' | 'focus' | 'blur' | 'scrollIntoView';
+  type: 'goto' | 'click' | 'fill' | 'check' | 'uncheck' | 'selectOption' | 'waitForTimeout' | 'expect' | 'setViewportSize' | 'waitForLoadState' | 'waitForSelector' | 'waitFor' | 'hover' | 'focus' | 'blur' | 'scrollIntoView' | 'expectUrl';
   selector?: string;
   value?: string | number;
   options?: Record<string, any>;
-  expectation?: 'toBeVisible' | 'toContainText' | 'toBeChecked' | 'not.toBeChecked' | 'toHaveText' | 'toHaveCount';
+  expectation?: 'toBeVisible' | 'toContainText' | 'toBeChecked' | 'not.toBeChecked' | 'toHaveText' | 'toHaveCount' | 'toHaveURL';
   comment?: string;
   lineNumber?: number;
+  urlPattern?: string | RegExp;
+  assertionType?: 'exact' | 'regex' | 'contains';
 }
 
 export interface PlaywrightReplayState {
