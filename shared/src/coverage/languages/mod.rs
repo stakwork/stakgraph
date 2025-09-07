@@ -1,0 +1,3 @@
+//LANGUAGE IMPLEMENTATION REGISTRY
+
+pub mod typescript;
