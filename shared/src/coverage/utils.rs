@@ -62,7 +62,7 @@ pub fn run_command(cmd: &str, args: &[&str], working_dir: &Path) -> Result<()> {
 
 pub fn install_dependencies(repo_path: &Path) -> Result<()> {
     if repo_path.join("pnpm-lock.yaml").exists() {
-        run_command("pnpm", &["install"], repo_path)
+        run_command("pnpm", &["install", "--dev"], repo_path)
     } else if repo_path.join("yarn.lock").exists() {
         run_command("yarn", &["install"], repo_path)
     } else if repo_path.join("package-lock.json").exists() {
