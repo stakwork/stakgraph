@@ -1,20 +1,29 @@
 use crate::Result;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use tempfile::TempDir;
+use std::fs;
 
 
-pub fn clone_repo(git_url: &str) -> Result<TempDir> {
-    let temp_dir = TempDir::new()?;
-    let status = Command::new("git")
-        .args(&["clone", git_url, temp_dir.path().to_str().unwrap()])
-        .status()?;
+pub fn clone_repo(git_url: &str) -> Result<PathBuf> {
+    let repo_name = get_repo_name_from_url(git_url)?;
+    let repo_path = PathBuf::from("/tmp").join(format!("stakgraph_test_{}", repo_name));
+    
+    if repo_path.exists() {
+        fs::remove_dir_all(&repo_path)?;
+    }
+    
+    let output = Command::new("git")
+        .args(&["clone", "--depth", "1", git_url, repo_path.to_str().unwrap()])
+        .output()?;
 
-    if !status.success() {
-        return Err(crate::Error::Custom("Failed to clone repository".to_string()));
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(crate::Error::Custom(format!(
+            "Failed to clone repository {}: {}", git_url, stderr
+        )));
     }
 
-    Ok(temp_dir)
+    Ok(repo_path)
 }
 
 
@@ -27,10 +36,6 @@ pub fn get_repo_name_from_url(git_url: &str) -> Result<String> {
     Ok(clean_name.to_string())
 }
 
-pub fn get_repo_path(temp_dir: &TempDir, git_url: &str) -> Result<PathBuf> {
-    let repo_name = get_repo_name_from_url(git_url)?;
-    Ok(temp_dir.path().join(repo_name))
-}
 
 pub fn dir_exists_and_not_empty(path: &Path) -> bool {
     path.exists() && path.is_dir() && 
@@ -63,7 +68,6 @@ pub fn install_dependencies(repo_path: &Path) -> Result<()> {
     } else if repo_path.join("package-lock.json").exists() {
         run_command("npm", &["install"], repo_path)
     } else if repo_path.join("package.json").exists() {
-        // Fallback to npm
         run_command("npm", &["install"], repo_path)
     } else {
         Err(crate::Error::Custom("No package.json found for dependency installation".to_string()))
@@ -100,4 +104,15 @@ pub fn list_coverage_files(repo_path: &Path) -> Vec<PathBuf> {
     }
     
     files
+}
+
+pub fn cleanup_test_repo(git_url: &str) -> Result<()> {
+    let repo_name = get_repo_name_from_url(git_url)?;
+    let repo_path = PathBuf::from("/tmp").join(format!("stakgraph_test_{}", repo_name));
+    
+    if repo_path.exists() {
+        std::fs::remove_dir_all(&repo_path)?;
+    }
+    
+    Ok(())
 }

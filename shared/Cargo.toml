@@ -21,4 +21,3 @@ tree-sitter = "0.25.8"
 walkdir = "2.5.0"
 serde = { version = "1.0.215", features = ["derive"], optional = true }
 chrono = { version = "0.4.38", features = ["serde"], optional = true }
-tempfile = "3.21.0"
