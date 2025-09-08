@@ -56,11 +56,11 @@ impl TypeScriptAnalyzer {
                 for dep_name in deps_obj.keys() {
                     let framework = match dep_name.as_str() {
                         "vitest" | "@vitest/ui" => Some(TestFramework::Vitest),
-                        "jest" | "@jest/core" => Some(TestFramework::Jest),
+                        "jest" | "@jest/core" | "@types/jest" => Some(TestFramework::Jest),
                         "playwright" | "@playwright/test" => Some(TestFramework::Playwright),
                         "cypress" => Some(TestFramework::Cypress),
-                        "mocha" => Some(TestFramework::Mocha),
-                        "jasmine" => Some(TestFramework::Jasmine),
+                        "mocha" | "@types/mocha" => Some(TestFramework::Mocha),
+                        "jasmine" | "@types/jasmine" | "karma-jasmine" | "protractor" => Some(TestFramework::Jasmine),
                         _ => None,
                     };
 
@@ -68,6 +68,20 @@ impl TypeScriptAnalyzer {
                         if !frameworks.contains(&fw) {
                             frameworks.push(fw);
                         }
+                    }
+                }
+            }
+        }
+
+   
+        if let Some(scripts) = package_json.get("scripts").and_then(|v| v.as_object()) {
+            for script_value in scripts.values() {
+                if let Some(script_str) = script_value.as_str() {
+                    if script_str.contains("karma") && !frameworks.contains(&TestFramework::Jasmine) {
+                        frameworks.push(TestFramework::Jasmine);
+                    }
+                    if script_str.contains("protractor") && !frameworks.contains(&TestFramework::Jasmine) {
+                        frameworks.push(TestFramework::Jasmine);
                     }
                 }
             }
