@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": true,
+    "target": "ES2017",
+    "lib": ["DOM", "ES2017"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["dist", "**/*.test.ts"]
+}
