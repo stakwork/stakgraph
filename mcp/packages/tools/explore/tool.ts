@@ -1,12 +1,8 @@
 import { generateText, tool, hasToolCall } from "ai";
-import {
-  getModel,
-  getApiKeyForProvider,
-  Provider,
-} from "../../aieo/src/provider.js";
+import { getModel, getApiKeyForProvider, Provider } from "@stakgraph/aieo";
 import { EXPLORER } from "./prompts.js";
 import { z } from "zod";
-import * as G from "../../graph/graph.js";
+import * as G from "../graph/graph.js";
 
 /*
 curl "http://localhost:3000/explore?prompt=how%20does%20auth%20work%20in%20the%20repo"

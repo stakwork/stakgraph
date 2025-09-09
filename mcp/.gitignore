@@ -30,6 +30,21 @@ src/pr/*.txt
 .neo4j-*
 temp
 
+# TypeScript build artifacts
+*.tsbuildinfo
+*.d.ts
+*.d.ts.map
+*.js.map
+
+# Don't ignore intentional JS files
+!packages/app/**/*.js
+!packages/testing/**/*.js
+!**/tsup.config.js
+!**/esbuild.config.js
+!**/webpack.config.js
+!**/rollup.config.js
+!**/vite.config.js
+
 sage_config.json
 sage_config-*
 data/*

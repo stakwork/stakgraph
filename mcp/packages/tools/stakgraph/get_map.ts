@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
-import * as G from "../../graph/graph.js";
+import * as G from "../graph/graph.js";
 
 export function toMapParams(args: z.infer<typeof GetMapSchema>): G.MapParams {
   return {

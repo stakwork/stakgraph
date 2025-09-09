@@ -1,7 +1,7 @@
 import express, { Express } from "express";
 import { evaluate } from "./stagehand.js";
 import { promises as dns } from "dns";
-import { getConsoleLogs } from "../tools/stagehand/core.js";
+import { getConsoleLogs } from "../stagehand/core.js";
 
 export async function evalRoutes(app: Express) {
   app.post("/evaluate", async (req: express.Request, res: express.Response) => {

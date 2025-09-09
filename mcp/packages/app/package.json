@@ -5,8 +5,8 @@
   "type": "module",
   "main": "./dist/app.js",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "echo \"No TypeScript build needed - using JS files\"",
+    "dev": "echo \"Development mode - serving static files\"",
     "test": "echo \"No tests specified\""
   },
   "dependencies": {

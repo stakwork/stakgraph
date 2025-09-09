@@ -6,8 +6,8 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
+    "build": "tsc --noEmit",
+    "dev": "tsc --noEmit --watch",
     "test": "echo \"No tests specified\""
   },
   "dependencies": {

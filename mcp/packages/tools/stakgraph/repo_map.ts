@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
-import * as G from "../../graph/graph.js";
-import { NodeType } from "../../graph/types.js";
+import * as G from "../graph/graph.js";
+import { NodeType } from "../graph/types.js";
 
 export const RepoMapSchema = z.object({
   name: z

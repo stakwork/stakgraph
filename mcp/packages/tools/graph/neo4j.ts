@@ -19,8 +19,8 @@ import {
 } from "./utils.js";
 import * as Q from "./queries.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
-import { callGenerateObject } from "../aieo/src/stream.js";
-import { getApiKeyForProvider, Provider } from "../aieo/src/provider.js";
+import { callGenerateObject } from "@stakgraph/aieo";
+import { getApiKeyForProvider, Provider } from "@stakgraph/aieo";
 import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import { createByModelName } from "@microsoft/tiktokenizer";

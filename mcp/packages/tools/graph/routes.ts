@@ -27,7 +27,7 @@ import * as G from "./graph.js";
 import { db } from "./neo4j.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
-import { get_context } from "../tools/explore/tool.js";
+import { get_context } from "../explore/tool.js";
 import { vectorizeQuery } from "../vector/index.js";
 
 export function schema(_req: Request, res: Response) {

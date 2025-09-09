@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 import { generateObject, LanguageModel } from "ai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { openai } from "@ai-sdk/openai";
-import { getOrCreateStagehand } from "../tools/stagehand/core.js";
+import { getOrCreateStagehand } from "../stagehand/core.js";
 import { Step, TestResult } from "./types.js";
 
 // Load environment variables
@@ -117,7 +117,7 @@ export class SimpleEvaluator {
     this.model = this.createModel(this.currentProvider);
   }
 
-  createModel(provider: "anthropic" | "openai") {
+  createModel(provider: "anthropic" | "openai"): LanguageModel {
     // if (provider === "anthropic") {
     //   return anthropic("claude-3-5-sonnet-20241022");
     // } else {

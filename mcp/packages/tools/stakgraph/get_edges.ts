@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
-import { all_edge_types, EdgeType } from "../../graph/types.js";
-import * as G from "../../graph/graph.js";
+import { all_edge_types, EdgeType } from "../graph/types.js";
+import * as G from "../graph/graph.js";
 
 export const GetEdgesSchema = z.object({
   edge_type: z

@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
-import { relevant_node_types, NodeType } from "../../graph/types.js";
-import * as G from "../../graph/graph.js";
+import { relevant_node_types, NodeType } from "../graph/types.js";
+import * as G from "../graph/graph.js";
 
 export const GetNodesSchema = z.object({
   node_type: z

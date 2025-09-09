@@ -10,8 +10,7 @@
     "test": "npx playwright test",
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
-    "test:ui": "npx playwright test --ui",
-    "build": "echo \"No build needed\""
+    "test:ui": "npx playwright test --ui"
   },
   "dependencies": {
     "express": "^4.18.2"

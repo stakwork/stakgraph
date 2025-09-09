@@ -8,8 +8,7 @@
     "build:main": "esbuild src/index.ts --bundle --outfile=dist/staktrak.js --format=iife --global-name=userBehaviour --target=es2017",
     "build:playwright": "esbuild src/playwright-generator.ts --bundle --outfile=dist/playwright-generator.js --format=esm --target=es2017",
     "build:replay": "esbuild src/replay.ts --bundle --outfile=dist/replay.js --format=iife --global-name=stakReplay --target=es2017 --minify-whitespace --minify-syntax && npx prettier --write dist/replay.js",
-    "dev": "npm run build -- --watch",
-    "test": "echo \"No tests specified\""
+    "dev": "npm run build -- --watch"
   },
   "devDependencies": {
     "esbuild": "^0.25.2",

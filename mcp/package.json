@@ -8,10 +8,16 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "yarn workspaces foreach run build",
+    "build": "yarn workspaces run build",
     "dev": "tsx src/index.ts",
     "start": "node build/index.js",
-    "test": "yarn workspaces foreach run test",
+    "test": "yarn workspaces run test",
+    "test:ui": "yarn workspace @stakgraph/testing run test:ui",
+    "test:debug": "yarn workspace @stakgraph/testing run test:debug",
+    "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",
+    "copydir": "node docs/copydir/index.js",
+    "build-app": "node build-app.js",
+    "build-app1": "tsc --noEmit && tsc --target esnext --module commonjs --outDir build/app packages/app/app.ts",
     "clean": "rm -rf packages/*/dist packages/*/build build/",
     "docker:up": "docker-compose up",
     "docker:down": "docker-compose down"

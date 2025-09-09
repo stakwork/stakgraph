@@ -1,17 +1,21 @@
 import express, { Request, Response } from "express";
-import { mcp_routes } from "./tools/server.js";
-import { sse_routes } from "./tools/sse.js";
+import { mcp_routes } from "../packages/tools/server.js";
+import { sse_routes } from "../packages/tools/sse.js";
 import fileUpload from "express-fileupload";
-import * as r from "./graph/routes.js";
-import * as uploads from "./graph/uploads.js";
+import * as r from "../packages/tools/graph/routes.js";
+import * as uploads from "../packages/tools/graph/uploads.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
-import { App as SageApp } from "./sage/src/app.js";
+import { App as SageApp } from "../packages/tools/sage/src/app.js";
 import dotenv from "dotenv";
-import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
-import { evalRoutes } from "./eval/route.js";
-import { test_routes } from "./eval/tests.js";
+import {
+  cacheMiddleware,
+  cacheInfo,
+  clearCache,
+} from "../packages/tools/graph/cache.js";
+import { evalRoutes } from "../packages/tools/eval/route.js";
+import { test_routes } from "../packages/tools/eval/tests.js";
 
 dotenv.config();
 
@@ -43,8 +47,11 @@ try {
 
 app.get("/", swagger);
 app.use("/textarea", express.static(path.join(__dirname, "../textarea")));
-app.use("/app", express.static(path.join(__dirname, "../app")));
-app.use("/demo", express.static(path.join(__dirname, "../app/vendor")));
+app.use("/app", express.static(path.join(__dirname, "../packages/app")));
+app.use(
+  "/demo",
+  express.static(path.join(__dirname, "../packages/app/vendor"))
+);
 app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 

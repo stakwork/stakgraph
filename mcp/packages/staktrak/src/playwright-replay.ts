@@ -1689,7 +1689,10 @@ async function verifyExpectation(action: PlaywrightAction): Promise<void> {
       break;
 
     case "toContainText":
-      const textElement = await waitForElement(action.selector, action.value);
+      const textElement = await waitForElement(
+        action.selector,
+        String(action.value)
+      );
       if (
         !textElement ||
         !textElement.textContent?.includes(String(action.value || ""))
@@ -1703,7 +1706,7 @@ async function verifyExpectation(action: PlaywrightAction): Promise<void> {
     case "toHaveText":
       const exactTextElement = await waitForElement(
         action.selector,
-        action.value
+        String(action.value)
       );
       if (
         !exactTextElement ||
