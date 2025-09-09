@@ -1,8 +1,8 @@
 {
-  "name": "staktrak-tests",
+  "name": "@stakgraph/testing",
   "version": "1.0.0",
   "type": "module",
-  "description": "Server for generating Playwright tests from user interactions",
+  "description": "Stakgraph testing utilities and Playwright test generation",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,7 +10,8 @@
     "test": "npx playwright test",
     "test:headed": "npx playwright test --headed",
     "test:debug": "npx playwright test --debug",
-    "test:ui": "npx playwright test --ui"
+    "test:ui": "npx playwright test --ui",
+    "build": "echo \"No build needed\""
   },
   "dependencies": {
     "express": "^4.18.2"

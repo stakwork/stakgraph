@@ -1,5 +1,5 @@
 {
-  "name": "aieo",
+  "name": "@stakgraph/aieo",
   "version": "0.1.23",
   "main": "./dist/index.js",
   "type": "module",
@@ -12,7 +12,7 @@
   "repository": "https://github.com/stakwork/stakgraph",
   "scripts": {
     "build": "tsup",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "echo \"No tests specified\"",
     "try-cc": "ts-node ./src/test/try-cc.ts"
   },
   "keywords": [
@@ -32,9 +32,9 @@
   },
   "devDependencies": {
     "@types/json-schema": "^7.0.15",
-    "@types/node": "^24.3.0",
+    "@types/node": "^22.14.1",
     "ts-node": "^10.9.2",
     "tsup": "^8.4.0",
-    "typescript": "^5.9.2"
+    "typescript": "^5.8.3"
   }
 }

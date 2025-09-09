@@ -1,19 +1,20 @@
 {
-  "name": "stackgraph-mcp-server",
+  "name": "stakgraph-mcp",
   "version": "0.1.0",
-  "description": "MCP Server with Stackgraph tool",
+  "description": "Stakgraph MCP Monorepo",
   "type": "module",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
+    "build": "yarn workspaces foreach run build",
     "dev": "tsx src/index.ts",
-    "build": "tsc",
     "start": "node build/index.js",
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:debug": "playwright test --debug",
-    "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",
-    "copydir": "node docs/copydir/index.js",
-    "build-app1": "tsc --noEmit && tsc --target esnext --module commonjs --outDir build/app app/app.ts",
-    "build-app": "node build-app.js"
+    "test": "yarn workspaces foreach run test",
+    "clean": "rm -rf packages/*/dist packages/*/build build/",
+    "docker:up": "docker-compose up",
+    "docker:down": "docker-compose down"
   },
   "bin": {
     "cursor-tools": "./build/index.js"

@@ -1,0 +1,22 @@
+{
+  "name": "@stakgraph/app",
+  "version": "0.1.0",
+  "description": "Stakgraph web application",
+  "type": "module",
+  "main": "./dist/app.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "echo \"No tests specified\""
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.14.1",
+    "typescript": "^5.8.3"
+  }
+}

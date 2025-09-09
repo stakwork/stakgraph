@@ -1,5 +1,5 @@
 {
-  "name": "staktrak",
+  "name": "@stakgraph/staktrak",
   "version": "1.0.0",
   "description": "User behavior tracking for Playwright test generation",
   "main": "dist/staktrak.js",
@@ -8,11 +8,12 @@
     "build:main": "esbuild src/index.ts --bundle --outfile=dist/staktrak.js --format=iife --global-name=userBehaviour --target=es2017",
     "build:playwright": "esbuild src/playwright-generator.ts --bundle --outfile=dist/playwright-generator.js --format=esm --target=es2017",
     "build:replay": "esbuild src/replay.ts --bundle --outfile=dist/replay.js --format=iife --global-name=stakReplay --target=es2017 --minify-whitespace --minify-syntax && npx prettier --write dist/replay.js",
-    "dev": "npm run build -- --watch"
+    "dev": "npm run build -- --watch",
+    "test": "echo \"No tests specified\""
   },
   "devDependencies": {
-    "esbuild": "^0.19.0",
+    "esbuild": "^0.25.2",
     "prettier": "^3.0.0",
-    "typescript": "^5.0.0"
+    "typescript": "^5.8.3"
   }
 }
