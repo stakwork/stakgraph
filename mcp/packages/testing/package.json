@@ -5,6 +5,7 @@
   "description": "Stakgraph testing utilities and Playwright test generation",
   "main": "server.js",
   "scripts": {
+    "build": "echo \"No build needed - using JS files\"",
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "npx playwright test",
