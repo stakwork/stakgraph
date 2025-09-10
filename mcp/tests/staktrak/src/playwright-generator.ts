@@ -27,7 +27,7 @@ interface ClickDetail {
 }
 
 interface InteractionEvent {
-  type: "click" | "input" | "form" | "assertion";
+  type: "click" | "input" | "form" | "assertion" | "navigation";
   selector?: string;
   timestamp: number;
   isUserAction: boolean;
@@ -37,8 +37,11 @@ interface InteractionEvent {
   formType?: string;
   checked?: boolean;
   text?: string;
-  assertionType?: string;
+  assertionType?: string | 'exact' | 'regex' | 'contains';
   clickDetail?: ClickDetail; // Add this for better click handling
+  url?: string;
+  urlPattern?: string;
+  useRegex?: boolean;
 }
 
 interface InputChange {
@@ -68,6 +71,12 @@ interface UserInfo {
   windowSize: [number, number];
 }
 
+interface PageNavigation {
+  type: 'pushState' | 'replaceState' | 'popstate';
+  url: string;
+  timestamp: number;
+}
+
 interface TrackingData {
   clicks?: Clicks;
   keyboardActivities?: any;
@@ -77,6 +86,7 @@ interface TrackingData {
   userInfo: UserInfo;
   time?: any;
   formElementChanges?: FormElementChange[];
+  pageNavigation?: PageNavigation[];
 }
 
 function convertToPlaywrightSelector(clickDetail: ClickDetail): string {
@@ -157,20 +167,132 @@ function isValidCSSSelector(selector: string): boolean {
   }
 }
 
+function generateUrlPattern(url: string, options: { preferRelative?: boolean; preferContains?: boolean } = {}): { pattern: string; useRegex: boolean; assertionType: 'exact' | 'regex' | 'contains' } {
+  if (!url) return { pattern: "", useRegex: false, assertionType: 'exact' };
+
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    const search = urlObj.search;
+    
+    const dynamicPatterns = [
+      /\/\d{4,}(?:\/|$)/,  
+      /\/[a-f0-9]{8,}(?:-[a-f0-9]{4,})*(?:\/|$)/i,  
+      /\/[A-Z0-9_]{20,}(?:\/|$)/i,  
+      /\/[a-z0-9]{25,}(?:\/|$)/i,   
+      /\/[a-z0-9]{15,}(?:\/|$)/i,   
+    ];
+    
+    const hasDynamicSegments = dynamicPatterns.some(pattern => pattern.test(pathname));
+    
+    const workspacePattern = /^\/w\/[^\/]+\/(.+)$/;
+    const workspaceMatch = pathname.match(workspacePattern);
+    
+    if (workspaceMatch && options.preferContains !== false) {
+      const section = workspaceMatch[1];
+      return { 
+        pattern: `/${section}`, 
+        useRegex: false, 
+        assertionType: 'contains' 
+      };
+    }
+    
+    const workspaceRootPattern = /^\/w\/[^\/]+$/;
+    if (workspaceRootPattern.test(pathname) && options.preferContains !== false) {
+      return { 
+        pattern: pathname, 
+        useRegex: false, 
+        assertionType: 'exact' 
+      };
+    }
+    
+    if (hasDynamicSegments) {
+      let regexPattern = pathname
+        .replace(/\/\d{4,}(?=\/|$)/g, '/\\d+')  
+        .replace(/\/[a-f0-9]{8,}(?:-[a-f0-9]{4,})*(?=\/|$)/gi, '/[a-f0-9-]+')  
+        .replace(/\/[A-Z0-9_]{20,}(?=\/|$)/gi, '/[A-Z0-9_-]+')  
+        .replace(/\/[a-z0-9]{25,}(?=\/|$)/gi, '/[a-z0-9]+')  
+        .replace(/\/[a-z0-9]{15,}(?=\/|$)/gi, '/[a-z0-9]+')  
+        .replace(/\//g, '\\/')  
+        .replace(/\./g, '\\.'); 
+      
+      if (search) {
+        regexPattern += '\\' + search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      }
+      
+      regexPattern += '$';
+      
+      return { pattern: regexPattern, useRegex: true, assertionType: 'regex' };
+    } else {
+      if (options.preferRelative !== false && pathname !== '/') {
+        return { 
+          pattern: pathname + search, 
+          useRegex: false, 
+          assertionType: 'exact' 
+        };
+      }
+      
+      return { 
+        pattern: url, 
+        useRegex: false, 
+        assertionType: 'exact' 
+      };
+    }
+  } catch (e) {
+    return { pattern: url, useRegex: false, assertionType: 'exact' };
+  }
+}
+
+function isSameRoute(url1: string, url2: string): boolean {
+  try {
+    const url1Obj = new URL(url1);
+    const url2Obj = new URL(url2);
+    
+    return url1Obj.protocol === url2Obj.protocol &&
+           url1Obj.host === url2Obj.host &&
+           url1Obj.pathname === url2Obj.pathname;
+  } catch (e) {
+    return url1 === url2;
+  }
+}
+
+function getUrlDisplayName(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    
+    if (pathname === '/' || pathname === '') {
+      return 'homepage';
+    }
+    
+    const segments = pathname.split('/').filter(s => s.length > 0);
+    const lastSegment = segments[segments.length - 1];
+    
+    if (lastSegment && /^\d+$|^[a-f0-9-]{8,}$/i.test(lastSegment) && segments.length > 1) {
+      return segments[segments.length - 2];
+    }
+    
+    return lastSegment || 'page';
+  } catch (e) {
+    return 'page';
+  }
+}
+
 function generatePlaywrightTest(
   url: string,
   trackingData?: TrackingData
 ): string {
   if (!trackingData) return generateEmptyTest(url);
 
-  const { clicks, inputChanges, assertions, userInfo, formElementChanges } =
+  const { clicks, inputChanges, assertions, userInfo, formElementChanges, pageNavigation } =
     trackingData;
 
   if (
     !clicks?.clickDetails?.length &&
     !inputChanges?.length &&
     !assertions?.length &&
-    !formElementChanges?.length
+    !formElementChanges?.length &&
+    !pageNavigation?.length
   ) {
     return generateEmptyTest(url);
   }
@@ -195,7 +317,8 @@ function generatePlaywrightTest(
     inputChanges,
     trackingData.focusChanges,
     assertions,
-    formElementChanges
+    formElementChanges,
+    pageNavigation || []
   )}
   
     await page.waitForTimeout(432);
@@ -222,7 +345,8 @@ function generateUserInteractions(
   inputChanges?: InputChange[],
   focusChanges?: any,
   assertions: Assertion[] = [],
-  formElementChanges: FormElementChange[] = []
+  formElementChanges: FormElementChange[] = [],
+  pageNavigation: PageNavigation[] = []
 ): string {
   const allEvents: InteractionEvent[] = [];
   const processedSelectors = new Set<string>();
@@ -275,6 +399,39 @@ function generateUserInteractions(
       }
 
       processedSelectors.add(selector);
+    });
+  }
+
+  if (pageNavigation?.length) {
+    const uniqueNavigations: PageNavigation[] = [];
+    let lastUrl = '';
+    
+    pageNavigation
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .forEach((nav) => {
+        if (!isSameRoute(nav.url, lastUrl)) {
+          uniqueNavigations.push(nav);
+          lastUrl = nav.url;
+        }
+      });
+
+    uniqueNavigations.forEach((nav) => {
+      const { pattern, useRegex, assertionType } = generateUrlPattern(nav.url, { 
+        preferRelative: true, 
+        preferContains: true 
+      });
+      const urlDisplayName = getUrlDisplayName(nav.url);
+      
+      allEvents.push({
+        type: "navigation",
+        url: nav.url,
+        urlPattern: pattern,
+        useRegex: useRegex,
+        assertionType: assertionType,
+        timestamp: nav.timestamp,
+        isUserAction: false,
+        text: urlDisplayName,
+      });
     });
   }
 
@@ -437,6 +594,10 @@ function generateUserInteractions(
       case "assertion":
         code += generateAssertionCode(event);
         break;
+
+      case "navigation":
+        code += generateNavigationCode(event);
+        break;
     }
   });
 
@@ -536,6 +697,43 @@ function generateAssertionCode(event: InteractionEvent): string {
   return code;
 }
 
+function generateNavigationCode(event: InteractionEvent): string {
+  let code = "";
+  
+  if (!event.urlPattern || !event.url) return code;
+  
+  const urlDisplayName = event.text || getUrlDisplayName(event.url);
+  
+  switch (event.assertionType) {
+    case 'contains':
+      code += `  // Assert URL contains ${urlDisplayName} section\n`;
+      if (event.urlPattern && !event.urlPattern.match(/[.*+?^${}()|[\]\\]/)) {
+        code += `  await expect(page).toHaveURL('${event.urlPattern}');\n\n`;
+      } else {
+        code += `  await expect(page).toHaveURL(/${event.urlPattern}/);\n\n`;
+      }
+      break;
+      
+    case 'regex':
+      code += `  // Assert URL matches ${urlDisplayName} page pattern\n`;
+      code += `  await expect(page).toHaveURL(/${event.urlPattern}/);\n\n`;
+      break;
+      
+      case 'exact':
+      default:
+        if (event.urlPattern.startsWith('/') && !event.urlPattern.startsWith('http')) {
+          code += `  // Assert URL path is ${urlDisplayName} page\n`;
+          code += `  await expect(page).toHaveURL('${event.urlPattern}');\n\n`;
+        } else {
+          code += `  // Assert exact URL for ${urlDisplayName} page\n`;
+          code += `  await expect(page).toHaveURL('${event.urlPattern}');\n\n`;
+        }
+        break;
+  }
+  
+  return code;
+}
+
 function escapeTextForAssertion(text: string): string {
   if (!text) return "";
   return text
@@ -566,5 +764,9 @@ if (typeof window !== "undefined") {
     escapeTextForAssertion,
     cleanTextForGetByText,
     isTextAmbiguous,
+    generateUrlPattern,
+    isSameRoute,
+    getUrlDisplayName,
+    generateNavigationCode,
   };
 }
