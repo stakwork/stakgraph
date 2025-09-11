@@ -1,5 +1,29 @@
 import { PlaywrightAction, ReplayStatus } from "../types";
 
+function highlight(element: Element, actionType: string = "action"): void {
+  const htmlElement = element as HTMLElement;
+
+  const original = {
+    border: htmlElement.style.border,
+    boxShadow: htmlElement.style.boxShadow,
+    backgroundColor: htmlElement.style.backgroundColor,
+  };
+
+  htmlElement.style.border = "3px solid #ff6b6b";
+  htmlElement.style.boxShadow = "0 0 20px rgba(255, 107, 107, 0.8)";
+  htmlElement.style.backgroundColor = "rgba(255, 107, 107, 0.2)";
+  htmlElement.style.transition = "all 0.3s ease";
+
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+
+  setTimeout(() => {
+    htmlElement.style.border = original.border;
+    htmlElement.style.boxShadow = original.boxShadow;
+    htmlElement.style.backgroundColor = original.backgroundColor;
+    htmlElement.style.transition = "";
+  }, 1500);
+}
+
 enum PlaywrightActionType {
   GOTO = "goto",
   CLICK = "click",
@@ -90,12 +114,7 @@ export async function executePlaywrightAction(
           if (element) {
             const htmlElement = element as HTMLElement;
 
-            const originalBorder = htmlElement.style.border;
-            htmlElement.style.border = "3px solid #ff6b6b";
-            htmlElement.style.boxShadow = "0 0 10px rgba(255, 107, 107, 0.5)";
-
-            element.scrollIntoView({ behavior: "smooth", block: "center" });
-            await new Promise((resolve) => setTimeout(resolve, 50));
+            highlight(element, "click");
 
             try {
               htmlElement.focus();
@@ -138,11 +157,6 @@ export async function executePlaywrightAction(
             }
 
             await new Promise((resolve) => setTimeout(resolve, 50));
-
-            setTimeout(() => {
-              htmlElement.style.border = originalBorder;
-              htmlElement.style.boxShadow = "";
-            }, 300);
           } else {
             throw new Error(`Element not found: ${action.selector}`);
           }
@@ -155,6 +169,7 @@ export async function executePlaywrightAction(
             | HTMLInputElement
             | HTMLTextAreaElement;
           if (element) {
+            highlight(element, "fill");
             element.focus();
             element.value = "";
             element.value = String(action.value);
@@ -175,6 +190,7 @@ export async function executePlaywrightAction(
             element &&
             (element.type === "checkbox" || element.type === "radio")
           ) {
+            highlight(element, "check");
             if (!element.checked) {
               element.click();
             }
@@ -192,8 +208,7 @@ export async function executePlaywrightAction(
             action.selector
           )) as HTMLInputElement;
           if (element && element.type === "checkbox") {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
-
+            highlight(element, "uncheck");
             if (element.checked) {
               element.click();
             }
@@ -209,8 +224,7 @@ export async function executePlaywrightAction(
             action.selector
           )) as HTMLSelectElement;
           if (element && element.tagName === "SELECT") {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
-
+            highlight(element, "select");
             element.value = String(action.value);
             element.dispatchEvent(new Event("change", { bubbles: true }));
           } else {
@@ -244,6 +258,7 @@ export async function executePlaywrightAction(
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (element) {
+            highlight(element, "hover");
             element.dispatchEvent(
               new MouseEvent("mouseover", { bubbles: true })
             );
@@ -262,6 +277,7 @@ export async function executePlaywrightAction(
             action.selector
           )) as HTMLElement;
           if (element && typeof element.focus === "function") {
+            highlight(element, "focus");
             element.focus();
           } else {
             throw new Error(
@@ -277,6 +293,7 @@ export async function executePlaywrightAction(
             action.selector
           )) as HTMLElement;
           if (element && typeof element.blur === "function") {
+            highlight(element, "blur");
             element.blur();
           } else {
             throw new Error(
@@ -290,6 +307,7 @@ export async function executePlaywrightAction(
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (element) {
+            highlight(element, "scroll");
             element.scrollIntoView({
               behavior: "smooth",
               block: "center",
@@ -600,7 +618,6 @@ async function waitForElement(
         if (matchedText) {
           (element as any).__stakTrakMatchedText = matchedText;
         }
-        setTimeout(() => highlightElement(element), 100);
         return element;
       }
     } catch (error) {
@@ -643,17 +660,13 @@ function highlightElement(element: Element, matchedText?: string): void {
   try {
     ensureStylesInDocument(document);
 
-    // element.scrollIntoView({
-    //   behavior: "smooth",
-    //   block: "center",
-    //   inline: "center",
-    // });
-
     const textToHighlight =
       matchedText || (element as any).__stakTrakMatchedText;
 
     if (textToHighlight) {
       highlightTextInElement(element, textToHighlight);
+    } else {
+      highlight(element, "element");
     }
   } catch (error) {
     console.warn("Error highlighting element:", error);
