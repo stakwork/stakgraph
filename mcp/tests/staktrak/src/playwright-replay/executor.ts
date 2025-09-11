@@ -1,5 +1,24 @@
 import { PlaywrightAction, ReplayStatus } from "../types";
 
+enum PlaywrightActionType {
+  GOTO = "goto",
+  CLICK = "click",
+  FILL = "fill",
+  CHECK = "check",
+  UNCHECK = "uncheck",
+  SELECT_OPTION = "selectOption",
+  WAIT_FOR_TIMEOUT = "waitForTimeout",
+  WAIT_FOR_SELECTOR = "waitForSelector",
+  WAIT_FOR = "waitFor",
+  WAIT_FOR_LOAD_STATE = "waitForLoadState",
+  SET_VIEWPORT_SIZE = "setViewportSize",
+  HOVER = "hover",
+  FOCUS = "focus",
+  BLUR = "blur",
+  SCROLL_INTO_VIEW = "scrollIntoView",
+  EXPECT = "expect",
+}
+
 function getRoleSelector(role: string): string {
   const roleMap: Record<string, string> = {
     button:
@@ -32,7 +51,7 @@ export async function executePlaywrightAction(
 ): Promise<void> {
   try {
     switch (action.type) {
-      case "goto":
+      case PlaywrightActionType.GOTO:
         if (action.value && typeof action.value === "string") {
           window.parent.postMessage(
             {
@@ -44,7 +63,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "setViewportSize":
+      case PlaywrightActionType.SET_VIEWPORT_SIZE:
         if (action.options) {
           try {
             if (window.top === window) {
@@ -56,27 +75,69 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "waitForLoadState":
+      case PlaywrightActionType.WAIT_FOR_LOAD_STATE:
         break;
 
-      case "waitForSelector":
+      case PlaywrightActionType.WAIT_FOR_SELECTOR:
         if (action.selector) {
           await waitForElement(action.selector);
         }
         break;
 
-      case "click":
+      case PlaywrightActionType.CLICK:
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (element) {
             const htmlElement = element as HTMLElement;
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
 
             const originalBorder = htmlElement.style.border;
             htmlElement.style.border = "3px solid #ff6b6b";
             htmlElement.style.boxShadow = "0 0 10px rgba(255, 107, 107, 0.5)";
 
-            htmlElement.click();
+            element.scrollIntoView({ behavior: "smooth", block: "center" });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            try {
+              htmlElement.focus();
+            } catch (e) {
+              console.warn("Could not focus element:", e);
+            }
+
+            try {
+              element.dispatchEvent(
+                new MouseEvent("mousedown", {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                })
+              );
+
+              await new Promise((resolve) => setTimeout(resolve, 10));
+
+              element.dispatchEvent(
+                new MouseEvent("mouseup", {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                })
+              );
+
+              await new Promise((resolve) => setTimeout(resolve, 10));
+
+              htmlElement.click();
+              element.dispatchEvent(
+                new MouseEvent("click", {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window,
+                })
+              );
+            } catch (clickError) {
+              console.warn("Error during click simulation:", clickError);
+              throw clickError;
+            }
+
+            await new Promise((resolve) => setTimeout(resolve, 50));
 
             setTimeout(() => {
               htmlElement.style.border = originalBorder;
@@ -88,14 +149,12 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "fill":
+      case PlaywrightActionType.FILL:
         if (action.selector && action.value !== undefined) {
           const element = (await waitForElement(action.selector)) as
             | HTMLInputElement
             | HTMLTextAreaElement;
           if (element) {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
-
             element.focus();
             element.value = "";
             element.value = String(action.value);
@@ -107,7 +166,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "check":
+      case PlaywrightActionType.CHECK:
         if (action.selector) {
           const element = (await waitForElement(
             action.selector
@@ -116,8 +175,6 @@ export async function executePlaywrightAction(
             element &&
             (element.type === "checkbox" || element.type === "radio")
           ) {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
-
             if (!element.checked) {
               element.click();
             }
@@ -129,7 +186,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "uncheck":
+      case PlaywrightActionType.UNCHECK:
         if (action.selector) {
           const element = (await waitForElement(
             action.selector
@@ -146,7 +203,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "selectOption":
+      case PlaywrightActionType.SELECT_OPTION:
         if (action.selector && action.value !== undefined) {
           const element = (await waitForElement(
             action.selector
@@ -162,12 +219,12 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "waitForTimeout":
+      case PlaywrightActionType.WAIT_FOR_TIMEOUT:
         const shortDelay = Math.min(action.value as number, 500);
         await new Promise((resolve) => setTimeout(resolve, shortDelay));
         break;
 
-      case "waitFor":
+      case PlaywrightActionType.WAIT_FOR:
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (!element) {
@@ -183,11 +240,10 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "hover":
+      case PlaywrightActionType.HOVER:
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (element) {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
             element.dispatchEvent(
               new MouseEvent("mouseover", { bubbles: true })
             );
@@ -200,13 +256,12 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "focus":
+      case PlaywrightActionType.FOCUS:
         if (action.selector) {
           const element = (await waitForElement(
             action.selector
           )) as HTMLElement;
           if (element && typeof element.focus === "function") {
-            // element.scrollIntoView({ behavior: "auto", block: "center" });
             element.focus();
           } else {
             throw new Error(
@@ -216,7 +271,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "blur":
+      case PlaywrightActionType.BLUR:
         if (action.selector) {
           const element = (await waitForElement(
             action.selector
@@ -231,7 +286,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "scrollIntoView":
+      case PlaywrightActionType.SCROLL_INTO_VIEW:
         if (action.selector) {
           const element = await waitForElement(action.selector);
           if (element) {
@@ -248,7 +303,7 @@ export async function executePlaywrightAction(
         }
         break;
 
-      case "expect":
+      case PlaywrightActionType.EXPECT:
         if (action.selector) {
           await verifyExpectation(action);
         }
@@ -754,37 +809,37 @@ function isElementVisible(element: Element): boolean {
 
 export function getActionDescription(action: PlaywrightAction): string {
   switch (action.type) {
-    case "goto":
+    case PlaywrightActionType.GOTO:
       return `Navigate to ${action.value}`;
-    case "click":
+    case PlaywrightActionType.CLICK:
       return `Click element: ${action.selector}`;
-    case "fill":
+    case PlaywrightActionType.FILL:
       return `Fill "${action.value}" in ${action.selector}`;
-    case "check":
+    case PlaywrightActionType.CHECK:
       return `Check checkbox: ${action.selector}`;
-    case "uncheck":
+    case PlaywrightActionType.UNCHECK:
       return `Uncheck checkbox: ${action.selector}`;
-    case "selectOption":
+    case PlaywrightActionType.SELECT_OPTION:
       return `Select "${action.value}" in ${action.selector}`;
-    case "hover":
+    case PlaywrightActionType.HOVER:
       return `Hover over element: ${action.selector}`;
-    case "focus":
+    case PlaywrightActionType.FOCUS:
       return `Focus element: ${action.selector}`;
-    case "blur":
+    case PlaywrightActionType.BLUR:
       return `Blur element: ${action.selector}`;
-    case "scrollIntoView":
+    case PlaywrightActionType.SCROLL_INTO_VIEW:
       return `Scroll element into view: ${action.selector}`;
-    case "waitFor":
+    case PlaywrightActionType.WAIT_FOR:
       return `Wait for element: ${action.selector}`;
-    case "expect":
+    case PlaywrightActionType.EXPECT:
       return `Verify ${action.selector} ${action.expectation}`;
-    case "setViewportSize":
+    case PlaywrightActionType.SET_VIEWPORT_SIZE:
       return `Set viewport size to ${action.value}`;
-    case "waitForTimeout":
+    case PlaywrightActionType.WAIT_FOR_TIMEOUT:
       return `Wait ${action.value}ms`;
-    case "waitForLoadState":
+    case PlaywrightActionType.WAIT_FOR_LOAD_STATE:
       return "Wait for page to load";
-    case "waitForSelector":
+    case PlaywrightActionType.WAIT_FOR_SELECTOR:
       return `Wait for element: ${action.selector}`;
     default:
       return `Execute ${action.type}`;

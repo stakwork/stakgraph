@@ -1308,10 +1308,19 @@ var userBehaviour = (() => {
 
   // src/playwright-replay/executor.ts
   async function executePlaywrightAction(action) {
-    var _a;
+    var _a, _b, _c, _d;
+    window.parent.postMessage({
+      type: "staktrak-debug-click",
+      message: `===>>> \u{1F680} Executing action: ${action.type}`,
+      data: {
+        actionType: action.type,
+        selector: action.selector,
+        value: action.value
+      }
+    }, "*");
     try {
       switch (action.type) {
-        case "goto":
+        case "goto" /* GOTO */:
           if (action.value && typeof action.value === "string") {
             window.parent.postMessage(
               {
@@ -1322,7 +1331,7 @@ var userBehaviour = (() => {
             );
           }
           break;
-        case "setViewportSize":
+        case "setViewportSize" /* SET_VIEWPORT_SIZE */:
           if (action.options) {
             try {
               if (window.top === window) {
@@ -1333,32 +1342,116 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "waitForLoadState":
+        case "waitForLoadState" /* WAIT_FOR_LOAD_STATE */:
           break;
-        case "waitForSelector":
+        case "waitForSelector" /* WAIT_FOR_SELECTOR */:
           if (action.selector) {
             await waitForElement(action.selector);
           }
           break;
-        case "click":
+        case "click" /* CLICK */:
           if (action.selector) {
+            console.log(`===>>> \u{1F4CD} CLICK case reached for selector:`, action.selector);
             const element = await waitForElement(action.selector);
             if (element) {
+              console.log(`===>>> \u2705 Element found!`);
               const htmlElement = element;
+              window.parent.postMessage({
+                type: "staktrak-debug-click",
+                message: "===>>> \u{1F3AF} Clicking element",
+                data: {
+                  selector: action.selector,
+                  tagName: element.tagName,
+                  textContent: (_a = element.textContent) == null ? void 0 : _a.trim(),
+                  hasOnClick: !!htmlElement.onclick,
+                  hasEventListeners: typeof window.getEventListeners === "function" ? window.getEventListeners(element) : "DevTools required",
+                  classList: element.classList.toString(),
+                  parentElement: (_b = element.parentElement) == null ? void 0 : _b.tagName,
+                  href: htmlElement.getAttribute("href"),
+                  role: htmlElement.getAttribute("role"),
+                  isButton: element.tagName === "BUTTON",
+                  isLink: element.tagName === "A",
+                  boundingRect: element.getBoundingClientRect()
+                }
+              }, "*");
               const originalBorder = htmlElement.style.border;
               htmlElement.style.border = "3px solid #ff6b6b";
               htmlElement.style.boxShadow = "0 0 10px rgba(255, 107, 107, 0.5)";
-              htmlElement.click();
+              element.scrollIntoView({ behavior: "smooth", block: "center" });
+              await new Promise((resolve) => setTimeout(resolve, 50));
+              try {
+                htmlElement.focus();
+              } catch (e) {
+                console.warn("Could not focus element:", e);
+              }
+              try {
+                element.dispatchEvent(
+                  new MouseEvent("mousedown", {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                  })
+                );
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                element.dispatchEvent(
+                  new MouseEvent("mouseup", {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                  })
+                );
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                htmlElement.click();
+                element.dispatchEvent(
+                  new MouseEvent("click", {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                  })
+                );
+                window.parent.postMessage({
+                  type: "staktrak-debug-click",
+                  message: "===>>> \u2705 Click executed successfully",
+                  data: {
+                    tagName: element.tagName,
+                    currentUrl: window.location.href,
+                    textContent: (_c = element.textContent) == null ? void 0 : _c.trim(),
+                    success: true
+                  }
+                }, "*");
+              } catch (clickError) {
+                window.parent.postMessage({
+                  type: "staktrak-debug-click",
+                  message: "===>>> \u274C Error during click operation",
+                  data: {
+                    error: clickError instanceof Error ? clickError.message : String(clickError),
+                    success: false
+                  }
+                }, "*");
+              }
+              await new Promise((resolve) => setTimeout(resolve, 50));
               setTimeout(() => {
                 htmlElement.style.border = originalBorder;
                 htmlElement.style.boxShadow = "";
               }, 300);
             } else {
+              window.parent.postMessage({
+                type: "staktrak-debug-click",
+                message: "===>>> \u274C Element not found",
+                data: {
+                  selector: action.selector,
+                  success: false,
+                  error: "Element not found"
+                }
+              }, "*");
+              console.log(`===>>> \u274C Element not found for selector:`, action.selector);
               throw new Error(`Element not found: ${action.selector}`);
             }
+          } else {
+            console.log(`===>>> \u26A0\uFE0F No selector provided for CLICK action`);
           }
           break;
-        case "fill":
+        case "fill" /* FILL */:
           if (action.selector && action.value !== void 0) {
             const element = await waitForElement(action.selector);
             if (element) {
@@ -1372,7 +1465,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "check":
+        case "check" /* CHECK */:
           if (action.selector) {
             const element = await waitForElement(
               action.selector
@@ -1388,7 +1481,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "uncheck":
+        case "uncheck" /* UNCHECK */:
           if (action.selector) {
             const element = await waitForElement(
               action.selector
@@ -1402,7 +1495,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "selectOption":
+        case "selectOption" /* SELECT_OPTION */:
           if (action.selector && action.value !== void 0) {
             const element = await waitForElement(
               action.selector
@@ -1415,11 +1508,11 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "waitForTimeout":
+        case "waitForTimeout" /* WAIT_FOR_TIMEOUT */:
           const shortDelay = Math.min(action.value, 500);
           await new Promise((resolve) => setTimeout(resolve, shortDelay));
           break;
-        case "waitFor":
+        case "waitFor" /* WAIT_FOR */:
           if (action.selector) {
             const element = await waitForElement(action.selector);
             if (!element) {
@@ -1427,14 +1520,14 @@ var userBehaviour = (() => {
                 `Element not found for waitFor: ${action.selector}`
               );
             }
-            if (((_a = action.options) == null ? void 0 : _a.state) === "visible") {
+            if (((_d = action.options) == null ? void 0 : _d.state) === "visible") {
               if (!isElementVisible(element)) {
                 throw new Error(`Element is not visible: ${action.selector}`);
               }
             }
           }
           break;
-        case "hover":
+        case "hover" /* HOVER */:
           if (action.selector) {
             const element = await waitForElement(action.selector);
             if (element) {
@@ -1449,7 +1542,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "focus":
+        case "focus" /* FOCUS */:
           if (action.selector) {
             const element = await waitForElement(
               action.selector
@@ -1463,7 +1556,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "blur":
+        case "blur" /* BLUR */:
           if (action.selector) {
             const element = await waitForElement(
               action.selector
@@ -1477,7 +1570,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "scrollIntoView":
+        case "scrollIntoView" /* SCROLL_INTO_VIEW */:
           if (action.selector) {
             const element = await waitForElement(action.selector);
             if (element) {
@@ -1493,7 +1586,7 @@ var userBehaviour = (() => {
             }
           }
           break;
-        case "expect":
+        case "expect" /* EXPECT */:
           if (action.selector) {
             await verifyExpectation(action);
           }
@@ -1905,37 +1998,37 @@ var userBehaviour = (() => {
   }
   function getActionDescription(action) {
     switch (action.type) {
-      case "goto":
+      case "goto" /* GOTO */:
         return `Navigate to ${action.value}`;
-      case "click":
+      case "click" /* CLICK */:
         return `Click element: ${action.selector}`;
-      case "fill":
+      case "fill" /* FILL */:
         return `Fill "${action.value}" in ${action.selector}`;
-      case "check":
+      case "check" /* CHECK */:
         return `Check checkbox: ${action.selector}`;
-      case "uncheck":
+      case "uncheck" /* UNCHECK */:
         return `Uncheck checkbox: ${action.selector}`;
-      case "selectOption":
+      case "selectOption" /* SELECT_OPTION */:
         return `Select "${action.value}" in ${action.selector}`;
-      case "hover":
+      case "hover" /* HOVER */:
         return `Hover over element: ${action.selector}`;
-      case "focus":
+      case "focus" /* FOCUS */:
         return `Focus element: ${action.selector}`;
-      case "blur":
+      case "blur" /* BLUR */:
         return `Blur element: ${action.selector}`;
-      case "scrollIntoView":
+      case "scrollIntoView" /* SCROLL_INTO_VIEW */:
         return `Scroll element into view: ${action.selector}`;
-      case "waitFor":
+      case "waitFor" /* WAIT_FOR */:
         return `Wait for element: ${action.selector}`;
-      case "expect":
+      case "expect" /* EXPECT */:
         return `Verify ${action.selector} ${action.expectation}`;
-      case "setViewportSize":
+      case "setViewportSize" /* SET_VIEWPORT_SIZE */:
         return `Set viewport size to ${action.value}`;
-      case "waitForTimeout":
+      case "waitForTimeout" /* WAIT_FOR_TIMEOUT */:
         return `Wait ${action.value}ms`;
-      case "waitForLoadState":
+      case "waitForLoadState" /* WAIT_FOR_LOAD_STATE */:
         return "Wait for page to load";
-      case "waitForSelector":
+      case "waitForSelector" /* WAIT_FOR_SELECTOR */:
         return `Wait for element: ${action.selector}`;
       default:
         return `Execute ${action.type}`;
