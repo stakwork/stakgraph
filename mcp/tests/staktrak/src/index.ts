@@ -8,6 +8,11 @@ import {
 } from "./utils";
 import { debugMsg, isReactDevModeActive } from "./debug";
 import { initPlaywrightReplay } from "./playwright-replay/index";
+import { resultsToActions } from "./actionModel";
+import {
+  generatePlaywrightTestFromActions,
+  GenerateOptions,
+} from "./playwright-generator";
 
 
 const defaultConfig: Config = {
@@ -469,6 +474,32 @@ class UserBehaviorTracker {
       window.removeEventListener("popstate", popstateHandler)
     );
 
+    const hashHandler = () => {
+      recordStateChange("hashchange");
+    };
+    window.addEventListener('hashchange', hashHandler);
+    this.memory.alwaysListeners.push(() =>
+      window.removeEventListener('hashchange', hashHandler)
+    );
+
+    const anchorClickHandler = (e: Event) => {
+      const a = (e.target as HTMLElement).closest('a');
+      if (!a) return;
+      if (a.target && a.target !== '_self') return;
+      const href = a.getAttribute('href');
+      if (!href) return;
+      try {
+        const dest = new URL(href, window.location.href);
+        if (dest.origin === window.location.origin) {
+          this.results.pageNavigation.push({ type: 'anchorClick', url: dest.href, timestamp: getTimeStamp() });
+        }
+      } catch {}
+    };
+    document.addEventListener('click', anchorClickHandler, true);
+    this.memory.alwaysListeners.push(() =>
+      document.removeEventListener('click', anchorClickHandler, true)
+    );
+
     // Note: We don't restore original pushState/replaceState since they're global
     // and would break if multiple instances exist
   }
@@ -774,5 +805,19 @@ document.readyState === "loading"
 
 // Add utility functions to the userBehaviour object for testing
 (userBehaviour as any).createClickDetail = createClickDetail;
+(userBehaviour as any).getActions = () =>
+  resultsToActions(userBehaviour.result());
+(userBehaviour as any).generatePlaywrightTest = (options: GenerateOptions) => {
+  const actions = resultsToActions(userBehaviour.result());
+  const code = generatePlaywrightTestFromActions(actions, options);
+  (userBehaviour as any)._lastGeneratedUsingActions = true;
+  return code;
+};
+(userBehaviour as any).exportSession = (options: GenerateOptions) => {
+  const actions = resultsToActions(userBehaviour.result());
+  const test = generatePlaywrightTestFromActions(actions, options);
+  (userBehaviour as any)._lastGeneratedUsingActions = true;
+  return { actions, test };
+};
 
 export default userBehaviour;

@@ -272,6 +272,38 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
             lineNumber,
           });
         }
+      } else if (trimmed.includes('page.waitForURL(')) {
+        const urlMatch = trimmed.match(/page\.waitForURL\(['\"](.*?)['\"]\)/);
+        if (urlMatch) {
+          actions.push({
+            type: 'waitForURL',
+            value: urlMatch[1],
+            comment,
+            lineNumber,
+          });
+        }
+      } else if (trimmed.startsWith('await Promise.all([') && trimmed.includes('waitForURL')) {
+        // Attempt to capture compound click+waitForURL pattern
+        // Collect lines until closing ']);'
+        const blockLines: string[] = [trimmed];
+        let j = lineNumber; // current line number in outer context
+        // We'll peek ahead in the original testCode string; fallback if not available
+        // Simpler approach: scan next 6 lines from 'lines'
+        for (let k = 1; k <= 6 && lineNumber + k - 1 < lines.length; k++) {
+          const peek = lines[lineNumber + k - 1].trim();
+            blockLines.push(peek);
+            if (peek.endsWith(']);')) break;
+        }
+        const block = blockLines.join(' ');
+        const url = block.match(/page\.waitForURL\(['\"](.*?)['\"]\)/)?.[1];
+        const clickSelector = block.match(/page\.(getBy[^.]+\([^)]*\)|locator\([^)]*\))\.click\(\)/)?.[1];
+        if (url) {
+          actions.push({ type: 'waitForURL', value: url, comment: (comment?comment+' ':'')+'(compound)', lineNumber });
+        }
+        if (clickSelector) {
+          const selector = parseLocatorCall(clickSelector);
+          actions.push({ type: 'click', selector, comment, lineNumber });
+        }
       } else if (trimmed.includes("page.getByRole(")) {
         const roleMatch = trimmed.match(
           /page\.getByRole\(['"](.*?)['"](?:,\s*\{\s*name:\s*['"](.*?)['"]\s*\})?\)/

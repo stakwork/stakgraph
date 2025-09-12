@@ -629,6 +629,7 @@ var userBehaviour = (() => {
 
   // src/playwright-replay/parser.ts
   function parsePlaywrightTest(testCode) {
+    var _a, _b;
     const actions = [];
     const lines = testCode.split("\n");
     let lineNumber = 0;
@@ -879,6 +880,34 @@ var userBehaviour = (() => {
               comment,
               lineNumber
             });
+          }
+        } else if (trimmed.includes("page.waitForURL(")) {
+          const urlMatch = trimmed.match(/page\.waitForURL\(['\"](.*?)['\"]\)/);
+          if (urlMatch) {
+            actions.push({
+              type: "waitForURL",
+              value: urlMatch[1],
+              comment,
+              lineNumber
+            });
+          }
+        } else if (trimmed.startsWith("await Promise.all([") && trimmed.includes("waitForURL")) {
+          const blockLines = [trimmed];
+          let j = lineNumber;
+          for (let k = 1; k <= 6 && lineNumber + k - 1 < lines.length; k++) {
+            const peek = lines[lineNumber + k - 1].trim();
+            blockLines.push(peek);
+            if (peek.endsWith("]);")) break;
+          }
+          const block = blockLines.join(" ");
+          const url = (_a = block.match(/page\.waitForURL\(['\"](.*?)['\"]\)/)) == null ? void 0 : _a[1];
+          const clickSelector = (_b = block.match(/page\.(getBy[^.]+\([^)]*\)|locator\([^)]*\))\.click\(\)/)) == null ? void 0 : _b[1];
+          if (url) {
+            actions.push({ type: "waitForURL", value: url, comment: (comment ? comment + " " : "") + "(compound)", lineNumber });
+          }
+          if (clickSelector) {
+            const selector = parseLocatorCall(clickSelector);
+            actions.push({ type: "click", selector, comment, lineNumber });
           }
         } else if (trimmed.includes("page.getByRole(")) {
           const roleMatch = trimmed.match(
@@ -1326,6 +1355,14 @@ var userBehaviour = (() => {
       htmlElement.style.transition = "";
     }, 1500);
   }
+  function normalizeUrl(u) {
+    try {
+      const url = new URL(u, window.location.origin);
+      return url.href.replace(/[#?].*$/, "").replace(/\/$/, "");
+    } catch (e) {
+      return u.replace(/[#?].*$/, "").replace(/\/$/, "");
+    }
+  }
   async function executePlaywrightAction(action) {
     var _a;
     try {
@@ -1357,6 +1394,20 @@ var userBehaviour = (() => {
         case "waitForSelector" /* WAIT_FOR_SELECTOR */:
           if (action.selector) {
             await waitForElement(action.selector);
+          }
+          break;
+        case "waitForURL" /* WAIT_FOR_URL */:
+          if (action.value && typeof action.value === "string") {
+            const target = normalizeUrl(action.value);
+            const start = Date.now();
+            while (Date.now() - start < 8e3) {
+              if (normalizeUrl(window.location.href).endsWith(target)) break;
+              await new Promise((r) => setTimeout(r, 150));
+            }
+            try {
+              highlight(document.body, "nav");
+            } catch (e) {
+            }
           }
           break;
         case "click" /* CLICK */:
@@ -2077,6 +2128,249 @@ var userBehaviour = (() => {
     });
   }
 
+  // src/actionModel.ts
+  function resultsToActions(results) {
+    var _a;
+    const actions = [];
+    if (results.pageNavigation) {
+      for (const nav of results.pageNavigation) {
+        actions.push({ kind: "nav", timestamp: nav.timestamp, url: nav.url });
+      }
+    }
+    if ((_a = results.clicks) == null ? void 0 : _a.clickDetails) {
+      for (const cd of results.clicks.clickDetails) {
+        actions.push({
+          kind: "click",
+          timestamp: cd.timestamp,
+          locator: {
+            primary: cd.selectors.primary,
+            fallbacks: cd.selectors.fallbacks || [],
+            role: cd.selectors.role,
+            text: cd.selectors.text,
+            tagName: cd.selectors.tagName
+          }
+        });
+      }
+    }
+    if (results.inputChanges) {
+      for (const input of results.inputChanges) {
+        if (input.action === "complete" || !input.action) {
+          actions.push({
+            kind: "input",
+            timestamp: input.timestamp,
+            locator: { primary: input.elementSelector, fallbacks: [] },
+            value: input.value
+          });
+        }
+      }
+    }
+    if (results.formElementChanges) {
+      for (const fe of results.formElementChanges) {
+        actions.push({
+          kind: "form",
+          timestamp: fe.timestamp,
+          locator: { primary: fe.elementSelector, fallbacks: [] },
+          formType: fe.type,
+          value: fe.value,
+          checked: fe.checked
+        });
+      }
+    }
+    if (results.assertions) {
+      for (const asrt of results.assertions) {
+        actions.push({
+          kind: "assertion",
+          timestamp: asrt.timestamp,
+          locator: { primary: asrt.selector, fallbacks: [] },
+          value: asrt.value
+        });
+      }
+    }
+    actions.sort((a, b) => a.timestamp - b.timestamp);
+    refineLocators(actions);
+    return actions;
+  }
+  function refineLocators(actions) {
+    if (typeof document === "undefined") return;
+    const seen = /* @__PURE__ */ new Set();
+    for (const a of actions) {
+      if (!a.locator) continue;
+      const { primary, fallbacks } = a.locator;
+      const validated = [];
+      if (isUnique(primary)) validated.push(primary);
+      for (const fb of fallbacks) {
+        if (validated.length >= 3) break;
+        if (isUnique(fb)) validated.push(fb);
+      }
+      if (validated.length === 0) continue;
+      a.locator.primary = validated[0];
+      a.locator.fallbacks = validated.slice(1);
+      const key = a.locator.primary + "::" + a.kind;
+      if (seen.has(key) && a.locator.fallbacks.length > 0) {
+        a.locator.primary = a.locator.fallbacks[0];
+        a.locator.fallbacks = a.locator.fallbacks.slice(1);
+      }
+      seen.add(a.locator.primary + "::" + a.kind);
+    }
+  }
+  function isUnique(sel) {
+    if (!sel || /^(html|body|div|span|p|button|input)$/i.test(sel)) return false;
+    try {
+      const nodes = document.querySelectorAll(sel);
+      return nodes.length === 1;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // src/playwright-generator.ts
+  function escapeTextForAssertion(text) {
+    if (!text) return "";
+    return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").trim();
+  }
+  function normalizeText(t) {
+    return (t || "").trim();
+  }
+  function locatorToSelector(l) {
+    if (!l) return 'page.locator("body")';
+    const primary = l.primary;
+    if (/\[data-testid=/.test(primary)) {
+      const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
+      if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
+    }
+    if (primary.startsWith("#") && /^[a-zA-Z][\w-]*$/.test(primary.slice(1)))
+      return `page.locator('${primary}')`;
+    if (l.role && l.text) {
+      const txt = normalizeText(l.text);
+      if (txt && txt.length <= 50)
+        return `page.getByRole('${l.role}', { name: '${escapeTextForAssertion(txt)}' })`;
+    }
+    if (l.text && l.text.length <= 30 && l.text.length > 1)
+      return `page.getByText('${escapeTextForAssertion(normalizeText(l.text))}')`;
+    if (primary && !primary.startsWith("page."))
+      return `page.locator('${primary}')`;
+    for (const fb of l.fallbacks) {
+      if (fb && !/^[a-zA-Z]+$/.test(fb)) return `page.locator('${fb}')`;
+    }
+    return 'page.locator("body")';
+  }
+  function generatePlaywrightTestFromActions(actions, options) {
+    const name = options.testName || "Recorded flow";
+    const viewport = options.viewport || { width: 1280, height: 720 };
+    let body = "";
+    let lastTs = null;
+    const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
+    function fullUrl(u) {
+      if (!u) return "";
+      if (/^https?:/i.test(u)) return u;
+      if (u.startsWith("/")) return base + u;
+      return base + "/" + u;
+    }
+    let i = 0;
+    const collapsed = [];
+    for (let k = 0; k < actions.length; k++) {
+      const curr = actions[k];
+      const prev = collapsed[collapsed.length - 1];
+      if (curr.kind === "nav" && prev && prev.kind === "nav" && prev.url === curr.url) continue;
+      collapsed.push(curr);
+    }
+    actions = collapsed;
+    while (i < actions.length) {
+      const a = actions[i];
+      if (a.kind === "click" && i + 1 < actions.length) {
+        const nxt = actions[i + 1];
+        if (nxt.kind === "nav" && nxt.timestamp - a.timestamp < 1500) {
+          if (lastTs != null) {
+            const delta = Math.max(0, a.timestamp - lastTs);
+            const wait = Math.min(3e3, Math.max(100, delta));
+            if (wait > 400) body += `  await page.waitForTimeout(${wait});
+`;
+          }
+          body += `  await Promise.all([
+`;
+          body += `    page.waitForURL('${fullUrl(nxt.url)}'),
+`;
+          body += `    ${locatorToSelector(a.locator)}.click()
+`;
+          body += `  ]);
+`;
+          lastTs = nxt.timestamp;
+          i += 2;
+          continue;
+        }
+      }
+      if (lastTs != null) {
+        const delta = Math.max(0, a.timestamp - lastTs);
+        const wait = Math.min(3e3, Math.max(100, delta));
+        if (wait > 500) body += `  await page.waitForTimeout(${wait});
+`;
+      }
+      switch (a.kind) {
+        case "nav": {
+          const target = fullUrl(a.url);
+          if (i === 0) {
+            body += `  await page.goto('${target}');
+`;
+          } else {
+            body += `  await page.waitForURL('${target}');
+`;
+          }
+          break;
+        }
+        case "click":
+          body += `  await ${locatorToSelector(a.locator)}.click();
+`;
+          break;
+        case "input":
+          body += `  await ${locatorToSelector(a.locator)}.fill('${escapeTextForAssertion(a.value || "")}');
+`;
+          break;
+        case "form":
+          if (a.formType === "checkbox" || a.formType === "radio") {
+            body += a.checked ? `  await ${locatorToSelector(a.locator)}.check();
+` : `  await ${locatorToSelector(a.locator)}.uncheck();
+`;
+          } else if (a.formType === "select") {
+            body += `  await ${locatorToSelector(a.locator)}.selectOption('${escapeTextForAssertion(a.value || "")}');
+`;
+          }
+          break;
+        case "assertion":
+          if (a.value && a.value.length > 0) {
+            body += `  await expect(${locatorToSelector(a.locator)}).toContainText('${escapeTextForAssertion(a.value)}');
+`;
+          } else {
+            body += `  await expect(${locatorToSelector(a.locator)}).toBeVisible();
+`;
+          }
+          break;
+      }
+      lastTs = a.timestamp;
+      i++;
+    }
+    return `import { test, expect } from '@playwright/test'
+
+test('${name}', async ({ page }) => {
+  await page.setViewportSize({ width: ${viewport.width}, height: ${viewport.height} })
+${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
+})
+`;
+  }
+  if (typeof window !== "undefined") {
+    const existing = window.PlaywrightGenerator || {};
+    existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
+    existing.generatePlaywrightTest = (baseUrl, results) => {
+      try {
+        const actions = resultsToActions(results);
+        return generatePlaywrightTestFromActions(actions, { baseUrl });
+      } catch (e) {
+        console.warn("PlaywrightGenerator.generatePlaywrightTest failed", e);
+        return "";
+      }
+    };
+    window.PlaywrightGenerator = existing;
+  }
+
   // src/index.ts
   var defaultConfig = {
     userInfo: true,
@@ -2461,6 +2755,31 @@ var userBehaviour = (() => {
       this.memory.alwaysListeners.push(
         () => window.removeEventListener("popstate", popstateHandler)
       );
+      const hashHandler = () => {
+        recordStateChange("hashchange");
+      };
+      window.addEventListener("hashchange", hashHandler);
+      this.memory.alwaysListeners.push(
+        () => window.removeEventListener("hashchange", hashHandler)
+      );
+      const anchorClickHandler = (e) => {
+        const a = e.target.closest("a");
+        if (!a) return;
+        if (a.target && a.target !== "_self") return;
+        const href = a.getAttribute("href");
+        if (!href) return;
+        try {
+          const dest = new URL(href, window.location.href);
+          if (dest.origin === window.location.origin) {
+            this.results.pageNavigation.push({ type: "anchorClick", url: dest.href, timestamp: getTimeStamp() });
+          }
+        } catch (e2) {
+        }
+      };
+      document.addEventListener("click", anchorClickHandler, true);
+      this.memory.alwaysListeners.push(
+        () => document.removeEventListener("click", anchorClickHandler, true)
+      );
     }
     setupMessageHandling() {
       if (this.memory.alwaysListeners.length > 0) return;
@@ -2693,6 +3012,19 @@ var userBehaviour = (() => {
   };
   document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", initializeStakTrak) : initializeStakTrak();
   userBehaviour.createClickDetail = createClickDetail;
+  userBehaviour.getActions = () => resultsToActions(userBehaviour.result());
+  userBehaviour.generatePlaywrightTest = (options) => {
+    const actions = resultsToActions(userBehaviour.result());
+    const code = generatePlaywrightTestFromActions(actions, options);
+    userBehaviour._lastGeneratedUsingActions = true;
+    return code;
+  };
+  userBehaviour.exportSession = (options) => {
+    const actions = resultsToActions(userBehaviour.result());
+    const test = generatePlaywrightTestFromActions(actions, options);
+    userBehaviour._lastGeneratedUsingActions = true;
+    return { actions, test };
+  };
   var index_default = userBehaviour;
   return __toCommonJS(index_exports);
 })();

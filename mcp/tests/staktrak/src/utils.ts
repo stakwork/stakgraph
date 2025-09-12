@@ -1,32 +1,32 @@
-// Enhanced utils.ts
+// Enhanced utils.ts (cleaned)
 import { Results, Assertion, Config, ClickDetail } from "./types";
 
 export const getTimeStamp = (): number => Date.now();
 
 /**
- * Get ARIA role for an element, including implicit roles for semantic HTML
+ * Lightweight role derivation (fallback if no explicit role attribute)
  */
-export const getElementRole = (element: HTMLElement): string | null => {
-  // 1. Check explicit role first (highest priority)
-  const explicit = element.getAttribute('role');
+export const getElementRole = (el: HTMLElement): string | null => {
+  // Explicit role always wins
+  const explicit = el.getAttribute("role");
   if (explicit) return explicit;
-  
-  // 2. Handle basic implicit roles that are commonly failing
-  const tag = element.tagName.toLowerCase();
-  if (tag === 'button') return 'button';
-  if (tag === 'a' && element.hasAttribute('href')) return 'link';
-  if (tag === 'input') {
-    const type = element.getAttribute('type');
-    if (['button', 'submit', 'reset'].includes(type || 'text')) return 'button';
-    return 'textbox';
+  const tag = el.tagName.toLowerCase();
+  if (tag === "button") return "button";
+  if (tag === "a" && el.hasAttribute("href")) return "link";
+  if (tag === "input") {
+    const type = (el.getAttribute("type") || "text").toLowerCase();
+    if (["button", "submit", "reset"].includes(type)) return "button";
+    if (type === "checkbox") return "checkbox";
+    if (type === "radio") return "radio";
+    return "textbox";
   }
-  if (tag === 'nav') return 'navigation';
-  if (tag === 'main') return 'main';
-  if (tag === 'header') return 'banner';
-  if (tag === 'footer') return 'contentinfo';
-  if (tag === 'aside') return 'complementary';
-  if (tag === 'section') return 'region';
-  
+  if (tag === "select") return "combobox";
+  if (tag === "textarea") return "textbox";
+  if (tag === "nav") return "navigation";
+  if (tag === "header") return "banner";
+  if (tag === "footer") return "contentinfo";
+  if (tag === "main") return "main";
+  if (tag === "form") return "form";
   return null;
 };
 
@@ -413,6 +413,43 @@ export const generateXPath = (element: Element): string => {
 export const createClickDetail = (e: MouseEvent): ClickDetail => {
   const target = e.target as Element;
   const selectors = generateSelectorStrategies(target);
+  // canonical enrichment
+  const html = target as HTMLElement;
+  const testId = (html.dataset && html.dataset['testid']) || undefined;
+  const id = html.id || undefined;
+  const accessibleName = getEnhancedElementText(html) || undefined;
+  // nth-of-type among same tag siblings
+  let nth: number | undefined;
+  if (html.parentElement) {
+    const same = Array.from(html.parentElement.children).filter(c => c.tagName === html.tagName);
+    if (same.length > 1) nth = same.indexOf(html) + 1;
+  }
+  const ancestors: string[] = [];
+  let p: HTMLElement | null = html.parentElement;
+  let depth = 0;
+  while (p && depth < 4) {
+    const role = p.getAttribute('role');
+    const tag = p.tagName.toLowerCase();
+    if (['main','nav','header','footer','aside','section','form','article'].includes(tag) || role) {
+      ancestors.push(role ? `${tag}[role=${role}]` : tag);
+    }
+    p = p.parentElement; depth++;
+  }
+    const selAny: any = selectors as any;
+    selAny.id = id;
+    selAny.testId = testId;
+    selAny.accessibleName = accessibleName;
+    if (nth) selAny.nth = nth;
+    if (ancestors.length) selAny.ancestors = ancestors;
+
+    // Uniqueness stabilization: if primary is generic (tag or simple class) and we have id/testId/text role data, promote a better one
+    selectors.primary = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
+      testId,
+      id,
+      accessibleName,
+      role: getElementRole(html) || undefined,
+      nth,
+    });
 
   return {
     x: e.clientX,
@@ -539,4 +576,40 @@ export const filterClickDetails = (
   });
 
   return result.sort((a, b) => a.timestamp - b.timestamp);
+};
+
+// Determine if a selector is likely too weak (e.g., plain tag, tag.class) by simple heuristics
+const isWeakSelector = (selector: string): boolean => {
+  if (!selector) return true;
+  if (/^\w+$/.test(selector)) return true; // just tag
+  if (/^\w+\.[^.]+$/.test(selector)) return true; // tag.singleClass
+  if (selector.startsWith('text=')) return false;
+  if (selector.startsWith('[data-testid=')) return false;
+  if (selector.startsWith('#')) return false;
+  return false; // default assume okay
+};
+
+interface StableInputs {
+  testId?: string;
+  id?: string;
+  accessibleName?: string;
+  role?: string;
+  nth?: number;
+}
+
+const chooseStablePrimary = (
+  el: HTMLElement,
+  current: string,
+  fallbacks: string[],
+  meta: StableInputs
+): string => {
+  if (!isWeakSelector(current)) return current;
+  if (meta.testId) return `[data-testid="${meta.testId}"]`;
+  if (meta.id && /^[a-zA-Z][\w-]*$/.test(meta.id)) return `#${meta.id}`;
+  if (meta.role && meta.accessibleName && meta.accessibleName.length < 80) {
+    // Playwright style text selector
+    return `text=${meta.accessibleName.replace(/"/g,'\\"')}`;
+  }
+  // As last resort keep original
+  return current;
 };
