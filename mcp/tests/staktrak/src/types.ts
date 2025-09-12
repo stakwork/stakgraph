@@ -46,6 +46,12 @@ export interface ClickDetail {
     role?: string; // role attribute
     tagName: string; // Element tag name
     xpath?: string; // XPath as last resort
+  // Canonical enrichment
+  id?: string;
+  testId?: string;
+  accessibleName?: string;
+  nth?: number;
+  ancestors?: string[]; // semantic ancestor tag or role chain
   };
   elementInfo: {
     tagName: string;
@@ -158,7 +164,7 @@ export interface ReplayProgress {
 }
 
 export interface PlaywrightAction {
-  type: 'goto' | 'click' | 'fill' | 'check' | 'uncheck' | 'selectOption' | 'waitForTimeout' | 'expect' | 'setViewportSize' | 'waitForLoadState' | 'waitForSelector' | 'waitFor' | 'hover' | 'focus' | 'blur' | 'scrollIntoView';
+  type: 'goto' | 'click' | 'fill' | 'check' | 'uncheck' | 'selectOption' | 'waitForTimeout' | 'expect' | 'setViewportSize' | 'waitForLoadState' | 'waitForSelector' | 'waitForURL' | 'waitFor' | 'hover' | 'focus' | 'blur' | 'scrollIntoView';
   selector?: string;
   value?: string | number;
   options?: Record<string, any>;
