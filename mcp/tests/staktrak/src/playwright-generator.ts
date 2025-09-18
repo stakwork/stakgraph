@@ -83,25 +83,16 @@ export function generatePlaywrightTestFromActions(
   function getSiteAgnosticUrl(u?: string): string {
     if (!u) return "";
     
-    if (options.siteAgnostic === false && base) {
+    const shouldBeSiteAgnostic = options.siteAgnostic !== false;
+    
+    if (!shouldBeSiteAgnostic && base) {
       return fullUrl(u);
     }
     
     try {
       const url = new URL(u);
-      
-      if (base) {
-        if (/^https?:/i.test(u)) return u;
-        if (u.startsWith('/')) return base + u;
-        return base + '/' + u;
-      }
-      
       return url.pathname + url.search + url.hash;
     } catch {
-      if (base) {
-        if (u.startsWith('/')) return base + u;
-        return base + '/' + u;
-      }
       return u.startsWith('/') ? u : '/' + u;
     }
   }

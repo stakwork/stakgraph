@@ -97,9 +97,7 @@ var userBehaviour = (() => {
     return [
       "button",
       "a[href]",
-      'input[type="button"], input[type="submit"], input[type="reset"]',
-      'input[type="text"], input[type="email"], input[type="password"], input[type="search"]',
-      'input[type="checkbox"], input[type="radio"]',
+      "input",
       "select",
       "textarea",
       '[role="button"]',
@@ -1762,6 +1760,15 @@ var userBehaviour = (() => {
       switch (action.type) {
         case "goto" /* GOTO */:
           if (action.value && typeof action.value === "string") {
+            try {
+              document.body.style.outline = "4px solid #4CAF50";
+              document.body.style.backgroundColor = "rgba(76, 175, 80, 0.1)";
+              setTimeout(() => {
+                document.body.style.outline = "";
+                document.body.style.backgroundColor = "";
+              }, 1e3);
+            } catch (e) {
+            }
             window.parent.postMessage(
               {
                 type: "staktrak-iframe-navigate",
@@ -1875,7 +1882,16 @@ var userBehaviour = (() => {
               }
             });
             try {
-              highlight(document.body, matched ? "nav" : "nav-timeout");
+              if (matched) {
+                document.body.style.outline = "3px solid #4CAF50";
+                document.body.style.backgroundColor = "rgba(76, 175, 80, 0.1)";
+                setTimeout(() => {
+                  document.body.style.outline = "";
+                  document.body.style.backgroundColor = "";
+                }, 800);
+              } else {
+                highlight(document.body, "nav-timeout");
+              }
             } catch (e) {
             }
             try {
@@ -3118,22 +3134,14 @@ var userBehaviour = (() => {
     const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
     function getSiteAgnosticUrl(u) {
       if (!u) return "";
-      if (options.siteAgnostic === false && base) {
+      const shouldBeSiteAgnostic = options.siteAgnostic !== false;
+      if (!shouldBeSiteAgnostic && base) {
         return fullUrl(u);
       }
       try {
         const url = new URL(u);
-        if (base) {
-          if (/^https?:/i.test(u)) return u;
-          if (u.startsWith("/")) return base + u;
-          return base + "/" + u;
-        }
         return url.pathname + url.search + url.hash;
       } catch (e) {
-        if (base) {
-          if (u.startsWith("/")) return base + u;
-          return base + "/" + u;
-        }
         return u.startsWith("/") ? u : "/" + u;
       }
     }

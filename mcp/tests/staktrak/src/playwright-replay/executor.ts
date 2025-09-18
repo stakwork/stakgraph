@@ -111,6 +111,15 @@ export async function executePlaywrightAction(
     switch (action.type) {
       case PlaywrightActionType.GOTO:
         if (action.value && typeof action.value === "string") {
+          try { 
+            document.body.style.outline = '4px solid #4CAF50';
+            document.body.style.backgroundColor = 'rgba(76, 175, 80, 0.1)';
+            setTimeout(() => {
+              document.body.style.outline = '';
+              document.body.style.backgroundColor = '';
+            }, 1000);
+          } catch {}
+          
           window.parent.postMessage(
             {
               type: "staktrak-iframe-navigate",
@@ -197,7 +206,18 @@ export async function executePlaywrightAction(
             if (tryMatch()) break;
           }
           stopSignals.forEach(fn=>{ try { fn(); } catch {} });
-          try { highlight(document.body, matched ? 'nav' : 'nav-timeout'); } catch {}
+          try { 
+            if (matched) {
+              document.body.style.outline = '3px solid #4CAF50';
+              document.body.style.backgroundColor = 'rgba(76, 175, 80, 0.1)';
+              setTimeout(() => {
+                document.body.style.outline = '';
+                document.body.style.backgroundColor = '';
+              }, 800);
+            } else {
+              highlight(document.body, 'nav-timeout'); 
+            }
+          } catch {}
           try { ensureStylesInDocument(document); } catch {}
           if (!matched && !(window as any).__stakTrakWarnedNav) {
             console.warn('[staktrak] waitForURL timeout — last, expected', window.location.href, target);

@@ -185,22 +185,14 @@ function generatePlaywrightTestFromActions(actions, options) {
   const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
   function getSiteAgnosticUrl(u) {
     if (!u) return "";
-    if (options.siteAgnostic === false && base) {
+    const shouldBeSiteAgnostic = options.siteAgnostic !== false;
+    if (!shouldBeSiteAgnostic && base) {
       return fullUrl(u);
     }
     try {
       const url = new URL(u);
-      if (base) {
-        if (/^https?:/i.test(u)) return u;
-        if (u.startsWith("/")) return base + u;
-        return base + "/" + u;
-      }
       return url.pathname + url.search + url.hash;
     } catch (e) {
-      if (base) {
-        if (u.startsWith("/")) return base + u;
-        return base + "/" + u;
-      }
       return u.startsWith("/") ? u : "/" + u;
     }
   }

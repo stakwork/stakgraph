@@ -75,9 +75,7 @@ const getInteractiveSelectors = (): string[] => {
   return [
     'button',
     'a[href]',
-    'input[type="button"], input[type="submit"], input[type="reset"]',
-    'input[type="text"], input[type="email"], input[type="password"], input[type="search"]',
-    'input[type="checkbox"], input[type="radio"]',
+    'input',
     'select',
     'textarea',
     '[role="button"]',
