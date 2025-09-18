@@ -49,7 +49,7 @@ function resultsToActions(results) {
         actions.push({
           kind: "input",
           timestamp: input.timestamp,
-          locator: { primary: input.elementSelector, fallbacks: [] },
+          locator: { primary: input.elementSelector, stableSelector: input.elementSelector, fallbacks: [] },
           value: input.value
         });
       }
@@ -60,7 +60,7 @@ function resultsToActions(results) {
       actions.push({
         kind: "form",
         timestamp: fe.timestamp,
-        locator: { primary: fe.elementSelector, fallbacks: [] },
+        locator: { primary: fe.elementSelector, stableSelector: fe.elementSelector, fallbacks: [] },
         formType: fe.type,
         value: fe.value,
         checked: fe.checked
@@ -72,7 +72,7 @@ function resultsToActions(results) {
       actions.push({
         kind: "assertion",
         timestamp: asrt.timestamp,
-        locator: { primary: asrt.selector, fallbacks: [] },
+        locator: { primary: asrt.selector, stableSelector: asrt.selector, fallbacks: [] },
         value: asrt.value
       });
     }
@@ -137,6 +137,10 @@ function normalizeText(t) {
 function locatorToSelector(l) {
   if (!l) return 'page.locator("body")';
   const primary = l.stableSelector || l.primary;
+  if (/\[data-staktrak-id=/.test(primary)) {
+    const m = primary.match(/\[data-staktrak-id=["']([^"']+)["']\]/);
+    if (m) return `page.locator('[data-staktrak-id="${escapeTextForAssertion(m[1])}"]')`;
+  }
   if (/\[data-testid=/.test(primary)) {
     const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
     if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
@@ -156,6 +160,14 @@ function locatorToSelector(l) {
   if (primary && !primary.startsWith("page."))
     return `page.locator('${primary}')`;
   for (const fb of l.fallbacks) {
+    if (fb && /\[data-staktrak-id=/.test(fb)) {
+      const m = fb.match(/\[data-staktrak-id=["']([^"']+)["']\]/);
+      if (m) return `page.locator('[data-staktrak-id="${escapeTextForAssertion(m[1])}"]')`;
+    }
+    if (fb && /\[data-testid=/.test(fb)) {
+      const m = fb.match(/\[data-testid=["']([^"']+)["']\]/);
+      if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
+    }
     if (fb && !/^[a-zA-Z]+$/.test(fb)) return `page.locator('${fb}')`;
   }
   return 'page.locator("body")';
@@ -265,6 +277,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
 if (typeof window !== "undefined") {
   const existing = window.PlaywrightGenerator || {};
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
+  existing.locatorToSelector = locatorToSelector;
   existing.generatePlaywrightTest = (baseUrl, results) => {
     try {
       const actions = resultsToActions(results);

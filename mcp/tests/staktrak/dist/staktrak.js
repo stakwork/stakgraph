@@ -43,6 +43,174 @@ var userBehaviour = (() => {
 
   // src/utils.ts
   var getTimeStamp = () => Date.now();
+  var stakTrakIdCounter = 0;
+  var stakTrakIdPrefix = "stk";
+  var generateStakTrakId = () => {
+    return `${stakTrakIdPrefix}-${Date.now()}-${++stakTrakIdCounter}`;
+  };
+  var ensureElementId = (element) => {
+    var _a;
+    const existingTestId = ((_a = element.dataset) == null ? void 0 : _a.testid) || element.getAttribute("data-testid");
+    if (existingTestId) {
+      return `[data-testid="${existingTestId}"]`;
+    }
+    const existingId = element.id;
+    if (existingId && /^[a-zA-Z][\w-]*$/.test(existingId)) {
+      return `#${existingId}`;
+    }
+    const existingStakTrakId = element.getAttribute("data-staktrak-id");
+    if (existingStakTrakId) {
+      return `[data-staktrak-id="${existingStakTrakId}"]`;
+    }
+    const uniqueId = generateStakTrakId();
+    try {
+      element.setAttribute("data-staktrak-id", uniqueId);
+      return `[data-staktrak-id="${uniqueId}"]`;
+    } catch (error) {
+      return generateClassBasedSelector(element);
+    }
+  };
+  var isInteractiveElement = (element) => {
+    const tagName = element.tagName.toLowerCase();
+    const role = element.getAttribute("role");
+    return tagName === "button" || tagName === "a" && element.hasAttribute("href") || tagName === "input" || tagName === "select" || tagName === "textarea" || role === "button" || role === "link" || role === "menuitem" || role === "tab" || element.hasAttribute("onclick");
+  };
+  var getInteractiveSelectors = () => {
+    return [
+      "button",
+      "a[href]",
+      'input[type="button"], input[type="submit"], input[type="reset"]',
+      'input[type="text"], input[type="email"], input[type="password"], input[type="search"]',
+      'input[type="checkbox"], input[type="radio"]',
+      "select",
+      "textarea",
+      '[role="button"]',
+      '[role="link"]',
+      '[role="menuitem"]',
+      '[role="tab"]',
+      "[onclick]",
+      "[data-testid]"
+    ];
+  };
+  var hasStableIdentifier = (element) => {
+    return !!(element.getAttribute("data-testid") || element.getAttribute("data-staktrak-id") || element.id && /^[a-zA-Z][\w-]*$/.test(element.id));
+  };
+  var annotateInteractiveElements = () => {
+    const startTime = Date.now();
+    let annotatedCount = 0;
+    try {
+      const selectors = getInteractiveSelectors();
+      const allInteractive = document.querySelectorAll(selectors.join(", "));
+      allInteractive.forEach((element) => {
+        const htmlEl = element;
+        if (!hasStableIdentifier(htmlEl)) {
+          ensureElementId(htmlEl);
+          annotatedCount++;
+        }
+      });
+      const duration = Date.now() - startTime;
+      return { count: annotatedCount, duration };
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      return { count: 0, duration };
+    }
+  };
+  var getAnnotationStats = () => {
+    try {
+      const selectors = getInteractiveSelectors();
+      const allInteractive = document.querySelectorAll(selectors.join(", "));
+      const stakTrakAnnotated = document.querySelectorAll("[data-staktrak-id]");
+      const existingStable = Array.from(allInteractive).filter(
+        (el) => hasStableIdentifier(el)
+      );
+      return {
+        total: allInteractive.length,
+        annotated: stakTrakAnnotated.length,
+        existing: existingStable.length - stakTrakAnnotated.length
+      };
+    } catch (error) {
+      return { total: 0, annotated: 0, existing: 0 };
+    }
+  };
+  var cleanupAnnotations = () => {
+    try {
+      const stakTrakElements = document.querySelectorAll("[data-staktrak-id]");
+      stakTrakElements.forEach((element) => {
+        element.removeAttribute("data-staktrak-id");
+      });
+      return { removed: stakTrakElements.length };
+    } catch (error) {
+      return { removed: 0 };
+    }
+  };
+  var stakTrakObserver = null;
+  var observerThrottle = null;
+  var pendingElements = /* @__PURE__ */ new Set();
+  var processPendingElements = () => {
+    if (pendingElements.size === 0) return;
+    const elementsToProcess = Array.from(pendingElements);
+    pendingElements.clear();
+    elementsToProcess.forEach((element) => {
+      if (document.contains(element) && !hasStableIdentifier(element)) {
+        ensureElementId(element);
+      }
+    });
+  };
+  var handleMutation = (mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const element = node;
+          if (isInteractiveElement(element)) {
+            pendingElements.add(element);
+          }
+          const interactiveChildren = element.querySelectorAll(
+            getInteractiveSelectors().join(", ")
+          );
+          interactiveChildren.forEach((child) => {
+            pendingElements.add(child);
+          });
+        }
+      });
+    });
+    if (observerThrottle) {
+      clearTimeout(observerThrottle);
+    }
+    observerThrottle = setTimeout(processPendingElements, 100);
+  };
+  var startDynamicAnnotation = () => {
+    if (stakTrakObserver) return false;
+    try {
+      stakTrakObserver = new MutationObserver(handleMutation);
+      stakTrakObserver.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
+  };
+  var stopDynamicAnnotation = () => {
+    const processedCount = pendingElements.size;
+    if (stakTrakObserver) {
+      stakTrakObserver.disconnect();
+      stakTrakObserver = null;
+    }
+    if (observerThrottle) {
+      clearTimeout(observerThrottle);
+      observerThrottle = null;
+    }
+    processPendingElements();
+    pendingElements.clear();
+    return { processed: processedCount };
+  };
+  var getDynamicAnnotationStatus = () => {
+    return {
+      active: stakTrakObserver !== null,
+      pending: pendingElements.size
+    };
+  };
   var getElementRole = (el) => {
     const explicit = el.getAttribute("role");
     if (explicit) return explicit;
@@ -340,9 +508,23 @@ var userBehaviour = (() => {
   };
   var createClickDetail = (e) => {
     const target = e.target;
-    const selectors = generateSelectorStrategies(target);
     const html = target;
-    const testId = html.dataset && html.dataset["testid"] || void 0;
+    const injectedSelector = ensureElementId(html);
+    const fallbackSelectors = generateSelectorStrategies(target);
+    const enhancedSelectors = {
+      primary: injectedSelector,
+      fallbacks: [
+        fallbackSelectors.primary,
+        ...fallbackSelectors.fallbacks
+      ].filter((s) => s && s !== injectedSelector),
+      text: fallbackSelectors.text,
+      ariaLabel: fallbackSelectors.ariaLabel,
+      title: fallbackSelectors.title,
+      role: fallbackSelectors.role,
+      tagName: fallbackSelectors.tagName,
+      xpath: fallbackSelectors.xpath
+    };
+    const testId = html.getAttribute("data-testid") || html.getAttribute("data-staktrak-id") || void 0;
     const id = html.id || void 0;
     const accessibleName = getEnhancedElementText(html) || void 0;
     let nth;
@@ -362,52 +544,19 @@ var userBehaviour = (() => {
       p = p.parentElement;
       depth2++;
     }
-    const selAny = selectors;
+    const selAny = enhancedSelectors;
     selAny.id = id;
     selAny.testId = testId;
     selAny.accessibleName = accessibleName;
     if (nth) selAny.nth = nth;
     if (ancestors.length) selAny.ancestors = ancestors;
-    const stabilized = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
-      testId,
-      id,
-      accessibleName,
-      role: getElementRole(html) || void 0,
-      nth
-    });
-    let uniqueStabilized = ensureStabilizedUnique(html, stabilized);
-    try {
-      if (typeof document !== "undefined" && !uniqueStabilized.startsWith("text=")) {
-        const matches = document.querySelectorAll(uniqueStabilized);
-        if (matches.length !== 1) {
-          const ancestorOnly = buildAncestorNthSelector(html);
-          if (ancestorOnly && ancestorOnly !== uniqueStabilized) {
-            const mm = document.querySelectorAll(ancestorOnly);
-            if (mm.length === 1) uniqueStabilized = ancestorOnly;
-          }
-        }
-      }
-    } catch (e2) {
-    }
-    selectors.stabilizedPrimary = uniqueStabilized;
-    selectors.primary = uniqueStabilized;
-    let visualSelector = null;
-    const isCssResolvable = (s) => !s.startsWith("text=") && !s.startsWith("role:");
-    if (isCssResolvable(uniqueStabilized)) visualSelector = uniqueStabilized;
-    else {
-      const fbCss = (selectors.fallbacks || []).find(isCssResolvable);
-      if (fbCss) visualSelector = fbCss;
-      else {
-        const anc = buildAncestorNthSelector(html);
-        if (anc) visualSelector = anc;
-      }
-    }
-    if (visualSelector) selectors.visualSelector = visualSelector;
+    selAny.stabilizedPrimary = injectedSelector;
+    selAny.visualSelector = injectedSelector;
     return {
       x: e.clientX,
       y: e.clientY,
       timestamp: getTimeStamp(),
-      selectors,
+      selectors: enhancedSelectors,
       elementInfo: {
         tagName: target.tagName.toLowerCase(),
         id: target.id || void 0,
@@ -450,8 +599,7 @@ var userBehaviour = (() => {
     return attrs;
   };
   var getElementSelector = (element) => {
-    const strategies = generateSelectorStrategies(element);
-    return strategies.primary;
+    return ensureElementId(element);
   };
   var filterClickDetails = (clickDetails, assertions, config) => {
     if (!clickDetails.length) return [];
@@ -481,124 +629,6 @@ var userBehaviour = (() => {
     });
     return result.sort((a, b) => a.timestamp - b.timestamp);
   };
-  var isWeakSelector = (selector, el) => {
-    if (!selector) return true;
-    if (selector.startsWith("[data-testid=")) return false;
-    if (selector.startsWith("#")) return false;
-    if (selector.startsWith("text=")) return false;
-    if (/^\w+$/.test(selector)) return true;
-    if (/^\w+\.[^.]+$/.test(selector)) {
-      if (el && typeof document !== "undefined") {
-        try {
-          const count = document.querySelectorAll(selector).length;
-          if (count === 1) return false;
-        } catch (e) {
-        }
-      }
-      return true;
-    }
-    return false;
-  };
-  var chooseStablePrimary = (el, current, fallbacks, meta) => {
-    if (!isWeakSelector(current, el)) return current;
-    if (meta.testId) return `[data-testid="${meta.testId}"]`;
-    if (meta.id && /^[a-zA-Z][\w-]*$/.test(meta.id)) return `#${meta.id}`;
-    if (typeof document !== "undefined") {
-      const structural = [current, ...fallbacks].filter((s) => s && !s.startsWith("text=") && !s.startsWith("[") && !s.startsWith("#"));
-      for (const s of structural) {
-        try {
-          if (document.querySelectorAll(s).length === 1) {
-            return s;
-          }
-        } catch (e) {
-        }
-      }
-    }
-    if (meta.role && meta.accessibleName && meta.accessibleName.length < 60) {
-      return `role:${meta.role}[name="${meta.accessibleName.replace(/"/g, '\\"')}"]`;
-    }
-    if (meta.accessibleName && meta.accessibleName.length < 40) {
-      return `text=${meta.accessibleName.replace(/"/g, '\\"')}:exact`;
-    }
-    return current;
-  };
-  function isSelectorUnique(sel) {
-    if (typeof document === "undefined") return false;
-    try {
-      const n = document.querySelectorAll(sel);
-      return n.length === 1;
-    } catch (e) {
-      return false;
-    }
-  }
-  function buildAncestorNthSelector(el) {
-    if (!el.parentElement) return null;
-    const path = [];
-    let current = el;
-    let depth2 = 0;
-    while (current && depth2 < 6) {
-      const tag = current.tagName.toLowerCase();
-      let part = tag;
-      const cur = current;
-      if (cur && cur.parentElement) {
-        const same = Array.from(cur.parentElement.children).filter((c) => c.tagName === cur.tagName);
-        if (same.length > 1) {
-          const idx = same.indexOf(cur) + 1;
-          part += `:nth-of-type(${idx})`;
-        }
-      }
-      path.unshift(part);
-      const selector = path.join(" > ");
-      if (isSelectorUnique(selector)) return selector;
-      current = current.parentElement;
-      depth2++;
-    }
-    const withBody = "body > " + path.join(" > ");
-    if (isSelectorUnique(withBody)) return withBody;
-    return null;
-  }
-  function ensureStabilizedUnique(html, stabilized) {
-    if (stabilized.startsWith("#") || stabilized.startsWith("[data-testid=")) return stabilized;
-    if (stabilized.startsWith("role:")) {
-      try {
-        const el = findByRoleLike(stabilized);
-        if (el) return stabilized;
-      } catch (e) {
-      }
-    }
-    if (stabilized.startsWith("text=") && stabilized.endsWith(":exact")) {
-      const exactTxt = stabilized.slice("text=".length, -":exact".length);
-      try {
-        const candidates = Array.from(document.querySelectorAll("button, a, [role], input, textarea, select")).filter((e) => (e.textContent || "").trim() === exactTxt);
-        if (candidates.length === 1) return stabilized;
-      } catch (e) {
-      }
-    }
-    if (isSelectorUnique(stabilized)) return stabilized;
-    const ancestor = buildAncestorNthSelector(html);
-    if (ancestor && ancestor.length < 180) return ancestor;
-    return stabilized;
-  }
-  function findByRoleLike(sel) {
-    if (!sel.startsWith("role:")) return null;
-    const m = sel.match(/^role:([^\[]+)(?:\[name="(.+?)"\])?/);
-    if (!m) return null;
-    const role = m[1];
-    const name = m[2];
-    const candidates = Array.from(document.querySelectorAll("*")).filter((el) => {
-      const r = el.getAttribute("role") || inferRole(el);
-      return r === role;
-    });
-    if (!name) return candidates[0] || null;
-    return candidates.find((c) => (c.textContent || "").trim() === name) || null;
-  }
-  function inferRole(el) {
-    const tag = el.tagName.toLowerCase();
-    if (tag === "button") return "button";
-    if (tag === "a" && el.hasAttribute("href")) return "link";
-    if (tag === "input") return "textbox";
-    return null;
-  }
 
   // src/debug.ts
   function rectsIntersect(rect1, rect2) {
@@ -1121,8 +1151,8 @@ var userBehaviour = (() => {
               lineNumber
             });
           }
-        } else if (/page\.getByText\(/.test(trimmed) && /\.click\([^)]*\)\s*;?$/.test(trimmed)) {
-          const locatorCallMatch = trimmed.match(/page\.(getByText\([^)]*\))\.click\([^)]*\)/);
+        } else if (/page\.[a-zA-Z]+\([^)]*\)\.click\([^)]*\)\s*;?$/.test(trimmed)) {
+          const locatorCallMatch = trimmed.match(/page\.([a-zA-Z]+\([^)]*\))\.click\([^)]*\)/);
           if (locatorCallMatch) {
             const selector = parseLocatorCall(locatorCallMatch[1]);
             actions.push({
@@ -2778,7 +2808,7 @@ var userBehaviour = (() => {
           actions.push({
             kind: "input",
             timestamp: input.timestamp,
-            locator: { primary: input.elementSelector, fallbacks: [] },
+            locator: { primary: input.elementSelector, stableSelector: input.elementSelector, fallbacks: [] },
             value: input.value
           });
         }
@@ -2789,7 +2819,7 @@ var userBehaviour = (() => {
         actions.push({
           kind: "form",
           timestamp: fe.timestamp,
-          locator: { primary: fe.elementSelector, fallbacks: [] },
+          locator: { primary: fe.elementSelector, stableSelector: fe.elementSelector, fallbacks: [] },
           formType: fe.type,
           value: fe.value,
           checked: fe.checked
@@ -2801,7 +2831,7 @@ var userBehaviour = (() => {
         actions.push({
           kind: "assertion",
           timestamp: asrt.timestamp,
-          locator: { primary: asrt.selector, fallbacks: [] },
+          locator: { primary: asrt.selector, stableSelector: asrt.selector, fallbacks: [] },
           value: asrt.value
         });
       }
@@ -2889,6 +2919,10 @@ var userBehaviour = (() => {
   function locatorToSelector(l) {
     if (!l) return 'page.locator("body")';
     const primary = l.stableSelector || l.primary;
+    if (/\[data-staktrak-id=/.test(primary)) {
+      const m = primary.match(/\[data-staktrak-id=["']([^"']+)["']\]/);
+      if (m) return `page.locator('[data-staktrak-id="${escapeTextForAssertion(m[1])}"]')`;
+    }
     if (/\[data-testid=/.test(primary)) {
       const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
       if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
@@ -2908,6 +2942,14 @@ var userBehaviour = (() => {
     if (primary && !primary.startsWith("page."))
       return `page.locator('${primary}')`;
     for (const fb of l.fallbacks) {
+      if (fb && /\[data-staktrak-id=/.test(fb)) {
+        const m = fb.match(/\[data-staktrak-id=["']([^"']+)["']\]/);
+        if (m) return `page.locator('[data-staktrak-id="${escapeTextForAssertion(m[1])}"]')`;
+      }
+      if (fb && /\[data-testid=/.test(fb)) {
+        const m = fb.match(/\[data-testid=["']([^"']+)["']\]/);
+        if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
+      }
       if (fb && !/^[a-zA-Z]+$/.test(fb)) return `page.locator('${fb}')`;
     }
     return 'page.locator("body")';
@@ -3017,6 +3059,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
   if (typeof window !== "undefined") {
     const existing = window.PlaywrightGenerator || {};
     existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
+    existing.locatorToSelector = locatorToSelector;
     existing.generatePlaywrightTest = (baseUrl, results) => {
       try {
         const actions = resultsToActions(results);
@@ -3098,6 +3141,8 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     start() {
       this.cleanup();
       this.resetResults();
+      annotateInteractiveElements();
+      startDynamicAnnotation();
       this.setupEventListeners();
       this.isRunning = true;
       this.startHealthCheck();
@@ -3560,6 +3605,8 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         return this;
       }
       this.cleanup();
+      stopDynamicAnnotation();
+      cleanupAnnotations();
       this.processResults();
       this.isRunning = false;
       sessionStorage.removeItem("stakTrakActiveRecording");
@@ -3579,6 +3626,26 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         value,
         timestamp: getTimeStamp()
       });
+    }
+    getAnnotationStats() {
+      return getAnnotationStats();
+    }
+    annotateCurrentPage() {
+      const result = annotateInteractiveElements();
+      return result;
+    }
+    cleanupCurrentAnnotations() {
+      const result = cleanupAnnotations();
+      return result;
+    }
+    startDynamicAnnotation() {
+      return startDynamicAnnotation();
+    }
+    stopDynamicAnnotation() {
+      return stopDynamicAnnotation();
+    }
+    getDynamicAnnotationStatus() {
+      return getDynamicAnnotationStatus();
     }
     attemptSessionRestoration() {
       try {
@@ -3679,6 +3746,13 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     userBehaviour._lastGeneratedUsingActions = true;
     return { actions, test };
   };
+  userBehaviour.getAnnotationStats = () => userBehaviour.getAnnotationStats();
+  userBehaviour.annotateCurrentPage = () => userBehaviour.annotateCurrentPage();
+  userBehaviour.cleanupCurrentAnnotations = () => userBehaviour.cleanupCurrentAnnotations();
+  userBehaviour.startDynamicAnnotation = () => userBehaviour.startDynamicAnnotation();
+  userBehaviour.stopDynamicAnnotation = () => userBehaviour.stopDynamicAnnotation();
+  userBehaviour.getDynamicAnnotationStatus = () => userBehaviour.getDynamicAnnotationStatus();
+  userBehaviour.ensureElementId = ensureElementId;
   userBehaviour.getScenario = () => {
     const results = userBehaviour.result();
     const actions = resultsToActions(results);

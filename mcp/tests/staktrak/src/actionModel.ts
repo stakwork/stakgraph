@@ -73,7 +73,7 @@ export function resultsToActions(results: Results): Action[] {
         actions.push({
           kind: 'input',
           timestamp: input.timestamp,
-          locator: { primary: input.elementSelector, fallbacks: [] },
+          locator: { primary: input.elementSelector, stableSelector: input.elementSelector, fallbacks: [] },
           value: input.value
         })
       }
@@ -85,7 +85,7 @@ export function resultsToActions(results: Results): Action[] {
       actions.push({
         kind: 'form',
         timestamp: fe.timestamp,
-        locator: { primary: fe.elementSelector, fallbacks: [] },
+        locator: { primary: fe.elementSelector, stableSelector: fe.elementSelector, fallbacks: [] },
         formType: fe.type,
         value: fe.value,
         checked: fe.checked
@@ -98,7 +98,7 @@ export function resultsToActions(results: Results): Action[] {
       actions.push({
         kind: 'assertion',
         timestamp: asrt.timestamp,
-        locator: { primary: asrt.selector, fallbacks: [] },
+        locator: { primary: asrt.selector, stableSelector: asrt.selector, fallbacks: [] },
         value: asrt.value
       })
     }

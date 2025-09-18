@@ -18,28 +18,48 @@ function normalizeText(t?: string) {
 function locatorToSelector(l: ActionLocator): string {
   if (!l) return 'page.locator("body")';
   const primary = l.stableSelector || l.primary;
+  
+  if (/\[data-staktrak-id=/.test(primary)) {
+    const m = primary.match(/\[data-staktrak-id=["']([^"']+)["']\]/);
+    if (m) return `page.locator('[data-staktrak-id="${escapeTextForAssertion(m[1])}"]')`;
+  }
+  
   if (/\[data-testid=/.test(primary)) {
     const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
     if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
   }
+  
   if (primary.startsWith("#") && /^[a-zA-Z][\w-]*$/.test(primary.slice(1)))
     return `page.locator('${primary}')`;
-  // Prefer explicit structural class/attribute selector over role/text if present
+    
   if (/^[a-zA-Z]+\.[a-zA-Z0-9_-]+/.test(primary)) {
     return `page.locator('${primary}')`;
   }
+  
   if (l.role && l.text) {
     const txt = normalizeText(l.text);
     if (txt && txt.length <= 50)
       return `page.getByRole('${l.role}', { name: '${escapeTextForAssertion(txt)}' })`;
   }
+  
   if (l.text && l.text.length <= 30 && l.text.length > 1)
     return `page.getByText('${escapeTextForAssertion(normalizeText(l.text))}')`;
+    
   if (primary && !primary.startsWith("page."))
     return `page.locator('${primary}')`;
+    
   for (const fb of l.fallbacks) {
+    if (fb && /\[data-staktrak-id=/.test(fb)) {
+      const m = fb.match(/\[data-staktrak-id=["']([^"']+)["']\]/);
+      if (m) return `page.locator('[data-staktrak-id="${escapeTextForAssertion(m[1])}"]')`;
+    }
+    if (fb && /\[data-testid=/.test(fb)) {
+      const m = fb.match(/\[data-testid=["']([^"']+)["']\]/);
+      if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
+    }
     if (fb && !/^[a-zA-Z]+$/.test(fb)) return `page.locator('${fb}')`;
   }
+  
   return 'page.locator("body")';
 }
 
@@ -156,6 +176,7 @@ ${body
 if (typeof window !== "undefined") {
   const existing = (window as any).PlaywrightGenerator || {};
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
+  existing.locatorToSelector = locatorToSelector;
   existing.generatePlaywrightTest = (baseUrl: string, results: any) => {
     try {
       const actions = resultsToActions(results);

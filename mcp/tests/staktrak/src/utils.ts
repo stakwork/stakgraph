@@ -3,6 +3,233 @@ import { Results, Assertion, Config, ClickDetail } from "./types";
 
 export const getTimeStamp = (): number => Date.now();
 
+let stakTrakIdCounter = 0;
+const stakTrakIdPrefix = 'stk';
+
+const generateStakTrakId = (): string => {
+  return `${stakTrakIdPrefix}-${Date.now()}-${++stakTrakIdCounter}`;
+};
+
+export const ensureElementId = (element: HTMLElement): string => {
+  const existingTestId = element.dataset?.testid || element.getAttribute('data-testid');
+  if (existingTestId) {
+    return `[data-testid="${existingTestId}"]`;
+  }
+  
+  const existingId = element.id;
+  if (existingId && /^[a-zA-Z][\w-]*$/.test(existingId)) {
+    return `#${existingId}`;
+  }
+  
+  const existingStakTrakId = element.getAttribute('data-staktrak-id');
+  if (existingStakTrakId) {
+    return `[data-staktrak-id="${existingStakTrakId}"]`;
+  }
+  
+  const uniqueId = generateStakTrakId();
+  try {
+    element.setAttribute('data-staktrak-id', uniqueId);
+    return `[data-staktrak-id="${uniqueId}"]`;
+  } catch (error) {
+    return generateClassBasedSelector(element);
+  }
+};
+
+export const isInteractiveElement = (element: HTMLElement): boolean => {
+  const tagName = element.tagName.toLowerCase();
+  const role = element.getAttribute('role');
+  
+  return (
+    tagName === 'button' ||
+    (tagName === 'a' && element.hasAttribute('href')) ||
+    tagName === 'input' ||
+    tagName === 'select' ||
+    tagName === 'textarea' ||
+    role === 'button' ||
+    role === 'link' ||
+    role === 'menuitem' ||
+    role === 'tab' ||
+    element.hasAttribute('onclick')
+  );
+};
+
+const getInteractiveSelectors = (): string[] => {
+  return [
+    'button',
+    'a[href]',
+    'input[type="button"], input[type="submit"], input[type="reset"]',
+    'input[type="text"], input[type="email"], input[type="password"], input[type="search"]',
+    'input[type="checkbox"], input[type="radio"]',
+    'select',
+    'textarea',
+    '[role="button"]',
+    '[role="link"]',
+    '[role="menuitem"]',
+    '[role="tab"]',
+    '[onclick]',
+    '[data-testid]'
+  ];
+};
+
+const hasStableIdentifier = (element: HTMLElement): boolean => {
+  return !!(
+    element.getAttribute('data-testid') ||
+    element.getAttribute('data-staktrak-id') ||
+    (element.id && /^[a-zA-Z][\w-]*$/.test(element.id))
+  );
+};
+
+export const annotateInteractiveElements = (): { count: number; duration: number } => {
+  const startTime = Date.now();
+  let annotatedCount = 0;
+  
+  try {
+    const selectors = getInteractiveSelectors();
+    const allInteractive = document.querySelectorAll(selectors.join(', '));
+    
+    allInteractive.forEach((element) => {
+      const htmlEl = element as HTMLElement;
+      
+      if (!hasStableIdentifier(htmlEl)) {
+        ensureElementId(htmlEl);
+        annotatedCount++;
+      }
+    });
+    
+    const duration = Date.now() - startTime;
+    return { count: annotatedCount, duration };
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    return { count: 0, duration };
+  }
+};
+
+export const getAnnotationStats = (): { 
+  total: number; 
+  annotated: number; 
+  existing: number; 
+} => {
+  try {
+    const selectors = getInteractiveSelectors();
+    const allInteractive = document.querySelectorAll(selectors.join(', '));
+    const stakTrakAnnotated = document.querySelectorAll('[data-staktrak-id]');
+    const existingStable = Array.from(allInteractive).filter(el => 
+      hasStableIdentifier(el as HTMLElement)
+    );
+    
+    return {
+      total: allInteractive.length,
+      annotated: stakTrakAnnotated.length,
+      existing: existingStable.length - stakTrakAnnotated.length
+    };
+  } catch (error) {
+    return { total: 0, annotated: 0, existing: 0 };
+  }
+};
+
+export const cleanupAnnotations = (): { removed: number } => {
+  try {
+    const stakTrakElements = document.querySelectorAll('[data-staktrak-id]');
+    stakTrakElements.forEach((element) => {
+      element.removeAttribute('data-staktrak-id');
+    });
+    
+    return { removed: stakTrakElements.length };
+  } catch (error) {
+    return { removed: 0 };
+  }
+};
+
+let stakTrakObserver: MutationObserver | null = null;
+let observerThrottle: NodeJS.Timeout | null = null;
+let pendingElements: Set<HTMLElement> = new Set();
+
+const processPendingElements = (): void => {
+  if (pendingElements.size === 0) return;
+  
+  const elementsToProcess = Array.from(pendingElements);
+  pendingElements.clear();
+  
+  elementsToProcess.forEach((element) => {
+    if (document.contains(element) && !hasStableIdentifier(element)) {
+      ensureElementId(element);
+    }
+  });
+};
+
+const handleMutation = (mutations: MutationRecord[]): void => {
+  mutations.forEach((mutation) => {
+    mutation.addedNodes.forEach((node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const element = node as HTMLElement;
+        
+        if (isInteractiveElement(element)) {
+          pendingElements.add(element);
+        }
+        
+        const interactiveChildren = element.querySelectorAll(
+          getInteractiveSelectors().join(', ')
+        );
+        interactiveChildren.forEach((child) => {
+          pendingElements.add(child as HTMLElement);
+        });
+      }
+    });
+  });
+  
+  if (observerThrottle) {
+    clearTimeout(observerThrottle);
+  }
+  
+  observerThrottle = setTimeout(processPendingElements, 100);
+};
+
+export const startDynamicAnnotation = (): boolean => {
+  if (stakTrakObserver) return false;
+  
+  try {
+    stakTrakObserver = new MutationObserver(handleMutation);
+    
+    stakTrakObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+    
+    return true;
+  } catch (error) {
+    return false;
+  }
+};
+
+export const stopDynamicAnnotation = (): { processed: number } => {
+  const processedCount = pendingElements.size;
+  
+  if (stakTrakObserver) {
+    stakTrakObserver.disconnect();
+    stakTrakObserver = null;
+  }
+  
+  if (observerThrottle) {
+    clearTimeout(observerThrottle);
+    observerThrottle = null;
+  }
+  
+  processPendingElements();
+  pendingElements.clear();
+  
+  return { processed: processedCount };
+};
+
+export const getDynamicAnnotationStatus = (): {
+  active: boolean;
+  pending: number;
+} => {
+  return {
+    active: stakTrakObserver !== null,
+    pending: pendingElements.size,
+  };
+};
+
 /**
  * Lightweight role derivation (fallback if no explicit role attribute)
  */
@@ -465,15 +692,28 @@ export const generateXPath = (element: Element): string => {
   return "/" + parts.join("/");
 };
 
-/**
- * Create enhanced click detail
- */
 export const createClickDetail = (e: MouseEvent): ClickDetail => {
   const target = e.target as Element;
-  const selectors = generateSelectorStrategies(target);
-  // canonical enrichment
   const html = target as HTMLElement;
-  const testId = (html.dataset && html.dataset['testid']) || undefined;
+  
+  const injectedSelector = ensureElementId(html);
+  const fallbackSelectors = generateSelectorStrategies(target);
+  
+  const enhancedSelectors = {
+    primary: injectedSelector,
+    fallbacks: [
+      fallbackSelectors.primary,
+      ...fallbackSelectors.fallbacks,
+    ].filter(s => s && s !== injectedSelector),
+    text: fallbackSelectors.text,
+    ariaLabel: fallbackSelectors.ariaLabel,
+    title: fallbackSelectors.title,
+    role: fallbackSelectors.role,
+    tagName: fallbackSelectors.tagName,
+    xpath: fallbackSelectors.xpath,
+  };
+  
+  const testId = html.getAttribute('data-testid') || html.getAttribute('data-staktrak-id') || undefined;
   const id = html.id || undefined;
   const accessibleName = getEnhancedElementText(html) || undefined;
   // nth-of-type among same tag siblings
@@ -493,56 +733,22 @@ export const createClickDetail = (e: MouseEvent): ClickDetail => {
     }
     p = p.parentElement; depth++;
   }
-    const selAny: any = selectors as any;
-    selAny.id = id;
-    selAny.testId = testId;
-    selAny.accessibleName = accessibleName;
-    if (nth) selAny.nth = nth;
-    if (ancestors.length) selAny.ancestors = ancestors;
+  
+  const selAny: any = enhancedSelectors as any;
+  selAny.id = id;
+  selAny.testId = testId;
+  selAny.accessibleName = accessibleName;
+  if (nth) selAny.nth = nth;
+  if (ancestors.length) selAny.ancestors = ancestors;
 
-    // Uniqueness stabilization: if primary is generic (tag or simple class) and we have id/testId/text role data, promote a better one
-    const stabilized = chooseStablePrimary(html, selectors.primary, selectors.fallbacks, {
-      testId,
-      id,
-      accessibleName,
-      role: getElementRole(html) || undefined,
-      nth,
-    });
-    let uniqueStabilized = ensureStabilizedUnique(html, stabilized);
-    // Immediate capture validation loop (simple): if still not unique in DOM (and not text=) try ancestor builder directly
-    try {
-      if (typeof document !== 'undefined' && !uniqueStabilized.startsWith('text=')) {
-        const matches = document.querySelectorAll(uniqueStabilized);
-        if (matches.length !== 1) {
-          const ancestorOnly = buildAncestorNthSelector(html);
-          if (ancestorOnly && ancestorOnly !== uniqueStabilized) {
-            const mm = document.querySelectorAll(ancestorOnly);
-            if (mm.length === 1) uniqueStabilized = ancestorOnly;
-          }
-        }
-      }
-    } catch { /* ignore */ }
-  (selectors as any).stabilizedPrimary = uniqueStabilized;
-  selectors.primary = uniqueStabilized;
-  // Provide a guaranteed CSS visualSelector for highlighter (avoid text=/role: only)
-  let visualSelector: string | null = null;
-  const isCssResolvable = (s: string) => !s.startsWith('text=') && !s.startsWith('role:');
-  if (isCssResolvable(uniqueStabilized)) visualSelector = uniqueStabilized;
-  else {
-    const fbCss = (selectors.fallbacks || []).find(isCssResolvable);
-    if (fbCss) visualSelector = fbCss; else {
-      // attempt ancestor nth build
-      const anc = buildAncestorNthSelector(html);
-      if (anc) visualSelector = anc;
-    }
-  }
-  if (visualSelector) (selectors as any).visualSelector = visualSelector;
+  selAny.stabilizedPrimary = injectedSelector;
+  selAny.visualSelector = injectedSelector;
 
   return {
     x: e.clientX,
     y: e.clientY,
     timestamp: getTimeStamp(),
-    selectors,
+    selectors: enhancedSelectors,
     elementInfo: {
       tagName: target.tagName.toLowerCase(),
       id: (target as HTMLElement).id || undefined,
@@ -601,16 +807,13 @@ export const getElementAttributes = (
   return attrs;
 };
 
-// Keep existing functions for backward compatibility
 export const getElementSelector = (element: Element): string => {
-  const strategies = generateSelectorStrategies(element);
-  return strategies.primary;
+  return ensureElementId(element as HTMLElement);
 };
 
 export const createClickPath = (e: Event): string => {
-  // Keep for backward compatibility, but now we use the enhanced method
   const target = e.target as Element;
-  return generateSelectorStrategies(target).primary;
+  return ensureElementId(target as HTMLElement);
 };
 
 export const filterClickDetails = (

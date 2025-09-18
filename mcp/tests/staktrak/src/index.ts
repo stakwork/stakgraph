@@ -5,6 +5,13 @@ import {
   getElementSelector,
   createClickDetail,
   filterClickDetails,
+  annotateInteractiveElements,
+  getAnnotationStats,
+  cleanupAnnotations,
+  startDynamicAnnotation,
+  stopDynamicAnnotation,
+  getDynamicAnnotationStatus,
+  ensureElementId,
 } from "./utils";
 import { debugMsg, isReactDevModeActive } from "./debug";
 import { initPlaywrightReplay } from "./playwright-replay/index";
@@ -85,17 +92,16 @@ class UserBehaviorTracker {
   }
 
   start() {
-    // Clean up any existing listeners first
     this.cleanup();
 
     this.resetResults();
+    annotateInteractiveElements();
+    startDynamicAnnotation();
+    
     this.setupEventListeners();
     this.isRunning = true;
 
-    // Start health check
     this.startHealthCheck();
-
-    // Persist recording state to survive script reloads
     this.saveSessionState();
     console.log("🔍 STAKTRAK: Recording state saved to sessionStorage");
 
@@ -643,10 +649,13 @@ class UserBehaviorTracker {
     }
 
     this.cleanup();
+    
+    stopDynamicAnnotation();
+    cleanupAnnotations();
+    
     this.processResults();
     this.isRunning = false;
 
-    // Clear persisted state after successful stop
     sessionStorage.removeItem('stakTrakActiveRecording');
     console.log("🔍 STAKTRAK: Recording state cleared from sessionStorage");
 
@@ -668,6 +677,33 @@ class UserBehaviorTracker {
       value,
       timestamp: getTimeStamp(),
     });
+  }
+
+  getAnnotationStats() {
+    return getAnnotationStats();
+  }
+
+  annotateCurrentPage() {
+    const result = annotateInteractiveElements();
+  
+    return result;
+  }
+
+  cleanupCurrentAnnotations() {
+    const result = cleanupAnnotations();
+    return result;
+  }
+
+  startDynamicAnnotation() {
+    return startDynamicAnnotation();
+  }
+
+  stopDynamicAnnotation() {
+    return stopDynamicAnnotation();
+  }
+
+  getDynamicAnnotationStatus() {
+    return getDynamicAnnotationStatus();
   }
 
   public attemptSessionRestoration() {
@@ -820,6 +856,13 @@ document.readyState === "loading"
   (userBehaviour as any)._lastGeneratedUsingActions = true;
   return { actions, test };
 };
+(userBehaviour as any).getAnnotationStats = () => userBehaviour.getAnnotationStats();
+(userBehaviour as any).annotateCurrentPage = () => userBehaviour.annotateCurrentPage();
+(userBehaviour as any).cleanupCurrentAnnotations = () => userBehaviour.cleanupCurrentAnnotations();
+(userBehaviour as any).startDynamicAnnotation = () => userBehaviour.startDynamicAnnotation();
+(userBehaviour as any).stopDynamicAnnotation = () => userBehaviour.stopDynamicAnnotation();
+(userBehaviour as any).getDynamicAnnotationStatus = () => userBehaviour.getDynamicAnnotationStatus();
+(userBehaviour as any).ensureElementId = ensureElementId;
 
 (userBehaviour as any).getScenario = () => {
   const results = userBehaviour.result();
