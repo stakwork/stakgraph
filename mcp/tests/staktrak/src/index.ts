@@ -527,12 +527,23 @@ class UserBehaviorTracker {
         case "staktrak-add-assertion":
           if (event.data.assertion) {
             this.memory.assertions.push({
+              id: event.data.assertion.id,
               type: event.data.assertion.type || "hasText",
               selector: event.data.assertion.selector,
               value: event.data.assertion.value || "",
-              timestamp: getTimeStamp(),
+              timestamp: event.data.assertion.timestamp || getTimeStamp(),
             });
           }
+          break;
+        case "staktrak-remove-assertion":
+          if (event.data.assertionId) {
+            this.memory.assertions = this.memory.assertions.filter(
+              assertion => assertion.id !== event.data.assertionId
+            );
+          }
+          break;
+        case "staktrak-clear-assertions":
+          this.memory.assertions = [];
           break;
         case "staktrak-debug-request":
           debugMsg({
@@ -576,7 +587,9 @@ class UserBehaviorTracker {
 
           this.memory.assertionDebounceTimer = setTimeout(() => {
             const selector = getElementSelector(container as Element);
+            const assertionId = Date.now() + Math.random();
             const assertion = {
+              id: assertionId,
               type: "hasText",
               selector,
               value: text,
@@ -585,7 +598,7 @@ class UserBehaviorTracker {
             this.memory.assertions.push(assertion);
 
             window.parent.postMessage(
-              { type: "staktrak-selection", text, selector },
+              { type: "staktrak-selection", text, selector, assertionId },
               "*"
             );
           }, 300);

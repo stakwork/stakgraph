@@ -20,6 +20,7 @@ export interface Config {
 }
 
 export interface Assertion {
+  id?: number;
   type: string;
   selector: string;
   value: string;

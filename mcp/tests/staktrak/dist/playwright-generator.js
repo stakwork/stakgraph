@@ -94,18 +94,24 @@ function weightOrder(kind) {
   }
 }
 function refineLocators(actions) {
-  if (typeof document === "undefined") return;
+  if (typeof document === "undefined")
+    return;
   const seen = /* @__PURE__ */ new Set();
   for (const a of actions) {
-    if (!a.locator) continue;
+    if (!a.locator)
+      continue;
     const { primary, fallbacks } = a.locator;
     const validated = [];
-    if (isUnique(primary)) validated.push(primary);
+    if (isUnique(primary))
+      validated.push(primary);
     for (const fb of fallbacks) {
-      if (validated.length >= 3) break;
-      if (isUnique(fb)) validated.push(fb);
+      if (validated.length >= 3)
+        break;
+      if (isUnique(fb))
+        validated.push(fb);
     }
-    if (validated.length === 0) continue;
+    if (validated.length === 0)
+      continue;
     a.locator.primary = validated[0];
     a.locator.fallbacks = validated.slice(1);
     const key = a.locator.primary + "::" + a.kind;
@@ -117,7 +123,8 @@ function refineLocators(actions) {
   }
 }
 function isUnique(sel) {
-  if (!sel || /^(html|body|div|span|p|button|input)$/i.test(sel)) return false;
+  if (!sel || /^(html|body|div|span|p|button|input)$/i.test(sel))
+    return false;
   try {
     const nodes = document.querySelectorAll(sel);
     return nodes.length === 1;
@@ -128,18 +135,21 @@ function isUnique(sel) {
 
 // src/playwright-generator.ts
 function escapeTextForAssertion(text) {
-  if (!text) return "";
+  if (!text)
+    return "";
   return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").trim();
 }
 function normalizeText(t) {
   return (t || "").trim();
 }
 function locatorToSelector(l) {
-  if (!l) return 'page.locator("body")';
+  if (!l)
+    return 'page.locator("body")';
   const primary = l.stableSelector || l.primary;
   if (/\[data-testid=/.test(primary)) {
     const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
-    if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
+    if (m)
+      return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
   }
   if (primary.startsWith("#") && /^[a-zA-Z][\w-]*$/.test(primary.slice(1)))
     return `page.locator('${primary}')`;
@@ -156,7 +166,8 @@ function locatorToSelector(l) {
   if (primary && !primary.startsWith("page."))
     return `page.locator('${primary}')`;
   for (const fb of l.fallbacks) {
-    if (fb && !/^[a-zA-Z]+$/.test(fb)) return `page.locator('${fb}')`;
+    if (fb && !/^[a-zA-Z]+$/.test(fb))
+      return `page.locator('${fb}')`;
   }
   return 'page.locator("body")';
 }
@@ -167,9 +178,12 @@ function generatePlaywrightTestFromActions(actions, options) {
   let lastTs = null;
   const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
   function fullUrl(u) {
-    if (!u) return "";
-    if (/^https?:/i.test(u)) return u;
-    if (u.startsWith("/")) return base + u;
+    if (!u)
+      return "";
+    if (/^https?:/i.test(u))
+      return u;
+    if (u.startsWith("/"))
+      return base + u;
     return base + "/" + u;
   }
   let i = 0;
@@ -177,7 +191,8 @@ function generatePlaywrightTestFromActions(actions, options) {
   for (let k = 0; k < actions.length; k++) {
     const curr = actions[k];
     const prev = collapsed[collapsed.length - 1];
-    if (curr.kind === "nav" && prev && prev.kind === "nav" && prev.url === curr.url) continue;
+    if (curr.kind === "nav" && prev && prev.kind === "nav" && prev.url === curr.url)
+      continue;
     collapsed.push(curr);
   }
   actions = collapsed;
@@ -189,7 +204,8 @@ function generatePlaywrightTestFromActions(actions, options) {
         if (lastTs != null) {
           const delta = Math.max(0, a.timestamp - lastTs);
           const wait = Math.min(3e3, Math.max(100, delta));
-          if (wait > 400) body += `  await page.waitForTimeout(${wait});
+          if (wait > 400)
+            body += `  await page.waitForTimeout(${wait});
 `;
         }
         body += `  await Promise.all([
@@ -208,7 +224,8 @@ function generatePlaywrightTestFromActions(actions, options) {
     if (lastTs != null) {
       const delta = Math.max(0, a.timestamp - lastTs);
       const wait = Math.min(3e3, Math.max(100, delta));
-      if (wait > 500) body += `  await page.waitForTimeout(${wait});
+      if (wait > 500)
+        body += `  await page.waitForTimeout(${wait});
 `;
     }
     switch (a.kind) {

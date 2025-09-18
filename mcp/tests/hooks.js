@@ -9,6 +9,8 @@ export function useIframeMessaging(iframeRef, initialURL) {
   const [selectedText, setSelectedText] = useState(null);
   const [url, setUrl] = useState(initialURL);
   const [displayUrl, setDisplayUrl] = useState(initialURL);
+  const [capturedAssertions, setCapturedAssertions] = useState([]);
+  const [showAssertions, setShowAssertions] = useState(false);
 
   const { showPopup } = popupHook;
   const selectedDisplayTimeout = useRef(null);
@@ -70,6 +72,16 @@ export function useIframeMessaging(iframeRef, initialURL) {
             break;
           case "staktrak-selection":
             displaySelectedText(event.data.text);
+            // Add assertion to the captured list using the ID from iframe
+            const newAssertion = {
+              id: event.data.assertionId,
+              type: "hasText",
+              selector: event.data.selector,
+              value: event.data.text,
+              timestamp: Date.now()
+            };
+            setCapturedAssertions(prev => [...prev, newAssertion]);
+            showPopup(`Assertion captured: "${event.data.text}"`, "success");
             break;
           case "staktrak-popup":
             if (event.data.message) {
@@ -100,6 +112,9 @@ export function useIframeMessaging(iframeRef, initialURL) {
       setIsRecording(true);
       setIsAssertionMode(false);
       setCanGenerate(false);
+      // Clear assertions when starting a new recording
+      setCapturedAssertions([]);
+      setShowAssertions(false);
     }
   };
 
@@ -136,16 +151,52 @@ export function useIframeMessaging(iframeRef, initialURL) {
     }
   };
 
+  const removeAssertion = (assertionId) => {
+    setCapturedAssertions(prev => {
+      const updatedAssertions = prev.filter(assertion => assertion.id !== assertionId);
+      // Send message to iframe to remove assertion from its tracking data
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        iframeRef.current.contentWindow.postMessage(
+          { type: "staktrak-remove-assertion", assertionId },
+          "*"
+        );
+      }
+      return updatedAssertions;
+    });
+    showPopup("Assertion removed", "info");
+  };
+
+  const clearAllAssertions = () => {
+    setCapturedAssertions([]);
+    // Send message to iframe to clear all assertions from its tracking data
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        { type: "staktrak-clear-assertions" },
+        "*"
+      );
+    }
+    showPopup("All assertions cleared", "info");
+  };
+
+  const toggleAssertionsView = () => {
+    setShowAssertions(prev => !prev);
+  };
+
   return {
     isRecording,
     isAssertionMode,
     canGenerate,
     trackingData,
     selectedText,
+    capturedAssertions,
+    showAssertions,
     startRecording,
     stopRecording,
     enableAssertionMode,
     disableAssertionMode,
+    removeAssertion,
+    clearAllAssertions,
+    toggleAssertionsView,
     url,
     setUrl,
     handleUrlChange,

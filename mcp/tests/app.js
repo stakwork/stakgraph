@@ -22,10 +22,15 @@ const Staktrak = () => {
     canGenerate,
     trackingData,
     selectedText,
+    capturedAssertions,
+    showAssertions,
     startRecording,
     stopRecording,
     enableAssertionMode,
     disableAssertionMode,
+    removeAssertion,
+    clearAllAssertions,
+    toggleAssertionsView,
     url,
     handleUrlChange,
     navigateToUrl,
@@ -228,15 +233,26 @@ const Staktrak = () => {
               ? html`<span class="btn-icon">⏹</span> Stop Recording`
               : html`<span class="btn-icon">⏺</span> Start Recording`}
           </button>
-          <button
-            class=${isAssertionMode ? "interact" : "assert"}
-            onClick=${handleMode}
-            disabled=${!isRecording || isPlaywrightReplaying}
-          >
-            ${isAssertionMode
-              ? html`<span class="btn-icon">🖱️</span> Interaction Mode`
-              : html`<span class="btn-icon">✓</span> Assertion Mode`}
-          </button>
+          <div class="assertion-controls">
+            <button
+              class=${isAssertionMode ? "interact" : "assert"}
+              onClick=${handleMode}
+              disabled=${!isRecording || isPlaywrightReplaying}
+            >
+              ${isAssertionMode
+                ? html`<span class="btn-icon">🖱️</span> Interaction Mode`
+                : html`<span class="btn-icon">✓</span> Assertion Mode${capturedAssertions.length > 0 ? ` (${capturedAssertions.length})` : ""}`}
+            </button>
+            ${capturedAssertions.length > 0 && html`
+              <button
+                class="assertion-dropdown-btn"
+                onClick=${toggleAssertionsView}
+                title="Toggle assertions list"
+              >
+                ${showAssertions ? "▲" : "▼"}
+              </button>
+            `}
+          </div>
           <button
             class="generate"
             onClick=${handleGenerate}
@@ -272,6 +288,43 @@ const Staktrak = () => {
           <div class="playwright-replay-progress-text">
             Playwright: Step ${playwrightProgress.current} of
             ${playwrightProgress.total} (${playwrightStatus})
+          </div>
+        </div>
+      `}
+
+      ${showAssertions && capturedAssertions.length > 0 &&
+      html`
+        <div class="assertions-panel">
+          <h3>📝 Captured Assertions (${capturedAssertions.length})</h3>
+          <div class="assertions-controls">
+            <button
+              class="clear-all-btn"
+              onClick=${clearAllAssertions}
+              disabled=${isPlaywrightReplaying}
+            >
+              🗑️ Clear All
+            </button>
+          </div>
+          <div class="assertions-list">
+            ${capturedAssertions.map((assertion, index) => html`
+              <div key=${assertion.id} class="assertion-item">
+                <div class="assertion-content">
+                  <span class="assertion-type">${assertion.type}</span>
+                  <span class="assertion-value">"${assertion.value.length > 50 ? assertion.value.substring(0, 50) + '...' : assertion.value}"</span>
+                  <span class="assertion-selector" title=${assertion.selector}>
+                    ${assertion.selector.length > 30 ? assertion.selector.substring(0, 30) + '...' : assertion.selector}
+                  </span>
+                </div>
+                <button
+                  class="remove-assertion-btn"
+                  onClick=${() => removeAssertion(assertion.id)}
+                  disabled=${isPlaywrightReplaying}
+                  title="Remove this assertion"
+                >
+                  ❌
+                </button>
+              </div>
+            `)}
           </div>
         </div>
       `}
