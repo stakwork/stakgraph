@@ -1804,6 +1804,27 @@ var userBehaviour = (() => {
                 return true;
               }
               try {
+                const currentUrl = new URL(window.location.href);
+                const currentPath = currentUrl.pathname + currentUrl.search;
+                if (target.startsWith("/")) {
+                  if (currentPath === target) {
+                    matched = true;
+                    return true;
+                  }
+                  const currentNoQuery = currentUrl.pathname;
+                  const targetNoQuery = target.replace(/[?#].*$/, "");
+                  if (currentNoQuery === targetNoQuery) {
+                    matched = true;
+                    return true;
+                  }
+                } else {
+                  const targetUrl = new URL(target, window.location.origin);
+                  const targetPath = targetUrl.pathname + targetUrl.search;
+                  if (currentPath === targetPath) {
+                    matched = true;
+                    return true;
+                  }
+                }
                 const curNoHash = current.replace(/#.*/, "");
                 const tgtNoHash = target.replace(/#.*/, "");
                 if (curNoHash === tgtNoHash) {
@@ -2094,7 +2115,6 @@ var userBehaviour = (() => {
         if (element) {
           return element;
         }
-        console.warn(`[staktrak-replay] Element not found with data-staktrak-id="${stakIdMatch[1]}", trying fallback strategies`);
       }
     }
     if (selector.includes("data-testid=")) {
@@ -2894,9 +2914,14 @@ var userBehaviour = (() => {
     const actions = [];
     const navigations = (results.pageNavigation || []).slice().sort((a, b) => a.timestamp - b.timestamp);
     const normalize = (u) => {
-      var _a2;
+      const getBaseUrl = () => {
+        var _a2;
+        if ((_a2 = results.userInfo) == null ? void 0 : _a2.url) return results.userInfo.url;
+        if (typeof window !== "undefined" && window.location) return window.location.href;
+        return "http://localhost:3000";
+      };
       try {
-        const url = new URL(u, ((_a2 = results.userInfo) == null ? void 0 : _a2.url) || "http://localhost");
+        const url = new URL(u, getBaseUrl());
         return url.origin + url.pathname.replace(/\/$/, "");
       } catch (e) {
         return u.replace(/[?#].*$/, "").replace(/\/$/, "");
@@ -3091,6 +3116,27 @@ var userBehaviour = (() => {
     let body = "";
     let lastTs = null;
     const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
+    function getSiteAgnosticUrl(u) {
+      if (!u) return "";
+      if (options.siteAgnostic === false && base) {
+        return fullUrl(u);
+      }
+      try {
+        const url = new URL(u);
+        if (base) {
+          if (/^https?:/i.test(u)) return u;
+          if (u.startsWith("/")) return base + u;
+          return base + "/" + u;
+        }
+        return url.pathname + url.search + url.hash;
+      } catch (e) {
+        if (base) {
+          if (u.startsWith("/")) return base + u;
+          return base + "/" + u;
+        }
+        return u.startsWith("/") ? u : "/" + u;
+      }
+    }
     function fullUrl(u) {
       if (!u) return "";
       if (/^https?:/i.test(u)) return u;
@@ -3119,7 +3165,7 @@ var userBehaviour = (() => {
           }
           body += `  await Promise.all([
 `;
-          body += `    page.waitForURL('${fullUrl(nxt.url)}'),
+          body += `    page.waitForURL('${getSiteAgnosticUrl(nxt.url)}'),
 `;
           body += `    ${locatorToSelector(a.locator)}.click()
 `;
@@ -3138,7 +3184,7 @@ var userBehaviour = (() => {
       }
       switch (a.kind) {
         case "nav": {
-          const target = fullUrl(a.url);
+          const target = getSiteAgnosticUrl(a.url);
           if (i === 0) {
             body += `  await page.goto('${target}');
 `;

@@ -64,9 +64,10 @@ function locatorToSelector(l: ActionLocator): string {
 }
 
 export interface GenerateOptions {
-  baseUrl: string;
+  baseUrl?: string;
   viewport?: { width: number; height: number };
   testName?: string;
+  siteAgnostic?: boolean;
 }
 
 export function generatePlaywrightTestFromActions(
@@ -78,6 +79,32 @@ export function generatePlaywrightTestFromActions(
   let body = "";
   let lastTs: number | null = null;
   const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
+  
+  function getSiteAgnosticUrl(u?: string): string {
+    if (!u) return "";
+    
+    if (options.siteAgnostic === false && base) {
+      return fullUrl(u);
+    }
+    
+    try {
+      const url = new URL(u);
+      
+      if (base) {
+        if (/^https?:/i.test(u)) return u;
+        if (u.startsWith('/')) return base + u;
+        return base + '/' + u;
+      }
+      
+      return url.pathname + url.search + url.hash;
+    } catch {
+      if (base) {
+        if (u.startsWith('/')) return base + u;
+        return base + '/' + u;
+      }
+      return u.startsWith('/') ? u : '/' + u;
+    }
+  }
 
   function fullUrl(u?: string) {
     if (!u) return "";
@@ -109,7 +136,7 @@ export function generatePlaywrightTestFromActions(
             if (wait > 400) body += `  await page.waitForTimeout(${wait});\n`;
         }
         body += `  await Promise.all([\n`;
-        body += `    page.waitForURL('${fullUrl(nxt.url)}'),\n`;
+        body += `    page.waitForURL('${getSiteAgnosticUrl(nxt.url)}'),\n`;
         body += `    ${locatorToSelector(a.locator!)}.click()\n`;
         body += `  ]);\n`;
         lastTs = nxt.timestamp;
@@ -126,7 +153,7 @@ export function generatePlaywrightTestFromActions(
 
     switch (a.kind) {
       case 'nav': {
-        const target = fullUrl(a.url);
+        const target = getSiteAgnosticUrl(a.url);
         if (i === 0) {
           body += `  await page.goto('${target}');\n`;
         } else {

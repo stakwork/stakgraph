@@ -4,9 +4,14 @@ function resultsToActions(results) {
   const actions = [];
   const navigations = (results.pageNavigation || []).slice().sort((a, b) => a.timestamp - b.timestamp);
   const normalize = (u) => {
-    var _a2;
+    const getBaseUrl = () => {
+      var _a2;
+      if ((_a2 = results.userInfo) == null ? void 0 : _a2.url) return results.userInfo.url;
+      if (typeof window !== "undefined" && window.location) return window.location.href;
+      return "http://localhost:3000";
+    };
     try {
-      const url = new URL(u, ((_a2 = results.userInfo) == null ? void 0 : _a2.url) || "http://localhost");
+      const url = new URL(u, getBaseUrl());
       return url.origin + url.pathname.replace(/\/$/, "");
     } catch (e) {
       return u.replace(/[?#].*$/, "").replace(/\/$/, "");
@@ -178,6 +183,27 @@ function generatePlaywrightTestFromActions(actions, options) {
   let body = "";
   let lastTs = null;
   const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
+  function getSiteAgnosticUrl(u) {
+    if (!u) return "";
+    if (options.siteAgnostic === false && base) {
+      return fullUrl(u);
+    }
+    try {
+      const url = new URL(u);
+      if (base) {
+        if (/^https?:/i.test(u)) return u;
+        if (u.startsWith("/")) return base + u;
+        return base + "/" + u;
+      }
+      return url.pathname + url.search + url.hash;
+    } catch (e) {
+      if (base) {
+        if (u.startsWith("/")) return base + u;
+        return base + "/" + u;
+      }
+      return u.startsWith("/") ? u : "/" + u;
+    }
+  }
   function fullUrl(u) {
     if (!u) return "";
     if (/^https?:/i.test(u)) return u;
@@ -206,7 +232,7 @@ function generatePlaywrightTestFromActions(actions, options) {
         }
         body += `  await Promise.all([
 `;
-        body += `    page.waitForURL('${fullUrl(nxt.url)}'),
+        body += `    page.waitForURL('${getSiteAgnosticUrl(nxt.url)}'),
 `;
         body += `    ${locatorToSelector(a.locator)}.click()
 `;
@@ -225,7 +251,7 @@ function generatePlaywrightTestFromActions(actions, options) {
     }
     switch (a.kind) {
       case "nav": {
-        const target = fullUrl(a.url);
+        const target = getSiteAgnosticUrl(a.url);
         if (i === 0) {
           body += `  await page.goto('${target}');
 `;

@@ -151,8 +151,24 @@ export async function executePlaywrightAction(
           const stopSignals: Array<() => void> = [];
           const tryMatch = () => {
             const current = normalizeUrl(window.location.href);
+            
             if (current === target) { matched = true; return true; }
+            
             try {
+              const currentUrl = new URL(window.location.href);
+              const currentPath = currentUrl.pathname + currentUrl.search;
+              
+              if (target.startsWith('/')) {
+                if (currentPath === target) { matched = true; return true; }
+                const currentNoQuery = currentUrl.pathname;
+                const targetNoQuery = target.replace(/[?#].*$/, '');
+                if (currentNoQuery === targetNoQuery) { matched = true; return true; }
+              } else {
+                const targetUrl = new URL(target, window.location.origin);
+                const targetPath = targetUrl.pathname + targetUrl.search;
+                if (currentPath === targetPath) { matched = true; return true; }
+              }
+              
               const curNoHash = current.replace(/#.*/,'');
               const tgtNoHash = target.replace(/#.*/,'');
               if (curNoHash === tgtNoHash) { matched = true; return true; }

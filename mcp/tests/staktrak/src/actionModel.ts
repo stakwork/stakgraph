@@ -31,7 +31,17 @@ export function resultsToActions(results: Results): Action[] {
 
   // Helper to normalize URLs (strip query & hash, remove trailing slash)
   const normalize = (u: string): string => {
-    try { const url = new URL(u, (results.userInfo?.url) || 'http://localhost'); return url.origin + url.pathname.replace(/\/$/,''); } catch { return u.replace(/[?#].*$/,'').replace(/\/$/,'') }
+    const getBaseUrl = (): string => {
+      if (results.userInfo?.url) return results.userInfo.url;
+      if (typeof window !== 'undefined' && window.location) return window.location.href;
+      return 'http://localhost:3000';
+    };
+    try { 
+      const url = new URL(u, getBaseUrl()); 
+      return url.origin + url.pathname.replace(/\/$/,''); 
+    } catch { 
+      return u.replace(/[?#].*$/,'').replace(/\/$/,'') 
+    }
   }
 
   for (const nav of navigations) {
