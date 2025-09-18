@@ -6,8 +6,26 @@ export const getTimeStamp = (): number => Date.now();
 let stakTrakIdCounter = 0;
 const stakTrakIdPrefix = 'stk';
 
-const generateStakTrakId = (): string => {
-  return `${stakTrakIdPrefix}-${Date.now()}-${++stakTrakIdCounter}`;
+const generateStakTrakId = (element?: HTMLElement): string => {
+  if (element) {
+    const tagName = element.tagName.toLowerCase();
+    const className = element.className || '';
+    const text = (element.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 20);
+    const position = Array.from((element.parentElement?.children || [])).indexOf(element);
+    const hash = simpleHash(`${tagName}-${className}-${text}-${position}`);
+    return `${stakTrakIdPrefix}-${hash}`;
+  }
+  return `${stakTrakIdPrefix}-${++stakTrakIdCounter}`;
+};
+
+const simpleHash = (str: string): string => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
 };
 
 export const ensureElementId = (element: HTMLElement): string => {
@@ -26,7 +44,7 @@ export const ensureElementId = (element: HTMLElement): string => {
     return `[data-staktrak-id="${existingStakTrakId}"]`;
   }
   
-  const uniqueId = generateStakTrakId();
+  const uniqueId = generateStakTrakId(element);
   try {
     element.setAttribute('data-staktrak-id', uniqueId);
     return `[data-staktrak-id="${uniqueId}"]`;

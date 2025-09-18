@@ -441,6 +441,26 @@ function findElements(selector: string): Element[] {
 function findElementWithFallbacks(selector: string): Element | null {
   if (!selector || selector.trim() === "") return null;
 
+  if (selector.includes('data-staktrak-id=')) {
+    const stakIdMatch = selector.match(/\[data-staktrak-id="([^"]+)"\]/);
+    if (stakIdMatch) {
+      const element = document.querySelector(`[data-staktrak-id="${stakIdMatch[1]}"]`);
+      if (element) {
+        return element;
+      }
+    }
+  }
+
+  if (selector.includes('data-testid=')) {
+    const testIdMatch = selector.match(/\[data-testid="([^"]+)"\]/);
+    if (testIdMatch) {
+      const element = document.querySelector(`[data-testid="${testIdMatch[1]}"]`);
+      if (element) {
+        return element;
+      }
+    }
+  }
+
   // If selector is a DSL (text=/role:) AND we have a stored mapping (window.__stakTrakSelectorMap) use its visualSelector for highlighting attempt
   try {
     if ((selector.startsWith('text=') || selector.startsWith('role:')) && (window as any).__stakTrakSelectorMap) {
@@ -535,6 +555,10 @@ function findElementWithFallbacks(selector: string): Element | null {
     return noteMatch(null, selector);
   }
 
+  if (selector.startsWith('getByStakTrakId:')) {
+    const val = selector.substring('getByStakTrakId:'.length);
+    return noteMatch(document.querySelector(`[data-staktrak-id="${cssEscape(val)}"]`), `[data-staktrak-id="${val}"]`);
+  }
   if (selector.startsWith('getByTestId:')) {
     const val = selector.substring('getByTestId:'.length);
     return noteMatch(document.querySelector(`[data-testid="${cssEscape(val)}"]`), `[data-testid="${val}"]`);
@@ -603,6 +627,7 @@ function findElementWithFallbacks(selector: string): Element | null {
   }
 
   const strategies = [
+    () => findByStakTrakId(selector),
     () => findByDataTestId(selector),
     () => findById(selector),
     () => findByClassUnique(selector),
@@ -698,6 +723,15 @@ function isValidSelector(selector: string): boolean {
   } catch (e) {
     return false;
   }
+}
+
+function findByStakTrakId(selector: string): Element | null {
+  if (!selector.includes("data-staktrak-id")) return null;
+  const stakId = selector.match(/data-staktrak-id="([^"]+)"/)?.[1];
+  if (stakId) {
+    return document.querySelector(`[data-staktrak-id="${stakId}"]`);
+  }
+  return null;
 }
 
 function findByDataTestId(selector: string): Element | null {

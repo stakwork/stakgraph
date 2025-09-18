@@ -26,6 +26,21 @@ export function startPlaywrightReplay(testCode: string): void {
       throw new Error("No valid actions found in test code");
     }
 
+    try {
+      if (typeof (window as any).__stakTrakInitAnnotations === 'function') {
+        setTimeout(() => {
+          try {
+            (window as any).__stakTrakInitAnnotations();
+            console.log('[staktrak-replay] Annotations initialized for replay');
+          } catch (e) {
+            console.warn('[staktrak-replay] Failed to initialize annotations:', e);
+          }
+        }, 100);
+      }
+    } catch (e) {
+      console.warn('[staktrak-replay] Failed to initialize annotations:', e);
+    }
+
     playwrightReplayRef.current = {
       actions,
       status: ReplayStatus.PLAYING,
@@ -44,7 +59,9 @@ export function startPlaywrightReplay(testCode: string): void {
       "*"
     );
 
-    executeNextPlaywrightAction();
+    setTimeout(() => {
+      executeNextPlaywrightAction();
+    }, 200);
   } catch (error) {
     window.parent.postMessage(
       {

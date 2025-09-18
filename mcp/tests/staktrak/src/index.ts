@@ -883,4 +883,13 @@ document.readyState === "loading"
   return [];
 };
 
+(window as any).__stakTrakInitAnnotations = () => {
+  try {
+    annotateInteractiveElements();
+    startDynamicAnnotation();
+  } catch (e) {
+    console.warn('[staktrak] Failed to initialize replay annotations:', e);
+  }
+};
+
 export default userBehaviour;

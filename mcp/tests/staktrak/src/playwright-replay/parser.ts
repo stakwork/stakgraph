@@ -217,12 +217,33 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
             lineNumber,
           });
         }
+      } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".fill(")) {
+        const stakFillMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.fill\(['"]([^'"]*)['"]\)/);
+        if (stakFillMatch) {
+          actions.push({
+            type: "fill",
+            selector: `[data-staktrak-id="${stakFillMatch[1]}"]`,
+            value: stakFillMatch[2],
+            comment,
+            lineNumber,
+          });
+        }
       } else if (trimmed.includes("page.check(")) {
         const selectorMatch = trimmed.match(/page\.check\(['"](.*?)['"]\)/);
         if (selectorMatch) {
           actions.push({
             type: "check",
             selector: selectorMatch[1],
+            comment,
+            lineNumber,
+          });
+        }
+      } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".check(")) {
+        const stakCheckMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.check\(\)/);
+        if (stakCheckMatch) {
+          actions.push({
+            type: "check",
+            selector: `[data-staktrak-id="${stakCheckMatch[1]}"]`,
             comment,
             lineNumber,
           });
@@ -237,6 +258,16 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
             lineNumber,
           });
         }
+      } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".uncheck(")) {
+        const stakUncheckMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.uncheck\(\)/);
+        if (stakUncheckMatch) {
+          actions.push({
+            type: "uncheck",
+            selector: `[data-staktrak-id="${stakUncheckMatch[1]}"]`,
+            comment,
+            lineNumber,
+          });
+        }
       } else if (trimmed.includes("page.selectOption(")) {
         const selectMatch = trimmed.match(
           /page\.selectOption\(['"](.*?)['"],\s*['"](.*?)['"]\)/
@@ -246,6 +277,17 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
             type: "selectOption",
             selector: selectMatch[1],
             value: selectMatch[2],
+            comment,
+            lineNumber,
+          });
+        }
+      } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".selectOption(")) {
+        const stakSelectMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.selectOption\(['"]([^'"]*)['"]\)/);
+        if (stakSelectMatch) {
+          actions.push({
+            type: "selectOption",
+            selector: `[data-staktrak-id="${stakSelectMatch[1]}"]`,
+            value: stakSelectMatch[2],
             comment,
             lineNumber,
           });
@@ -353,6 +395,16 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
             lineNumber,
           });
         }
+      } else if (trimmed.includes("page.locator('[data-staktrak-id=")) {
+        const stakIdMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)/);
+        if (stakIdMatch) {
+          actions.push({
+            type: "click",
+            selector: `[data-staktrak-id="${stakIdMatch[1]}"]`,
+            comment,
+            lineNumber,
+          });
+        }
       } else if (trimmed.includes("page.getByTestId(")) {
         const testIdMatch = trimmed.match(/page\.getByTestId\(['"](.*?)['"]\)/);
         if (testIdMatch) {
@@ -423,6 +475,19 @@ export function parsePlaywrightTest(testCode: string): PlaywrightAction[] {
               actions.push({
                 type: "expect",
                 selector: expectMatch[1],
+                expectation: "toBeVisible",
+                comment,
+                lineNumber,
+              });
+            }
+            
+            const stakExpectMatch = trimmed.match(
+              /expect\(page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\)\.toBeVisible\(\)/
+            );
+            if (stakExpectMatch) {
+              actions.push({
+                type: "expect",
+                selector: `[data-staktrak-id="${stakExpectMatch[1]}"]`,
                 expectation: "toBeVisible",
                 comment,
                 lineNumber,

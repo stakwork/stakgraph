@@ -45,8 +45,26 @@ var userBehaviour = (() => {
   var getTimeStamp = () => Date.now();
   var stakTrakIdCounter = 0;
   var stakTrakIdPrefix = "stk";
-  var generateStakTrakId = () => {
-    return `${stakTrakIdPrefix}-${Date.now()}-${++stakTrakIdCounter}`;
+  var generateStakTrakId = (element) => {
+    var _a;
+    if (element) {
+      const tagName = element.tagName.toLowerCase();
+      const className = element.className || "";
+      const text = (element.textContent || "").replace(/\s+/g, " ").trim().slice(0, 20);
+      const position = Array.from(((_a = element.parentElement) == null ? void 0 : _a.children) || []).indexOf(element);
+      const hash = simpleHash(`${tagName}-${className}-${text}-${position}`);
+      return `${stakTrakIdPrefix}-${hash}`;
+    }
+    return `${stakTrakIdPrefix}-${++stakTrakIdCounter}`;
+  };
+  var simpleHash = (str) => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash;
+    }
+    return Math.abs(hash).toString(36);
   };
   var ensureElementId = (element) => {
     var _a;
@@ -62,7 +80,7 @@ var userBehaviour = (() => {
     if (existingStakTrakId) {
       return `[data-staktrak-id="${existingStakTrakId}"]`;
     }
-    const uniqueId = generateStakTrakId();
+    const uniqueId = generateStakTrakId(element);
     try {
       element.setAttribute("data-staktrak-id", uniqueId);
       return `[data-staktrak-id="${uniqueId}"]`;
@@ -1086,12 +1104,33 @@ var userBehaviour = (() => {
               lineNumber
             });
           }
+        } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".fill(")) {
+          const stakFillMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.fill\(['"]([^'"]*)['"]\)/);
+          if (stakFillMatch) {
+            actions.push({
+              type: "fill",
+              selector: `[data-staktrak-id="${stakFillMatch[1]}"]`,
+              value: stakFillMatch[2],
+              comment,
+              lineNumber
+            });
+          }
         } else if (trimmed.includes("page.check(")) {
           const selectorMatch = trimmed.match(/page\.check\(['"](.*?)['"]\)/);
           if (selectorMatch) {
             actions.push({
               type: "check",
               selector: selectorMatch[1],
+              comment,
+              lineNumber
+            });
+          }
+        } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".check(")) {
+          const stakCheckMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.check\(\)/);
+          if (stakCheckMatch) {
+            actions.push({
+              type: "check",
+              selector: `[data-staktrak-id="${stakCheckMatch[1]}"]`,
               comment,
               lineNumber
             });
@@ -1106,6 +1145,16 @@ var userBehaviour = (() => {
               lineNumber
             });
           }
+        } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".uncheck(")) {
+          const stakUncheckMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.uncheck\(\)/);
+          if (stakUncheckMatch) {
+            actions.push({
+              type: "uncheck",
+              selector: `[data-staktrak-id="${stakUncheckMatch[1]}"]`,
+              comment,
+              lineNumber
+            });
+          }
         } else if (trimmed.includes("page.selectOption(")) {
           const selectMatch = trimmed.match(
             /page\.selectOption\(['"](.*?)['"],\s*['"](.*?)['"]\)/
@@ -1115,6 +1164,17 @@ var userBehaviour = (() => {
               type: "selectOption",
               selector: selectMatch[1],
               value: selectMatch[2],
+              comment,
+              lineNumber
+            });
+          }
+        } else if (trimmed.includes("page.locator('[data-staktrak-id=") && trimmed.includes(".selectOption(")) {
+          const stakSelectMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\.selectOption\(['"]([^'"]*)['"]\)/);
+          if (stakSelectMatch) {
+            actions.push({
+              type: "selectOption",
+              selector: `[data-staktrak-id="${stakSelectMatch[1]}"]`,
+              value: stakSelectMatch[2],
               comment,
               lineNumber
             });
@@ -1216,6 +1276,16 @@ var userBehaviour = (() => {
               lineNumber
             });
           }
+        } else if (trimmed.includes("page.locator('[data-staktrak-id=")) {
+          const stakIdMatch = trimmed.match(/page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)/);
+          if (stakIdMatch) {
+            actions.push({
+              type: "click",
+              selector: `[data-staktrak-id="${stakIdMatch[1]}"]`,
+              comment,
+              lineNumber
+            });
+          }
         } else if (trimmed.includes("page.getByTestId(")) {
           const testIdMatch = trimmed.match(/page\.getByTestId\(['"](.*?)['"]\)/);
           if (testIdMatch) {
@@ -1283,6 +1353,18 @@ var userBehaviour = (() => {
                 actions.push({
                   type: "expect",
                   selector: expectMatch[1],
+                  expectation: "toBeVisible",
+                  comment,
+                  lineNumber
+                });
+              }
+              const stakExpectMatch = trimmed.match(
+                /expect\(page\.locator\('\[data-staktrak-id="([^"]+)"\]'\)\)\.toBeVisible\(\)/
+              );
+              if (stakExpectMatch) {
+                actions.push({
+                  type: "expect",
+                  selector: `[data-staktrak-id="${stakExpectMatch[1]}"]`,
                   expectation: "toBeVisible",
                   comment,
                   lineNumber
@@ -2005,6 +2087,25 @@ var userBehaviour = (() => {
   function findElementWithFallbacks(selector) {
     var _a, _b;
     if (!selector || selector.trim() === "") return null;
+    if (selector.includes("data-staktrak-id=")) {
+      const stakIdMatch = selector.match(/\[data-staktrak-id="([^"]+)"\]/);
+      if (stakIdMatch) {
+        const element = document.querySelector(`[data-staktrak-id="${stakIdMatch[1]}"]`);
+        if (element) {
+          return element;
+        }
+        console.warn(`[staktrak-replay] Element not found with data-staktrak-id="${stakIdMatch[1]}", trying fallback strategies`);
+      }
+    }
+    if (selector.includes("data-testid=")) {
+      const testIdMatch = selector.match(/\[data-testid="([^"]+)"\]/);
+      if (testIdMatch) {
+        const element = document.querySelector(`[data-testid="${testIdMatch[1]}"]`);
+        if (element) {
+          return element;
+        }
+      }
+    }
     try {
       if ((selector.startsWith("text=") || selector.startsWith("role:")) && window.__stakTrakSelectorMap) {
         const map = window.__stakTrakSelectorMap;
@@ -2097,6 +2198,10 @@ var userBehaviour = (() => {
       }
       return noteMatch(null, selector);
     }
+    if (selector.startsWith("getByStakTrakId:")) {
+      const val = selector.substring("getByStakTrakId:".length);
+      return noteMatch(document.querySelector(`[data-staktrak-id="${cssEscape(val)}"]`), `[data-staktrak-id="${val}"]`);
+    }
     if (selector.startsWith("getByTestId:")) {
       const val = selector.substring("getByTestId:".length);
       return noteMatch(document.querySelector(`[data-testid="${cssEscape(val)}"]`), `[data-testid="${val}"]`);
@@ -2166,6 +2271,7 @@ var userBehaviour = (() => {
       if (element) return noteMatch(element, browserSelector);
     }
     const strategies = [
+      () => findByStakTrakId(selector),
       () => findByDataTestId(selector),
       () => findById(selector),
       () => findByClassUnique(selector),
@@ -2251,6 +2357,15 @@ var userBehaviour = (() => {
     } catch (e) {
       return false;
     }
+  }
+  function findByStakTrakId(selector) {
+    var _a;
+    if (!selector.includes("data-staktrak-id")) return null;
+    const stakId = (_a = selector.match(/data-staktrak-id="([^"]+)"/)) == null ? void 0 : _a[1];
+    if (stakId) {
+      return document.querySelector(`[data-staktrak-id="${stakId}"]`);
+    }
+    return null;
   }
   function findByDataTestId(selector) {
     var _a;
@@ -2573,6 +2688,20 @@ var userBehaviour = (() => {
       if (actions.length === 0) {
         throw new Error("No valid actions found in test code");
       }
+      try {
+        if (typeof window.__stakTrakInitAnnotations === "function") {
+          setTimeout(() => {
+            try {
+              window.__stakTrakInitAnnotations();
+              console.log("[staktrak-replay] Annotations initialized for replay");
+            } catch (e) {
+              console.warn("[staktrak-replay] Failed to initialize annotations:", e);
+            }
+          }, 100);
+        }
+      } catch (e) {
+        console.warn("[staktrak-replay] Failed to initialize annotations:", e);
+      }
       playwrightReplayRef.current = {
         actions,
         status: "playing" /* PLAYING */,
@@ -2589,7 +2718,9 @@ var userBehaviour = (() => {
         },
         "*"
       );
-      executeNextPlaywrightAction();
+      setTimeout(() => {
+        executeNextPlaywrightAction();
+      }, 200);
     } catch (error) {
       window.parent.postMessage(
         {
@@ -3769,6 +3900,14 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     const sel = last.selectors;
     if (sel && sel.scores) return sel.scores;
     return [];
+  };
+  window.__stakTrakInitAnnotations = () => {
+    try {
+      annotateInteractiveElements();
+      startDynamicAnnotation();
+    } catch (e) {
+      console.warn("[staktrak] Failed to initialize replay annotations:", e);
+    }
   };
   var index_default = userBehaviour;
   return __toCommonJS(index_exports);
