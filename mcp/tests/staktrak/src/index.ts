@@ -187,24 +187,18 @@ class UserBehaviorTracker {
     
     if (this.config.clicks) {
       const clickHandler = (e: MouseEvent) => {
-        this.results.clicks.clickCount++;
-        const clickDetail = createClickDetail(e);
-        this.results.clicks.clickDetails.push(clickDetail);
-
-        // Handle form elements
         const target = e.target as HTMLInputElement;
-        if (
-          target.tagName === "INPUT" &&
-          (target.type === "checkbox" || target.type === "radio")
-        ) {
-          this.results.formElementChanges.push({
-            elementSelector: clickDetail.selectors.primary,
-            type: target.type,
-            checked: target.checked,
-            value: target.value,
-            timestamp: getTimeStamp(),
-          });
+        const isFormElement = target.tagName === "INPUT" &&
+          (target.type === "checkbox" || target.type === "radio");
+
+        // Only record click for non-form elements, or if form element handling is disabled
+        if (!isFormElement || !this.config.formInteractions) {
+          this.results.clicks.clickCount++;
+          const clickDetail = createClickDetail(e);
+          this.results.clicks.clickDetails.push(clickDetail);
         }
+
+        // Form changes are handled by the dedicated change event handler
 
         // Save state after each click for iframe reload persistence
         this.saveSessionState();
@@ -328,24 +322,29 @@ class UserBehaviorTracker {
         ) {
           const changeHandler = () => {
             const selector = getElementSelector(htmlEl);
+
             if (htmlEl.tagName === "SELECT") {
               const selectEl = htmlEl as HTMLSelectElement;
               const selectedOption = selectEl.options[selectEl.selectedIndex];
-              this.results.formElementChanges.push({
+              const formChange = {
                 elementSelector: selector,
                 type: "select",
                 value: selectEl.value,
                 text: selectedOption?.text || "",
                 timestamp: getTimeStamp(),
-              });
+              };
+              this.results.formElementChanges.push(formChange);
+              console.log(`🔍 FORM CHANGE (SELECT): ${formChange.elementSelector}, value=${formChange.value}, timestamp=${formChange.timestamp}`);
             } else {
-              this.results.formElementChanges.push({
+              const formChange = {
                 elementSelector: selector,
                 type: inputEl.type,
                 checked: inputEl.checked,
                 value: inputEl.value,
                 timestamp: getTimeStamp(),
-              });
+              };
+              this.results.formElementChanges.push(formChange);
+              console.log(`🔍 FORM CHANGE (CHANGE): ${formChange.elementSelector}, checked=${formChange.checked}, timestamp=${formChange.timestamp}`);
             }
             // Save state after form element changes
             this.saveSessionState();
@@ -569,6 +568,43 @@ class UserBehaviorTracker {
           }
           break;
         case "staktrak-clear-assertions":
+          this.memory.assertions = [];
+          break;
+        case "staktrak-remove-navigation":
+          if (event.data.timestamp) {
+            this.results.pageNavigation = this.results.pageNavigation.filter(
+              nav => nav.timestamp !== event.data.timestamp
+            );
+          }
+          break;
+        case "staktrak-remove-click":
+          if (event.data.timestamp) {
+            this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
+              click => click.timestamp !== event.data.timestamp
+            );
+          }
+          break;
+        case "staktrak-remove-input":
+          if (event.data.timestamp) {
+            this.results.inputChanges = this.results.inputChanges.filter(
+              input => input.timestamp !== event.data.timestamp
+            );
+          }
+          break;
+        case "staktrak-remove-form":
+          if (event.data.timestamp) {
+            this.results.formElementChanges = this.results.formElementChanges.filter(
+              form => form.timestamp !== event.data.timestamp
+            );
+          }
+          break;
+        case "staktrak-clear-all-actions":
+          // Clear all tracking data
+          this.results.pageNavigation = [];
+          this.results.clicks.clickDetails = [];
+          this.results.clicks.clickCount = 0;
+          this.results.inputChanges = [];
+          this.results.formElementChanges = [];
           this.memory.assertions = [];
           break;
         case "staktrak-debug-request":

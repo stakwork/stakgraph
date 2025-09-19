@@ -3298,18 +3298,12 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     setupEventListeners() {
       if (this.config.clicks) {
         const clickHandler = (e) => {
-          this.results.clicks.clickCount++;
-          const clickDetail = createClickDetail(e);
-          this.results.clicks.clickDetails.push(clickDetail);
           const target = e.target;
-          if (target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio")) {
-            this.results.formElementChanges.push({
-              elementSelector: clickDetail.selectors.primary,
-              type: target.type,
-              checked: target.checked,
-              value: target.value,
-              timestamp: getTimeStamp()
-            });
+          const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio");
+          if (!isFormElement || !this.config.formInteractions) {
+            this.results.clicks.clickCount++;
+            const clickDetail = createClickDetail(e);
+            this.results.clicks.clickDetails.push(clickDetail);
           }
           this.saveSessionState();
         };
@@ -3417,21 +3411,25 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
               if (htmlEl.tagName === "SELECT") {
                 const selectEl = htmlEl;
                 const selectedOption = selectEl.options[selectEl.selectedIndex];
-                this.results.formElementChanges.push({
+                const formChange = {
                   elementSelector: selector,
                   type: "select",
                   value: selectEl.value,
                   text: (selectedOption == null ? void 0 : selectedOption.text) || "",
                   timestamp: getTimeStamp()
-                });
+                };
+                this.results.formElementChanges.push(formChange);
+                console.log(`\u{1F50D} FORM CHANGE (SELECT): ${formChange.elementSelector}, value=${formChange.value}, timestamp=${formChange.timestamp}`);
               } else {
-                this.results.formElementChanges.push({
+                const formChange = {
                   elementSelector: selector,
                   type: inputEl.type,
                   checked: inputEl.checked,
                   value: inputEl.value,
                   timestamp: getTimeStamp()
-                });
+                };
+                this.results.formElementChanges.push(formChange);
+                console.log(`\u{1F50D} FORM CHANGE (CHANGE): ${formChange.elementSelector}, checked=${formChange.checked}, timestamp=${formChange.timestamp}`);
               }
               this.saveSessionState();
             };
@@ -3624,6 +3622,42 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
             }
             break;
           case "staktrak-clear-assertions":
+            this.memory.assertions = [];
+            break;
+          case "staktrak-remove-navigation":
+            if (event.data.timestamp) {
+              this.results.pageNavigation = this.results.pageNavigation.filter(
+                (nav) => nav.timestamp !== event.data.timestamp
+              );
+            }
+            break;
+          case "staktrak-remove-click":
+            if (event.data.timestamp) {
+              this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
+                (click) => click.timestamp !== event.data.timestamp
+              );
+            }
+            break;
+          case "staktrak-remove-input":
+            if (event.data.timestamp) {
+              this.results.inputChanges = this.results.inputChanges.filter(
+                (input) => input.timestamp !== event.data.timestamp
+              );
+            }
+            break;
+          case "staktrak-remove-form":
+            if (event.data.timestamp) {
+              this.results.formElementChanges = this.results.formElementChanges.filter(
+                (form) => form.timestamp !== event.data.timestamp
+              );
+            }
+            break;
+          case "staktrak-clear-all-actions":
+            this.results.pageNavigation = [];
+            this.results.clicks.clickDetails = [];
+            this.results.clicks.clickCount = 0;
+            this.results.inputChanges = [];
+            this.results.formElementChanges = [];
             this.memory.assertions = [];
             break;
           case "staktrak-debug-request":
