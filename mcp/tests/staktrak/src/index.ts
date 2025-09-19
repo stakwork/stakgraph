@@ -537,9 +537,35 @@ class UserBehaviorTracker {
           break;
         case "staktrak-remove-assertion":
           if (event.data.assertionId) {
+            // Find the assertion being removed to get its timestamp
+            const assertionToRemove = this.memory.assertions.find(
+              assertion => assertion.id === event.data.assertionId
+            );
+
+            // Remove the assertion
             this.memory.assertions = this.memory.assertions.filter(
               assertion => assertion.id !== event.data.assertionId
             );
+
+            // Also remove the click that created this assertion
+            // Find the most recent click before the assertion timestamp
+            if (assertionToRemove) {
+              const assertionTime = assertionToRemove.timestamp;
+              // Find clicks that happened before this assertion
+              const clicksBefore = this.results.clicks.clickDetails.filter(
+                click => click.timestamp < assertionTime
+              );
+              if (clicksBefore.length > 0) {
+                // Find the most recent click before the assertion
+                const mostRecentClick = clicksBefore.reduce((latest, current) =>
+                  current.timestamp > latest.timestamp ? current : latest
+                );
+                // Remove that click
+                this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
+                  click => click.timestamp !== mostRecentClick.timestamp
+                );
+              }
+            }
           }
           break;
         case "staktrak-clear-assertions":

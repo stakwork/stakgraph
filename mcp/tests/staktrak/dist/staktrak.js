@@ -3601,9 +3601,26 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
             break;
           case "staktrak-remove-assertion":
             if (event.data.assertionId) {
+              const assertionToRemove = this.memory.assertions.find(
+                (assertion) => assertion.id === event.data.assertionId
+              );
               this.memory.assertions = this.memory.assertions.filter(
                 (assertion) => assertion.id !== event.data.assertionId
               );
+              if (assertionToRemove) {
+                const assertionTime = assertionToRemove.timestamp;
+                const clicksBefore = this.results.clicks.clickDetails.filter(
+                  (click) => click.timestamp < assertionTime
+                );
+                if (clicksBefore.length > 0) {
+                  const mostRecentClick = clicksBefore.reduce(
+                    (latest, current) => current.timestamp > latest.timestamp ? current : latest
+                  );
+                  this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
+                    (click) => click.timestamp !== mostRecentClick.timestamp
+                  );
+                }
+              }
             }
             break;
           case "staktrak-clear-assertions":
