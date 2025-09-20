@@ -3566,10 +3566,44 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     setupMessageHandling() {
       if (this.memory.alwaysListeners.length > 0)
         return;
+      const actionRemovalHandlers = {
+        "staktrak-remove-navigation": (data) => {
+          if (data.timestamp) {
+            this.results.pageNavigation = this.results.pageNavigation.filter(
+              (nav) => nav.timestamp !== data.timestamp
+            );
+          }
+        },
+        "staktrak-remove-click": (data) => {
+          if (data.timestamp) {
+            this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
+              (click) => click.timestamp !== data.timestamp
+            );
+          }
+        },
+        "staktrak-remove-input": (data) => {
+          if (data.timestamp) {
+            this.results.inputChanges = this.results.inputChanges.filter(
+              (input) => input.timestamp !== data.timestamp
+            );
+          }
+        },
+        "staktrak-remove-form": (data) => {
+          if (data.timestamp) {
+            this.results.formElementChanges = this.results.formElementChanges.filter(
+              (form) => form.timestamp !== data.timestamp
+            );
+          }
+        }
+      };
       const messageHandler = (event) => {
         var _a;
         if (!((_a = event.data) == null ? void 0 : _a.type))
           return;
+        if (actionRemovalHandlers[event.data.type]) {
+          actionRemovalHandlers[event.data.type](event.data);
+          return;
+        }
         switch (event.data.type) {
           case "staktrak-start":
             this.resetResults();
@@ -3621,40 +3655,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
             break;
           case "staktrak-clear-assertions":
           case "staktrak-clear-all-actions":
-            this.results.pageNavigation = [];
-            this.results.clicks.clickDetails = [];
-            this.results.clicks.clickCount = 0;
-            this.results.inputChanges = [];
-            this.results.formElementChanges = [];
-            this.memory.assertions = [];
-            break;
-          case "staktrak-remove-navigation":
-            if (event.data.timestamp) {
-              this.results.pageNavigation = this.results.pageNavigation.filter(
-                (nav) => nav.timestamp !== event.data.timestamp
-              );
-            }
-            break;
-          case "staktrak-remove-click":
-            if (event.data.timestamp) {
-              this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
-                (click) => click.timestamp !== event.data.timestamp
-              );
-            }
-            break;
-          case "staktrak-remove-input":
-            if (event.data.timestamp) {
-              this.results.inputChanges = this.results.inputChanges.filter(
-                (input) => input.timestamp !== event.data.timestamp
-              );
-            }
-            break;
-          case "staktrak-remove-form":
-            if (event.data.timestamp) {
-              this.results.formElementChanges = this.results.formElementChanges.filter(
-                (form) => form.timestamp !== event.data.timestamp
-              );
-            }
+            this.clearAllActions();
             break;
           case "staktrak-debug-request":
             debugMsg({
@@ -3769,6 +3770,14 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         value,
         timestamp: getTimeStamp()
       });
+    }
+    clearAllActions() {
+      this.results.pageNavigation = [];
+      this.results.clicks.clickDetails = [];
+      this.results.clicks.clickCount = 0;
+      this.results.inputChanges = [];
+      this.results.formElementChanges = [];
+      this.memory.assertions = [];
     }
     attemptSessionRestoration() {
       try {
