@@ -3303,12 +3303,25 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     setupEventListeners() {
       if (this.config.clicks) {
         const clickHandler = (e) => {
+          var _a;
           const target = e.target;
           const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio");
           if (!isFormElement || !this.config.formInteractions) {
             this.results.clicks.clickCount++;
             const clickDetail = createClickDetail(e);
             this.results.clicks.clickDetails.push(clickDetail);
+            window.parent.postMessage({
+              type: "staktrak-action-added",
+              action: {
+                id: clickDetail.timestamp + "_click",
+                kind: "click",
+                timestamp: clickDetail.timestamp,
+                locator: {
+                  primary: clickDetail.selectors.primary,
+                  text: (_a = clickDetail.elementInfo) == null ? void 0 : _a.text
+                }
+              }
+            }, "*");
           }
           this.saveSessionState();
         };
@@ -3424,6 +3437,16 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   timestamp: getTimeStamp()
                 };
                 this.results.formElementChanges.push(formChange);
+                window.parent.postMessage({
+                  type: "staktrak-action-added",
+                  action: {
+                    id: formChange.timestamp + "_form",
+                    kind: "form",
+                    timestamp: formChange.timestamp,
+                    formType: formChange.type,
+                    value: formChange.text
+                  }
+                }, "*");
               } else {
                 const formChange = {
                   elementSelector: selector,
@@ -3433,6 +3456,17 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   timestamp: getTimeStamp()
                 };
                 this.results.formElementChanges.push(formChange);
+                window.parent.postMessage({
+                  type: "staktrak-action-added",
+                  action: {
+                    id: formChange.timestamp + "_form",
+                    kind: "form",
+                    timestamp: formChange.timestamp,
+                    formType: formChange.type,
+                    checked: formChange.checked,
+                    value: formChange.value
+                  }
+                }, "*");
               }
               this.saveSessionState();
             };
@@ -3445,21 +3479,41 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                 clearTimeout(this.memory.inputDebounceTimers[elementId]);
               }
               this.memory.inputDebounceTimers[elementId] = setTimeout(() => {
-                this.results.inputChanges.push({
+                const inputAction2 = {
                   elementSelector: selector,
                   value: inputEl.value,
                   timestamp: getTimeStamp(),
                   action: "complete"
-                });
+                };
+                this.results.inputChanges.push(inputAction2);
+                window.parent.postMessage({
+                  type: "staktrak-action-added",
+                  action: {
+                    id: inputAction2.timestamp + "_input",
+                    kind: "input",
+                    timestamp: inputAction2.timestamp,
+                    value: inputAction2.value
+                  }
+                }, "*");
                 delete this.memory.inputDebounceTimers[elementId];
                 this.saveSessionState();
               }, this.config.inputDebounceDelay);
-              this.results.inputChanges.push({
+              const inputAction = {
                 elementSelector: selector,
                 value: inputEl.value,
                 timestamp: getTimeStamp(),
                 action: "intermediate"
-              });
+              };
+              this.results.inputChanges.push(inputAction);
+              window.parent.postMessage({
+                type: "staktrak-action-added",
+                action: {
+                  id: inputAction.timestamp + "_input",
+                  kind: "input",
+                  timestamp: inputAction.timestamp,
+                  value: inputAction.value
+                }
+              }, "*");
             };
             const focusHandler = (e) => {
               const selector = getElementSelector(htmlEl);
@@ -3474,12 +3528,22 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   clearTimeout(this.memory.inputDebounceTimers[elementId]);
                   delete this.memory.inputDebounceTimers[elementId];
                 }
-                this.results.inputChanges.push({
+                const inputAction = {
                   elementSelector: selector,
                   value: inputEl.value,
                   timestamp: getTimeStamp(),
                   action: "complete"
-                });
+                };
+                this.results.inputChanges.push(inputAction);
+                window.parent.postMessage({
+                  type: "staktrak-action-added",
+                  action: {
+                    id: inputAction.timestamp + "_input",
+                    kind: "input",
+                    timestamp: inputAction.timestamp,
+                    value: inputAction.value
+                  }
+                }, "*");
               }
             };
             htmlEl.addEventListener("input", inputHandler);
@@ -3514,11 +3578,21 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
       const originalPushState = history.pushState;
       const originalReplaceState = history.replaceState;
       const recordStateChange = (type) => {
-        this.results.pageNavigation.push({
+        const navAction = {
           type,
           url: document.URL,
           timestamp: getTimeStamp()
-        });
+        };
+        this.results.pageNavigation.push(navAction);
+        window.parent.postMessage({
+          type: "staktrak-action-added",
+          action: {
+            id: navAction.timestamp + "_nav",
+            kind: "nav",
+            timestamp: navAction.timestamp,
+            url: navAction.url
+          }
+        }, "*");
         window.parent.postMessage(
           { type: "staktrak-page-navigation", data: document.URL },
           "*"
@@ -3558,7 +3632,17 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         try {
           const dest = new URL(href, window.location.href);
           if (dest.origin === window.location.origin) {
-            this.results.pageNavigation.push({ type: "anchorClick", url: dest.href, timestamp: getTimeStamp() });
+            const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
+            this.results.pageNavigation.push(navAction);
+            window.parent.postMessage({
+              type: "staktrak-action-added",
+              action: {
+                id: navAction.timestamp + "_nav",
+                kind: "nav",
+                timestamp: navAction.timestamp,
+                url: navAction.url
+              }
+            }, "*");
           }
         } catch (e2) {
         }

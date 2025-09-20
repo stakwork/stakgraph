@@ -197,6 +197,20 @@ class UserBehaviorTracker {
           this.results.clicks.clickCount++;
           const clickDetail = createClickDetail(e);
           this.results.clicks.clickDetails.push(clickDetail);
+
+          // Broadcast click action in real-time
+          window.parent.postMessage({
+            type: "staktrak-action-added",
+            action: {
+              id: clickDetail.timestamp + '_click',
+              kind: 'click',
+              timestamp: clickDetail.timestamp,
+              locator: {
+                primary: clickDetail.selectors.primary,
+                text: clickDetail.elementInfo?.text
+              }
+            }
+          }, "*");
         }
 
         // Form changes are handled by the dedicated change event handler
@@ -335,6 +349,18 @@ class UserBehaviorTracker {
                 timestamp: getTimeStamp(),
               };
               this.results.formElementChanges.push(formChange);
+
+              // Broadcast form action in real-time
+              window.parent.postMessage({
+                type: "staktrak-action-added",
+                action: {
+                  id: formChange.timestamp + '_form',
+                  kind: 'form',
+                  timestamp: formChange.timestamp,
+                  formType: formChange.type,
+                  value: formChange.text
+                }
+              }, "*");
             } else {
               const formChange = {
                 elementSelector: selector,
@@ -344,6 +370,19 @@ class UserBehaviorTracker {
                 timestamp: getTimeStamp(),
               };
               this.results.formElementChanges.push(formChange);
+
+              // Broadcast form action in real-time
+              window.parent.postMessage({
+                type: "staktrak-action-added",
+                action: {
+                  id: formChange.timestamp + '_form',
+                  kind: 'form',
+                  timestamp: formChange.timestamp,
+                  formType: formChange.type,
+                  checked: formChange.checked,
+                  value: formChange.value
+                }
+              }, "*");
             }
             // Save state after form element changes
             this.saveSessionState();
@@ -359,23 +398,48 @@ class UserBehaviorTracker {
             }
 
             this.memory.inputDebounceTimers[elementId] = setTimeout(() => {
-              this.results.inputChanges.push({
+              const inputAction = {
                 elementSelector: selector,
                 value: inputEl.value,
                 timestamp: getTimeStamp(),
                 action: "complete",
-              });
+              };
+              this.results.inputChanges.push(inputAction);
+
+              // Broadcast input action in real-time
+              window.parent.postMessage({
+                type: "staktrak-action-added",
+                action: {
+                  id: inputAction.timestamp + '_input',
+                  kind: 'input',
+                  timestamp: inputAction.timestamp,
+                  value: inputAction.value
+                }
+              }, "*");
+
               delete this.memory.inputDebounceTimers[elementId];
               // Save state after input completion
               this.saveSessionState();
             }, this.config.inputDebounceDelay);
 
-            this.results.inputChanges.push({
+            const inputAction = {
               elementSelector: selector,
               value: inputEl.value,
               timestamp: getTimeStamp(),
               action: "intermediate",
-            });
+            };
+            this.results.inputChanges.push(inputAction);
+
+            // Broadcast intermediate input action in real-time
+            window.parent.postMessage({
+              type: "staktrak-action-added",
+              action: {
+                id: inputAction.timestamp + '_input',
+                kind: 'input',
+                timestamp: inputAction.timestamp,
+                value: inputAction.value
+              }
+            }, "*");
           };
 
           const focusHandler = (e: FocusEvent) => {
@@ -392,12 +456,24 @@ class UserBehaviorTracker {
                 clearTimeout(this.memory.inputDebounceTimers[elementId]);
                 delete this.memory.inputDebounceTimers[elementId];
               }
-              this.results.inputChanges.push({
+              const inputAction = {
                 elementSelector: selector,
                 value: inputEl.value,
                 timestamp: getTimeStamp(),
                 action: "complete",
-              });
+              };
+              this.results.inputChanges.push(inputAction);
+
+              // Broadcast final input action in real-time
+              window.parent.postMessage({
+                type: "staktrak-action-added",
+                action: {
+                  id: inputAction.timestamp + '_input',
+                  kind: 'input',
+                  timestamp: inputAction.timestamp,
+                  value: inputAction.value
+                }
+              }, "*");
             }
           };
 
@@ -442,11 +518,23 @@ class UserBehaviorTracker {
     const originalReplaceState = history.replaceState;
 
     const recordStateChange = (type: string) => {
-      this.results.pageNavigation.push({
+      const navAction = {
         type,
         url: document.URL,
         timestamp: getTimeStamp(),
-      });
+      };
+      this.results.pageNavigation.push(navAction);
+
+      // Broadcast navigation action in real-time
+      window.parent.postMessage({
+        type: "staktrak-action-added",
+        action: {
+          id: navAction.timestamp + '_nav',
+          kind: 'nav',
+          timestamp: navAction.timestamp,
+          url: navAction.url
+        }
+      }, "*");
       window.parent.postMessage(
         { type: "staktrak-page-navigation", data: document.URL },
         "*"
@@ -488,7 +576,19 @@ class UserBehaviorTracker {
       try {
         const dest = new URL(href, window.location.href);
         if (dest.origin === window.location.origin) {
-          this.results.pageNavigation.push({ type: 'anchorClick', url: dest.href, timestamp: getTimeStamp() });
+          const navAction = { type: 'anchorClick', url: dest.href, timestamp: getTimeStamp() };
+          this.results.pageNavigation.push(navAction);
+
+          // Broadcast navigation action in real-time
+          window.parent.postMessage({
+            type: "staktrak-action-added",
+            action: {
+              id: navAction.timestamp + '_nav',
+              kind: 'nav',
+              timestamp: navAction.timestamp,
+              url: navAction.url
+            }
+          }, "*");
         }
       } catch {}
     };

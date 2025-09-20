@@ -75,6 +75,16 @@ export interface ResultsMessage extends BaseMessage {
   data: any; // TrackingResults type from types.ts
 }
 
+export interface ActionAddedMessage extends BaseMessage {
+  type: 'staktrak-action-added';
+  action: {
+    id: string;
+    kind: 'click' | 'form' | 'nav' | 'input' | 'assertion';
+    timestamp: number;
+    [key: string]: any;
+  };
+}
+
 export interface PopupMessage extends BaseMessage {
   type: 'staktrak-popup';
   message: string;
@@ -95,6 +105,7 @@ export type StakTrakMessage =
   | RecoverMessage
   | SelectionMessage
   | ResultsMessage
+  | ActionAddedMessage
   | PopupMessage;
 
 /**
