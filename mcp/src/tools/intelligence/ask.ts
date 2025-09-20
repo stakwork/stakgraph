@@ -90,7 +90,7 @@ function cached_answer(
   };
 }
 
-export const QUESTION_HIGHLY_RELEVANT_THRESHOLD = 0.92;
+export const QUESTION_HIGHLY_RELEVANT_THRESHOLD = 0.94;
 
 interface FilterByRelevanceFromCacheResult {
   cachedAnswer?: Answer;
