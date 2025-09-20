@@ -2838,6 +2838,11 @@ var userBehaviour = (() => {
     });
   }
 
+  // src/messages.ts
+  function isStakTrakMessage(event) {
+    return event.data && typeof event.data.type === "string" && event.data.type.startsWith("staktrak-");
+  }
+
   // src/actionModel.ts
   function resultsToActions(results) {
     var _a;
@@ -3568,40 +3573,79 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         return;
       const actionRemovalHandlers = {
         "staktrak-remove-navigation": (data) => {
-          if (data.timestamp) {
+          try {
+            if (!data.timestamp) {
+              console.warn("Missing timestamp for navigation removal");
+              return false;
+            }
+            const initialLength = this.results.pageNavigation.length;
             this.results.pageNavigation = this.results.pageNavigation.filter(
               (nav) => nav.timestamp !== data.timestamp
             );
+            return this.results.pageNavigation.length < initialLength;
+          } catch (error) {
+            console.error("Failed to remove navigation:", error);
+            return false;
           }
         },
         "staktrak-remove-click": (data) => {
-          if (data.timestamp) {
+          try {
+            if (!data.timestamp) {
+              console.warn("Missing timestamp for click removal");
+              return false;
+            }
+            const initialLength = this.results.clicks.clickDetails.length;
             this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
               (click) => click.timestamp !== data.timestamp
             );
+            return this.results.clicks.clickDetails.length < initialLength;
+          } catch (error) {
+            console.error("Failed to remove click:", error);
+            return false;
           }
         },
         "staktrak-remove-input": (data) => {
-          if (data.timestamp) {
+          try {
+            if (!data.timestamp) {
+              console.warn("Missing timestamp for input removal");
+              return false;
+            }
+            const initialLength = this.results.inputChanges.length;
             this.results.inputChanges = this.results.inputChanges.filter(
               (input) => input.timestamp !== data.timestamp
             );
+            return this.results.inputChanges.length < initialLength;
+          } catch (error) {
+            console.error("Failed to remove input:", error);
+            return false;
           }
         },
         "staktrak-remove-form": (data) => {
-          if (data.timestamp) {
+          try {
+            if (!data.timestamp) {
+              console.warn("Missing timestamp for form removal");
+              return false;
+            }
+            const initialLength = this.results.formElementChanges.length;
             this.results.formElementChanges = this.results.formElementChanges.filter(
               (form) => form.timestamp !== data.timestamp
             );
+            return this.results.formElementChanges.length < initialLength;
+          } catch (error) {
+            console.error("Failed to remove form change:", error);
+            return false;
           }
         }
       };
       const messageHandler = (event) => {
-        var _a;
-        if (!((_a = event.data) == null ? void 0 : _a.type))
+        if (!isStakTrakMessage(event))
           return;
-        if (actionRemovalHandlers[event.data.type]) {
-          actionRemovalHandlers[event.data.type](event.data);
+        const message = event.data;
+        if (actionRemovalHandlers[message.type]) {
+          const success = actionRemovalHandlers[message.type](message);
+          if (!success) {
+            console.warn(`Failed to process ${message.type}`);
+          }
           return;
         }
         switch (event.data.type) {

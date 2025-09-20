@@ -8,6 +8,7 @@ import {
 } from "./utils";
 import { debugMsg, isReactDevModeActive } from "./debug";
 import { initPlaywrightReplay } from "./playwright-replay/index";
+import { StakTrakMessage, isStakTrakMessage, isRemoveActionMessage, isAddAssertionMessage } from "./messages";
 import { resultsToActions } from "./actionModel";
 import { buildScenario, serializeScenario } from './scenario';
 import {
@@ -504,44 +505,85 @@ class UserBehaviorTracker {
     // this listener only needs to be setup once
     if (this.memory.alwaysListeners.length > 0) return;
 
-    // Define action removal handlers
-    const actionRemovalHandlers: Record<string, (data: any) => void> = {
+    // Define action removal handlers with error handling
+    const actionRemovalHandlers: Record<string, (data: any) => boolean> = {
       'staktrak-remove-navigation': (data) => {
-        if (data.timestamp) {
+        try {
+          if (!data.timestamp) {
+            console.warn('Missing timestamp for navigation removal');
+            return false;
+          }
+          const initialLength = this.results.pageNavigation.length;
           this.results.pageNavigation = this.results.pageNavigation.filter(
             nav => nav.timestamp !== data.timestamp
           );
+          return this.results.pageNavigation.length < initialLength;
+        } catch (error) {
+          console.error('Failed to remove navigation:', error);
+          return false;
         }
       },
       'staktrak-remove-click': (data) => {
-        if (data.timestamp) {
+        try {
+          if (!data.timestamp) {
+            console.warn('Missing timestamp for click removal');
+            return false;
+          }
+          const initialLength = this.results.clicks.clickDetails.length;
           this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
             click => click.timestamp !== data.timestamp
           );
+          return this.results.clicks.clickDetails.length < initialLength;
+        } catch (error) {
+          console.error('Failed to remove click:', error);
+          return false;
         }
       },
       'staktrak-remove-input': (data) => {
-        if (data.timestamp) {
+        try {
+          if (!data.timestamp) {
+            console.warn('Missing timestamp for input removal');
+            return false;
+          }
+          const initialLength = this.results.inputChanges.length;
           this.results.inputChanges = this.results.inputChanges.filter(
             input => input.timestamp !== data.timestamp
           );
+          return this.results.inputChanges.length < initialLength;
+        } catch (error) {
+          console.error('Failed to remove input:', error);
+          return false;
         }
       },
       'staktrak-remove-form': (data) => {
-        if (data.timestamp) {
+        try {
+          if (!data.timestamp) {
+            console.warn('Missing timestamp for form removal');
+            return false;
+          }
+          const initialLength = this.results.formElementChanges.length;
           this.results.formElementChanges = this.results.formElementChanges.filter(
             form => form.timestamp !== data.timestamp
           );
+          return this.results.formElementChanges.length < initialLength;
+        } catch (error) {
+          console.error('Failed to remove form change:', error);
+          return false;
         }
       }
     };
 
     const messageHandler = (event: MessageEvent) => {
-      if (!event.data?.type) return;
+      if (!isStakTrakMessage(event)) return;
+
+      const message = event.data as StakTrakMessage;
 
       // Check if this is an action removal message
-      if (actionRemovalHandlers[event.data.type]) {
-        actionRemovalHandlers[event.data.type](event.data);
+      if (actionRemovalHandlers[message.type]) {
+        const success = actionRemovalHandlers[message.type](message);
+        if (!success) {
+          console.warn(`Failed to process ${message.type}`);
+        }
         return;
       }
 
