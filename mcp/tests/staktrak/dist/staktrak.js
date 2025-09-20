@@ -3419,7 +3419,6 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   timestamp: getTimeStamp()
                 };
                 this.results.formElementChanges.push(formChange);
-                console.log(`\u{1F50D} FORM CHANGE (SELECT): ${formChange.elementSelector}, value=${formChange.value}, timestamp=${formChange.timestamp}`);
               } else {
                 const formChange = {
                   elementSelector: selector,
@@ -3429,7 +3428,6 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   timestamp: getTimeStamp()
                 };
                 this.results.formElementChanges.push(formChange);
-                console.log(`\u{1F50D} FORM CHANGE (CHANGE): ${formChange.elementSelector}, checked=${formChange.checked}, timestamp=${formChange.timestamp}`);
               }
               this.saveSessionState();
             };
@@ -3622,6 +3620,12 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
             }
             break;
           case "staktrak-clear-assertions":
+          case "staktrak-clear-all-actions":
+            this.results.pageNavigation = [];
+            this.results.clicks.clickDetails = [];
+            this.results.clicks.clickCount = 0;
+            this.results.inputChanges = [];
+            this.results.formElementChanges = [];
             this.memory.assertions = [];
             break;
           case "staktrak-remove-navigation":
@@ -3651,14 +3655,6 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                 (form) => form.timestamp !== event.data.timestamp
               );
             }
-            break;
-          case "staktrak-clear-all-actions":
-            this.results.pageNavigation = [];
-            this.results.clicks.clickDetails = [];
-            this.results.clicks.clickCount = 0;
-            this.results.inputChanges = [];
-            this.results.formElementChanges = [];
-            this.memory.assertions = [];
             break;
           case "staktrak-debug-request":
             debugMsg({

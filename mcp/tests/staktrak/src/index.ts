@@ -334,7 +334,6 @@ class UserBehaviorTracker {
                 timestamp: getTimeStamp(),
               };
               this.results.formElementChanges.push(formChange);
-              console.log(`🔍 FORM CHANGE (SELECT): ${formChange.elementSelector}, value=${formChange.value}, timestamp=${formChange.timestamp}`);
             } else {
               const formChange = {
                 elementSelector: selector,
@@ -344,7 +343,6 @@ class UserBehaviorTracker {
                 timestamp: getTimeStamp(),
               };
               this.results.formElementChanges.push(formChange);
-              console.log(`🔍 FORM CHANGE (CHANGE): ${formChange.elementSelector}, checked=${formChange.checked}, timestamp=${formChange.timestamp}`);
             }
             // Save state after form element changes
             this.saveSessionState();
@@ -568,6 +566,13 @@ class UserBehaviorTracker {
           }
           break;
         case "staktrak-clear-assertions":
+        case "staktrak-clear-all-actions":
+          // Clear all tracking data
+          this.results.pageNavigation = [];
+          this.results.clicks.clickDetails = [];
+          this.results.clicks.clickCount = 0;
+          this.results.inputChanges = [];
+          this.results.formElementChanges = [];
           this.memory.assertions = [];
           break;
         case "staktrak-remove-navigation":
@@ -597,15 +602,6 @@ class UserBehaviorTracker {
               form => form.timestamp !== event.data.timestamp
             );
           }
-          break;
-        case "staktrak-clear-all-actions":
-          // Clear all tracking data
-          this.results.pageNavigation = [];
-          this.results.clicks.clickDetails = [];
-          this.results.clicks.clickCount = 0;
-          this.results.inputChanges = [];
-          this.results.formElementChanges = [];
-          this.memory.assertions = [];
           break;
         case "staktrak-debug-request":
           debugMsg({
