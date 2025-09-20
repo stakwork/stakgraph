@@ -9,6 +9,8 @@ export function useIframeMessaging(iframeRef, initialURL) {
   const [selectedText, setSelectedText] = useState(null);
   const [url, setUrl] = useState(initialURL);
   const [displayUrl, setDisplayUrl] = useState(initialURL);
+  const [capturedActions, setCapturedActions] = useState([]);
+  const [showActions, setShowActions] = useState(false);
 
   const { showPopup } = popupHook;
   const selectedDisplayTimeout = useRef(null);
@@ -67,9 +69,26 @@ export function useIframeMessaging(iframeRef, initialURL) {
             console.log("Staktrak results received", event.data.data);
             setTrackingData(event.data.data);
             setCanGenerate(true);
+            // Actions are already in the list from real-time messages
+            break;
+          case "staktrak-action-added":
+            const newAction = {
+              ...event.data.action
+            };
+            setCapturedActions(prev => [...prev, newAction].sort((a, b) => a.timestamp - b.timestamp));
             break;
           case "staktrak-selection":
             displaySelectedText(event.data.text);
+            // Add assertion as an action to the unified list (same as other actions)
+            const assertionAction = {
+              id: event.data.assertionId,
+              kind: 'assertion',
+              timestamp: Date.now(),
+              value: event.data.text,
+              selector: event.data.selector
+            };
+            setCapturedActions(prev => [...prev, assertionAction].sort((a, b) => a.timestamp - b.timestamp));
+            showPopup(`Assertion captured: "${event.data.text}"`, "success");
             break;
           case "staktrak-popup":
             if (event.data.message) {
@@ -100,6 +119,9 @@ export function useIframeMessaging(iframeRef, initialURL) {
       setIsRecording(true);
       setIsAssertionMode(false);
       setCanGenerate(false);
+      // Clear actions when starting a new recording
+      setCapturedActions([]);
+      setShowActions(false);
     }
   };
 
@@ -136,16 +158,64 @@ export function useIframeMessaging(iframeRef, initialURL) {
     }
   };
 
+  const removeAction = (action) => {
+    setCapturedActions(prev => {
+      const updatedActions = prev.filter(a => a.id !== action.id);
+      // Send message to iframe to remove action from its tracking data
+      if (iframeRef.current && iframeRef.current.contentWindow) {
+        const messageMap = {
+          'nav': 'staktrak-remove-navigation',
+          'click': 'staktrak-remove-click',
+          'input': 'staktrak-remove-input',
+          'form': 'staktrak-remove-form',
+          'assertion': 'staktrak-remove-assertion'
+        };
+        iframeRef.current.contentWindow.postMessage(
+          {
+            type: messageMap[action.kind] || 'staktrak-remove-action',
+            actionId: action.id,
+            assertionId: action.id, // For backwards compatibility with assertions
+            timestamp: action.timestamp
+          },
+          "*"
+        );
+      }
+      return updatedActions;
+    });
+    showPopup(`${action.kind === 'assertion' ? 'Assertion' : 'Action'} removed`, "info");
+  };
+
+  const clearAllActions = () => {
+    setCapturedActions([]);
+    // Send message to iframe to clear all actions from its tracking data
+    if (iframeRef.current && iframeRef.current.contentWindow) {
+      iframeRef.current.contentWindow.postMessage(
+        { type: "staktrak-clear-all-actions" },
+        "*"
+      );
+    }
+    showPopup("All actions cleared", "info");
+  };
+
+  const toggleActionsView = () => {
+    setShowActions(prev => !prev);
+  };
+
   return {
     isRecording,
     isAssertionMode,
     canGenerate,
     trackingData,
     selectedText,
+    capturedActions,
+    showActions,
     startRecording,
     stopRecording,
     enableAssertionMode,
     disableAssertionMode,
+    removeAction,
+    clearAllActions,
+    toggleActionsView,
     url,
     setUrl,
     handleUrlChange,

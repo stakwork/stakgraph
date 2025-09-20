@@ -1168,3 +1168,120 @@ button.stop-replay:hover {
   cursor: not-allowed;
   transform: none;
 }
+
+/* Assertion Controls */
+.assertion-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.actions-dropdown-btn {
+  background: #6b7280;
+  color: white;
+  border: none;
+  padding: 10px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 32px;
+}
+
+.actions-dropdown-btn:hover {
+  background: #4b5563;
+}
+
+/* Actions Panel */
+.actions-panel {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  margin: 16px 24px;
+  padding: 16px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.actions-panel h3 {
+  margin: 0 0 12px 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #f3f4f6;
+}
+
+.actions-controls {
+  margin-bottom: 12px;
+}
+
+.clear-all-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-all-btn:hover {
+  background: #dc2626;
+}
+
+.actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.action-item {
+  background: #374151;
+  border: 1px solid #4b5563;
+  border-radius: 4px;
+  padding: 8px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s ease;
+  font-size: 13px;
+}
+
+.action-item:hover {
+  border-color: #6b7280;
+  background: #3f4856;
+}
+.action-item.nav { border-left: 3px solid #3b82f6; }
+.action-item.click { border-left: 3px solid #10b981; }
+.action-item.input { border-left: 3px solid #f59e0b; }
+.action-item.form { border-left: 3px solid #8b5cf6; }
+.action-item.assertion { border-left: 3px solid #ef4444; }
+.action-item.waitForUrl { border-left: 3px solid #6b7280; }
+
+.action-content {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #e5e7eb;
+}
+
+
+.remove-action-btn {
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  min-width: auto;
+}
+
+.remove-action-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  transform: none;
+}
