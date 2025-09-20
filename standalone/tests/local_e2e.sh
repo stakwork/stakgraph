@@ -44,8 +44,8 @@ cd ..
 
 
 # Wait for Node server to be ready
-echo "Waiting for Node server on :3000..."
-until curl -s http://localhost:3000 > /dev/null; do
+echo "Waiting for Node server on :3355..."
+until curl -s http://localhost:3355 > /dev/null; do
   sleep 2
 done
 echo "Node server is ready!"
@@ -79,7 +79,7 @@ while true; do
 done
 
 # 5. Query /map endpoint
-curl "http://localhost:3000/map?name=App&node_type=Function" -o "$ACTUAL_MAP_ONE"
+curl "http://localhost:3355/map?name=App&node_type=Function" -o "$ACTUAL_MAP_ONE"
 
 
 
@@ -124,7 +124,7 @@ while true; do
 done
 
 # --- Query for NewPerson for main Function ---
-curl "http://localhost:3000/map?name=NewPerson&node_type=Function" -o "$ACTUAL_MAP_TWO"
+curl "http://localhost:3355/map?name=NewPerson&node_type=Function" -o "$ACTUAL_MAP_TWO"
 
 grep -v '^<pre>' "$ACTUAL_MAP_TWO" | grep -v '^</pre>' | grep -v 'Total tokens:'  > /tmp/sorted_actual_two.html
 grep -v '^<pre>' "$EXPECTED_MAP_TWO" | grep -v '^</pre>' | grep -v 'Total tokens:'  > /tmp/sorted_expected_two.html
@@ -137,7 +137,7 @@ else
   exit 1
 fi
 
-curl "http://localhost:3000/repo_map?name=fayekelmith/demo-repo" -o "$ACTUAL_REPO_MAP"
+curl "http://localhost:3355/repo_map?name=fayekelmith/demo-repo" -o "$ACTUAL_REPO_MAP"
 
 grep -v '^<pre>' "$ACTUAL_REPO_MAP" | grep -v '^</pre>' | grep -v 'Total tokens:'  > /tmp/actual_repo_map_clean.html
 grep -v '^<pre>' "$EXPECTED_REPO_MAP" | grep -v '^</pre>' | grep -v 'Total tokens:' > /tmp/expected_repo_map_clean.html

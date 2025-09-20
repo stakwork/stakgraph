@@ -28,4 +28,4 @@ docker-compose -f neo4j.yaml up -d
 curl -X POST \
  -F "nodes=@./ast/examples/tribes-nodes.jsonl" \
  -F "edges=@./ast/examples/tribes-edges.jsonl" \
- http://localhost:3000/upload
+ http://localhost:3355/upload

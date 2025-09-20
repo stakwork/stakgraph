@@ -97,20 +97,20 @@ jobs:
         working-directory: ./mcp
         run: |
           tail -n +1 -f server.log &
-          npx wait-on http://localhost:3000 -t 120000
+          npx wait-on http://localhost:3355 -t 120000
 
       - name: Upload data
         run: |
           curl -X POST \
           -F "nodes=@./ast/examples/demo-repo-nodes.jsonl" \
           -F "edges=@./ast/examples/demo-repo-edges.jsonl" \
-          http://localhost:3000/upload
+          http://localhost:3355/upload
 
       - name: Test API Response
         working-directory: ./mcp
         run: |
           sleep 10
-          curl "http://localhost:3000/map?name=App&node_type=Function" -o ./testing/actual-map-response.html
+          curl "http://localhost:3355/map?name=App&node_type=Function" -o ./testing/actual-map-response.html
 
       - name: Compare actual and expected output
         working-directory: ./mcp
@@ -136,7 +136,7 @@ jobs:
       - name: Check Fulltext Search
         working-directory: ./mcp
         run: |
-          curl -s -X GET "http://localhost:3000/search?query=NewRouter&output=snippet" | \
+          curl -s -X GET "http://localhost:3355/search?query=NewRouter&output=snippet" | \
           perl -0777 -ne '
             my @snippets = split /(?=<snippet>)/, $_;
             shift @snippets if $snippets[0] !~ /<snippet>/;
@@ -162,7 +162,7 @@ jobs:
       - name: Check NodeType Endpoint
         working-directory: ./mcp
         run: |
-          curl -s -X GET "http://localhost:3000/nodes?node_type=Endpoint&output=json" -o ./testing/actual-nodes-endpoint.json
+          curl -s -X GET "http://localhost:3355/nodes?node_type=Endpoint&output=json" -o ./testing/actual-nodes-endpoint.json
           echo "$(<./testing/actual-nodes-endpoint.json)"
 
       - name: Compare NodeType Response with Expected Output
