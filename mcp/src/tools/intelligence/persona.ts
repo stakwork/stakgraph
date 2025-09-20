@@ -6,12 +6,17 @@ import { vectorizeQuery } from "../../vector/index.js";
 
 export type Persona = "PM" | "SeniorDev" | "JuniorDev" | "CEO" | "Agent";
 
-export const TARGET_PERSONAS: Persona[] = [
+export const ALL_PERSONAS: Persona[] = [
+  "PM",
   "SeniorDev",
   "JuniorDev",
   "CEO",
   "Agent",
 ];
+
+function getTargetPersonas(originalPersona: Persona): Persona[] {
+  return ALL_PERSONAS.filter((p) => p !== originalPersona);
+}
 
 function personaPrompt(persona: Persona, question: string, answer: string) {
   return `Rewrite the following question and answer for a ${persona} audience. Preserve intent and correctness. Do not add new facts. Keep it concise and practical.
@@ -55,7 +60,14 @@ export async function generate_persona_variants(llm_provider?: string) {
       const p = (s.properties.persona as string) || "PM";
       existingPersonas.add(p);
     }
-    for (const persona of TARGET_PERSONAS) {
+    let originalPersona = (h.properties.persona as Persona) || "PM";
+    if (!h.properties.persona) {
+      await db.setHintPersona(origRef, "PM");
+    }
+
+    existingPersonas.add(originalPersona);
+    const targetPersonas = getTargetPersonas(originalPersona);
+    for (const persona of targetPersonas) {
       if (existingPersonas.has(persona)) continue;
       const rephrased = await rephraseHint(
         question,

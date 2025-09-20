@@ -600,6 +600,15 @@ class Db {
     }
   }
 
+  async setHintPersona(ref_id: string, persona: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.SET_HINT_PERSONA_QUERY, { ref_id, persona });
+    } finally {
+      await session.close();
+    }
+  }
+
   async create_prompt(question: string, answer: string, embeddings: number[]) {
     const session = this.driver.session();
     const name = question.slice(0, 80);
