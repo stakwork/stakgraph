@@ -1176,7 +1176,7 @@ button.stop-replay:hover {
   gap: 4px;
 }
 
-.assertion-dropdown-btn {
+.actions-dropdown-btn {
   background: #6b7280;
   color: white;
   border: none;
@@ -1188,12 +1188,12 @@ button.stop-replay:hover {
   min-width: 32px;
 }
 
-.assertion-dropdown-btn:hover {
+.actions-dropdown-btn:hover {
   background: #4b5563;
 }
 
-/* Assertions Panel */
-.assertions-panel {
+/* Actions Panel */
+.actions-panel {
   background: #1f2937;
   border: 1px solid #374151;
   border-radius: 8px;
@@ -1202,14 +1202,14 @@ button.stop-replay:hover {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
 }
 
-.assertions-panel h3 {
+.actions-panel h3 {
   margin: 0 0 12px 0;
   font-size: 1.1rem;
   font-weight: 600;
   color: #f3f4f6;
 }
 
-.assertions-controls {
+.actions-controls {
   margin-bottom: 12px;
 }
 
@@ -1228,58 +1228,49 @@ button.stop-replay:hover {
   background: #dc2626;
 }
 
-.assertions-list {
+.actions-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
-.assertion-item {
+.action-item {
   background: #374151;
   border: 1px solid #4b5563;
-  border-radius: 6px;
-  padding: 10px 12px;
+  border-radius: 4px;
+  padding: 8px 12px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   transition: all 0.2s ease;
+  font-size: 13px;
 }
 
-.assertion-item:hover {
+.action-item:hover {
   border-color: #6b7280;
   background: #3f4856;
 }
+.action-item.nav { border-left: 3px solid #3b82f6; }
+.action-item.click { border-left: 3px solid #10b981; }
+.action-item.input { border-left: 3px solid #f59e0b; }
+.action-item.form { border-left: 3px solid #8b5cf6; }
+.action-item.assertion { border-left: 3px solid #ef4444; }
+.action-item.waitForUrl { border-left: 3px solid #6b7280; }
 
-.assertion-content {
+.action-content {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex-grow: 1;
-}
-
-.assertion-type {
-  font-size: 12px;
-  font-weight: 600;
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.1);
-  padding: 2px 6px;
-  border-radius: 3px;
-  width: fit-content;
-}
-
-.assertion-value {
-  font-size: 14px;
+  align-items: center;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: #e5e7eb;
-  font-weight: 500;
 }
 
-.assertion-selector {
-  font-size: 12px;
-  color: #9ca3af;
-  font-family: 'Courier New', monospace;
-}
 
-.remove-assertion-btn {
+.remove-action-btn {
   background: transparent;
   border: none;
   font-size: 14px;
@@ -1290,7 +1281,7 @@ button.stop-replay:hover {
   min-width: auto;
 }
 
-.remove-assertion-btn:hover {
+.remove-action-btn:hover {
   background: rgba(239, 68, 68, 0.1);
   transform: none;
 }

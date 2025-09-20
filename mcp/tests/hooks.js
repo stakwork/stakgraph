@@ -9,8 +9,8 @@ export function useIframeMessaging(iframeRef, initialURL) {
   const [selectedText, setSelectedText] = useState(null);
   const [url, setUrl] = useState(initialURL);
   const [displayUrl, setDisplayUrl] = useState(initialURL);
-  const [capturedAssertions, setCapturedAssertions] = useState([]);
-  const [showAssertions, setShowAssertions] = useState(false);
+  const [capturedActions, setCapturedActions] = useState([]);
+  const [showActions, setShowActions] = useState(false);
 
   const { showPopup } = popupHook;
   const selectedDisplayTimeout = useRef(null);
@@ -69,18 +69,25 @@ export function useIframeMessaging(iframeRef, initialURL) {
             console.log("Staktrak results received", event.data.data);
             setTrackingData(event.data.data);
             setCanGenerate(true);
+            // Actions are already in the list from real-time messages
+            break;
+          case "staktrak-action-added":
+            const newAction = {
+              ...event.data.action
+            };
+            setCapturedActions(prev => [...prev, newAction].sort((a, b) => a.timestamp - b.timestamp));
             break;
           case "staktrak-selection":
             displaySelectedText(event.data.text);
-            // Add assertion to the captured list using the ID from iframe
-            const newAssertion = {
+            // Add assertion as an action to the unified list (same as other actions)
+            const assertionAction = {
               id: event.data.assertionId,
-              type: "hasText",
-              selector: event.data.selector,
+              kind: 'assertion',
+              timestamp: Date.now(),
               value: event.data.text,
-              timestamp: Date.now()
+              selector: event.data.selector
             };
-            setCapturedAssertions(prev => [...prev, newAssertion]);
+            setCapturedActions(prev => [...prev, assertionAction].sort((a, b) => a.timestamp - b.timestamp));
             showPopup(`Assertion captured: "${event.data.text}"`, "success");
             break;
           case "staktrak-popup":
@@ -112,9 +119,9 @@ export function useIframeMessaging(iframeRef, initialURL) {
       setIsRecording(true);
       setIsAssertionMode(false);
       setCanGenerate(false);
-      // Clear assertions when starting a new recording
-      setCapturedAssertions([]);
-      setShowAssertions(false);
+      // Clear actions when starting a new recording
+      setCapturedActions([]);
+      setShowActions(false);
     }
   };
 
@@ -151,35 +158,47 @@ export function useIframeMessaging(iframeRef, initialURL) {
     }
   };
 
-  const removeAssertion = (assertionId) => {
-    setCapturedAssertions(prev => {
-      const updatedAssertions = prev.filter(assertion => assertion.id !== assertionId);
-      // Send message to iframe to remove assertion from its tracking data
+  const removeAction = (action) => {
+    setCapturedActions(prev => {
+      const updatedActions = prev.filter(a => a.id !== action.id);
+      // Send message to iframe to remove action from its tracking data
       if (iframeRef.current && iframeRef.current.contentWindow) {
+        const messageMap = {
+          'nav': 'staktrak-remove-navigation',
+          'click': 'staktrak-remove-click',
+          'input': 'staktrak-remove-input',
+          'form': 'staktrak-remove-form',
+          'assertion': 'staktrak-remove-assertion'
+        };
         iframeRef.current.contentWindow.postMessage(
-          { type: "staktrak-remove-assertion", assertionId },
+          {
+            type: messageMap[action.kind] || 'staktrak-remove-action',
+            actionId: action.id,
+            assertionId: action.id, // For backwards compatibility with assertions
+            timestamp: action.timestamp
+          },
           "*"
         );
       }
-      return updatedAssertions;
+      return updatedActions;
     });
-    showPopup("Assertion removed", "info");
+    showPopup(`${action.kind === 'assertion' ? 'Assertion' : 'Action'} removed`, "info");
   };
 
-  const clearAllAssertions = () => {
-    setCapturedAssertions([]);
-    // Send message to iframe to clear all assertions from its tracking data
+  const clearAllActions = () => {
+    setCapturedActions([]);
+    // Send message to iframe to clear all actions from its tracking data
     if (iframeRef.current && iframeRef.current.contentWindow) {
       iframeRef.current.contentWindow.postMessage(
-        { type: "staktrak-clear-assertions" },
+        { type: "staktrak-clear-all-actions" },
         "*"
       );
     }
-    showPopup("All assertions cleared", "info");
+    showPopup("All actions cleared", "info");
   };
 
-  const toggleAssertionsView = () => {
-    setShowAssertions(prev => !prev);
+  const toggleActionsView = () => {
+    setShowActions(prev => !prev);
   };
 
   return {
@@ -188,15 +207,15 @@ export function useIframeMessaging(iframeRef, initialURL) {
     canGenerate,
     trackingData,
     selectedText,
-    capturedAssertions,
-    showAssertions,
+    capturedActions,
+    showActions,
     startRecording,
     stopRecording,
     enableAssertionMode,
     disableAssertionMode,
-    removeAssertion,
-    clearAllAssertions,
-    toggleAssertionsView,
+    removeAction,
+    clearAllActions,
+    toggleActionsView,
     url,
     setUrl,
     handleUrlChange,
