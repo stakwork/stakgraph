@@ -45,10 +45,15 @@ impl GraphOps {
         }
     }
 
-
-    pub async fn get_graph_size(&self) -> Result<(u32,u32)> { self.graph.get_graph_size_async().await }
-    pub async fn fetch_all_node_keys(&self) -> Result<Vec<String>> { self.graph.fetch_all_node_keys().await }
-    pub async fn fetch_all_edge_triples(&self) -> Result<Vec<(String,String,EdgeType)>> { self.graph.fetch_all_edge_triples().await }
+    pub async fn get_graph_size(&self) -> Result<(u32, u32)> {
+        self.graph.get_graph_size_async().await
+    }
+    pub async fn fetch_all_node_keys(&self) -> Result<Vec<String>> {
+        self.graph.fetch_all_node_keys().await
+    }
+    pub async fn fetch_all_edge_triples(&self) -> Result<Vec<(String, String, EdgeType)>> {
+        self.graph.fetch_all_edge_triples().await
+    }
 
     pub async fn connect(&mut self) -> Result<()> {
         self.graph.connect().await
@@ -231,29 +236,49 @@ impl GraphOps {
         Ok(self.graph.get_graph_size_async().await?)
     }
 
-    pub async fn get_coverage(
-        &mut self,
-        repo: Option<&str>,
-    ) -> Result<GraphCoverage> {
+    pub async fn get_coverage(&mut self, repo: Option<&str>) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
 
         let in_scope = |n: &NodeData| repo.map_or(true, |r| n.file.starts_with(r));
 
-        let unit_tests = self.graph.find_nodes_by_type_async(NodeType::UnitTest).await;
-        let integration_tests = self.graph.find_nodes_by_type_async(NodeType::IntegrationTest).await;
+        let unit_tests = self
+            .graph
+            .find_nodes_by_type_async(NodeType::UnitTest)
+            .await;
+        let integration_tests = self
+            .graph
+            .find_nodes_by_type_async(NodeType::IntegrationTest)
+            .await;
         let e2e_tests = self.graph.find_nodes_by_type_async(NodeType::E2eTest).await;
 
-        let functions = self.graph.find_nodes_by_type_async(NodeType::Function).await;
-        let endpoints = self.graph.find_nodes_by_type_async(NodeType::Endpoint).await;
+        let functions = self
+            .graph
+            .find_nodes_by_type_async(NodeType::Function)
+            .await;
+        let endpoints = self
+            .graph
+            .find_nodes_by_type_async(NodeType::Endpoint)
+            .await;
         let pages = self.graph.find_nodes_by_type_async(NodeType::Page).await;
 
-        let unit_calls_funcs = self.graph
-            .find_nodes_with_edge_type_async(NodeType::UnitTest, NodeType::Function, EdgeType::Calls)
+        let unit_calls_funcs = self
+            .graph
+            .find_nodes_with_edge_type_async(
+                NodeType::UnitTest,
+                NodeType::Function,
+                EdgeType::Calls,
+            )
             .await;
-        let integration_calls_endpoints = self.graph
-            .find_nodes_with_edge_type_async(NodeType::IntegrationTest, NodeType::Endpoint, EdgeType::Calls)
+        let integration_calls_endpoints = self
+            .graph
+            .find_nodes_with_edge_type_async(
+                NodeType::IntegrationTest,
+                NodeType::Endpoint,
+                EdgeType::Calls,
+            )
             .await;
-    let e2e_calls_pages = self.graph
+        let e2e_calls_pages = self
+            .graph
             .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Page, EdgeType::Calls)
             .await;
 
@@ -266,32 +291,53 @@ impl GraphOps {
 
         let unit_target_functions = collect_targets(&unit_calls_funcs);
         let integration_target_endpoints = collect_targets(&integration_calls_endpoints);
-    let e2e_target_pages = collect_targets(&e2e_calls_pages);
+        let e2e_target_pages = collect_targets(&e2e_calls_pages);
 
         let unit_functions_in_scope: Vec<NodeData> = functions
             .into_iter()
             .filter(|n| in_scope(n))
             .filter(|n| {
-                if n.body.trim().is_empty() { return false; }
-                let is_component = n.meta.get("component").map(|v| v == "true").unwrap_or(false);
+                if n.body.trim().is_empty() {
+                    return false;
+                }
+                let is_component = n
+                    .meta
+                    .get("component")
+                    .map(|v| v == "true")
+                    .unwrap_or(false);
                 !is_component
             })
             .collect();
-        let integration_endpoints_in_scope: Vec<NodeData> = endpoints.into_iter().filter(|n| in_scope(n)).collect();
-    let pages_in_scope: Vec<NodeData> = pages.into_iter().filter(|n| in_scope(n)).collect();
-        let unit_tests_in_scope: Vec<NodeData> = unit_tests.into_iter().filter(|n| in_scope(n)).collect();
-        let integration_tests_in_scope: Vec<NodeData> = integration_tests.into_iter().filter(|n| in_scope(n)).collect();
-        let e2e_tests_in_scope: Vec<NodeData> = e2e_tests.into_iter().filter(|n| in_scope(n)).collect();
+        let integration_endpoints_in_scope: Vec<NodeData> =
+            endpoints.into_iter().filter(|n| in_scope(n)).collect();
+        let pages_in_scope: Vec<NodeData> = pages.into_iter().filter(|n| in_scope(n)).collect();
+        let unit_tests_in_scope: Vec<NodeData> =
+            unit_tests.into_iter().filter(|n| in_scope(n)).collect();
+        let integration_tests_in_scope: Vec<NodeData> = integration_tests
+            .into_iter()
+            .filter(|n| in_scope(n))
+            .collect();
+        let e2e_tests_in_scope: Vec<NodeData> =
+            e2e_tests.into_iter().filter(|n| in_scope(n)).collect();
 
-    let e2e_pages_in_scope = pages_in_scope.clone();
+        let e2e_pages_in_scope = pages_in_scope.clone();
 
-        let build_stat = |total_nodes: &Vec<NodeData>, total_tests: &Vec<NodeData>, covered_set: &HashSet<String>| -> Option<CoverageStat> {
-            if total_nodes.is_empty() { return None; }
+        let build_stat = |total_nodes: &Vec<NodeData>,
+                          total_tests: &Vec<NodeData>,
+                          covered_set: &HashSet<String>|
+         -> Option<CoverageStat> {
+            if total_nodes.is_empty() {
+                return None;
+            }
             let covered_count = total_nodes
                 .iter()
                 .filter(|n| covered_set.contains(&format!("{}:{}:{}", n.name, n.file, n.start)))
                 .count();
-            let percent = if total_nodes.is_empty() { 0.0 } else { (covered_count as f64 / total_nodes.len() as f64) * 100.0 };
+            let percent = if total_nodes.is_empty() {
+                0.0
+            } else {
+                (covered_count as f64 / total_nodes.len() as f64) * 100.0
+            };
             Some(CoverageStat {
                 total: total_nodes.len(),
                 total_tests: total_tests.len(),
@@ -301,8 +347,16 @@ impl GraphOps {
         };
 
         Ok(GraphCoverage {
-            unit_tests: build_stat(&unit_functions_in_scope, &unit_tests_in_scope, &unit_target_functions),
-            integration_tests: build_stat(&integration_endpoints_in_scope, &integration_tests_in_scope, &integration_target_endpoints),
+            unit_tests: build_stat(
+                &unit_functions_in_scope,
+                &unit_tests_in_scope,
+                &unit_target_functions,
+            ),
+            integration_tests: build_stat(
+                &integration_endpoints_in_scope,
+                &integration_tests_in_scope,
+                &integration_target_endpoints,
+            ),
             e2e_tests: build_stat(&e2e_pages_in_scope, &e2e_tests_in_scope, &e2e_target_pages),
         })
     }
@@ -513,6 +567,37 @@ impl GraphOps {
         Ok(count)
     }
 
+    pub async fn list_nodes_with_coverage(
+        &mut self,
+        node_type: NodeType,
+        with_usage: bool,
+        offset: usize,
+        limit: usize,
+        root: Option<&str>,
+        tests_filter: Option<&str>,
+        covered_only: Option<bool>,
+    ) -> Result<(Vec<(NodeData, usize, bool)>, Vec<(NodeData, usize, bool)>)> {
+        self.graph.ensure_connected().await?;
+
+        let results = self
+            .graph
+            .find_nodes_with_coverage_async(
+                node_type.clone(),
+                with_usage,
+                offset,
+                limit,
+                root,
+                tests_filter,
+                covered_only,
+            )
+            .await;
+
+        match node_type {
+            NodeType::Function => Ok((results, vec![])),
+            NodeType::Endpoint => Ok((vec![], results)),
+            _ => Ok((vec![], vec![])),
+        }
+    }
 
     pub async fn list_uncovered(
         &mut self,
@@ -523,22 +608,28 @@ impl GraphOps {
         root: Option<&str>,
         tests_filter: Option<&str>,
     ) -> Result<(Vec<(NodeData, usize)>, Vec<(NodeData, usize)>)> {
-        self.graph.ensure_connected().await?;
+        let (functions, endpoints) = self
+            .list_nodes_with_coverage(
+                node_type,
+                with_usage,
+                offset,
+                limit,
+                root,
+                tests_filter,
+                Some(false),
+            )
+            .await?;
 
-        let results = self.graph.find_uncovered_nodes_paginated_async(
-            node_type.clone(),
-            with_usage,
-            offset,
-            limit,
-            root,
-            tests_filter,
-        ).await;
+        let functions = functions
+            .into_iter()
+            .map(|(node, usage, _)| (node, usage))
+            .collect();
+        let endpoints = endpoints
+            .into_iter()
+            .map(|(node, usage, _)| (node, usage))
+            .collect();
 
-        match node_type {
-            NodeType::Function => Ok((results, vec![])),
-            NodeType::Endpoint => Ok((vec![], results)),
-            _ => Ok((vec![], vec![])),
-        }
+        Ok((functions, endpoints))
     }
 
     pub async fn has_coverage(

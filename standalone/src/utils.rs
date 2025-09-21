@@ -3,7 +3,7 @@ use ast::lang::NodeType;
 use shared::Result;
 use std::str::FromStr;
 
-use crate::types::{UncoveredNode, UncoveredNodeConcise, UncoveredResponse, UncoveredResponseItem};
+use crate::types::{Node, NodeConcise, NodesResponse, NodesResponseItem};
 
 pub fn parse_node_type(node_type: &str) -> Result<NodeType> {
     let mut chars: Vec<char> = node_type.chars().collect();
@@ -22,49 +22,44 @@ pub fn extract_ref_id(node_data: &NodeData) -> String {
         .unwrap_or_else(|| "placeholder".to_string())
 }
 
-pub fn format_node_snippet(
-    node_type_str: &str,
-    name: &str,
-    ref_id: &str,
-    weight: usize,
-    file: &str,
-    start: usize,
-    end: usize,
-    body: &str,
-) -> String {
-    format!(
-        "<snippet>\nname: {}: {}\nref_id: {}\nweight: {}\nfile: {}\nstart: {}, end: {}\n\n{}\n</snippet>\n\n",
-        node_type_str, name, ref_id, weight, file, start, end, body
-    )
-}
-
-pub fn format_node_concise(node_type_str: &str, name: &str, weight: usize, file: &str) -> String {
-    format!(
-        "{}: {} (weight: {})\nFile: {}\n\n",
-        node_type_str, name, weight, file
-    )
-}
-
 pub fn create_uncovered_response_items(
     nodes: Vec<(NodeData, usize)>,
     node_type: &NodeType,
     concise: bool,
-) -> Vec<UncoveredResponseItem> {
+) -> Vec<NodesResponseItem> {
+    let nodes_with_coverage: Vec<(NodeData, usize, bool)> = nodes
+        .into_iter()
+        .map(|(node_data, weight)| (node_data, weight, false))
+        .collect();
+    create_nodes_response_items(nodes_with_coverage, node_type, concise)
+}
+
+pub fn format_uncovered_response_as_snippet(response: &NodesResponse) -> String {
+    format_nodes_response_as_snippet(response)
+}
+
+pub fn create_nodes_response_items(
+    nodes: Vec<(NodeData, usize, bool)>,
+    node_type: &NodeType,
+    concise: bool,
+) -> Vec<NodesResponseItem> {
     nodes
         .into_iter()
-        .map(|(node_data, weight)| {
+        .map(|(node_data, weight, covered)| {
             if concise {
-                UncoveredResponseItem::Concise(UncoveredNodeConcise {
+                NodesResponseItem::Concise(NodeConcise {
                     name: node_data.name,
                     file: node_data.file,
                     weight,
+                    covered,
                 })
             } else {
                 let ref_id = extract_ref_id(&node_data);
-                UncoveredResponseItem::Full(UncoveredNode {
+                NodesResponseItem::Full(Node {
                     node_type: node_type.to_string(),
                     ref_id,
                     weight,
+                    covered,
                     properties: node_data,
                 })
             }
@@ -72,16 +67,23 @@ pub fn create_uncovered_response_items(
         .collect()
 }
 
-pub fn format_uncovered_response_as_snippet(response: &UncoveredResponse) -> String {
+pub fn format_nodes_response_as_snippet(response: &NodesResponse) -> String {
     let mut text = String::new();
 
     if let Some(ref functions) = response.functions {
         for item in functions {
             match item {
-                UncoveredResponseItem::Full(node) => {
-                    text.push_str(&format_node_snippet(
+                NodesResponseItem::Full(node) => {
+                    let coverage_indicator = if node.covered {
+                        "[COVERED]"
+                    } else {
+                        "[UNCOVERED]"
+                    };
+                    text.push_str(&format!(
+                        "<snippet>\nname: {}: {} {}\nref_id: {}\nweight: {}\nfile: {}\nstart: {}, end: {}\n\n{}\n</snippet>\n\n",
                         &node.node_type,
                         &node.properties.name,
+                        coverage_indicator,
                         &node.ref_id,
                         node.weight,
                         &node.properties.file,
@@ -90,12 +92,15 @@ pub fn format_uncovered_response_as_snippet(response: &UncoveredResponse) -> Str
                         &node.properties.body,
                     ));
                 }
-                UncoveredResponseItem::Concise(node) => {
-                    text.push_str(&format_node_concise(
-                        "Function",
-                        &node.name,
-                        node.weight,
-                        &node.file,
+                NodesResponseItem::Concise(node) => {
+                    let coverage_indicator = if node.covered {
+                        "[COVERED]"
+                    } else {
+                        "[UNCOVERED]"
+                    };
+                    text.push_str(&format!(
+                        "Function: {} {} (weight: {})\nFile: {}\n\n",
+                        &node.name, coverage_indicator, node.weight, &node.file,
                     ));
                 }
             }
@@ -105,10 +110,17 @@ pub fn format_uncovered_response_as_snippet(response: &UncoveredResponse) -> Str
     if let Some(ref endpoints) = response.endpoints {
         for item in endpoints {
             match item {
-                UncoveredResponseItem::Full(node) => {
-                    text.push_str(&format_node_snippet(
+                NodesResponseItem::Full(node) => {
+                    let coverage_indicator = if node.covered {
+                        "[COVERED]"
+                    } else {
+                        "[UNCOVERED]"
+                    };
+                    text.push_str(&format!(
+                        "<snippet>\nname: {}: {} {}\nref_id: {}\nweight: {}\nfile: {}\nstart: {}, end: {}\n\n{}\n</snippet>\n\n",
                         &node.node_type,
                         &node.properties.name,
+                        coverage_indicator,
                         &node.ref_id,
                         node.weight,
                         &node.properties.file,
@@ -117,12 +129,15 @@ pub fn format_uncovered_response_as_snippet(response: &UncoveredResponse) -> Str
                         &node.properties.body,
                     ));
                 }
-                UncoveredResponseItem::Concise(node) => {
-                    text.push_str(&format_node_concise(
-                        "Endpoint",
-                        &node.name,
-                        node.weight,
-                        &node.file,
+                NodesResponseItem::Concise(node) => {
+                    let coverage_indicator = if node.covered {
+                        "[COVERED]"
+                    } else {
+                        "[UNCOVERED]"
+                    };
+                    text.push_str(&format!(
+                        "Endpoint: {} {} (weight: {})\nFile: {}\n\n",
+                        &node.name, coverage_indicator, node.weight, &node.file,
                     ));
                 }
             }

@@ -118,7 +118,7 @@ pub struct Coverage {
 }
 
 #[derive(Deserialize)]
-pub struct UncoveredParams {
+pub struct NodesParams {
     pub node_type: String,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
@@ -130,31 +130,33 @@ pub struct UncoveredParams {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UncoveredNode {
+pub struct Node {
     pub node_type: String,
     pub ref_id: String,
     pub weight: usize,
+    pub covered: bool,
     pub properties: NodeData,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UncoveredNodeConcise {
+pub struct NodeConcise {
     pub name: String,
     pub file: String,
     pub weight: usize,
+    pub covered: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
-pub enum UncoveredResponseItem {
-    Full(UncoveredNode),
-    Concise(UncoveredNodeConcise),
+pub enum NodesResponseItem {
+    Full(Node),
+    Concise(NodeConcise),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UncoveredResponse {
-    pub functions: Option<Vec<UncoveredResponseItem>>,
-    pub endpoints: Option<Vec<UncoveredResponseItem>>,
+pub struct NodesResponse {
+    pub functions: Option<Vec<NodesResponseItem>>,
+    pub endpoints: Option<Vec<NodesResponseItem>>,
 }
 
 #[derive(Deserialize)]
@@ -188,7 +190,7 @@ pub struct CodecovRequestStatus {
 }
 
 #[allow(unused_imports)]
-pub use shared::codecov::{Metric, LanguageReport, Report};
+pub use shared::codecov::{LanguageReport, Metric, Report};
 
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {

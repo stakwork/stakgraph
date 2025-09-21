@@ -1,14 +1,14 @@
+use super::*;
 use crate::lang::Node;
 use crate::utils::create_node_key;
 use crate::utils::create_node_key_from_ref;
 use lazy_static::lazy_static;
+use lsp::language::Language;
 use neo4rs::{query, BoltMap, BoltType, ConfigBuilder, Graph as Neo4jConnection};
 use shared::{Error, Result};
+use std::str::FromStr;
 use tiktoken_rs::{get_bpe_from_model, CoreBPE};
 use tracing::{debug, error, info};
-use lsp::language::Language;
-use std::str::FromStr;
-use super::*;
 
 lazy_static! {
     static ref TOKENIZER: CoreBPE = get_bpe_from_model("gpt-4").unwrap();
@@ -76,14 +76,14 @@ impl NodeQueryBuilder {
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
-    let query = format!(
-        "MERGE (node:{}:{} {{node_key: $node_key}})
+        let query = format!(
+            "MERGE (node:{}:{} {{node_key: $node_key}})
          ON CREATE SET node += $properties, node.date_added_to_graph = $now
          ON MATCH SET node += $properties, node.date_added_to_graph = $now
          Return node",
-        self.node_type.to_string(),
-        DATA_BANK,
-    );
+            self.node_type.to_string(),
+            DATA_BANK,
+        );
 
         (query, properties)
     }
@@ -224,7 +224,8 @@ impl<'a> TransactionManager<'a> {
                     use std::time::{SystemTime, UNIX_EPOCH};
                     if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
                         let ts = dur.as_secs_f64();
-                        query_obj = query_obj.param("now", neo4rs::BoltType::String(format!("{:.7}", ts).into()));
+                        query_obj = query_obj
+                            .param("now", neo4rs::BoltType::String(format!("{:.7}", ts).into()));
                     }
                 }
             } else {
@@ -268,7 +269,8 @@ pub async fn execute_batch(conn: &Neo4jConnection, queries: Vec<(String, BoltMap
                     use std::time::{SystemTime, UNIX_EPOCH};
                     if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
                         let ts = dur.as_secs_f64();
-                        query_obj = query_obj.param("now", neo4rs::BoltType::String(format!("{:.7}", ts).into()));
+                        query_obj = query_obj
+                            .param("now", neo4rs::BoltType::String(format!("{:.7}", ts).into()));
                     }
                 }
             } else {
@@ -354,16 +356,16 @@ pub async fn execute_node_query(
     }
 }
 
-pub async fn execute_uncovered_nodes_query(
+pub async fn execute_nodes_with_coverage_query(
     conn: &Neo4jConnection,
     query_str: String,
     params: BoltMap,
-) -> Vec<(NodeData, usize)> {
+) -> Vec<(NodeData, usize, bool)> {
     let mut query_obj = query(&query_str);
     for (key, value) in params.value.iter() {
         query_obj = query_obj.param(key.value.as_str(), value.clone());
     }
-    
+
     let mut results = Vec::new();
     match conn.execute(query_obj).await {
         Ok(mut result) => {
@@ -371,16 +373,29 @@ pub async fn execute_uncovered_nodes_query(
                 if let Ok(node) = row.get::<neo4rs::Node>("n") {
                     if let Ok(node_data) = NodeData::try_from(&node) {
                         let usage_count: i64 = row.get("usage_count").unwrap_or(0);
-                        results.push((node_data, usage_count as usize));
+                        let is_covered: bool = row.get("is_covered").unwrap_or(false);
+                        results.push((node_data, usage_count as usize, is_covered));
                     }
                 }
             }
         }
         Err(e) => {
-            debug!("Error executing uncovered nodes query: {}", e);
+            debug!("Error executing nodes with coverage query: {}", e);
         }
     }
     results
+}
+
+pub async fn execute_uncovered_nodes_query(
+    conn: &Neo4jConnection,
+    query_str: String,
+    params: BoltMap,
+) -> Vec<(NodeData, usize)> {
+    execute_nodes_with_coverage_query(conn, query_str, params)
+        .await
+        .into_iter()
+        .map(|(node, usage, _)| (node, usage))
+        .collect()
 }
 
 pub fn count_nodes_edges_query() -> String {
@@ -647,7 +662,8 @@ pub fn all_node_keys_query() -> String {
 }
 
 pub fn all_edge_triples_query() -> String {
-    "MATCH (s)-[e]->(t) RETURN s.node_key as s_key, type(e) as edge_type, t.node_key as t_key".to_string()
+    "MATCH (s)-[e]->(t) RETURN s.node_key as s_key, type(e) as edge_type, t.node_key as t_key"
+        .to_string()
 }
 
 pub fn filter_out_nodes_without_children_query(
@@ -864,8 +880,12 @@ pub fn add_calls_query(
         }
     }
 
-    for edge in int_tests { queries.push(add_edge_query(edge)); }
-    for edge in extras { queries.push(add_edge_query(edge)); }
+    for edge in int_tests {
+        queries.push(add_edge_query(edge));
+    }
+    for edge in extras {
+        queries.push(add_edge_query(edge));
+    }
 
     queries
 }
@@ -952,8 +972,12 @@ pub fn boltmap_insert_list(map: &mut BoltMap, key: &str, value: Vec<BoltType>) {
     map.value.insert(key.into(), BoltType::List(list));
 }
 pub fn boltmap_insert_float(map: &mut BoltMap, key: &str, value: f64) {
-    map.value
-        .insert(key.into(), BoltType::Float(neo4rs::BoltFloat { value: value as f64 }));
+    map.value.insert(
+        key.into(),
+        BoltType::Float(neo4rs::BoltFloat {
+            value: value as f64,
+        }),
+    );
 }
 pub fn boltmap_insert_int(map: &mut BoltMap, key: &str, value: i64) {
     map.value
@@ -1099,18 +1123,27 @@ pub fn clear_existing_graph_query(root: &str) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
-pub fn data_bank_bodies_query_no_embeddings(do_files: bool, skip: usize, limit: usize) -> (String, BoltMap) {
+pub fn data_bank_bodies_query_no_embeddings(
+    do_files: bool,
+    skip: usize,
+    limit: usize,
+) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "skip", skip as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
-    boltmap_insert_str(&mut params, "do_files", if do_files { "true" } else { "false" });
+    boltmap_insert_str(
+        &mut params,
+        "do_files",
+        if do_files { "true" } else { "false" },
+    );
     let query = r#"
         MATCH (n:Data_Bank)
         WHERE n.embeddings IS NULL
           AND (($do_files = 'true') OR NOT n:File)
         RETURN n.node_key as node_key, n.body as body
         SKIP toInteger($skip) LIMIT toInteger($limit)
-    "#.to_string();
+    "#
+    .to_string();
     (query, params)
 }
 // pub fn bulk_update_embeddings_query() -> String {
@@ -1131,7 +1164,8 @@ pub fn update_embedding_query(node_key: &str, embedding: &[f32]) -> (String, Bol
     let query = r#"
         MATCH (n:Data_Bank {node_key: $node_key})
         SET n.embeddings = $embeddings
-    "#.to_string();
+    "#
+    .to_string();
     (query, params)
 }
 pub fn vector_search_query(
@@ -1143,17 +1177,20 @@ pub fn vector_search_query(
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
 
-   
     let emb_list = embedding
         .iter()
         .map(|&v| neo4rs::BoltType::Float(neo4rs::BoltFloat { value: v as f64 }))
         .collect::<Vec<_>>();
 
     boltmap_insert_list(&mut params, "embeddings", emb_list.clone());
-   
+
     boltmap_insert_int(&mut params, "limit", limit as i64);
 
-    boltmap_insert_float(&mut params, "similarityThreshold", similarity_threshold as f64);
+    boltmap_insert_float(
+        &mut params,
+        "similarityThreshold",
+        similarity_threshold as f64,
+    );
 
     let node_types_list = node_types
         .into_iter()
@@ -1162,16 +1199,19 @@ pub fn vector_search_query(
 
     boltmap_insert_list(&mut params, "node_types", node_types_list);
 
-   let ext_list = if let Some(lang_str) = language.as_ref() {
+    let ext_list = if let Some(lang_str) = language.as_ref() {
         if let Ok(lang) = Language::from_str(lang_str) {
-            lang.exts().iter().map(|&s| neo4rs::BoltType::String(s.into())).collect()
+            lang.exts()
+                .iter()
+                .map(|&s| neo4rs::BoltType::String(s.into()))
+                .collect()
         } else {
             Vec::new()
         }
     } else {
         Vec::new()
     };
-    
+
     boltmap_insert_list(&mut params, "extensions", ext_list);
 
     let query = r#"
@@ -1192,30 +1232,33 @@ pub fn vector_search_query(
         RETURN node, score
         ORDER BY score DESC
         LIMIT toInteger($limit)
-    "#.to_string();
+    "#
+    .to_string();
 
     (query, params)
 }
 
-pub fn find_uncovered_nodes_paginated_query(
+pub fn find_nodes_with_coverage_query(
     node_type: &NodeType,
     with_usage: bool,
     offset: usize,
     limit: usize,
     root: Option<&str>,
     tests_filter: Option<&str>,
+    covered_only: Option<bool>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
     boltmap_insert_int(&mut params, "offset", offset as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
-    
+
     if let Some(r) = root {
         boltmap_insert_str(&mut params, "root", r);
     }
 
     let test_types = crate::lang::graphs::utils::tests_sources(tests_filter);
-    let test_labels = test_types.iter()
+    let test_labels = test_types
+        .iter()
         .map(|t| t.to_string())
         .collect::<Vec<_>>()
         .join(":");
@@ -1239,14 +1282,14 @@ pub fn find_uncovered_nodes_paginated_query(
             }}",
             test_labels
         ),
-        _ => "false".to_string()
+        _ => "false".to_string(),
     };
 
     let usage_match = if with_usage {
         match node_type {
             NodeType::Function => "OPTIONAL MATCH (caller:Function)-[:Calls]->(n)",
             NodeType::Endpoint => "OPTIONAL MATCH (req:Request)-[:Calls]->(n)",
-            _ => ""
+            _ => "",
         }
     } else {
         ""
@@ -1256,10 +1299,16 @@ pub fn find_uncovered_nodes_paginated_query(
         match node_type {
             NodeType::Function => "count(caller)",
             NodeType::Endpoint => "count(req)",
-            _ => "0"
+            _ => "0",
         }
     } else {
         "0"
+    };
+
+    let coverage_filter = match covered_only {
+        Some(true) => "WHERE is_covered = true",
+        Some(false) => "WHERE is_covered = false",
+        None => "",
     };
 
     let order_clause = if with_usage {
@@ -1271,20 +1320,40 @@ pub fn find_uncovered_nodes_paginated_query(
     let query = format!(
         "MATCH (n:{}) 
          WHERE true {}
-         WITH n, NOT ({}) AS is_uncovered
-         WHERE is_uncovered = true
+         WITH n, ({}) AS is_covered
          {}
-         WITH n, {} AS usage_count
+         {}
+         WITH n, {} AS usage_count, is_covered
          {}
          SKIP $offset LIMIT $limit
-         RETURN n, usage_count",
+         RETURN n, usage_count, is_covered",
         node_type.to_string(),
         root_filter,
         coverage_check,
+        coverage_filter,
         usage_match,
         usage_count,
         order_clause
     );
 
     (query, params)
+}
+
+pub fn find_uncovered_nodes_paginated_query(
+    node_type: &NodeType,
+    with_usage: bool,
+    offset: usize,
+    limit: usize,
+    root: Option<&str>,
+    tests_filter: Option<&str>,
+) -> (String, BoltMap) {
+    find_nodes_with_coverage_query(
+        node_type,
+        with_usage,
+        offset,
+        limit,
+        root,
+        tests_filter,
+        Some(false),
+    )
 }

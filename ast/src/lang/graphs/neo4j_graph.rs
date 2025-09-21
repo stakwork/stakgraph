@@ -1,7 +1,7 @@
 use super::{neo4j_utils::*, *};
+use crate::lang::asg::TestRecord;
 use crate::utils::sync_fn;
 use crate::{lang::Function, lang::Node, Lang};
-use crate::lang::asg::TestRecord;
 use lsp::Language;
 use neo4rs::{query, BoltMap, Graph as Neo4jConnection};
 use shared::{Context, Error, Result};
@@ -826,7 +826,6 @@ impl Neo4jGraph {
         txn_manager.execute().await
     }
 
-
     pub(super) async fn add_calls_async(
         &self,
         calls: (
@@ -1093,15 +1092,19 @@ impl Neo4jGraph {
         }
         Ok(nodes)
     }
-        pub(super) async fn fetch_all_node_keys(&self) -> Result<Vec<String>> {
+    pub(super) async fn fetch_all_node_keys(&self) -> Result<Vec<String>> {
         use super::neo4j_utils::all_node_keys_query;
         let connection = self.ensure_connected().await?;
         let mut result = connection.execute(query(&all_node_keys_query())).await?;
         let mut keys = Vec::new();
-        while let Some(row) = result.next().await? { if let Ok(k) = row.get::<String>("node_key") { keys.push(k); } }
+        while let Some(row) = result.next().await? {
+            if let Ok(k) = row.get::<String>("node_key") {
+                keys.push(k);
+            }
+        }
         Ok(keys)
     }
-    pub(super) async fn fetch_all_edge_triples(&self) -> Result<Vec<(String,String,EdgeType)>> {
+    pub(super) async fn fetch_all_edge_triples(&self) -> Result<Vec<(String, String, EdgeType)>> {
         use super::neo4j_utils::all_edge_triples_query;
         use std::str::FromStr;
         let connection = self.ensure_connected().await?;
@@ -1113,13 +1116,41 @@ impl Neo4jGraph {
                 row.get::<String>("edge_type"),
                 row.get::<String>("t_key"),
             ) {
-                if let Ok(edge_type) = EdgeType::from_str(&et) { triples.push((s, t, edge_type)); }
+                if let Ok(edge_type) = EdgeType::from_str(&et) {
+                    triples.push((s, t, edge_type));
+                }
             }
         }
         Ok(triples)
     }
 
-    pub(super) async fn find_uncovered_nodes_paginated_async(
+    pub(super) async fn find_nodes_with_coverage_async(
+        &self,
+        node_type: NodeType,
+        with_usage: bool,
+        offset: usize,
+        limit: usize,
+        root: Option<&str>,
+        tests_filter: Option<&str>,
+        covered_only: Option<bool>,
+    ) -> Vec<(NodeData, usize, bool)> {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in find_nodes_with_coverage_async");
+            return vec![];
+        };
+        let (query, params) = find_nodes_with_coverage_query(
+            &node_type,
+            with_usage,
+            offset,
+            limit,
+            root,
+            tests_filter,
+            covered_only,
+        );
+        execute_nodes_with_coverage_query(&connection, query, params).await
+    }
+
+    pub(super) async fn _find_uncovered_nodes_paginated_async(
         &self,
         node_type: NodeType,
         with_usage: bool,
@@ -1128,14 +1159,19 @@ impl Neo4jGraph {
         root: Option<&str>,
         tests_filter: Option<&str>,
     ) -> Vec<(NodeData, usize)> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_uncovered_nodes_paginated_async");
-            return vec![];
-        };
-        let (query, params) = find_uncovered_nodes_paginated_query(
-            &node_type, with_usage, offset, limit, root, tests_filter
-        );
-        execute_uncovered_nodes_query(&connection, query, params).await
+        self.find_nodes_with_coverage_async(
+            node_type,
+            with_usage,
+            offset,
+            limit,
+            root,
+            tests_filter,
+            Some(false),
+        )
+        .await
+        .into_iter()
+        .map(|(node, usage, _)| (node, usage))
+        .collect()
     }
 }
 
@@ -1269,7 +1305,9 @@ impl Graph for Neo4jGraph {
                 NodeType::File,
                 &tr.node.file,
             );
-            for e in tr.edges.iter() { self.add_edge(e.clone()); }
+            for e in tr.edges.iter() {
+                self.add_edge(e.clone());
+            }
         }
     }
     fn add_calls(
