@@ -1133,7 +1133,7 @@ impl Neo4jGraph {
         root: Option<&str>,
         tests_filter: Option<&str>,
         covered_only: Option<bool>,
-    ) -> Vec<(NodeData, usize, bool)> {
+    ) -> Vec<(NodeData, usize, bool, usize)> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_nodes_with_coverage_async");
             return vec![];
@@ -1170,7 +1170,7 @@ impl Neo4jGraph {
         )
         .await
         .into_iter()
-        .map(|(node, usage, _)| (node, usage))
+        .map(|(node, usage, _, _)| (node, usage))
         .collect()
     }
 }

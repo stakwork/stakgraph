@@ -360,7 +360,7 @@ pub async fn execute_nodes_with_coverage_query(
     conn: &Neo4jConnection,
     query_str: String,
     params: BoltMap,
-) -> Vec<(NodeData, usize, bool)> {
+) -> Vec<(NodeData, usize, bool, usize)> {
     let mut query_obj = query(&query_str);
     for (key, value) in params.value.iter() {
         query_obj = query_obj.param(key.value.as_str(), value.clone());
@@ -374,7 +374,13 @@ pub async fn execute_nodes_with_coverage_query(
                     if let Ok(node_data) = NodeData::try_from(&node) {
                         let usage_count: i64 = row.get("usage_count").unwrap_or(0);
                         let is_covered: bool = row.get("is_covered").unwrap_or(false);
-                        results.push((node_data, usage_count as usize, is_covered));
+                        let test_count: i64 = row.get("test_count").unwrap_or(0);
+                        results.push((
+                            node_data,
+                            usage_count as usize,
+                            is_covered,
+                            test_count as usize,
+                        ));
                     }
                 }
             }
@@ -394,7 +400,7 @@ pub async fn execute_uncovered_nodes_query(
     execute_nodes_with_coverage_query(conn, query_str, params)
         .await
         .into_iter()
-        .map(|(node, usage, _)| (node, usage))
+        .map(|(node, usage, _, _)| (node, usage))
         .collect()
 }
 
@@ -1257,11 +1263,11 @@ pub fn find_nodes_with_coverage_query(
     }
 
     let test_types = crate::lang::graphs::utils::tests_sources(tests_filter);
-    let test_labels = test_types
+    let test_conditions = test_types
         .iter()
-        .map(|t| t.to_string())
+        .map(|t| format!("test:{}", t.to_string()))
         .collect::<Vec<_>>()
-        .join(":");
+        .join(" OR ");
 
     let root_filter = if root.is_some() {
         "AND n.file STARTS WITH $root"
@@ -1271,24 +1277,24 @@ pub fn find_nodes_with_coverage_query(
 
     let coverage_check = match node_type {
         NodeType::Function => format!(
-            "EXISTS {{ MATCH (test)-[:Calls]->(n) WHERE test:{} }}",
-            test_labels
+            "EXISTS {{ MATCH (test)-[:CALLS]->(n) WHERE {} }}",
+            test_conditions
         ),
         NodeType::Endpoint => format!(
             "EXISTS {{ 
-                MATCH (n)-[:HandledBy]->(handler:Function)
-                MATCH (test)-[:Calls]->(handler) 
-                WHERE test:{}
+                MATCH (n)-[:HANDLER]->(handler:Function)
+                MATCH (test)-[:CALLS]->(handler) 
+                WHERE {}
             }}",
-            test_labels
+            test_conditions
         ),
         _ => "false".to_string(),
     };
 
     let usage_match = if with_usage {
         match node_type {
-            NodeType::Function => "OPTIONAL MATCH (caller:Function)-[:Calls]->(n)",
-            NodeType::Endpoint => "OPTIONAL MATCH (req:Request)-[:Calls]->(n)",
+            NodeType::Function => "OPTIONAL MATCH (caller:Function)-[:CALLS]->(n)",
+            NodeType::Endpoint => "OPTIONAL MATCH (req:Request)-[:CALLS]->(n)",
             _ => "",
         }
     } else {
@@ -1317,19 +1323,32 @@ pub fn find_nodes_with_coverage_query(
         "ORDER BY n.name ASC"
     };
 
+    let test_count_subquery = match node_type {
+        NodeType::Function => format!(
+            "SIZE([(test)-[:CALLS]->(n) WHERE {} | test])",
+            test_conditions
+        ),
+        NodeType::Endpoint => format!(
+            "SIZE([(n)-[:HANDLER]->(handler:Function), (test)-[:CALLS]->(handler) WHERE {} | test])",
+            test_conditions
+        ),
+        _ => "0".to_string(),
+    };
+
     let query = format!(
         "MATCH (n:{}) 
          WHERE true {}
-         WITH n, ({}) AS is_covered
+         WITH n, ({}) AS is_covered, ({}) AS test_count
          {}
          {}
-         WITH n, {} AS usage_count, is_covered
+         WITH n, {} AS usage_count, is_covered, test_count
          {}
          SKIP $offset LIMIT $limit
-         RETURN n, usage_count, is_covered",
+         RETURN n, usage_count, is_covered, test_count",
         node_type.to_string(),
         root_filter,
         coverage_check,
+        test_count_subquery,
         coverage_filter,
         usage_match,
         usage_count,

@@ -27,9 +27,9 @@ pub fn create_uncovered_response_items(
     node_type: &NodeType,
     concise: bool,
 ) -> Vec<NodesResponseItem> {
-    let nodes_with_coverage: Vec<(NodeData, usize, bool)> = nodes
+    let nodes_with_coverage: Vec<(NodeData, usize, bool, usize)> = nodes
         .into_iter()
-        .map(|(node_data, weight)| (node_data, weight, false))
+        .map(|(node_data, weight)| (node_data, weight, false, 0))
         .collect();
     create_nodes_response_items(nodes_with_coverage, node_type, concise)
 }
@@ -39,18 +39,19 @@ pub fn format_uncovered_response_as_snippet(response: &NodesResponse) -> String 
 }
 
 pub fn create_nodes_response_items(
-    nodes: Vec<(NodeData, usize, bool)>,
+    nodes: Vec<(NodeData, usize, bool, usize)>,
     node_type: &NodeType,
     concise: bool,
 ) -> Vec<NodesResponseItem> {
     nodes
         .into_iter()
-        .map(|(node_data, weight, covered)| {
+        .map(|(node_data, weight, covered, test_count)| {
             if concise {
                 NodesResponseItem::Concise(NodeConcise {
                     name: node_data.name,
                     file: node_data.file,
                     weight,
+                    test_count,
                     covered,
                 })
             } else {
@@ -59,6 +60,7 @@ pub fn create_nodes_response_items(
                     node_type: node_type.to_string(),
                     ref_id,
                     weight,
+                    test_count,
                     covered,
                     properties: node_data,
                 })

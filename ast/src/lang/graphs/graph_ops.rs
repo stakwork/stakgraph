@@ -576,7 +576,10 @@ impl GraphOps {
         root: Option<&str>,
         tests_filter: Option<&str>,
         covered_only: Option<bool>,
-    ) -> Result<(Vec<(NodeData, usize, bool)>, Vec<(NodeData, usize, bool)>)> {
+    ) -> Result<(
+        Vec<(NodeData, usize, bool, usize)>,
+        Vec<(NodeData, usize, bool, usize)>,
+    )> {
         self.graph.ensure_connected().await?;
 
         let results = self
@@ -622,11 +625,11 @@ impl GraphOps {
 
         let functions = functions
             .into_iter()
-            .map(|(node, usage, _)| (node, usage))
+            .map(|(node, usage, _, _)| (node, usage))
             .collect();
         let endpoints = endpoints
             .into_iter()
-            .map(|(node, usage, _)| (node, usage))
+            .map(|(node, usage, _, _)| (node, usage))
             .collect();
 
         Ok((functions, endpoints))

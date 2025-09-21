@@ -134,6 +134,7 @@ pub struct Node {
     pub node_type: String,
     pub ref_id: String,
     pub weight: usize,
+    pub test_count: usize,
     pub covered: bool,
     pub properties: NodeData,
 }
@@ -143,6 +144,7 @@ pub struct NodeConcise {
     pub name: String,
     pub file: String,
     pub weight: usize,
+    pub test_count: usize,
     pub covered: bool,
 }
 
