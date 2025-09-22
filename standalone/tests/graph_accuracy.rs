@@ -41,7 +41,7 @@ async fn assert_graph_accuracy<G: Graph>(graph: &G, phase: &str) {
 async fn test_graph_accuracy() {
     let repo_path = Repo::get_path_from_url(REPO_URL).unwrap();
 
-    clone_repo(REPO_URL, &repo_path, None, None, Some(BEFORE_COMMIT))
+    clone_repo(REPO_URL, &repo_path, None, None, Some(BEFORE_COMMIT), None)
         .await
         .unwrap();
 
@@ -69,6 +69,7 @@ async fn test_graph_accuracy() {
                 None,
                 BEFORE_COMMIT,
                 Some(BEFORE_COMMIT),
+                None,
                 USE_LSP,
             )
             .await
@@ -76,7 +77,7 @@ async fn test_graph_accuracy() {
         assert_graph_accuracy(&graph_ops.graph, "Neo4jGraph BEFORE").await;
     }
 
-    clone_repo(REPO_URL, &repo_path, None, None, Some(AFTER_COMMIT))
+    clone_repo(REPO_URL, &repo_path, None, None, Some(AFTER_COMMIT), None)
         .await
         .unwrap();
 
@@ -121,6 +122,7 @@ async fn test_graph_accuracy() {
                 AFTER_COMMIT,
                 BEFORE_COMMIT,
                 Some(AFTER_COMMIT),
+                None,
                 USE_LSP,
             )
             .await

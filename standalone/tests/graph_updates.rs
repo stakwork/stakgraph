@@ -66,6 +66,7 @@ async fn test_graph_update() {
             None,
             before_commit,
             Some(before_commit),
+            None,
             use_lsp,
         )
         .await
@@ -110,7 +111,7 @@ async fn test_graph_update() {
         .unwrap();
     info!("==>>Changed files: {:?}", changed_files);
 
-    clone_repo(&repo_url, &repo_path, None, None, Some(after_commit))
+    clone_repo(&repo_url, &repo_path, None, None, Some(after_commit), None)
         .await
         .unwrap();
 
@@ -122,6 +123,7 @@ async fn test_graph_update() {
             after_commit,
             before_commit,
             Some(after_commit),
+            None,
             use_lsp,
         )
         .await

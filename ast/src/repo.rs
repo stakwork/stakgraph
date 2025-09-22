@@ -1,10 +1,10 @@
 pub use crate::builder::progress::StatusUpdate;
-use crate::lang::graphs::Graph;
-use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
 #[cfg(feature = "neo4j")]
-use crate::builder::streaming::{GraphStreamingUploader, drain_deltas};
+use crate::builder::streaming::{drain_deltas, GraphStreamingUploader};
+use crate::lang::graphs::Graph;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
+use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
 use git_url_parse::GitUrl;
 use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
@@ -24,6 +24,7 @@ pub async fn clone_repo(
     username: Option<String>,
     pat: Option<String>,
     commit: Option<&str>,
+    branch: Option<&str>,
 ) -> Result<()> {
     // check if the path exists
     if fs::metadata(path).is_ok() {
@@ -32,12 +33,12 @@ pub async fn clone_repo(
         let skip_reclone = skip_reclone_env == "true" || skip_reclone_env == "1";
         if !skip_reclone {
             fs::remove_dir_all(path).ok();
-            git_clone(url, path, username, pat, commit).await?;
+            git_clone(url, path, username, pat, commit, branch).await?;
         } else {
             info!("=> Skipping reclone for {:?}", path);
         }
     } else {
-        git_clone(url, path, username, pat, commit).await?;
+        git_clone(url, path, username, pat, commit, branch).await?;
     }
     Ok(())
 }
@@ -75,18 +76,21 @@ impl Repos {
         }
         let mut graph = G::new(String::new(), Language::Typescript);
         #[cfg(feature = "neo4j")]
-        let mut streaming: Option<(Neo4jGraph, GraphStreamingUploader)> = if std::env::var("STREAM_UPLOAD").is_ok() {
-            let neo = Neo4jGraph::default();
-            let _ = neo.connect().await; 
-            Some((neo, GraphStreamingUploader::new()))
-        } else { None };
+        let mut streaming: Option<(Neo4jGraph, GraphStreamingUploader)> =
+            if std::env::var("STREAM_UPLOAD").is_ok() {
+                let neo = Neo4jGraph::default();
+                let _ = neo.connect().await;
+                Some((neo, GraphStreamingUploader::new()))
+            } else {
+                None
+            };
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
             let subgraph = repo.build_graph_inner().await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming {
-                let (dn,de) = drain_deltas();
+                let (dn, de) = drain_deltas();
                 if !(dn.is_empty() && de.is_empty()) {
                     let _ = uploader.flush_stage(neo, "repo_complete", &dn, &de).await;
                 }
@@ -102,9 +106,11 @@ impl Repos {
         linker::link_api_nodes(&mut graph)?;
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming {
-            let (dn,de) = drain_deltas();
+            let (dn, de) = drain_deltas();
             if !(dn.is_empty() && de.is_empty()) {
-                let _ = uploader.flush_stage(neo, "cross_repo_linking", &dn, &de).await;
+                let _ = uploader
+                    .flush_stage(neo, "cross_repo_linking", &dn, &de)
+                    .await;
             }
         }
 
@@ -166,6 +172,7 @@ impl Repo {
         files_filter: Vec<String>,
         revs: Vec<String>,
         commit: Option<&str>,
+        branch: Option<&str>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
         let urls = urls
@@ -193,7 +200,7 @@ impl Repo {
             })?;
             let root = format!("/tmp/{}", gurl.fullname);
             println!("Cloning repo to {:?}...", &root);
-            clone_repo(url, &root, username.clone(), pat.clone(), commit).await?;
+            clone_repo(url, &root, username.clone(), pat.clone(), commit, branch).await?;
             // Extract the revs for this specific repository
             let repo_revs = if revs_per_repo > 0 {
                 revs[i * revs_per_repo..(i + 1) * revs_per_repo].to_vec()
@@ -306,13 +313,14 @@ impl Repo {
         pat: Option<String>,
         files_filter: Vec<String>,
         revs: Vec<String>,
+        branch: Option<&str>,
     ) -> Result<Self> {
         let lang = Lang::from_str(language_indicator.context("no lang indicated")?)?;
 
         let gurl = GitUrl::parse(url)?;
         let root = format!("/tmp/{}", gurl.fullname);
         println!("Cloning to {:?}... lsp: {}", &root, lsp);
-        clone_repo(url, &root, username, pat, None).await?;
+        clone_repo(url, &root, username, pat, None, branch).await?;
         // if let Some(new_files) = check_revs(&root, revs) {
         //     files_filter = new_files;
         // }

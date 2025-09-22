@@ -27,6 +27,7 @@ pub struct ProcessBody {
     pub pat: Option<String>,
     pub use_lsp: Option<bool>,
     pub commit: Option<String>,
+    pub branch: Option<String>,
     pub callback_url: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]

@@ -1,4 +1,3 @@
-
 use crate::types::{CodecovBody, Report};
 use shared::Result;
 
@@ -10,6 +9,7 @@ pub async fn run(body: CodecovBody) -> Result<Report> {
         body.username.clone(),
         body.pat.clone(),
         body.commit.as_deref(),
+        None,
     )
     .await?;
 
@@ -32,4 +32,3 @@ pub async fn run(body: CodecovBody) -> Result<Report> {
     report.commit = commit;
     Ok(report)
 }
-
