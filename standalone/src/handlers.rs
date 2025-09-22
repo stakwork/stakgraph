@@ -82,7 +82,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
             "Multiple repositories are not supported in a single request".into(),
         )));
     }
-    let (final_repo_path, final_repo_url, username, pat, _) = resolve_repo(&body)?;
+    let (final_repo_path, final_repo_url, username, pat, _, branch) = resolve_repo(&body)?;
 
     if let Err(e) = validate_git_credentials(&final_repo_url, username.clone(), pat.clone()).await {
         return Err(WebError(e));
@@ -95,7 +95,15 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
     let repo_path = &final_repo_path;
     let repo_url = &final_repo_url;
 
-    clone_repo(&repo_url, &repo_path, username.clone(), pat.clone(), None).await?;
+    clone_repo(
+        &repo_url,
+        &repo_path,
+        username.clone(),
+        pat.clone(),
+        None,
+        branch.as_deref(),
+    )
+    .await?;
 
     let current_hash = match get_commit_hash(&repo_path).await {
         Ok(hash) => hash,
@@ -143,6 +151,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
             &current_hash,
             hash,
             None,
+            branch.as_deref(),
             use_lsp,
         )
         .await?;
@@ -200,7 +209,7 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (_, final_repo_url, username, pat, commit) = resolve_repo(&body)?;
+    let (_, final_repo_url, username, pat, commit, branch) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
     let repo_url = final_repo_url.clone();
 
@@ -212,6 +221,7 @@ pub async fn ingest(
         Vec::new(),
         Vec::new(),
         commit.as_deref(),
+        branch.as_deref(),
         use_lsp,
     )
     .await
@@ -330,7 +340,7 @@ pub async fn ingest_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> impl IntoResponse {
-    let (_, repo_url, username, pat, _) = match resolve_repo(&body) {
+    let (_, repo_url, username, pat, _, _branch) = match resolve_repo(&body) {
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
@@ -473,7 +483,7 @@ pub async fn sync_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> impl IntoResponse {
-    let (_, repo_url, username, pat, _) = match resolve_repo(&body) {
+    let (_, repo_url, username, pat, _, _branch) = match resolve_repo(&body) {
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
@@ -671,6 +681,7 @@ fn resolve_repo(
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
 )> {
     let repo_path = body
         .repo_path
@@ -680,6 +691,7 @@ fn resolve_repo(
     let username = body.username.clone().or_else(|| env_not_empty("USERNAME"));
     let pat = body.pat.clone().or_else(|| env_not_empty("PAT"));
     let commit = body.commit.clone();
+    let branch = body.branch.clone();
 
     if repo_path.is_none() && repo_url.is_none() {
         return Err(WebError(shared::Error::Custom(
@@ -688,11 +700,18 @@ fn resolve_repo(
     }
 
     if let Some(path) = repo_path {
-        Ok((path, repo_url.unwrap_or_default(), username, pat, commit))
+        Ok((
+            path,
+            repo_url.unwrap_or_default(),
+            username,
+            pat,
+            commit,
+            branch,
+        ))
     } else {
         let url = repo_url.unwrap();
         let tmp_path = Repo::get_path_from_url(&url)?;
-        Ok((tmp_path, url, username, pat, commit))
+        Ok((tmp_path, url, username, pat, commit, branch))
     }
 }
 

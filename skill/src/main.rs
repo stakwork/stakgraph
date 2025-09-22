@@ -110,9 +110,17 @@ async fn start_inner() -> Result<Response> {
     let graph = match language {
         Some(l) => {
             let lsp = use_lsp.unwrap_or(false);
-            let repo =
-                Repo::new_clone_to_tmp(&repo_url, Some(&l), lsp, username, pat, files_filter, revs)
-                    .await?;
+            let repo = Repo::new_clone_to_tmp(
+                &repo_url,
+                Some(&l),
+                lsp,
+                username,
+                pat,
+                files_filter,
+                revs,
+                None,
+            )
+            .await?;
             repo.build_graph().await?
         }
         None => {
@@ -122,6 +130,7 @@ async fn start_inner() -> Result<Response> {
                 pat,
                 files_filter,
                 revs,
+                None,
                 None,
                 use_lsp,
             )

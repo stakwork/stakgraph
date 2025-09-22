@@ -119,6 +119,7 @@ impl GraphOps {
         current_hash: &str,
         stored_hash: &str,
         commit: Option<&str>,
+        branch: Option<&str>,
         use_lsp: Option<bool>,
     ) -> Result<(u32, u32)> {
         let revs = vec![stored_hash.to_string(), current_hash.to_string()];
@@ -181,6 +182,7 @@ impl GraphOps {
                 Vec::new(),
                 Vec::new(),
                 commit,
+                branch,
                 use_lsp,
             )
             .await?;
@@ -210,6 +212,7 @@ impl GraphOps {
         pat: Option<String>,
         current_hash: &str,
         commit: Option<&str>,
+        branch: Option<&str>,
         use_lsp: Option<bool>,
     ) -> Result<(u32, u32)> {
         let repos = Repo::new_clone_multi_detect(
@@ -219,6 +222,7 @@ impl GraphOps {
             Vec::new(),
             Vec::new(),
             commit,
+            branch,
             use_lsp,
         )
         .await?;
@@ -568,8 +572,8 @@ impl GraphOps {
         }
         self.graph.execute_simple(queries).await?;
         Ok(count)
-    }
 
+    }
     pub async fn list_nodes_with_coverage(
         &mut self,
         node_type: NodeType,
@@ -604,7 +608,6 @@ impl GraphOps {
             _ => Ok((vec![], vec![])),
         }
     }
-
     pub async fn list_uncovered(
         &mut self,
         node_type: NodeType,

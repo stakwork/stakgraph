@@ -190,7 +190,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         .map(|n| Node::new(NodeType::Function, n.clone()))
         .expect("Function 'cn' not found");
 
-    if let Some(cn_func) = functions.iter().find(|f| f.name == "cn" && f.file.ends_with("nextjs/lib/utils.ts")) {
+    if let Some(cn_func) = functions
+        .iter()
+        .find(|f| f.name == "cn" && f.file.ends_with("nextjs/lib/utils.ts"))
+    {
         assert_eq!(
             cn_func.docs.as_deref(),
             Some("Merge class names conditionally\nAccepts any number of class values"),
@@ -200,7 +203,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         panic!("Function 'cn' not found for docs assertion");
     }
 
-    if let Some(card_fn) = functions.iter().find(|f| f.name == "Card" && f.file.ends_with("nextjs/components/ui/card.tsx")) {
+    if let Some(card_fn) = functions
+        .iter()
+        .find(|f| f.name == "Card" && f.file.ends_with("nextjs/components/ui/card.tsx"))
+    {
         assert_eq!(
             card_fn.docs.as_deref(),
             Some("Card component container\nProvides base styling and layout"),
@@ -262,6 +268,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes += integration_test.len();
     assert_eq!(integration_test.len(), 4, "Expected 4 IntegrationTest nodes");
+<<<<<<< HEAD
 
     if let Some(test) = integration_test.iter().filter(|n| n.file.ends_with("nextjs/app/test/integration.test.ts") && n.name == "integration: /api/items").next() {
 
@@ -380,9 +387,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         let person_fn = functions
             .iter()
             .find(|f| {
-                f.name == "Person"
-                    && f.file
-                        .ends_with("src/testing/nextjs/app/person/page.tsx")
+                f.name == "Person" && f.file.ends_with("src/testing/nextjs/app/person/page.tsx")
             })
             .map(|n| Node::new(NodeType::Function, n.clone()))
             .expect("Person function not found");
@@ -647,6 +652,7 @@ async fn test_remote_nextjs() -> Result<()> {
         None,
         Vec::new(),
         Vec::new(),
+        None,
         None,
         Some(use_lsp),
     )

@@ -1,4 +1,4 @@
-use crate::utils::{run, run_res_in_dir, remove_dir};
+use crate::utils::{remove_dir, run, run_res_in_dir};
 use shared::error::{Context, Error, Result};
 use std::path::Path;
 use tracing::{debug, info};
@@ -61,6 +61,7 @@ pub async fn git_clone(
     username: Option<String>,
     pat: Option<String>,
     commit: Option<&str>,
+    branch: Option<&str>,
 ) -> Result<()> {
     let repo_url = if username.is_some() && pat.is_some() {
         let username = username.unwrap();
@@ -78,7 +79,12 @@ pub async fn git_clone(
     } else {
         info!("Repository doesn't exist at {}, cloning it", path);
         remove_dir(path)?;
-        let output = run("git", &["clone", &repo_url, "--single-branch", path]).await;
+        let mut clone_args = vec!["clone", &repo_url, "--single-branch"];
+        if let Some(branch) = branch {
+            clone_args.extend(&["--branch", branch]);
+        }
+        clone_args.push(path);
+        let output = run("git", &clone_args).await;
         match output {
             Ok(_) => {
                 tracing::info!("Cloned repo to {}", path);
