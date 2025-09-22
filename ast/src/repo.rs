@@ -199,7 +199,11 @@ impl Repo {
                 Error::Custom(format!("Failed to parse Git URL for {}: {}", url, e))
             })?;
             let root = format!("/tmp/{}", gurl.fullname);
-            println!("Cloning repo to {:?}...", &root);
+            println!(
+                "Cloning repo to {:?} with branch {}...",
+                &root,
+                branch.unwrap_or("default")
+            );
             clone_repo(url, &root, username.clone(), pat.clone(), commit, branch).await?;
             // Extract the revs for this specific repository
             let repo_revs = if revs_per_repo > 0 {
