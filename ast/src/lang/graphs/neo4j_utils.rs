@@ -1277,15 +1277,11 @@ pub fn find_nodes_with_coverage_query(
 
     let coverage_check = match node_type {
         NodeType::Function => format!(
-            "EXISTS {{ MATCH (test)-[:CALLS]->(n) WHERE {} }}",
+            "EXISTS {{ MATCH (test)-[:CALLS]->(n:Function) WHERE {} }}",
             test_conditions
         ),
         NodeType::Endpoint => format!(
-            "EXISTS {{ 
-                MATCH (n)-[:HANDLER]->(handler:Function)
-                MATCH (test)-[:CALLS]->(handler) 
-                WHERE {}
-            }}",
+            "EXISTS {{ MATCH (test)-[:CALLS]->(n:Endpoint) WHERE {} }}",
             test_conditions
         ),
         _ => "false".to_string(),
@@ -1325,11 +1321,11 @@ pub fn find_nodes_with_coverage_query(
 
     let test_count_subquery = match node_type {
         NodeType::Function => format!(
-            "SIZE([(test)-[:CALLS]->(n) WHERE {} | test])",
+            "count{{ (test)-[:CALLS]->(n:Function) WHERE {} }}",
             test_conditions
         ),
         NodeType::Endpoint => format!(
-            "SIZE([(n)-[:HANDLER]->(handler:Function), (test)-[:CALLS]->(handler) WHERE {} | test])",
+            "count{{ (test)-[:CALLS]->(n:Endpoint) WHERE {} }}",
             test_conditions
         ),
         _ => "0".to_string(),
