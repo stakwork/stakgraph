@@ -22,10 +22,15 @@ const Staktrak = () => {
     canGenerate,
     trackingData,
     selectedText,
+    capturedActions,
+    showActions,
     startRecording,
     stopRecording,
     enableAssertionMode,
     disableAssertionMode,
+    removeAction,
+    clearAllActions,
+    toggleActionsView,
     url,
     handleUrlChange,
     navigateToUrl,
@@ -228,15 +233,24 @@ const Staktrak = () => {
               ? html`<span class="btn-icon">⏹</span> Stop Recording`
               : html`<span class="btn-icon">⏺</span> Start Recording`}
           </button>
-          <button
-            class=${isAssertionMode ? "interact" : "assert"}
-            onClick=${handleMode}
-            disabled=${!isRecording || isPlaywrightReplaying}
-          >
-            ${isAssertionMode
-              ? html`<span class="btn-icon">🖱️</span> Interaction Mode`
-              : html`<span class="btn-icon">✓</span> Assertion Mode`}
-          </button>
+          <div class="assertion-controls">
+            <button
+              class=${isAssertionMode ? "interact" : "assert"}
+              onClick=${handleMode}
+              disabled=${!isRecording || isPlaywrightReplaying}
+            >
+              ${isAssertionMode
+                ? html`Interaction Mode`
+                : html`Assertion Mode${capturedActions.filter(a => a.kind === 'assertion').length > 0 ? ` (${capturedActions.filter(a => a.kind === 'assertion').length})` : ""}`}
+            </button>
+            <button
+              class="actions-dropdown-btn"
+              onClick=${toggleActionsView}
+              title="Toggle actions list"
+            >
+              ${showActions ? "▲" : "▼"}
+            </button>
+          </div>
           <button
             class="generate"
             onClick=${handleGenerate}
@@ -272,6 +286,68 @@ const Staktrak = () => {
           <div class="playwright-replay-progress-text">
             Playwright: Step ${playwrightProgress.current} of
             ${playwrightProgress.total} (${playwrightStatus})
+          </div>
+        </div>
+      `}
+
+      ${showActions &&
+      html`
+        <div class="actions-panel">
+          <h3>Test Actions (${capturedActions.length})</h3>
+          <div class="actions-controls">
+            <button
+              class="clear-all-btn"
+              onClick=${clearAllActions}
+              disabled=${isPlaywrightReplaying}
+            >
+              Clear All
+            </button>
+          </div>
+          <div class="actions-list">
+            ${capturedActions.map((action, index) => {
+              const getActionDisplay = (action) => {
+                switch(action.kind) {
+                  case 'nav':
+                    return html`Navigate to ${action.url || '/'}`;
+                  case 'click':
+                    const clickText = action.locator?.text ? `"${action.locator.text}"` : action.locator?.primary || 'element';
+                    return html`Click ${clickText}`;
+                  case 'input':
+                    const inputValue = action.value && action.value.length > 30 ? action.value.substring(0, 30) + '...' : action.value;
+                    return html`Type "${inputValue}"`;
+                  case 'form':
+                    if (action.formType === 'checkbox' || action.formType === 'radio') {
+                      return html`${action.checked ? 'Check' : 'Uncheck'} ${action.formType}`;
+                    } else if (action.formType === 'select') {
+                      return html`Select "${action.value}"`;
+                    }
+                    return html`Form: ${action.value}`;
+                  case 'assertion':
+                    const assertText = action.value && action.value.length > 30 ? action.value.substring(0, 30) + '...' : action.value;
+                    return html`Assert "${assertText}"`;
+                  case 'waitForUrl':
+                    return html`Wait for ${action.expectedUrl || 'navigation'}`;
+                  default:
+                    return html`${action.kind}`;
+                }
+              };
+
+              return html`
+                <div key=${action.id} class="action-item ${action.kind}">
+                  <div class="action-content">
+                    ${getActionDisplay(action)}
+                  </div>
+                  <button
+                    class="remove-action-btn"
+                    onClick=${() => removeAction(action)}
+                    disabled=${isPlaywrightReplaying}
+                    title="Remove this action"
+                  >
+                    ×
+                  </button>
+                </div>
+              `;
+            })}
           </div>
         </div>
       `}
