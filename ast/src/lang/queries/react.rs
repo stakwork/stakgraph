@@ -69,28 +69,17 @@ impl Stack for ReactTs {
 
         // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
         let body_l = body.to_lowercase();
-        let has_playwright_import = body_l.contains("@playwright/test");
-        let has_browser_actions = body_l.contains("page.goto(")
-            || body_l.contains("page.click(")
-            || body_l.contains("page.evaluate(");
-        let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
-        let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
-        if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
+    let has_playwright_import = body_l.contains("@playwright/test");
+    let has_browser_actions = body_l.contains("page.goto(") || body_l.contains("page.click(") || body_l.contains("page.evaluate(");
+    let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
+    let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
+    if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
             return NodeType::E2eTest;
         }
 
-        const NETWORK_MARKERS: [&str; 11] = [
-            "fetch(",
-            "axios.",
-            "axios(",
-            "supertest(",
-            "request(",
-            "new request(",
-            "/api/",
-            "http://",
-            "https://",
-            "globalthis.fetch",
-            "cy.request(",
+       const NETWORK_MARKERS: [&str; 11] = [
+            "fetch(", "axios.", "axios(", "supertest(", "request(", "new request(",
+            "/api/", "http://", "https://", "globalthis.fetch", "cy.request("
         ];
         if NETWORK_MARKERS.iter().any(|m| body_l.contains(m)) {
             return NodeType::IntegrationTest;
@@ -377,9 +366,9 @@ impl Stack for ReactTs {
             ]"#
         )
     }
-    fn comment_query(&self) -> Option<String> {
-        Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
-    }
+        fn comment_query(&self) -> Option<String> {
+             Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
+             }
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"[
