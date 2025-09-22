@@ -80,18 +80,9 @@ impl Stack for ReactTs {
             return NodeType::E2eTest;
         }
 
-        const NETWORK_MARKERS: [&str; 11] = [
-            "fetch(",
-            "axios.",
-            "axios(",
-            "supertest(",
-            "request(",
-            "new request(",
-            "/api/",
-            "http://",
-            "https://",
-            "globalthis.fetch",
-            "cy.request(",
+       const NETWORK_MARKERS: [&str; 11] = [
+            "fetch(", "axios.", "axios(", "supertest(", "request(", "new request(",
+            "/api/", "http://", "https://", "globalthis.fetch", "cy.request("
         ];
         if NETWORK_MARKERS.iter().any(|m| body_l.contains(m)) {
             return NodeType::IntegrationTest;
@@ -378,9 +369,9 @@ impl Stack for ReactTs {
             ]"#
         )
     }
-    fn comment_query(&self) -> Option<String> {
-        Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
-    }
+        fn comment_query(&self) -> Option<String> {
+             Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
+             }
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"[
