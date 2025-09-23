@@ -1,11 +1,12 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, CoverageParams, CoverageStat, Coverage, EmbedCodeParams,
-    FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, ProcessBody, ProcessResponse, Result,
-    UncoveredParams, UncoveredResponse, VectorSearchParams, VectorSearchResult, WebError,
-    WebhookPayload, CodecovBody, CodecovRequestStatus,
+    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams,
+    CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse,
+    NodesParams, NodesResponse, ProcessBody, ProcessResponse, Result, VectorSearchParams,
+    VectorSearchResult, WebError, WebhookPayload,
 };
 use crate::utils::{
-    create_uncovered_response_items, format_uncovered_response_as_snippet, parse_node_type,
+    create_nodes_response_items, create_uncovered_response_items, format_nodes_response_as_snippet,
+    format_uncovered_response_as_snippet, parse_node_type,
 };
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
@@ -204,7 +205,6 @@ pub async fn ingest(
     let use_lsp = body.use_lsp;
     let repo_url = final_repo_url.clone();
 
-
     let start_clone = Instant::now();
     let mut repos = Repo::new_clone_multi_detect(
         &repo_url,
@@ -244,7 +244,12 @@ pub async fn ingest(
     let btree_graph = repos
         .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
         .await
-        .map_err(|e| WebError(shared::Error::Custom(format!("Failed to build graphs: {}", e))))?;
+        .map_err(|e| {
+            WebError(shared::Error::Custom(format!(
+                "Failed to build graphs: {}",
+                e
+            )))
+        })?;
     let build_s = start_build.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=build repo={} streaming={} s={:.2}",
@@ -267,7 +272,9 @@ pub async fn ingest(
         graph_ops.graph.get_graph_size()
     } else {
         info!("Uploading to Neo4j...");
-        let res = graph_ops.upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone())).await?;
+        let res = graph_ops
+            .upload_btreemap_to_neo4j(&btree_graph, Some(state.tx.clone()))
+            .await?;
         graph_ops.graph.create_indexes().await?;
         res
     };
@@ -503,8 +510,12 @@ pub async fn sync_async(
     let callback_url = body.callback_url.clone();
     let started_at = Utc::now();
 
-    info!("/sync with Request ID: {} and callback_url:  {:?}", request_id_clone.clone(), callback_url.clone());
- 
+    info!(
+        "/sync with Request ID: {} and callback_url:  {:?}",
+        request_id_clone.clone(),
+        callback_url.clone()
+    );
+
     //run /sync as a background task
     tokio::spawn(async move {
         let result = process(body_clone).await;
@@ -534,7 +545,7 @@ pub async fn sync_async(
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
                         };
                         let client = Client::new();
-                        
+
                         let _ = crate::webhook::send_with_retries(
                             &client,
                             &request_id_clone,
@@ -632,7 +643,10 @@ pub async fn vector_search_handler(
         )
         .await?;
 
-    let is_test = std::env::var("TEST_REF_ID").ok().filter(|v| !v.is_empty()).is_some();
+    let is_test = std::env::var("TEST_REF_ID")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .is_some();
     let response: Vec<VectorSearchResult> = results
         .into_iter()
         .map(|(mut node, score)| {
@@ -684,27 +698,100 @@ fn resolve_repo(
 }
 
 #[axum::debug_handler]
-pub async fn coverage_handler(
-    Query(params): Query<CoverageParams>,
-) -> Result<Json<Coverage>> {
+pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Coverage>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let totals = graph_ops
-        .get_coverage(
-            params.repo.as_deref(),
-        )
-        .await?;
+    let totals = graph_ops.get_coverage(params.repo.as_deref()).await?;
 
     Ok(Json(Coverage {
-    unit_tests: totals.unit_tests.map(|s| CoverageStat { total: s.total, total_tests: s.total_tests, covered: s.covered, percent: s.percent }),
-    integration_tests: totals.integration_tests.map(|s| CoverageStat { total: s.total, total_tests: s.total_tests, covered: s.covered, percent: s.percent }),
-    e2e_tests: totals.e2e_tests.map(|s| CoverageStat { total: s.total, total_tests: s.total_tests, covered: s.covered, percent: s.percent }),
+        unit_tests: totals.unit_tests.map(|s| CoverageStat {
+            total: s.total,
+            total_tests: s.total_tests,
+            covered: s.covered,
+            percent: s.percent,
+        }),
+        integration_tests: totals.integration_tests.map(|s| CoverageStat {
+            total: s.total,
+            total_tests: s.total_tests,
+            covered: s.covered,
+            percent: s.percent,
+        }),
+        e2e_tests: totals.e2e_tests.map(|s| CoverageStat {
+            total: s.total,
+            total_tests: s.total_tests,
+            covered: s.covered,
+            percent: s.percent,
+        }),
     }))
 }
 
 #[axum::debug_handler]
-pub async fn uncovered_handler(Query(params): Query<UncoveredParams>) -> Result<impl IntoResponse> {
+pub async fn nodes_handler(Query(params): Query<NodesParams>) -> Result<impl IntoResponse> {
+    let with_usage = params
+        .sort
+        .as_deref()
+        .unwrap_or("usage")
+        .eq_ignore_ascii_case("usage");
+    let limit = params.limit.unwrap_or(50);
+    let offset = params.offset.unwrap_or(0);
+    let output = params.output.as_deref().unwrap_or("json");
+    let concise = params.concise.unwrap_or(false);
+
+    let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
+
+    let is_function = matches!(node_type, NodeType::Function);
+    let is_endpoint = matches!(node_type, NodeType::Endpoint);
+
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await?;
+
+    let (funcs, endpoints) = graph_ops
+        .list_nodes_with_coverage(
+            node_type,
+            with_usage,
+            offset,
+            limit,
+            params.root.as_deref(),
+            params.tests.as_deref(),
+            None,
+        )
+        .await?;
+
+    let functions = if is_function {
+        Some(create_nodes_response_items(
+            funcs,
+            &NodeType::Function,
+            concise,
+        ))
+    } else {
+        None
+    };
+    let endpoints = if is_endpoint {
+        Some(create_nodes_response_items(
+            endpoints,
+            &NodeType::Endpoint,
+            concise,
+        ))
+    } else {
+        None
+    };
+
+    let response = NodesResponse {
+        functions,
+        endpoints,
+    };
+    match output {
+        "snippet" => {
+            let text = format_nodes_response_as_snippet(&response);
+            Ok(text.into_response())
+        }
+        _ => Ok(Json(response).into_response()),
+    }
+}
+
+#[axum::debug_handler]
+pub async fn uncovered_handler(Query(params): Query<NodesParams>) -> Result<impl IntoResponse> {
     let with_usage = params
         .sort
         .as_deref()
@@ -753,7 +840,7 @@ pub async fn uncovered_handler(Query(params): Query<UncoveredParams>) -> Result<
         None
     };
 
-    let response = UncoveredResponse {
+    let response = NodesResponse {
         functions,
         endpoints,
     };

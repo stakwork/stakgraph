@@ -1,10 +1,10 @@
 mod auth;
+mod codecov;
 #[cfg(feature = "neo4j")]
 mod handlers;
 mod types;
 mod utils;
 mod webhook;
-mod codecov;
 
 use ast::repo::StatusUpdate;
 use axum::extract::Request;
@@ -88,10 +88,14 @@ async fn main() -> Result<()> {
         .route("/embed_code", post(handlers::embed_code_handler))
         .route("/search", post(handlers::vector_search_handler))
         .route("/tests/coverage", get(handlers::coverage_handler))
+        .route("/tests/nodes", get(handlers::nodes_handler))
         .route("/tests/uncovered", get(handlers::uncovered_handler))
         .route("/tests/has", get(handlers::has_handler))
         .route("/codecov", post(handlers::codecov_handler))
-        .route("/codecov/:request_id", get(handlers::codecov_status_handler));
+        .route(
+            "/codecov/:request_id",
+            get(handlers::codecov_status_handler),
+        );
 
     // Add bearer auth middleware only if API token is provided
     if app_state.api_token.is_some() {
