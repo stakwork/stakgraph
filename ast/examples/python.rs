@@ -14,6 +14,7 @@ async fn main() -> Result<()> {
         None,
         Vec::new(),
         Vec::new(),
+        None,
     )
     .await?;
     let graph = repo.build_graph().await?;
