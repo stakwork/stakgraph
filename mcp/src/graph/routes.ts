@@ -35,6 +35,7 @@ import {
   ask_prompt,
   learnings,
 } from "../tools/intelligence/index.js";
+import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
 import { GitSeeHandler } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
@@ -184,6 +185,27 @@ export async function get_learnings(req: Request, res: Response) {
     });
   } catch (error) {
     console.error("Learnings Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
+export async function generate_siblings(req: Request, res: Response) {
+  try {
+    const orphanHints = await db.hints_without_siblings();
+    let processed = 0;
+
+    for (const hint of orphanHints) {
+      const origRef = hint.ref_id || hint.properties.ref_id;
+      const question = hint.properties.question || hint.properties.name || "";
+      const answer = hint.properties.body || "";
+      if (!origRef || !question || !answer) continue;
+      processed++;
+    }
+
+    await generate_persona_variants();
+    res.json({ processed });
+  } catch (error) {
+    console.error("Generate Siblings Error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 }

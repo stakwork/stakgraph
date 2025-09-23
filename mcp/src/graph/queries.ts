@@ -129,6 +129,11 @@ MATCH (h:Hint {ref_id: $ref_id})-[:SIBLING]-(s:Hint)
 RETURN s
 `;
 
+export const SET_HINT_PERSONA_QUERY = `
+MATCH (h:Hint {ref_id: $ref_id})
+SET h.persona = $persona
+`;
+
 export const FIND_NODES_BY_NAME_QUERY = `
 MATCH (n:{LABEL})
 WHERE n.name = $name
