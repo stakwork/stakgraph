@@ -91,7 +91,7 @@ app.post("/_cache/clear", (req: Request, res: Response): void => {
   res.json({ message: "Cache cleared" });
 });
 
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 3355;
 app.listen(port, () => {
   console.log(`Server started at http://localhost:${port}`);
 });
