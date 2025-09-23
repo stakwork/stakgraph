@@ -145,11 +145,12 @@ impl Lang {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
+        if self.lang.is_test_file(file){
         while let Some(m) = matches.next() {
             let ff = self.format_test(&m, code, file, &q)?;
-            // FIXME trait operand here as well?
             res.push((ff, None, vec![], vec![], None, vec![]));
         }
+    }
         Ok(res)
     }
     pub fn collect_calls_in_function<G: Graph>(

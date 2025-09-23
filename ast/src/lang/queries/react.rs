@@ -51,10 +51,10 @@ impl Stack for ReactTs {
         {
             return NodeType::E2eTest;
         }
-        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") {
+        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") || fname.starts_with("int.") || fname.starts_with("int_") || fname.starts_with("int-") || fname.contains("integration.test") || fname.contains("integration.spec") { 
             return NodeType::IntegrationTest;
         }
-        if f.contains("/unit/") || f.contains(".unit.") {
+        if f.contains("/unit/") || f.contains(".unit.")  || f.contains("unit.") || fname.starts_with("unit.") || fname.starts_with("unit_") || fname.starts_with("unit-") || fname.contains("unit.test") || fname.contains("unit.spec") {
             return NodeType::UnitTest;
         }
 
@@ -413,44 +413,23 @@ impl Stack for ReactTs {
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
-                (call_expression
-                    function: (identifier) @it (#match? @it "^(it|test)$")
-                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                )
-                (call_expression
-                    function: (member_expression
-                        object: (identifier) @it (#match? @it "^(it|test)$")
-                        property: (property_identifier)?
+                    (call_expression
+                        function: (identifier) @desc (#eq? @desc "describe")
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                     )
-                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                )
-                (call_expression
-                    function: (member_expression
-                        object: (member_expression
-                            object: (identifier) @it2 (#match? @it2 "^(it|test)$")
-                            property: (property_identifier) @each (#eq? @each "each")
+                    (call_expression
+                        function: (member_expression
+                            object: (identifier) @desc2 (#eq? @desc2 "describe")
+                            property: (property_identifier) @mod (#match? @mod "^(only|skip|todo)$")
                         )
-                        property: (property_identifier)?
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                     )
-                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                )
-                (call_expression
-                    function: (member_expression
-                        object: (identifier) @it3 (#match? @it3 "^(it|test)$")
-                        property: (property_identifier) @mod (#match? @mod "^(only|skip|todo|concurrent)$")
-                    )
-                    arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                )
-            ] @{FUNCTION_DEFINITION}"#
+                ] @{FUNCTION_DEFINITION}"#
         ))
     }
     fn e2e_test_query(&self) -> Option<String> {
         Some(format!(
-            r#"[
-                (call_expression
-                    function: (identifier) @pwtest (#eq? @pwtest "test")
-                    arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
-                ) @{E2E_TEST}
+            r#"
                 (call_expression
                     function: (member_expression
                         object: (identifier) @pwtest2 (#eq? @pwtest2 "test")
@@ -458,7 +437,7 @@ impl Stack for ReactTs {
                     )
                     arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
                 ) @{E2E_TEST}
-            ]"#
+            "#
         ))
     }
     fn endpoint_finders(&self) -> Vec<String> {

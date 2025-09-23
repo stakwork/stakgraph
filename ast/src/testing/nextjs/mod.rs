@@ -23,7 +23,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let repos = Repos(vec![repo]);
     let graph = repos.build_graphs_inner::<G>().await?;
 
-    graph.analysis();
+   graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -225,11 +225,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    assert_eq!(calls, 74, "Expected 74 Calls edges");
+    assert_eq!(calls, 61, "Expected 61 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 146, "Expected 146 Contains edges");
+    assert_eq!(contains, 138, "Expected 138 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -237,16 +237,16 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    assert_eq!(tests.len(), 6, "Expected 6 UnitTest nodes");
+    assert_eq!(tests.len(), 7, "Expected 7 UnitTest nodes");
 
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes += integration_test.len();
-    assert_eq!(integration_test.len(), 10, "Expected 10 IntegrationTest nodes");
+    assert_eq!(integration_test.len(), 2, "Expected 2 IntegrationTest nodes");
 
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 3, "Expected 3 E2eTest nodes");
+    assert_eq!(e2e_tests.len(), 2, "Expected 2 E2eTest nodes");
 
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;
@@ -267,7 +267,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-        assert_eq!(uses, 44, "Expected 44 Uses edges with LSP");
+        assert_eq!(uses, 37, "Expected 37 Uses edges with LSP");
     } else {
         assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
