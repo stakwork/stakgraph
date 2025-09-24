@@ -1,3 +1,47 @@
+/**
+ * Generates a summary for a conversation and stores it as a ConversationSummary node in the graph.
+ * This is the main entry point for contextual summarization logic.
+ *
+ * @param conversation_history - Array of conversation turns (strings or objects)
+ * @param tool_outputs - Array of tool output strings or objects
+ * @param meta - Optional metadata object
+ * @param embeddings - Optional precomputed embeddings (default: empty array)
+ * @returns The result of create_conversation_summary (ref_id, node_key)
+ */
+export async function generate_conversation_summary(
+  conversation_history: any[],
+  tool_outputs: any[],
+  meta: any = {},
+  embeddings: number[] = []
+): Promise<{ ref_id: string; node_key: string }> {
+  // For now, concatenate conversation and tool outputs as a placeholder summary
+  // In production, replace this with a call to an LLM or advanced summarizer
+  const body = [
+    "Conversation History:",
+    ...conversation_history.map((turn) =>
+      typeof turn === "string" ? turn : JSON.stringify(turn)
+    ),
+    "",
+    "Tool Outputs:",
+    ...tool_outputs.map((out) =>
+      typeof out === "string" ? out : JSON.stringify(out)
+    ),
+  ].join("\n");
+
+  // Placeholder summary: first 300 chars of body (replace with LLM call)
+  const summary = body.length > 300 ? body.slice(0, 297) + "..." : body;
+
+  // Optionally add more meta info
+  const history_ref = meta?.history_ref || "";
+  const result = await db.create_conversation_summary(
+    body,
+    summary,
+    history_ref,
+    meta,
+    embeddings
+  );
+  return result;
+}
 import neo4j, { Driver, Session } from "neo4j-driver";
 import fs from "fs";
 import readline from "readline";
@@ -42,6 +86,47 @@ if (!no_db) {
 }
 
 class Db {
+  async create_conversation_summary(
+    body: string,
+    summary: string,
+    history_ref: string,
+    meta: any,
+    embeddings: number[] = []
+  ) {
+    const session = this.driver.session();
+    const node_key = create_node_key({
+      node_type: "ConversationSummary",
+      node_data: {
+        name: summary?.slice(0, 80) || "conversation-summary",
+        file: "summary://generated",
+        start: 0,
+        end: 0,
+        body,
+        summary,
+        history_ref,
+        meta,
+      },
+    } as Node);
+    try {
+      await session.run(Q.CREATE_CONVERSATION_SUMMARY_QUERY, {
+        node_key,
+        body,
+        summary,
+        history_ref,
+        meta,
+        embeddings,
+        ts: Date.now() / 1000,
+      });
+      const r = await session.run(Q.GET_CONVERSATION_SUMMARY_QUERY, {
+        node_key,
+      });
+      const record = r.records[0];
+      const n = record.get("n");
+      return { ref_id: n.properties.ref_id, node_key };
+    } finally {
+      await session.close();
+    }
+  }
   private driver: Driver;
 
   constructor() {

@@ -54,7 +54,8 @@ export type NodeType =
   | "Person"
   | "Video"
   | "Hint"
-  | "Prompt";
+  | "Prompt"
+  | "ConversationSummary";
 
 export type EdgeType =
   | "CALLS"
@@ -146,6 +147,7 @@ export function all_node_types(): NodeType[] {
     "Video",
     "Hint",
     "Prompt",
+    "ConversationSummary",
   ];
 }
 
@@ -199,6 +201,8 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Video: "A recorded video conversation between stakeholders.",
     Hint: "A question and answer pair generated from exploring the codebase to capture contextual understanding.",
     Prompt: "A prompt asked by a user to the AI assistant.",
+    ConversationSummary:
+      "A summary node that captures the distilled context, history, and metadata of a conversation for efficient retrieval and reasoning.",
   };
 }
 

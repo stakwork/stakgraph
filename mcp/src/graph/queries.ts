@@ -105,6 +105,17 @@ export const GET_PROMPT_QUERY = `
 MATCH (n:Prompt {node_key: $node_key}) RETURN n
 `;
 
+export const CREATE_CONVERSATION_SUMMARY_QUERY = `
+MERGE (n:ConversationSummary:${Data_Bank} {node_key: $node_key})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts
+SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.summary = $summary, n.history_ref = $history_ref, n.meta = $meta, n.embeddings = $embeddings
+RETURN n
+`;
+
+export const GET_CONVERSATION_SUMMARY_QUERY = `
+MATCH (n:ConversationSummary {node_key: $node_key}) RETURN n
+`;
+
 export const GET_CONNECTED_HINTS_QUERY = `
 MATCH (p:Prompt {ref_id: $prompt_ref_id})-[r]->(h:Hint)
 RETURN h

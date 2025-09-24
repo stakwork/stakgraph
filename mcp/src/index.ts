@@ -83,6 +83,8 @@ app.post("/seed_stories", r.seed_stories);
 app.get("/services_agent", r.gitsee_services);
 app.get("/agent", r.gitsee_agent);
 app.post("/gitsee", r.gitsee);
+
+app.post("/conversation/summary", r.conversation_summary);
 app.get("/progress", r.get_script_progress);
 
 app.get("/_cache/info", cacheInfo);
