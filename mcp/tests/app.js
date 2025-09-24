@@ -31,6 +31,7 @@ const Staktrak = () => {
     removeAction,
     clearAllActions,
     toggleActionsView,
+    recorder,
     url,
     handleUrlChange,
     navigateToUrl,
@@ -90,12 +91,12 @@ const Staktrak = () => {
   };
 
   const handleGenerate = async () => {
-    if (!trackingData) {
+    if (!trackingData && !recorder) {
       showPopup("No tracking data available", "error");
       return;
     }
 
-    const testCode = await generateTest(url, trackingData);
+    const testCode = await generateTest(url, trackingData, recorder);
 
     if (testCode) {
       showPopup("Playwright test generated successfully", "success");

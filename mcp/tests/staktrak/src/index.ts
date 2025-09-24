@@ -55,6 +55,17 @@ class UserBehaviorTracker {
   };
   private isRunning = false;
 
+  /**
+   * Send event data to parent for recording
+   */
+  private sendEventToParent(eventType: string, data: any) {
+    window.parent.postMessage({
+      type: "staktrak-event",
+      eventType,
+      data
+    }, "*");
+  }
+
   private createEmptyResults(): Results {
     return {
       pageNavigation: [],
@@ -198,7 +209,10 @@ class UserBehaviorTracker {
           const clickDetail = createClickDetail(e);
           this.results.clicks.clickDetails.push(clickDetail);
 
-          // Broadcast click action in real-time
+          // Send complete click data to parent for recording
+          this.sendEventToParent("click", clickDetail);
+
+          // Keep backward compatibility with action-added message
           window.parent.postMessage({
             type: "staktrak-action-added",
             action: {
@@ -349,6 +363,14 @@ class UserBehaviorTracker {
                 timestamp: getTimeStamp(),
               };
               this.results.formElementChanges.push(formChange);
+              // Send complete form data to parent
+              this.sendEventToParent("form", {
+                selector: selector,
+                formType: "select",
+                value: selectEl.value,
+                text: selectedOption?.text || "",
+                timestamp: formChange.timestamp
+              });
 
               // Broadcast form action in real-time
               window.parent.postMessage({
@@ -370,6 +392,14 @@ class UserBehaviorTracker {
                 timestamp: getTimeStamp(),
               };
               this.results.formElementChanges.push(formChange);
+              // Send complete form data to parent
+              this.sendEventToParent("form", {
+                selector: selector,
+                formType: inputEl.type,
+                checked: inputEl.checked,
+                value: inputEl.value,
+                timestamp: formChange.timestamp
+              });
 
               // Broadcast form action in real-time
               window.parent.postMessage({
@@ -405,6 +435,12 @@ class UserBehaviorTracker {
                 action: "complete",
               };
               this.results.inputChanges.push(inputAction);
+              // Send complete input data to parent
+              this.sendEventToParent("input", {
+                selector: selector,
+                value: inputEl.value,
+                timestamp: inputAction.timestamp
+              });
 
               // Broadcast input action in real-time
               window.parent.postMessage({
@@ -524,6 +560,8 @@ class UserBehaviorTracker {
         timestamp: getTimeStamp(),
       };
       this.results.pageNavigation.push(navAction);
+      // Send complete navigation data to parent
+      this.sendEventToParent("navigation", navAction);
 
       // Broadcast navigation action in real-time
       window.parent.postMessage({
@@ -800,6 +838,8 @@ class UserBehaviorTracker {
               timestamp: getTimeStamp(),
             };
             this.memory.assertions.push(assertion);
+            // Send complete assertion data to parent
+            this.sendEventToParent("assertion", assertion);
 
             window.parent.postMessage(
               { type: "staktrak-selection", text, selector, assertionId },

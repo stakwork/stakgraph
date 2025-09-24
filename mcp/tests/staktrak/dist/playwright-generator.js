@@ -1,3 +1,23 @@
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+
 // src/actionModel.ts
 function resultsToActions(results) {
   var _a;
@@ -134,6 +154,223 @@ function isUnique(sel) {
 }
 
 // src/playwright-generator.ts
+var RecordingManager = class {
+  constructor() {
+    this.trackingData = {
+      pageNavigation: [],
+      clicks: { clickCount: 0, clickDetails: [] },
+      inputChanges: [],
+      formElementChanges: [],
+      assertions: [],
+      keyboardActivities: [],
+      mouseMovement: [],
+      mouseScroll: [],
+      focusChanges: [],
+      visibilitychanges: [],
+      windowSizes: [],
+      touchEvents: [],
+      audioVideoInteractions: []
+    };
+    this.capturedActions = [];
+    this.actionIdCounter = 0;
+  }
+  /**
+   * Handle an event from the iframe and store it
+   */
+  handleEvent(eventType, eventData) {
+    switch (eventType) {
+      case "click":
+        this.trackingData.clicks.clickDetails.push(eventData);
+        this.trackingData.clicks.clickCount++;
+        break;
+      case "nav":
+      case "navigation":
+        this.trackingData.pageNavigation.push({
+          type: "navigation",
+          url: eventData.url,
+          timestamp: eventData.timestamp
+        });
+        break;
+      case "input":
+        this.trackingData.inputChanges.push({
+          elementSelector: eventData.selector || "",
+          value: eventData.value,
+          timestamp: eventData.timestamp,
+          action: "fill"
+        });
+        break;
+      case "form":
+        this.trackingData.formElementChanges.push({
+          elementSelector: eventData.selector || "",
+          type: eventData.formType || "input",
+          checked: eventData.checked,
+          value: eventData.value || "",
+          text: eventData.text,
+          timestamp: eventData.timestamp
+        });
+        break;
+      case "assertion":
+        this.trackingData.assertions.push({
+          id: eventData.id,
+          type: eventData.type || "hasText",
+          selector: eventData.selector,
+          value: eventData.value || "",
+          timestamp: eventData.timestamp
+        });
+        break;
+      default:
+        return null;
+    }
+    const action = this.createAction(eventType, eventData);
+    if (action) {
+      this.capturedActions.push(action);
+    }
+    return action;
+  }
+  createAction(eventType, eventData) {
+    const id = `${Date.now()}_${this.actionIdCounter++}`;
+    const baseAction = {
+      id,
+      timestamp: eventData.timestamp || Date.now()
+    };
+    switch (eventType) {
+      case "click":
+        return __spreadProps(__spreadValues({}, baseAction), {
+          kind: "click",
+          locator: eventData.selectors || eventData.locator,
+          elementInfo: eventData.elementInfo
+        });
+      case "nav":
+      case "navigation":
+        return __spreadProps(__spreadValues({}, baseAction), {
+          kind: "nav",
+          url: eventData.url
+        });
+      case "input":
+        return __spreadProps(__spreadValues({}, baseAction), {
+          kind: "input",
+          value: eventData.value,
+          locator: eventData.locator || { primary: eventData.selector }
+        });
+      case "form":
+        return __spreadProps(__spreadValues({}, baseAction), {
+          kind: "form",
+          formType: eventData.formType,
+          checked: eventData.checked,
+          value: eventData.value,
+          locator: eventData.locator || { primary: eventData.selector }
+        });
+      case "assertion":
+        return __spreadProps(__spreadValues({}, baseAction), {
+          kind: "assertion",
+          value: eventData.value,
+          locator: { primary: eventData.selector }
+        });
+      default:
+        return __spreadProps(__spreadValues({}, baseAction), {
+          kind: eventType
+        });
+    }
+  }
+  /**
+   * Remove an action by ID
+   */
+  removeAction(actionId) {
+    const action = this.capturedActions.find((a) => a.id === actionId);
+    if (!action)
+      return false;
+    this.capturedActions = this.capturedActions.filter((a) => a.id !== actionId);
+    this.removeFromTrackingData(action);
+    return true;
+  }
+  removeFromTrackingData(action) {
+    const timestamp = action.timestamp;
+    switch (action.kind) {
+      case "click":
+        this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
+          (c) => c.timestamp !== timestamp
+        );
+        this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
+        break;
+      case "nav":
+        this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
+          (n) => n.timestamp !== timestamp
+        );
+        break;
+      case "input":
+        this.trackingData.inputChanges = this.trackingData.inputChanges.filter(
+          (i) => i.timestamp !== timestamp
+        );
+        break;
+      case "form":
+        this.trackingData.formElementChanges = this.trackingData.formElementChanges.filter(
+          (f) => f.timestamp !== timestamp
+        );
+        break;
+      case "assertion":
+        this.trackingData.assertions = this.trackingData.assertions.filter(
+          (a) => a.timestamp !== timestamp
+        );
+        const clickBeforeAssertion = this.trackingData.clicks.clickDetails.filter((c) => c.timestamp < timestamp).sort((a, b) => b.timestamp - a.timestamp)[0];
+        if (clickBeforeAssertion && timestamp - clickBeforeAssertion.timestamp < 1e3) {
+          this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
+            (c) => c.timestamp !== clickBeforeAssertion.timestamp
+          );
+          this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
+        }
+        break;
+    }
+  }
+  /**
+   * Generate Playwright test from current data
+   */
+  generateTest(url, options) {
+    const actions = resultsToActions(this.trackingData);
+    return generatePlaywrightTestFromActions(actions, __spreadValues({
+      baseUrl: url
+    }, options));
+  }
+  /**
+   * Get current actions for UI display
+   */
+  getActions() {
+    return [...this.capturedActions];
+  }
+  /**
+   * Get tracking data (for compatibility)
+   */
+  getTrackingData() {
+    return this.trackingData;
+  }
+  /**
+   * Clear all recorded data
+   */
+  clear() {
+    this.trackingData = {
+      pageNavigation: [],
+      clicks: { clickCount: 0, clickDetails: [] },
+      inputChanges: [],
+      formElementChanges: [],
+      assertions: [],
+      keyboardActivities: [],
+      mouseMovement: [],
+      mouseScroll: [],
+      focusChanges: [],
+      visibilitychanges: [],
+      windowSizes: [],
+      touchEvents: [],
+      audioVideoInteractions: []
+    };
+    this.capturedActions = [];
+    this.actionIdCounter = 0;
+  }
+  /**
+   * Clear all actions (but keep recording)
+   */
+  clearAllActions() {
+    this.clear();
+  }
+};
 function escapeTextForAssertion(text) {
   if (!text)
     return "";
@@ -291,8 +528,10 @@ if (typeof window !== "undefined") {
       return "";
     }
   };
+  existing.RecordingManager = RecordingManager;
   window.PlaywrightGenerator = existing;
 }
 export {
+  RecordingManager,
   generatePlaywrightTestFromActions
 };
