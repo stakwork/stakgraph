@@ -1,23 +1,21 @@
-import { generate_conversation_summary } from "./neo4j.js";
+import { orchestrateConversationSummary } from "../tools/summary.js";
 
 export async function conversation_summary(req: Request, res: Response) {
   try {
     const { conversation_history, tool_outputs, meta, embeddings } =
       req.body || {};
     if (!Array.isArray(conversation_history) || !Array.isArray(tool_outputs)) {
-      res
-        .status(400)
-        .json({
-          error: "conversation_history and tool_outputs must be arrays",
-        });
+      res.status(400).json({
+        error: "conversation_history and tool_outputs must be arrays",
+      });
       return;
     }
-    const result = await generate_conversation_summary(
+    const result = await orchestrateConversationSummary({
       conversation_history,
       tool_outputs,
-      meta || {},
-      embeddings || []
-    );
+      meta,
+      embeddings,
+    });
     res.json({ status: "ok", ...result });
   } catch (error) {
     console.error("ConversationSummary Error:", error);
