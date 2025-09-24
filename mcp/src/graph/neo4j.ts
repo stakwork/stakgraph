@@ -1,37 +1,15 @@
-/**
- * Generates a summary for a conversation and stores it as a ConversationSummary node in the graph.
- * This is the main entry point for contextual summarization logic.
- *
- * @param conversation_history - Array of conversation turns (strings or objects)
- * @param tool_outputs - Array of tool output strings or objects
- * @param meta - Optional metadata object
- * @param embeddings - Optional precomputed embeddings (default: empty array)
- * @returns The result of create_conversation_summary (ref_id, node_key)
- */
+import { cleanSegments } from "../tools/intelligence/summary/preprocess.js";
+import { llmSummary } from "../tools/intelligence/summary/llm.js";
 export async function generate_conversation_summary(
   conversation_history: any[],
   tool_outputs: any[],
   meta: any = {},
   embeddings: number[] = []
 ): Promise<{ ref_id: string; node_key: string }> {
-  // For now, concatenate conversation and tool outputs as a placeholder summary
-  // In production, replace this with a call to an LLM or advanced summarizer
-  const body = [
-    "Conversation History:",
-    ...conversation_history.map((turn) =>
-      typeof turn === "string" ? turn : JSON.stringify(turn)
-    ),
-    "",
-    "Tool Outputs:",
-    ...tool_outputs.map((out) =>
-      typeof out === "string" ? out : JSON.stringify(out)
-    ),
-  ].join("\n");
-
-  // Placeholder summary: first 300 chars of body (replace with LLM call)
-  const summary = body.length > 300 ? body.slice(0, 297) + "..." : body;
-
-  // Optionally add more meta info
+  const cleanedHistory = cleanSegments(conversation_history);
+  const cleanedTools = cleanSegments(tool_outputs);
+  const body = [...cleanedHistory, ...cleanedTools].join("\n");
+  const summary = await llmSummary(body);
   const history_ref = meta?.history_ref || "";
   const result = await db.create_conversation_summary(
     body,
