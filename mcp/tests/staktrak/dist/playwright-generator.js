@@ -385,7 +385,7 @@ function generatePlaywrightTestFromActions(actions, options = {}) {
         return `  await page.goto('${action.url || baseUrl}');`;
       case "waitForUrl":
         if (action.normalizedUrl) {
-          return `  await page.waitForURL(url => url.href.replace(/[?#].*$/,'').replace(/\\/$/,'') === '${action.normalizedUrl}');`;
+          return `  await page.waitForURL('${action.normalizedUrl}');`;
         }
         return "";
       case "click": {
