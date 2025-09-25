@@ -528,6 +528,10 @@ import NewPerson from "./components/NewPerson";"#
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
 
+    let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges_count += nested_in;
+    assert_eq!(nested_in, 1, "Expected 1 NestedIn edges");
+
     if use_lsp {
         assert_eq!(uses, 13, "Expected 13 uses edges");
     }

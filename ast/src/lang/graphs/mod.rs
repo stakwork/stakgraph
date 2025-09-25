@@ -85,6 +85,8 @@ pub enum EdgeType {
     #[serde(rename = "PARENT_OF")]
     ParentOf, // Class -> Class
     Implements, // Class -> Trait
+    #[serde(rename = "NESTED_IN")]
+    NestedIn, // Function -> Function (child to parent)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -288,6 +290,7 @@ impl ToString for EdgeType {
             EdgeType::Includes => "INCLUDES".to_string(),
             EdgeType::Calls => "CALLS".to_string(),
             EdgeType::Implements => "IMPLEMENTS".to_string(),
+            EdgeType::NestedIn => "NESTED_IN".to_string(),
         }
     }
 }
@@ -308,6 +311,7 @@ impl FromStr for EdgeType {
             "RENDERS" => Ok(EdgeType::Renders),
             "PARENT_OF" => Ok(EdgeType::ParentOf),
             "IMPLEMENTS" => Ok(EdgeType::Implements),
+            "NESTED_IN" => Ok(EdgeType::NestedIn),
             _ => Err(Error::Custom(format!("Invalid EdgeType: {}", s))),
         }
     }

@@ -1,5 +1,5 @@
 use super::utils::*;
-use crate::lang::{graphs::Graph, linker::link_tests};
+use crate::lang::{graphs::{Graph, Edge, EdgeType}, linker::link_tests, NodeRef};
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 #[cfg(feature = "neo4j")]
@@ -592,6 +592,17 @@ impl Repo {
                 .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
             graph.add_functions(funcs.clone());
+
+            let func_nodes: Vec<NodeData> = funcs.iter().map(|f| f.0.clone()).collect();
+            let nested_pairs = self.lang.find_nested_functions(&func_nodes);
+            for (child, parent) in nested_pairs {
+                let edge = Edge::new(
+                    EdgeType::NestedIn,
+                    NodeRef::from(child.into(), NodeType::Function),
+                    NodeRef::from(parent.into(), NodeType::Function),
+                );
+                graph.add_edge(edge);
+            }
             test_count += tests.len();
             graph.add_tests(tests);
         }

@@ -220,6 +220,10 @@ import com.kotlintestapp.db.PersonDatabase"#
     edges_count += parentof;
     assert_eq!(parentof, 1, "Expected 1 parentOf edges");
 
+    let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges_count += nested_in;
+    assert_eq!(nested_in, 2, "Expected 2 NestedIn edges");
+
     // operand_edges_count was asserted earlier; keep a sanity check split by LSP mode
     if use_lsp {
         assert_eq!(operand_edges_count, 13, "Expected 13 operand edges with LSP");
@@ -610,7 +614,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     // compare to computed counts so test passes for both LSP and non-LSP expectations
     assert_eq!(nodes as usize, nodes_count, "Nodes count mismatch computed vs graph");
             
-    let expected_edges = if use_lsp { 223 } else { 212 };
+    let expected_edges = if use_lsp { 225 } else { 214 };
     
     assert!(
         if use_lsp {

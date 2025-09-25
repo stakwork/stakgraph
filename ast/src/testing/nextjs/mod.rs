@@ -272,6 +272,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
 
+    let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges += nested_in;
+    assert_eq!(nested_in, 4, "Expected 4 NestedIn edges");
+
     if use_lsp {
         let get_fn = functions
             .iter()
@@ -748,6 +752,10 @@ async fn test_remote_nextjs() -> Result<()> {
     } else {
         assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
+
+    let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges += nested_in;
+    // assert_eq!(nested_in, 4, "Expected 4 NestedIn edges"); to be udpated
 
     let sign_in_page = pages
         .iter()
