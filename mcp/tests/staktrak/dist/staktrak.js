@@ -3233,7 +3233,7 @@ var userBehaviour = (() => {
           return `  await page.goto('${action.url || baseUrl}');`;
         case "waitForUrl":
           if (action.normalizedUrl) {
-            return `  await page.waitForURL(url => url.href.replace(/[?#].*$/,'').replace(/\\/$/,'') === '${action.normalizedUrl}');`;
+            return `  await page.waitForURL('${action.normalizedUrl}');`;
           }
           return "";
         case "click": {
@@ -3451,6 +3451,9 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
       if (this.config.clicks) {
         const clickHandler = (e) => {
           var _a;
+          if (this.memory.selectionMode) {
+            return;
+          }
           const target = e.target;
           const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio");
           if (!isFormElement || !this.config.formInteractions) {
@@ -4001,10 +4004,6 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
               };
               this.memory.assertions.push(assertion);
               this.sendEventToParent("assertion", assertion);
-              window.parent.postMessage(
-                { type: "staktrak-selection", text, selector, assertionId },
-                "*"
-              );
             }, 300);
           }
         };

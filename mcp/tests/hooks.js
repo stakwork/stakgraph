@@ -140,7 +140,6 @@ export function useIframeMessaging(iframeRef, initialURL) {
         setCapturedActions(recorder.current.getActions());
         setTrackingData(recorder.current.getTrackingData());
       }
-      setShowActions(false);
     }
   };
 

@@ -199,6 +199,11 @@ class UserBehaviorTracker {
     
     if (this.config.clicks) {
       const clickHandler = (e: MouseEvent) => {
+        // Skip click recording when in selection mode (creating assertions)
+        if (this.memory.selectionMode) {
+          return;
+        }
+
         const target = e.target as HTMLInputElement;
         const isFormElement = target.tagName === "INPUT" &&
           (target.type === "checkbox" || target.type === "radio");
@@ -840,11 +845,6 @@ class UserBehaviorTracker {
             this.memory.assertions.push(assertion);
             // Send complete assertion data to parent
             this.sendEventToParent("assertion", assertion);
-
-            window.parent.postMessage(
-              { type: "staktrak-selection", text, selector, assertionId },
-              "*"
-            );
           }, 300);
         }
       };

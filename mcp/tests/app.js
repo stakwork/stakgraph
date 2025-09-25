@@ -242,7 +242,7 @@ const Staktrak = () => {
             >
               ${isAssertionMode
                 ? html`Interaction Mode`
-                : html`Assertion Mode${capturedActions.filter(a => a.kind === 'assertion').length > 0 ? ` (${capturedActions.filter(a => a.kind === 'assertion').length})` : ""}`}
+                : html`Assertion Mode`}
             </button>
             <button
               class="actions-dropdown-btn"
