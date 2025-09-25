@@ -2924,6 +2924,13 @@ var userBehaviour = (() => {
     }
     actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.kind) - weightOrder(b.kind));
     refineLocators(actions);
+    for (let i = actions.length - 1; i > 0; i--) {
+      const current = actions[i];
+      const previous = actions[i - 1];
+      if (current.kind === "waitForUrl" && previous.kind === "waitForUrl" && current.normalizedUrl === previous.normalizedUrl) {
+        actions.splice(i, 1);
+      }
+    }
     return actions;
   }
   function weightOrder(kind) {
