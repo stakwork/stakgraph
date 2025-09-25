@@ -3450,13 +3450,36 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     setupEventListeners() {
       if (this.config.clicks) {
         const clickHandler = (e) => {
-          var _a;
+          var _a, _b;
           if (this.memory.selectionMode) {
             return;
           }
           const target = e.target;
-          const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio");
-          if (!isFormElement || !this.config.formInteractions) {
+          const isLabelForFormInput = (element) => {
+            if (element.tagName !== "LABEL")
+              return false;
+            const label = element;
+            if (label.control) {
+              const control = label.control;
+              return control.tagName === "INPUT" && (control.type === "radio" || control.type === "checkbox");
+            }
+            if (label.htmlFor) {
+              const control = document.getElementById(label.htmlFor);
+              return control && control.tagName === "INPUT" && (control.type === "radio" || control.type === "checkbox");
+            }
+            return false;
+          };
+          const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio") || isLabelForFormInput(target);
+          console.log("\u{1F5B1}\uFE0F Click detected:", {
+            tagName: target.tagName,
+            type: target.type || "none",
+            isFormElement,
+            className: target.className,
+            id: target.id,
+            textContent: (_a = target.textContent) == null ? void 0 : _a.substring(0, 20)
+          });
+          if (!isFormElement) {
+            console.log("\u2705 Recording click action for:", target.tagName);
             this.results.clicks.clickCount++;
             const clickDetail = createClickDetail(e);
             this.results.clicks.clickDetails.push(clickDetail);
@@ -3469,7 +3492,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                 timestamp: clickDetail.timestamp,
                 locator: {
                   primary: clickDetail.selectors.primary,
-                  text: (_a = clickDetail.elementInfo) == null ? void 0 : _a.text
+                  text: (_b = clickDetail.elementInfo) == null ? void 0 : _b.text
                 }
               }
             }, "*");
@@ -3577,6 +3600,11 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           if (inputEl.type === "checkbox" || inputEl.type === "radio" || htmlEl.tagName === "SELECT") {
             const changeHandler = () => {
               const selector = getElementSelector(htmlEl);
+              console.log("\u{1F4DD} Form change detected:", {
+                tagName: htmlEl.tagName,
+                type: htmlEl.type,
+                selector
+              });
               if (htmlEl.tagName === "SELECT") {
                 const selectEl = htmlEl;
                 const selectedOption = selectEl.options[selectEl.selectedIndex];

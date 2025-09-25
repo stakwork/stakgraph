@@ -205,11 +205,47 @@ class UserBehaviorTracker {
         }
 
         const target = e.target as HTMLInputElement;
-        const isFormElement = target.tagName === "INPUT" &&
-          (target.type === "checkbox" || target.type === "radio");
 
-        // Only record click for non-form elements, or if form element handling is disabled
-        if (!isFormElement || !this.config.formInteractions) {
+        // Helper function to detect labels associated with radio/checkbox inputs
+        const isLabelForFormInput = (element: HTMLElement): boolean => {
+          if (element.tagName !== "LABEL") return false;
+
+          const label = element as HTMLLabelElement;
+          // Check if label controls a radio/checkbox using modern browser property
+          if (label.control) {
+            const control = label.control as HTMLInputElement;
+            return control.tagName === "INPUT" &&
+              (control.type === "radio" || control.type === "checkbox");
+          }
+
+          // Fallback: check htmlFor attribute
+          if (label.htmlFor) {
+            const control = document.getElementById(label.htmlFor) as HTMLInputElement;
+            return control && control.tagName === "INPUT" &&
+              (control.type === "radio" || control.type === "checkbox");
+          }
+
+          return false;
+        };
+
+        const isFormElement = (target.tagName === "INPUT" &&
+          (target.type === "checkbox" || target.type === "radio")) ||
+          isLabelForFormInput(target);
+
+        // Debug logging to identify duplicate action sources
+        console.log('🖱️ Click detected:', {
+          tagName: target.tagName,
+          type: target.type || 'none',
+          isFormElement,
+          className: target.className,
+          id: target.id,
+          textContent: target.textContent?.substring(0, 20)
+        });
+
+        // Skip click recording for form elements when form interactions are enabled
+        // This prevents duplicate actions since form changes are handled separately
+        if (!isFormElement) {
+          console.log('✅ Recording click action for:', target.tagName);
           this.results.clicks.clickCount++;
           const clickDetail = createClickDetail(e);
           this.results.clicks.clickDetails.push(clickDetail);
@@ -356,6 +392,13 @@ class UserBehaviorTracker {
         ) {
           const changeHandler = () => {
             const selector = getElementSelector(htmlEl);
+
+            // Debug logging for form changes
+            console.log('📝 Form change detected:', {
+              tagName: htmlEl.tagName,
+              type: (htmlEl as HTMLInputElement).type,
+              selector: selector
+            });
 
             if (htmlEl.tagName === "SELECT") {
               const selectEl = htmlEl as HTMLSelectElement;
