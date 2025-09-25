@@ -3342,11 +3342,14 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
      * Send event data to parent for recording
      */
     sendEventToParent(eventType, data) {
-      window.parent.postMessage({
-        type: "staktrak-event",
-        eventType,
-        data
-      }, "*");
+      window.parent.postMessage(
+        {
+          type: "staktrak-event",
+          eventType,
+          data
+        },
+        "*"
+      );
     }
     createEmptyResults() {
       return {
@@ -3435,9 +3438,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         clearInterval(this.memory.healthCheckInterval);
         this.memory.healthCheckInterval = null;
       }
-      Object.values(this.memory.inputDebounceTimers).forEach(
-        (timer) => clearTimeout(timer)
-      );
+      Object.values(this.memory.inputDebounceTimers).forEach((timer) => clearTimeout(timer));
       this.memory.inputDebounceTimers = {};
       if (this.memory.assertionDebounceTimer) {
         clearTimeout(this.memory.assertionDebounceTimer);
@@ -3450,7 +3451,6 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     setupEventListeners() {
       if (this.config.clicks) {
         const clickHandler = (e) => {
-          var _a, _b;
           if (this.memory.selectionMode) {
             return;
           }
@@ -3470,52 +3470,38 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
             return false;
           };
           const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio") || isLabelForFormInput(target);
-          console.log("\u{1F5B1}\uFE0F Click detected:", {
-            tagName: target.tagName,
-            type: target.type || "none",
-            isFormElement,
-            className: target.className,
-            id: target.id,
-            textContent: (_a = target.textContent) == null ? void 0 : _a.substring(0, 20)
-          });
           if (!isFormElement) {
-            console.log("\u2705 Recording click action for:", target.tagName);
             this.results.clicks.clickCount++;
             const clickDetail = createClickDetail(e);
             this.results.clicks.clickDetails.push(clickDetail);
             this.sendEventToParent("click", clickDetail);
-            window.parent.postMessage({
-              type: "staktrak-action-added",
-              action: {
-                id: clickDetail.timestamp + "_click",
-                kind: "click",
-                timestamp: clickDetail.timestamp,
-                locator: {
-                  primary: clickDetail.selectors.primary,
-                  text: (_b = clickDetail.elementInfo) == null ? void 0 : _b.text
+            window.parent.postMessage(
+              {
+                type: "staktrak-action-added",
+                action: {
+                  id: clickDetail.timestamp + "_click",
+                  kind: "click",
+                  timestamp: clickDetail.timestamp,
+                  locator: {
+                    primary: clickDetail.selectors.primary,
+                    text: clickDetail.selectors.text
+                  }
                 }
-              }
-            }, "*");
+              },
+              "*"
+            );
           }
           this.saveSessionState();
         };
         document.addEventListener("click", clickHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("click", clickHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("click", clickHandler));
       }
       if (this.config.mouseScroll) {
         const scrollHandler = () => {
-          this.results.mouseScroll.push([
-            window.scrollX,
-            window.scrollY,
-            getTimeStamp()
-          ]);
+          this.results.mouseScroll.push([window.scrollX, window.scrollY, getTimeStamp()]);
         };
         window.addEventListener("scroll", scrollHandler);
-        this.memory.listeners.push(
-          () => window.removeEventListener("scroll", scrollHandler)
-        );
+        this.memory.listeners.push(() => window.removeEventListener("scroll", scrollHandler));
       }
       if (this.config.mouseMovement) {
         const mouseMoveHandler = (e) => {
@@ -3537,23 +3523,14 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
       }
       if (this.config.windowResize) {
         const resizeHandler = () => {
-          this.results.windowSizes.push([
-            window.innerWidth,
-            window.innerHeight,
-            getTimeStamp()
-          ]);
+          this.results.windowSizes.push([window.innerWidth, window.innerHeight, getTimeStamp()]);
         };
         window.addEventListener("resize", resizeHandler);
-        this.memory.listeners.push(
-          () => window.removeEventListener("resize", resizeHandler)
-        );
+        this.memory.listeners.push(() => window.removeEventListener("resize", resizeHandler));
       }
       if (this.config.visibilitychange) {
         const visibilityHandler = () => {
-          this.results.visibilitychanges.push([
-            document.visibilityState,
-            getTimeStamp()
-          ]);
+          this.results.visibilitychanges.push([document.visibilityState, getTimeStamp()]);
         };
         document.addEventListener("visibilitychange", visibilityHandler);
         this.memory.listeners.push(
@@ -3567,9 +3544,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           }
         };
         document.addEventListener("keypress", keyHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("keypress", keyHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("keypress", keyHandler));
       }
       if (this.config.formInteractions) {
         this.setupFormInteractions();
@@ -3587,9 +3562,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           }
         };
         document.addEventListener("touchstart", touchHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("touchstart", touchHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("touchstart", touchHandler));
       }
     }
     setupFormInteractions() {
@@ -3600,11 +3573,6 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           if (inputEl.type === "checkbox" || inputEl.type === "radio" || htmlEl.tagName === "SELECT") {
             const changeHandler = () => {
               const selector = getElementSelector(htmlEl);
-              console.log("\u{1F4DD} Form change detected:", {
-                tagName: htmlEl.tagName,
-                type: htmlEl.type,
-                selector
-              });
               if (htmlEl.tagName === "SELECT") {
                 const selectEl = htmlEl;
                 const selectedOption = selectEl.options[selectEl.selectedIndex];
@@ -3623,16 +3591,19 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   text: (selectedOption == null ? void 0 : selectedOption.text) || "",
                   timestamp: formChange.timestamp
                 });
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: formChange.timestamp + "_form",
-                    kind: "form",
-                    timestamp: formChange.timestamp,
-                    formType: formChange.type,
-                    value: formChange.text
-                  }
-                }, "*");
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: formChange.timestamp + "_form",
+                      kind: "form",
+                      timestamp: formChange.timestamp,
+                      formType: formChange.type,
+                      value: formChange.text
+                    }
+                  },
+                  "*"
+                );
               } else {
                 const formChange = {
                   elementSelector: selector,
@@ -3649,17 +3620,20 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   value: inputEl.value,
                   timestamp: formChange.timestamp
                 });
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: formChange.timestamp + "_form",
-                    kind: "form",
-                    timestamp: formChange.timestamp,
-                    formType: formChange.type,
-                    checked: formChange.checked,
-                    value: formChange.value
-                  }
-                }, "*");
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: formChange.timestamp + "_form",
+                      kind: "form",
+                      timestamp: formChange.timestamp,
+                      formType: formChange.type,
+                      checked: formChange.checked,
+                      value: formChange.value
+                    }
+                  },
+                  "*"
+                );
               }
               this.saveSessionState();
             };
@@ -3684,16 +3658,19 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   value: inputEl.value,
                   timestamp: inputAction2.timestamp
                 });
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: inputAction2.timestamp + "_input",
-                    kind: "input",
-                    timestamp: inputAction2.timestamp,
-                    value: inputAction2.value,
-                    locator: { primary: selector, fallbacks: [] }
-                  }
-                }, "*");
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: inputAction2.timestamp + "_input",
+                      kind: "input",
+                      timestamp: inputAction2.timestamp,
+                      value: inputAction2.value,
+                      locator: { primary: selector, fallbacks: [] }
+                    }
+                  },
+                  "*"
+                );
                 delete this.memory.inputDebounceTimers[elementId];
                 this.saveSessionState();
               }, this.config.inputDebounceDelay);
@@ -3704,15 +3681,18 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                 action: "intermediate"
               };
               this.results.inputChanges.push(inputAction);
-              window.parent.postMessage({
-                type: "staktrak-action-added",
-                action: {
-                  id: inputAction.timestamp + "_input",
-                  kind: "input",
-                  timestamp: inputAction.timestamp,
-                  value: inputAction.value
-                }
-              }, "*");
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: inputAction.timestamp + "_input",
+                    kind: "input",
+                    timestamp: inputAction.timestamp,
+                    value: inputAction.value
+                  }
+                },
+                "*"
+              );
             };
             const focusHandler = (e) => {
               const selector = getElementSelector(htmlEl);
@@ -3734,15 +3714,18 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   action: "complete"
                 };
                 this.results.inputChanges.push(inputAction);
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: inputAction.timestamp + "_input",
-                    kind: "input",
-                    timestamp: inputAction.timestamp,
-                    value: inputAction.value
-                  }
-                }, "*");
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: inputAction.timestamp + "_input",
+                      kind: "input",
+                      timestamp: inputAction.timestamp,
+                      value: inputAction.value
+                    }
+                  },
+                  "*"
+                );
               }
             };
             htmlEl.addEventListener("input", inputHandler);
@@ -3784,19 +3767,19 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         };
         this.results.pageNavigation.push(navAction);
         this.sendEventToParent("navigation", navAction);
-        window.parent.postMessage({
-          type: "staktrak-action-added",
-          action: {
-            id: navAction.timestamp + "_nav",
-            kind: "nav",
-            timestamp: navAction.timestamp,
-            url: navAction.url
-          }
-        }, "*");
         window.parent.postMessage(
-          { type: "staktrak-page-navigation", data: document.URL },
+          {
+            type: "staktrak-action-added",
+            action: {
+              id: navAction.timestamp + "_nav",
+              kind: "nav",
+              timestamp: navAction.timestamp,
+              url: navAction.url
+            }
+          },
           "*"
         );
+        window.parent.postMessage({ type: "staktrak-page-navigation", data: document.URL }, "*");
       };
       history.pushState = (...args) => {
         originalPushState.apply(history, args);
@@ -3810,16 +3793,12 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         recordStateChange("popstate");
       };
       window.addEventListener("popstate", popstateHandler);
-      this.memory.alwaysListeners.push(
-        () => window.removeEventListener("popstate", popstateHandler)
-      );
+      this.memory.alwaysListeners.push(() => window.removeEventListener("popstate", popstateHandler));
       const hashHandler = () => {
         recordStateChange("hashchange");
       };
       window.addEventListener("hashchange", hashHandler);
-      this.memory.alwaysListeners.push(
-        () => window.removeEventListener("hashchange", hashHandler)
-      );
+      this.memory.alwaysListeners.push(() => window.removeEventListener("hashchange", hashHandler));
       const anchorClickHandler = (e) => {
         const a = e.target.closest("a");
         if (!a)
@@ -3834,15 +3813,18 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           if (dest.origin === window.location.origin) {
             const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
             this.results.pageNavigation.push(navAction);
-            window.parent.postMessage({
-              type: "staktrak-action-added",
-              action: {
-                id: navAction.timestamp + "_nav",
-                kind: "nav",
-                timestamp: navAction.timestamp,
-                url: navAction.url
-              }
-            }, "*");
+            window.parent.postMessage(
+              {
+                type: "staktrak-action-added",
+                action: {
+                  id: navAction.timestamp + "_nav",
+                  kind: "nav",
+                  timestamp: navAction.timestamp,
+                  url: navAction.url
+                }
+              },
+              "*"
+            );
           }
         } catch (e2) {
         }
@@ -3996,9 +3978,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         }
       };
       window.addEventListener("message", messageHandler);
-      this.memory.alwaysListeners.push(
-        () => window.removeEventListener("message", messageHandler)
-      );
+      this.memory.alwaysListeners.push(() => window.removeEventListener("message", messageHandler));
     }
     checkDebugInfo() {
       setTimeout(() => {
@@ -4037,9 +4017,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           }
         };
         document.addEventListener("mouseup", mouseUpHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("mouseup", mouseUpHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("mouseup", mouseUpHandler));
       } else {
         document.body.classList.remove("staktrak-selection-active");
         (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
@@ -4062,10 +4040,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         this.config
       );
       this.results.assertions = this.memory.assertions;
-      window.parent.postMessage(
-        { type: "staktrak-results", data: this.results },
-        "*"
-      );
+      window.parent.postMessage({ type: "staktrak-results", data: this.results }, "*");
       this.config.processData(this.results);
       if (this.config.clearAfterProcess) {
         this.resetResults();

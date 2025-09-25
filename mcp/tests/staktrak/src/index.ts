@@ -8,14 +8,15 @@ import {
 } from "./utils";
 import { debugMsg, isReactDevModeActive } from "./debug";
 import { initPlaywrightReplay } from "./playwright-replay/index";
-import { StakTrakMessage, isStakTrakMessage, isRemoveActionMessage, isAddAssertionMessage } from "./messages";
-import { resultsToActions } from "./actionModel";
-import { buildScenario, serializeScenario } from './scenario';
 import {
-  generatePlaywrightTestFromActions,
-  GenerateOptions,
-} from "./playwright-generator";
-
+  StakTrakMessage,
+  isStakTrakMessage,
+  isRemoveActionMessage,
+  isAddAssertionMessage,
+} from "./messages";
+import { resultsToActions } from "./actionModel";
+import { buildScenario, serializeScenario } from "./scenario";
+import { generatePlaywrightTestFromActions, GenerateOptions } from "./playwright-generator";
 
 const defaultConfig: Config = {
   userInfo: true,
@@ -59,11 +60,14 @@ class UserBehaviorTracker {
    * Send event data to parent for recording
    */
   private sendEventToParent(eventType: string, data: any) {
-    window.parent.postMessage({
-      type: "staktrak-event",
-      eventType,
-      data
-    }, "*");
+    window.parent.postMessage(
+      {
+        type: "staktrak-event",
+        eventType,
+        data,
+      },
+      "*"
+    );
   }
 
   private createEmptyResults(): Results {
@@ -122,14 +126,12 @@ class UserBehaviorTracker {
         results: this.results,
         memory: {
           assertions: this.memory.assertions,
-          selectionMode: this.memory.selectionMode
+          selectionMode: this.memory.selectionMode,
         },
-        version: "1.0"
+        version: "1.0",
       };
-      sessionStorage.setItem('stakTrakActiveRecording', JSON.stringify(sessionData));
-    } catch (error) {
-      
-    }
+      sessionStorage.setItem("stakTrakActiveRecording", JSON.stringify(sessionData));
+    } catch (error) {}
   }
 
   private resetResults() {
@@ -178,9 +180,7 @@ class UserBehaviorTracker {
     }
 
     // Clean up debounce timers
-    Object.values(this.memory.inputDebounceTimers).forEach((timer) =>
-      clearTimeout(timer)
-    );
+    Object.values(this.memory.inputDebounceTimers).forEach((timer) => clearTimeout(timer));
     this.memory.inputDebounceTimers = {};
 
     // Clean up assertion timer
@@ -196,7 +196,6 @@ class UserBehaviorTracker {
   }
 
   public setupEventListeners() {
-    
     if (this.config.clicks) {
       const clickHandler = (e: MouseEvent) => {
         // Skip click recording when in selection mode (creating assertions)
@@ -214,38 +213,32 @@ class UserBehaviorTracker {
           // Check if label controls a radio/checkbox using modern browser property
           if (label.control) {
             const control = label.control as HTMLInputElement;
-            return control.tagName === "INPUT" &&
-              (control.type === "radio" || control.type === "checkbox");
+            return (
+              control.tagName === "INPUT" &&
+              (control.type === "radio" || control.type === "checkbox")
+            );
           }
 
           // Fallback: check htmlFor attribute
           if (label.htmlFor) {
             const control = document.getElementById(label.htmlFor) as HTMLInputElement;
-            return control && control.tagName === "INPUT" &&
-              (control.type === "radio" || control.type === "checkbox");
+            return (
+              control &&
+              control.tagName === "INPUT" &&
+              (control.type === "radio" || control.type === "checkbox")
+            );
           }
 
           return false;
         };
 
-        const isFormElement = (target.tagName === "INPUT" &&
-          (target.type === "checkbox" || target.type === "radio")) ||
+        const isFormElement =
+          (target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio")) ||
           isLabelForFormInput(target);
-
-        // Debug logging to identify duplicate action sources
-        console.log('🖱️ Click detected:', {
-          tagName: target.tagName,
-          type: target.type || 'none',
-          isFormElement,
-          className: target.className,
-          id: target.id,
-          textContent: target.textContent?.substring(0, 20)
-        });
 
         // Skip click recording for form elements when form interactions are enabled
         // This prevents duplicate actions since form changes are handled separately
         if (!isFormElement) {
-          console.log('✅ Recording click action for:', target.tagName);
           this.results.clicks.clickCount++;
           const clickDetail = createClickDetail(e);
           this.results.clicks.clickDetails.push(clickDetail);
@@ -254,18 +247,21 @@ class UserBehaviorTracker {
           this.sendEventToParent("click", clickDetail);
 
           // Keep backward compatibility with action-added message
-          window.parent.postMessage({
-            type: "staktrak-action-added",
-            action: {
-              id: clickDetail.timestamp + '_click',
-              kind: 'click',
-              timestamp: clickDetail.timestamp,
-              locator: {
-                primary: clickDetail.selectors.primary,
-                text: clickDetail.elementInfo?.text
-              }
-            }
-          }, "*");
+          window.parent.postMessage(
+            {
+              type: "staktrak-action-added",
+              action: {
+                id: clickDetail.timestamp + "_click",
+                kind: "click",
+                timestamp: clickDetail.timestamp,
+                locator: {
+                  primary: clickDetail.selectors.primary,
+                  text: clickDetail.selectors.text,
+                },
+              },
+            },
+            "*"
+          );
         }
 
         // Form changes are handled by the dedicated change event handler
@@ -274,23 +270,15 @@ class UserBehaviorTracker {
         this.saveSessionState();
       };
       document.addEventListener("click", clickHandler);
-      this.memory.listeners.push(() =>
-        document.removeEventListener("click", clickHandler)
-      );
+      this.memory.listeners.push(() => document.removeEventListener("click", clickHandler));
     }
 
     if (this.config.mouseScroll) {
       const scrollHandler = () => {
-        this.results.mouseScroll.push([
-          window.scrollX,
-          window.scrollY,
-          getTimeStamp(),
-        ]);
+        this.results.mouseScroll.push([window.scrollX, window.scrollY, getTimeStamp()]);
       };
       window.addEventListener("scroll", scrollHandler);
-      this.memory.listeners.push(() =>
-        window.removeEventListener("scroll", scrollHandler)
-      );
+      this.memory.listeners.push(() => window.removeEventListener("scroll", scrollHandler));
     }
 
     if (this.config.mouseMovement) {
@@ -315,24 +303,15 @@ class UserBehaviorTracker {
 
     if (this.config.windowResize) {
       const resizeHandler = () => {
-        this.results.windowSizes.push([
-          window.innerWidth,
-          window.innerHeight,
-          getTimeStamp(),
-        ]);
+        this.results.windowSizes.push([window.innerWidth, window.innerHeight, getTimeStamp()]);
       };
       window.addEventListener("resize", resizeHandler);
-      this.memory.listeners.push(() =>
-        window.removeEventListener("resize", resizeHandler)
-      );
+      this.memory.listeners.push(() => window.removeEventListener("resize", resizeHandler));
     }
 
     if (this.config.visibilitychange) {
       const visibilityHandler = () => {
-        this.results.visibilitychanges.push([
-          document.visibilityState,
-          getTimeStamp(),
-        ]);
+        this.results.visibilitychanges.push([document.visibilityState, getTimeStamp()]);
       };
       document.addEventListener("visibilitychange", visibilityHandler);
       this.memory.listeners.push(() =>
@@ -347,9 +326,7 @@ class UserBehaviorTracker {
         }
       };
       document.addEventListener("keypress", keyHandler);
-      this.memory.listeners.push(() =>
-        document.removeEventListener("keypress", keyHandler)
-      );
+      this.memory.listeners.push(() => document.removeEventListener("keypress", keyHandler));
     }
 
     if (this.config.formInteractions) {
@@ -369,9 +346,7 @@ class UserBehaviorTracker {
         }
       };
       document.addEventListener("touchstart", touchHandler);
-      this.memory.listeners.push(() =>
-        document.removeEventListener("touchstart", touchHandler)
-      );
+      this.memory.listeners.push(() => document.removeEventListener("touchstart", touchHandler));
     }
   }
 
@@ -393,13 +368,6 @@ class UserBehaviorTracker {
           const changeHandler = () => {
             const selector = getElementSelector(htmlEl);
 
-            // Debug logging for form changes
-            console.log('📝 Form change detected:', {
-              tagName: htmlEl.tagName,
-              type: (htmlEl as HTMLInputElement).type,
-              selector: selector
-            });
-
             if (htmlEl.tagName === "SELECT") {
               const selectEl = htmlEl as HTMLSelectElement;
               const selectedOption = selectEl.options[selectEl.selectedIndex];
@@ -417,20 +385,23 @@ class UserBehaviorTracker {
                 formType: "select",
                 value: selectEl.value,
                 text: selectedOption?.text || "",
-                timestamp: formChange.timestamp
+                timestamp: formChange.timestamp,
               });
 
               // Broadcast form action in real-time
-              window.parent.postMessage({
-                type: "staktrak-action-added",
-                action: {
-                  id: formChange.timestamp + '_form',
-                  kind: 'form',
-                  timestamp: formChange.timestamp,
-                  formType: formChange.type,
-                  value: formChange.text
-                }
-              }, "*");
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: formChange.timestamp + "_form",
+                    kind: "form",
+                    timestamp: formChange.timestamp,
+                    formType: formChange.type,
+                    value: formChange.text,
+                  },
+                },
+                "*"
+              );
             } else {
               const formChange = {
                 elementSelector: selector,
@@ -446,21 +417,24 @@ class UserBehaviorTracker {
                 formType: inputEl.type,
                 checked: inputEl.checked,
                 value: inputEl.value,
-                timestamp: formChange.timestamp
+                timestamp: formChange.timestamp,
               });
 
               // Broadcast form action in real-time
-              window.parent.postMessage({
-                type: "staktrak-action-added",
-                action: {
-                  id: formChange.timestamp + '_form',
-                  kind: 'form',
-                  timestamp: formChange.timestamp,
-                  formType: formChange.type,
-                  checked: formChange.checked,
-                  value: formChange.value
-                }
-              }, "*");
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: formChange.timestamp + "_form",
+                    kind: "form",
+                    timestamp: formChange.timestamp,
+                    formType: formChange.type,
+                    checked: formChange.checked,
+                    value: formChange.value,
+                  },
+                },
+                "*"
+              );
             }
             // Save state after form element changes
             this.saveSessionState();
@@ -487,20 +461,23 @@ class UserBehaviorTracker {
               this.sendEventToParent("input", {
                 selector: selector,
                 value: inputEl.value,
-                timestamp: inputAction.timestamp
+                timestamp: inputAction.timestamp,
               });
 
               // Broadcast input action in real-time
-              window.parent.postMessage({
-                type: "staktrak-action-added",
-                action: {
-                  id: inputAction.timestamp + '_input',
-                  kind: 'input',
-                  timestamp: inputAction.timestamp,
-                  value: inputAction.value,
-                  locator: { primary: selector, fallbacks: [] }
-                }
-              }, "*");
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: inputAction.timestamp + "_input",
+                    kind: "input",
+                    timestamp: inputAction.timestamp,
+                    value: inputAction.value,
+                    locator: { primary: selector, fallbacks: [] },
+                  },
+                },
+                "*"
+              );
 
               delete this.memory.inputDebounceTimers[elementId];
               // Save state after input completion
@@ -516,15 +493,18 @@ class UserBehaviorTracker {
             this.results.inputChanges.push(inputAction);
 
             // Broadcast intermediate input action in real-time
-            window.parent.postMessage({
-              type: "staktrak-action-added",
-              action: {
-                id: inputAction.timestamp + '_input',
-                kind: 'input',
-                timestamp: inputAction.timestamp,
-                value: inputAction.value
-              }
-            }, "*");
+            window.parent.postMessage(
+              {
+                type: "staktrak-action-added",
+                action: {
+                  id: inputAction.timestamp + "_input",
+                  kind: "input",
+                  timestamp: inputAction.timestamp,
+                  value: inputAction.value,
+                },
+              },
+              "*"
+            );
           };
 
           const focusHandler = (e: FocusEvent) => {
@@ -550,15 +530,18 @@ class UserBehaviorTracker {
               this.results.inputChanges.push(inputAction);
 
               // Broadcast final input action in real-time
-              window.parent.postMessage({
-                type: "staktrak-action-added",
-                action: {
-                  id: inputAction.timestamp + '_input',
-                  kind: 'input',
-                  timestamp: inputAction.timestamp,
-                  value: inputAction.value
-                }
-              }, "*");
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: inputAction.timestamp + "_input",
+                    kind: "input",
+                    timestamp: inputAction.timestamp,
+                    value: inputAction.value,
+                  },
+                },
+                "*"
+              );
             }
           };
 
@@ -569,9 +552,7 @@ class UserBehaviorTracker {
       }
     };
 
-    document
-      .querySelectorAll("input, select, textarea")
-      .forEach(attachFormListeners);
+    document.querySelectorAll("input, select, textarea").forEach(attachFormListeners);
 
     this.memory.mutationObserver = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
@@ -613,19 +594,19 @@ class UserBehaviorTracker {
       this.sendEventToParent("navigation", navAction);
 
       // Broadcast navigation action in real-time
-      window.parent.postMessage({
-        type: "staktrak-action-added",
-        action: {
-          id: navAction.timestamp + '_nav',
-          kind: 'nav',
-          timestamp: navAction.timestamp,
-          url: navAction.url
-        }
-      }, "*");
       window.parent.postMessage(
-        { type: "staktrak-page-navigation", data: document.URL },
+        {
+          type: "staktrak-action-added",
+          action: {
+            id: navAction.timestamp + "_nav",
+            kind: "nav",
+            timestamp: navAction.timestamp,
+            url: navAction.url,
+          },
+        },
         "*"
       );
+      window.parent.postMessage({ type: "staktrak-page-navigation", data: document.URL }, "*");
     };
 
     history.pushState = (...args) => {
@@ -642,46 +623,45 @@ class UserBehaviorTracker {
       recordStateChange("popstate");
     };
     window.addEventListener("popstate", popstateHandler);
-    this.memory.alwaysListeners.push(() =>
-      window.removeEventListener("popstate", popstateHandler)
-    );
+    this.memory.alwaysListeners.push(() => window.removeEventListener("popstate", popstateHandler));
 
     const hashHandler = () => {
       recordStateChange("hashchange");
     };
-    window.addEventListener('hashchange', hashHandler);
-    this.memory.alwaysListeners.push(() =>
-      window.removeEventListener('hashchange', hashHandler)
-    );
+    window.addEventListener("hashchange", hashHandler);
+    this.memory.alwaysListeners.push(() => window.removeEventListener("hashchange", hashHandler));
 
     const anchorClickHandler = (e: Event) => {
-      const a = (e.target as HTMLElement).closest('a');
+      const a = (e.target as HTMLElement).closest("a");
       if (!a) return;
-      if (a.target && a.target !== '_self') return;
-      const href = a.getAttribute('href');
+      if (a.target && a.target !== "_self") return;
+      const href = a.getAttribute("href");
       if (!href) return;
       try {
         const dest = new URL(href, window.location.href);
         if (dest.origin === window.location.origin) {
-          const navAction = { type: 'anchorClick', url: dest.href, timestamp: getTimeStamp() };
+          const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
           this.results.pageNavigation.push(navAction);
 
           // Broadcast navigation action in real-time
-          window.parent.postMessage({
-            type: "staktrak-action-added",
-            action: {
-              id: navAction.timestamp + '_nav',
-              kind: 'nav',
-              timestamp: navAction.timestamp,
-              url: navAction.url
-            }
-          }, "*");
+          window.parent.postMessage(
+            {
+              type: "staktrak-action-added",
+              action: {
+                id: navAction.timestamp + "_nav",
+                kind: "nav",
+                timestamp: navAction.timestamp,
+                url: navAction.url,
+              },
+            },
+            "*"
+          );
         }
       } catch {}
     };
-    document.addEventListener('click', anchorClickHandler, true);
+    document.addEventListener("click", anchorClickHandler, true);
     this.memory.alwaysListeners.push(() =>
-      document.removeEventListener('click', anchorClickHandler, true)
+      document.removeEventListener("click", anchorClickHandler, true)
     );
 
     // Note: We don't restore original pushState/replaceState since they're global
@@ -694,70 +674,70 @@ class UserBehaviorTracker {
 
     // Define action removal handlers with error handling
     const actionRemovalHandlers: Record<string, (data: any) => boolean> = {
-      'staktrak-remove-navigation': (data) => {
+      "staktrak-remove-navigation": (data) => {
         try {
           if (!data.timestamp) {
-            console.warn('Missing timestamp for navigation removal');
+            console.warn("Missing timestamp for navigation removal");
             return false;
           }
           const initialLength = this.results.pageNavigation.length;
           this.results.pageNavigation = this.results.pageNavigation.filter(
-            nav => nav.timestamp !== data.timestamp
+            (nav) => nav.timestamp !== data.timestamp
           );
           return this.results.pageNavigation.length < initialLength;
         } catch (error) {
-          console.error('Failed to remove navigation:', error);
+          console.error("Failed to remove navigation:", error);
           return false;
         }
       },
-      'staktrak-remove-click': (data) => {
+      "staktrak-remove-click": (data) => {
         try {
           if (!data.timestamp) {
-            console.warn('Missing timestamp for click removal');
+            console.warn("Missing timestamp for click removal");
             return false;
           }
           const initialLength = this.results.clicks.clickDetails.length;
           this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
-            click => click.timestamp !== data.timestamp
+            (click) => click.timestamp !== data.timestamp
           );
           return this.results.clicks.clickDetails.length < initialLength;
         } catch (error) {
-          console.error('Failed to remove click:', error);
+          console.error("Failed to remove click:", error);
           return false;
         }
       },
-      'staktrak-remove-input': (data) => {
+      "staktrak-remove-input": (data) => {
         try {
           if (!data.timestamp) {
-            console.warn('Missing timestamp for input removal');
+            console.warn("Missing timestamp for input removal");
             return false;
           }
           const initialLength = this.results.inputChanges.length;
           this.results.inputChanges = this.results.inputChanges.filter(
-            input => input.timestamp !== data.timestamp
+            (input) => input.timestamp !== data.timestamp
           );
           return this.results.inputChanges.length < initialLength;
         } catch (error) {
-          console.error('Failed to remove input:', error);
+          console.error("Failed to remove input:", error);
           return false;
         }
       },
-      'staktrak-remove-form': (data) => {
+      "staktrak-remove-form": (data) => {
         try {
           if (!data.timestamp) {
-            console.warn('Missing timestamp for form removal');
+            console.warn("Missing timestamp for form removal");
             return false;
           }
           const initialLength = this.results.formElementChanges.length;
           this.results.formElementChanges = this.results.formElementChanges.filter(
-            form => form.timestamp !== data.timestamp
+            (form) => form.timestamp !== data.timestamp
           );
           return this.results.formElementChanges.length < initialLength;
         } catch (error) {
-          console.error('Failed to remove form change:', error);
+          console.error("Failed to remove form change:", error);
           return false;
         }
-      }
+      },
     };
 
     const messageHandler = (event: MessageEvent) => {
@@ -803,12 +783,12 @@ class UserBehaviorTracker {
           if (event.data.assertionId) {
             // Find the assertion being removed to get its timestamp
             const assertionToRemove = this.memory.assertions.find(
-              assertion => assertion.id === event.data.assertionId
+              (assertion) => assertion.id === event.data.assertionId
             );
 
             // Remove the assertion
             this.memory.assertions = this.memory.assertions.filter(
-              assertion => assertion.id !== event.data.assertionId
+              (assertion) => assertion.id !== event.data.assertionId
             );
 
             // Also remove the click that created this assertion
@@ -817,7 +797,7 @@ class UserBehaviorTracker {
               const assertionTime = assertionToRemove.timestamp;
               // Find clicks that happened before this assertion
               const clicksBefore = this.results.clicks.clickDetails.filter(
-                click => click.timestamp < assertionTime
+                (click) => click.timestamp < assertionTime
               );
               if (clicksBefore.length > 0) {
                 // Find the most recent click before the assertion
@@ -826,7 +806,7 @@ class UserBehaviorTracker {
                 );
                 // Remove that click
                 this.results.clicks.clickDetails = this.results.clicks.clickDetails.filter(
-                  click => click.timestamp !== mostRecentClick.timestamp
+                  (click) => click.timestamp !== mostRecentClick.timestamp
                 );
               }
             }
@@ -847,9 +827,7 @@ class UserBehaviorTracker {
       }
     };
     window.addEventListener("message", messageHandler);
-    this.memory.alwaysListeners.push(() =>
-      window.removeEventListener("message", messageHandler)
-    );
+    this.memory.alwaysListeners.push(() => window.removeEventListener("message", messageHandler));
   }
 
   private checkDebugInfo() {
@@ -870,11 +848,9 @@ class UserBehaviorTracker {
         if (selection?.toString().trim()) {
           const text = selection.toString();
           let container = selection.getRangeAt(0).commonAncestorContainer;
-          if (container.nodeType === 3)
-            container = container.parentNode as Node;
+          if (container.nodeType === 3) container = container.parentNode as Node;
 
-          if (this.memory.assertionDebounceTimer)
-            clearTimeout(this.memory.assertionDebounceTimer);
+          if (this.memory.assertionDebounceTimer) clearTimeout(this.memory.assertionDebounceTimer);
 
           this.memory.assertionDebounceTimer = setTimeout(() => {
             const selector = getElementSelector(container as Element);
@@ -893,9 +869,7 @@ class UserBehaviorTracker {
         }
       };
       document.addEventListener("mouseup", mouseUpHandler);
-      this.memory.listeners.push(() =>
-        document.removeEventListener("mouseup", mouseUpHandler)
-      );
+      this.memory.listeners.push(() => document.removeEventListener("mouseup", mouseUpHandler));
     } else {
       document.body.classList.remove("staktrak-selection-active");
       window.getSelection()?.removeAllRanges();
@@ -924,10 +898,7 @@ class UserBehaviorTracker {
 
     this.results.assertions = this.memory.assertions;
 
-    window.parent.postMessage(
-      { type: "staktrak-results", data: this.results },
-      "*"
-    );
+    window.parent.postMessage({ type: "staktrak-results", data: this.results }, "*");
     this.config.processData(this.results);
 
     if (this.config.clearAfterProcess) {
@@ -946,7 +917,7 @@ class UserBehaviorTracker {
     this.isRunning = false;
 
     // Clear persisted state after successful stop
-    sessionStorage.removeItem('stakTrakActiveRecording');
+    sessionStorage.removeItem("stakTrakActiveRecording");
 
     return this;
   }
@@ -980,7 +951,7 @@ class UserBehaviorTracker {
 
   public attemptSessionRestoration() {
     try {
-      const activeRecording = sessionStorage.getItem('stakTrakActiveRecording');
+      const activeRecording = sessionStorage.getItem("stakTrakActiveRecording");
       if (!activeRecording) {
         return;
       }
@@ -989,13 +960,11 @@ class UserBehaviorTracker {
 
       // Simple validation: if session data exists and claims to be recording, restore it
       if (recordingData && recordingData.isRecording && recordingData.version === "1.0") {
-
         // Detect if this is an iframe reload (page loaded recently after session was saved)
         const timeSinceLastSave = Date.now() - (recordingData.lastSaved || 0);
         const isLikelyIframeReload = timeSinceLastSave < 10000; // Within 10 seconds
 
         if (isLikelyIframeReload) {
-          
           // Restore state
           if (recordingData.results) {
             this.results = { ...this.createEmptyResults(), ...recordingData.results };
@@ -1008,10 +977,9 @@ class UserBehaviorTracker {
           // Reactivate recording
           this.isRunning = true;
           this.setupEventListeners();
-          
+
           // Start health check for restored session
           this.startHealthCheck();
-          
 
           // Verify event listeners are working
           this.verifyEventListeners();
@@ -1019,23 +987,20 @@ class UserBehaviorTracker {
           // Notify parent that recording is active again
           window.parent.postMessage({ type: "staktrak-replay-ready" }, "*");
         } else {
-          sessionStorage.removeItem('stakTrakActiveRecording');
+          sessionStorage.removeItem("stakTrakActiveRecording");
         }
       } else {
         // Invalid session data, starting fresh
-        sessionStorage.removeItem('stakTrakActiveRecording');
+        sessionStorage.removeItem("stakTrakActiveRecording");
       }
     } catch (error) {
-      
-      sessionStorage.removeItem('stakTrakActiveRecording');
+      sessionStorage.removeItem("stakTrakActiveRecording");
     }
   }
 
   private verifyEventListeners() {
-    
     // If we have fewer listeners than expected, re-setup
     if (this.isRunning && this.memory.listeners.length === 0) {
-      
       this.setupEventListeners();
     }
   }
@@ -1044,10 +1009,10 @@ class UserBehaviorTracker {
     if (!this.isRunning) {
       return;
     }
-    
+
     // Ensure event listeners are active
     this.verifyEventListeners();
-    
+
     // Save current state
     this.saveSessionState();
   }
@@ -1058,15 +1023,13 @@ class UserBehaviorTracker {
       if (this.isRunning) {
         // Verify listeners are still active
         if (this.memory.listeners.length === 0) {
-          
           this.recoverRecording();
         }
-        
+
         // Save state periodically in case of unexpected iframe reloads
         this.saveSessionState();
       }
     }, 5000);
-    
   }
 }
 
@@ -1082,10 +1045,10 @@ const initializeStakTrak = () => {
       },
     })
     .listen();
-  
+
   // Enhanced session restoration with iframe reload detection
   userBehaviour.attemptSessionRestoration();
-  
+
   initPlaywrightReplay();
 };
 
@@ -1095,8 +1058,7 @@ document.readyState === "loading"
 
 // Add utility functions to the userBehaviour object for testing
 (userBehaviour as any).createClickDetail = createClickDetail;
-(userBehaviour as any).getActions = () =>
-  resultsToActions(userBehaviour.result());
+(userBehaviour as any).getActions = () => resultsToActions(userBehaviour.result());
 (userBehaviour as any).generatePlaywrightTest = (options: GenerateOptions) => {
   const actions = resultsToActions(userBehaviour.result());
   const code = generatePlaywrightTestFromActions(actions, options);

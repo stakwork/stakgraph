@@ -24,7 +24,7 @@ export class RecordingManager {
     visibilitychanges: [],
     windowSizes: [],
     touchEvents: [],
-    audioVideoInteractions: []
+    audioVideoInteractions: [],
   };
 
   private capturedActions: Action[] = [];
@@ -35,44 +35,44 @@ export class RecordingManager {
    */
   handleEvent(eventType: string, eventData: any): Action | null {
     // Store in trackingData
-    switch(eventType) {
-      case 'click':
+    switch (eventType) {
+      case "click":
         this.trackingData.clicks.clickDetails.push(eventData);
         this.trackingData.clicks.clickCount++;
         break;
-      case 'nav':
-      case 'navigation':
+      case "nav":
+      case "navigation":
         this.trackingData.pageNavigation.push({
-          type: 'navigation',
+          type: "navigation",
           url: eventData.url,
-          timestamp: eventData.timestamp
+          timestamp: eventData.timestamp,
         });
         break;
-      case 'input':
+      case "input":
         this.trackingData.inputChanges.push({
-          elementSelector: eventData.selector || '',
+          elementSelector: eventData.selector || "",
           value: eventData.value,
           timestamp: eventData.timestamp,
-          action: 'complete'
+          action: "complete",
         });
         break;
-      case 'form':
+      case "form":
         this.trackingData.formElementChanges.push({
-          elementSelector: eventData.selector || '',
-          type: eventData.formType || 'input',
+          elementSelector: eventData.selector || "",
+          type: eventData.formType || "input",
           checked: eventData.checked,
-          value: eventData.value || '',
+          value: eventData.value || "",
           text: eventData.text,
-          timestamp: eventData.timestamp
+          timestamp: eventData.timestamp,
         });
         break;
-      case 'assertion':
+      case "assertion":
         this.trackingData.assertions.push({
           id: eventData.id,
-          type: eventData.type || 'hasText',
+          type: eventData.type || "hasText",
           selector: eventData.selector,
-          value: eventData.value || '',
-          timestamp: eventData.timestamp
+          value: eventData.value || "",
+          timestamp: eventData.timestamp,
         });
         break;
       default:
@@ -91,51 +91,51 @@ export class RecordingManager {
     const id = `${Date.now()}_${this.actionIdCounter++}`;
     const baseAction = {
       id,
-      timestamp: eventData.timestamp || Date.now()
+      timestamp: eventData.timestamp || Date.now(),
     };
 
-    switch(eventType) {
-      case 'click':
+    switch (eventType) {
+      case "click":
         return {
           ...baseAction,
-          kind: 'click',
+          kind: "click",
           locator: eventData.selectors || eventData.locator,
-          elementInfo: eventData.elementInfo
+          elementInfo: eventData.elementInfo,
         } as Action;
-      case 'nav':
-      case 'navigation':
+      case "nav":
+      case "navigation":
         return {
           ...baseAction,
-          kind: 'nav',
-          url: eventData.url
+          kind: "nav",
+          url: eventData.url,
         } as Action;
-      case 'input':
+      case "input":
         return {
           ...baseAction,
-          kind: 'input',
+          kind: "input",
           value: eventData.value,
-          locator: eventData.locator || { primary: eventData.selector }
+          locator: eventData.locator || { primary: eventData.selector },
         } as Action;
-      case 'form':
+      case "form":
         return {
           ...baseAction,
-          kind: 'form',
+          kind: "form",
           formType: eventData.formType,
           checked: eventData.checked,
           value: eventData.value,
-          locator: eventData.locator || { primary: eventData.selector }
+          locator: eventData.locator || { primary: eventData.selector },
         } as Action;
-      case 'assertion':
+      case "assertion":
         return {
           ...baseAction,
-          kind: 'assertion',
+          kind: "assertion",
           value: eventData.value,
-          locator: { primary: eventData.selector, fallbacks: [] }
+          locator: { primary: eventData.selector, fallbacks: [] },
         } as Action;
       default:
         return {
           ...baseAction,
-          kind: eventType
+          kind: eventType,
         } as Action;
     }
   }
@@ -144,10 +144,10 @@ export class RecordingManager {
    * Remove an action by ID
    */
   removeAction(actionId: string): boolean {
-    const action = this.capturedActions.find(a => (a as any).id === actionId);
+    const action = this.capturedActions.find((a) => (a as any).id === actionId);
     if (!action) return false;
 
-    this.capturedActions = this.capturedActions.filter(a => (a as any).id !== actionId);
+    this.capturedActions = this.capturedActions.filter((a) => (a as any).id !== actionId);
     this.removeFromTrackingData(action);
     return true;
   }
@@ -155,40 +155,40 @@ export class RecordingManager {
   private removeFromTrackingData(action: Action): void {
     const timestamp = action.timestamp;
 
-    switch(action.kind) {
-      case 'click':
+    switch (action.kind) {
+      case "click":
         this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
-          c => c.timestamp !== timestamp
+          (c) => c.timestamp !== timestamp
         );
         this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
         break;
-      case 'nav':
+      case "nav":
         this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
-          n => n.timestamp !== timestamp
+          (n) => n.timestamp !== timestamp
         );
         break;
-      case 'input':
+      case "input":
         this.trackingData.inputChanges = this.trackingData.inputChanges.filter(
-          i => i.timestamp !== timestamp
+          (i) => i.timestamp !== timestamp
         );
         break;
-      case 'form':
+      case "form":
         this.trackingData.formElementChanges = this.trackingData.formElementChanges.filter(
-          f => f.timestamp !== timestamp
+          (f) => f.timestamp !== timestamp
         );
         break;
-      case 'assertion':
+      case "assertion":
         this.trackingData.assertions = this.trackingData.assertions.filter(
-          a => a.timestamp !== timestamp
+          (a) => a.timestamp !== timestamp
         );
         // Also remove click before assertion if within 1 second
         const clickBeforeAssertion = this.trackingData.clicks.clickDetails
-          .filter(c => c.timestamp < timestamp)
+          .filter((c) => c.timestamp < timestamp)
           .sort((a, b) => b.timestamp - a.timestamp)[0];
 
         if (clickBeforeAssertion && timestamp - clickBeforeAssertion.timestamp < 1000) {
           this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
-            c => c.timestamp !== clickBeforeAssertion.timestamp
+            (c) => c.timestamp !== clickBeforeAssertion.timestamp
           );
           this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
         }
@@ -203,7 +203,7 @@ export class RecordingManager {
     const actions = resultsToActions(this.trackingData);
     return generatePlaywrightTestFromActions(actions, {
       baseUrl: url,
-      ...options
+      ...options,
     });
   }
 
@@ -238,7 +238,7 @@ export class RecordingManager {
       visibilitychanges: [],
       windowSizes: [],
       touchEvents: [],
-      audioVideoInteractions: []
+      audioVideoInteractions: [],
     };
     this.capturedActions = [];
     this.actionIdCounter = 0;
@@ -253,74 +253,78 @@ export class RecordingManager {
 }
 
 function escapeTextForAssertion(text: string): string {
-  if (!text) return '';
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (!text) return "";
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function generatePlaywrightTestFromActions(
   actions: Action[],
   options: { baseUrl?: string } = {}
 ): string {
-  const { baseUrl = '' } = options;
+  const { baseUrl = "" } = options;
   const body = actions
     .map((action) => {
       switch (action.kind) {
-        case 'nav':
+        case "nav":
           return `  await page.goto('${action.url || baseUrl}');`;
-        case 'waitForUrl':
+        case "waitForUrl":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;
           }
-          return '';
-        case 'click': {
+          return "";
+        case "click": {
           const selector = action.locator?.stableSelector || action.locator?.primary;
-          if (!selector) return '';
+          if (!selector) return "";
           return `  await page.click('${selector}');`;
         }
-        case 'input': {
+        case "input": {
           const selector = action.locator?.primary;
-          if (!selector || action.value === undefined) return '';
+          if (!selector || action.value === undefined) return "";
           const value = action.value.replace(/'/g, "\\'");
           return `  await page.fill('${selector}', '${value}');`;
         }
-        case 'form': {
+        case "form": {
           const selector = action.locator?.primary;
-          if (!selector) return '';
-          if (action.formType === 'checkbox' || action.formType === 'radio') {
+          if (!selector) return "";
+          if (action.formType === "checkbox" || action.formType === "radio") {
             if (action.checked) {
               return `  await page.check('${selector}');`;
             } else {
               return `  await page.uncheck('${selector}');`;
             }
-          } else if (action.formType === 'select' && action.value) {
+          } else if (action.formType === "select" && action.value) {
             return `  await page.selectOption('${selector}', '${action.value}');`;
           }
-          return '';
+          return "";
         }
-        case 'assertion': {
+        case "assertion": {
           const selector = action.locator?.primary;
-          if (!selector || action.value === undefined) return '';
+          if (!selector || action.value === undefined) return "";
           const escapedValue = escapeTextForAssertion(action.value);
           return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
         }
         default:
-          return '';
+          return "";
       }
     })
-    .filter((line) => line !== '')
-    .join('\n');
+    .filter((line) => line !== "")
+    .join("\n");
 
-  if (!body) return '';
+  if (!body) return "";
 
   return `import { test, expect } from '@playwright/test';
 
 test('Recorded test', async ({ page }) => {
-${body.split('\n').filter(l => l.trim()).map(l => l).join('\n')}
+${body
+  .split("\n")
+  .filter((l) => l.trim())
+  .map((l) => l)
+  .join("\n")}
 });`;
 }
 
 // Export to window for hooks.js to use
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   const existing = (window as any).PlaywrightGenerator || {};
   existing.RecordingManager = RecordingManager;
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
@@ -329,11 +333,9 @@ if (typeof window !== 'undefined') {
       const actions = resultsToActions(trackingData);
       return generatePlaywrightTestFromActions(actions, { baseUrl: url });
     } catch (error) {
-      console.error('Error generating Playwright test:', error);
-      return '';
+      console.error("Error generating Playwright test:", error);
+      return "";
     }
   };
   (window as any).PlaywrightGenerator = existing;
 }
-
-
