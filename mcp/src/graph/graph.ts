@@ -187,6 +187,7 @@ function formatEdge(edge: Neo4jEdge): string {
 export interface MapParams {
   node_type: string;
   name: string;
+  file: string;
   ref_id: string;
   tests: boolean;
   depth: number;
@@ -198,6 +199,7 @@ export async function get_subtree(p: MapParams) {
   const r = await db.get_subtree(
     p.node_type as NodeType,
     p.name,
+    p.file,
     p.ref_id,
     p.tests,
     p.depth,
@@ -243,6 +245,7 @@ export async function get_file_map(file_end: string): Promise<string> {
   const record = await get_subtree({
     node_type: "File",
     name: "",
+    file: "",
     ref_id: f.ref_id as string,
     depth: 1,
     tests: false,

@@ -333,23 +333,31 @@ LIMIT toInteger($limit)
 export const SUBGRAPH_QUERY = `
 WITH $node_label AS nodeLabel,
      $node_name as nodeName,
+     $node_file as nodeFile,
      $ref_id as refId,
      $direction as direction,
      $label_filter as labelFilter,
      $depth as depth,
      $trim as trim
 
-// Find the start node using either ref_id or name+label
+// Find the start node using either ref_id, name+label, or file+label
 OPTIONAL MATCH (fByName {name: nodeName})
 WHERE any(label IN labels(fByName) WHERE label = nodeLabel)
+
+OPTIONAL MATCH (fByFile)
+WHERE any(label IN labels(fByFile) WHERE label = nodeLabel)
+  AND fByFile.file IS NOT NULL
+  AND fByFile.file CONTAINS nodeFile
+  AND nodeFile <> ''
 
 OPTIONAL MATCH (fByRefId {ref_id: refId})
 WHERE refId <> ''
 
-// ref_id takes precedence over name+label
+// ref_id takes precedence, then name+label, then file+label
 WITH CASE
        WHEN fByRefId IS NOT NULL THEN fByRefId
-       ELSE fByName
+       WHEN fByName IS NOT NULL THEN fByName
+       ELSE fByFile
      END AS f,
      direction, labelFilter, depth, trim
 WHERE f IS NOT NULL

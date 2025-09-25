@@ -168,6 +168,7 @@ class Db {
   async get_subtree(
     node_type: NodeType,
     name: string,
+    file: string,
     ref_id: string,
     include_tests: boolean,
     depth: number,
@@ -190,6 +191,7 @@ class Db {
       return await session.run(Q.SUBGRAPH_QUERY, {
         node_label: node_type,
         node_name: name,
+        node_file: file,
         ref_id: ref_id,
         depth,
         direction,
