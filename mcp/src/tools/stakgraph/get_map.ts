@@ -7,6 +7,7 @@ export function toMapParams(args: z.infer<typeof GetMapSchema>): G.MapParams {
   return {
     node_type: args.node_type || "",
     name: args.name || "",
+    file: args.file || "",
     ref_id: args.ref_id || "",
     tests: args.tests ?? false,
     depth: args.depth ?? 10,
@@ -23,11 +24,12 @@ export const GetMapSchema = z.object({
       "Type of the node. Does NOT support Repository, Directory, or File."
     ),
   name: z.string().optional().describe("Name of the node to map from."),
+  file: z.string().optional().describe("File path pattern to search for (node.file CONTAINS this value)."),
   ref_id: z
     .string()
     .optional()
     .describe(
-      "Reference ID of the node (either ref_id or node_type+name must be provided)."
+      "Reference ID of the node (either ref_id, node_type+name, or node_type+file must be provided)."
     ),
   tests: z
     .boolean()

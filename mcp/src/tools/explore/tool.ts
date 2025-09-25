@@ -122,6 +122,7 @@ export async function get_context(
           return await G.get_map({
             node_type: "Function",
             name: starting_node,
+            file: "",
             ref_id: "",
             tests: false,
             depth: depth || 1,

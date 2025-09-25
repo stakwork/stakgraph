@@ -573,6 +573,7 @@ const DEFAULT_DEPTH = 7;
 interface MapParams {
   node_type: string;
   name: string;
+  file: string;
   ref_id: string;
   tests: boolean;
   depth: number;
@@ -583,10 +584,12 @@ interface MapParams {
 function mapParams(req: Request): MapParams {
   const node_type = req.query.node_type as string;
   const name = req.query.name as string;
+  const file = req.query.file as string;
   const ref_id = req.query.ref_id as string;
   const name_and_type = node_type && name;
-  if (!name_and_type && !ref_id) {
-    throw new Error("either node_type+name or ref_id required");
+  const file_and_type = node_type && file;
+  if (!name_and_type && !file_and_type && !ref_id) {
+    throw new Error("either node_type+name, node_type+file, or ref_id required");
   }
   const direction = req.query.direction as G.Direction;
   const tests = !(req.query.tests === "false" || req.query.tests === "0");
@@ -595,6 +598,7 @@ function mapParams(req: Request): MapParams {
   return {
     node_type: node_type || "",
     name: name || "",
+    file: file || "",
     ref_id: ref_id || "",
     tests,
     depth,
