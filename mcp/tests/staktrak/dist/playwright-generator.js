@@ -264,7 +264,7 @@ var RecordingManager = class {
         return __spreadProps(__spreadValues({}, baseAction), {
           kind: "assertion",
           value: eventData.value,
-          locator: { primary: eventData.selector }
+          locator: { primary: eventData.selector, fallbacks: [] }
         });
       default:
         return __spreadProps(__spreadValues({}, baseAction), {
@@ -374,161 +374,80 @@ var RecordingManager = class {
 function escapeTextForAssertion(text) {
   if (!text)
     return "";
-  return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").trim();
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-function normalizeText(t) {
-  return (t || "").trim();
-}
-function locatorToSelector(l) {
-  if (!l)
-    return 'page.locator("body")';
-  const primary = l.stableSelector || l.primary;
-  if (/\[data-testid=/.test(primary)) {
-    const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
-    if (m)
-      return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
-  }
-  if (primary.startsWith("#") && /^[a-zA-Z][\w-]*$/.test(primary.slice(1)))
-    return `page.locator('${primary}')`;
-  if (/^[a-zA-Z]+\.[a-zA-Z0-9_-]+/.test(primary)) {
-    return `page.locator('${primary}')`;
-  }
-  if (l.role && l.text) {
-    const txt = normalizeText(l.text);
-    if (txt && txt.length <= 50)
-      return `page.getByRole('${l.role}', { name: '${escapeTextForAssertion(txt)}' })`;
-  }
-  if (l.text && l.text.length <= 30 && l.text.length > 1)
-    return `page.getByText('${escapeTextForAssertion(normalizeText(l.text))}')`;
-  if (primary && !primary.startsWith("page."))
-    return `page.locator('${primary}')`;
-  for (const fb of l.fallbacks) {
-    if (fb && !/^[a-zA-Z]+$/.test(fb))
-      return `page.locator('${fb}')`;
-  }
-  return 'page.locator("body")';
-}
-function generatePlaywrightTestFromActions(actions, options) {
-  const name = options.testName || "Recorded flow";
-  const viewport = options.viewport || { width: 1280, height: 720 };
-  let body = "";
-  let lastTs = null;
-  const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
-  function fullUrl(u) {
-    if (!u)
-      return "";
-    if (/^https?:/i.test(u))
-      return u;
-    if (u.startsWith("/"))
-      return base + u;
-    return base + "/" + u;
-  }
-  let i = 0;
-  const collapsed = [];
-  for (let k = 0; k < actions.length; k++) {
-    const curr = actions[k];
-    const prev = collapsed[collapsed.length - 1];
-    if (curr.kind === "nav" && prev && prev.kind === "nav" && prev.url === curr.url)
-      continue;
-    collapsed.push(curr);
-  }
-  actions = collapsed;
-  while (i < actions.length) {
-    const a = actions[i];
-    if (a.kind === "click" && i + 1 < actions.length) {
-      const nxt = actions[i + 1];
-      if (nxt.kind === "nav" && nxt.timestamp - a.timestamp < 1500) {
-        if (lastTs != null) {
-          const delta = Math.max(0, a.timestamp - lastTs);
-          const wait = Math.min(3e3, Math.max(100, delta));
-          if (wait > 400)
-            body += `  await page.waitForTimeout(${wait});
-`;
+function generatePlaywrightTestFromActions(actions, options = {}) {
+  const { baseUrl = "" } = options;
+  const body = actions.map((action) => {
+    var _a, _b, _c, _d, _e;
+    switch (action.kind) {
+      case "nav":
+        return `  await page.goto('${action.url || baseUrl}');`;
+      case "waitForUrl":
+        if (action.normalizedUrl) {
+          return `  await page.waitForURL(url => url.href.replace(/[?#].*$/,'').replace(/\\/$/,'') === '${action.normalizedUrl}');`;
         }
-        body += `  await Promise.all([
-`;
-        body += `    page.waitForURL('${fullUrl(nxt.url)}'),
-`;
-        body += `    ${locatorToSelector(a.locator)}.click()
-`;
-        body += `  ]);
-`;
-        lastTs = nxt.timestamp;
-        i += 2;
-        continue;
+        return "";
+      case "click": {
+        const selector = ((_a = action.locator) == null ? void 0 : _a.stableSelector) || ((_b = action.locator) == null ? void 0 : _b.primary);
+        if (!selector)
+          return "";
+        return `  await page.click('${selector}');`;
       }
-    }
-    if (lastTs != null) {
-      const delta = Math.max(0, a.timestamp - lastTs);
-      const wait = Math.min(3e3, Math.max(100, delta));
-      if (wait > 500)
-        body += `  await page.waitForTimeout(${wait});
-`;
-    }
-    switch (a.kind) {
-      case "nav": {
-        const target = fullUrl(a.url);
-        if (i === 0) {
-          body += `  await page.goto('${target}');
-`;
-        } else {
-          body += `  await page.waitForURL('${target}');
-`;
-        }
-        break;
+      case "input": {
+        const selector = (_c = action.locator) == null ? void 0 : _c.primary;
+        if (!selector || action.value === void 0)
+          return "";
+        const value = action.value.replace(/'/g, "\\'");
+        return `  await page.fill('${selector}', '${value}');`;
       }
-      case "click":
-        body += `  await ${locatorToSelector(a.locator)}.click();
-`;
-        break;
-      case "input":
-        body += `  await ${locatorToSelector(a.locator)}.fill('${escapeTextForAssertion(a.value || "")}');
-`;
-        break;
-      case "form":
-        if (a.formType === "checkbox" || a.formType === "radio") {
-          body += a.checked ? `  await ${locatorToSelector(a.locator)}.check();
-` : `  await ${locatorToSelector(a.locator)}.uncheck();
-`;
-        } else if (a.formType === "select") {
-          body += `  await ${locatorToSelector(a.locator)}.selectOption('${escapeTextForAssertion(a.value || "")}');
-`;
+      case "form": {
+        const selector = (_d = action.locator) == null ? void 0 : _d.primary;
+        if (!selector)
+          return "";
+        if (action.formType === "checkbox" || action.formType === "radio") {
+          if (action.checked) {
+            return `  await page.check('${selector}');`;
+          } else {
+            return `  await page.uncheck('${selector}');`;
+          }
+        } else if (action.formType === "select" && action.value) {
+          return `  await page.selectOption('${selector}', '${action.value}');`;
         }
-        break;
-      case "assertion":
-        if (a.value && a.value.length > 0) {
-          body += `  await expect(${locatorToSelector(a.locator)}).toContainText('${escapeTextForAssertion(a.value)}');
-`;
-        } else {
-          body += `  await expect(${locatorToSelector(a.locator)}).toBeVisible();
-`;
-        }
-        break;
+        return "";
+      }
+      case "assertion": {
+        const selector = (_e = action.locator) == null ? void 0 : _e.primary;
+        if (!selector || action.value === void 0)
+          return "";
+        const escapedValue = escapeTextForAssertion(action.value);
+        return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
+      }
+      default:
+        return "";
     }
-    lastTs = a.timestamp;
-    i++;
-  }
-  return `import { test, expect } from '@playwright/test'
+  }).filter((line) => line !== "").join("\n");
+  if (!body)
+    return "";
+  return `import { test, expect } from '@playwright/test';
 
-test('${name}', async ({ page }) => {
-  await page.setViewportSize({ width: ${viewport.width}, height: ${viewport.height} })
+test('Recorded test', async ({ page }) => {
 ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
-})
-`;
+});`;
 }
 if (typeof window !== "undefined") {
   const existing = window.PlaywrightGenerator || {};
+  existing.RecordingManager = RecordingManager;
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
-  existing.generatePlaywrightTest = (baseUrl, results) => {
+  existing.generatePlaywrightTest = (url, trackingData) => {
     try {
-      const actions = resultsToActions(results);
-      return generatePlaywrightTestFromActions(actions, { baseUrl });
-    } catch (e) {
-      console.warn("PlaywrightGenerator.generatePlaywrightTest failed", e);
+      const actions = resultsToActions(trackingData);
+      return generatePlaywrightTestFromActions(actions, { baseUrl: url });
+    } catch (error) {
+      console.error("Error generating Playwright test:", error);
       return "";
     }
   };
-  existing.RecordingManager = RecordingManager;
   window.PlaywrightGenerator = existing;
 }
 export {

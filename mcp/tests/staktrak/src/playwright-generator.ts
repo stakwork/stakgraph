@@ -1,9 +1,14 @@
-import { Action, ActionLocator, resultsToActions } from "./actionModel";
-import { Results as TrackingResults, ClickDetail, Assertion } from "./types";
+import { Action, resultsToActions } from "./actionModel";
+import { Results as TrackingResults } from "./types";
+
+export interface GenerateOptions {
+  baseUrl?: string;
+  testName?: string;
+}
 
 /**
  * RecordingManager - Manages test recording data in the parent/host
- * Maintains both trackingData (for compatibility) and actions (for UI)
+ * Single source of truth for all recording state
  */
 export class RecordingManager {
   private trackingData: TrackingResults = {
@@ -29,7 +34,7 @@ export class RecordingManager {
    * Handle an event from the iframe and store it
    */
   handleEvent(eventType: string, eventData: any): Action | null {
-    // Store in trackingData for backward compatibility
+    // Store in trackingData
     switch(eventType) {
       case 'click':
         this.trackingData.clicks.clickDetails.push(eventData);
@@ -71,7 +76,6 @@ export class RecordingManager {
         });
         break;
       default:
-        // Unknown event type, ignore
         return null;
     }
 
@@ -98,7 +102,6 @@ export class RecordingManager {
           locator: eventData.selectors || eventData.locator,
           elementInfo: eventData.elementInfo
         } as Action;
-
       case 'nav':
       case 'navigation':
         return {
@@ -106,7 +109,6 @@ export class RecordingManager {
           kind: 'nav',
           url: eventData.url
         } as Action;
-
       case 'input':
         return {
           ...baseAction,
@@ -114,7 +116,6 @@ export class RecordingManager {
           value: eventData.value,
           locator: eventData.locator || { primary: eventData.selector }
         } as Action;
-
       case 'form':
         return {
           ...baseAction,
@@ -124,19 +125,17 @@ export class RecordingManager {
           value: eventData.value,
           locator: eventData.locator || { primary: eventData.selector }
         } as Action;
-
       case 'assertion':
         return {
           ...baseAction,
           kind: 'assertion',
           value: eventData.value,
-          locator: { primary: eventData.selector }
+          locator: { primary: eventData.selector, fallbacks: [] }
         } as Action;
-
       default:
         return {
           ...baseAction,
-          kind: eventType as any
+          kind: eventType
         } as Action;
     }
   }
@@ -145,13 +144,10 @@ export class RecordingManager {
    * Remove an action by ID
    */
   removeAction(actionId: string): boolean {
-    const action = this.capturedActions.find(a => a.id === actionId);
+    const action = this.capturedActions.find(a => (a as any).id === actionId);
     if (!action) return false;
 
-    // Remove from capturedActions
-    this.capturedActions = this.capturedActions.filter(a => a.id !== actionId);
-
-    // Remove from trackingData based on timestamp
+    this.capturedActions = this.capturedActions.filter(a => (a as any).id !== actionId);
     this.removeFromTrackingData(action);
     return true;
   }
@@ -166,35 +162,31 @@ export class RecordingManager {
         );
         this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
         break;
-
       case 'nav':
         this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
           n => n.timestamp !== timestamp
         );
         break;
-
       case 'input':
         this.trackingData.inputChanges = this.trackingData.inputChanges.filter(
           i => i.timestamp !== timestamp
         );
         break;
-
       case 'form':
         this.trackingData.formElementChanges = this.trackingData.formElementChanges.filter(
           f => f.timestamp !== timestamp
         );
         break;
-
       case 'assertion':
         this.trackingData.assertions = this.trackingData.assertions.filter(
           a => a.timestamp !== timestamp
         );
-        // Also remove the spurious click that may have triggered the assertion
+        // Also remove click before assertion if within 1 second
         const clickBeforeAssertion = this.trackingData.clicks.clickDetails
           .filter(c => c.timestamp < timestamp)
           .sort((a, b) => b.timestamp - a.timestamp)[0];
 
-        if (clickBeforeAssertion && (timestamp - clickBeforeAssertion.timestamp) < 1000) {
+        if (clickBeforeAssertion && timestamp - clickBeforeAssertion.timestamp < 1000) {
           this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
             c => c.timestamp !== clickBeforeAssertion.timestamp
           );
@@ -207,8 +199,7 @@ export class RecordingManager {
   /**
    * Generate Playwright test from current data
    */
-  generateTest(url: string, options?: Partial<GenerateOptions>): string {
-    // Convert trackingData to actions and generate test
+  generateTest(url: string, options?: any): string {
     const actions = resultsToActions(this.trackingData);
     return generatePlaywrightTestFromActions(actions, {
       baseUrl: url,
@@ -262,170 +253,87 @@ export class RecordingManager {
 }
 
 function escapeTextForAssertion(text: string): string {
-  if (!text) return "";
-  return text
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t")
-    .trim();
-}
-
-function normalizeText(t?: string) {
-  return (t || "").trim();
-}
-
-function locatorToSelector(l: ActionLocator): string {
-  if (!l) return 'page.locator("body")';
-  const primary = l.stableSelector || l.primary;
-  if (/\[data-testid=/.test(primary)) {
-    const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
-    if (m) return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
-  }
-  if (primary.startsWith("#") && /^[a-zA-Z][\w-]*$/.test(primary.slice(1)))
-    return `page.locator('${primary}')`;
-  // Prefer explicit structural class/attribute selector over role/text if present
-  if (/^[a-zA-Z]+\.[a-zA-Z0-9_-]+/.test(primary)) {
-    return `page.locator('${primary}')`;
-  }
-  if (l.role && l.text) {
-    const txt = normalizeText(l.text);
-    if (txt && txt.length <= 50)
-      return `page.getByRole('${l.role}', { name: '${escapeTextForAssertion(txt)}' })`;
-  }
-  if (l.text && l.text.length <= 30 && l.text.length > 1)
-    return `page.getByText('${escapeTextForAssertion(normalizeText(l.text))}')`;
-  if (primary && !primary.startsWith("page."))
-    return `page.locator('${primary}')`;
-  for (const fb of l.fallbacks) {
-    if (fb && !/^[a-zA-Z]+$/.test(fb)) return `page.locator('${fb}')`;
-  }
-  return 'page.locator("body")';
-}
-
-export interface GenerateOptions {
-  baseUrl: string;
-  viewport?: { width: number; height: number };
-  testName?: string;
+  if (!text) return '';
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 export function generatePlaywrightTestFromActions(
   actions: Action[],
-  options: GenerateOptions
+  options: { baseUrl?: string } = {}
 ): string {
-  const name = options.testName || "Recorded flow";
-  const viewport = options.viewport || { width: 1280, height: 720 };
-  let body = "";
-  let lastTs: number | null = null;
-  const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
-
-  function fullUrl(u?: string) {
-    if (!u) return "";
-    if (/^https?:/i.test(u)) return u;
-    if (u.startsWith('/')) return base + u;
-    return base + '/' + u;
-  }
-
-  let i = 0;
-  // collapse consecutive nav actions to the same URL
-  const collapsed: Action[] = [];
-  for (let k = 0; k < actions.length; k++) {
-    const curr = actions[k];
-    const prev = collapsed[collapsed.length - 1];
-    if (curr.kind === 'nav' && prev && prev.kind === 'nav' && prev.url === curr.url) continue;
-    collapsed.push(curr);
-  }
-  actions = collapsed;
-  while (i < actions.length) {
-    const a = actions[i];
-    // Correlate click->nav within 1500ms
-  if (a.kind === 'click' && i + 1 < actions.length) {
-      const nxt = actions[i + 1];
-      if (nxt.kind === 'nav' && (nxt.timestamp - a.timestamp) < 1500) {
-        // optional pre-wait before click if gap from previous
-        if (lastTs != null) {
-          const delta = Math.max(0, a.timestamp - lastTs);
-            const wait = Math.min(3000, Math.max(100, delta));
-            if (wait > 400) body += `  await page.waitForTimeout(${wait});\n`;
+  const { baseUrl = '' } = options;
+  const body = actions
+    .map((action) => {
+      switch (action.kind) {
+        case 'nav':
+          return `  await page.goto('${action.url || baseUrl}');`;
+        case 'waitForUrl':
+          if (action.normalizedUrl) {
+            return `  await page.waitForURL(url => url.href.replace(/[?#].*$/,'').replace(/\\/$/,'') === '${action.normalizedUrl}');`;
+          }
+          return '';
+        case 'click': {
+          const selector = action.locator?.stableSelector || action.locator?.primary;
+          if (!selector) return '';
+          return `  await page.click('${selector}');`;
         }
-        body += `  await Promise.all([\n`;
-        body += `    page.waitForURL('${fullUrl(nxt.url)}'),\n`;
-        body += `    ${locatorToSelector(a.locator!)}.click()\n`;
-        body += `  ]);\n`;
-        lastTs = nxt.timestamp;
-        i += 2;
-        continue;
+        case 'input': {
+          const selector = action.locator?.primary;
+          if (!selector || action.value === undefined) return '';
+          const value = action.value.replace(/'/g, "\\'");
+          return `  await page.fill('${selector}', '${value}');`;
+        }
+        case 'form': {
+          const selector = action.locator?.primary;
+          if (!selector) return '';
+          if (action.formType === 'checkbox' || action.formType === 'radio') {
+            if (action.checked) {
+              return `  await page.check('${selector}');`;
+            } else {
+              return `  await page.uncheck('${selector}');`;
+            }
+          } else if (action.formType === 'select' && action.value) {
+            return `  await page.selectOption('${selector}', '${action.value}');`;
+          }
+          return '';
+        }
+        case 'assertion': {
+          const selector = action.locator?.primary;
+          if (!selector || action.value === undefined) return '';
+          const escapedValue = escapeTextForAssertion(action.value);
+          return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
+        }
+        default:
+          return '';
       }
-    }
+    })
+    .filter((line) => line !== '')
+    .join('\n');
 
-    if (lastTs != null) {
-      const delta = Math.max(0, a.timestamp - lastTs);
-      const wait = Math.min(3000, Math.max(100, delta));
-      if (wait > 500) body += `  await page.waitForTimeout(${wait});\n`;
-    }
+  if (!body) return '';
 
-    switch (a.kind) {
-      case 'nav': {
-        const target = fullUrl(a.url);
-        if (i === 0) {
-          body += `  await page.goto('${target}');\n`;
-        } else {
-          body += `  await page.waitForURL('${target}');\n`;
-        }
-        break;
-      }
-      case 'click':
-        body += `  await ${locatorToSelector(a.locator!)}.click();\n`;
-        break;
-      case 'input':
-        body += `  await ${locatorToSelector(a.locator!)}.fill('${escapeTextForAssertion(a.value || '')}');\n`;
-        break;
-      case 'form':
-        if (a.formType === 'checkbox' || a.formType === 'radio') {
-          body += a.checked
-            ? `  await ${locatorToSelector(a.locator!)}.check();\n`
-            : `  await ${locatorToSelector(a.locator!)}.uncheck();\n`;
-        } else if (a.formType === 'select') {
-          body += `  await ${locatorToSelector(a.locator!)}.selectOption('${escapeTextForAssertion(a.value || '')}');\n`;
-        }
-        break;
-      case 'assertion':
-        if (a.value && a.value.length > 0) {
-          body += `  await expect(${locatorToSelector(a.locator!)}).toContainText('${escapeTextForAssertion(a.value)}');\n`;
-        } else {
-          body += `  await expect(${locatorToSelector(a.locator!)}).toBeVisible();\n`;
-        }
-        break;
-    }
-    lastTs = a.timestamp;
-    i++;
-  }
-  return `import { test, expect } from '@playwright/test'
+  return `import { test, expect } from '@playwright/test';
 
-test('${name}', async ({ page }) => {
-  await page.setViewportSize({ width: ${viewport.width}, height: ${viewport.height} })
-${body
-  .split("\n")
-  .filter((l) => l.trim())
-  .map((l) => l)
-  .join("\n")}
-})
-`;
+test('Recorded test', async ({ page }) => {
+${body.split('\n').filter(l => l.trim()).map(l => l).join('\n')}
+});`;
 }
 
-if (typeof window !== "undefined") {
+// Export to window for hooks.js to use
+if (typeof window !== 'undefined') {
   const existing = (window as any).PlaywrightGenerator || {};
+  existing.RecordingManager = RecordingManager;
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
-  existing.generatePlaywrightTest = (baseUrl: string, results: any) => {
+  existing.generatePlaywrightTest = (url: string, trackingData: TrackingResults) => {
     try {
-      const actions = resultsToActions(results);
-      return generatePlaywrightTestFromActions(actions, { baseUrl });
-    } catch (e) {
-      console.warn('PlaywrightGenerator.generatePlaywrightTest failed', e);
+      const actions = resultsToActions(trackingData);
+      return generatePlaywrightTestFromActions(actions, { baseUrl: url });
+    } catch (error) {
+      console.error('Error generating Playwright test:', error);
       return '';
     }
   };
-  existing.RecordingManager = RecordingManager;
   (window as any).PlaywrightGenerator = existing;
 }
+
+
