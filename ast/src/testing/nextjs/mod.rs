@@ -262,10 +262,81 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += integration_test.len();
     assert_eq!(integration_test.len(), 4, "Expected 4 IntegrationTest nodes");
 
+    if let Some(test) = integration_test.iter().filter(|n| n.file.ends_with("nextjs/app/test/integration.test.ts") && n.name == "integration: /api/items").next() {
+
+        let test_body = format!(
+            r#"describe("integration: /api/items", () => {{
+  it("GET returns items list", async () => {{
+    const res = await fetch("http://localhost:3000/api/items");
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(Array.isArray(data)).toBe(true);
+    console.log("GET /api/items should return 200 and an array");
+  }});
+
+  it("POST creates a new item", async () => {{
+    const res = await fetch("http://localhost:3000/api/items", {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ title: "Test", price: 1 }}),
+    }});
+    expect(res.status).toBe(201);
+    console.log("POST /api/items should return 201");
+  }});
+}})"#
+        );
+        assert_eq!(test.name, "integration: /api/items");
+        assert_eq!(
+            test.body, 
+            test_body,
+        )
+    }else {
+        panic!("Integration test 'integration: /api/items' not found");
+    }
+
+
+
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
     assert_eq!(e2e_tests.len(), 3, "Expected 3 E2eTest nodes");
+
+    if let Some(test) = e2e_tests.iter().filter(|n| n.file.ends_with("nextjs/app/test/e2e.test.ts") && n.name == "e2e: items page").next() {
+
+        let test_body = format!(
+            r#"describe("e2e: user flows", () => {{
+  it("navigates to /items and adds an item", async () => {{
+    await page.goto("http://localhost:3000/items");
+    await page.getByPlaceholder("Title").fill("Item 1");
+    await page.getByPlaceholder("Price").fill("10");
+    await page.getByRole("button", {{ name: "Add Item" }}).click();
+    await expect(page.getByText("Item 1 - $10")).toBeVisible();
+    console.log("E2E flow: add item");
+  }});
+
+  it("navigates to /person and manages a person by id", async () => {{
+    await page.goto("http://localhost:3000/person");
+    await page.getByPlaceholder("Name").fill("Alice");
+    await page.getByPlaceholder("Age").fill("30");
+    await page.getByPlaceholder("Email").fill("alice@example.com");
+    await page.getByRole("button", {{ name: "Add Person" }}).click();
+    await page.getByPlaceholder("Enter person ID (1, 2, 3...)").fill("1");
+    await page.getByRole("button", {{ name: "Find" }}).click();
+    await expect(page.getByText("Found: Alice")).toBeVisible();
+    console.log("E2E flow: add, find and delete person");
+  }});
+}})"#);
+
+        assert_eq!(test.name, "e2e: items page");
+        assert_eq!(
+            test.body, 
+            test_body,
+        )
+
+        }
+        else{
+            
+        }
 
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;
