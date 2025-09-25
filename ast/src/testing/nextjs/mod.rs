@@ -239,6 +239,25 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += tests.len();
     assert_eq!(tests.len(), 4, "Expected 4 UnitTest nodes");
 
+    if let Some(test) = tests.iter().filter(|n| n.file.ends_with("nextjs/app/test/unit.test.ts") && n.name == "unit: utils.cn").next() {
+        let test_body = format!(
+            r#"describe("unit: utils.cn", () => {{
+  it("merges class names", () => {{
+    const result = cn("btn", "btn-primary");
+    expect(result).toBe("btn btn-primary");
+    console.log("cn result:", result);
+  }});
+}})"#
+        );
+        assert_eq!(test.name, "unit: utils.cn");
+        assert_eq!(
+            test.body, 
+            test_body,
+        )
+    }else{
+        panic!("Unit test 'unit: utils.cn' not found");
+    }
+
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes += integration_test.len();
     assert_eq!(integration_test.len(), 4, "Expected 4 IntegrationTest nodes");
