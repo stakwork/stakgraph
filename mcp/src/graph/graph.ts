@@ -196,7 +196,7 @@ export interface MapParams {
 
 export async function get_subtree(p: MapParams) {
   const r = await db.get_subtree(
-    p.node_type,
+    p.node_type as NodeType,
     p.name,
     p.ref_id,
     p.tests,

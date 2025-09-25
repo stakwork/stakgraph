@@ -166,7 +166,7 @@ class Db {
   }
 
   async get_subtree(
-    node_type: string,
+    node_type: NodeType,
     name: string,
     ref_id: string,
     include_tests: boolean,
@@ -174,7 +174,13 @@ class Db {
     direction: Direction,
     trim: string[]
   ) {
-    const disclude: NodeType[] = ["File", "Directory", "Repository", "Library"];
+    let disclude: NodeType[] = ["File", "Directory", "Repository", "Library"];
+    if (node_type === "Directory") {
+      // remove file and directory from disclude
+      disclude = disclude.filter(
+        (type) => type !== "File" && type !== "Directory"
+      );
+    }
     if (include_tests === false) {
       disclude.push("UnitTest", "IntegrationTest", "E2etest");
     }
