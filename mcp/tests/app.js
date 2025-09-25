@@ -336,11 +336,7 @@ const Staktrak = () => {
                   }
                 }
 
-                // Extract tag name (fallback)
-                const tagMatch = selector.match(/^([a-zA-Z]+)/);
-                if (tagMatch) return tagMatch[1];
-
-                // If selector is too complex, truncate it
+                // Use selector as fallback (truncate if too long)
                 if (selector.length > 25) {
                   return selector.substring(0, 22) + '...';
                 }
