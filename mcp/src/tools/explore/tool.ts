@@ -44,6 +44,12 @@ export interface GeneralContextResult {
   features: string[];
 }
 
+interface ToolConfig {
+  name: string;
+  description?: string;
+  tokenLimit?: number;
+}
+
 export async function get_context(
   prompt: string | ModelMessage[],
   re_explore: boolean = false,
@@ -211,3 +217,19 @@ setTimeout(async () => {
   );
   console.log("GENERAL get_context result:", gres);
 }, 5000);
+
+/*
+
+CALL MODEL [system, user]
+
+-> tool call -> call the endpoint -> tool result
+
+CALL MODEL[system, user, assistant: tool_call, user: tool_result]
+
+-> tool call -> call the endpoint -> tool result
+
+CALL MODEL[system, user, assistant: tool_call, user: tool_result, assistant: tool_call, user: tool_result]
+
+FINALLY tool call "final_answer"
+
+*/

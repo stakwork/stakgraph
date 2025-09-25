@@ -248,6 +248,7 @@ class Db {
       return await session.run(Q.REPO_SUBGRAPH_QUERY, {
         node_label: node_type,
         node_name: name,
+        node_file: "",
         ref_id: ref_id || "",
         depth: 10,
         label_filter: this.skip_string(disclude),

@@ -605,4 +605,18 @@ impl Lang {
         }
         Ok(edges)
     }
+     pub fn find_nested_functions<'a>(&self, functions: &'a [NodeData]) -> Vec<(&'a NodeData, &'a NodeData)> {
+        let mut nested = Vec::new();
+        for child in functions {
+            for parent in functions {
+                if std::ptr::eq(child, parent) {
+                     continue; 
+                    }
+                if child.start > parent.start && child.end < parent.end {
+                    nested.push((child, parent));
+                }
+            }
+        }
+        nested
+    }
 }

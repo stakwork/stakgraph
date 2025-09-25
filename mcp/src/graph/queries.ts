@@ -340,26 +340,31 @@ WITH $node_label AS nodeLabel,
      $depth as depth,
      $trim as trim
 
-// Find the start node using either ref_id, name+label, or file+label
-OPTIONAL MATCH (fByName {name: nodeName})
-WHERE any(label IN labels(fByName) WHERE label = nodeLabel)
+// Find by ref_id (highest precedence)
+CALL {
+  WITH refId
+  WITH refId WHERE refId IS NOT NULL AND refId <> ''
+  MATCH (node {ref_id: refId})
+  RETURN node
+  UNION
+  // Find by name + label
+  WITH nodeName, nodeLabel
+  WITH nodeName, nodeLabel WHERE nodeName IS NOT NULL AND nodeName <> ''
+  MATCH (node {name: nodeName})
+  WHERE nodeLabel IN labels(node)
+  RETURN node
+  UNION
+  // Find by file + label  
+  WITH nodeFile, nodeLabel
+  WITH nodeFile, nodeLabel WHERE nodeFile IS NOT NULL AND nodeFile <> ''
+  MATCH (node)
+  WHERE nodeLabel IN labels(node)
+    AND node.file IS NOT NULL 
+    AND node.file CONTAINS nodeFile
+  RETURN node
+}
 
-OPTIONAL MATCH (fByFile)
-WHERE any(label IN labels(fByFile) WHERE label = nodeLabel)
-  AND fByFile.file IS NOT NULL
-  AND fByFile.file CONTAINS nodeFile
-  AND nodeFile <> ''
-
-OPTIONAL MATCH (fByRefId {ref_id: refId})
-WHERE refId <> ''
-
-// ref_id takes precedence, then name+label, then file+label
-WITH CASE
-       WHEN fByRefId IS NOT NULL THEN fByRefId
-       WHEN fByName IS NOT NULL THEN fByName
-       ELSE fByFile
-     END AS f,
-     direction, labelFilter, depth, trim
+WITH node AS f, direction, labelFilter, depth, trim
 WHERE f IS NOT NULL
 
 // First handle "down" direction

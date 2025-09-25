@@ -999,6 +999,14 @@ pub fn calculate_token_count(body: &str) -> Result<i64> {
 }
 // Add these functions to neo4j_utils.rs
 
+pub fn find_top_level_functions_query() -> (String, BoltMap) {
+    let query = r#"
+        MATCH (f:Data_Bank:Function)
+        WHERE NOT (f)-[:NESTED_IN]->(:Function)
+        RETURN f
+    "#.to_string();
+    (query, BoltMap::new())
+}
 pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "group_function_name", group_function_name);
@@ -1269,10 +1277,17 @@ pub fn find_nodes_with_coverage_query(
         .collect::<Vec<_>>()
         .join(" OR ");
 
-    let root_filter = if root.is_some() {
-        "AND n.file STARTS WITH $root"
+    let mut filters = Vec::new();
+    if let Some(_) = root {
+        filters.push("n.file STARTS WITH $root".to_string());
+    }
+    if *node_type == NodeType::Function {
+        filters.push("NOT (n)-[:NESTED_IN]->(:Function)".to_string());
+    }
+    let root_filter = if !filters.is_empty() {
+        format!("AND {}", filters.join(" AND "))
     } else {
-        ""
+        "".to_string()
     };
 
     let coverage_check = match node_type {
