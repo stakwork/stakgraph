@@ -250,6 +250,14 @@ impl Neo4jGraph {
         txn.commit().await?;
         Ok(())
     }
+        pub async fn find_top_level_functions_async(&self) -> Vec<NodeData> {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in find_top_level_functions_async");
+            return vec![];
+        };
+        let (query, params) = find_top_level_functions_query();
+        execute_node_query(&connection, query, params).await
+    }
 }
 
 impl Default for Neo4jGraph {
