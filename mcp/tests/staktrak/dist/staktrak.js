@@ -3044,7 +3044,7 @@ var userBehaviour = (() => {
             elementSelector: eventData.selector || "",
             value: eventData.value,
             timestamp: eventData.timestamp,
-            action: "fill"
+            action: "complete"
           });
           break;
         case "form":
@@ -3690,7 +3690,8 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                     id: inputAction2.timestamp + "_input",
                     kind: "input",
                     timestamp: inputAction2.timestamp,
-                    value: inputAction2.value
+                    value: inputAction2.value,
+                    locator: { primary: selector, fallbacks: [] }
                   }
                 }, "*");
                 delete this.memory.inputDebounceTimers[elementId];

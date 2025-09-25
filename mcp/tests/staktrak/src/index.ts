@@ -497,7 +497,8 @@ class UserBehaviorTracker {
                   id: inputAction.timestamp + '_input',
                   kind: 'input',
                   timestamp: inputAction.timestamp,
-                  value: inputAction.value
+                  value: inputAction.value,
+                  locator: { primary: selector, fallbacks: [] }
                 }
               }, "*");
 

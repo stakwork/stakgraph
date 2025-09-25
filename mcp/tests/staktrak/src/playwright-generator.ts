@@ -53,7 +53,7 @@ export class RecordingManager {
           elementSelector: eventData.selector || '',
           value: eventData.value,
           timestamp: eventData.timestamp,
-          action: 'fill'
+          action: 'complete'
         });
         break;
       case 'form':
