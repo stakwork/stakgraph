@@ -253,7 +253,7 @@ impl GraphOps {
 
         let functions = self
             .graph
-            .find_nodes_by_type_async(NodeType::Function)
+            .find_top_level_functions_async()
             .await;
         let endpoints = self
             .graph
