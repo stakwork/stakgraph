@@ -39,8 +39,11 @@ impl Stack for ReactTs {
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         // 1. Path based (strongest signal)
         let f = file.replace('\\', "/");
+        println!("Classifying test file: {}", f);
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
-        if f.contains("/__e2e__/")
+        let is_e2e_dir = f.contains("/tests/e2e/") || f.contains("/test/e2e") || f.contains("/e2e/");
+        if is_e2e_dir
+            || f.contains("/__e2e__/")
             || f.contains("/e2e/")
             || f.contains(".e2e.")
             || fname.starts_with("e2e.")
@@ -48,7 +51,9 @@ impl Stack for ReactTs {
             || fname.starts_with("e2e-")
             || fname.contains("e2e.test")
             || fname.contains("e2e.spec")
+            || fname.contains("e2e")
         {
+            println!("Classified as E2E test based on path or filename");
             return NodeType::E2eTest;
         }
         if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") || fname.starts_with("int.") || fname.starts_with("int_") || fname.starts_with("int-") || fname.contains("integration.test") || fname.contains("integration.spec") { 
@@ -69,11 +74,11 @@ impl Stack for ReactTs {
 
         // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
         let body_l = body.to_lowercase();
-    let has_playwright_import = body_l.contains("@playwright/test");
-    let has_browser_actions = body_l.contains("page.goto(") || body_l.contains("page.click(") || body_l.contains("page.evaluate(");
-    let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
-    let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
-    if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
+            let has_playwright_import = body_l.contains("@playwright/test");
+            let has_browser_actions = body_l.contains("page.goto(") || body_l.contains("page.click(") || body_l.contains("page.evaluate(");
+            let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
+            let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
+            if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
             return NodeType::E2eTest;
         }
 

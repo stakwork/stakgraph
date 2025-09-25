@@ -7,6 +7,7 @@ use crate::{
     repo::{Repo, Repos},
 };
 use shared::error::Result;
+use core::panic;
 use std::str::FromStr;
 
 pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
@@ -38,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 33, "Expected 33 File nodes");
+    assert_eq!(file_nodes.len(), 34, "Expected 34 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -60,7 +61,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let directory_nodes = graph.find_nodes_by_type(NodeType::Directory);
     nodes += directory_nodes.len();
-    assert_eq!(directory_nodes.len(), 12, "Expected 12 Directory nodes");
+    assert_eq!(directory_nodes.len(), 14, "Expected 14 Directory nodes");
 
     let repository = graph.find_nodes_by_type(NodeType::Repository);
     nodes += repository.len();
@@ -229,7 +230,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 138, "Expected 138 Contains edges");
+    assert_eq!(contains, 142, "Expected 142 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -299,7 +300,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 3, "Expected 3 E2eTest nodes");
+    for e2e in &e2e_tests {
+        println!("E2E Test found: {} in file {}", e2e.name, e2e.file);
+    }
+    assert_eq!(e2e_tests.len(), 5, "Expected 5 E2eTest nodes");
 
     if let Some(test) = e2e_tests.iter().filter(|n| n.file.ends_with("nextjs/app/test/e2e.test.ts") && n.name == "e2e: items page").next() {
 
@@ -332,10 +336,9 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
             test.body, 
             test_body,
         )
-
         }
         else{
-            
+            panic!("E2E test 'e2e: items page' not found");
         }
 
     let import = graph.count_edges_of_type(EdgeType::Imports);
