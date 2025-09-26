@@ -1001,12 +1001,13 @@ pub fn calculate_token_count(body: &str) -> Result<i64> {
 
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
     let query = r#"
-        MATCH (f:Data_Bank:Function)
-        WHERE NOT (f)-[:NESTED_IN]->(:Function)
-        RETURN f
+        MATCH (n:Function)
+        WHERE NOT (n)-[:NESTED_IN]->(:Function)
+        RETURN n
     "#.to_string();
     (query, BoltMap::new())
 }
+
 pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "group_function_name", group_function_name);
