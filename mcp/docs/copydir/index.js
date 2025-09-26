@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-const fs = require("fs");
-const path = require("path");
-const clipboard = require("clipboardy").default;
+import fs from "fs";
+import path from "path";
+import clipboard from "clipboardy";
 
 // Parse command line arguments
 const args = process.argv.slice(2);
