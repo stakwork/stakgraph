@@ -31,6 +31,7 @@ const Staktrak = () => {
     removeAction,
     clearAllActions,
     toggleActionsView,
+    recorder,
     url,
     handleUrlChange,
     navigateToUrl,
@@ -90,12 +91,12 @@ const Staktrak = () => {
   };
 
   const handleGenerate = async () => {
-    if (!trackingData) {
+    if (!trackingData && !recorder) {
       showPopup("No tracking data available", "error");
       return;
     }
 
-    const testCode = await generateTest(url, trackingData);
+    const testCode = await generateTest(url, trackingData, recorder);
 
     if (testCode) {
       showPopup("Playwright test generated successfully", "success");
@@ -241,7 +242,7 @@ const Staktrak = () => {
             >
               ${isAssertionMode
                 ? html`Interaction Mode`
-                : html`Assertion Mode${capturedActions.filter(a => a.kind === 'assertion').length > 0 ? ` (${capturedActions.filter(a => a.kind === 'assertion').length})` : ""}`}
+                : html`Assertion Mode`}
             </button>
             <button
               class="actions-dropdown-btn"
@@ -305,26 +306,71 @@ const Staktrak = () => {
           </div>
           <div class="actions-list">
             ${capturedActions.map((action, index) => {
+              // Helper function to extract the most descriptive element identifier
+              const getElementDescription = (action) => {
+                const selector = action.locator?.primary;
+                if (!selector) return 'element';
+
+                // Extract ID (highest priority)
+                if (selector.includes('#')) {
+                  const idMatch = selector.match(/#([^.\s\[]+)/);
+                  if (idMatch) return `#${idMatch[1]}`;
+                }
+
+                // Extract class (medium priority, limit to first class)
+                if (selector.includes('.') && !selector.startsWith('text=')) {
+                  const classMatch = selector.match(/\.([^.\s\[#]+)/);
+                  if (classMatch) return `.${classMatch[1]}`;
+                }
+
+                // Extract attribute selectors like [name="email"]
+                if (selector.includes('[')) {
+                  const attrMatch = selector.match(/\[([^=\]]+)=?"?([^"\]]*)"?\]/);
+                  if (attrMatch) {
+                    const attrName = attrMatch[1];
+                    const attrValue = attrMatch[2];
+                    if (attrValue) {
+                      return `[${attrName}="${attrValue}"]`;
+                    }
+                    return `[${attrName}]`;
+                  }
+                }
+
+                // Use selector as fallback (truncate if too long)
+                if (selector.length > 25) {
+                  return selector.substring(0, 22) + '...';
+                }
+
+                return selector;
+              };
+
               const getActionDisplay = (action) => {
                 switch(action.kind) {
                   case 'nav':
                     return html`Navigate to ${action.url || '/'}`;
                   case 'click':
-                    const clickText = action.locator?.text ? `"${action.locator.text}"` : action.locator?.primary || 'element';
-                    return html`Click ${clickText}`;
+                    if (action.locator?.text) {
+                      const elementDesc = getElementDescription(action);
+                      return html`Click "${action.locator.text}" ${elementDesc !== 'element' ? `(${elementDesc})` : ''}`;
+                    }
+                    const clickDesc = getElementDescription(action);
+                    return html`Click ${clickDesc}`;
                   case 'input':
                     const inputValue = action.value && action.value.length > 30 ? action.value.substring(0, 30) + '...' : action.value;
-                    return html`Type "${inputValue}"`;
+                    const inputDesc = getElementDescription(action);
+                    return html`Type "${inputValue}" ${inputDesc !== 'element' ? `in ${inputDesc}` : ''}`;
                   case 'form':
+                    const formDesc = getElementDescription(action);
                     if (action.formType === 'checkbox' || action.formType === 'radio') {
-                      return html`${action.checked ? 'Check' : 'Uncheck'} ${action.formType}`;
+                      return html`${action.checked ? 'Check' : 'Uncheck'} ${formDesc !== 'element' ? formDesc : action.formType}`;
                     } else if (action.formType === 'select') {
-                      return html`Select "${action.value}"`;
+                      return html`Select "${action.value}" ${formDesc !== 'element' ? `from ${formDesc}` : ''}`;
                     }
-                    return html`Form: ${action.value}`;
+                    return html`Form: ${action.value} ${formDesc !== 'element' ? `in ${formDesc}` : ''}`;
                   case 'assertion':
                     const assertText = action.value && action.value.length > 30 ? action.value.substring(0, 30) + '...' : action.value;
-                    return html`Assert "${assertText}"`;
+                    const assertDesc = getElementDescription(action);
+                    return html`Assert "${assertText}" ${assertDesc !== 'element' ? `in ${assertDesc}` : ''}`;
                   case 'waitForUrl':
                     return html`Wait for ${action.expectedUrl || 'navigation'}`;
                   default:

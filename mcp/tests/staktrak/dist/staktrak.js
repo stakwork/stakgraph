@@ -2924,6 +2924,13 @@ var userBehaviour = (() => {
     }
     actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.kind) - weightOrder(b.kind));
     refineLocators(actions);
+    for (let i = actions.length - 1; i > 0; i--) {
+      const current = actions[i];
+      const previous = actions[i - 1];
+      if (current.kind === "waitForUrl" && previous.kind === "waitForUrl" && current.normalizedUrl === previous.normalizedUrl) {
+        actions.splice(i, 1);
+      }
+    }
     return actions;
   }
   function weightOrder(kind) {
@@ -3002,160 +3009,297 @@ var userBehaviour = (() => {
   }
 
   // src/playwright-generator.ts
+  var RecordingManager = class {
+    constructor() {
+      this.trackingData = {
+        pageNavigation: [],
+        clicks: { clickCount: 0, clickDetails: [] },
+        inputChanges: [],
+        formElementChanges: [],
+        assertions: [],
+        keyboardActivities: [],
+        mouseMovement: [],
+        mouseScroll: [],
+        focusChanges: [],
+        visibilitychanges: [],
+        windowSizes: [],
+        touchEvents: [],
+        audioVideoInteractions: []
+      };
+      this.capturedActions = [];
+      this.actionIdCounter = 0;
+    }
+    /**
+     * Handle an event from the iframe and store it
+     */
+    handleEvent(eventType, eventData) {
+      switch (eventType) {
+        case "click":
+          this.trackingData.clicks.clickDetails.push(eventData);
+          this.trackingData.clicks.clickCount++;
+          break;
+        case "nav":
+        case "navigation":
+          this.trackingData.pageNavigation.push({
+            type: "navigation",
+            url: eventData.url,
+            timestamp: eventData.timestamp
+          });
+          break;
+        case "input":
+          this.trackingData.inputChanges.push({
+            elementSelector: eventData.selector || "",
+            value: eventData.value,
+            timestamp: eventData.timestamp,
+            action: "complete"
+          });
+          break;
+        case "form":
+          this.trackingData.formElementChanges.push({
+            elementSelector: eventData.selector || "",
+            type: eventData.formType || "input",
+            checked: eventData.checked,
+            value: eventData.value || "",
+            text: eventData.text,
+            timestamp: eventData.timestamp
+          });
+          break;
+        case "assertion":
+          this.trackingData.assertions.push({
+            id: eventData.id,
+            type: eventData.type || "hasText",
+            selector: eventData.selector,
+            value: eventData.value || "",
+            timestamp: eventData.timestamp
+          });
+          break;
+        default:
+          return null;
+      }
+      const action = this.createAction(eventType, eventData);
+      if (action) {
+        this.capturedActions.push(action);
+      }
+      return action;
+    }
+    createAction(eventType, eventData) {
+      const id = `${Date.now()}_${this.actionIdCounter++}`;
+      const baseAction = {
+        id,
+        timestamp: eventData.timestamp || Date.now()
+      };
+      switch (eventType) {
+        case "click":
+          return __spreadProps(__spreadValues({}, baseAction), {
+            kind: "click",
+            locator: eventData.selectors || eventData.locator,
+            elementInfo: eventData.elementInfo
+          });
+        case "nav":
+        case "navigation":
+          return __spreadProps(__spreadValues({}, baseAction), {
+            kind: "nav",
+            url: eventData.url
+          });
+        case "input":
+          return __spreadProps(__spreadValues({}, baseAction), {
+            kind: "input",
+            value: eventData.value,
+            locator: eventData.locator || { primary: eventData.selector }
+          });
+        case "form":
+          return __spreadProps(__spreadValues({}, baseAction), {
+            kind: "form",
+            formType: eventData.formType,
+            checked: eventData.checked,
+            value: eventData.value,
+            locator: eventData.locator || { primary: eventData.selector }
+          });
+        case "assertion":
+          return __spreadProps(__spreadValues({}, baseAction), {
+            kind: "assertion",
+            value: eventData.value,
+            locator: { primary: eventData.selector, fallbacks: [] }
+          });
+        default:
+          return __spreadProps(__spreadValues({}, baseAction), {
+            kind: eventType
+          });
+      }
+    }
+    /**
+     * Remove an action by ID
+     */
+    removeAction(actionId) {
+      const action = this.capturedActions.find((a) => a.id === actionId);
+      if (!action)
+        return false;
+      this.capturedActions = this.capturedActions.filter((a) => a.id !== actionId);
+      this.removeFromTrackingData(action);
+      return true;
+    }
+    removeFromTrackingData(action) {
+      const timestamp = action.timestamp;
+      switch (action.kind) {
+        case "click":
+          this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
+            (c) => c.timestamp !== timestamp
+          );
+          this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
+          break;
+        case "nav":
+          this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
+            (n) => n.timestamp !== timestamp
+          );
+          break;
+        case "input":
+          this.trackingData.inputChanges = this.trackingData.inputChanges.filter(
+            (i) => i.timestamp !== timestamp
+          );
+          break;
+        case "form":
+          this.trackingData.formElementChanges = this.trackingData.formElementChanges.filter(
+            (f) => f.timestamp !== timestamp
+          );
+          break;
+        case "assertion":
+          this.trackingData.assertions = this.trackingData.assertions.filter(
+            (a) => a.timestamp !== timestamp
+          );
+          const clickBeforeAssertion = this.trackingData.clicks.clickDetails.filter((c) => c.timestamp < timestamp).sort((a, b) => b.timestamp - a.timestamp)[0];
+          if (clickBeforeAssertion && timestamp - clickBeforeAssertion.timestamp < 1e3) {
+            this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
+              (c) => c.timestamp !== clickBeforeAssertion.timestamp
+            );
+            this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
+          }
+          break;
+      }
+    }
+    /**
+     * Generate Playwright test from current data
+     */
+    generateTest(url, options) {
+      const actions = resultsToActions(this.trackingData);
+      return generatePlaywrightTestFromActions(actions, __spreadValues({
+        baseUrl: url
+      }, options));
+    }
+    /**
+     * Get current actions for UI display
+     */
+    getActions() {
+      return [...this.capturedActions];
+    }
+    /**
+     * Get tracking data (for compatibility)
+     */
+    getTrackingData() {
+      return this.trackingData;
+    }
+    /**
+     * Clear all recorded data
+     */
+    clear() {
+      this.trackingData = {
+        pageNavigation: [],
+        clicks: { clickCount: 0, clickDetails: [] },
+        inputChanges: [],
+        formElementChanges: [],
+        assertions: [],
+        keyboardActivities: [],
+        mouseMovement: [],
+        mouseScroll: [],
+        focusChanges: [],
+        visibilitychanges: [],
+        windowSizes: [],
+        touchEvents: [],
+        audioVideoInteractions: []
+      };
+      this.capturedActions = [];
+      this.actionIdCounter = 0;
+    }
+    /**
+     * Clear all actions (but keep recording)
+     */
+    clearAllActions() {
+      this.clear();
+    }
+  };
   function escapeTextForAssertion(text) {
     if (!text)
       return "";
-    return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t").trim();
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
-  function normalizeText(t) {
-    return (t || "").trim();
-  }
-  function locatorToSelector(l) {
-    if (!l)
-      return 'page.locator("body")';
-    const primary = l.stableSelector || l.primary;
-    if (/\[data-testid=/.test(primary)) {
-      const m = primary.match(/\[data-testid=["']([^"']+)["']\]/);
-      if (m)
-        return `page.getByTestId('${escapeTextForAssertion(m[1])}')`;
-    }
-    if (primary.startsWith("#") && /^[a-zA-Z][\w-]*$/.test(primary.slice(1)))
-      return `page.locator('${primary}')`;
-    if (/^[a-zA-Z]+\.[a-zA-Z0-9_-]+/.test(primary)) {
-      return `page.locator('${primary}')`;
-    }
-    if (l.role && l.text) {
-      const txt = normalizeText(l.text);
-      if (txt && txt.length <= 50)
-        return `page.getByRole('${l.role}', { name: '${escapeTextForAssertion(txt)}' })`;
-    }
-    if (l.text && l.text.length <= 30 && l.text.length > 1)
-      return `page.getByText('${escapeTextForAssertion(normalizeText(l.text))}')`;
-    if (primary && !primary.startsWith("page."))
-      return `page.locator('${primary}')`;
-    for (const fb of l.fallbacks) {
-      if (fb && !/^[a-zA-Z]+$/.test(fb))
-        return `page.locator('${fb}')`;
-    }
-    return 'page.locator("body")';
-  }
-  function generatePlaywrightTestFromActions(actions, options) {
-    const name = options.testName || "Recorded flow";
-    const viewport = options.viewport || { width: 1280, height: 720 };
-    let body = "";
-    let lastTs = null;
-    const base = options.baseUrl ? options.baseUrl.replace(/\/$/, "") : "";
-    function fullUrl(u) {
-      if (!u)
-        return "";
-      if (/^https?:/i.test(u))
-        return u;
-      if (u.startsWith("/"))
-        return base + u;
-      return base + "/" + u;
-    }
-    let i = 0;
-    const collapsed = [];
-    for (let k = 0; k < actions.length; k++) {
-      const curr = actions[k];
-      const prev = collapsed[collapsed.length - 1];
-      if (curr.kind === "nav" && prev && prev.kind === "nav" && prev.url === curr.url)
-        continue;
-      collapsed.push(curr);
-    }
-    actions = collapsed;
-    while (i < actions.length) {
-      const a = actions[i];
-      if (a.kind === "click" && i + 1 < actions.length) {
-        const nxt = actions[i + 1];
-        if (nxt.kind === "nav" && nxt.timestamp - a.timestamp < 1500) {
-          if (lastTs != null) {
-            const delta = Math.max(0, a.timestamp - lastTs);
-            const wait = Math.min(3e3, Math.max(100, delta));
-            if (wait > 400)
-              body += `  await page.waitForTimeout(${wait});
-`;
+  function generatePlaywrightTestFromActions(actions, options = {}) {
+    const { baseUrl = "" } = options;
+    const body = actions.map((action) => {
+      var _a, _b, _c, _d, _e;
+      switch (action.kind) {
+        case "nav":
+          return `  await page.goto('${action.url || baseUrl}');`;
+        case "waitForUrl":
+          if (action.normalizedUrl) {
+            return `  await page.waitForURL('${action.normalizedUrl}');`;
           }
-          body += `  await Promise.all([
-`;
-          body += `    page.waitForURL('${fullUrl(nxt.url)}'),
-`;
-          body += `    ${locatorToSelector(a.locator)}.click()
-`;
-          body += `  ]);
-`;
-          lastTs = nxt.timestamp;
-          i += 2;
-          continue;
+          return "";
+        case "click": {
+          const selector = ((_a = action.locator) == null ? void 0 : _a.stableSelector) || ((_b = action.locator) == null ? void 0 : _b.primary);
+          if (!selector)
+            return "";
+          return `  await page.click('${selector}');`;
         }
-      }
-      if (lastTs != null) {
-        const delta = Math.max(0, a.timestamp - lastTs);
-        const wait = Math.min(3e3, Math.max(100, delta));
-        if (wait > 500)
-          body += `  await page.waitForTimeout(${wait});
-`;
-      }
-      switch (a.kind) {
-        case "nav": {
-          const target = fullUrl(a.url);
-          if (i === 0) {
-            body += `  await page.goto('${target}');
-`;
-          } else {
-            body += `  await page.waitForURL('${target}');
-`;
-          }
-          break;
+        case "input": {
+          const selector = (_c = action.locator) == null ? void 0 : _c.primary;
+          if (!selector || action.value === void 0)
+            return "";
+          const value = action.value.replace(/'/g, "\\'");
+          return `  await page.fill('${selector}', '${value}');`;
         }
-        case "click":
-          body += `  await ${locatorToSelector(a.locator)}.click();
-`;
-          break;
-        case "input":
-          body += `  await ${locatorToSelector(a.locator)}.fill('${escapeTextForAssertion(a.value || "")}');
-`;
-          break;
-        case "form":
-          if (a.formType === "checkbox" || a.formType === "radio") {
-            body += a.checked ? `  await ${locatorToSelector(a.locator)}.check();
-` : `  await ${locatorToSelector(a.locator)}.uncheck();
-`;
-          } else if (a.formType === "select") {
-            body += `  await ${locatorToSelector(a.locator)}.selectOption('${escapeTextForAssertion(a.value || "")}');
-`;
+        case "form": {
+          const selector = (_d = action.locator) == null ? void 0 : _d.primary;
+          if (!selector)
+            return "";
+          if (action.formType === "checkbox" || action.formType === "radio") {
+            if (action.checked) {
+              return `  await page.check('${selector}');`;
+            } else {
+              return `  await page.uncheck('${selector}');`;
+            }
+          } else if (action.formType === "select" && action.value) {
+            return `  await page.selectOption('${selector}', '${action.value}');`;
           }
-          break;
-        case "assertion":
-          if (a.value && a.value.length > 0) {
-            body += `  await expect(${locatorToSelector(a.locator)}).toContainText('${escapeTextForAssertion(a.value)}');
-`;
-          } else {
-            body += `  await expect(${locatorToSelector(a.locator)}).toBeVisible();
-`;
-          }
-          break;
+          return "";
+        }
+        case "assertion": {
+          const selector = (_e = action.locator) == null ? void 0 : _e.primary;
+          if (!selector || action.value === void 0)
+            return "";
+          const escapedValue = escapeTextForAssertion(action.value);
+          return `  await expect(page.locator('${selector}')).toContainText('${escapedValue}');`;
+        }
+        default:
+          return "";
       }
-      lastTs = a.timestamp;
-      i++;
-    }
-    return `import { test, expect } from '@playwright/test'
+    }).filter((line) => line !== "").join("\n");
+    if (!body)
+      return "";
+    return `import { test, expect } from '@playwright/test';
 
-test('${name}', async ({ page }) => {
-  await page.setViewportSize({ width: ${viewport.width}, height: ${viewport.height} })
+test('Recorded test', async ({ page }) => {
 ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
-})
-`;
+});`;
   }
   if (typeof window !== "undefined") {
     const existing = window.PlaywrightGenerator || {};
+    existing.RecordingManager = RecordingManager;
     existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
-    existing.generatePlaywrightTest = (baseUrl, results) => {
+    existing.generatePlaywrightTest = (url, trackingData) => {
       try {
-        const actions = resultsToActions(results);
-        return generatePlaywrightTestFromActions(actions, { baseUrl });
-      } catch (e) {
-        console.warn("PlaywrightGenerator.generatePlaywrightTest failed", e);
+        const actions = resultsToActions(trackingData);
+        return generatePlaywrightTestFromActions(actions, { baseUrl: url });
+      } catch (error) {
+        console.error("Error generating Playwright test:", error);
         return "";
       }
     };
@@ -3200,6 +3344,19 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         healthCheckInterval: null
       };
       this.isRunning = false;
+    }
+    /**
+     * Send event data to parent for recording
+     */
+    sendEventToParent(eventType, data) {
+      window.parent.postMessage(
+        {
+          type: "staktrak-event",
+          eventType,
+          data
+        },
+        "*"
+      );
     }
     createEmptyResults() {
       return {
@@ -3288,9 +3445,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         clearInterval(this.memory.healthCheckInterval);
         this.memory.healthCheckInterval = null;
       }
-      Object.values(this.memory.inputDebounceTimers).forEach(
-        (timer) => clearTimeout(timer)
-      );
+      Object.values(this.memory.inputDebounceTimers).forEach((timer) => clearTimeout(timer));
       this.memory.inputDebounceTimers = {};
       if (this.memory.assertionDebounceTimer) {
         clearTimeout(this.memory.assertionDebounceTimer);
@@ -3303,45 +3458,57 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
     setupEventListeners() {
       if (this.config.clicks) {
         const clickHandler = (e) => {
-          var _a;
+          if (this.memory.selectionMode) {
+            return;
+          }
           const target = e.target;
-          const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio");
-          if (!isFormElement || !this.config.formInteractions) {
+          const isLabelForFormInput = (element) => {
+            if (element.tagName !== "LABEL")
+              return false;
+            const label = element;
+            if (label.control) {
+              const control = label.control;
+              return control.tagName === "INPUT" && (control.type === "radio" || control.type === "checkbox");
+            }
+            if (label.htmlFor) {
+              const control = document.getElementById(label.htmlFor);
+              return control && control.tagName === "INPUT" && (control.type === "radio" || control.type === "checkbox");
+            }
+            return false;
+          };
+          const isFormElement = target.tagName === "INPUT" && (target.type === "checkbox" || target.type === "radio") || isLabelForFormInput(target);
+          if (!isFormElement) {
             this.results.clicks.clickCount++;
             const clickDetail = createClickDetail(e);
             this.results.clicks.clickDetails.push(clickDetail);
-            window.parent.postMessage({
-              type: "staktrak-action-added",
-              action: {
-                id: clickDetail.timestamp + "_click",
-                kind: "click",
-                timestamp: clickDetail.timestamp,
-                locator: {
-                  primary: clickDetail.selectors.primary,
-                  text: (_a = clickDetail.elementInfo) == null ? void 0 : _a.text
+            this.sendEventToParent("click", clickDetail);
+            window.parent.postMessage(
+              {
+                type: "staktrak-action-added",
+                action: {
+                  id: clickDetail.timestamp + "_click",
+                  kind: "click",
+                  timestamp: clickDetail.timestamp,
+                  locator: {
+                    primary: clickDetail.selectors.primary,
+                    text: clickDetail.selectors.text
+                  }
                 }
-              }
-            }, "*");
+              },
+              "*"
+            );
           }
           this.saveSessionState();
         };
         document.addEventListener("click", clickHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("click", clickHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("click", clickHandler));
       }
       if (this.config.mouseScroll) {
         const scrollHandler = () => {
-          this.results.mouseScroll.push([
-            window.scrollX,
-            window.scrollY,
-            getTimeStamp()
-          ]);
+          this.results.mouseScroll.push([window.scrollX, window.scrollY, getTimeStamp()]);
         };
         window.addEventListener("scroll", scrollHandler);
-        this.memory.listeners.push(
-          () => window.removeEventListener("scroll", scrollHandler)
-        );
+        this.memory.listeners.push(() => window.removeEventListener("scroll", scrollHandler));
       }
       if (this.config.mouseMovement) {
         const mouseMoveHandler = (e) => {
@@ -3363,23 +3530,14 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
       }
       if (this.config.windowResize) {
         const resizeHandler = () => {
-          this.results.windowSizes.push([
-            window.innerWidth,
-            window.innerHeight,
-            getTimeStamp()
-          ]);
+          this.results.windowSizes.push([window.innerWidth, window.innerHeight, getTimeStamp()]);
         };
         window.addEventListener("resize", resizeHandler);
-        this.memory.listeners.push(
-          () => window.removeEventListener("resize", resizeHandler)
-        );
+        this.memory.listeners.push(() => window.removeEventListener("resize", resizeHandler));
       }
       if (this.config.visibilitychange) {
         const visibilityHandler = () => {
-          this.results.visibilitychanges.push([
-            document.visibilityState,
-            getTimeStamp()
-          ]);
+          this.results.visibilitychanges.push([document.visibilityState, getTimeStamp()]);
         };
         document.addEventListener("visibilitychange", visibilityHandler);
         this.memory.listeners.push(
@@ -3393,9 +3551,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           }
         };
         document.addEventListener("keypress", keyHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("keypress", keyHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("keypress", keyHandler));
       }
       if (this.config.formInteractions) {
         this.setupFormInteractions();
@@ -3413,9 +3569,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           }
         };
         document.addEventListener("touchstart", touchHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("touchstart", touchHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("touchstart", touchHandler));
       }
     }
     setupFormInteractions() {
@@ -3437,16 +3591,26 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   timestamp: getTimeStamp()
                 };
                 this.results.formElementChanges.push(formChange);
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: formChange.timestamp + "_form",
-                    kind: "form",
-                    timestamp: formChange.timestamp,
-                    formType: formChange.type,
-                    value: formChange.text
-                  }
-                }, "*");
+                this.sendEventToParent("form", {
+                  selector,
+                  formType: "select",
+                  value: selectEl.value,
+                  text: (selectedOption == null ? void 0 : selectedOption.text) || "",
+                  timestamp: formChange.timestamp
+                });
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: formChange.timestamp + "_form",
+                      kind: "form",
+                      timestamp: formChange.timestamp,
+                      formType: formChange.type,
+                      value: formChange.text
+                    }
+                  },
+                  "*"
+                );
               } else {
                 const formChange = {
                   elementSelector: selector,
@@ -3456,17 +3620,27 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   timestamp: getTimeStamp()
                 };
                 this.results.formElementChanges.push(formChange);
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: formChange.timestamp + "_form",
-                    kind: "form",
-                    timestamp: formChange.timestamp,
-                    formType: formChange.type,
-                    checked: formChange.checked,
-                    value: formChange.value
-                  }
-                }, "*");
+                this.sendEventToParent("form", {
+                  selector,
+                  formType: inputEl.type,
+                  checked: inputEl.checked,
+                  value: inputEl.value,
+                  timestamp: formChange.timestamp
+                });
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: formChange.timestamp + "_form",
+                      kind: "form",
+                      timestamp: formChange.timestamp,
+                      formType: formChange.type,
+                      checked: formChange.checked,
+                      value: formChange.value
+                    }
+                  },
+                  "*"
+                );
               }
               this.saveSessionState();
             };
@@ -3486,15 +3660,24 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   action: "complete"
                 };
                 this.results.inputChanges.push(inputAction2);
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: inputAction2.timestamp + "_input",
-                    kind: "input",
-                    timestamp: inputAction2.timestamp,
-                    value: inputAction2.value
-                  }
-                }, "*");
+                this.sendEventToParent("input", {
+                  selector,
+                  value: inputEl.value,
+                  timestamp: inputAction2.timestamp
+                });
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: inputAction2.timestamp + "_input",
+                      kind: "input",
+                      timestamp: inputAction2.timestamp,
+                      value: inputAction2.value,
+                      locator: { primary: selector, fallbacks: [] }
+                    }
+                  },
+                  "*"
+                );
                 delete this.memory.inputDebounceTimers[elementId];
                 this.saveSessionState();
               }, this.config.inputDebounceDelay);
@@ -3505,15 +3688,18 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                 action: "intermediate"
               };
               this.results.inputChanges.push(inputAction);
-              window.parent.postMessage({
-                type: "staktrak-action-added",
-                action: {
-                  id: inputAction.timestamp + "_input",
-                  kind: "input",
-                  timestamp: inputAction.timestamp,
-                  value: inputAction.value
-                }
-              }, "*");
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: inputAction.timestamp + "_input",
+                    kind: "input",
+                    timestamp: inputAction.timestamp,
+                    value: inputAction.value
+                  }
+                },
+                "*"
+              );
             };
             const focusHandler = (e) => {
               const selector = getElementSelector(htmlEl);
@@ -3535,15 +3721,18 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                   action: "complete"
                 };
                 this.results.inputChanges.push(inputAction);
-                window.parent.postMessage({
-                  type: "staktrak-action-added",
-                  action: {
-                    id: inputAction.timestamp + "_input",
-                    kind: "input",
-                    timestamp: inputAction.timestamp,
-                    value: inputAction.value
-                  }
-                }, "*");
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: inputAction.timestamp + "_input",
+                      kind: "input",
+                      timestamp: inputAction.timestamp,
+                      value: inputAction.value
+                    }
+                  },
+                  "*"
+                );
               }
             };
             htmlEl.addEventListener("input", inputHandler);
@@ -3584,19 +3773,20 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           timestamp: getTimeStamp()
         };
         this.results.pageNavigation.push(navAction);
-        window.parent.postMessage({
-          type: "staktrak-action-added",
-          action: {
-            id: navAction.timestamp + "_nav",
-            kind: "nav",
-            timestamp: navAction.timestamp,
-            url: navAction.url
-          }
-        }, "*");
+        this.sendEventToParent("navigation", navAction);
         window.parent.postMessage(
-          { type: "staktrak-page-navigation", data: document.URL },
+          {
+            type: "staktrak-action-added",
+            action: {
+              id: navAction.timestamp + "_nav",
+              kind: "nav",
+              timestamp: navAction.timestamp,
+              url: navAction.url
+            }
+          },
           "*"
         );
+        window.parent.postMessage({ type: "staktrak-page-navigation", data: document.URL }, "*");
       };
       history.pushState = (...args) => {
         originalPushState.apply(history, args);
@@ -3610,16 +3800,12 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         recordStateChange("popstate");
       };
       window.addEventListener("popstate", popstateHandler);
-      this.memory.alwaysListeners.push(
-        () => window.removeEventListener("popstate", popstateHandler)
-      );
+      this.memory.alwaysListeners.push(() => window.removeEventListener("popstate", popstateHandler));
       const hashHandler = () => {
         recordStateChange("hashchange");
       };
       window.addEventListener("hashchange", hashHandler);
-      this.memory.alwaysListeners.push(
-        () => window.removeEventListener("hashchange", hashHandler)
-      );
+      this.memory.alwaysListeners.push(() => window.removeEventListener("hashchange", hashHandler));
       const anchorClickHandler = (e) => {
         const a = e.target.closest("a");
         if (!a)
@@ -3634,15 +3820,18 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
           if (dest.origin === window.location.origin) {
             const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
             this.results.pageNavigation.push(navAction);
-            window.parent.postMessage({
-              type: "staktrak-action-added",
-              action: {
-                id: navAction.timestamp + "_nav",
-                kind: "nav",
-                timestamp: navAction.timestamp,
-                url: navAction.url
-              }
-            }, "*");
+            window.parent.postMessage(
+              {
+                type: "staktrak-action-added",
+                action: {
+                  id: navAction.timestamp + "_nav",
+                  kind: "nav",
+                  timestamp: navAction.timestamp,
+                  url: navAction.url
+                }
+              },
+              "*"
+            );
           }
         } catch (e2) {
         }
@@ -3796,9 +3985,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         }
       };
       window.addEventListener("message", messageHandler);
-      this.memory.alwaysListeners.push(
-        () => window.removeEventListener("message", messageHandler)
-      );
+      this.memory.alwaysListeners.push(() => window.removeEventListener("message", messageHandler));
     }
     checkDebugInfo() {
       setTimeout(() => {
@@ -3832,17 +4019,12 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                 timestamp: getTimeStamp()
               };
               this.memory.assertions.push(assertion);
-              window.parent.postMessage(
-                { type: "staktrak-selection", text, selector, assertionId },
-                "*"
-              );
+              this.sendEventToParent("assertion", assertion);
             }, 300);
           }
         };
         document.addEventListener("mouseup", mouseUpHandler);
-        this.memory.listeners.push(
-          () => document.removeEventListener("mouseup", mouseUpHandler)
-        );
+        this.memory.listeners.push(() => document.removeEventListener("mouseup", mouseUpHandler));
       } else {
         document.body.classList.remove("staktrak-selection-active");
         (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
@@ -3865,10 +4047,7 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
         this.config
       );
       this.results.assertions = this.memory.assertions;
-      window.parent.postMessage(
-        { type: "staktrak-results", data: this.results },
-        "*"
-      );
+      window.parent.postMessage({ type: "staktrak-results", data: this.results }, "*");
       this.config.processData(this.results);
       if (this.config.clearAfterProcess) {
         this.resetResults();

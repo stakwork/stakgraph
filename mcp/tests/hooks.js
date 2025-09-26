@@ -13,6 +13,16 @@ export function useIframeMessaging(iframeRef, initialURL) {
   const [showActions, setShowActions] = useState(false);
 
   const { showPopup } = popupHook;
+
+  // Create RecordingManager instance
+  const recorder = useRef(null);
+
+  // Initialize recorder when PlaywrightGenerator is available
+  useEffect(() => {
+    if (window.PlaywrightGenerator && window.PlaywrightGenerator.RecordingManager) {
+      recorder.current = new window.PlaywrightGenerator.RecordingManager();
+    }
+  }, []);
   const selectedDisplayTimeout = useRef(null);
 
   const handleUrlChange = (e) => {
@@ -71,11 +81,16 @@ export function useIframeMessaging(iframeRef, initialURL) {
             setCanGenerate(true);
             // Actions are already in the list from real-time messages
             break;
-          case "staktrak-action-added":
-            const newAction = {
-              ...event.data.action
-            };
-            setCapturedActions(prev => [...prev, newAction].sort((a, b) => a.timestamp - b.timestamp));
+          case "staktrak-event":
+            // Handle event-based recording with RecordingManager
+            if (recorder.current) {
+              const action = recorder.current.handleEvent(event.data.eventType, event.data.data);
+              if (action) {
+                setCapturedActions(recorder.current.getActions());
+                setTrackingData(recorder.current.getTrackingData());
+                setCanGenerate(true);
+              }
+            }
             break;
           case "staktrak-selection":
             displaySelectedText(event.data.text);
@@ -120,8 +135,11 @@ export function useIframeMessaging(iframeRef, initialURL) {
       setIsAssertionMode(false);
       setCanGenerate(false);
       // Clear actions when starting a new recording
-      setCapturedActions([]);
-      setShowActions(false);
+      if (recorder.current) {
+        recorder.current.clear();
+        setCapturedActions(recorder.current.getActions());
+        setTrackingData(recorder.current.getTrackingData());
+      }
     }
   };
 
@@ -159,42 +177,25 @@ export function useIframeMessaging(iframeRef, initialURL) {
   };
 
   const removeAction = (action) => {
-    setCapturedActions(prev => {
-      const updatedActions = prev.filter(a => a.id !== action.id);
-      // Send message to iframe to remove action from its tracking data
-      if (iframeRef.current && iframeRef.current.contentWindow) {
-        const messageMap = {
-          'nav': 'staktrak-remove-navigation',
-          'click': 'staktrak-remove-click',
-          'input': 'staktrak-remove-input',
-          'form': 'staktrak-remove-form',
-          'assertion': 'staktrak-remove-assertion'
-        };
-        iframeRef.current.contentWindow.postMessage(
-          {
-            type: messageMap[action.kind] || 'staktrak-remove-action',
-            actionId: action.id,
-            assertionId: action.id, // For backwards compatibility with assertions
-            timestamp: action.timestamp
-          },
-          "*"
-        );
+    if (recorder.current) {
+      const success = recorder.current.removeAction(action.id);
+      if (success) {
+        setCapturedActions(recorder.current.getActions());
+        setTrackingData(recorder.current.getTrackingData());
+        showPopup(`${action.kind === 'assertion' ? 'Assertion' : 'Action'} removed`, "info");
+      } else {
+        showPopup("Failed to remove action", "error");
       }
-      return updatedActions;
-    });
-    showPopup(`${action.kind === 'assertion' ? 'Assertion' : 'Action'} removed`, "info");
+    }
   };
 
   const clearAllActions = () => {
-    setCapturedActions([]);
-    // Send message to iframe to clear all actions from its tracking data
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      iframeRef.current.contentWindow.postMessage(
-        { type: "staktrak-clear-all-actions" },
-        "*"
-      );
+    if (recorder.current) {
+      recorder.current.clearAllActions();
+      setCapturedActions(recorder.current.getActions());
+      setTrackingData(recorder.current.getTrackingData());
+      showPopup("All actions cleared", "info");
     }
-    showPopup("All actions cleared", "info");
   };
 
   const toggleActionsView = () => {
@@ -216,6 +217,7 @@ export function useIframeMessaging(iframeRef, initialURL) {
     removeAction,
     clearAllActions,
     toggleActionsView,
+    recorder: recorder.current, // Expose recorder for test generation
     url,
     setUrl,
     handleUrlChange,
@@ -230,7 +232,7 @@ export function useTestGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState(null);
 
-  const generateTest = async (url, trackingData) => {
+  const generateTest = async (url, trackingData, recorder = null) => {
     setIsGenerating(true);
     setError(null);
 
@@ -241,10 +243,14 @@ export function useTestGenerator() {
         return null;
       }
 
-      const testCode = window.PlaywrightGenerator.generatePlaywrightTest(
-        url,
-        trackingData
-      );
+      let testCode;
+      if (recorder && recorder.generateTest) {
+        testCode = recorder.generateTest(url);
+      } else {
+        setError("RecordingManager not available");
+        setIsGenerating(false);
+        return null;
+      }
 
       setGeneratedTest(testCode);
       setIsGenerating(false);
