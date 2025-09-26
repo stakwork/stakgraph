@@ -40,7 +40,9 @@ impl Stack for ReactTs {
         // 1. Path based (strongest signal)
         let f = file.replace('\\', "/");
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
-        if f.contains("/__e2e__/")
+        let is_e2e_dir = f.contains("/tests/e2e/") || f.contains("/test/e2e") || f.contains("/e2e/");
+        if is_e2e_dir
+            || f.contains("/__e2e__/")
             || f.contains("/e2e/")
             || f.contains(".e2e.")
             || fname.starts_with("e2e.")
@@ -48,13 +50,14 @@ impl Stack for ReactTs {
             || fname.starts_with("e2e-")
             || fname.contains("e2e.test")
             || fname.contains("e2e.spec")
+            || fname.contains("e2e")
         {
             return NodeType::E2eTest;
         }
-        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") || fname.starts_with("int.") || fname.starts_with("int_") || fname.starts_with("int-") || fname.contains("integration.test") || fname.contains("integration.spec") { 
+        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration."){ 
             return NodeType::IntegrationTest;
         }
-        if f.contains("/unit/") || f.contains(".unit.")  || f.contains("unit.") || fname.starts_with("unit.") || fname.starts_with("unit_") || fname.starts_with("unit-") || fname.contains("unit.test") || fname.contains("unit.spec") {
+        if f.contains("/unit/") || f.contains(".unit.") {
             return NodeType::UnitTest;
         }
 
@@ -69,11 +72,11 @@ impl Stack for ReactTs {
 
         // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
         let body_l = body.to_lowercase();
-    let has_playwright_import = body_l.contains("@playwright/test");
-    let has_browser_actions = body_l.contains("page.goto(") || body_l.contains("page.click(") || body_l.contains("page.evaluate(");
-    let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
-    let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
-    if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
+            let has_playwright_import = body_l.contains("@playwright/test");
+            let has_browser_actions = body_l.contains("page.goto(") || body_l.contains("page.click(") || body_l.contains("page.evaluate(");
+            let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
+            let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
+            if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
             return NodeType::E2eTest;
         }
 
@@ -427,19 +430,31 @@ impl Stack for ReactTs {
                 ] @{FUNCTION_DEFINITION}"#
         ))
     }
-    fn e2e_test_query(&self) -> Option<String> {
-        Some(format!(
-            r#"
-                (call_expression
-                    function: (member_expression
-                        object: (identifier) @pwtest2 (#eq? @pwtest2 "test")
-                        property: (property_identifier) @mod (#match? @mod "^(only|skip|fixme|fail|slow)$")
+fn e2e_test_query(&self) -> Option<String> {
+    Some(format!(
+        r#"
+            (call_expression
+                function: [
+                    (identifier) @describe1 (#eq? @describe1 "describe")
+                    (member_expression
+                        object: (identifier) @pwtest2 (#match? @pwtest2 "^(test|describe)$")
+                        property: (property_identifier) @method (#eq? @method "describe")
                     )
-                    arguments: (arguments [ (string) (template_string) ] @{E2E_TEST_NAME} (_))
-                ) @{E2E_TEST}
-            "#
-        ))
-    }
+                    (call_expression
+                        function: (member_expression
+                            object: (identifier) @pwtest3 (#match? @pwtest3 "^(test|describe)$")
+                            property: (property_identifier) @method2 (#eq? @method2 "each")
+                        )
+                    )
+                ]
+                arguments: (arguments 
+                    [ (string) (template_string) ] @{E2E_TEST_NAME} 
+                    (arrow_function)
+                )
+            ) @{E2E_TEST}
+        "#
+    ))
+}
     fn endpoint_finders(&self) -> Vec<String> {
         vec![format!(
             r#"

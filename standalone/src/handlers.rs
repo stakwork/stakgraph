@@ -740,6 +740,8 @@ pub async fn nodes_handler(Query(params): Query<NodesParams>) -> Result<impl Int
 
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
 
+    info!("[/tests/nodes] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}", node_type, limit, offset, concise, output);
+
     let is_function = matches!(node_type, NodeType::Function);
     let is_endpoint = matches!(node_type, NodeType::Endpoint);
 
@@ -804,6 +806,8 @@ pub async fn uncovered_handler(Query(params): Query<NodesParams>) -> Result<impl
 
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
 
+    info!("[/tests/uncovered] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}", node_type, limit, offset, concise, output);
+
     let is_function = matches!(node_type, NodeType::Function);
     let is_endpoint = matches!(node_type, NodeType::Endpoint);
 
@@ -862,6 +866,7 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
         "endpoint" => NodeType::Endpoint,
         _ => return Err(WebError(Error::Custom("invalid node_type".into()))),
     };
+    info!("[/tests/has] node_type={:?} name={:?} file={:?} start={:?} root={:?} tests={:?}", node_type, params.name, params.file, params.start, params.root, params.tests);
     let covered = graph_ops
         .has_coverage(
             node_type,
