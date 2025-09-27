@@ -92,6 +92,10 @@ async fn main() -> Result<()> {
         .route("/tests/uncovered", get(handlers::uncovered_handler))
         .route("/tests/has", get(handlers::has_handler))
         .route("/query/nodes", get(handlers::query_nodes_handler))
+        .route(
+            "/compute_test_counts",
+            post(handlers::compute_test_counts_handler),
+        )
         .route("/codecov", post(handlers::codecov_handler))
         .route(
             "/codecov/:request_id",

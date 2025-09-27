@@ -954,6 +954,19 @@ pub async fn codecov_status_handler(
 }
 
 #[axum::debug_handler]
+pub async fn compute_test_counts_handler() -> Result<Json<serde_json::Value>> {
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await?;
+
+    let (functions_updated, endpoints_updated) = graph_ops.compute_and_store_test_counts().await?;
+
+    Ok(Json(serde_json::json!({
+        "status": "completed",
+        "functions_updated": functions_updated,
+        "endpoints_updated": endpoints_updated
+    })))
+}
+
 pub async fn query_nodes_handler(
     Query(params): Query<QueryNodesParams>,
 ) -> Result<Json<QueryNodesResponse>> {
@@ -972,10 +985,10 @@ pub async fn query_nodes_handler(
     let items: Vec<crate::types::NodeConcise> = results
         .into_iter()
         .map(
-            |(node_data, test_count, covered, weight)| crate::types::NodeConcise {
+            |(node_data, usage_count, covered, test_count)| crate::types::NodeConcise {
                 name: node_data.name,
                 file: node_data.file,
-                weight,
+                weight: usage_count,
                 test_count,
                 covered,
             },

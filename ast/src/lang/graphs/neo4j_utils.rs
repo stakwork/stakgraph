@@ -1413,10 +1413,11 @@ pub fn query_nodes_simple(
                 WHEN n.test_count IS NOT NULL THEN n.test_count 
                 ELSE 0 
               END AS test_count
-         WITH n, test_count, (test_count > 0) AS covered, 1 AS weight
+         OPTIONAL MATCH (caller)-[:CALLS]->(n)
+         WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
          {}
          SKIP $offset LIMIT $limit
-         RETURN n, test_count, covered, weight",
+         RETURN n, usage_count, is_covered, test_count",
         node_type.to_string(),
         order_clause
     );
@@ -1426,26 +1427,15 @@ pub fn query_nodes_simple(
 pub fn batch_compute_test_counts_query(node_type: &NodeType) -> (String, BoltMap) {
     let params = BoltMap::new();
 
-    let test_types = vec![
-        NodeType::UnitTest,
-        NodeType::IntegrationTest,
-        NodeType::E2eTest,
-    ];
-    let test_conditions = test_types
-        .iter()
-        .map(|t| format!("test:{}", t.to_string()))
-        .collect::<Vec<_>>()
-        .join(" OR ");
-
+    // Count tests that call this function/endpoint
     let query = format!(
         "MATCH (n:{}) 
          OPTIONAL MATCH (test)-[:CALLS]->(n)
-         WHERE test IS NULL OR ({})
-         WITH n, count(test) AS test_count
+         WHERE test IS NULL OR (test:UnitTest OR test:IntegrationTest OR test:E2etest)
+         WITH n, count(DISTINCT test) AS test_count
          RETURN n.node_key AS node_key, n.name AS name, n.file AS file, n.start AS start, test_count
          ORDER BY n.name",
-        node_type.to_string(),
-        test_conditions
+        node_type.to_string()
     );
 
     (query, params)
