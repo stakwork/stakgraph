@@ -5,8 +5,7 @@ use crate::types::{
     Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
 };
 use crate::utils::{
-    create_nodes_response_items, create_uncovered_response_items, format_nodes_response_as_snippet,
-    format_uncovered_response_as_snippet, parse_node_type,
+    create_uncovered_response_items, format_uncovered_response_as_snippet, parse_node_type,
 };
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
@@ -727,72 +726,40 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
 }
 
 #[axum::debug_handler]
-pub async fn nodes_handler(Query(params): Query<NodesParams>) -> Result<impl IntoResponse> {
-    let with_usage = params
-        .sort
-        .as_deref()
-        .unwrap_or("usage")
-        .eq_ignore_ascii_case("usage");
-    let limit = params.limit.unwrap_or(50);
-    let offset = params.offset.unwrap_or(0);
-    let output = params.output.as_deref().unwrap_or("json");
-    let concise = params.concise.unwrap_or(false);
-
+pub async fn nodes_handler(
+    Query(params): Query<QueryNodesParams>,
+) -> Result<Json<QueryNodesResponse>> {
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
-
-    info!(
-        "[/tests/nodes] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}",
-        node_type, limit, offset, concise, output
-    );
-
-    let is_function = matches!(node_type, NodeType::Function);
-    let is_endpoint = matches!(node_type, NodeType::Endpoint);
+    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(20).min(100);
+    let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
 
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let (funcs, endpoints) = graph_ops
-        .list_nodes_with_coverage(
-            node_type,
-            with_usage,
-            offset,
-            limit,
-            params.root.as_deref(),
-            params.tests.as_deref(),
-            None,
-        )
+    let results = graph_ops
+        .query_nodes_simple(node_type, offset, limit, sort_by_test_count)
         .await?;
 
-    let functions = if is_function {
-        Some(create_nodes_response_items(
-            funcs,
-            &NodeType::Function,
-            concise,
-        ))
-    } else {
-        None
-    };
-    let endpoints = if is_endpoint {
-        Some(create_nodes_response_items(
-            endpoints,
-            &NodeType::Endpoint,
-            concise,
-        ))
-    } else {
-        None
-    };
+    let items: Vec<crate::types::NodeConcise> = results
+        .into_iter()
+        .map(
+            |(node_data, usage_count, covered, test_count)| crate::types::NodeConcise {
+                name: node_data.name,
+                file: node_data.file,
+                weight: usage_count,
+                test_count,
+                covered,
+            },
+        )
+        .collect();
 
-    let response = NodesResponse {
-        functions,
-        endpoints,
-    };
-    match output {
-        "snippet" => {
-            let text = format_nodes_response_as_snippet(&response);
-            Ok(text.into_response())
-        }
-        _ => Ok(Json(response).into_response()),
-    }
+    let total_returned = items.len();
+
+    Ok(Json(QueryNodesResponse {
+        items,
+        total_returned,
+    }))
 }
 
 #[axum::debug_handler]
@@ -965,40 +932,4 @@ pub async fn compute_test_counts_handler() -> Result<Json<serde_json::Value>> {
         "functions_updated": functions_updated,
         "endpoints_updated": endpoints_updated
     })))
-}
-
-pub async fn query_nodes_handler(
-    Query(params): Query<QueryNodesParams>,
-) -> Result<Json<QueryNodesResponse>> {
-    let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
-    let offset = params.offset.unwrap_or(0);
-    let limit = params.limit.unwrap_or(20).min(100);
-    let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
-
-    let mut graph_ops = GraphOps::new();
-    graph_ops.connect().await?;
-
-    let results = graph_ops
-        .query_nodes_simple(node_type, offset, limit, sort_by_test_count)
-        .await?;
-
-    let items: Vec<crate::types::NodeConcise> = results
-        .into_iter()
-        .map(
-            |(node_data, usage_count, covered, test_count)| crate::types::NodeConcise {
-                name: node_data.name,
-                file: node_data.file,
-                weight: usage_count,
-                test_count,
-                covered,
-            },
-        )
-        .collect();
-
-    let total_returned = items.len();
-
-    Ok(Json(QueryNodesResponse {
-        items,
-        total_returned,
-    }))
 }
