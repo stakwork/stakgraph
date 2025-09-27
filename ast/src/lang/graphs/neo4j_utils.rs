@@ -1000,11 +1000,12 @@ pub fn calculate_token_count(body: &str) -> Result<i64> {
 // Add these functions to neo4j_utils.rs
 
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
-    let query = r#"
+    let query = "
         MATCH (n:Function)
         WHERE NOT (n)-[:NESTED_IN]->(:Function)
         RETURN n
-    "#.to_string();
+    "
+    .to_string();
     (query, BoltMap::new())
 }
 
@@ -1387,4 +1388,81 @@ pub fn find_uncovered_nodes_paginated_query(
         tests_filter,
         Some(false),
     )
+}
+
+pub fn query_nodes_simple(
+    node_type: &NodeType,
+    offset: usize,
+    limit: usize,
+    sort_by_test_count: bool,
+) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_int(&mut params, "offset", offset as i64);
+    boltmap_insert_int(&mut params, "limit", limit as i64);
+
+    let order_clause = if sort_by_test_count {
+        "ORDER BY test_count DESC, n.name ASC"
+    } else {
+        "ORDER BY n.name ASC"
+    };
+
+    let query = format!(
+        "MATCH (n:{}) 
+         WITH n, 
+              CASE 
+                WHEN n.test_count IS NOT NULL THEN n.test_count 
+                ELSE 0 
+              END AS test_count
+         OPTIONAL MATCH (caller)-[:CALLS]->(n)
+         WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
+         {}
+         SKIP $offset LIMIT $limit
+         RETURN n, usage_count, is_covered, test_count",
+        node_type.to_string(),
+        order_clause
+    );
+
+    (query, params)
+}
+pub fn batch_compute_test_counts_query(node_type: &NodeType) -> (String, BoltMap) {
+    let params = BoltMap::new();
+
+    // Count tests that call this function/endpoint
+    let query = format!(
+        "MATCH (n:{}) 
+         OPTIONAL MATCH (test)-[:CALLS]->(n)
+         WHERE test IS NULL OR (test:UnitTest OR test:IntegrationTest OR test:E2etest)
+         WITH n, count(DISTINCT test) AS test_count
+         RETURN n.node_key AS node_key, n.name AS name, n.file AS file, n.start AS start, test_count
+         ORDER BY n.name",
+        node_type.to_string()
+    );
+
+    (query, params)
+}
+
+pub fn batch_update_test_counts_query(test_counts: &[(String, usize)]) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+
+    let updates_data: Vec<BoltMap> = test_counts
+        .iter()
+        .map(|(node_key, test_count)| {
+            let mut update_map = BoltMap::new();
+            boltmap_insert_str(&mut update_map, "node_key", node_key);
+            boltmap_insert_int(&mut update_map, "test_count", *test_count as i64);
+            update_map
+        })
+        .collect();
+
+    boltmap_insert_list_of_maps(&mut params, "updates", updates_data);
+
+    let query = "
+        UNWIND $updates AS update
+        MATCH (n:Data_Bank {node_key: update.node_key})
+        SET n.test_count = update.test_count
+        RETURN count(n) as updated_count
+    "
+    .to_string();
+
+    (query, params)
 }
