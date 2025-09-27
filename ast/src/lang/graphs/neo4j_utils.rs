@@ -1000,11 +1000,12 @@ pub fn calculate_token_count(body: &str) -> Result<i64> {
 // Add these functions to neo4j_utils.rs
 
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
-    let query = r#"
+    let query = "
         MATCH (n:Function)
         WHERE NOT (n)-[:NESTED_IN]->(:Function)
         RETURN n
-    "#.to_string();
+    "
+    .to_string();
     (query, BoltMap::new())
 }
 
@@ -1387,4 +1388,48 @@ pub fn find_uncovered_nodes_paginated_query(
         tests_filter,
         Some(false),
     )
+}
+
+pub fn query_nodes_simple(
+    node_type: &NodeType,
+    offset: usize,
+    limit: usize,
+    sort_by_test_count: bool,
+) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_int(&mut params, "offset", offset as i64);
+    boltmap_insert_int(&mut params, "limit", limit as i64);
+
+    let test_types = vec![
+        NodeType::UnitTest,
+        NodeType::IntegrationTest,
+        NodeType::E2eTest,
+    ];
+    let test_conditions = test_types
+        .iter()
+        .map(|t| format!("test:{}", t.to_string()))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+
+    let order_clause = if sort_by_test_count {
+        "ORDER BY test_count DESC, n.name ASC"
+    } else {
+        "ORDER BY n.name ASC"
+    };
+
+    let query = format!(
+        "MATCH (n:{}) 
+         OPTIONAL MATCH (test)-[:CALLS]->(n)
+         WHERE test IS NULL OR ({})
+         WITH n, count(test) AS test_count
+         WITH n, test_count, (test_count > 0) AS covered, 1 AS weight
+         {}
+         SKIP $offset LIMIT $limit
+         RETURN n, test_count, covered, weight",
+        node_type.to_string(),
+        test_conditions,
+        order_clause
+    );
+
+    (query, params)
 }

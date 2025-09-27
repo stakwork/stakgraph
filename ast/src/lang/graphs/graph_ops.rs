@@ -251,10 +251,7 @@ impl GraphOps {
             .await;
         let e2e_tests = self.graph.find_nodes_by_type_async(NodeType::E2eTest).await;
 
-        let functions = self
-            .graph
-            .find_top_level_functions_async()
-            .await;
+        let functions = self.graph.find_top_level_functions_async().await;
         let endpoints = self
             .graph
             .find_nodes_by_type_async(NodeType::Endpoint)
@@ -633,6 +630,21 @@ impl GraphOps {
             .collect();
 
         Ok((functions, endpoints))
+    }
+
+    pub async fn query_nodes_simple(
+        &mut self,
+        node_type: NodeType,
+        offset: usize,
+        limit: usize,
+        sort_by_test_count: bool,
+    ) -> Result<Vec<(crate::lang::asg::NodeData, usize, bool, usize)>> {
+        self.graph.ensure_connected().await?;
+        let results = self
+            .graph
+            .find_nodes_simple_async(node_type, offset, limit, sort_by_test_count)
+            .await;
+        Ok(results)
     }
 
     pub async fn has_coverage(

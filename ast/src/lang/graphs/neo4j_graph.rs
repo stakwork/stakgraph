@@ -250,7 +250,7 @@ impl Neo4jGraph {
         txn.commit().await?;
         Ok(())
     }
-        pub async fn find_top_level_functions_async(&self) -> Vec<NodeData> {
+    pub async fn find_top_level_functions_async(&self) -> Vec<NodeData> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_top_level_functions_async");
             return vec![];
@@ -1155,6 +1155,22 @@ impl Neo4jGraph {
             tests_filter,
             covered_only,
         );
+        execute_nodes_with_coverage_query(&connection, query, params).await
+    }
+
+    pub(super) async fn find_nodes_simple_async(
+        &self,
+        node_type: NodeType,
+        offset: usize,
+        limit: usize,
+        sort_by_test_count: bool,
+    ) -> Vec<(NodeData, usize, bool, usize)> {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in find_nodes_simple_async");
+            return vec![];
+        };
+        let (query, params) =
+            super::neo4j_utils::query_nodes_simple(&node_type, offset, limit, sort_by_test_count);
         execute_nodes_with_coverage_query(&connection, query, params).await
     }
 

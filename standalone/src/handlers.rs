@@ -1,8 +1,8 @@
 use crate::types::{
     AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams,
     CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse,
-    NodesParams, NodesResponse, ProcessBody, ProcessResponse, Result, VectorSearchParams,
-    VectorSearchResult, WebError, WebhookPayload,
+    NodesParams, NodesResponse, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse,
+    Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
 };
 use crate::utils::{
     create_nodes_response_items, create_uncovered_response_items, format_nodes_response_as_snippet,
@@ -740,7 +740,10 @@ pub async fn nodes_handler(Query(params): Query<NodesParams>) -> Result<impl Int
 
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
 
-    info!("[/tests/nodes] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}", node_type, limit, offset, concise, output);
+    info!(
+        "[/tests/nodes] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}",
+        node_type, limit, offset, concise, output
+    );
 
     let is_function = matches!(node_type, NodeType::Function);
     let is_endpoint = matches!(node_type, NodeType::Endpoint);
@@ -806,7 +809,10 @@ pub async fn uncovered_handler(Query(params): Query<NodesParams>) -> Result<impl
 
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
 
-    info!("[/tests/uncovered] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}", node_type, limit, offset, concise, output);
+    info!(
+        "[/tests/uncovered] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}",
+        node_type, limit, offset, concise, output
+    );
 
     let is_function = matches!(node_type, NodeType::Function);
     let is_endpoint = matches!(node_type, NodeType::Endpoint);
@@ -866,7 +872,10 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
         "endpoint" => NodeType::Endpoint,
         _ => return Err(WebError(Error::Custom("invalid node_type".into()))),
     };
-    info!("[/tests/has] node_type={:?} name={:?} file={:?} start={:?} root={:?} tests={:?}", node_type, params.name, params.file, params.start, params.root, params.tests);
+    info!(
+        "[/tests/has] node_type={:?} name={:?} file={:?} start={:?} root={:?} tests={:?}",
+        node_type, params.name, params.file, params.start, params.root, params.tests
+    );
     let covered = graph_ops
         .has_coverage(
             node_type,
@@ -942,4 +951,41 @@ pub async fn codecov_status_handler(
         )
             .into_response()
     }
+}
+
+#[axum::debug_handler]
+pub async fn query_nodes_handler(
+    Query(params): Query<QueryNodesParams>,
+) -> Result<Json<QueryNodesResponse>> {
+    let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
+    let offset = params.offset.unwrap_or(0);
+    let limit = params.limit.unwrap_or(20).min(100);
+    let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
+
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await?;
+
+    let results = graph_ops
+        .query_nodes_simple(node_type, offset, limit, sort_by_test_count)
+        .await?;
+
+    let items: Vec<crate::types::NodeConcise> = results
+        .into_iter()
+        .map(
+            |(node_data, test_count, covered, weight)| crate::types::NodeConcise {
+                name: node_data.name,
+                file: node_data.file,
+                weight,
+                test_count,
+                covered,
+            },
+        )
+        .collect();
+
+    let total_returned = items.len();
+
+    Ok(Json(QueryNodesResponse {
+        items,
+        total_returned,
+    }))
 }
