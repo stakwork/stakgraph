@@ -1400,6 +1400,32 @@ pub fn query_nodes_simple(
     boltmap_insert_int(&mut params, "offset", offset as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
 
+    let order_clause = if sort_by_test_count {
+        "ORDER BY test_count DESC, n.name ASC"
+    } else {
+        "ORDER BY n.name ASC"
+    };
+
+    let query = format!(
+        "MATCH (n:{}) 
+         WITH n, 
+              CASE 
+                WHEN n.test_count IS NOT NULL THEN n.test_count 
+                ELSE 0 
+              END AS test_count
+         WITH n, test_count, (test_count > 0) AS covered, 1 AS weight
+         {}
+         SKIP $offset LIMIT $limit
+         RETURN n, test_count, covered, weight",
+        node_type.to_string(),
+        order_clause
+    );
+
+    (query, params)
+}
+pub fn batch_compute_test_counts_query(node_type: &NodeType) -> (String, BoltMap) {
+    let params = BoltMap::new();
+
     let test_types = vec![
         NodeType::UnitTest,
         NodeType::IntegrationTest,
@@ -1411,25 +1437,42 @@ pub fn query_nodes_simple(
         .collect::<Vec<_>>()
         .join(" OR ");
 
-    let order_clause = if sort_by_test_count {
-        "ORDER BY test_count DESC, n.name ASC"
-    } else {
-        "ORDER BY n.name ASC"
-    };
-
     let query = format!(
         "MATCH (n:{}) 
          OPTIONAL MATCH (test)-[:CALLS]->(n)
          WHERE test IS NULL OR ({})
          WITH n, count(test) AS test_count
-         WITH n, test_count, (test_count > 0) AS covered, 1 AS weight
-         {}
-         SKIP $offset LIMIT $limit
-         RETURN n, test_count, covered, weight",
+         RETURN n.node_key AS node_key, n.name AS name, n.file AS file, n.start AS start, test_count
+         ORDER BY n.name",
         node_type.to_string(),
-        test_conditions,
-        order_clause
+        test_conditions
     );
+
+    (query, params)
+}
+
+pub fn batch_update_test_counts_query(test_counts: &[(String, usize)]) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+
+    let updates_data: Vec<BoltMap> = test_counts
+        .iter()
+        .map(|(node_key, test_count)| {
+            let mut update_map = BoltMap::new();
+            boltmap_insert_str(&mut update_map, "node_key", node_key);
+            boltmap_insert_int(&mut update_map, "test_count", *test_count as i64);
+            update_map
+        })
+        .collect();
+
+    boltmap_insert_list_of_maps(&mut params, "updates", updates_data);
+
+    let query = "
+        UNWIND $updates AS update
+        MATCH (n:Data_Bank {node_key: update.node_key})
+        SET n.test_count = update.test_count
+        RETURN count(n) as updated_count
+    "
+    .to_string();
 
     (query, params)
 }
