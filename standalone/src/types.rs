@@ -162,6 +162,20 @@ pub struct NodesResponse {
 }
 
 #[derive(Deserialize)]
+pub struct QueryNodesParams {
+    pub node_type: String,
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub sort: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct QueryNodesResponse {
+    pub items: Vec<NodeConcise>,
+    pub total_returned: usize,
+}
+
+#[derive(Deserialize)]
 pub struct HasParams {
     pub node_type: String,
     pub name: String,

@@ -250,7 +250,7 @@ impl Neo4jGraph {
         txn.commit().await?;
         Ok(())
     }
-        pub async fn find_top_level_functions_async(&self) -> Vec<NodeData> {
+    pub async fn find_top_level_functions_async(&self) -> Vec<NodeData> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_top_level_functions_async");
             return vec![];
@@ -1156,6 +1156,85 @@ impl Neo4jGraph {
             covered_only,
         );
         execute_nodes_with_coverage_query(&connection, query, params).await
+    }
+
+    pub(super) async fn find_nodes_simple_async(
+        &self,
+        node_type: NodeType,
+        offset: usize,
+        limit: usize,
+        sort_by_test_count: bool,
+    ) -> Vec<(NodeData, usize, bool, usize)> {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in find_nodes_simple_async");
+            return vec![];
+        };
+        let (query, params) =
+            super::neo4j_utils::query_nodes_simple(&node_type, offset, limit, sort_by_test_count);
+        execute_nodes_with_coverage_query(&connection, query, params).await
+    }
+
+    pub(super) async fn batch_compute_test_counts_async(
+        &self,
+        node_type: NodeType,
+    ) -> Vec<(String, String, String, usize, usize)> {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in batch_compute_test_counts_async");
+            return vec![];
+        };
+
+        let (query_str, params) = super::neo4j_utils::batch_compute_test_counts_query(&node_type);
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        let mut results = Vec::new();
+        match connection.execute(query_obj).await {
+            Ok(mut result) => {
+                while let Ok(Some(row)) = result.next().await {
+                    let node_key: String = row.get("node_key").unwrap_or_default();
+                    let name: String = row.get("name").unwrap_or_default();
+                    let file: String = row.get("file").unwrap_or_default();
+                    let start: i64 = row.get("start").unwrap_or_default();
+                    let test_count: i64 = row.get("test_count").unwrap_or_default();
+
+                    results.push((node_key, name, file, start as usize, test_count as usize));
+                }
+            }
+            Err(e) => {
+                debug!("Error executing batch test count computation: {}", e);
+            }
+        }
+        results
+    }
+
+    pub(super) async fn batch_update_test_counts_async(
+        &self,
+        test_counts: &[(String, usize)],
+    ) -> Result<usize> {
+        if test_counts.is_empty() {
+            return Ok(0);
+        }
+
+        let connection = self.ensure_connected().await?;
+        let (query_str, params) = super::neo4j_utils::batch_update_test_counts_query(test_counts);
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        match connection.execute(query_obj).await {
+            Ok(mut result) => {
+                let updated_count = if let Ok(Some(row)) = result.next().await {
+                    row.get::<i64>("updated_count").unwrap_or(0) as usize
+                } else {
+                    test_counts.len()
+                };
+                Ok(updated_count)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub(super) async fn _find_uncovered_nodes_paginated_async(
