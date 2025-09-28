@@ -390,6 +390,7 @@ pub async fn execute_nodes_with_coverage_query(
         }
     }
     results
+   
 }
 
 pub async fn execute_uncovered_nodes_query(
@@ -1420,9 +1421,9 @@ pub fn query_nodes_simple(
                 WHEN n.test_count IS NOT NULL THEN n.test_count 
                 ELSE 0 
               END AS test_count
+         {}
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
-         {}
          {}
          SKIP $offset LIMIT $limit
          RETURN n, usage_count, is_covered, test_count",
