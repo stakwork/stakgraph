@@ -1164,14 +1164,51 @@ impl Neo4jGraph {
         offset: usize,
         limit: usize,
         sort_by_test_count: bool,
+        coverage_filter: Option<&str>,
     ) -> Vec<(NodeData, usize, bool, usize)> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_nodes_simple_async");
             return vec![];
         };
-        let (query, params) =
-            super::neo4j_utils::query_nodes_simple(&node_type, offset, limit, sort_by_test_count);
+        let (query, params) = super::neo4j_utils::query_nodes_simple(
+            &node_type,
+            offset,
+            limit,
+            sort_by_test_count,
+            coverage_filter,
+        );
         execute_nodes_with_coverage_query(&connection, query, params).await
+    }
+
+    pub(super) async fn count_nodes_simple_async(
+        &self,
+        node_type: NodeType,
+        coverage_filter: Option<&str>,
+    ) -> usize {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in count_nodes_simple_async");
+            return 0;
+        };
+        let (query_str, params) =
+            super::neo4j_utils::count_nodes_simple(&node_type, coverage_filter);
+        let mut query_obj = query(&query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
+
+        match connection.execute(query_obj).await {
+            Ok(mut result) => {
+                if let Ok(Some(row)) = result.next().await {
+                    row.get::<i64>("total_count").unwrap_or(0) as usize
+                } else {
+                    0
+                }
+            }
+            Err(e) => {
+                debug!("Error executing count query: {}", e);
+                0
+            }
+        }
     }
 
     pub(super) async fn batch_compute_test_counts_async(

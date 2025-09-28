@@ -733,12 +733,31 @@ pub async fn nodes_handler(
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(20).min(100);
     let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
+    let coverage_filter = params.coverage.as_deref();
+
+    if let Some(coverage) = coverage_filter {
+        if !matches!(coverage, "tested" | "untested" | "all") {
+            return Err(WebError(shared::Error::Custom(
+                "Invalid coverage parameter. Must be 'tested', 'untested', or 'all'".into(),
+            )));
+        }
+    }
 
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
+    let total_count = graph_ops
+        .count_nodes_simple(node_type.clone(), coverage_filter)
+        .await?;
+
     let results = graph_ops
-        .query_nodes_simple(node_type, offset, limit, sort_by_test_count)
+        .query_nodes_simple(
+            node_type,
+            offset,
+            limit,
+            sort_by_test_count,
+            coverage_filter,
+        )
         .await?;
 
     let items: Vec<crate::types::NodeConcise> = results
@@ -755,10 +774,15 @@ pub async fn nodes_handler(
         .collect();
 
     let total_returned = items.len();
+    let total_pages = (total_count + 9) / 10;
+    let current_page = (offset / 10) + 1;
 
     Ok(Json(QueryNodesResponse {
         items,
         total_returned,
+        total_count,
+        total_pages,
+        current_page,
     }))
 }
 

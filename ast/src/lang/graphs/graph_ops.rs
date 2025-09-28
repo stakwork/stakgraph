@@ -644,13 +644,33 @@ impl GraphOps {
         offset: usize,
         limit: usize,
         sort_by_test_count: bool,
+        coverage_filter: Option<&str>,
     ) -> Result<Vec<(crate::lang::asg::NodeData, usize, bool, usize)>> {
         self.graph.ensure_connected().await?;
         let results = self
             .graph
-            .find_nodes_simple_async(node_type, offset, limit, sort_by_test_count)
+            .find_nodes_simple_async(
+                node_type,
+                offset,
+                limit,
+                sort_by_test_count,
+                coverage_filter,
+            )
             .await;
         Ok(results)
+    }
+
+    pub async fn count_nodes_simple(
+        &mut self,
+        node_type: NodeType,
+        coverage_filter: Option<&str>,
+    ) -> Result<usize> {
+        self.graph.ensure_connected().await?;
+        let count = self
+            .graph
+            .count_nodes_simple_async(node_type, coverage_filter)
+            .await;
+        Ok(count)
     }
 
     pub async fn has_coverage(
