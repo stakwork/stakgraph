@@ -439,7 +439,7 @@ class Db {
     const session = this.driver.session();
 
     const q_escaped = prepareFulltextSearchQuery(query);
-    console.log("===> search query escaped:", q_escaped);
+    // console.log("===> search query escaped:", q_escaped);
 
     // skip Import nodes
     if (!skip_node_types.includes("Import")) {
@@ -903,7 +903,7 @@ async function execute_batch(session: Session, batch: MergeQuery[]) {
  * Prepares a fulltext search query for Neo4j by properly handling special characters
  */
 export function prepareFulltextSearchQuery(searchTerm: string): string {
-  console.log("===> prepareFulltextSearchQuery", searchTerm);
+  // console.log("===> prepareFulltextSearchQuery", searchTerm);
   // Escape the raw search term first
   const escapedTerm = escapeSearchTerm(searchTerm);
 

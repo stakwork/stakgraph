@@ -19,7 +19,7 @@
     "cursor-tools": "./build/index.js"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.6",
+    "@ai-sdk/anthropic": "2.0.22",
     "@ai-sdk/google": "^2.0.12",
     "@ai-sdk/openai": "^2.0.24",
     "@anthropic-ai/sdk": "^0.37.0",
@@ -28,7 +28,7 @@
     "@modelcontextprotocol/sdk": "^1.11.4",
     "@octokit/rest": "^22.0.0",
     "@playwright/test": "^1.53.0",
-    "ai": "^5.0.22",
+    "ai": "^5.0.57",
     "ai-sdk-provider-claude-code": "^1.1.1",
     "archy": "^1.0.0",
     "axios": "^1.9.0",
