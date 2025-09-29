@@ -11,7 +11,11 @@ import { Persona } from "./persona.js";
 import { Neo4jNode } from "../../graph/types.js";
 
 /*
-curl "http://localhost:3000/ask?question=how%20does%20auth%20work%20in%20the%20repo"
+
+curl "http://localhost:3355/ask?question=how%20does%20auth%20work%20in%20the%20repo"
+
+curl "http://localhost:3355/explore?prompt=how%20does%20auth%20work%20in%20the%20repo"
+
 */
 
 /*

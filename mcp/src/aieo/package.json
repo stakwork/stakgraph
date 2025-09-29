@@ -23,10 +23,10 @@
   "license": "ISC",
   "description": "typescript ai utils",
   "dependencies": {
-    "@ai-sdk/anthropic": "^2.0.6",
+    "@ai-sdk/anthropic": "2.0.22",
     "@ai-sdk/google": "^2.0.8",
     "@ai-sdk/openai": "^2.0.19",
-    "ai": "^5.0.22",
+    "ai": "^5.0.57",
     "ai-sdk-provider-claude-code": "^1.1.0",
     "zod": "^4.0.17"
   },
