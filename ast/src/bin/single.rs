@@ -1,5 +1,58 @@
+use ast::lang::BTreeMapGraph;
+use ast::lang::graphs::NodeType;
+
+fn print_node_summary(node: &ast::lang::graphs::Node) {
+    let nd = &node.node_data;
+    match &node.node_type {
+        NodeType::Function => {
+            if let Some(interface) = nd.meta.get("interface") {
+                println!("Function: {}\ninterface: {}", nd.name, interface);
+            } else {
+                let lines = if nd.start != nd.end {
+                    format!("lines {}-{}", nd.start, nd.end)
+                } else {
+                    format!("line {}", nd.start)
+                };
+                let body_preview = if !nd.body.is_empty() {
+                    let lines: Vec<&str> = nd.body.lines().take(10).collect();
+                    lines.join("\n")
+                } else {
+                    String::new()
+                };
+                println!("Function: {} ({})\n{}", nd.name, lines, body_preview);
+            }
+        }
+        NodeType::Endpoint => {
+            let verb = nd.meta.get("verb").map(|v| v.as_str()).unwrap_or("");
+            println!("Endpoint: {} {}", verb, nd.name);
+        }
+        NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => {
+            println!("Test: {}", nd.name);
+        }
+        NodeType::Directory => {
+            // skip directories in summary
+        }
+        _ => {
+            println!("{}: {}", node.node_type.to_string(), nd.name);
+        }
+    }
+}
+
+fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Result<()> {
+    let file_path = std::fs::canonicalize(file_path)?.to_string_lossy().to_string();
+    for node in graph.nodes.values() {
+        let node_file = std::fs::canonicalize(&node.node_data.file)
+            .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
+            .to_string_lossy()
+            .to_string();
+        if node_file == file_path {
+            print_node_summary(node);
+        }
+    }
+    Ok(())
+}
 use ast::repo::Repo;
-use ast::utils::{logger, print_json};
+use ast::utils::logger;
 use ast::Lang;
 use shared::{ Error, Result};
 use std::env;
@@ -25,7 +78,7 @@ async fn main() -> Result<()> {
     };
     let use_lsp = env::var("USE_LSP").ok().map(|v| v == "true");
     let repo = Repo::from_single_file(&file_path, lang, use_lsp)?;
-    let graph = repo.build_graph().await?;
-    print_json(&graph, "single_file")?;
+    let graph = repo.build_graph_btree().await?;
+    print_single_file_nodes(&graph, &file_path)?;
     Ok(())
 }
