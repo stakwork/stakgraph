@@ -167,12 +167,16 @@ pub struct QueryNodesParams {
     pub offset: Option<usize>,
     pub limit: Option<usize>,
     pub sort: Option<String>,
+    pub coverage: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct QueryNodesResponse {
     pub items: Vec<NodeConcise>,
     pub total_returned: usize,
+    pub total_count: usize,
+    pub total_pages: usize,
+    pub current_page: usize,
 }
 
 #[derive(Deserialize)]

@@ -390,6 +390,7 @@ pub async fn execute_nodes_with_coverage_query(
         }
     }
     results
+   
 }
 
 pub async fn execute_uncovered_nodes_query(
@@ -1402,6 +1403,7 @@ pub fn query_nodes_simple(
     offset: usize,
     limit: usize,
     sort_by_test_count: bool,
+    coverage_filter: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1413,6 +1415,12 @@ pub fn query_nodes_simple(
         "ORDER BY n.name ASC"
     };
 
+    let coverage_where = match coverage_filter {
+        Some("tested") => "WHERE test_count > 0",
+        Some("untested") => "WHERE test_count = 0",
+        _ => "",
+    };
+
     let query = format!(
         "MATCH (n:{}) 
          WITH n, 
@@ -1420,21 +1428,49 @@ pub fn query_nodes_simple(
                 WHEN n.test_count IS NOT NULL THEN n.test_count 
                 ELSE 0 
               END AS test_count
+         {}
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
          {}
          SKIP $offset LIMIT $limit
          RETURN n, usage_count, is_covered, test_count",
         node_type.to_string(),
+        coverage_where,
         order_clause
+    );
+
+    (query, params)
+}
+
+pub fn count_nodes_simple(
+    node_type: &NodeType,
+    coverage_filter: Option<&str>,
+) -> (String, BoltMap) {
+    let params = BoltMap::new();
+
+    let coverage_where = match coverage_filter {
+        Some("tested") => "WHERE test_count > 0",
+        Some("untested") => "WHERE test_count = 0",
+        _ => "",
+    };
+
+    let query = format!(
+        "MATCH (n:{}) 
+         WITH n, 
+              CASE 
+                WHEN n.test_count IS NOT NULL THEN n.test_count 
+                ELSE 0 
+              END AS test_count
+         {}
+         RETURN count(n) AS total_count",
+        node_type.to_string(),
+        coverage_where
     );
 
     (query, params)
 }
 pub fn batch_compute_test_counts_query(node_type: &NodeType) -> (String, BoltMap) {
     let params = BoltMap::new();
-
-    // Count tests that call this function/endpoint
     let query = format!(
         "MATCH (n:{}) 
          OPTIONAL MATCH (test)-[:CALLS]->(n)
