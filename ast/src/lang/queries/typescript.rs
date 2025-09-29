@@ -41,7 +41,23 @@ impl Stack for TypeScript {
             || file_name.starts_with("/usr")
             || file_name.contains(".nvm/")
     }
-    //copied from react
+
+    fn skip_file_with_path_contains(&self, file_name: &str) -> bool {
+        if file_name.contains("/typescript/lib/")
+            || file_name.ends_with(".d.ts")
+            || file_name.contains("/@types/")
+            || file_name.contains(".nvm/")
+        {
+            return true;
+        }
+
+        let allow_libs = std::env::var("ALLOW_LIBS").unwrap_or("true".to_string()) == "true";
+        if file_name.contains("/node_modules/") && allow_libs {
+            return false;
+        }
+
+        false
+    }
     fn imports_query(&self) -> Option<String> {
         Some(format!(
             r#"

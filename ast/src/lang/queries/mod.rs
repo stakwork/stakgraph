@@ -300,6 +300,10 @@ pub trait Stack {
     ) -> Vec<NodeData> {
         Vec::new()
     }
+
+    fn skip_file_with_path_contains(&self, _file_name: &str) -> bool {
+        false
+    }
 }
 
 pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {

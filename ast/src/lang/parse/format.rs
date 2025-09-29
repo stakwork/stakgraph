@@ -806,7 +806,9 @@ impl Lang {
                             "==> ? definition, not in graph: {:?} in {}",
                             called, &target_file
                         ));
-                        if self.lang.is_lib_file(&target_file) {
+                        if self.lang.is_lib_file(&target_file)
+                            && !self.lang.skip_file_with_path_contains(&target_file)
+                        {
                             if !self.lang.is_component(&called) {
                                 let mut lib_func = NodeData::name_file(&called, &target_file);
                                 lib_func.start = gt.line as usize;
