@@ -1003,6 +1003,9 @@ pub fn find_top_level_functions_query() -> (String, BoltMap) {
     let query = "
         MATCH (n:Function)
         WHERE NOT (n)-[:NESTED_IN]->(:Function)
+        AND n.body IS NOT NULL AND n.body <> ''
+        AND NOT (:Endpoint)-[:HANDLER]->(n)
+        AND (n.component IS NULL OR n.component <> 'true')
         RETURN n
     "
     .to_string();
@@ -1285,7 +1288,11 @@ pub fn find_nodes_with_coverage_query(
     }
     if *node_type == NodeType::Function {
         filters.push("NOT (n)-[:NESTED_IN]->(:Function)".to_string());
+        filters.push("NOT (:Endpoint)-[:HANDLER]->(n)".to_string());
     }
+    filters.push("n.body IS NOT NULL".to_string());
+    filters.push("n.body <> ''".to_string());
+    filters.push("(n.component IS NULL OR n.component <> 'true')".to_string());
     let root_filter = if !filters.is_empty() {
         format!("AND {}", filters.join(" AND "))
     } else {
