@@ -5,26 +5,23 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
     let nd = &node.node_data;
     match &node.node_type {
         NodeType::Function => {
-            if let Some(interface) = nd.meta.get("interface") {
-                println!("Function: {}\ninterface: {}", nd.name, interface);
+            let lines = if nd.start != nd.end {
+                format!("lines {} - {}", nd.start + 1, nd.end + 1)
             } else {
-                let lines = if nd.start != nd.end {
-                    format!("lines {}-{}", nd.start, nd.end)
-                } else {
-                    format!("line {}", nd.start)
-                };
-                let body_preview = if !nd.body.is_empty() {
-                    let lines: Vec<&str> = nd.body.lines().take(10).collect();
-                    lines.join("\n")
-                } else {
-                    String::new()
-                };
-                println!("Function: {} ({})\n{}", nd.name, lines, body_preview);
+                format!("line {}", nd.start + 1)
+            };
+            if let Some(interface) = nd.meta.get("interface") {
+                println!("Function: {}\n({})", interface, lines);
+            } else {
+                println!("Function: {} ({})", nd.name, lines);
             }
         }
         NodeType::Endpoint => {
             let verb = nd.meta.get("verb").map(|v| v.as_str()).unwrap_or("");
             println!("Endpoint: {} {}", verb, nd.name);
+        }
+        NodeType::DataModel | NodeType::Import | NodeType::Request => {
+            println!("{}: \n{}", node.node_type.to_string(), nd.body);
         }
         NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => {
             println!("Test: {}", nd.name);
