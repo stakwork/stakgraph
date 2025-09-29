@@ -314,6 +314,19 @@ impl Language {
         }
         false
     }
+        pub fn from_path(path: &str) -> Option<Self> {
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        for lang in PROGRAMMING_LANGUAGES.iter() {
+            if lang.exts().iter().any(|e| e.eq_ignore_ascii_case(&ext)) {
+                return Some(lang.clone());
+            }
+        }
+        None
+    }
 }
 
 impl FromStr for Language {
