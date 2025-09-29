@@ -1003,8 +1003,10 @@ pub fn find_top_level_functions_query() -> (String, BoltMap) {
     let query = r#"
         MATCH (n:Function)
         WHERE NOT (n)-[:NESTED_IN]->(:Function)
+        AND n.body IS NOT NULL
         RETURN n
-    "#.to_string();
+    "#
+    .to_string();
     (query, BoltMap::new())
 }
 
