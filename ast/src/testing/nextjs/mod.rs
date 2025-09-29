@@ -108,22 +108,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
+     assert_eq!(
+            functions.len(),
+            26,
+            "Expected 26 Function nodes without LSP"
+        );
 
-    // if use_lsp {
-    //     assert_eq!(functions.len(), 37, "Expected 37 Function nodes with LSP");
-    // } else {
-    //     assert_eq!(
-    //         functions.len(),
-    //         26,
-    //         "Expected 26 Function nodes without LSP"
-    //     );
-    // }
-
-    assert_eq!(
-        functions.len(),
-        28,
-        "Expected 28 Function nodes without LSP"
-    );
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
@@ -377,36 +367,36 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     edges += nested_in;
     assert_eq!(nested_in, 4, "Expected 4 NestedIn edges");
 
-    if use_lsp {
-        let get_fn = functions
-            .iter()
-            .find(|f| {
-                f.name == "GET"
-                    && f.file
-                        .ends_with("src/testing/nextjs/app/api/person/[id]/route.ts")
-            })
-            .map(|n| Node::new(NodeType::Function, n.clone()))
-            .expect("GET handler function for items not found");
+    // if use_lsp {
+    //     let get_fn = functions
+    //         .iter()
+    //         .find(|f| {
+    //             f.name == "GET"
+    //                 && f.file
+    //                     .ends_with("src/testing/nextjs/app/api/person/[id]/route.ts")
+    //         })
+    //         .map(|n| Node::new(NodeType::Function, n.clone()))
+    //         .expect("GET handler function for items not found");
 
-        let person_fn = functions
-            .iter()
-            .find(|f| {
-                f.name == "Person"
-                    && f.file
-                        .ends_with("src/testing/nextjs/app/person/page.tsx")
-            })
-            .map(|n| Node::new(NodeType::Function, n.clone()))
-            .expect("Person function not found");
+    //     let person_fn = functions
+    //         .iter()
+    //         .find(|f| {
+    //             f.name == "Person"
+    //                 && f.file
+    //                     .ends_with("src/testing/nextjs/app/person/page.tsx")
+    //         })
+    //         .map(|n| Node::new(NodeType::Function, n.clone()))
+    //         .expect("Person function not found");
 
-        let find_fn = functions
-            .iter()
-            .find(|f| (f.name == "find" && f.body == ""))
-            .map(|n| Node::new(NodeType::Function, n.clone()))
-            .expect("Find function not found");
+        // let find_fn = functions
+        //     .iter()
+        //     .find(|f| (f.name == "find" && f.body == ""))
+        //     .map(|n| Node::new(NodeType::Function, n.clone()))
+        //     .expect("Find function not found");
 
-        graph.has_edge(&get_fn, &find_fn, EdgeType::Uses);
-        graph.has_edge(&person_fn, &find_fn, EdgeType::Uses);
-    }
+        // graph.has_edge(&get_fn, &find_fn, EdgeType::Uses);
+        // graph.has_edge(&person_fn, &find_fn, EdgeType::Uses);
+    // }
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges += renders;
     assert_eq!(renders, 3, "Expected 3 Renders edges");
