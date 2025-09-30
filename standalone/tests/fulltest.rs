@@ -897,6 +897,7 @@ async fn fulltest() {
         Vec::new(),
         Vec::new(),
         Some(COMMIT),
+        None,
         Some(use_lsp),
     )
     .await
