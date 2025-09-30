@@ -943,17 +943,3 @@ pub async fn codecov_status_handler(
             .into_response()
     }
 }
-
-#[axum::debug_handler]
-pub async fn compute_test_counts_handler() -> Result<Json<serde_json::Value>> {
-    let mut graph_ops = GraphOps::new();
-    graph_ops.connect().await?;
-
-    let (functions_updated, endpoints_updated) = graph_ops.compute_and_store_test_counts().await?;
-
-    Ok(Json(serde_json::json!({
-        "status": "completed",
-        "functions_updated": functions_updated,
-        "endpoints_updated": endpoints_updated
-    })))
-}
