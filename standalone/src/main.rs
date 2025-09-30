@@ -32,7 +32,8 @@ struct AppState {
 async fn main() -> Result<()> {
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
+        .from_env_lossy()
+        .add_directive("tower_http=debug".parse().unwrap());
     tracing_subscriber::fmt()
         .with_target(false)
         .with_env_filter(filter)
@@ -135,8 +136,8 @@ async fn main() -> Result<()> {
                         version = ?request.version(),
                     )
                 })
-                .on_request(|_request: &Request<_>, _span: &Span| {
-                    tracing::debug!("started processing request")
+                .on_request(|request: &Request<_>, _span: &Span| {
+                    tracing::info!("{} {}", request.method(), request.uri());
                 })
                 .on_response(
                     |_response: &axum::response::Response,
