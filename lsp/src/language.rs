@@ -73,7 +73,7 @@ impl Language {
             Self::Toml => vec!["toml"],
             // how to separate ts and js?
             Self::Typescript => vec!["ts", "js"],
-            Self::React => vec!["jsx", "tsx", "mdx","ts", "js", "html", "css"],
+            Self::React => vec!["jsx", "tsx", "mdx", "ts", "js", "html", "css"],
             Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
             Self::Angular => vec!["ts", "js", "html", "css"],
             Self::Cpp => vec!["cpp", "h"],
@@ -314,7 +314,7 @@ impl Language {
         }
         false
     }
-        pub fn from_path(path: &str) -> Option<Self> {
+    pub fn from_path(path: &str) -> Option<Self> {
         let ext = std::path::Path::new(path)
             .extension()
             .and_then(|e| e.to_str())

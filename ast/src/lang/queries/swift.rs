@@ -65,12 +65,14 @@ impl Stack for Swift {
         )
     }
     fn comment_query(&self) -> Option<String> {
-        Some(format!(r#"
+        Some(format!(
+            r#"
              [
                 (comment)+
                 (multiline_comment)+
              ] @{FUNCTION_COMMENT}
-        "#))
+        "#
+        ))
     }
 
     fn function_call_query(&self) -> String {

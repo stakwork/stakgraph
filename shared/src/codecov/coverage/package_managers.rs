@@ -28,7 +28,8 @@ impl PackageManager {
         if repo_path.join("Cargo.toml").exists() {
             managers.push(PackageManager::Cargo);
         }
-        if repo_path.join("requirements.txt").exists() || repo_path.join("pyproject.toml").exists() {
+        if repo_path.join("requirements.txt").exists() || repo_path.join("pyproject.toml").exists()
+        {
             managers.push(PackageManager::Pip);
         }
         if repo_path.join("pom.xml").exists() {

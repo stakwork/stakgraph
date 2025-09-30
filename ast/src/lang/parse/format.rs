@@ -7,8 +7,8 @@ use shared::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::QueryMatch;
 
-use super::utils::{find_def, is_capitalized, log_cmd, trim_quotes};
 use super::super::queries::consts::FUNCTION_COMMENT;
+use super::utils::{find_def, is_capitalized, log_cmd, trim_quotes};
 
 impl Lang {
     pub fn format_class_with_associations<G: Graph>(
@@ -18,7 +18,7 @@ impl Lang {
         file: &str,
         q: &Query,
         graph: &G,
-    ) -> Result<Option<(NodeData, Vec<Edge>)>> { 
+    ) -> Result<Option<(NodeData, Vec<Edge>)>> {
         let mut cls = NodeData::in_file(file);
         let mut associations = Vec::new();
         let mut association_type = None;
@@ -656,7 +656,6 @@ impl Lang {
             func.docs = Some(self.clean_and_combine_comments(&comments));
         }
 
-
         if let Some(start) = def_start_byte {
             let end_byte = return_end_byte.or(args_end_byte);
             if let Some(end) = end_byte {
@@ -670,9 +669,19 @@ impl Lang {
         }
 
         if matches!(self.kind, Language::React) {
-            let titled_name = !func.name.is_empty() && func.name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
+            let titled_name = !func.name.is_empty()
+                && func
+                    .name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false);
             let body = func.body.as_str();
-            let has_jsx = body.contains("<>") || body.contains("</") || body.contains("/>") || body.contains("<Fragment") || body.contains("<fragment");
+            let has_jsx = body.contains("<>")
+                || body.contains("</")
+                || body.contains("/>")
+                || body.contains("<Fragment")
+                || body.contains("<fragment");
             let is_styled = body.contains("styled.");
             if (titled_name && has_jsx) || is_styled {
                 func.add_component();
@@ -950,12 +959,16 @@ impl Lang {
             }
             Ok(())
         })?;
-    nd.name = raw_name.clone();
-    let tt = self.lang.classify_test(&nd.name, file, &nd.body);
-    if tt == NodeType::E2eTest { nd.add_test_kind("e2e"); }
-    else if tt == NodeType::IntegrationTest { nd.add_test_kind("integration"); }
-    else { nd.add_test_kind("unit"); }
-    Ok((nd, tt))
+        nd.name = raw_name.clone();
+        let tt = self.lang.classify_test(&nd.name, file, &nd.body);
+        if tt == NodeType::E2eTest {
+            nd.add_test_kind("e2e");
+        } else if tt == NodeType::IntegrationTest {
+            nd.add_test_kind("integration");
+        } else {
+            nd.add_test_kind("unit");
+        }
+        Ok((nd, tt))
     }
     pub fn format_integration_test_call<G: Graph>(
         &self,
@@ -1042,14 +1055,14 @@ impl Lang {
 
     pub fn clean_and_combine_comments(&self, comments: &[String]) -> String {
         let mut cleaned_comments = Vec::new();
-        
+
         for comment in comments {
             let cleaned = self.clean_comment(comment);
             if !cleaned.is_empty() {
                 cleaned_comments.push(cleaned);
             }
         }
-        
+
         cleaned_comments.join("\n").trim().to_string()
     }
 
@@ -1075,21 +1088,27 @@ impl Lang {
                     stripped.trim().to_string()
                 } else if let Some(stripped) = trimmed.strip_prefix("*") {
                     stripped.trim().to_string()
-                } else if trimmed.starts_with("\"\"\"") && trimmed.ends_with("\"\"\"") && trimmed.len() > 6 {
-                    trimmed[3..trimmed.len()-3].trim().to_string()
-                } else if trimmed.starts_with("'''") && trimmed.ends_with("'''") && trimmed.len() > 6 {
-                    trimmed[3..trimmed.len()-3].trim().to_string()
+                } else if trimmed.starts_with("\"\"\"")
+                    && trimmed.ends_with("\"\"\"")
+                    && trimmed.len() > 6
+                {
+                    trimmed[3..trimmed.len() - 3].trim().to_string()
+                } else if trimmed.starts_with("'''")
+                    && trimmed.ends_with("'''")
+                    && trimmed.len() > 6
+                {
+                    trimmed[3..trimmed.len() - 3].trim().to_string()
                 } else if trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
                     trimmed[3..].trim().to_string()
                 } else if trimmed.ends_with("\"\"\"") || trimmed.ends_with("'''") {
-                    trimmed[..trimmed.len()-3].trim().to_string()
+                    trimmed[..trimmed.len() - 3].trim().to_string()
                 } else {
                     trimmed.to_string()
                 }
             })
             .filter(|line| !line.is_empty())
             .collect();
-            
+
         lines.join("\n")
     }
 }

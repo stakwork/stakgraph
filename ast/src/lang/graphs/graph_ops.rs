@@ -200,7 +200,6 @@ impl GraphOps {
             );
         }
 
-
         self.graph.get_graph_size_async().await
     }
 
@@ -239,7 +238,6 @@ impl GraphOps {
         self.graph
             .update_repository_hash(repo_url, current_hash)
             .await?;
-
 
         Ok(self.graph.get_graph_size_async().await?)
     }

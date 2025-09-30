@@ -536,10 +536,7 @@ impl Repo {
         }
         false
     }
-    pub fn from_single_file(
-        file_path: &str,
-        lang: Lang,
-    ) -> Result<Self> {
+    pub fn from_single_file(file_path: &str, lang: Lang) -> Result<Self> {
         let root = std::path::Path::new(file_path)
             .parent()
             .map(|p| p.to_path_buf())

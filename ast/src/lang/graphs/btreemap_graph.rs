@@ -1,12 +1,12 @@
 use super::{graph::Graph, *};
+#[cfg(feature = "neo4j")]
+use crate::builder::streaming;
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
-#[cfg(feature = "neo4j")]
-use crate::builder::streaming;
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct BTreeMapGraph {
@@ -50,20 +50,24 @@ impl Graph for BTreeMapGraph {
         (self.nodes.len() as u32, self.edges.len() as u32)
     }
     fn add_edge(&mut self, edge: Edge) {
-    #[cfg(feature = "neo4j")]
-    if std::env::var("STREAM_UPLOAD").is_ok() { streaming::record_edge(&edge); }
-    let source_key = create_node_key_from_ref(&edge.source);
-    let target_key = create_node_key_from_ref(&edge.target);
-    let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge.clone());
-    self.edge_keys.insert(edge_key);
-    self.edges.insert((source_key, target_key, edge.edge));
+        #[cfg(feature = "neo4j")]
+        if std::env::var("STREAM_UPLOAD").is_ok() {
+            streaming::record_edge(&edge);
+        }
+        let source_key = create_node_key_from_ref(&edge.source);
+        let target_key = create_node_key_from_ref(&edge.target);
+        let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge.clone());
+        self.edge_keys.insert(edge_key);
+        self.edges.insert((source_key, target_key, edge.edge));
     }
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
         let node = Node::new(node_type.clone(), node_data.clone());
         let node_key = create_node_key(&node);
         self.nodes.insert(node_key.clone(), node);
-    #[cfg(feature = "neo4j")]
-    if std::env::var("STREAM_UPLOAD").is_ok() { streaming::record_node(&node_type, &node_data); }
+        #[cfg(feature = "neo4j")]
+        if std::env::var("STREAM_UPLOAD").is_ok() {
+            streaming::record_node(&node_type, &node_data);
+        }
     }
 
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
@@ -268,9 +272,15 @@ impl Graph for BTreeMapGraph {
                 }
             }
 
-            if let Some(p) = method_of { self.add_edge(p.into()); }
-            if let Some(to) = trait_operand { self.add_edge(to.into()); }
-            for rt in return_types { self.add_edge(rt); }
+            if let Some(p) = method_of {
+                self.add_edge(p.into());
+            }
+            if let Some(to) = trait_operand {
+                self.add_edge(to.into());
+            }
+            for rt in return_types {
+                self.add_edge(rt);
+            }
 
             for req in reqs {
                 let req_clone = req.clone();
@@ -284,7 +294,9 @@ impl Graph for BTreeMapGraph {
                 self.add_edge(calls_edge);
             }
 
-            for dm_edge in dms { self.add_edge(dm_edge); }
+            for dm_edge in dms {
+                self.add_edge(dm_edge);
+            }
         }
     }
 
@@ -351,7 +363,9 @@ impl Graph for BTreeMapGraph {
                 NodeType::File,
                 &tr.node.file,
             );
-            for e in tr.edges.iter() { self.add_edge(e.clone()); }
+            for e in tr.edges.iter() {
+                self.add_edge(e.clone());
+            }
         }
     }
     // Add calls only between function definitions not between function calls

@@ -1,6 +1,6 @@
+use crate::lang::asg::TestRecord;
 use crate::lang::{Edge, Lang, Node, NodeType};
 use crate::lang::{Function, FunctionCall};
-use crate::lang::asg::TestRecord;
 use lsp::Language;
 use shared::Result;
 use std::collections::HashSet;
@@ -74,7 +74,9 @@ pub trait Graph: Default + Debug {
                 NodeType::File,
                 &tr.node.file,
             );
-            for e in tr.edges.clone() { self.add_edge(e); }
+            for e in tr.edges.clone() {
+                self.add_edge(e);
+            }
         }
     }
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>));

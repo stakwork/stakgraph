@@ -109,7 +109,8 @@ impl Stack for Java {
     }
 
     fn comment_query(&self) -> Option<String> {
-        Some(format!(r#" [
+        Some(format!(
+            r#" [
                     (line_comment)+
                     (block_comment)+
                 ] @{FUNCTION_COMMENT}

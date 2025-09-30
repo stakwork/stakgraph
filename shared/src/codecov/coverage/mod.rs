@@ -1,12 +1,12 @@
-use crate::codecov::LanguageReport;
 use crate::Result;
+use crate::codecov::LanguageReport;
 use std::path::{Path, PathBuf};
 
-pub mod typescript;
-pub mod package_managers;
-pub mod test_runners;
 pub mod coverage_tools;
 pub mod execution;
+pub mod package_managers;
+pub mod test_runners;
+pub mod typescript;
 
 pub trait TestCoverage: Send + Sync {
     fn name(&self) -> &'static str;

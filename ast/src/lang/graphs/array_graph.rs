@@ -1,15 +1,15 @@
 use super::{graph::Graph, *};
+#[cfg(feature = "neo4j")]
+use crate::builder::streaming;
+use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
-use crate::lang::asg::TestRecord;
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::{Deserialize, Serialize};
 use shared::error::Result;
 use std::collections::{BTreeMap, HashSet};
 use tracing::debug;
-#[cfg(feature = "neo4j")]
-use crate::builder::streaming;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ArrayGraph {
@@ -107,7 +107,9 @@ impl Graph for ArrayGraph {
         if self.edge_keys.insert(key) {
             self.edges.push(edge);
             #[cfg(feature = "neo4j")]
-            if std::env::var("STREAM_UPLOAD").is_ok() { streaming::record_edge(self.edges.last().unwrap()); }
+            if std::env::var("STREAM_UPLOAD").is_ok() {
+                streaming::record_edge(self.edges.last().unwrap());
+            }
         }
     }
 
@@ -119,7 +121,10 @@ impl Graph for ArrayGraph {
             self.node_keys.insert(key);
             self.nodes.push(new_node);
             #[cfg(feature = "neo4j")]
-            if std::env::var("STREAM_UPLOAD").is_ok() { let n = self.nodes.last().unwrap(); streaming::record_node(&n.node_type, &n.node_data); }
+            if std::env::var("STREAM_UPLOAD").is_ok() {
+                let n = self.nodes.last().unwrap();
+                streaming::record_node(&n.node_type, &n.node_data);
+            }
         }
     }
 
@@ -364,7 +369,9 @@ impl Graph for ArrayGraph {
                 NodeType::File,
                 &tr.node.file,
             );
-            for e in tr.edges.iter() { self.add_edge(e.clone()); }
+            for e in tr.edges.iter() {
+                self.add_edge(e.clone());
+            }
         }
     }
 

@@ -3,8 +3,8 @@ use reqwest::Client;
 use sha2::Sha256;
 use std::time::Duration as StdDuration;
 use tokio::time::{sleep, Duration};
-use url::Url;
 use tracing::info;
+use url::Url;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -52,7 +52,6 @@ pub async fn send_with_retries<T: serde::Serialize + ?Sized + std::fmt::Debug>(
         .unwrap_or(8000);
 
     info!("STAKGRAPH WEBHOOK PAYLOAD {:?}", payload);
-    
 
     let body_bytes = serde_json::to_vec(payload)
         .map_err(|e| shared::Error::Custom(format!("serialize payload: {e}")))?;
