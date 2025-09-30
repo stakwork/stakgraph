@@ -524,6 +524,25 @@ impl Repo {
         }
         false
     }
+    pub fn from_single_file(
+        file_path: &str,
+        lang: Lang,
+    ) -> Result<Self> {
+        let root = std::path::Path::new(file_path)
+            .parent()
+            .map(|p| p.to_path_buf())
+            .ok_or_else(|| Error::Custom("Invalid file path".into()))?;
+        let files_filter = vec![file_path.to_string()];
+        Ok(Self {
+            url: String::new(),
+            root,
+            lang,
+            lsp_tx: None,
+            files_filter,
+            revs: Vec::new(),
+            status_tx: None,
+        })
+    }
 }
 
 fn walk_dirs(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {

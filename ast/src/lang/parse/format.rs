@@ -657,6 +657,18 @@ impl Lang {
         }
 
 
+        if let Some(start) = def_start_byte {
+            let end_byte = return_end_byte.or(args_end_byte);
+            if let Some(end) = end_byte {
+                if end > start && end <= code.len() {
+                    let interface = code[start..end].trim();
+                    if !interface.is_empty() {
+                        func.add_interface(interface);
+                    }
+                }
+            }
+        }
+
         if matches!(self.kind, Language::React) {
             let titled_name = !func.name.is_empty() && func.name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false);
             let body = func.body.as_str();
@@ -664,17 +676,6 @@ impl Lang {
             let is_styled = body.contains("styled.");
             if (titled_name && has_jsx) || is_styled {
                 func.add_component();
-            }
-            if let Some(start) = def_start_byte {
-                let end_byte = return_end_byte.or(args_end_byte);
-                if let Some(end) = end_byte {
-                    if end > start && end <= code.len() {
-                        let interface = code[start..end].trim();
-                        if !interface.is_empty() {
-                            func.add_interface(interface);
-                        }
-                    }
-                }
             }
         }
 
