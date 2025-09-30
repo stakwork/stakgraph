@@ -578,8 +578,8 @@ impl GraphOps {
         tests_filter: Option<&str>,
         covered_only: Option<bool>,
     ) -> Result<(
-        Vec<(NodeData, usize, bool, usize)>,
-        Vec<(NodeData, usize, bool, usize)>,
+        Vec<(NodeData, usize, bool, usize, String)>,
+        Vec<(NodeData, usize, bool, usize, String)>,
     )> {
         self.graph.ensure_connected().await?;
 
@@ -626,11 +626,11 @@ impl GraphOps {
 
         let functions = functions
             .into_iter()
-            .map(|(node, usage, _, _)| (node, usage))
+            .map(|(node, usage, _, _, _)| (node, usage))
             .collect();
         let endpoints = endpoints
             .into_iter()
-            .map(|(node, usage, _, _)| (node, usage))
+            .map(|(node, usage, _, _, _)| (node, usage))
             .collect();
 
         Ok((functions, endpoints))
@@ -643,12 +643,12 @@ impl GraphOps {
         limit: usize,
         sort_by_test_count: bool,
         coverage_filter: Option<&str>,
-    ) -> Result<Vec<(crate::lang::asg::NodeData, usize, bool, usize)>> {
+    ) -> Result<Vec<(NodeData, usize, bool, usize, String)>> {
         self.graph.ensure_connected().await?;
         let results = self
             .graph
             .find_nodes_simple_async(
-                node_type,
+                node_type.clone(),
                 offset,
                 limit,
                 sort_by_test_count,

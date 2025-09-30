@@ -143,6 +143,7 @@ pub struct Node {
 pub struct NodeConcise {
     pub name: String,
     pub file: String,
+    pub ref_id: String,
     pub weight: usize,
     pub test_count: usize,
     pub covered: bool,
@@ -168,11 +169,12 @@ pub struct QueryNodesParams {
     pub limit: Option<usize>,
     pub sort: Option<String>,
     pub coverage: Option<String>,
+    pub concise: Option<bool>, 
 }
 
 #[derive(Serialize)]
 pub struct QueryNodesResponse {
-    pub items: Vec<NodeConcise>,
+    pub items: Vec<NodesResponseItem>,
     pub total_returned: usize,
     pub total_count: usize,
     pub total_pages: usize,

@@ -360,7 +360,7 @@ pub async fn execute_nodes_with_coverage_query(
     conn: &Neo4jConnection,
     query_str: String,
     params: BoltMap,
-) -> Vec<(NodeData, usize, bool, usize)> {
+) -> Vec<(NodeData, usize, bool, usize, String)> {
     let mut query_obj = query(&query_str);
     for (key, value) in params.value.iter() {
         query_obj = query_obj.param(key.value.as_str(), value.clone());
@@ -375,11 +375,13 @@ pub async fn execute_nodes_with_coverage_query(
                         let usage_count: i64 = row.get("usage_count").unwrap_or(0);
                         let is_covered: bool = row.get("is_covered").unwrap_or(false);
                         let test_count: i64 = row.get("test_count").unwrap_or(0);
+                        let ref_id = extract_ref_id(&node_data);
                         results.push((
                             node_data,
                             usage_count as usize,
                             is_covered,
                             test_count as usize,
+                            ref_id,
                         ));
                     }
                 }
@@ -392,16 +394,12 @@ pub async fn execute_nodes_with_coverage_query(
     results
 }
 
-pub async fn execute_uncovered_nodes_query(
-    conn: &Neo4jConnection,
-    query_str: String,
-    params: BoltMap,
-) -> Vec<(NodeData, usize)> {
-    execute_nodes_with_coverage_query(conn, query_str, params)
-        .await
-        .into_iter()
-        .map(|(node, usage, _, _)| (node, usage))
-        .collect()
+pub fn extract_ref_id(node_data: &NodeData) -> String {
+    node_data
+        .meta
+        .get("ref_id")
+        .cloned()
+        .unwrap_or_else(|| "placeholder".to_string())
 }
 
 pub fn count_nodes_edges_query() -> String {
