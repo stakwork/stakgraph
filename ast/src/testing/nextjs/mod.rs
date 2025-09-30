@@ -268,7 +268,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes += integration_test.len();
     assert_eq!(integration_test.len(), 4, "Expected 4 IntegrationTest nodes");
-<<<<<<< HEAD
 
     if let Some(test) = integration_test.iter().filter(|n| n.file.ends_with("nextjs/app/test/integration.test.ts") && n.name == "integration: /api/items").next() {
 
