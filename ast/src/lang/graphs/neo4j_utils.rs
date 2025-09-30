@@ -1415,6 +1415,13 @@ pub fn query_nodes_simple(
         "ORDER BY n.name ASC"
     };
 
+    let test_types = ["UnitTest", "IntegrationTest", "E2etest"];
+    let test_type_match = test_types
+        .iter()
+        .map(|t| format!("test:{}", t))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+
     let coverage_where = match coverage_filter {
         Some("tested") => "WHERE test_count > 0",
         Some("untested") => "WHERE test_count = 0",
@@ -1423,18 +1430,17 @@ pub fn query_nodes_simple(
 
     let query = format!(
         "MATCH (n:{}) 
-         WITH n, 
-              CASE 
-                WHEN n.test_count IS NOT NULL THEN n.test_count 
-                ELSE 0 
-              END AS test_count
-         {}
+         OPTIONAL MATCH (test)-[:CALLS]->(n) 
+         WHERE {}
+         WITH n, count(DISTINCT test) AS test_count
+         {} 
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
          {}
          SKIP $offset LIMIT $limit
          RETURN n, usage_count, is_covered, test_count",
         node_type.to_string(),
+        test_type_match,
         coverage_where,
         order_clause
     );
@@ -1448,6 +1454,13 @@ pub fn count_nodes_simple(
 ) -> (String, BoltMap) {
     let params = BoltMap::new();
 
+    let test_types = ["UnitTest", "IntegrationTest", "E2etest"];
+    let test_type_match = test_types
+        .iter()
+        .map(|t| format!("test:{}", t))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+
     let coverage_where = match coverage_filter {
         Some("tested") => "WHERE test_count > 0",
         Some("untested") => "WHERE test_count = 0",
@@ -1456,56 +1469,15 @@ pub fn count_nodes_simple(
 
     let query = format!(
         "MATCH (n:{}) 
-         WITH n, 
-              CASE 
-                WHEN n.test_count IS NOT NULL THEN n.test_count 
-                ELSE 0 
-              END AS test_count
+         OPTIONAL MATCH (test)-[:CALLS]->(n)
+         WHERE {}
+         WITH n, count(DISTINCT test) AS test_count
          {}
          RETURN count(n) AS total_count",
         node_type.to_string(),
+        test_type_match,
         coverage_where
     );
-
-    (query, params)
-}
-pub fn batch_compute_test_counts_query(node_type: &NodeType) -> (String, BoltMap) {
-    let params = BoltMap::new();
-    let query = format!(
-        "MATCH (n:{}) 
-         OPTIONAL MATCH (test)-[:CALLS]->(n)
-         WHERE test IS NULL OR (test:UnitTest OR test:IntegrationTest OR test:E2etest)
-         WITH n, count(DISTINCT test) AS test_count
-         RETURN n.node_key AS node_key, n.name AS name, n.file AS file, n.start AS start, test_count
-         ORDER BY n.name",
-        node_type.to_string()
-    );
-
-    (query, params)
-}
-
-pub fn batch_update_test_counts_query(test_counts: &[(String, usize)]) -> (String, BoltMap) {
-    let mut params = BoltMap::new();
-
-    let updates_data: Vec<BoltMap> = test_counts
-        .iter()
-        .map(|(node_key, test_count)| {
-            let mut update_map = BoltMap::new();
-            boltmap_insert_str(&mut update_map, "node_key", node_key);
-            boltmap_insert_int(&mut update_map, "test_count", *test_count as i64);
-            update_map
-        })
-        .collect();
-
-    boltmap_insert_list_of_maps(&mut params, "updates", updates_data);
-
-    let query = "
-        UNWIND $updates AS update
-        MATCH (n:Data_Bank {node_key: update.node_key})
-        SET n.test_count = update.test_count
-        RETURN count(n) as updated_count
-    "
-    .to_string();
 
     (query, params)
 }

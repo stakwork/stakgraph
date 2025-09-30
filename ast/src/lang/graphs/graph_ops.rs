@@ -198,7 +198,6 @@ impl GraphOps {
             );
         }
 
-        self.compute_and_store_test_counts().await?;
 
         self.graph.get_graph_size_async().await
     }
@@ -237,7 +236,6 @@ impl GraphOps {
             .update_repository_hash(repo_url, current_hash)
             .await?;
 
-        self.compute_and_store_test_counts().await?;
 
         Ok(self.graph.get_graph_size_async().await?)
     }
@@ -769,68 +767,5 @@ impl GraphOps {
         }
 
         Ok(false)
-    }
-
-    pub async fn compute_and_store_test_counts(&mut self) -> Result<(usize, usize)> {
-        self.graph.ensure_connected().await?;
-
-        let function_results = self
-            .graph
-            .batch_compute_test_counts_async(NodeType::Function)
-            .await;
-        info!(
-            "Computed test counts for {} functions",
-            function_results.len()
-        );
-
-        let endpoint_results = self
-            .graph
-            .batch_compute_test_counts_async(NodeType::Endpoint)
-            .await;
-        info!(
-            "Computed test counts for {} endpoints",
-            endpoint_results.len()
-        );
-
-        let function_updates: Vec<(String, usize)> = function_results
-            .iter()
-            .map(|(node_key, _name, _file, _start, test_count)| (node_key.clone(), *test_count))
-            .collect();
-
-        let endpoint_updates: Vec<(String, usize)> = endpoint_results
-            .iter()
-            .map(|(node_key, _name, _file, _start, test_count)| (node_key.clone(), *test_count))
-            .collect();
-
-        let mut functions_updated = 0;
-        let mut endpoints_updated = 0;
-
-        if !function_updates.is_empty() {
-            functions_updated = self
-                .graph
-                .batch_update_test_counts_async(&function_updates)
-                .await?;
-        }
-
-        if !endpoint_updates.is_empty() {
-            endpoints_updated = self
-                .graph
-                .batch_update_test_counts_async(&endpoint_updates)
-                .await?;
-        }
-
-        let total_nodes = functions_updated + endpoints_updated;
-        let total_with_tests = function_results
-            .iter()
-            .chain(endpoint_results.iter())
-            .filter(|(_, _, _, _, test_count)| *test_count > 0)
-            .count();
-
-        info!(
-            "Test count computation complete: {} total nodes updated, {} nodes have tests",
-            total_nodes, total_with_tests
-        );
-
-        Ok((functions_updated, endpoints_updated))
     }
 }
