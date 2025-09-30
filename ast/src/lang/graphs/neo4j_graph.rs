@@ -59,7 +59,7 @@ impl Neo4jGraph {
             return Ok(());
         }
 
-        info!("Connecting to Neo4j database at {}", self.config.uri);
+        // info!("Connecting to Neo4j database at {}", self.config.uri);
 
         //global connection manager
         let conn = Neo4jConnectionManager::initialize(
@@ -71,7 +71,7 @@ impl Neo4jGraph {
         .await?;
 
         *self.connection.lock().await = Some(conn);
-        info!("Successfully connected to Neo4j database");
+        // info!("Successfully connected to Neo4j database");
         Ok(())
     }
 
@@ -1210,7 +1210,6 @@ impl Neo4jGraph {
             }
         }
     }
-
 
     pub(super) async fn _find_uncovered_nodes_paginated_async(
         &self,

@@ -26,7 +26,7 @@ impl Neo4jConnectionManager {
         password: &str,
         database: &str,
     ) -> Result<Neo4jConnection> {
-        info!("Connecting to Neo4j at {}", uri);
+        // info!("Connecting to Neo4j at {}", uri);
         let config = ConfigBuilder::new()
             .uri(uri)
             .user(username)
@@ -36,7 +36,7 @@ impl Neo4jConnectionManager {
 
         match Neo4jConnection::connect(config).await {
             Ok(connection) => {
-                info!("Successfully connected to Neo4j");
+                // info!("Successfully connected to Neo4j");
                 // *conn_guard = Some(Arc::new(connection));
                 Ok(connection)
             }
@@ -390,7 +390,6 @@ pub async fn execute_nodes_with_coverage_query(
         }
     }
     results
-   
 }
 
 pub async fn execute_uncovered_nodes_query(
@@ -1000,15 +999,22 @@ pub fn calculate_token_count(body: &str) -> Result<i64> {
 }
 // Add these functions to neo4j_utils.rs
 
+fn unique_functions_filters() -> Vec<String> {
+    vec![
+        "NOT (n)-[:NESTED_IN]->(:Function)".to_string(),
+        "(n.body IS NOT NULL AND n.body <> '')".to_string(),
+        "NOT (:Endpoint)-[:HANDLER]->(n)".to_string(),
+        "(n.component IS NULL OR n.component <> 'true')".to_string(),
+    ]
+}
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
-    let query = "
-        MATCH (n:Function)
-        WHERE NOT (n)-[:NESTED_IN]->(:Function)
-        AND n.body IS NOT NULL AND n.body <> ''
-        AND NOT (:Endpoint)-[:HANDLER]->(n)
-        AND (n.component IS NULL OR n.component <> 'true')
+    let query = format!(
+        "MATCH (n:Function)
+        WHERE {}
         RETURN n
-    "
+    ",
+        unique_functions_filters().join(" AND ")
+    )
     .to_string();
     (query, BoltMap::new())
 }
@@ -1288,12 +1294,8 @@ pub fn find_nodes_with_coverage_query(
         filters.push("n.file STARTS WITH $root".to_string());
     }
     if *node_type == NodeType::Function {
-        filters.push("NOT (n)-[:NESTED_IN]->(:Function)".to_string());
-        filters.push("NOT (:Endpoint)-[:HANDLER]->(n)".to_string());
+        filters.extend(unique_functions_filters());
     }
-    filters.push("n.body IS NOT NULL".to_string());
-    filters.push("n.body <> ''".to_string());
-    filters.push("(n.component IS NULL OR n.component <> 'true')".to_string());
     let root_filter = if !filters.is_empty() {
         format!("AND {}", filters.join(" AND "))
     } else {
@@ -1429,7 +1431,8 @@ pub fn query_nodes_simple(
     };
 
     let query = format!(
-        "MATCH (n:{}) 
+        "MATCH (n:{})
+         WHERE {}
          OPTIONAL MATCH (test)-[:CALLS]->(n) 
          WHERE {}
          WITH n, count(DISTINCT test) AS test_count
@@ -1440,6 +1443,7 @@ pub fn query_nodes_simple(
          SKIP $offset LIMIT $limit
          RETURN n, usage_count, is_covered, test_count",
         node_type.to_string(),
+        unique_functions_filters().join(" AND "),
         test_type_match,
         coverage_where,
         order_clause
@@ -1468,13 +1472,15 @@ pub fn count_nodes_simple(
     };
 
     let query = format!(
-        "MATCH (n:{}) 
+        "MATCH (n:{})
+         WHERE {}
          OPTIONAL MATCH (test)-[:CALLS]->(n)
          WHERE {}
          WITH n, count(DISTINCT test) AS test_count
          {}
          RETURN count(n) AS total_count",
         node_type.to_string(),
+        unique_functions_filters().join(" AND "),
         test_type_match,
         coverage_where
     );
