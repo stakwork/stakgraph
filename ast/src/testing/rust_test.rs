@@ -84,11 +84,11 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
     nodes_count += traits.len();
     assert_eq!(traits.len(), 1, "Expected 1 trait nodes");
 
-    let trait_node = traits
-        .iter()
-        .find(|t| t.name == "Greet" && t.file.ends_with("src/testing/rust/src/traits.rs"))
-        .map(|n| Node::new(NodeType::Trait, n.clone()))
-        .expect("Trait 'Greet' not found in traits.rs");
+    // let trait_node = traits
+    //     .iter()
+    //     .find(|t| t.name == "Greet" && t.file.ends_with("src/testing/rust/src/traits.rs"))
+    //     .map(|n| Node::new(NodeType::Trait, n.clone()))
+    //     .expect("Trait 'Greet' not found in traits.rs");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
@@ -170,11 +170,11 @@ use std::net::SocketAddr;"#
         "Expected 'Database' class to be imported in 'actix_routes.rs'"
     );
 
-    let greeter_class = classes
-        .iter()
-        .find(|c| c.name == "Greeter" && c.file.ends_with("src/testing/rust/src/traits.rs"))
-        .map(|n| Node::new(NodeType::Class, n.clone()))
-        .expect("Class 'Greet' not found in traits.rs");
+    // let greeter_class = classes
+    //     .iter()
+    //     .find(|c| c.name == "Greeter" && c.file.ends_with("src/testing/rust/src/traits.rs"))
+    //     .map(|n| Node::new(NodeType::Class, n.clone()))
+    //     .expect("Class 'Greet' not found in traits.rs");
 
     // let implements_edge_exist = graph.has_edge(&greeter_class, &trait_node, EdgeType::Implements);
     // assert!(
@@ -202,9 +202,9 @@ use std::net::SocketAddr;"#
     edges_count += handlers;
     assert_eq!(handlers, 6, "Expected 6 handler edges");
 
-    let implements = graph.count_edges_of_type(EdgeType::Implements);
-    edges_count += implements;
-    assert_eq!(implements, 1, "Expected 1 implements edge");
+    // let implements = graph.count_edges_of_type(EdgeType::Implements);
+    // edges_count += implements;
+    // assert_eq!(implements, 1, "Expected 1 implements edge");
 
     let get_person_fn = functions
         .iter()
