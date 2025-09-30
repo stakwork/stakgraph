@@ -52,7 +52,6 @@ use ast::repo::Repo;
 use ast::utils::logger;
 use ast::Lang;
 use shared::{ Error, Result};
-use std::env;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -73,8 +72,7 @@ async fn main() -> Result<()> {
             ))
         }
     };
-    let use_lsp = env::var("USE_LSP").ok().map(|v| v == "true");
-    let repo = Repo::from_single_file(&file_path, lang, use_lsp)?;
+    let repo = Repo::from_single_file(&file_path, lang)?;
     let graph = repo.build_graph_btree().await?;
     print_single_file_nodes(&graph, &file_path)?;
     Ok(())
