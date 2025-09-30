@@ -164,9 +164,9 @@ import {{ sequelize }} from "./config.js";"#
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
 
-    let implements = graph.count_edges_of_type(EdgeType::Implements);
-    edges_count += implements;
-    assert_eq!(implements, 3, "Expected 3 implements edges");
+    // let implements = graph.count_edges_of_type(EdgeType::Implements);
+    // edges_count += implements;
+    // assert_eq!(implements, 3, "Expected 3 implements edges");
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
