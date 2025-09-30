@@ -1,8 +1,5 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams,
-    CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse,
-    NodesParams, NodesResponse, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse,
-    Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
+    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams, CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node, NodeConcise, NodesParams, NodesResponse, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload
 };
 use crate::utils::{
     create_uncovered_response_items, format_uncovered_response_as_snippet, parse_node_type,
@@ -734,6 +731,7 @@ pub async fn nodes_handler(
     let limit = params.limit.unwrap_or(20).min(100);
     let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
     let coverage_filter = params.coverage.as_deref();
+    let concise = params.concise.unwrap_or(true);
 
     if let Some(coverage) = coverage_filter {
         if !matches!(coverage, "tested" | "untested" | "all") {
@@ -752,7 +750,7 @@ pub async fn nodes_handler(
 
     let results = graph_ops
         .query_nodes_simple(
-            node_type,
+            node_type.clone(),
             offset,
             limit,
             sort_by_test_count,
@@ -760,17 +758,29 @@ pub async fn nodes_handler(
         )
         .await?;
 
-    let items: Vec<crate::types::NodeConcise> = results
+    let items: Vec<NodesResponseItem> = results
         .into_iter()
-        .map(
-            |(node_data, usage_count, covered, test_count)| crate::types::NodeConcise {
-                name: node_data.name,
-                file: node_data.file,
-                weight: usage_count,
-                test_count,
-                covered,
-            },
-        )
+        .map(|(node_data, usage_count, covered, test_count, ref_id)| {
+            if concise {
+                NodesResponseItem::Concise(NodeConcise {
+                    name: node_data.name,
+                    file: node_data.file,
+                    ref_id,
+                    weight: usage_count,
+                    test_count,
+                    covered,
+                })
+            } else {
+                NodesResponseItem::Full(Node {
+                    node_type: node_type.to_string(),
+                    ref_id,
+                    weight: usage_count,
+                    test_count,
+                    covered,
+                    properties: node_data,
+                })
+            }
+        })
         .collect();
 
     let total_returned = items.len();

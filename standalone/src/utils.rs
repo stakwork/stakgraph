@@ -48,8 +48,9 @@ pub fn create_nodes_response_items(
         .map(|(node_data, weight, covered, test_count)| {
             if concise {
                 NodesResponseItem::Concise(NodeConcise {
-                    name: node_data.name,
-                    file: node_data.file,
+                    name: node_data.clone().name,
+                    file: node_data.clone().file,
+                    ref_id: extract_ref_id(&node_data),
                     weight,
                     test_count,
                     covered,

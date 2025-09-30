@@ -1141,7 +1141,7 @@ impl Neo4jGraph {
         root: Option<&str>,
         tests_filter: Option<&str>,
         covered_only: Option<bool>,
-    ) -> Vec<(NodeData, usize, bool, usize)> {
+    ) -> Vec<(NodeData, usize, bool, usize, String)> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_nodes_with_coverage_async");
             return vec![];
@@ -1165,7 +1165,7 @@ impl Neo4jGraph {
         limit: usize,
         sort_by_test_count: bool,
         coverage_filter: Option<&str>,
-    ) -> Vec<(NodeData, usize, bool, usize)> {
+    ) -> Vec<(NodeData, usize, bool, usize, String)> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_nodes_simple_async");
             return vec![];
@@ -1209,30 +1209,6 @@ impl Neo4jGraph {
                 0
             }
         }
-    }
-
-    pub(super) async fn _find_uncovered_nodes_paginated_async(
-        &self,
-        node_type: NodeType,
-        with_usage: bool,
-        offset: usize,
-        limit: usize,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-    ) -> Vec<(NodeData, usize)> {
-        self.find_nodes_with_coverage_async(
-            node_type,
-            with_usage,
-            offset,
-            limit,
-            root,
-            tests_filter,
-            Some(false),
-        )
-        .await
-        .into_iter()
-        .map(|(node, usage, _, _)| (node, usage))
-        .collect()
     }
 }
 
