@@ -534,7 +534,7 @@ impl Repo {
             .map(|p| p.to_path_buf())
             .ok_or_else(|| Error::Custom("Invalid file path".into()))?;
         let files_filter = vec![file_path.to_string()];
-        let lsp_tx = Self::start_lsp(&root.display().to_string(), &lang, use_lsp.unwrap_or(lang.kind.default_do_lsp()))?;
+        let lsp_tx = Self::start_lsp(&root.display().to_string(), &lang, use_lsp.unwrap_or(false))?;
         Ok(Self {
             url: String::new(),
             root,
