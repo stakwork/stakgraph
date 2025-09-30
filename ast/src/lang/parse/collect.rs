@@ -145,12 +145,12 @@ impl Lang {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
-        if self.lang.is_test_file(file){
-        while let Some(m) = matches.next() {
-            let ff = self.format_test(&m, code, file, &q)?;
-            res.push((ff, None, vec![], vec![], None, vec![]));
+        if self.lang.is_test_file(file) {
+            while let Some(m) = matches.next() {
+                let ff = self.format_test(&m, code, file, &q)?;
+                res.push((ff, None, vec![], vec![], None, vec![]));
+            }
         }
-    }
         Ok(res)
     }
     pub fn collect_calls_in_function<G: Graph>(
@@ -251,7 +251,11 @@ impl Lang {
             return Ok(Vec::new());
         }
         let f = file.replace('\\', "/");
-        if !(f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") || f.contains("integration")) {
+        if !(f.contains("/integration/")
+            || f.contains(".int.")
+            || f.contains(".integration.")
+            || f.contains("integration"))
+        {
             // Skip describe promotion unless path OR filename signals integration intent
             return Ok(Vec::new());
         }
@@ -279,27 +283,28 @@ impl Lang {
         }
         Ok(res)
     }
-    pub fn collect_e2e_tests(
-        &self,
-        code: &str,
-        file: &str,
-    ) -> Result<Vec<NodeData>> {
+    pub fn collect_e2e_tests(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if self.lang.e2e_test_query().is_none() {
             return Ok(Vec::new());
         }
         let f = file.replace('\\', "/");
         let lower_code = code.to_lowercase();
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
-        let is_e2e_dir = f.contains("/tests/e2e/") || f.contains("/test/e2e") || f.contains("/e2e/") || f.contains("/__e2e__/") || f.contains("e2e.");
+        let is_e2e_dir = f.contains("/tests/e2e/")
+            || f.contains("/test/e2e")
+            || f.contains("/e2e/")
+            || f.contains("/__e2e__/")
+            || f.contains("e2e.");
         let has_e2e_in_name = fname.contains("e2e");
         let has_playwright = lower_code.contains("@playwright/test");
         let has_cypress = lower_code.contains("cy.");
-        let has_puppeteer = lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+        let has_puppeteer =
+            lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
         if !(is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer) {
             return Ok(Vec::new());
         }
         let q = self.q(&self.lang.e2e_test_query().unwrap(), &NodeType::E2eTest);
-    let tree = self.lang.parse(&code, &NodeType::E2eTest)?;
+        let tree = self.lang.parse(&code, &NodeType::E2eTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -606,13 +611,16 @@ impl Lang {
         }
         Ok(edges)
     }
-     pub fn find_nested_functions<'a>(&self, functions: &'a [NodeData]) -> Vec<(&'a NodeData, &'a NodeData)> {
+    pub fn find_nested_functions<'a>(
+        &self,
+        functions: &'a [NodeData],
+    ) -> Vec<(&'a NodeData, &'a NodeData)> {
         let mut nested = Vec::new();
         for child in functions {
             for parent in functions {
                 if std::ptr::eq(child, parent) {
-                     continue; 
-                    }
+                    continue;
+                }
                 if child.start > parent.start && child.end < parent.end {
                     nested.push((child, parent));
                 }

@@ -6,8 +6,8 @@ use crate::{
     lang::Lang,
     repo::{Repo, Repos},
 };
-use shared::error::Result;
 use core::panic;
+use shared::error::Result;
 use std::str::FromStr;
 
 pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
@@ -24,7 +24,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let repos = Repos(vec![repo]);
     let graph = repos.build_graphs_inner::<G>().await?;
 
-   graph.analysis();
+    graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -246,7 +246,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += tests.len();
     assert_eq!(tests.len(), 4, "Expected 4 UnitTest nodes");
 
-    if let Some(test) = tests.iter().filter(|n| n.file.ends_with("nextjs/app/test/unit.test.ts") && n.name == "unit: utils.cn").next() {
+    if let Some(test) = tests
+        .iter()
+        .filter(|n| n.file.ends_with("nextjs/app/test/unit.test.ts") && n.name == "unit: utils.cn")
+        .next()
+    {
         let test_body = format!(
             r#"describe("unit: utils.cn", () => {{
   it("merges class names", () => {{
@@ -257,20 +261,27 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 }})"#
         );
         assert_eq!(test.name, "unit: utils.cn");
-        assert_eq!(
-            test.body, 
-            test_body,
-        )
-    }else{
+        assert_eq!(test.body, test_body,)
+    } else {
         panic!("Unit test 'unit: utils.cn' not found");
     }
 
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes += integration_test.len();
-    assert_eq!(integration_test.len(), 4, "Expected 4 IntegrationTest nodes");
+    assert_eq!(
+        integration_test.len(),
+        4,
+        "Expected 4 IntegrationTest nodes"
+    );
 
-    if let Some(test) = integration_test.iter().filter(|n| n.file.ends_with("nextjs/app/test/integration.test.ts") && n.name == "integration: /api/items").next() {
-
+    if let Some(test) = integration_test
+        .iter()
+        .filter(|n| {
+            n.file.ends_with("nextjs/app/test/integration.test.ts")
+                && n.name == "integration: /api/items"
+        })
+        .next()
+    {
         let test_body = format!(
             r#"describe("integration: /api/items", () => {{
   it("GET returns items list", async () => {{
@@ -293,23 +304,20 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 }})"#
         );
         assert_eq!(test.name, "integration: /api/items");
-        assert_eq!(
-            test.body, 
-            test_body,
-        )
-    }else {
+        assert_eq!(test.body, test_body,)
+    } else {
         panic!("Integration test 'integration: /api/items' not found");
     }
-
-
-
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
     assert_eq!(e2e_tests.len(), 5, "Expected 5 E2eTest nodes");
 
-    if let Some(test) = e2e_tests.iter().filter(|n| n.file.ends_with("nextjs/app/test/e2e.test.ts") && n.name == "e2e: user flows").next() {
-
+    if let Some(test) = e2e_tests
+        .iter()
+        .filter(|n| n.file.ends_with("nextjs/app/test/e2e.test.ts") && n.name == "e2e: user flows")
+        .next()
+    {
         let test_body = format!(
             r#"describe("e2e: user flows", () => {{
   it("navigates to /items and adds an item", async () => {{
@@ -332,17 +340,14 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     await expect(page.getByText("Found: Alice")).toBeVisible();
     console.log("E2E flow: add, find and delete person");
   }});
-}})"#);
+}})"#
+        );
 
         assert_eq!(test.name, "e2e: user flows");
-        assert_eq!(
-            test.body, 
-            test_body,
-        )
-        }
-        else{
-            panic!("E2E test 'e2e: user flowse' not found");
-        }
+        assert_eq!(test.body, test_body,)
+    } else {
+        panic!("E2E test 'e2e: user flowse' not found");
+    }
 
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;

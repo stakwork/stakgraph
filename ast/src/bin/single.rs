@@ -1,5 +1,5 @@
-use ast::lang::BTreeMapGraph;
 use ast::lang::graphs::NodeType;
+use ast::lang::BTreeMapGraph;
 
 fn print_node_summary(node: &ast::lang::graphs::Node) {
     let nd = &node.node_data;
@@ -36,7 +36,9 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
 }
 
 fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Result<()> {
-    let file_path = std::fs::canonicalize(file_path)?.to_string_lossy().to_string();
+    let file_path = std::fs::canonicalize(file_path)?
+        .to_string_lossy()
+        .to_string();
     for node in graph.nodes.values() {
         let node_file = std::fs::canonicalize(&node.node_data.file)
             .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
@@ -51,19 +53,21 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
 use ast::repo::Repo;
 use ast::utils::logger;
 use ast::Lang;
-use shared::{ Error, Result};
+use shared::{Error, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     logger();
     let mut args = std::env::args().skip(1);
-    let file_path = args.next().ok_or_else(|| Error::Custom("No file path provided".into()))?;
+    let file_path = args
+        .next()
+        .ok_or_else(|| Error::Custom("No file path provided".into()))?;
     if !std::path::Path::new(&file_path).exists() {
         return Err(Error::Custom("File does not exist".into()));
     }
 
     let language = lsp::Language::from_path(&file_path);
-   
+
     let lang = match language {
         Some(lang) => Lang::from_language(lang),
         None => {

@@ -1,8 +1,7 @@
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use tokio::sync::{OnceCell, Mutex};
-use std::sync::Arc;
 use shared::Result;
-
+use std::sync::Arc;
+use tokio::sync::{Mutex, OnceCell};
 
 pub const EMBEDDING_DIM: usize = 384;
 pub const DEFAULT_CHUNK_SIZE: usize = 400;
@@ -12,10 +11,8 @@ static EMBEDDER: OnceCell<Arc<Mutex<TextEmbedding>>> = OnceCell::const_new();
 pub async fn get_embedder() -> Arc<Mutex<TextEmbedding>> {
     EMBEDDER
         .get_or_init(|| async {
-            let options = InitOptions::new(EmbeddingModel::BGESmallENV15)
-                .with_max_length(512);
-            let model = TextEmbedding::try_new(options)
-                .expect("Failed to load embedding model");
+            let options = InitOptions::new(EmbeddingModel::BGESmallENV15).with_max_length(512);
+            let model = TextEmbedding::try_new(options).expect("Failed to load embedding model");
             Arc::new(Mutex::new(model))
         })
         .await
@@ -80,7 +77,10 @@ pub async fn vectorize_query(query: &str) -> Result<Vec<f32>> {
     let embedder = get_embedder().await;
     let mut embedder = embedder.lock().await;
     let vecs = embedder.embed(vec![query], None)?;
-    Ok(vecs.into_iter().next().unwrap_or_else(|| vec![0.0; EMBEDDING_DIM]))
+    Ok(vecs
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| vec![0.0; EMBEDDING_DIM]))
 }
 
 pub async fn vectorize_code_document(code: &str) -> Result<Vec<f32>> {
@@ -89,7 +89,10 @@ pub async fn vectorize_code_document(code: &str) -> Result<Vec<f32>> {
 
     if code.len() < DEFAULT_CHUNK_SIZE {
         let vecs = embedder.embed(vec![code], None)?;
-        let embedding = vecs.into_iter().next().unwrap_or_else(|| vec![0.0; EMBEDDING_DIM]);
+        let embedding = vecs
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| vec![0.0; EMBEDDING_DIM]);
         return Ok(embedding);
     }
 

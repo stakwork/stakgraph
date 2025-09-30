@@ -1,7 +1,7 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-use crate::{lang::Lang, repo::Repo};
 use crate::utils::get_use_lsp;
+use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 use test_log::test;
@@ -39,17 +39,22 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    
-    if use_lsp{
+
+    if use_lsp {
         let expected = 42;
-    assert!(
-        (expected - 1..=expected + 1).contains(&files.len()),
-        "Expected ~{} file nodes with LSP, got {}",
-        expected,
-        files.len()
-    );
-    }else{
-        assert_eq!(files.len(), 42, "Expected 42 file nodes, got {}", files.len());
+        assert!(
+            (expected - 1..=expected + 1).contains(&files.len()),
+            "Expected ~{} file nodes with LSP, got {}",
+            expected,
+            files.len()
+        );
+    } else {
+        assert_eq!(
+            files.len(),
+            42,
+            "Expected 42 file nodes, got {}",
+            files.len()
+        );
     }
 
     let repositories = graph.find_nodes_by_type(NodeType::Repository);
@@ -58,7 +63,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
-    assert_eq!(libraries.len(), 5, "Expected 5 library nodes, got {}", libraries.len());
+    assert_eq!(
+        libraries.len(),
+        5,
+        "Expected 5 library nodes, got {}",
+        libraries.len()
+    );
 
     let pkg_files = graph.find_nodes_by_name(NodeType::File, "Gemfile");
     assert_eq!(pkg_files.len(), 1, "Expected 1 Gemfile");
@@ -81,7 +91,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 13, "Expected 13 import nodes, got {}", imports.len());
+    assert_eq!(
+        imports.len(),
+        13,
+        "Expected 13 import nodes, got {}",
+        imports.len()
+    );
 
     let import_body = imports
         .iter()
@@ -213,7 +228,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let import_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges;
     if use_lsp {
-    assert_eq!(import_edges, 0, "Expected 0 import edges with lsp");
+        assert_eq!(import_edges, 0, "Expected 0 import edges with lsp");
     } else {
         assert_eq!(import_edges, 4, "Expected 4 import edges");
     }
@@ -250,7 +265,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-    assert_eq!(calls, 27, "Expected 27 call edges with lsp");
+        assert_eq!(calls, 27, "Expected 27 call edges with lsp");
     } else {
         assert_eq!(calls, 14, "Expected 14 call edges");
     }
@@ -258,14 +273,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-    assert_eq!(uses, 14, "Expected 14 Uses edges, got {}", uses);
+        assert_eq!(uses, 14, "Expected 14 Uses edges, got {}", uses);
     } else {
         assert_eq!(uses, 0, "Expected 0 Uses edges, got {}", uses);
     }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 139, "Expected 139 Contains edges, got {}", contains);
+    assert_eq!(
+        contains, 139,
+        "Expected 139 Contains edges, got {}",
+        contains
+    );
 
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges_count += renders;
@@ -277,7 +296,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 16, "Expected 16 class nodes, got {}", classes.len());
+    assert_eq!(
+        classes.len(),
+        16,
+        "Expected 16 class nodes, got {}",
+        classes.len()
+    );
     let person_model = classes
         .iter()
         .find(|c| c.name == "Person" && c.file.ends_with("app/models/person.rb"))
@@ -552,7 +576,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    assert_eq!(directories.len(), 22, "Expected 22 directories, got {}", directories.len());
+    assert_eq!(
+        directories.len(),
+        22,
+        "Expected 22 directories, got {}",
+        directories.len()
+    );
 
     let app_directory = directories
         .iter()
@@ -572,20 +601,33 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         "Expected Contains edge between app and controllers directories"
     );
 
-
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
-    assert_eq!(unit_tests.len(), 3, "Expected 3 unit tests, got {}", unit_tests.len());
+    assert_eq!(
+        unit_tests.len(),
+        3,
+        "Expected 3 unit tests, got {}",
+        unit_tests.len()
+    );
     nodes_count += unit_tests.len();
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
-    assert_eq!(integration_tests.len(), 2, "Expected 2 integration tests, got {}", integration_tests.len());
+    assert_eq!(
+        integration_tests.len(),
+        2,
+        "Expected 2 integration tests, got {}",
+        integration_tests.len()
+    );
     nodes_count += integration_tests.len();
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
-    assert_eq!(e2e_tests.len(), 6, "Expected 6 e2e tests, got {}", e2e_tests.len());
+    assert_eq!(
+        e2e_tests.len(),
+        6,
+        "Expected 6 e2e tests, got {}",
+        e2e_tests.len()
+    );
     nodes_count += e2e_tests.len();
 
-
     let (nodes, edges) = graph.get_graph_size();
-    
+
     assert_eq!(
         nodes as usize, nodes_count,
         "Expected {} nodes",
@@ -593,12 +635,9 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     );
 
     assert_eq!(
-        edges as usize,
-        edges_count,
+        edges as usize, edges_count,
         "Expected {} edges, found {} (edges_count computed: {})",
-        edges_count,
-        edges,
-        edges_count
+        edges_count, edges, edges_count
     );
 
     Ok(())

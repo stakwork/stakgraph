@@ -14,7 +14,11 @@ impl CoverageTool {
     pub fn for_language(language: &str) -> Vec<CoverageTool> {
         match language {
             "typescript" | "javascript" => {
-                vec![CoverageTool::Vitest, CoverageTool::C8, CoverageTool::Istanbul]
+                vec![
+                    CoverageTool::Vitest,
+                    CoverageTool::C8,
+                    CoverageTool::Istanbul,
+                ]
             }
             "python" => vec![CoverageTool::CoveragePy],
             "rust" => vec![CoverageTool::Tarpaulin],
@@ -44,10 +48,9 @@ impl CoverageTool {
     pub fn install_command(&self) -> Option<(&'static str, Vec<&'static str>)> {
         match self {
             CoverageTool::C8 => Some(("npm", vec!["install", "--save-dev", "c8"])),
-            CoverageTool::Vitest => Some((
-                "npm",
-                vec!["install", "--save-dev", "@vitest/coverage-v8"],
-            )),
+            CoverageTool::Vitest => {
+                Some(("npm", vec!["install", "--save-dev", "@vitest/coverage-v8"]))
+            }
             CoverageTool::CoveragePy => Some(("pip", vec!["install", "coverage"])),
             CoverageTool::Tarpaulin => Some(("cargo", vec!["install", "cargo-tarpaulin"])),
             _ => None,

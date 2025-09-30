@@ -1,10 +1,10 @@
+use crate::lang::Edge;
 use crate::lang::NodeType;
 use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use crate::lang::Edge;
 
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::neo4j_utils::{boltmap_insert_int, boltmap_insert_str};
@@ -182,14 +182,19 @@ impl NodeData {
             .insert("implements".to_string(), trait_name.to_string());
     }
     pub fn add_component(&mut self) {
-        self.meta.insert("component".to_string(), "true".to_string());
+        self.meta
+            .insert("component".to_string(), "true".to_string());
     }
     pub fn add_test_kind(&mut self, test_kind: &str) {
-        self.meta.insert("test_kind".to_string(), test_kind.to_string());
+        self.meta
+            .insert("test_kind".to_string(), test_kind.to_string());
     }
     pub fn add_interface(&mut self, interface: &str) {
-        if interface.is_empty() { return; }
-        self.meta.insert("interface".to_string(), interface.to_string());
+        if interface.is_empty() {
+            return;
+        }
+        self.meta
+            .insert("interface".to_string(), interface.to_string());
     }
 }
 
@@ -216,7 +221,9 @@ pub struct TestRecord {
 impl TestRecord {
     pub fn new(node: NodeData, kind: NodeType, edge: Option<Edge>) -> Self {
         let mut edges = Vec::new();
-        if let Some(e) = edge { edges.push(e); }
+        if let Some(e) = edge {
+            edges.push(e);
+        }
         Self { node, kind, edges }
     }
     pub fn test_kind(&self) -> String {

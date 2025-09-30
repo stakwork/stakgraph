@@ -148,10 +148,7 @@ import NewPerson from "./components/NewPerson";"#
         .iter()
         .find(|f| f.name == "App")
         .expect("App function not found");
-    assert_eq!(
-        app_function.name, "App",
-        "App component name is incorrect"
-    );
+    assert_eq!(app_function.name, "App", "App component name is incorrect");
     assert_eq!(
         normalize_path(&app_function.file),
         "src/testing/react/src/App.tsx",

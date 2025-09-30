@@ -1,10 +1,9 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
-use crate::utils::get_use_lsp;
-
 
 pub async fn test_kotlin_generic<G: Graph>() -> Result<()> {
     let use_lsp = get_use_lsp();
@@ -201,7 +200,10 @@ import com.kotlintestapp.db.PersonDatabase"#
     if use_lsp {
         assert_eq!(contains_edges, 178, "Expected 178 contains edges with LSP");
     } else {
-        assert_eq!(contains_edges, 178, "Expected 178 contains edges without LSP");
+        assert_eq!(
+            contains_edges, 178,
+            "Expected 178 contains edges without LSP"
+        );
     }
 
     let handler = graph.count_edges_of_type(EdgeType::Handler);
@@ -211,9 +213,15 @@ import com.kotlintestapp.db.PersonDatabase"#
     let operand_edges_count = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operand_edges_count;
     if use_lsp {
-        assert_eq!(operand_edges_count, 13, "Expected 13 operand edges with LSP");
+        assert_eq!(
+            operand_edges_count, 13,
+            "Expected 13 operand edges with LSP"
+        );
     } else {
-        assert_eq!(operand_edges_count, 13, "Expected 13 operand edges without LSP");
+        assert_eq!(
+            operand_edges_count, 13,
+            "Expected 13 operand edges without LSP"
+        );
     }
 
     let parentof = graph.count_edges_of_type(EdgeType::ParentOf);
@@ -226,9 +234,15 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     // operand_edges_count was asserted earlier; keep a sanity check split by LSP mode
     if use_lsp {
-        assert_eq!(operand_edges_count, 13, "Expected 13 operand edges with LSP");
+        assert_eq!(
+            operand_edges_count, 13,
+            "Expected 13 operand edges with LSP"
+        );
     } else {
-        assert_eq!(operand_edges_count, 13, "Expected 13 operand edges without LSP");
+        assert_eq!(
+            operand_edges_count, 13,
+            "Expected 13 operand edges without LSP"
+        );
     }
 
     let database_helper = classes
@@ -481,9 +495,17 @@ import com.kotlintestapp.db.PersonDatabase"#
     let import_edges =
         graph.find_nodes_with_edge_type(NodeType::File, NodeType::Import, EdgeType::Contains);
     if use_lsp {
-        assert_eq!(import_edges.len(), 9, "Expected 9 file to import edges with LSP");
+        assert_eq!(
+            import_edges.len(),
+            9,
+            "Expected 9 file to import edges with LSP"
+        );
     } else {
-        assert_eq!(import_edges.len(), 9, "Expected 9 file to import edges without LSP");
+        assert_eq!(
+            import_edges.len(),
+            9,
+            "Expected 9 file to import edges without LSP"
+        );
     }
 
     let database_helper_imports = import_edges
@@ -612,10 +634,13 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let (nodes, edges) = graph.get_graph_size();
     // compare to computed counts so test passes for both LSP and non-LSP expectations
-    assert_eq!(nodes as usize, nodes_count, "Nodes count mismatch computed vs graph");
-            
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Nodes count mismatch computed vs graph"
+    );
+
     let expected_edges = if use_lsp { 225 } else { 214 };
-    
+
     assert!(
         if use_lsp {
             (expected_edges - 1..=expected_edges + 1).contains(&(edges as usize))
