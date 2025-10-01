@@ -101,7 +101,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "imports", &dn, &de)
                 .await;
         }
-        self.process_variables(&mut graph, &filez)?;
+        self.process_variables(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();

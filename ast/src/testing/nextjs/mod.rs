@@ -224,7 +224,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();
-    assert_eq!(variables.len(), 8, "Expected 8 Variable nodes");
+    assert_eq!(variables.len(), 5, "Expected 5 Variable nodes");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
@@ -236,7 +236,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 144, "Expected 144 Contains edges");
+    assert_eq!(contains, 141, "Expected 141 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
