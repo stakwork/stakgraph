@@ -77,7 +77,12 @@ impl Repo {
 
         self.setup_lsp(&filez)?;
 
-        self.process_libraries(&mut graph, &filez)?;
+        let allowed_files = filez
+            .iter()
+            .filter(|(f, _)| crate::builder::utils::is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
+            .cloned()
+            .collect::<Vec<_>>();
+        self.process_libraries(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
