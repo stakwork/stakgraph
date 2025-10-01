@@ -85,6 +85,18 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         ..Default::default()
     }]
 }
+pub fn is_allowed_file(path: &PathBuf, lang: &Language) -> bool {
+    let fname = path.display().to_string();
+    if lang.pkg_files().iter().any(|pkg_file| fname.ends_with(pkg_file)) {
+        return true;
+    }
+    if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+        if lang.exts().contains(&ext) {
+            return true;
+        }
+    }
+    false
+}
 
 impl Repo {
     pub fn prepare_file_data(&self, path: &str, code: &str) -> NodeData {

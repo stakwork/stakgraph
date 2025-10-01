@@ -210,7 +210,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    assert_eq!(variables.len(), 1, "Expected 1 variable nodes");
+    //var is not in a .rb file, so it is not detected
+    assert_eq!(variables.len(), 0, "Expected 0 variable nodes");
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;
@@ -281,8 +282,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 139,
-        "Expected 139 Contains edges, got {}",
+        contains, 138,
+        "Expected 138 Contains edges, got {}",
         contains
     );
 
