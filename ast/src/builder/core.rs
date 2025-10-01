@@ -23,6 +23,7 @@ use std::path::PathBuf;
 use tokio::fs;
 use tracing::{debug, info, trace};
 
+
 impl Repo {
     pub async fn build_graph(&self) -> Result<BTreeMapGraph> {
         self.build_graph_inner().await
@@ -79,7 +80,7 @@ impl Repo {
 
         let allowed_files = filez
             .iter()
-            .filter(|(f, _)| crate::builder::utils::is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
+            .filter(|(f, _)| is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
             .cloned()
             .collect::<Vec<_>>();
         self.process_libraries(&mut graph, &allowed_files)?;
@@ -109,7 +110,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "variables", &dn, &de)
                 .await;
         }
-        self.process_classes(&mut graph, &filez)?;
+        self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -118,7 +119,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "classes", &dn, &de)
                 .await;
         }
-        self.process_instances_and_traits(&mut graph, &filez)?;
+        self.process_instances_and_traits(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -127,7 +128,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "instances_traits", &dn, &de)
                 .await;
         }
-        self.process_data_models(&mut graph, &filez)?;
+        self.process_data_models(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -136,7 +137,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "data_models", &dn, &de)
                 .await;
         }
-        self.process_functions_and_tests(&mut graph, &filez).await?;
+        self.process_functions_and_tests(&mut graph, &allowed_files).await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -154,7 +155,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "pages_templates", &dn, &de)
                 .await;
         }
-        self.process_endpoints(&mut graph, &filez)?;
+        self.process_endpoints(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -163,7 +164,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "endpoints", &dn, &de)
                 .await;
         }
-        self.finalize_graph(&mut graph, &filez, &mut stats).await?;
+        self.finalize_graph(&mut graph, &allowed_files, &mut stats).await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
