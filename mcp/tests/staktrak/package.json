@@ -6,7 +6,7 @@
   "scripts": {
     "build": "npm run build:main && npm run build:playwright",
     "build:main": "esbuild src/index.ts --bundle --outfile=dist/staktrak.js --format=iife --global-name=userBehaviour --target=es2017",
-    "build:playwright": "esbuild src/playwright-generator.ts --bundle --outfile=dist/playwright-generator.js --format=esm --target=es2017",
+    "build:playwright": "esbuild src/playwright-generator.ts --bundle --outfile=dist/playwright-generator.js --format=iife --global-name=PlaywrightGenerator --target=es2017",
     "dev": "npm run build -- --watch"
   },
   "devDependencies": {
