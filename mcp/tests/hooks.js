@@ -76,6 +76,16 @@ export function useIframeMessaging(iframeRef, initialURL) {
             console.log("Staktrak setup message received");
             break;
           case "staktrak-results":
+            // TODO: RecordingManager data sync issue
+            // RecordingManager's trackingData comes from real-time staktrak-event messages,
+            // but staktrak-results includes post-processing (e.g., filterClickDetails removes
+            // clicks associated with assertions). This means generated tests may have extra
+            // click actions that should have been filtered.
+            //
+            // WHEN TO FIX: During list view/action removal feature implementation
+            // APPROACH: Either sync RecordingManager here OR refactor to use final results
+            // directly for test generation. Be careful not to break removeAction() logic
+            // which depends on RecordingManager's internal structure.
             console.log("Staktrak results received", event.data.data);
             setTrackingData(event.data.data);
             setCanGenerate(true);
