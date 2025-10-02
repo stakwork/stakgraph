@@ -532,6 +532,13 @@ class UserBehaviorTracker {
                 };
                 this.results.inputChanges.push(inputAction);
 
+                // Send complete input data to parent
+                this.sendEventToParent("input", {
+                  selector: selector,
+                  value: inputEl.value,
+                  timestamp: inputAction.timestamp,
+                });
+
                 // Broadcast final input action in real-time
                 window.parent.postMessage(
                   {

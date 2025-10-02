@@ -3729,6 +3729,11 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
                     action: "complete"
                   };
                   this.results.inputChanges.push(inputAction);
+                  this.sendEventToParent("input", {
+                    selector,
+                    value: inputEl.value,
+                    timestamp: inputAction.timestamp
+                  });
                   window.parent.postMessage(
                     {
                       type: "staktrak-action-added",
