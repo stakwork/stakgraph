@@ -323,19 +323,21 @@ ${body
 });`;
 }
 
+export function generatePlaywrightTest(url: string, trackingData: TrackingResults): string {
+  try {
+    const actions = resultsToActions(trackingData);
+    return generatePlaywrightTestFromActions(actions, { baseUrl: url });
+  } catch (error) {
+    console.error("Error generating Playwright test:", error);
+    return "";
+  }
+}
+
 // Export to window for hooks.js to use
 if (typeof window !== "undefined") {
   const existing = (window as any).PlaywrightGenerator || {};
   existing.RecordingManager = RecordingManager;
   existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
-  existing.generatePlaywrightTest = (url: string, trackingData: TrackingResults) => {
-    try {
-      const actions = resultsToActions(trackingData);
-      return generatePlaywrightTestFromActions(actions, { baseUrl: url });
-    } catch (error) {
-      console.error("Error generating Playwright test:", error);
-      return "";
-    }
-  };
+  existing.generatePlaywrightTest = generatePlaywrightTest;
   (window as any).PlaywrightGenerator = existing;
 }

@@ -517,31 +517,35 @@ class UserBehaviorTracker {
 
             if (e.type === "blur") {
               const elementId = inputEl.id || selector;
-              if (this.memory.inputDebounceTimers[elementId]) {
+              const hadTimer = !!this.memory.inputDebounceTimers[elementId];
+
+              // Only push action if timer exists (user blurred before debounce fired)
+              if (hadTimer) {
                 clearTimeout(this.memory.inputDebounceTimers[elementId]);
                 delete this.memory.inputDebounceTimers[elementId];
-              }
-              const inputAction = {
-                elementSelector: selector,
-                value: inputEl.value,
-                timestamp: getTimeStamp(),
-                action: "complete",
-              };
-              this.results.inputChanges.push(inputAction);
 
-              // Broadcast final input action in real-time
-              window.parent.postMessage(
-                {
-                  type: "staktrak-action-added",
-                  action: {
-                    id: inputAction.timestamp + "_input",
-                    kind: "input",
-                    timestamp: inputAction.timestamp,
-                    value: inputAction.value,
+                const inputAction = {
+                  elementSelector: selector,
+                  value: inputEl.value,
+                  timestamp: getTimeStamp(),
+                  action: "complete",
+                };
+                this.results.inputChanges.push(inputAction);
+
+                // Broadcast final input action in real-time
+                window.parent.postMessage(
+                  {
+                    type: "staktrak-action-added",
+                    action: {
+                      id: inputAction.timestamp + "_input",
+                      kind: "input",
+                      timestamp: inputAction.timestamp,
+                      value: inputAction.value,
+                    },
                   },
-                },
-                "*"
-              );
+                  "*"
+                );
+              }
             }
           };
 

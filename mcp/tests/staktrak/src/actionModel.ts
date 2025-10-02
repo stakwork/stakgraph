@@ -117,6 +117,17 @@ export function resultsToActions(results: Results): Action[] {
     }
   }
 
+  // Deduplicate consecutive input actions on the same element with the same value
+  for (let i = actions.length - 1; i > 0; i--) {
+    const current = actions[i]
+    const previous = actions[i - 1]
+    if (current.kind === 'input' && previous.kind === 'input' &&
+        current.locator?.primary === previous.locator?.primary &&
+        current.value === previous.value) {
+      actions.splice(i, 1)
+    }
+  }
+
   return actions
 }
 

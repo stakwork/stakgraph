@@ -2845,7 +2845,7 @@ var userBehaviour = (() => {
 
   // src/actionModel.ts
   function resultsToActions(results) {
-    var _a;
+    var _a, _b, _c;
     const actions = [];
     const navigations = (results.pageNavigation || []).slice().sort((a, b) => a.timestamp - b.timestamp);
     const normalize = (u) => {
@@ -2928,6 +2928,13 @@ var userBehaviour = (() => {
       const current = actions[i];
       const previous = actions[i - 1];
       if (current.kind === "waitForUrl" && previous.kind === "waitForUrl" && current.normalizedUrl === previous.normalizedUrl) {
+        actions.splice(i, 1);
+      }
+    }
+    for (let i = actions.length - 1; i > 0; i--) {
+      const current = actions[i];
+      const previous = actions[i - 1];
+      if (current.kind === "input" && previous.kind === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
         actions.splice(i, 1);
       }
     }
@@ -3290,19 +3297,20 @@ test('Recorded test', async ({ page }) => {
 ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
 });`;
   }
+  function generatePlaywrightTest(url, trackingData) {
+    try {
+      const actions = resultsToActions(trackingData);
+      return generatePlaywrightTestFromActions(actions, { baseUrl: url });
+    } catch (error) {
+      console.error("Error generating Playwright test:", error);
+      return "";
+    }
+  }
   if (typeof window !== "undefined") {
     const existing = window.PlaywrightGenerator || {};
     existing.RecordingManager = RecordingManager;
     existing.generatePlaywrightTestFromActions = generatePlaywrightTestFromActions;
-    existing.generatePlaywrightTest = (url, trackingData) => {
-      try {
-        const actions = resultsToActions(trackingData);
-        return generatePlaywrightTestFromActions(actions, { baseUrl: url });
-      } catch (error) {
-        console.error("Error generating Playwright test:", error);
-        return "";
-      }
-    };
+    existing.generatePlaywrightTest = generatePlaywrightTest;
     window.PlaywrightGenerator = existing;
   }
 
@@ -3710,29 +3718,30 @@ ${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
               });
               if (e.type === "blur") {
                 const elementId = inputEl.id || selector;
-                if (this.memory.inputDebounceTimers[elementId]) {
+                const hadTimer = !!this.memory.inputDebounceTimers[elementId];
+                if (hadTimer) {
                   clearTimeout(this.memory.inputDebounceTimers[elementId]);
                   delete this.memory.inputDebounceTimers[elementId];
+                  const inputAction = {
+                    elementSelector: selector,
+                    value: inputEl.value,
+                    timestamp: getTimeStamp(),
+                    action: "complete"
+                  };
+                  this.results.inputChanges.push(inputAction);
+                  window.parent.postMessage(
+                    {
+                      type: "staktrak-action-added",
+                      action: {
+                        id: inputAction.timestamp + "_input",
+                        kind: "input",
+                        timestamp: inputAction.timestamp,
+                        value: inputAction.value
+                      }
+                    },
+                    "*"
+                  );
                 }
-                const inputAction = {
-                  elementSelector: selector,
-                  value: inputEl.value,
-                  timestamp: getTimeStamp(),
-                  action: "complete"
-                };
-                this.results.inputChanges.push(inputAction);
-                window.parent.postMessage(
-                  {
-                    type: "staktrak-action-added",
-                    action: {
-                      id: inputAction.timestamp + "_input",
-                      kind: "input",
-                      timestamp: inputAction.timestamp,
-                      value: inputAction.value
-                    }
-                  },
-                  "*"
-                );
               }
             };
             htmlEl.addEventListener("input", inputHandler);
