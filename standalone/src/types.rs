@@ -118,18 +118,6 @@ pub struct Coverage {
     pub e2e_tests: Option<CoverageStat>,
 }
 
-#[derive(Deserialize)]
-pub struct NodesParams {
-    pub node_type: String,
-    pub limit: Option<usize>,
-    pub offset: Option<usize>,
-    pub sort: Option<String>,
-    pub root: Option<String>,
-    pub concise: Option<bool>,
-    pub tests: Option<String>,
-    pub output: Option<String>,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Node {
     pub node_type: String,
@@ -155,12 +143,6 @@ pub struct NodeConcise {
 pub enum NodesResponseItem {
     Full(Node),
     Concise(NodeConcise),
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct NodesResponse {
-    pub functions: Option<Vec<NodesResponseItem>>,
-    pub endpoints: Option<Vec<NodesResponseItem>>,
 }
 
 #[derive(Deserialize)]

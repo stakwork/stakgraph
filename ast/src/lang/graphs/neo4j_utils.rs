@@ -1379,25 +1379,6 @@ pub fn find_nodes_with_coverage_query(
     (query, params)
 }
 
-pub fn find_uncovered_nodes_paginated_query(
-    node_type: &NodeType,
-    with_usage: bool,
-    offset: usize,
-    limit: usize,
-    root: Option<&str>,
-    tests_filter: Option<&str>,
-) -> (String, BoltMap) {
-    find_nodes_with_coverage_query(
-        node_type,
-        with_usage,
-        offset,
-        limit,
-        root,
-        tests_filter,
-        Some(false),
-    )
-}
-
 pub fn query_nodes_simple(
     node_type: &NodeType,
     offset: usize,

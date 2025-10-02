@@ -604,38 +604,6 @@ impl GraphOps {
             _ => Ok((vec![], vec![])),
         }
     }
-    pub async fn list_uncovered(
-        &mut self,
-        node_type: NodeType,
-        with_usage: bool,
-        offset: usize,
-        limit: usize,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-    ) -> Result<(Vec<(NodeData, usize)>, Vec<(NodeData, usize)>)> {
-        let (functions, endpoints) = self
-            .list_nodes_with_coverage(
-                node_type,
-                with_usage,
-                offset,
-                limit,
-                root,
-                tests_filter,
-                Some(false),
-            )
-            .await?;
-
-        let functions = functions
-            .into_iter()
-            .map(|(node, usage, _, _, _)| (node, usage))
-            .collect();
-        let endpoints = endpoints
-            .into_iter()
-            .map(|(node, usage, _, _, _)| (node, usage))
-            .collect();
-
-        Ok((functions, endpoints))
-    }
 
     pub async fn query_nodes_simple(
         &mut self,
