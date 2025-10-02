@@ -1404,12 +1404,18 @@ pub fn query_nodes_simple(
     limit: usize,
     sort_by_test_count: bool,
     coverage_filter: Option<&str>,
+    body_length: bool,
+    line_count: bool,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
 
-    let order_clause = if sort_by_test_count {
+    let order_clause = if body_length {
+        "ORDER BY size(n.body) DESC, n.name ASC"
+    } else if line_count {
+        "ORDER BY (n.end - n.start) DESC, n.name ASC"
+    } else if sort_by_test_count {
         "ORDER BY test_count DESC, n.name ASC"
     } else {
         "ORDER BY n.name ASC"
