@@ -745,7 +745,7 @@ pub async fn nodes_handler(
 ) -> Result<Json<QueryNodesResponse>> {
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
     let offset = params.offset.unwrap_or(0);
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = params.limit.unwrap_or(10).min(100);
     let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
     let coverage_filter = params.coverage.as_deref();
     let concise = params.concise.unwrap_or(true);
@@ -805,8 +805,16 @@ pub async fn nodes_handler(
         .collect();
 
     let total_returned = items.len();
-    let total_pages = (total_count + 9) / 10;
-    let current_page = (offset / 10) + 1;
+    let total_pages = if limit > 0 {
+        (total_count + limit - 1) / limit
+    } else {
+        0
+    };
+    let current_page = if limit > 0 {
+        (offset / limit) + 1
+    } else {
+        0
+    };
 
     Ok(Json(QueryNodesResponse {
         items,

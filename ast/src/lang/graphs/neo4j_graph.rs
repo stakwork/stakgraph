@@ -1132,31 +1132,6 @@ impl Neo4jGraph {
         Ok(triples)
     }
 
-    pub(super) async fn find_nodes_with_coverage_async(
-        &self,
-        node_type: NodeType,
-        with_usage: bool,
-        offset: usize,
-        limit: usize,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-        covered_only: Option<bool>,
-    ) -> Vec<(NodeData, usize, bool, usize, String)> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_with_coverage_async");
-            return vec![];
-        };
-        let (query, params) = find_nodes_with_coverage_query(
-            &node_type,
-            with_usage,
-            offset,
-            limit,
-            root,
-            tests_filter,
-            covered_only,
-        );
-        execute_nodes_with_coverage_query(&connection, query, params).await
-    }
 
     pub(super) async fn find_nodes_simple_async(
         &self,
