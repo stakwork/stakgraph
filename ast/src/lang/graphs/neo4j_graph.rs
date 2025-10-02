@@ -1165,6 +1165,8 @@ impl Neo4jGraph {
         limit: usize,
         sort_by_test_count: bool,
         coverage_filter: Option<&str>,
+        body_length: bool,
+        line_count: bool,
     ) -> Vec<(NodeData, usize, bool, usize, String)> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_nodes_simple_async");
@@ -1176,6 +1178,8 @@ impl Neo4jGraph {
             limit,
             sort_by_test_count,
             coverage_filter,
+            body_length,
+            line_count,
         );
         execute_nodes_with_coverage_query(&connection, query, params).await
     }

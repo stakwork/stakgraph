@@ -751,6 +751,8 @@ pub async fn nodes_handler(
     let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
     let coverage_filter = params.coverage.as_deref();
     let concise = params.concise.unwrap_or(true);
+    let body_length = params.body_length.unwrap_or(false);
+    let line_count = params.line_count.unwrap_or(false);
 
     if let Some(coverage) = coverage_filter {
         if !matches!(coverage, "tested" | "untested" | "all") {
@@ -774,6 +776,8 @@ pub async fn nodes_handler(
             limit,
             sort_by_test_count,
             coverage_filter,
+            body_length,
+            line_count,
         )
         .await?;
 

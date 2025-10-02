@@ -170,7 +170,9 @@ pub struct QueryNodesParams {
     pub limit: Option<usize>,
     pub sort: Option<String>,
     pub coverage: Option<String>,
-    pub concise: Option<bool>, 
+    pub concise: Option<bool>,
+    pub body_length: Option<bool>,
+    pub line_count: Option<bool>,
 }
 
 #[derive(Serialize)]

@@ -644,6 +644,8 @@ impl GraphOps {
         limit: usize,
         sort_by_test_count: bool,
         coverage_filter: Option<&str>,
+        body_length: bool,
+        line_count: bool,
     ) -> Result<Vec<(NodeData, usize, bool, usize, String)>> {
         self.graph.ensure_connected().await?;
         let results = self
@@ -654,6 +656,8 @@ impl GraphOps {
                 limit,
                 sort_by_test_count,
                 coverage_filter,
+                body_length,
+                line_count,
             )
             .await;
         Ok(results)
