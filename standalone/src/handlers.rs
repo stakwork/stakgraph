@@ -763,12 +763,9 @@ pub async fn nodes_handler(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let total_count = graph_ops
-        .count_nodes_simple(node_type.clone(), coverage_filter)
-        .await?;
-
-    let results = graph_ops
-        .query_nodes_simple(
+    // Single DB call that returns both count and paginated data
+    let (total_count, results) = graph_ops
+        .query_nodes_with_count(
             node_type.clone(),
             offset,
             limit,

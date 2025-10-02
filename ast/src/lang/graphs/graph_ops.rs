@@ -571,7 +571,7 @@ impl GraphOps {
 
     }
 
-    pub async fn query_nodes_simple(
+    pub async fn query_nodes_with_count(
         &mut self,
         node_type: NodeType,
         offset: usize,
@@ -580,11 +580,11 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> Result<Vec<(NodeData, usize, bool, usize, String)>> {
+    ) -> Result<(usize, Vec<(NodeData, usize, bool, usize, String)>)> {
         self.graph.ensure_connected().await?;
-        let results = self
+        let (total_count, results) = self
             .graph
-            .find_nodes_simple_async(
+            .query_nodes_with_count_async(
                 node_type.clone(),
                 offset,
                 limit,
@@ -594,20 +594,7 @@ impl GraphOps {
                 line_count,
             )
             .await;
-        Ok(results)
-    }
-
-    pub async fn count_nodes_simple(
-        &mut self,
-        node_type: NodeType,
-        coverage_filter: Option<&str>,
-    ) -> Result<usize> {
-        self.graph.ensure_connected().await?;
-        let count = self
-            .graph
-            .count_nodes_simple_async(node_type, coverage_filter)
-            .await;
-        Ok(count)
+        Ok((total_count, results))
     }
 
     pub async fn has_coverage(

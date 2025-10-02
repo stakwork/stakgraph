@@ -1262,7 +1262,7 @@ pub fn vector_search_query(
     (query, params)
 }
 
-pub fn query_nodes_simple(
+pub fn query_nodes_with_count(
     node_type: &NodeType,
     offset: usize,
     limit: usize,
@@ -1308,49 +1308,20 @@ pub fn query_nodes_simple(
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
          {}
-         SKIP $offset LIMIT $limit
-         RETURN n, usage_count, is_covered, test_count",
+         WITH collect({{
+             node: n,
+             usage_count: usage_count,
+             is_covered: is_covered,
+             test_count: test_count
+         }}) AS all_items
+         RETURN 
+             size(all_items) AS total_count,
+             [item IN all_items | item][$offset..($offset + $limit)] AS items",
         node_type.to_string(),
         unique_functions_filters().join(" AND "),
         test_type_match,
         coverage_where,
         order_clause
-    );
-
-    (query, params)
-}
-
-pub fn count_nodes_simple(
-    node_type: &NodeType,
-    coverage_filter: Option<&str>,
-) -> (String, BoltMap) {
-    let params = BoltMap::new();
-
-    let test_types = ["UnitTest", "IntegrationTest", "E2etest"];
-    let test_type_match = test_types
-        .iter()
-        .map(|t| format!("test:{}", t))
-        .collect::<Vec<_>>()
-        .join(" OR ");
-
-    let coverage_where = match coverage_filter {
-        Some("tested") => "WHERE test_count > 0",
-        Some("untested") => "WHERE test_count = 0",
-        _ => "",
-    };
-
-    let query = format!(
-        "MATCH (n:{})
-         WHERE {}
-         OPTIONAL MATCH (test)-[:CALLS]->(n)
-         WHERE {}
-         WITH n, count(DISTINCT test) AS test_count
-         {}
-         RETURN count(n) AS total_count",
-        node_type.to_string(),
-        unique_functions_filters().join(" AND "),
-        test_type_match,
-        coverage_where
     );
 
     (query, params)
