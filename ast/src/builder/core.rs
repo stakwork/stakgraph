@@ -23,6 +23,13 @@ use std::path::PathBuf;
 use tokio::fs;
 use tracing::{debug, info, trace};
 
+#[derive(Debug, Clone)]
+pub struct ImplementsRelationship {
+    pub class_name: String,
+    pub trait_name: String,
+    pub file_path: String,
+}
+
 
 impl Repo {
     pub async fn build_graph(&self) -> Result<BTreeMapGraph> {
@@ -110,7 +117,7 @@ impl Repo {
                 .flush_stage(&ctx.neo, "variables", &dn, &de)
                 .await;
         }
-        self.process_classes(&mut graph, &allowed_files)?;
+        let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -126,6 +133,15 @@ impl Repo {
             let _ = ctx
                 .uploader
                 .flush_stage(&ctx.neo, "instances_traits", &dn, &de)
+                .await;
+        }
+        self.resolve_implements_edges(&mut graph, impl_relationships)?;
+        #[cfg(feature = "neo4j")]
+        if let Some(ctx) = &mut streaming_ctx {
+            let (dn, de) = drain_deltas();
+            let _ = ctx
+                .uploader
+                .flush_stage(&ctx.neo, "implements", &dn, &de)
                 .await;
         }
         self.process_data_models(&mut graph, &allowed_files)?;
@@ -489,11 +505,16 @@ impl Repo {
 
         Ok(())
     }
-    fn process_classes<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+    fn process_classes<G: Graph>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+    ) -> Result<Vec<ImplementsRelationship>> {
         self.send_status_update("process_classes", 6);
         let mut i = 0;
         let mut class_count = 0;
         let total = filez.len();
+        let mut impl_relationships = Vec::new();
 
         info!("=> get_classes...");
         for (filename, code) in filez {
@@ -523,6 +544,18 @@ impl Repo {
                     graph.add_edge(edge);
                 }
             }
+
+            if let Some(impl_query) = self.lang.lang().implements_query() {
+                let q = self.lang.q(&impl_query, &NodeType::Class);
+                let impls = self.lang.collect_implements(&q, &code, &filename)?;
+                impl_relationships.extend(impls.into_iter().map(|(class_name, trait_name, file_path)| {
+                    ImplementsRelationship {
+                        class_name,
+                        trait_name,
+                        file_path,
+                    }
+                }));
+            }
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -533,7 +566,7 @@ impl Repo {
         info!("=> got {} classes", class_count);
         graph.class_inherits();
         graph.class_includes();
-        Ok(())
+        Ok(impl_relationships)
     }
     fn process_instances_and_traits<G: Graph>(
         &self,
@@ -575,16 +608,6 @@ impl Repo {
             for tr in traits {
                 graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
             }
-
-            // if let Some(implements_query) = self.lang.lang().implements_query() {
-            //     let q = self.lang.q(&implements_query, &NodeType::Class);
-            //     for (_filename, code) in filez {
-            //         let edges = self.lang.collect_implements_edges(&q, code, graph)?;
-            //         for edge in edges {
-            //             graph.add_edge(edge);
-            //         }
-            //     }
-            // }
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -594,6 +617,68 @@ impl Repo {
         self.send_status_progress(100, 100, 7);
 
         info!("=> got {} traits", trait_count);
+        Ok(())
+    }
+    fn resolve_implements_edges<G: Graph>(
+        &self,
+        graph: &mut G,
+        impl_relationships: Vec<ImplementsRelationship>,
+    ) -> Result<()> {
+        use std::collections::HashMap;
+
+        if impl_relationships.is_empty() {
+            return Ok(());
+        }
+
+        let mut classes_by_file: HashMap<String, Vec<NodeData>> = HashMap::new();
+        for class in graph.find_nodes_by_type(NodeType::Class) {
+            classes_by_file.entry(class.file.clone()).or_default().push(class);
+        }
+
+        let mut traits_by_file: HashMap<String, Vec<NodeData>> = HashMap::new();
+        for trait_node in graph.find_nodes_by_type(NodeType::Trait) {
+            traits_by_file.entry(trait_node.file.clone()).or_default().push(trait_node);
+        }
+
+        let mut class_cache: HashMap<String, Option<NodeData>> = HashMap::new();
+        let mut trait_cache: HashMap<String, Option<NodeData>> = HashMap::new();
+        let mut edge_count = 0;
+        let mut same_file_hits = 0;
+
+        for rel in impl_relationships {
+            let find_class = || {
+                graph.find_nodes_by_name(NodeType::Class, &rel.class_name)
+                    .into_iter()
+                    .next()
+            };
+
+            let find_trait = || {
+                graph.find_nodes_by_name(NodeType::Trait, &rel.trait_name)
+                    .into_iter()
+                    .next()
+            };
+
+            let class_node = classes_by_file
+                .get(&rel.file_path)
+                .and_then(|classes| classes.iter().find(|c| c.name == rel.class_name).cloned())
+                .map(|c| { same_file_hits += 1; c })
+                .or_else(|| class_cache.entry(rel.class_name.clone()).or_insert_with(find_class).clone());
+
+            let trait_node = traits_by_file
+                .get(&rel.file_path)
+                .and_then(|traits| traits.iter().find(|t| t.name == rel.trait_name).cloned())
+                .or_else(|| trait_cache.entry(rel.trait_name.clone()).or_insert_with(find_trait).clone());
+
+            if let (Some(class), Some(trait_)) = (class_node, trait_node) {
+                graph.add_edge(Edge::implements(&class, &trait_));
+                edge_count += 1;
+            }
+        }
+
+        info!(
+            "=> created {} IMPLEMENTS edges ({} same-file optimizations)",
+            edge_count, same_file_hits
+        );
         Ok(())
     }
     fn process_data_models<G: Graph>(

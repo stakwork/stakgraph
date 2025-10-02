@@ -57,6 +57,25 @@ impl Lang {
         }
         Ok(res)
     }
+    pub fn collect_implements(
+        &self,
+        q: &Query,
+        code: &str,
+        file: &str,
+    ) -> Result<Vec<(String, String, String)>> {
+        let tree = self.lang.parse(&code, &NodeType::Class)?;
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
+        let mut results = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let (class_name, trait_name) = self.format_implements(&m, code, q)?;
+            results.push((class_name, trait_name, file.to_string()));
+        }
+
+        Ok(results)
+    }
+
     pub fn collect_implements_edges<G: Graph>(
         &self,
         q: &Query,
