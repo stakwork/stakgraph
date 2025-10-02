@@ -1,9 +1,7 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams, CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node, NodeConcise, NodesParams, NodesResponse, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload
+    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams, CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node, NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload
 };
-use crate::utils::{
-    create_uncovered_response_items, format_uncovered_response_as_snippet, parse_node_type,
-};
+use crate::utils::parse_node_type;
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
@@ -747,7 +745,7 @@ pub async fn nodes_handler(
 ) -> Result<Json<QueryNodesResponse>> {
     let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
     let offset = params.offset.unwrap_or(0);
-    let limit = params.limit.unwrap_or(20).min(100);
+    let limit = params.limit.unwrap_or(10).min(100);
     let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
     let coverage_filter = params.coverage.as_deref();
     let concise = params.concise.unwrap_or(true);
@@ -765,12 +763,9 @@ pub async fn nodes_handler(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let total_count = graph_ops
-        .count_nodes_simple(node_type.clone(), coverage_filter)
-        .await?;
-
-    let results = graph_ops
-        .query_nodes_simple(
+    // Single DB call that returns both count and paginated data
+    let (total_count, results) = graph_ops
+        .query_nodes_with_count(
             node_type.clone(),
             offset,
             limit,
@@ -807,8 +802,16 @@ pub async fn nodes_handler(
         .collect();
 
     let total_returned = items.len();
-    let total_pages = (total_count + 9) / 10;
-    let current_page = (offset / 10) + 1;
+    let total_pages = if limit > 0 {
+        (total_count + limit - 1) / limit
+    } else {
+        0
+    };
+    let current_page = if limit > 0 {
+        (offset / limit) + 1
+    } else {
+        0
+    };
 
     Ok(Json(QueryNodesResponse {
         items,
@@ -817,74 +820,6 @@ pub async fn nodes_handler(
         total_pages,
         current_page,
     }))
-}
-
-#[axum::debug_handler]
-pub async fn uncovered_handler(Query(params): Query<NodesParams>) -> Result<impl IntoResponse> {
-    let with_usage = params
-        .sort
-        .as_deref()
-        .unwrap_or("usage")
-        .eq_ignore_ascii_case("usage");
-    let limit = params.limit.unwrap_or(50);
-    let offset = params.offset.unwrap_or(0);
-    let output = params.output.as_deref().unwrap_or("json");
-    let concise = params.concise.unwrap_or(false);
-
-    let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
-
-    info!(
-        "[/tests/uncovered] node_type={:?} limit={:?} offset={:?} concise={:?} output={:?}",
-        node_type, limit, offset, concise, output
-    );
-
-    let is_function = matches!(node_type, NodeType::Function);
-    let is_endpoint = matches!(node_type, NodeType::Endpoint);
-
-    let mut graph_ops = GraphOps::new();
-    graph_ops.connect().await?;
-
-    let (funcs, endpoints) = graph_ops
-        .list_uncovered(
-            node_type,
-            with_usage,
-            offset,
-            limit,
-            params.root.as_deref(),
-            params.tests.as_deref(),
-        )
-        .await?;
-
-    let functions = if is_function {
-        Some(create_uncovered_response_items(
-            funcs,
-            &NodeType::Function,
-            concise,
-        ))
-    } else {
-        None
-    };
-    let endpoints = if is_endpoint {
-        Some(create_uncovered_response_items(
-            endpoints,
-            &NodeType::Endpoint,
-            concise,
-        ))
-    } else {
-        None
-    };
-
-    let response = NodesResponse {
-        functions,
-        endpoints,
-    };
-    match output {
-        "snippet" => {
-            let text = format_uncovered_response_as_snippet(&response);
-            Ok(text.into_response())
-        }
-        _ => Ok(Json(response).into_response()),
-    }
 }
 
 #[axum::debug_handler]

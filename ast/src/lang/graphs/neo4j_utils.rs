@@ -1262,143 +1262,7 @@ pub fn vector_search_query(
     (query, params)
 }
 
-pub fn find_nodes_with_coverage_query(
-    node_type: &NodeType,
-    with_usage: bool,
-    offset: usize,
-    limit: usize,
-    root: Option<&str>,
-    tests_filter: Option<&str>,
-    covered_only: Option<bool>,
-) -> (String, BoltMap) {
-    let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
-    boltmap_insert_int(&mut params, "offset", offset as i64);
-    boltmap_insert_int(&mut params, "limit", limit as i64);
-
-    if let Some(r) = root {
-        boltmap_insert_str(&mut params, "root", r);
-    }
-
-    let test_types = crate::lang::graphs::utils::tests_sources(tests_filter);
-    let test_conditions = test_types
-        .iter()
-        .map(|t| format!("test:{}", t.to_string()))
-        .collect::<Vec<_>>()
-        .join(" OR ");
-
-    let mut filters = Vec::new();
-    if let Some(_) = root {
-        filters.push("n.file STARTS WITH $root".to_string());
-    }
-    if *node_type == NodeType::Function {
-        filters.extend(unique_functions_filters());
-    }
-    let root_filter = if !filters.is_empty() {
-        format!("AND {}", filters.join(" AND "))
-    } else {
-        "".to_string()
-    };
-
-    let coverage_check = match node_type {
-        NodeType::Function => format!(
-            "EXISTS {{ MATCH (test)-[:CALLS]->(n:Function) WHERE {} }}",
-            test_conditions
-        ),
-        NodeType::Endpoint => format!(
-            "EXISTS {{ MATCH (test)-[:CALLS]->(n:Endpoint) WHERE {} }}",
-            test_conditions
-        ),
-        _ => "false".to_string(),
-    };
-
-    let usage_match = if with_usage {
-        match node_type {
-            NodeType::Function => "OPTIONAL MATCH (caller:Function)-[:CALLS]->(n)",
-            NodeType::Endpoint => "OPTIONAL MATCH (req:Request)-[:CALLS]->(n)",
-            _ => "",
-        }
-    } else {
-        ""
-    };
-
-    let usage_count = if with_usage {
-        match node_type {
-            NodeType::Function => "count(caller)",
-            NodeType::Endpoint => "count(req)",
-            _ => "0",
-        }
-    } else {
-        "0"
-    };
-
-    let coverage_filter = match covered_only {
-        Some(true) => "WHERE is_covered = true",
-        Some(false) => "WHERE is_covered = false",
-        None => "",
-    };
-
-    let order_clause = if with_usage {
-        "ORDER BY usage_count DESC, n.name ASC"
-    } else {
-        "ORDER BY n.name ASC"
-    };
-
-    let test_count_subquery = match node_type {
-        NodeType::Function => format!(
-            "count{{ (test)-[:CALLS]->(n:Function) WHERE {} }}",
-            test_conditions
-        ),
-        NodeType::Endpoint => format!(
-            "count{{ (test)-[:CALLS]->(n:Endpoint) WHERE {} }}",
-            test_conditions
-        ),
-        _ => "0".to_string(),
-    };
-
-    let query = format!(
-        "MATCH (n:{}) 
-         WHERE true {}
-         WITH n, ({}) AS is_covered, ({}) AS test_count
-         {}
-         {}
-         WITH n, {} AS usage_count, is_covered, test_count
-         {}
-         SKIP $offset LIMIT $limit
-         RETURN n, usage_count, is_covered, test_count",
-        node_type.to_string(),
-        root_filter,
-        coverage_check,
-        test_count_subquery,
-        coverage_filter,
-        usage_match,
-        usage_count,
-        order_clause
-    );
-
-    (query, params)
-}
-
-pub fn find_uncovered_nodes_paginated_query(
-    node_type: &NodeType,
-    with_usage: bool,
-    offset: usize,
-    limit: usize,
-    root: Option<&str>,
-    tests_filter: Option<&str>,
-) -> (String, BoltMap) {
-    find_nodes_with_coverage_query(
-        node_type,
-        with_usage,
-        offset,
-        limit,
-        root,
-        tests_filter,
-        Some(false),
-    )
-}
-
-pub fn query_nodes_simple(
+pub fn query_nodes_with_count(
     node_type: &NodeType,
     offset: usize,
     limit: usize,
@@ -1444,49 +1308,20 @@ pub fn query_nodes_simple(
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
          {}
-         SKIP $offset LIMIT $limit
-         RETURN n, usage_count, is_covered, test_count",
+         WITH collect({{
+             node: n,
+             usage_count: usage_count,
+             is_covered: is_covered,
+             test_count: test_count
+         }}) AS all_items
+         RETURN 
+             size(all_items) AS total_count,
+             [item IN all_items | item][$offset..($offset + $limit)] AS items",
         node_type.to_string(),
         unique_functions_filters().join(" AND "),
         test_type_match,
         coverage_where,
         order_clause
-    );
-
-    (query, params)
-}
-
-pub fn count_nodes_simple(
-    node_type: &NodeType,
-    coverage_filter: Option<&str>,
-) -> (String, BoltMap) {
-    let params = BoltMap::new();
-
-    let test_types = ["UnitTest", "IntegrationTest", "E2etest"];
-    let test_type_match = test_types
-        .iter()
-        .map(|t| format!("test:{}", t))
-        .collect::<Vec<_>>()
-        .join(" OR ");
-
-    let coverage_where = match coverage_filter {
-        Some("tested") => "WHERE test_count > 0",
-        Some("untested") => "WHERE test_count = 0",
-        _ => "",
-    };
-
-    let query = format!(
-        "MATCH (n:{})
-         WHERE {}
-         OPTIONAL MATCH (test)-[:CALLS]->(n)
-         WHERE {}
-         WITH n, count(DISTINCT test) AS test_count
-         {}
-         RETURN count(n) AS total_count",
-        node_type.to_string(),
-        unique_functions_filters().join(" AND "),
-        test_type_match,
-        coverage_where
     );
 
     (query, params)

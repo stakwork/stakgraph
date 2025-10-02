@@ -570,74 +570,8 @@ impl GraphOps {
         Ok(count)
 
     }
-    pub async fn list_nodes_with_coverage(
-        &mut self,
-        node_type: NodeType,
-        with_usage: bool,
-        offset: usize,
-        limit: usize,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-        covered_only: Option<bool>,
-    ) -> Result<(
-        Vec<(NodeData, usize, bool, usize, String)>,
-        Vec<(NodeData, usize, bool, usize, String)>,
-    )> {
-        self.graph.ensure_connected().await?;
 
-        let results = self
-            .graph
-            .find_nodes_with_coverage_async(
-                node_type.clone(),
-                with_usage,
-                offset,
-                limit,
-                root,
-                tests_filter,
-                covered_only,
-            )
-            .await;
-
-        match node_type {
-            NodeType::Function => Ok((results, vec![])),
-            NodeType::Endpoint => Ok((vec![], results)),
-            _ => Ok((vec![], vec![])),
-        }
-    }
-    pub async fn list_uncovered(
-        &mut self,
-        node_type: NodeType,
-        with_usage: bool,
-        offset: usize,
-        limit: usize,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-    ) -> Result<(Vec<(NodeData, usize)>, Vec<(NodeData, usize)>)> {
-        let (functions, endpoints) = self
-            .list_nodes_with_coverage(
-                node_type,
-                with_usage,
-                offset,
-                limit,
-                root,
-                tests_filter,
-                Some(false),
-            )
-            .await?;
-
-        let functions = functions
-            .into_iter()
-            .map(|(node, usage, _, _, _)| (node, usage))
-            .collect();
-        let endpoints = endpoints
-            .into_iter()
-            .map(|(node, usage, _, _, _)| (node, usage))
-            .collect();
-
-        Ok((functions, endpoints))
-    }
-
-    pub async fn query_nodes_simple(
+    pub async fn query_nodes_with_count(
         &mut self,
         node_type: NodeType,
         offset: usize,
@@ -646,11 +580,11 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> Result<Vec<(NodeData, usize, bool, usize, String)>> {
+    ) -> Result<(usize, Vec<(NodeData, usize, bool, usize, String)>)> {
         self.graph.ensure_connected().await?;
-        let results = self
+        let (total_count, results) = self
             .graph
-            .find_nodes_simple_async(
+            .query_nodes_with_count_async(
                 node_type.clone(),
                 offset,
                 limit,
@@ -660,20 +594,7 @@ impl GraphOps {
                 line_count,
             )
             .await;
-        Ok(results)
-    }
-
-    pub async fn count_nodes_simple(
-        &mut self,
-        node_type: NodeType,
-        coverage_filter: Option<&str>,
-    ) -> Result<usize> {
-        self.graph.ensure_connected().await?;
-        let count = self
-            .graph
-            .count_nodes_simple_async(node_type, coverage_filter)
-            .await;
-        Ok(count)
+        Ok((total_count, results))
     }
 
     pub async fn has_coverage(

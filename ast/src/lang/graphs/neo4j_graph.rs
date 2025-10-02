@@ -1132,33 +1132,8 @@ impl Neo4jGraph {
         Ok(triples)
     }
 
-    pub(super) async fn find_nodes_with_coverage_async(
-        &self,
-        node_type: NodeType,
-        with_usage: bool,
-        offset: usize,
-        limit: usize,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-        covered_only: Option<bool>,
-    ) -> Vec<(NodeData, usize, bool, usize, String)> {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_with_coverage_async");
-            return vec![];
-        };
-        let (query, params) = find_nodes_with_coverage_query(
-            &node_type,
-            with_usage,
-            offset,
-            limit,
-            root,
-            tests_filter,
-            covered_only,
-        );
-        execute_nodes_with_coverage_query(&connection, query, params).await
-    }
 
-    pub(super) async fn find_nodes_simple_async(
+    pub(super) async fn query_nodes_with_count_async(
         &self,
         node_type: NodeType,
         offset: usize,
@@ -1167,12 +1142,13 @@ impl Neo4jGraph {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> Vec<(NodeData, usize, bool, usize, String)> {
+    ) -> (usize, Vec<(NodeData, usize, bool, usize, String)>) {
         let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in find_nodes_simple_async");
-            return vec![];
+            warn!("Failed to connect to Neo4j in query_nodes_with_count_async");
+            return (0, vec![]);
         };
-        let (query, params) = super::neo4j_utils::query_nodes_simple(
+
+        let (query_str, params) = super::neo4j_utils::query_nodes_with_count(
             &node_type,
             offset,
             limit,
@@ -1181,20 +1157,7 @@ impl Neo4jGraph {
             body_length,
             line_count,
         );
-        execute_nodes_with_coverage_query(&connection, query, params).await
-    }
 
-    pub(super) async fn count_nodes_simple_async(
-        &self,
-        node_type: NodeType,
-        coverage_filter: Option<&str>,
-    ) -> usize {
-        let Ok(connection) = self.ensure_connected().await else {
-            warn!("Failed to connect to Neo4j in count_nodes_simple_async");
-            return 0;
-        };
-        let (query_str, params) =
-            super::neo4j_utils::count_nodes_simple(&node_type, coverage_filter);
         let mut query_obj = query(&query_str);
         for (key, value) in params.value.iter() {
             query_obj = query_obj.param(key.value.as_str(), value.clone());
@@ -1203,14 +1166,41 @@ impl Neo4jGraph {
         match connection.execute(query_obj).await {
             Ok(mut result) => {
                 if let Ok(Some(row)) = result.next().await {
-                    row.get::<i64>("total_count").unwrap_or(0) as usize
+                    let total_count = row.get::<i64>("total_count").unwrap_or(0) as usize;
+                    
+                    let items: Vec<BoltMap> = row.get("items").unwrap_or_default();
+                    
+                    let nodes: Vec<(NodeData, usize, bool, usize, String)> = items
+                        .into_iter()
+                        .filter_map(|item| {
+                            let node: neo4rs::Node = item.get("node").ok()?;
+                            
+                            let node_data = NodeData::try_from(&node).ok()?;
+                            
+                            let usage_count: i64 = item.get("usage_count").ok().unwrap_or(0);
+                            let is_covered: bool = item.get("is_covered").ok().unwrap_or(false);
+                            let test_count: i64 = item.get("test_count").ok().unwrap_or(0);
+                            
+                            let ref_id = extract_ref_id(&node_data);
+                            
+                            Some((
+                                node_data,
+                                usage_count as usize,
+                                is_covered,
+                                test_count as usize,
+                                ref_id,
+                            ))
+                        })
+                        .collect();
+
+                    (total_count, nodes)
                 } else {
-                    0
+                    (0, vec![])
                 }
             }
             Err(e) => {
-                debug!("Error executing count query: {}", e);
-                0
+                debug!("Error executing combined query: {}", e);
+                (0, vec![])
             }
         }
     }

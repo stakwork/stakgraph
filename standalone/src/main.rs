@@ -90,7 +90,6 @@ async fn main() -> Result<()> {
         .route("/search", post(handlers::vector_search_handler))
         .route("/tests/coverage", get(handlers::coverage_handler))
         .route("/tests/nodes", get(handlers::nodes_handler))
-        .route("/tests/uncovered", get(handlers::uncovered_handler))
         .route("/tests/has", get(handlers::has_handler))
         .route("/codecov", post(handlers::codecov_handler))
         .route(
