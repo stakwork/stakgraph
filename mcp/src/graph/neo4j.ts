@@ -574,6 +574,19 @@ class Db {
     }
   }
 
+  async delete_node_by_ref_id(ref_id: string): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.DELETE_NODE_BY_REF_ID_QUERY, {
+        ref_id,
+      });
+      const record = result.records[0];
+      return record.get("deleted_count").toNumber();
+    } finally {
+      await session.close();
+    }
+  }
+
   async hints_without_siblings(): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {

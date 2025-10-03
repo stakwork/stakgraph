@@ -105,6 +105,12 @@ export const GET_PROMPT_QUERY = `
 MATCH (n:Prompt {node_key: $node_key}) RETURN n
 `;
 
+export const DELETE_NODE_BY_REF_ID_QUERY = `
+MATCH (n {ref_id: $ref_id})
+DETACH DELETE n
+RETURN count(n) as deleted_count
+`;
+
 export const GET_CONNECTED_HINTS_QUERY = `
 MATCH (p:Prompt {ref_id: $prompt_ref_id})-[r]->(h:Hint)
 RETURN h
