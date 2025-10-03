@@ -160,8 +160,22 @@ export async function ask(req: Request, res: Response) {
     parseFloat(req.query.threshold as string) || undefined;
   const provider = req.query.provider as string | undefined;
 
+  // Parse cache control options
+  const cacheControl: any = {};
+  if (req.query.maxAgeHours) {
+    cacheControl.maxAgeHours = parseFloat(req.query.maxAgeHours as string);
+  }
+  if (req.query.forceRefresh) {
+    cacheControl.forceRefresh = req.query.forceRefresh === "true";
+  }
+
   try {
-    const answer = await ask_prompt(question, provider, similarityThreshold);
+    const answer = await ask_prompt(
+      question,
+      provider,
+      similarityThreshold,
+      cacheControl
+    );
     res.json(answer);
   } catch (error) {
     console.error("Ask Error:", error);
@@ -589,7 +603,9 @@ function mapParams(req: Request): MapParams {
   const name_and_type = node_type && name;
   const file_and_type = node_type && file;
   if (!name_and_type && !file_and_type && !ref_id) {
-    throw new Error("either node_type+name, node_type+file, or ref_id required");
+    throw new Error(
+      "either node_type+name, node_type+file, or ref_id required"
+    );
   }
   const direction = req.query.direction as G.Direction;
   const tests = !(req.query.tests === "false" || req.query.tests === "0");
