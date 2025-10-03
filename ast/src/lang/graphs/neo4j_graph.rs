@@ -1142,7 +1142,7 @@ impl Neo4jGraph {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> (usize, Vec<(NodeData, usize, bool, usize, String)>) {
+    ) -> (usize, Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)>) {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in query_nodes_with_count_async");
             return (0, vec![]);
@@ -1170,7 +1170,7 @@ impl Neo4jGraph {
                     
                     let items: Vec<BoltMap> = row.get("items").unwrap_or_default();
                     
-                    let nodes: Vec<(NodeData, usize, bool, usize, String)> = items
+                    let nodes: Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)> = items
                         .into_iter()
                         .filter_map(|item| {
                             let node: neo4rs::Node = item.get("node").ok()?;
@@ -1180,6 +1180,8 @@ impl Neo4jGraph {
                             let usage_count: i64 = item.get("usage_count").ok().unwrap_or(0);
                             let is_covered: bool = item.get("is_covered").ok().unwrap_or(false);
                             let test_count: i64 = item.get("test_count").ok().unwrap_or(0);
+                            let body_length: Option<i64> = item.get("body_length").ok();
+                            let line_count: Option<i64> = item.get("line_count").ok();
                             
                             let ref_id = extract_ref_id(&node_data);
                             
@@ -1189,6 +1191,8 @@ impl Neo4jGraph {
                                 is_covered,
                                 test_count as usize,
                                 ref_id,
+                                body_length,
+                                line_count,
                             ))
                         })
                         .collect();

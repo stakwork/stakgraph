@@ -778,7 +778,7 @@ pub async fn nodes_handler(
 
     let items: Vec<NodesResponseItem> = results
         .into_iter()
-        .map(|(node_data, usage_count, covered, test_count, ref_id)| {
+        .map(|(node_data, usage_count, covered, test_count, ref_id, body_length, line_count)| {
             if concise {
                 NodesResponseItem::Concise(NodeConcise {
                     name: node_data.name,
@@ -787,6 +787,8 @@ pub async fn nodes_handler(
                     weight: usage_count,
                     test_count,
                     covered,
+                    body_length,
+                    line_count,
                 })
             } else {
                 NodesResponseItem::Full(Node {
@@ -796,6 +798,8 @@ pub async fn nodes_handler(
                     test_count,
                     covered,
                     properties: node_data,
+                    body_length,
+                    line_count,
                 })
             }
         })

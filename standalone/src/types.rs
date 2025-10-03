@@ -126,6 +126,8 @@ pub struct Node {
     pub test_count: usize,
     pub covered: bool,
     pub properties: NodeData,
+    pub body_length: Option<i64>,
+    pub line_count: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -136,6 +138,8 @@ pub struct NodeConcise {
     pub weight: usize,
     pub test_count: usize,
     pub covered: bool,
+    pub body_length: Option<i64>,
+    pub line_count: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
