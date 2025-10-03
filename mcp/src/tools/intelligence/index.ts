@@ -7,6 +7,21 @@ import { db } from "../../graph/neo4j.js";
 import { vectorizeQuery } from "../../vector/index.js";
 
 /**
+ * Utility function to map connected hints to the expected format
+ */
+function mapConnectedHints(connected_hints: any[]) {
+  return connected_hints.map((hint: any) => ({
+    question: hint.properties.question || hint.properties.name,
+    answer: hint.properties.body || "",
+    hint_ref_id: hint.ref_id || hint.properties.ref_id,
+    reused: true,
+    reused_question: hint.properties.question || hint.properties.name,
+    edges_added: 0,
+    linked_ref_ids: [],
+  }));
+}
+
+/**
  * Cache Control Examples:
  *
  * // Use cached result if available (default behavior)
@@ -115,15 +130,7 @@ export async function ask_prompt(
             );
             // Fetch connected hints (sub_answers) for this existing prompt
             const connected_hints = await db.get_connected_hints(top.ref_id);
-            const hints = connected_hints.map((hint: any) => ({
-              question: hint.properties.question || hint.properties.name,
-              answer: hint.properties.body || "",
-              hint_ref_id: hint.ref_id || hint.properties.ref_id,
-              reused: true,
-              reused_question: hint.properties.question || hint.properties.name,
-              edges_added: 0,
-              linked_ref_ids: [],
-            }));
+            const hints = mapConnectedHints(connected_hints);
 
             return {
               answer: top.properties.body,
@@ -136,15 +143,7 @@ export async function ask_prompt(
           );
           // Fetch connected hints (sub_answers) for this existing prompt
           const connected_hints = await db.get_connected_hints(top.ref_id);
-          const hints = connected_hints.map((hint: any) => ({
-            question: hint.properties.question || hint.properties.name,
-            answer: hint.properties.body || "",
-            hint_ref_id: hint.ref_id || hint.properties.ref_id,
-            reused: true,
-            reused_question: hint.properties.question || hint.properties.name,
-            edges_added: 0,
-            linked_ref_ids: [],
-          }));
+          const hints = mapConnectedHints(connected_hints);
 
           return {
             answer: top.properties.body,
@@ -156,15 +155,7 @@ export async function ask_prompt(
         console.log(">> No cache control specified, using cached answer");
         // Fetch connected hints (sub_answers) for this existing prompt
         const connected_hints = await db.get_connected_hints(top.ref_id);
-        const hints = connected_hints.map((hint: any) => ({
-          question: hint.properties.question || hint.properties.name,
-          answer: hint.properties.body || "",
-          hint_ref_id: hint.ref_id || hint.properties.ref_id,
-          reused: true,
-          reused_question: hint.properties.question || hint.properties.name,
-          edges_added: 0,
-          linked_ref_ids: [],
-        }));
+        const hints = mapConnectedHints(connected_hints);
 
         return {
           answer: top.properties.body,
