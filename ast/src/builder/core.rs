@@ -30,7 +30,6 @@ pub struct ImplementsRelationship {
     pub file_path: String,
 }
 
-
 impl Repo {
     pub async fn build_graph(&self) -> Result<BTreeMapGraph> {
         self.build_graph_inner().await
@@ -153,7 +152,8 @@ impl Repo {
                 .flush_stage(&ctx.neo, "data_models", &dn, &de)
                 .await;
         }
-        self.process_functions_and_tests(&mut graph, &allowed_files).await?;
+        self.process_functions_and_tests(&mut graph, &allowed_files)
+            .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -180,7 +180,8 @@ impl Repo {
                 .flush_stage(&ctx.neo, "endpoints", &dn, &de)
                 .await;
         }
-        self.finalize_graph(&mut graph, &allowed_files, &mut stats).await?;
+        self.finalize_graph(&mut graph, &allowed_files, &mut stats)
+            .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();

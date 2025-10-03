@@ -1,5 +1,8 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams, CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node, NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload
+    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams,
+    CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node,
+    NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams,
+    QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
 };
 use crate::utils::parse_node_type;
 use crate::webhook::{send_with_retries, validate_callback_url_async};
@@ -811,11 +814,7 @@ pub async fn nodes_handler(
     } else {
         0
     };
-    let current_page = if limit > 0 {
-        (offset / limit) + 1
-    } else {
-        0
-    };
+    let current_page = if limit > 0 { (offset / limit) + 1 } else { 0 };
 
     Ok(Json(QueryNodesResponse {
         items,

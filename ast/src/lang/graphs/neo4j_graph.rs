@@ -1132,7 +1132,6 @@ impl Neo4jGraph {
         Ok(triples)
     }
 
-
     pub(super) async fn query_nodes_with_count_async(
         &self,
         node_type: NodeType,
@@ -1167,24 +1166,24 @@ impl Neo4jGraph {
             Ok(mut result) => {
                 if let Ok(Some(row)) = result.next().await {
                     let total_count = row.get::<i64>("total_count").unwrap_or(0) as usize;
-                    
+
                     let items: Vec<BoltMap> = row.get("items").unwrap_or_default();
-                    
-                    let nodes: Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)> = items
+
+                            
+                        let nodes: Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)> = items
                         .into_iter()
                         .filter_map(|item| {
                             let node: neo4rs::Node = item.get("node").ok()?;
-                            
+
                             let node_data = NodeData::try_from(&node).ok()?;
-                            
+
                             let usage_count: i64 = item.get("usage_count").ok().unwrap_or(0);
                             let is_covered: bool = item.get("is_covered").ok().unwrap_or(false);
                             let test_count: i64 = item.get("test_count").ok().unwrap_or(0);
                             let body_length: Option<i64> = item.get("body_length").ok();
                             let line_count: Option<i64> = item.get("line_count").ok();
-                            
                             let ref_id = extract_ref_id(&node_data);
-                            
+
                             Some((
                                 node_data,
                                 usage_count as usize,

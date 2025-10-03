@@ -568,7 +568,6 @@ impl GraphOps {
         }
         self.graph.execute_simple(queries).await?;
         Ok(count)
-
     }
 
     pub async fn query_nodes_with_count(
