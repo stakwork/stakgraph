@@ -3,49 +3,48 @@ mod test_endpoints {
     use ast::lang::graphs::graph_ops::GraphOps;
     use ast::lang::{Graph, Lang, NodeType};
     use ast::repo::{Repo, Repos};
-    use std::sync::Once;
+    use std::sync::Mutex;
     use test_log::test;
     use tracing::info;
 
-    static INIT: Once = Once::new();
-    static mut SETUP_COMPLETE: bool = false;
+    static SETUP_LOCK: Mutex<bool> = Mutex::new(false);
 
     async fn setup_nextjs_graph() -> GraphOps {
-        unsafe {
-            if !SETUP_COMPLETE {
-                INIT.call_once(|| {
-                    SETUP_COMPLETE = true;
-                });
+        let mut setup_complete = SETUP_LOCK.lock().unwrap();
 
-                let mut ops = GraphOps::new();
-                ops.connect().await.unwrap();
-                ops.clear().await.unwrap();
+        if !*setup_complete {
+            let mut ops = GraphOps::new();
+            ops.connect().await.unwrap();
+            ops.clear().await.unwrap();
 
-                let use_lsp = false;
-                let repo = Repo::new(
-                    "../ast/src/testing/nextjs",
-                    Lang::from_language(lsp::Language::React),
-                    use_lsp,
-                    Vec::new(),
-                    Vec::new(),
-                )
+            let use_lsp = false;
+            let repo = Repo::new(
+                "../ast/src/testing/nextjs",
+                Lang::from_language(lsp::Language::React),
+                use_lsp,
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap();
+
+            let repos = Repos(vec![repo]);
+            let btree_graph = repos
+                .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
+                .await
+                .unwrap();
+            btree_graph.analysis();
+
+            let (nodes, edges) = ops
+                .upload_btreemap_to_neo4j(&btree_graph, None)
+                .await
                 .unwrap();
 
-                let repos = Repos(vec![repo]);
-                let btree_graph = repos
-                    .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
-                    .await
-                    .unwrap();
-                btree_graph.analysis();
-
-                let (nodes, edges) = ops
-                    .upload_btreemap_to_neo4j(&btree_graph, None)
-                    .await
-                    .unwrap();
-
-                info!("Graph built and uploaded: {} nodes, {} edges", nodes, edges);
-            }
+            info!("Graph built and uploaded: {} nodes, {} edges", nodes, edges);
+            
+            *setup_complete = true;
         }
+
+        drop(setup_complete);
 
         let mut graph_ops = GraphOps::new();
         graph_ops.connect().await.unwrap();
@@ -341,5 +340,172 @@ mod test_endpoints {
                 });
 
         assert!(get_items_tested);
+    }
+
+    #[test(tokio::test(flavor = "multi_thread"))]
+    async fn test_nodes_body_and_line_count_fields() {
+        let mut graph_ops = setup_nextjs_graph().await;
+
+        let (total_count, results) = graph_ops
+            .query_nodes_with_count(NodeType::Function, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        info!(
+            "Body/Line Count Test - total_count={}, results.len()={}",
+            total_count,
+            results.len()
+        );
+
+        assert_eq!(total_count, 1);
+        assert_eq!(results.len(), 1);
+
+        for (node, _, _, _, _, body_length, line_count) in &results {
+            info!(
+                "Function '{}' - body_length={:?}, line_count={:?}",
+                node.name, body_length, line_count
+            );
+            
+            assert_eq!(*body_length, Some(78));
+            assert_eq!(*line_count, Some(2));
+        }
+    }
+
+    #[test(tokio::test(flavor = "multi_thread"))]
+    async fn test_nodes_sort_by_body_length() {
+        let mut graph_ops = setup_nextjs_graph().await;
+
+        let (total_count, sorted_results) = graph_ops
+            .query_nodes_with_count(NodeType::Function, 0, 100, false, None, true, false)
+            .await
+            .unwrap();
+
+        info!(
+            "Sort by body_length - total_count={}, results.len()={}",
+            total_count,
+            sorted_results.len()
+        );
+
+        for (node, _, _, _, _, body_length, line_count) in &sorted_results {
+            info!(
+                "Function '{}' - body_length={:?}, line_count={:?}",
+                node.name, body_length, line_count
+            );
+        }
+
+        assert_eq!(total_count, 1);
+        assert_eq!(sorted_results.len(), 1);
+        assert_eq!(sorted_results[0].5, Some(78));
+        assert_eq!(sorted_results[0].6, Some(2));
+    }
+
+    #[test(tokio::test(flavor = "multi_thread"))]
+    async fn test_nodes_sort_by_line_count() {
+        let mut graph_ops = setup_nextjs_graph().await;
+
+        let (total_count, sorted_results) = graph_ops
+            .query_nodes_with_count(NodeType::Function, 0, 100, false, None, false, true)
+            .await
+            .unwrap();
+
+        info!(
+            "Sort by line_count - total_count={}, results.len()={}",
+            total_count,
+            sorted_results.len()
+        );
+
+        for (node, _, _, _, _, body_length, line_count) in &sorted_results {
+            info!(
+                "Function '{}' - body_length={:?}, line_count={:?}",
+                node.name, body_length, line_count
+            );
+        }
+
+        assert_eq!(total_count, 1);
+        assert_eq!(sorted_results.len(), 1);
+        assert_eq!(sorted_results[0].5, Some(78));
+        assert_eq!(sorted_results[0].6, Some(2));
+    }
+
+    #[test(tokio::test(flavor = "multi_thread"))]
+    async fn test_nodes_edge_cases() {
+        let mut graph_ops = setup_nextjs_graph().await;
+
+        let (count_zero_limit, results_zero_limit) = graph_ops
+            .query_nodes_with_count(NodeType::Function, 0, 0, false, None, false, false)
+            .await
+            .unwrap();
+
+        info!(
+            "Zero limit - total_count={}, results.len()={}",
+            count_zero_limit,
+            results_zero_limit.len()
+        );
+
+        assert_eq!(count_zero_limit, 1);
+        assert_eq!(results_zero_limit.len(), 0);
+
+        let (count_large_offset, results_large_offset) = graph_ops
+            .query_nodes_with_count(NodeType::Function, 1000, 10, false, None, false, false)
+            .await
+            .unwrap();
+
+        info!(
+            "Large offset - total_count={}, results.len()={}",
+            count_large_offset,
+            results_large_offset.len()
+        );
+
+        assert_eq!(count_large_offset, 1);
+        assert_eq!(results_large_offset.len(), 0);
+    }
+
+    #[test(tokio::test(flavor = "multi_thread"))]
+    async fn test_nodes_multiple_node_types() {
+        let mut graph_ops = setup_nextjs_graph().await;
+
+        let (func_count, _) = graph_ops
+            .query_nodes_with_count(NodeType::Function, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        let (endpoint_count, _) = graph_ops
+            .query_nodes_with_count(NodeType::Endpoint, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        let (page_count, _) = graph_ops
+            .query_nodes_with_count(NodeType::Page, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        let (unit_test_count, _) = graph_ops
+            .query_nodes_with_count(NodeType::UnitTest, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        let (integration_test_count, _) = graph_ops
+            .query_nodes_with_count(NodeType::IntegrationTest, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        let (e2e_test_count, _) = graph_ops
+            .query_nodes_with_count(NodeType::E2eTest, 0, 100, false, None, false, false)
+            .await
+            .unwrap();
+
+        info!("Function count: {}", func_count);
+        info!("Endpoint count: {}", endpoint_count);
+        info!("Page count: {}", page_count);
+        info!("UnitTest count: {}", unit_test_count);
+        info!("IntegrationTest count: {}", integration_test_count);
+        info!("E2eTest count: {}", e2e_test_count);
+
+        assert_eq!(func_count, 1);
+        assert_eq!(endpoint_count, 6);
+        assert_eq!(page_count, 4);
+        assert_eq!(unit_test_count, 4);
+        assert_eq!(integration_test_count, 4);
+        assert_eq!(e2e_test_count, 5);
     }
 }
