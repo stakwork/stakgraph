@@ -2857,9 +2857,7 @@ var userBehaviour = (() => {
         return u.replace(/[?#].*$/, "").replace(/\/$/, "");
       }
     };
-    for (const nav of navigations) {
-      actions.push({ kind: "nav", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
-    }
+    const navTimestampsFromClicks = /* @__PURE__ */ new Set();
     const clicks = ((_a = results.clicks) == null ? void 0 : _a.clickDetails) || [];
     for (let i = 0; i < clicks.length; i++) {
       const cd = clicks[i];
@@ -2878,6 +2876,7 @@ var userBehaviour = (() => {
       });
       const nav = navigations.find((n) => n.timestamp > cd.timestamp && n.timestamp - cd.timestamp < 1800);
       if (nav) {
+        navTimestampsFromClicks.add(nav.timestamp);
         actions.push({
           kind: "waitForUrl",
           timestamp: nav.timestamp - 1,
@@ -2886,6 +2885,11 @@ var userBehaviour = (() => {
           normalizedUrl: normalize(nav.url),
           navRefTimestamp: nav.timestamp
         });
+      }
+    }
+    for (const nav of navigations) {
+      if (!navTimestampsFromClicks.has(nav.timestamp)) {
+        actions.push({ kind: "nav", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
       }
     }
     if (results.inputChanges) {
@@ -3240,6 +3244,9 @@ var userBehaviour = (() => {
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
     const { baseUrl = "" } = options;
+    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].kind !== "nav");
+    const initialGoto = needsInitialGoto ? `  await page.goto('${baseUrl}');
+` : "";
     const body = actions.map((action) => {
       var _a, _b, _c, _d, _e;
       switch (action.kind) {
@@ -3289,12 +3296,12 @@ var userBehaviour = (() => {
           return "";
       }
     }).filter((line) => line !== "").join("\n");
-    if (!body)
+    if (!initialGoto && !body)
       return "";
     return `import { test, expect } from '@playwright/test';
 
 test('Recorded test', async ({ page }) => {
-${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
+${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n")}
 });`;
   }
   function generatePlaywrightTest(url, trackingData) {
