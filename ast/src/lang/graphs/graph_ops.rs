@@ -580,12 +580,12 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> Result<(usize, Vec<(NodeData, usize, bool, usize, String)>)> {
+    ) -> Result<(usize, Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)>)> {
         self.graph.ensure_connected().await?;
-        let (total_count, results) = self
+        Ok(self
             .graph
             .query_nodes_with_count_async(
-                node_type.clone(),
+                node_type,
                 offset,
                 limit,
                 sort_by_test_count,
@@ -593,8 +593,7 @@ impl GraphOps {
                 body_length,
                 line_count,
             )
-            .await;
-        Ok((total_count, results))
+            .await)
     }
 
     pub async fn has_coverage(
