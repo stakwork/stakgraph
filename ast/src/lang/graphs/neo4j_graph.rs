@@ -1141,7 +1141,18 @@ impl Neo4jGraph {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> (usize, Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)>) {
+    ) -> (
+        usize,
+        Vec<(
+            NodeData,
+            usize,
+            bool,
+            usize,
+            String,
+            Option<i64>,
+            Option<i64>,
+        )>,
+    ) {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in query_nodes_with_count_async");
             return (0, vec![]);
@@ -1169,8 +1180,15 @@ impl Neo4jGraph {
 
                     let items: Vec<BoltMap> = row.get("items").unwrap_or_default();
 
-                            
-                        let nodes: Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)> = items
+                    let nodes: Vec<(
+                        NodeData,
+                        usize,
+                        bool,
+                        usize,
+                        String,
+                        Option<i64>,
+                        Option<i64>,
+                    )> = items
                         .into_iter()
                         .filter_map(|item| {
                             let node: neo4rs::Node = item.get("node").ok()?;

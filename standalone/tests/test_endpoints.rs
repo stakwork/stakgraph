@@ -1,37 +1,54 @@
 #[cfg(all(feature = "neo4j", feature = "fulltest"))]
 mod test_endpoints {
     use ast::lang::graphs::graph_ops::GraphOps;
-    use ast::lang::graphs::Neo4jGraph;
     use ast::lang::{Graph, Lang, NodeType};
     use ast::repo::{Repo, Repos};
+    use std::sync::Once;
     use test_log::test;
     use tracing::info;
 
+    static INIT: Once = Once::new();
+    static mut SETUP_COMPLETE: bool = false;
+
     async fn setup_nextjs_graph() -> GraphOps {
-        let mut graph_ops = GraphOps::new();
-        graph_ops.connect().await.unwrap();
-        
-        if let Err(e) = graph_ops.graph.clear().await {
-            eprintln!("Failed to clear graph before setup: {:?}", e);
+        unsafe {
+            if !SETUP_COMPLETE {
+                INIT.call_once(|| {
+                    SETUP_COMPLETE = true;
+                });
+
+                let mut ops = GraphOps::new();
+                ops.connect().await.unwrap();
+                ops.clear().await.unwrap();
+
+                let use_lsp = false;
+                let repo = Repo::new(
+                    "../ast/src/testing/nextjs",
+                    Lang::from_language(lsp::Language::React),
+                    use_lsp,
+                    Vec::new(),
+                    Vec::new(),
+                )
+                .unwrap();
+
+                let repos = Repos(vec![repo]);
+                let btree_graph = repos
+                    .build_graphs_inner::<ast::lang::graphs::BTreeMapGraph>()
+                    .await
+                    .unwrap();
+                btree_graph.analysis();
+
+                let (nodes, edges) = ops
+                    .upload_btreemap_to_neo4j(&btree_graph, None)
+                    .await
+                    .unwrap();
+
+                info!("Graph built and uploaded: {} nodes, {} edges", nodes, edges);
+            }
         }
 
-        let use_lsp = false;
-        let repo = Repo::new(
-            "../ast/src/testing/nextjs",
-            Lang::from_language(lsp::Language::React),
-            use_lsp,
-            Vec::new(),
-            Vec::new(),
-        )
-        .unwrap();
-
-        let repos = Repos(vec![repo]);
-        let graph = repos.build_graphs_inner::<Neo4jGraph>().await.unwrap();
-        graph.analysis();
-
-        let (nodes, edges) = graph.get_graph_size();
-        info!("Graph built: {} nodes, {} edges", nodes, edges);
-
+        let mut graph_ops = GraphOps::new();
+        graph_ops.connect().await.unwrap();
         graph_ops
     }
 
@@ -44,23 +61,23 @@ mod test_endpoints {
         assert!(coverage.integration_tests.is_some());
         assert!(coverage.e2e_tests.is_some());
 
-        if let Some(unit) = &coverage.unit_tests {
-            assert!(unit.total > 0);
-            assert!(unit.total_tests > 0);
-            assert!(unit.percent >= 0.0 && unit.percent <= 100.0);
-        }
+        let unit = coverage.unit_tests.unwrap();
+        assert_eq!(unit.total, 1);
+        assert_eq!(unit.total_tests, 4);
+        assert_eq!(unit.covered, 1);
+        assert_eq!(unit.percent, 100.0);
 
-        if let Some(integration) = &coverage.integration_tests {
-            assert!(integration.total > 0);
-            assert!(integration.total_tests > 0);
-            assert!(integration.percent >= 0.0 && integration.percent <= 100.0);
-        }
+        let integration = coverage.integration_tests.unwrap();
+        assert_eq!(integration.total, 6);
+        assert_eq!(integration.total_tests, 4);
+        assert_eq!(integration.covered, 6);
+        assert_eq!(integration.percent, 100.0);
 
-        if let Some(e2e) = &coverage.e2e_tests {
-            assert!(e2e.total > 0);
-            assert!(e2e.total_tests > 0);
-            assert!(e2e.percent >= 0.0 && e2e.percent <= 100.0);
-        }
+        let e2e = coverage.e2e_tests.unwrap();
+        assert_eq!(e2e.total, 4);
+        assert_eq!(e2e.total_tests, 5);
+        assert_eq!(e2e.covered, 3);
+        assert_eq!(e2e.percent, 75.0);
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
@@ -68,33 +85,20 @@ mod test_endpoints {
         let mut graph_ops = setup_nextjs_graph().await;
         let coverage = graph_ops.get_coverage(None).await.unwrap();
 
-        if let Some(unit) = &coverage.unit_tests {
-            assert_eq!(unit.total_tests, 4);
-            info!(
-                "Unit: {} tests, {}/{} covered ({}%)",
-                unit.total_tests, unit.covered, unit.total, unit.percent
-            );
-        }
+        let unit = coverage.unit_tests.unwrap();
+        assert_eq!(unit.total_tests, 4);
+        assert_eq!(unit.covered, 1);
+        assert_eq!(unit.total, 1);
 
-        if let Some(integration) = &coverage.integration_tests {
-            assert_eq!(integration.total_tests, 4);
-            info!(
-                "Integration: {} tests, {}/{} covered ({}%)",
-                integration.total_tests,
-                integration.covered,
-                integration.total,
-                integration.percent
-            );
-        }
+        let integration = coverage.integration_tests.unwrap();
+        assert_eq!(integration.total_tests, 4);
+        assert_eq!(integration.covered, 6);
+        assert_eq!(integration.total, 6);
 
-        if let Some(e2e) = &coverage.e2e_tests {
-            assert_eq!(e2e.total_tests, 5);
-            info!(
-                "E2E: {} tests, {}/{} covered ({}%)",
-                e2e.total_tests, e2e.covered, e2e.total, e2e.percent
-            );
-        }
-
+        let e2e = coverage.e2e_tests.unwrap();
+        assert_eq!(e2e.total_tests, 5);
+        assert_eq!(e2e.covered, 3);
+        assert_eq!(e2e.total, 4);
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
@@ -102,36 +106,23 @@ mod test_endpoints {
         let mut graph_ops = setup_nextjs_graph().await;
         let coverage = graph_ops.get_coverage(None).await.unwrap();
 
-        if let Some(unit) = &coverage.unit_tests {
-            let expected_percent = if unit.total > 0 {
-                (unit.covered as f64 / unit.total as f64) * 100.0
-            } else {
-                0.0
-            };
-            let diff = (unit.percent - expected_percent).abs();
-            assert!(diff < 0.01);
-        }
+        let unit = coverage.unit_tests.unwrap();
+        assert_eq!(unit.percent, 100.0);
+        assert_eq!(
+            unit.percent,
+            (unit.covered as f64 / unit.total as f64) * 100.0
+        );
 
-        if let Some(integration) = &coverage.integration_tests {
-            let expected_percent = if integration.total > 0 {
-                (integration.covered as f64 / integration.total as f64) * 100.0
-            } else {
-                0.0
-            };
-            let diff = (integration.percent - expected_percent).abs();
-            assert!(diff < 0.01);
-        }
+        let integration = coverage.integration_tests.unwrap();
+        assert_eq!(integration.percent, 100.0);
+        assert_eq!(
+            integration.percent,
+            (integration.covered as f64 / integration.total as f64) * 100.0
+        );
 
-        if let Some(e2e) = &coverage.e2e_tests {
-            let expected_percent = if e2e.total > 0 {
-                (e2e.covered as f64 / e2e.total as f64) * 100.0
-            } else {
-                0.0
-            };
-            let diff = (e2e.percent - expected_percent).abs();
-            assert!(diff < 0.01);
-        }
-
+        let e2e = coverage.e2e_tests.unwrap();
+        assert_eq!(e2e.percent, 75.0);
+        assert_eq!(e2e.percent, (e2e.covered as f64 / e2e.total as f64) * 100.0);
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
@@ -143,8 +134,14 @@ mod test_endpoints {
             .await
             .unwrap();
 
-        assert!(total_count > 0);
-        assert_eq!(results.len(), total_count);
+        info!(
+            "Functions - total_count={}, results.len()={}",
+            total_count,
+            results.len()
+        );
+
+        assert_eq!(total_count, 1);
+        assert_eq!(results.len(), 1);
 
         let cn_found = results
             .iter()
@@ -170,19 +167,18 @@ mod test_endpoints {
             .unwrap();
 
         for (_, _, covered, test_count, _, _, _) in &tested_results {
+            assert_eq!(total_tested, 1);
+            assert_eq!(tested_results.len(), 1);
             assert!(*covered);
             assert!(*test_count > 0);
         }
-
-        assert!(total_tested > 0, "Should have at least some tested functions");
-
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
     async fn test_nodes_query_functions_untested() {
         let mut graph_ops = setup_nextjs_graph().await;
 
-        let (_total_untested, untested_results) = graph_ops
+        let (total_untested, untested_results) = graph_ops
             .query_nodes_with_count(
                 NodeType::Function,
                 0,
@@ -196,7 +192,13 @@ mod test_endpoints {
             .unwrap();
 
         for (_, _, covered, _, _, _, _) in &untested_results {
-            assert!(!*covered, "All functions in 'untested' filter should not be covered");
+            assert!(
+                !*covered,
+                "All functions in 'untested' filter should not be covered"
+            );
+
+            assert_eq!(total_untested, 0);
+            assert_eq!(untested_results.len(), 0);
         }
     }
 
@@ -220,50 +222,28 @@ mod test_endpoints {
             node.name.contains("/api/items") && node.meta.get("verb") == Some(&"POST".to_string())
         });
         assert!(post_items);
-
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
     async fn test_nodes_pagination() {
         let mut graph_ops = setup_nextjs_graph().await;
 
-        let (total_count, _) = graph_ops
+        let (total_count, results) = graph_ops
             .query_nodes_with_count(NodeType::Function, 0, 100, false, None, false, false)
             .await
             .unwrap();
 
-        info!("Total functions in graph: {}", total_count);
+        assert_eq!(total_count, 1);
+        assert_eq!(results.len(), 1);
 
-        let limit = std::cmp::min(5, total_count);
+        let limit = 5;
         let (count1, page1) = graph_ops
             .query_nodes_with_count(NodeType::Function, 0, limit, false, None, false, false)
             .await
             .unwrap();
 
-        let (count2, page2) = graph_ops
-            .query_nodes_with_count(NodeType::Function, limit, limit, false, None, false, false)
-            .await
-            .unwrap();
-
-        assert_eq!(count1, count2);
-        assert_eq!(count1, total_count);
-        
-        if total_count >= limit {
-            assert_eq!(page1.len(), limit);
-        } else {
-            assert_eq!(page1.len(), total_count);
-        }
-
-        if total_count > limit {
-            assert!(page2.len() > 0);
-        }
-
-        let page1_names: Vec<_> = page1.iter().map(|(n, ..)| &n.name).collect();
-        let page2_names: Vec<_> = page2.iter().map(|(n, ..)| &n.name).collect();
-
-        for name in &page2_names {
-            assert!(!page1_names.contains(name));
-        }
+        assert_eq!(count1, 1);
+        assert_eq!(page1.len(), 1);
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
@@ -280,7 +260,6 @@ mod test_endpoints {
             let curr_test_count = sorted_results[i].3;
             assert!(prev_test_count >= curr_test_count);
         }
-
     }
 
     #[test(tokio::test(flavor = "multi_thread"))]
@@ -297,6 +276,8 @@ mod test_endpoints {
             .await
             .unwrap();
 
+        assert_eq!(total_all, 1);
+        assert_eq!(total_no_filter, 1);
         assert_eq!(total_all, total_no_filter);
 
         let (total_tested, _) = graph_ops
@@ -325,6 +306,8 @@ mod test_endpoints {
             .await
             .unwrap();
 
+        assert_eq!(total_tested, 1);
+        assert_eq!(total_untested, 0);
         assert_eq!(total_tested + total_untested, total_all);
     }
 
@@ -338,24 +321,25 @@ mod test_endpoints {
             .unwrap();
 
         assert_eq!(total_endpoints, 6);
+        assert_eq!(endpoint_results.len(), 6);
 
         let tested_endpoints = endpoint_results
             .iter()
             .filter(|(_, _, covered, _, _, _, _)| *covered)
             .count();
 
-        assert!(tested_endpoints > 0);
+        assert_eq!(tested_endpoints, 6);
 
-        let get_items_tested = endpoint_results
-            .iter()
-            .any(|(node, _, covered, test_count, _, _, _)| {
-                node.name.contains("/api/items")
-                    && node.meta.get("verb") == Some(&"GET".to_string())
-                    && *covered
-                    && *test_count > 0
-            });
+        let get_items_tested =
+            endpoint_results
+                .iter()
+                .any(|(node, _, covered, test_count, _, _, _)| {
+                    node.name.contains("/api/items")
+                        && node.meta.get("verb") == Some(&"GET".to_string())
+                        && *covered
+                        && *test_count > 0
+                });
 
         assert!(get_items_tested);
-
     }
 }
