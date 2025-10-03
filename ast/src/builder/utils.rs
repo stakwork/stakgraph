@@ -87,7 +87,11 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
 }
 pub fn is_allowed_file(path: &PathBuf, lang: &Language) -> bool {
     let fname = path.display().to_string();
-    if lang.pkg_files().iter().any(|pkg_file| fname.ends_with(pkg_file)) {
+    if lang
+        .pkg_files()
+        .iter()
+        .any(|pkg_file| fname.ends_with(pkg_file))
+    {
         return true;
     }
     if let Some(ext) = path.extension().and_then(|s| s.to_str()) {

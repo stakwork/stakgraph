@@ -30,7 +30,6 @@ pub struct ImplementsRelationship {
     pub file_path: String,
 }
 
-
 impl Repo {
     pub async fn build_graph(&self) -> Result<BTreeMapGraph> {
         self.build_graph_inner().await
@@ -153,7 +152,8 @@ impl Repo {
                 .flush_stage(&ctx.neo, "data_models", &dn, &de)
                 .await;
         }
-        self.process_functions_and_tests(&mut graph, &allowed_files).await?;
+        self.process_functions_and_tests(&mut graph, &allowed_files)
+            .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -180,7 +180,8 @@ impl Repo {
                 .flush_stage(&ctx.neo, "endpoints", &dn, &de)
                 .await;
         }
-        self.finalize_graph(&mut graph, &allowed_files, &mut stats).await?;
+        self.finalize_graph(&mut graph, &allowed_files, &mut stats)
+            .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
@@ -548,13 +549,13 @@ impl Repo {
             if let Some(impl_query) = self.lang.lang().implements_query() {
                 let q = self.lang.q(&impl_query, &NodeType::Class);
                 let impls = self.lang.collect_implements(&q, &code, &filename)?;
-                impl_relationships.extend(impls.into_iter().map(|(class_name, trait_name, file_path)| {
-                    ImplementsRelationship {
+                impl_relationships.extend(impls.into_iter().map(
+                    |(class_name, trait_name, file_path)| ImplementsRelationship {
                         class_name,
                         trait_name,
                         file_path,
-                    }
-                }));
+                    },
+                ));
             }
         }
 
@@ -632,12 +633,18 @@ impl Repo {
 
         let mut classes_by_file: HashMap<String, Vec<NodeData>> = HashMap::new();
         for class in graph.find_nodes_by_type(NodeType::Class) {
-            classes_by_file.entry(class.file.clone()).or_default().push(class);
+            classes_by_file
+                .entry(class.file.clone())
+                .or_default()
+                .push(class);
         }
 
         let mut traits_by_file: HashMap<String, Vec<NodeData>> = HashMap::new();
         for trait_node in graph.find_nodes_by_type(NodeType::Trait) {
-            traits_by_file.entry(trait_node.file.clone()).or_default().push(trait_node);
+            traits_by_file
+                .entry(trait_node.file.clone())
+                .or_default()
+                .push(trait_node);
         }
 
         let mut class_cache: HashMap<String, Option<NodeData>> = HashMap::new();
@@ -647,13 +654,15 @@ impl Repo {
 
         for rel in impl_relationships {
             let find_class = || {
-                graph.find_nodes_by_name(NodeType::Class, &rel.class_name)
+                graph
+                    .find_nodes_by_name(NodeType::Class, &rel.class_name)
                     .into_iter()
                     .next()
             };
 
             let find_trait = || {
-                graph.find_nodes_by_name(NodeType::Trait, &rel.trait_name)
+                graph
+                    .find_nodes_by_name(NodeType::Trait, &rel.trait_name)
                     .into_iter()
                     .next()
             };
@@ -661,13 +670,26 @@ impl Repo {
             let class_node = classes_by_file
                 .get(&rel.file_path)
                 .and_then(|classes| classes.iter().find(|c| c.name == rel.class_name).cloned())
-                .map(|c| { same_file_hits += 1; c })
-                .or_else(|| class_cache.entry(rel.class_name.clone()).or_insert_with(find_class).clone());
+                .map(|c| {
+                    same_file_hits += 1;
+                    c
+                })
+                .or_else(|| {
+                    class_cache
+                        .entry(rel.class_name.clone())
+                        .or_insert_with(find_class)
+                        .clone()
+                });
 
             let trait_node = traits_by_file
                 .get(&rel.file_path)
                 .and_then(|traits| traits.iter().find(|t| t.name == rel.trait_name).cloned())
-                .or_else(|| trait_cache.entry(rel.trait_name.clone()).or_insert_with(find_trait).clone());
+                .or_else(|| {
+                    trait_cache
+                        .entry(rel.trait_name.clone())
+                        .or_insert_with(find_trait)
+                        .clone()
+                });
 
             if let (Some(class), Some(trait_)) = (class_node, trait_node) {
                 graph.add_edge(Edge::implements(&class, &trait_));
