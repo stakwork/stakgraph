@@ -34,9 +34,8 @@ export function resultsToActions(results: Results): Action[] {
     try { const url = new URL(u, (results.userInfo?.url) || 'http://localhost'); return url.origin + url.pathname.replace(/\/$/,''); } catch { return u.replace(/[?#].*$/,'').replace(/\/$/,'') }
   }
 
-  for (const nav of navigations) {
-    actions.push({ kind: 'nav', timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) })
-  }
+  // Track which navigations are triggered by clicks
+  const navTimestampsFromClicks = new Set<number>()
 
   const clicks = results.clicks?.clickDetails || []
   for (let i=0;i<clicks.length;i++) {
@@ -57,6 +56,7 @@ export function resultsToActions(results: Results): Action[] {
     // Find the first navigation within 1800ms after this click
     const nav = navigations.find(n => n.timestamp > cd.timestamp && n.timestamp - cd.timestamp < 1800)
     if (nav) {
+      navTimestampsFromClicks.add(nav.timestamp)
       actions.push({
         kind: 'waitForUrl',
         timestamp: nav.timestamp - 1, // ensure ordering between click and nav
@@ -64,6 +64,13 @@ export function resultsToActions(results: Results): Action[] {
         normalizedUrl: normalize(nav.url),
         navRefTimestamp: nav.timestamp
       })
+    }
+  }
+
+  // Add nav actions only for navigations NOT triggered by clicks (e.g., initial page load, manual navigation)
+  for (const nav of navigations) {
+    if (!navTimestampsFromClicks.has(nav.timestamp)) {
+      actions.push({ kind: 'nav', timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) })
     }
   }
 

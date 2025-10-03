@@ -262,6 +262,11 @@ export function generatePlaywrightTestFromActions(
   options: { baseUrl?: string } = {}
 ): string {
   const { baseUrl = "" } = options;
+
+  // Generate initial goto if we have a baseUrl and no nav action at the start
+  const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].kind !== 'nav');
+  const initialGoto = needsInitialGoto ? `  await page.goto('${baseUrl}');\n` : '';
+
   const body = actions
     .map((action) => {
       switch (action.kind) {
@@ -310,12 +315,12 @@ export function generatePlaywrightTestFromActions(
     .filter((line) => line !== "")
     .join("\n");
 
-  if (!body) return "";
+  if (!initialGoto && !body) return "";
 
   return `import { test, expect } from '@playwright/test';
 
 test('Recorded test', async ({ page }) => {
-${body
+${initialGoto}${body
   .split("\n")
   .filter((l) => l.trim())
   .map((l) => l)
