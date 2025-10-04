@@ -868,7 +868,7 @@ impl Neo4jGraph {
                 txn_manager.add_edge(&edge);
             }
         }
-        for (test_call, ext_func, _class_call) in &tests {
+        for (test_call, ext_func, class_call) in &tests {
             if let Some(ext_nd) = ext_func {
                 txn_manager.add_node(&NodeType::Function, ext_nd);
                 let edge = Edge::uses(test_call.source.clone(), ext_nd);
@@ -876,6 +876,17 @@ impl Neo4jGraph {
             } else {
                 let edge = Edge::from_test_call(test_call);
                 txn_manager.add_edge(&edge);
+            }
+
+            if let Some(class_nd) = class_call {
+                let test_type = utils::classify_test_type(&test_call.source.name);
+
+                let mut src_nd = NodeData::name_file(&test_call.source.name, &test_call.source.file);
+                src_nd.start = test_call.source.start;
+                let edge = Edge::test_calls(test_type, &src_nd, NodeType::Class, class_nd);
+                txn_manager.add_edge(&edge);
+
+                txn_manager.add_node(&NodeType::Class, class_nd);
             }
         }
         for edge in int_tests {

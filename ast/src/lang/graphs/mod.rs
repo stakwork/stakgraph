@@ -113,14 +113,7 @@ impl Edge {
         }
     }
     pub fn from_test_call(call: &Calls) -> Edge {
-        let lname = call.source.name.to_lowercase();
-        let tt = if lname.contains("e2e") {
-            NodeType::E2eTest
-        } else if lname.contains("integration") {
-            NodeType::IntegrationTest
-        } else {
-            NodeType::UnitTest
-        };
+        let tt = utils::classify_test_type(&call.source.name);
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;
         let mut tgt_nd = NodeData::name_file(&call.target.name, &call.target.file);

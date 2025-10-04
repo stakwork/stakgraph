@@ -420,7 +420,33 @@ impl Graph for BTreeMapGraph {
             }
         }
 
-        for (tc, ext_func, _) in tests {
+        for (tc, ext_func, class_call) in tests {
+            if let Some(class_nd) = class_call {
+                let class_edge_key = (
+                    tc.source.name.clone(),
+                    tc.source.file.clone(),
+                    class_nd.name.clone(),
+                    class_nd.file.clone(),
+                );
+
+                if !unique_edges.contains(&class_edge_key) {
+                    unique_edges.insert(class_edge_key);
+                    
+                    let test_type = utils::classify_test_type(&tc.source.name);
+
+                    let mut src_nd = NodeData::name_file(&tc.source.name, &tc.source.file);
+                    src_nd.start = tc.source.start;
+                    let edge = Edge::test_calls(test_type, &src_nd, NodeType::Class, &class_nd);
+                    self.add_edge(edge);
+
+                    // Ensure class node exists in graph
+                    let class_node = Node::new(NodeType::Class, class_nd.clone());
+                    let class_key = create_node_key(&class_node);
+                    if !self.nodes.contains_key(&class_key) {
+                        self.nodes.insert(class_key, class_node);
+                    }
+                }
+            }
             if let Some(ext_nd) = ext_func {
                 let edge_key = (
                     tc.source.name.clone(),
