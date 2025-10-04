@@ -260,13 +260,16 @@ impl Stack for Ruby {
     }
     fn test_query(&self) -> Option<String> {
         Some(format!(
-            r#"(
+            r#"[
                 (call
-                    method: (identifier) @it (#match? @it "^(it|specify|scenario)$")
-                    arguments: (argument_list (string) @{FUNCTION_NAME} (_)* )
+                    receiver: (constant) @rspec (#match? @rspec "^RSpec$")
+                    method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                    arguments: (argument_list
+                        [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                    )
                     block: (do_block)
                 ) @{FUNCTION_DEFINITION}
-            )"#
+            ]"#
         ))
     }
 
@@ -510,21 +513,19 @@ impl Stack for Ruby {
     }
     fn integration_test_query(&self) -> Option<String> {
         Some(format!(
-            r#"(call
-                method: (identifier) @describe (#eq? @describe "describe")
-                arguments: [
-                    (argument_list
+            r#"[
+                (call
+                    receiver: (constant) @rspec (#match? @rspec "^RSpec$")
+                    method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                    arguments: (argument_list
                         [
                             (constant)
                             (scope_resolution)
                         ] @{HANDLER}
                     )
-                    (argument_list
-                        (string) @{E2E_TEST_NAME}
-                        (pair) @js-true (#eq? @js-true "js: true")
-                    )
-                ]
-            ) @{INTEGRATION_TEST}"#
+                    block: (do_block)
+                ) @{INTEGRATION_TEST}
+            ]"#
         ))
     }
     fn use_integration_test_finder(&self) -> bool {

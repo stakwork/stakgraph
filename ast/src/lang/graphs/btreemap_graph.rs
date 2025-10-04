@@ -7,6 +7,7 @@ use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
+use tracing::{debug, info};
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct BTreeMapGraph {
@@ -420,6 +421,11 @@ impl Graph for BTreeMapGraph {
             }
         }
 
+        let tests_with_class_calls = tests.iter().filter(|(_, _, cc)| cc.is_some()).count();
+        if tests_with_class_calls > 0 {
+            info!("Processing {} test→class edges", tests_with_class_calls);
+        }
+
         for (tc, ext_func, class_call) in tests {
             if let Some(class_nd) = class_call {
                 let class_edge_key = (
@@ -429,22 +435,29 @@ impl Graph for BTreeMapGraph {
                     class_nd.file.clone(),
                 );
 
+                debug!("Test '{}' calls class '{}'", tc.source.name, class_nd.name);
+
                 if !unique_edges.contains(&class_edge_key) {
                     unique_edges.insert(class_edge_key);
                     
-                    let test_type = utils::classify_test_type(&tc.source.name);
-
-                    let mut src_nd = NodeData::name_file(&tc.source.name, &tc.source.file);
-                    src_nd.start = tc.source.start;
-                    let edge = Edge::test_calls(test_type, &src_nd, NodeType::Class, &class_nd);
+                    let edge = Edge::from_test_class_call(&tc, &class_nd);
+                    info!(
+                        "✓ Created test→class edge: {} ({}) → {} ({})",
+                        tc.source.name, tc.source.file, class_nd.name, class_nd.file
+                    );
                     self.add_edge(edge);
 
                     // Ensure class node exists in graph
                     let class_node = Node::new(NodeType::Class, class_nd.clone());
                     let class_key = create_node_key(&class_node);
                     if !self.nodes.contains_key(&class_key) {
+                        debug!("  → Inserted class node '{}' into graph", class_nd.name);
                         self.nodes.insert(class_key, class_node);
+                    } else {
+                        debug!("  → Class node '{}' already exists", class_nd.name);
                     }
+                } else {
+                    debug!("  ⊗ Skipped duplicate test→class edge: {} → {}", tc.source.name, class_nd.name);
                 }
             }
             if let Some(ext_nd) = ext_func {

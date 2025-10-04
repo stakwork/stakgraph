@@ -120,6 +120,14 @@ impl Edge {
         tgt_nd.start = call.target.start;
         Edge::test_calls(tt, &src_nd, NodeType::Function, &tgt_nd)
     }
+
+    pub fn from_test_class_call(call: &Calls, class_target: &NodeData) -> Edge {
+        let test_type = utils::classify_test_type(&call.source.name);
+        let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
+        src_nd.start = call.source.start;
+        Edge::test_calls(test_type, &src_nd, NodeType::Class, class_target)
+    }
+    
     pub fn linked_e2e_test_call(source: &NodeData, target: &NodeData) -> Edge {
         Edge::new(
             EdgeType::Calls,

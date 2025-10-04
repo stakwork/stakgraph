@@ -879,11 +879,7 @@ impl Neo4jGraph {
             }
 
             if let Some(class_nd) = class_call {
-                let test_type = utils::classify_test_type(&test_call.source.name);
-
-                let mut src_nd = NodeData::name_file(&test_call.source.name, &test_call.source.file);
-                src_nd.start = test_call.source.start;
-                let edge = Edge::test_calls(test_type, &src_nd, NodeType::Class, class_nd);
+                let edge = Edge::from_test_class_call(test_call, class_nd);
                 txn_manager.add_edge(&edge);
 
                 txn_manager.add_node(&NodeType::Class, class_nd);

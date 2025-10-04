@@ -444,11 +444,7 @@ impl Graph for ArrayGraph {
                 if !unique_edges.contains(&class_edge_key) {
                     unique_edges.insert(class_edge_key);
                     
-                    let test_type = utils::classify_test_type(&tc.source.name);
-
-                    let mut src_nd = NodeData::name_file(&tc.source.name, &tc.source.file);
-                    src_nd.start = tc.source.start;
-                    let edge = Edge::test_calls(test_type, &src_nd, NodeType::Class, &class_nd);
+                    let edge = Edge::from_test_class_call(&tc, &class_nd);
                     self.add_edge(edge);
                     if self
                         .find_node_by_name_in_file(NodeType::Class, &class_nd.name, &class_nd.file)
