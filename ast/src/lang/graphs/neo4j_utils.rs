@@ -873,7 +873,7 @@ pub fn add_calls_query(
         }
     }
 
-    for (test_call, ext_func, _class_call) in tests {
+    for (test_call, ext_func, class_call) in tests {
         if let Some(ext_nd) = ext_func {
             queries.push(add_node_query(&NodeType::Function, ext_nd));
             let edge = Edge::uses(test_call.source.clone(), ext_nd);
@@ -881,6 +881,13 @@ pub fn add_calls_query(
         } else {
             let edge = Edge::from_test_call(test_call);
             queries.push(add_edge_query(&edge));
+        }
+
+        if let Some(class_nd) = class_call {
+            let edge = Edge::from_test_class_call(test_call, class_nd);
+            queries.push(add_edge_query(&edge));
+
+            queries.push(add_node_query(&NodeType::Class, class_nd));
         }
     }
 

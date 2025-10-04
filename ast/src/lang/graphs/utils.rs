@@ -1,5 +1,17 @@
 use super::NodeType;
 
+
+pub fn classify_test_type(test_name: &str) -> NodeType {
+    let lname = test_name.to_lowercase();
+    if lname.contains("e2e") {
+        NodeType::E2eTest
+    } else if lname.contains("integration") {
+        NodeType::IntegrationTest
+    } else {
+        NodeType::UnitTest
+    }
+}
+
 pub fn tests_sources(tests_filter: Option<&str>) -> Vec<NodeType> {
     let raw = tests_filter.unwrap_or("all").trim();
     let lower = raw.to_lowercase();
