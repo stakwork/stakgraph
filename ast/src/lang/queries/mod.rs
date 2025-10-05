@@ -287,6 +287,9 @@ pub trait Stack {
     fn direct_class_calls(&self) -> bool {
         false
     }
+    fn should_skip_function_call(&self, _called: &str, _operand: &Option<String>) -> bool {
+        false
+    }
     fn convert_association_to_name(&self, name: &str) -> String {
         name.to_string()
     }
