@@ -159,7 +159,13 @@ impl Lang {
         }
         Ok(res)
     }
-    pub fn collect_tests(&self, q: &Query, code: &str, file: &str) -> Result<Vec<Function>> {
+    pub fn collect_tests<G: Graph>(
+        &self,
+        q: &Query,
+        code: &str,
+        file: &str,
+        graph: &G,
+    ) -> Result<Vec<(Function, Option<Edge>)>> {
         let tree = self.lang.parse(&code, &NodeType::UnitTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
@@ -167,7 +173,15 @@ impl Lang {
         if self.lang.is_test_file(file) {
             while let Some(m) = matches.next() {
                 let ff = self.format_test(&m, code, file, &q)?;
-                res.push((ff, None, vec![], vec![], None, vec![]));
+                 
+                let test_edge = if let Some(class_nd) = graph.find_nodes_by_name(NodeType::Class, &ff.name).first() {
+                    let test_type = self.lang.classify_test(&ff.name, file, &ff.body);
+                    Some(Edge::calls(test_type, &ff, NodeType::Class, class_nd))
+                } else {
+                    None
+                };
+                
+                res.push(((ff, None, vec![], vec![], None, vec![]), test_edge));
             }
         }
         Ok(res)

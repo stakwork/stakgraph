@@ -432,16 +432,11 @@ impl Lang {
         }
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::UnitTest);
-            let more_tests = self.collect_tests(&qo2, code, file)?;
-            for mt in more_tests {
+            let more_tests = self.collect_tests(&qo2, code, file, graph)?;
+            for (mt, edge) in more_tests {
                 let nd = mt.0.clone();
-                let kind = match nd.meta.get("test_kind").map(|s| s.as_str()) {
-                    Some("integration") => NodeType::IntegrationTest,
-                    Some("e2e") => NodeType::E2eTest,
-                    _ => NodeType::UnitTest,
-                };
-                //TODO: Add edge relationships with other nodes
-                tests.push(TestRecord::new(nd, kind, None));
+                let kind = self.lang.classify_test(&nd.name, file, &nd.body);
+                tests.push(TestRecord::new(nd, kind, edge));
             }
         }
         if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {

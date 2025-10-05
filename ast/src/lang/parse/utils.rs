@@ -21,6 +21,10 @@ pub fn trim_quotes(value: &str) -> &str {
     value
 }
 
+pub fn clean_class_name(name: &str) -> String {
+    name.trim_start_matches("::").to_string()
+}
+
 pub fn log_cmd(cmd: String) {
     debug!("{}", cmd);
 }

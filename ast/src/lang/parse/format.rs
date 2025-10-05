@@ -8,7 +8,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::QueryMatch;
 
 use super::super::queries::consts::FUNCTION_COMMENT;
-use super::utils::{find_def, is_capitalized, log_cmd, trim_quotes};
+use super::utils::{clean_class_name, find_def, is_capitalized, log_cmd, trim_quotes};
 
 impl Lang {
     pub fn format_class_with_associations<G: Graph>(
@@ -27,7 +27,7 @@ impl Lang {
 
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == CLASS_NAME {
-                cls.name = body;
+                cls.name = clean_class_name(&body);
             } else if o == CLASS_DEFINITION {
                 cls.body = body;
                 cls.start = node.start_position().row;
