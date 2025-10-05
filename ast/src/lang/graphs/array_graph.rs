@@ -443,7 +443,7 @@ impl Graph for ArrayGraph {
 
                 if !unique_edges.contains(&class_edge_key) {
                     unique_edges.insert(class_edge_key);
-                    
+
                     let edge = Edge::from_test_class_call(&tc, &class_nd);
                     self.add_edge(edge);
                     if self
@@ -473,12 +473,14 @@ impl Graph for ArrayGraph {
                         self.add_node(NodeType::Function, ext_nd);
                     }
                 }
+            } else if tc.target.is_empty() {
+                continue;
             } else {
                 let edge_key = (
                     tc.source.name.clone(),
                     tc.source.file.clone(),
                     tc.target.name.clone(),
-                    tc.source.file.clone(),
+                    tc.target.file.clone(),
                 );
 
                 if !unique_edges.contains(&edge_key) {

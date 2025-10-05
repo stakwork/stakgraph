@@ -786,11 +786,11 @@ impl Lang {
             return Ok(None);
         }
         let (called, call_point) = call_name_and_point.unwrap();
-        
+
         if is_variable_call || self.lang.should_skip_function_call(&called, &fc.operand) {
             return Ok(None);
         }
-        
+
         if called.is_empty() {
             return Ok(None);
         }
@@ -884,6 +884,16 @@ impl Lang {
                     called, &tf.file
                 ));
                 fc.target = tf.into();
+            }
+        }
+
+        if fc.target.is_empty() {
+            if let Some(class_nd) = &class_call {
+                if let Some(class_method) =
+                    graph.find_node_by_name_in_file(NodeType::Function, &called, &class_nd.file)
+                {
+                    fc.target = class_method.into();
+                }
             }
         }
 

@@ -568,7 +568,6 @@ impl GraphOps {
         }
         self.graph.execute_simple(queries).await?;
         Ok(count)
-
     }
 
     pub async fn query_nodes_with_count(
@@ -580,7 +579,18 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> Result<(usize, Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)>)> {
+    ) -> Result<(
+        usize,
+        Vec<(
+            NodeData,
+            usize,
+            bool,
+            usize,
+            String,
+            Option<i64>,
+            Option<i64>,
+        )>,
+    )> {
         self.graph.ensure_connected().await?;
         Ok(self
             .graph

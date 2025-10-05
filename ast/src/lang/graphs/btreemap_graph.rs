@@ -431,7 +431,7 @@ impl Graph for BTreeMapGraph {
 
                 if !unique_edges.contains(&class_edge_key) {
                     unique_edges.insert(class_edge_key);
-                    
+
                     let edge = Edge::from_test_class_call(&tc, &class_nd);
                     println!(
                         "<<<===>>> Created test→class edge: {} ({}) → {} ({})",
@@ -466,12 +466,14 @@ impl Graph for BTreeMapGraph {
                         self.nodes.insert(ext_key, ext_node);
                     }
                 }
+            } else if tc.target.is_empty() {
+                continue;
             } else {
                 let edge_key = (
                     tc.source.name.clone(),
                     tc.source.file.clone(),
                     tc.target.name.clone(),
-                    tc.source.file.clone(),
+                    tc.target.file.clone(),
                 );
 
                 if !unique_edges.contains(&edge_key) {

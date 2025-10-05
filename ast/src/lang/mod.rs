@@ -421,32 +421,58 @@ impl Lang {
         let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
         let mut tests: Vec<TestRecord> = Vec::new();
         for t in filtered_tests.iter() {
-            let nd = t.0.clone();
+            let mut nd = t.0.clone();
             let kind = match nd.meta.get("test_kind").map(|s| s.as_str()) {
                 Some("integration") => NodeType::IntegrationTest,
                 Some("e2e") => NodeType::E2eTest,
                 _ => NodeType::UnitTest,
             };
-            //TODO: Add edge relationships with other nodes
+            let meta_kind = match kind {
+                NodeType::IntegrationTest => "integration",
+                NodeType::E2eTest => "e2e",
+                _ => "unit",
+            };
+            nd.meta.insert("test_kind".into(), meta_kind.into());
             tests.push(TestRecord::new(nd, kind, None));
         }
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::UnitTest);
             let more_tests = self.collect_tests(&qo2, code, file, graph)?;
             for (mt, edge) in more_tests {
-                let nd = mt.0.clone();
+                let mut nd = mt.0.clone();
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
+                let meta_kind = match kind {
+                    NodeType::IntegrationTest => "integration",
+                    NodeType::E2eTest => "e2e",
+                    _ => "unit",
+                };
+                nd.meta.insert("test_kind".into(), meta_kind.into());
                 tests.push(TestRecord::new(nd, kind, edge));
             }
         }
         if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {
             for (nd, tt, edge) in int_tests {
-                tests.push(TestRecord::new(nd, tt, edge));
+                let mut nd = nd;
+                let kind = tt;
+                let meta_kind = match kind {
+                    NodeType::IntegrationTest => "integration",
+                    NodeType::E2eTest => "e2e",
+                    _ => "unit",
+                };
+                nd.meta.insert("test_kind".into(), meta_kind.into());
+                tests.push(TestRecord::new(nd, kind, edge));
             }
         }
         if let Ok(e2e_tests) = self.collect_e2e_tests(code, file) {
-            for nd in e2e_tests {
-                tests.push(TestRecord::new(nd, NodeType::E2eTest, None));
+            for mut nd in e2e_tests {
+                let kind = NodeType::E2eTest;
+                let meta_kind = match kind {
+                    NodeType::IntegrationTest => "integration",
+                    NodeType::E2eTest => "e2e",
+                    _ => "unit",
+                };
+                nd.meta.insert("test_kind".into(), meta_kind.into());
+                tests.push(TestRecord::new(nd, kind, None));
             }
         }
         Ok((funcs, tests))

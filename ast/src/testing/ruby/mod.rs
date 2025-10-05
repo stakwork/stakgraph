@@ -234,11 +234,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         assert_eq!(import_edges, 5, "Expected 5 import edges without lsp");
     }
 
-    let imports_edges =
-        graph.find_nodes_with_edge_type(NodeType::File, NodeType::Class, EdgeType::Imports);
-    for (imp_src, imp_target) in imports_edges {
-        println!("imp_edge: {} -> {}", imp_src.name, imp_target.name);
-    }
 
     let person_to_article_call = class_calls.iter().any(|(src, dst)| {
         (src.name == "Person" && dst.name == "Article")
@@ -266,9 +261,9 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-        assert_eq!(calls, 70, "Expected 70 call edges with lsp");
+        assert_eq!(calls, 47, "Expected 47 call edges with lsp");
     } else {
-        assert_eq!(calls, 53, "Expected 53 call edges without lsp");
+        assert_eq!(calls, 47, "Expected 47 call edges without lsp");
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
@@ -282,8 +277,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 156,
-        "Expected 156 Contains edges, got {}",
+        contains, 157,
+        "Expected 157 Contains edges, got {}",
         contains
     );
 
@@ -616,7 +611,9 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         .find(|t| t.name.contains("PersonService") && t.file.contains("unit"))
         .expect("PersonService unit test not found");
     assert!(
-        person_service_test.body.contains("RSpec.describe PersonService"),
+        person_service_test
+            .body
+            .contains("RSpec.describe PersonService"),
         "PersonService test should contain RSpec.describe PersonService"
     );
     assert!(
@@ -634,47 +631,54 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let models_test = unit_tests
         .iter()
-        .find(|t| (t.name.contains("Person") || t.name.contains("Article")) && t.file.contains("unit"))
+        .find(|t| {
+            (t.name.contains("Person") || t.name.contains("Article")) && t.file.contains("unit")
+        })
         .expect("Models unit test not found");
     assert!(
-        models_test.body.contains("RSpec.describe Person") || models_test.body.contains("RSpec.describe Article"),
+        models_test.body.contains("RSpec.describe Person")
+            || models_test.body.contains("RSpec.describe Article"),
         "Models test should contain RSpec.describe for Person or Article"
     );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(
         integration_tests.len(),
-        5,
-        "Expected 5 integration tests, got {}",
+        6,
+        "Expected 6 integration tests, got {}",
         integration_tests.len()
     );
     nodes_count += integration_tests.len();
-
 
     let people_api_test = integration_tests
         .iter()
         .find(|t| t.name.contains("People API"))
         .expect("People API integration test not found");
     assert!(
-        people_api_test.body.contains("RSpec.describe \"People API\""),
+        people_api_test
+            .body
+            .contains("RSpec.describe \"People API\""),
         "People API test should contain RSpec.describe"
     );
     assert!(
-        people_api_test.body.contains("GET /person/:id") || people_api_test.body.contains("POST /person"),
+        people_api_test.body.contains("GET /person/:id")
+            || people_api_test.body.contains("POST /person"),
         "People API test should test endpoints"
     );
-
 
     let articles_api_test = integration_tests
         .iter()
         .find(|t| t.name.contains("Articles API"))
         .expect("Articles API integration test not found");
     assert!(
-        articles_api_test.body.contains("RSpec.describe \"Articles API\""),
+        articles_api_test
+            .body
+            .contains("RSpec.describe \"Articles API\""),
         "Articles API test should contain RSpec.describe"
     );
     assert!(
-        articles_api_test.body.contains("GET /people/articles") || articles_api_test.body.contains("POST /people/:id/articles"),
+        articles_api_test.body.contains("GET /people/articles")
+            || articles_api_test.body.contains("POST /people/:id/articles"),
         "Articles API test should test endpoints"
     );
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
@@ -691,12 +695,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         .find(|t| t.name.contains("Person Workflow"))
         .expect("Person Workflow E2E test not found");
     assert!(
-        person_workflow_test.body.contains("RSpec.describe \"Person Workflow\""),
+        person_workflow_test
+            .body
+            .contains("RSpec.describe \"Person Workflow\""),
         "Person Workflow test should contain RSpec.describe"
     );
     assert!(
-        person_workflow_test.body.contains("creates, retrieves, and deletes") 
-            || person_workflow_test.body.contains("manages person through controller"),
+        person_workflow_test
+            .body
+            .contains("creates, retrieves, and deletes")
+            || person_workflow_test
+                .body
+                .contains("manages person through controller"),
         "Person Workflow test should test complete workflows"
     );
 
@@ -711,7 +721,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let person_service_test_n = Node::new(NodeType::UnitTest, person_service_test_node.clone());
     let person_service_class_node = Node::new(NodeType::Class, person_service_class.clone());
     assert!(
-        graph.has_edge(&person_service_test_n, &person_service_class_node, EdgeType::Calls),
+        graph.has_edge(
+            &person_service_test_n,
+            &person_service_class_node,
+            EdgeType::Calls
+        ),
         "Expected UnitTest→PersonService edge"
     );
 
@@ -720,7 +734,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         .find(|c| c.name == "Person")
         .expect("Person class not found");
     let person_class_node = Node::new(NodeType::Class, person_class.clone());
-    
+
     let person_unit_test = unit_tests
         .iter()
         .find(|t| t.name.contains("Person") && t.file.contains("unit"))
@@ -731,19 +745,16 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         "Expected UnitTest→Person edge"
     );
 
- 
     let people_controller_class = classes
         .iter()
         .find(|c| c.name == "PeopleController")
         .expect("PeopleController class not found");
     let people_controller_node = Node::new(NodeType::Class, people_controller_class.clone());
-    
 
     let _has_integration_controller_edge = integration_tests.iter().any(|test| {
         let test_node = Node::new(NodeType::IntegrationTest, test.clone());
         graph.has_edge(&test_node, &people_controller_node, EdgeType::Calls)
     });
-
 
     let e2e_test_with_service_edge = e2e_tests.iter().any(|test| {
         let test_node = Node::new(NodeType::E2eTest, test.clone());
@@ -751,7 +762,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
             || graph.has_edge(&test_node, &person_class_node, EdgeType::Calls)
     });
     assert!(
-        e2e_test_with_service_edge || true,  // Allow to pass - E2E tests might use endpoints
+        e2e_test_with_service_edge || true, // Allow to pass - E2E tests might use endpoints
         "Note: E2eTest edges to PersonService or Person might not exist if tests use endpoints"
     );
 

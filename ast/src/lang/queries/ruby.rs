@@ -273,6 +273,19 @@ impl Stack for Ruby {
         ))
     }
 
+    fn integration_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (
+                class
+                    name: (constant) @{TEST_NAME}
+                    superclass: (superclass (_) @superclass (#match? @superclass "Minitest::Test|ActionDispatch::IntegrationTest"))
+                    body: (body_statement) @{INTEGRATION_TEST}
+            )
+            "#
+        ))
+    }
+
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         let f = file.replace('\\', "/").to_lowercase();
 
@@ -511,25 +524,8 @@ impl Stack for Ruby {
         parents.reverse();
         Ok(parents)
     }
-    fn integration_test_query(&self) -> Option<String> {
-        Some(format!(
-            r#"[
-                (call
-                    receiver: (constant) @rspec (#match? @rspec "^RSpec$")
-                    method: (identifier) @describe (#match? @describe "^(describe|context)$")
-                    arguments: (argument_list
-                        [
-                            (constant)
-                            (scope_resolution)
-                        ] @{HANDLER}
-                    )
-                    block: (do_block)
-                ) @{INTEGRATION_TEST}
-            ]"#
-        ))
-    }
     fn use_integration_test_finder(&self) -> bool {
-        true
+        false
     }
     fn integration_test_edge_finder(
         &self,
@@ -576,7 +572,6 @@ impl Stack for Ruby {
         let p = std::path::Path::new(file_path);
         let func_name = remove_all_extensions(p);
         let parent_name = p.parent()?.file_name()?.to_str()?;
-        println!("func_name: {}, parent_name: {}", func_name, parent_name);
         let controller_handler = find_fn(
             &func_name,
             &format!("{}{}", parent_name, CONTROLLER_FILE_SUFFIX),
@@ -592,7 +587,6 @@ impl Stack for Ruby {
         if let Some(h) = mailer_handler {
             return Some((page.clone(), Some(Edge::renders(&page, &h))));
         }
-        println!("no handler found for {} {}", func_name, file_path);
         None
     }
     fn direct_class_calls(&self) -> bool {
@@ -607,13 +601,40 @@ impl Stack for Ruby {
             }
         }
         let test_framework_methods = [
-            "to", "not_to", "to_not", "eq", "eql", "be", "be_a", "be_an",
-            "be_nil", "be_truthy", "be_falsey", "be_true", "be_false",
-            "be_empty", "be_blank", "be_present", "include", "match",
-            "raise_error", "change", "have_", "respond_to", "expect", "describe",
-            "it", "context", "before", "after", "let", "subject",
+            "to",
+            "not_to",
+            "to_not",
+            "eq",
+            "eql",
+            "be",
+            "be_a",
+            "be_an",
+            "be_nil",
+            "be_truthy",
+            "be_falsey",
+            "be_true",
+            "be_false",
+            "be_empty",
+            "be_blank",
+            "be_present",
+            "include",
+            "match",
+            "raise_error",
+            "change",
+            "have_",
+            "respond_to",
+            "expect",
+            "describe",
+            "it",
+            "context",
+            "before",
+            "after",
+            "let",
+            "subject",
         ];
-        test_framework_methods.iter().any(|&m| called.starts_with(m))
+        test_framework_methods
+            .iter()
+            .any(|&m| called.starts_with(m))
     }
     fn convert_association_to_name(&self, name: &str) -> String {
         let target_class = inflection_rs::inflection::singularize(name);
