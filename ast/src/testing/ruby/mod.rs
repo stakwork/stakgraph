@@ -274,7 +274,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 14, "Expected 14 Uses edges, got {}", uses);
+        assert_eq!(uses, 32, "Expected 32 Uses edges, got {}", uses);
     } else {
         assert_eq!(uses, 0, "Expected 0 Uses edges, got {}", uses);
     }
