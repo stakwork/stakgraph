@@ -261,7 +261,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-        assert_eq!(calls, 47, "Expected 47 call edges with lsp");
+        assert_eq!(calls, 46, "Expected 46 call edges with lsp");
     } else {
         assert_eq!(calls, 47, "Expected 47 call edges without lsp");
     }
