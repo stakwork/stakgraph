@@ -207,32 +207,50 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (_, final_repo_url, username, pat, commit, branch) = resolve_repo(&body)?;
+    let (final_repo_path, final_repo_url, username, pat, commit, branch) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
     let repo_url = final_repo_url.clone();
 
     let start_clone = Instant::now();
-    let mut repos = Repo::new_clone_multi_detect(
-        &repo_url,
-        username.clone(),
-        pat.clone(),
-        Vec::new(),
-        Vec::new(),
-        commit.as_deref(),
-        branch.as_deref(),
-        use_lsp,
-    )
-    .await
-    .map_err(|e| {
-        WebError(shared::Error::Custom(format!(
-            "Repo detection Failed: {}",
-            e
-        )))
-    })?;
+    let mut repos = if body.repo_path.is_some() || std::env::var("REPO_PATH").is_ok() {
+        info!("Using local repository at: {}", final_repo_path);
+        Repo::new_multi_detect(
+            &final_repo_path,
+            Some(final_repo_url.clone()),
+            Vec::new(),
+            Vec::new(),
+            use_lsp,
+        )
+        .await
+        .map_err(|e| {
+            WebError(shared::Error::Custom(format!(
+                "Repo detection Failed: {}",
+                e
+            )))
+        })?
+    } else {
+        Repo::new_clone_multi_detect(
+            &repo_url,
+            username.clone(),
+            pat.clone(),
+            Vec::new(),
+            Vec::new(),
+            commit.as_deref(),
+            branch.as_deref(),
+            use_lsp,
+        )
+        .await
+        .map_err(|e| {
+            WebError(shared::Error::Custom(format!(
+                "Repo detection Failed: {}",
+                e
+            )))
+        })?
+    };
     let clone_s = start_clone.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=clone_detect repo={} s={:.2}",
-        final_repo_url, clone_s
+        final_repo_url.clone(), clone_s
     );
 
     repos.set_status_tx(state.tx.clone()).await;
@@ -260,7 +278,7 @@ pub async fn ingest(
     let build_s = start_build.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=build repo={} streaming={} s={:.2}",
-        final_repo_url, streaming, build_s
+        final_repo_url.clone(), streaming, build_s
     );
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;

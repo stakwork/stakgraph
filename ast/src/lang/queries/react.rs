@@ -482,6 +482,16 @@ impl Stack for ReactTs {
                         )
                 )@{ROUTE}
             )
+            (call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$|^patch$")
+                )
+                arguments: (arguments
+                    (string) @{ENDPOINT}
+                    (identifier) @{HANDLER}
+                )
+            ) @{ROUTE}
         "#
         )]
     }
