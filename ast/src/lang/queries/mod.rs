@@ -176,6 +176,9 @@ pub trait Stack {
     fn request_finder(&self) -> Option<String> {
         None
     }
+    fn handler_method_query(&self) -> Option<String> {
+        None
+    }
     fn is_test(&self, _func_name: &str, _func_file: &str) -> bool {
         false
     }
@@ -185,7 +188,9 @@ pub trait Stack {
     fn classify_test(&self, _name: &str, _file: &str, _body: &str) -> NodeType {
         NodeType::UnitTest
     }
-    fn add_endpoint_verb(&self, _nd: &mut NodeData, _call: &Option<String>) {}
+    fn add_endpoint_verb(&self, _nd: &mut NodeData, _call: &Option<String>) -> Option<String> {
+        None
+    }
     fn update_endpoint(&self, _nd: &mut NodeData, _call: &Option<String>) {}
     // this one should be the same for all langs?
     fn filter_tests(&self, funcs: Vec<Function>) -> (Vec<Function>, Vec<Function>) {

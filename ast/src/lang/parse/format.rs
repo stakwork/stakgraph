@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::lang::call_finder::node_data_finder;
+use crate::lang::parse::extract_methods_from_handler;
 use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
@@ -359,10 +360,70 @@ impl Lang {
             }
             Ok(())
         })?;
-        if endp.meta.get("verb").is_none() {
-            self.lang.add_endpoint_verb(&mut endp, &call);
-        }
+        
+        let verb_resolution = if endp.meta.get("verb").is_none() {
+            self.lang.add_endpoint_verb(&mut endp, &call)
+        } else {
+            endp.meta.get("verb").cloned()
+        };
+        
         self.lang.update_endpoint(&mut endp, &call);
+        
+        if let Some(ref verb) = verb_resolution {
+            if verb == "USE" || verb == "use"{
+                if let Some(graph) = graph {
+                    if let Some(handler_name) = endp.meta.get("handler") {
+                        let handler_node = if let Some(lsp) = lsp_tx {
+                            if let Some(ref pos) = handler_position {
+                                let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+                                if let LspRes::GotoDefinition(Some(gt)) = res {
+                                    let target_file = gt.file.display().to_string();
+                                    graph.find_node_by_name_in_file(
+                                        NodeType::Function,
+                                        &handler_name,
+                                        &target_file,
+                                    )
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            graph.find_nodes_by_name(NodeType::Function, &handler_name).first().cloned()
+                        };
+                        
+                        if let Some(handler_fn) = handler_node {
+                            let methods = extract_methods_from_handler(&handler_fn.body, self);
+                            
+                            if !methods.is_empty() {
+                                let mut result = Vec::new();
+                                for method in methods {
+                                    let mut endpoint_clone = endp.clone();
+                                    endpoint_clone.name = format!("{}_{}", endp.name, method);
+                                    endpoint_clone.meta.insert("verb".to_string(), method.clone());
+                                    
+                                    let edge = Some(Edge::handler(&endpoint_clone, &handler_fn));
+                                    result.push((endpoint_clone, edge));
+                                }
+                                return Ok(result);
+                            } else {
+                                log_cmd(format!("No methods found in handler {}, defaulting to GET", handler_name));
+                                endp.add_verb("GET");
+                            }
+                        } else {
+                            log_cmd(format!("Handler {} not found for USE endpoint, defaulting to GET", handler_name));
+                            endp.add_verb("GET");
+                        }
+                    } else {
+                        endp.add_verb("GET");
+                    }
+                } else {
+                    endp.add_verb("GET");
+                }
+            }
+        }
+        
         // for multi-handle endpoints with no "name:" (ENDPOINT)
         if endp.name.is_empty() {
             if let Some(handler) = endp.meta.get("handler") {

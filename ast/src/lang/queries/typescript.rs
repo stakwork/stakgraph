@@ -173,7 +173,7 @@ impl Stack for TypeScript {
             r#"(call_expression
                 function: (member_expression
                     object: (identifier)
-                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$")
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
                 )
                 arguments: (arguments
                     (string) @{ENDPOINT}
@@ -183,20 +183,41 @@ impl Stack for TypeScript {
             "#
         )]
     }
-    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) {
+
+    fn handler_method_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            ;; Matches: router.get(...), app.post(...), etc.
+            (call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @method (#match? @method "^(get|post|put|delete|patch)$")
+                )
+            ) @route
+            "#
+        ))
+    }
+
+    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
         if let Some(c) = call {
-            let verb = match c.as_str() {
-                "get" => "GET",
-                "post" => "POST",
-                "put" => "PUT",
-                "delete" => "DELETE",
-                _ => "",
+            let (verb, result) = match c.as_str() {
+                "get" => ("GET", Some("GET".to_string())),
+                "post" => ("POST", Some("POST".to_string())),
+                "put" => ("PUT", Some("PUT".to_string())),
+                "delete" => ("DELETE", Some("DELETE".to_string())),
+                "patch" => ("PATCH", Some("PATCH".to_string())),
+                "use" => {
+                    return Some("USE".to_string());
+                }
+                _ => ("", None),
             };
 
             if !verb.is_empty() {
                 inst.meta.insert("verb".to_string(), verb.to_string());
+                return result;
             }
         }
+        None
     }
 
     /*

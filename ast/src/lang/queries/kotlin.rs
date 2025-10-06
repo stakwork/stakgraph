@@ -205,24 +205,21 @@ impl Stack for Kotlin {
         ))
     }
 
-    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) {
-        if inst.meta.get("verb").is_none() {
-            if let Some(call) = call {
-                match call.as_str() {
-                    "get" => inst.add_verb("GET"),
-                    "post" => inst.add_verb("POST"),
-                    "put" => inst.add_verb("PUT"),
-                    "delete" => inst.add_verb("DELETE"),
-                    _ => (),
-                }
+    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
+        if let Some(c) = call {
+            let verb = match c.as_str() {
+                "get" => "GET",
+                "post" => "POST",
+                "put" => "PUT",
+                "delete" => "DELETE",
+                _ => "",
+            };
+
+            if !verb.is_empty() {
+                inst.meta.insert("verb".to_string(), verb.to_string());
             }
         }
-        if inst.meta.get("verb").is_none() {
-            inst.add_verb("GET"); // Default to GET if no verb found
-        }
-
-        let path = extract_path_from_url(&inst.name);
-        inst.name = path;
+        None
     }
 
     fn data_model_query(&self) -> Option<String> {
@@ -274,21 +271,4 @@ impl Stack for Kotlin {
             import_path
         }
     }
-}
-fn extract_path_from_url(url: &str) -> String {
-    if url == "url" {
-        return "/person".to_string();
-    }
-
-    if url.starts_with("http") {
-        if let Ok(parsed_url) = url::Url::parse(url) {
-            return parsed_url.path().to_string();
-        }
-    }
-
-    if url.contains("/people") {
-        return "/people".to_string();
-    }
-
-    url.to_string()
 }

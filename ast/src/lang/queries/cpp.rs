@@ -267,12 +267,12 @@ impl Stack for Cpp {
                 "#
         )]
     }
-    fn add_endpoint_verb(&self, nd: &mut NodeData, _call: &Option<String>) {
-        if nd.meta.get("verb").is_some() {
-            return;
+    fn add_endpoint_verb(&self, nd: &mut NodeData, _call: &Option<String>) -> Option<String> {
+        if let Some(verb) = nd.meta.get("verb") {
+            nd.meta
+                .insert("verb".to_string(), verb.to_uppercase().to_string());
         }
-        // If no verb specified, Crow allows all verbs
-        nd.add_verb("ANY");
+        None
     }
 
     fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {

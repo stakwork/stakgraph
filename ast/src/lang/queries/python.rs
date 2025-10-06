@@ -217,16 +217,16 @@ impl Stack for Python {
         ]
     }
 
-    fn add_endpoint_verb(&self, nd: &mut NodeData, call: &Option<String>) {
+    fn add_endpoint_verb(&self, nd: &mut NodeData, call: &Option<String>) -> Option<String> {
         if nd.meta.get("verb").is_some() {
-            return;
+            return None;
         }
 
         if let Some(c) = call {
             let verb = c.to_uppercase();
             if !verb.is_empty() {
                 nd.add_verb(&verb);
-                return;
+                return None;
             }
         }
 
@@ -254,6 +254,7 @@ impl Stack for Python {
         } else {
             nd.add_verb("GET");
         }
+        None
     }
     // Now we need to exclude class definitinos that have methods in their body
     fn data_model_query(&self) -> Option<String> {

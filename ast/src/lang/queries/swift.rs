@@ -127,7 +127,7 @@ impl Stack for Swift {
         "#
         ))
     }
-    fn add_endpoint_verb(&self, inst: &mut NodeData, _call: &Option<String>) {
+    fn add_endpoint_verb(&self, inst: &mut NodeData, _call: &Option<String>) -> Option<String> {
         if inst.meta.get("verb").is_none() {
             if inst.body.contains("method: \"GET\"") || inst.body.contains("bodyParams: nil") {
                 inst.add_verb("GET");
@@ -160,6 +160,7 @@ impl Stack for Swift {
                 }
             }
         }
+        None
     }
 
     fn data_model_query(&self) -> Option<String> {
