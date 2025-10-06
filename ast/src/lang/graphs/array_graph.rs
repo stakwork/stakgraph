@@ -385,6 +385,11 @@ impl Graph for ArrayGraph {
             Vec<Edge>,
         ),
     ) {
+        // Diagnostic flag: when DISABLE_TEST_CLASS_CALLS is set, we intentionally skip
+        // creating test -> class CALLS edges to mirror the currently observed Neo4j
+        // discrepancy. This helps isolate that the missing edges problem stems from
+        // test->class edge insertion differences rather than downstream logic.
+        let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
         let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
@@ -434,24 +439,29 @@ impl Graph for ArrayGraph {
 
         for (tc, ext_func, class_call) in tests {
             if let Some(class_nd) = class_call {
-                let class_edge_key = (
-                    tc.source.name.clone(),
-                    tc.source.file.clone(),
-                    class_nd.name.clone(),
-                    class_nd.file.clone(),
-                );
+                if !disable_test_class_edges {
+                    let class_edge_key = (
+                        tc.source.name.clone(),
+                        tc.source.file.clone(),
+                        class_nd.name.clone(),
+                        class_nd.file.clone(),
+                    );
 
-                if !unique_edges.contains(&class_edge_key) {
-                    unique_edges.insert(class_edge_key);
+                    if !unique_edges.contains(&class_edge_key) {
+                        unique_edges.insert(class_edge_key);
 
-                    let edge = Edge::from_test_class_call(&tc, &class_nd);
-                    self.add_edge(edge);
-                    if self
-                        .find_node_by_name_in_file(NodeType::Class, &class_nd.name, &class_nd.file)
-                        .is_none()
-                    {
-                        self.add_node(NodeType::Class, class_nd);
+                        let edge = Edge::from_test_class_call(&tc, &class_nd);
+                        self.add_edge(edge);
+                        if self
+                            .find_node_by_name_in_file(NodeType::Class, &class_nd.name, &class_nd.file)
+                            .is_none()
+                        {
+                            self.add_node(NodeType::Class, class_nd);
+                        }
                     }
+                } else {
+                    // Skipped intentionally for diagnosis
+                    // tracing::debug!("Skipping test->class edge for {} -> {}", tc.source.name, class_nd.name);
                 }
             }
             if let Some(ext_nd) = ext_func {
