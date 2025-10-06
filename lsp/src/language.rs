@@ -300,6 +300,19 @@ impl Language {
         }
     }
     
+    pub fn requires_dependency_check(&self) -> bool {
+        matches!(self, Self::React | Self::Svelte | Self::Angular)
+    }
+    
+    pub fn framework_dependencies(&self) -> Vec<&'static str> {
+        match self {
+            Self::React => vec!["react", "next", "gatsby", "remix"],
+            Self::Svelte => vec!["svelte"],
+            Self::Angular => vec!["@angular/core"],
+            _ => Vec::new(),
+        }
+    }
+    
     pub fn is_package_file(&self, file_name: &str) -> bool {
         self.pkg_files()
             .iter()

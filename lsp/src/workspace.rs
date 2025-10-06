@@ -172,3 +172,35 @@ pub fn find_workspace_packages(root: &str) -> Vec<String> {
     
     expand_patterns(root, patterns)
 }
+
+pub fn has_framework_dependency(root: &str, lang: &Language) -> bool {
+    let package_json = Path::new(root).join("package.json");
+    if !package_json.exists() {
+        return false;
+    }
+    
+    let Ok(contents) = fs::read_to_string(&package_json) else {
+        return false;
+    };
+    
+    let Ok(json): std::result::Result<serde_json::Value, _> = serde_json::from_str(&contents) else {
+        return false;
+    };
+    
+    let framework_deps = lang.framework_dependencies();
+    if framework_deps.is_empty() {
+        return true;
+    }
+    
+    for dep_key in ["dependencies", "devDependencies"] {
+        if let Some(deps) = json.get(dep_key).and_then(|v| v.as_object()) {
+            for framework_dep in &framework_deps {
+                if deps.contains_key(*framework_dep) {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    false
+}

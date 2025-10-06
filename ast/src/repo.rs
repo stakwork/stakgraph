@@ -287,17 +287,24 @@ impl Repo {
                 }
             }
         }
-        // Filter out overridden languages
         let mut overridden_langs: Vec<Language> = Vec::new();
         for lang in &detected_langs {
             for overridden in lang.overrides() {
                 overridden_langs.push(overridden);
             }
         }
-        let filtered_langs: Vec<Language> = detected_langs
+        let mut filtered_langs: Vec<Language> = detected_langs
             .into_iter()
             .filter(|lang| !overridden_langs.contains(lang))
             .collect();
+
+        filtered_langs.retain(|lang| {
+            if lang.requires_dependency_check() {
+                lsp::workspace::has_framework_dependency(root, lang)
+            } else {
+                true
+            }
+        });
 
         if filtered_langs.is_empty() {
             return Err(Error::Custom(format!(
