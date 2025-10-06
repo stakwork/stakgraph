@@ -300,25 +300,25 @@ impl Stack for Rust {
         ))
     }
 
-    fn add_endpoint_verb(&self, endpoint: &mut NodeData, call: &Option<String>) {
+    fn add_endpoint_verb(&self, endpoint: &mut NodeData, call: &Option<String>) -> Option<String> {
         if let Some(verb) = endpoint.meta.remove("http_method") {
             endpoint.add_verb(&verb);
-            return;
+            return None;
         }
 
         if let Some(call_text) = call {
             if call_text.contains(".get(") || call_text.contains("get(") {
                 endpoint.add_verb("GET");
-                return;
+                return None;
             } else if call_text.contains(".post(") || call_text.contains("post(") {
                 endpoint.add_verb("POST");
-                return;
+                return None;
             } else if call_text.contains(".put(") || call_text.contains("put(") {
                 endpoint.add_verb("PUT");
-                return;
+                return None;
             } else if call_text.contains(".delete(") || call_text.contains("delete(") {
                 endpoint.add_verb("DELETE");
-                return;
+                return None;
             }
         }
 
@@ -343,6 +343,7 @@ impl Stack for Rust {
             );
             endpoint.add_verb("GET");
         }
+        None
     }
 
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {

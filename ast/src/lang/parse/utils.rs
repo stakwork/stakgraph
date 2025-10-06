@@ -79,6 +79,30 @@ pub fn find_def<G: Graph>(
     Ok(None)
 }
 
+pub fn extract_methods_from_handler(handler_body: &str, lang: &Lang) -> Vec<String> {
+    let mut methods = Vec::new();
+    if let Some(query_str) = lang.lang().handler_method_query() {
+        if let Ok(tree) = lang.lang().parse(handler_body, &NodeType::Function) {
+            let query = lang.q(&query_str, &NodeType::Function);
+            let mut cursor = tree_sitter::QueryCursor::new();
+            let mut matches = cursor.matches(&query, tree.root_node(), handler_body.as_bytes());
+            
+            while let Some(m) = matches.next() {
+                for capture in m.captures {
+                    if let Ok(method_text) = capture.node.utf8_text(handler_body.as_bytes()) {
+                        let verb = method_text.to_uppercase();
+                        if !methods.contains(&verb) {
+                            methods.push(verb);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    methods
+}
+
 impl Lang {
     pub fn find_strings(&self, node: TreeNode, code: &str, file: &str) -> Result<Vec<String>> {
         let mut results = Vec::new();

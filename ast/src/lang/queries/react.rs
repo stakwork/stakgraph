@@ -482,6 +482,16 @@ impl Stack for ReactTs {
                         )
                 )@{ROUTE}
             )
+            (call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$|^patch$")
+                )
+                arguments: (arguments
+                    (string) @{ENDPOINT}
+                    (identifier) @{HANDLER}
+                )
+            ) @{ROUTE}
         "#
         )]
     }
@@ -521,6 +531,20 @@ impl Stack for ReactTs {
         ))
     }
 
+    fn handler_method_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            ;; Matches: router.get(...), app.post(...), etc.
+            (call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @method (#match? @method "^(get|post|put|delete|patch)$")
+                )
+            ) @route
+            "#
+        ))
+    }
+
     fn function_call_query(&self) -> String {
         format!(
             "[
@@ -546,27 +570,55 @@ impl Stack for ReactTs {
             ] @{FUNCTION_CALL}"
         )
     }
-    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) {
+    fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
         if inst.meta.get("verb").is_none() {
             if let Some(call) = call {
                 match call.as_str() {
-                    "get" => inst.add_verb("GET"),
-                    "post" => inst.add_verb("POST"),
-                    "put" => inst.add_verb("PUT"),
-                    "delete" => inst.add_verb("DELETE"),
+                    "get" => {
+                        inst.add_verb("GET");
+                        return Some("GET".to_string());
+                    }
+                    "post" => {
+                        inst.add_verb("POST");
+                        return Some("POST".to_string());
+                    }
+                    "put" => {
+                        inst.add_verb("PUT");
+                        return Some("PUT".to_string());
+                    }
+                    "delete" => {
+                        inst.add_verb("DELETE");
+                        return Some("DELETE".to_string());
+                    }
+                    "patch" => {
+                        inst.add_verb("PATCH");
+                        return Some("PATCH".to_string());
+                    }
+                    "use" => {
+                        return Some("USE".to_string());
+                    }
                     "fetch" => {
                         inst.body.find("GET").map(|_| inst.add_verb("GET"));
                         inst.body.find("POST").map(|_| inst.add_verb("POST"));
                         inst.body.find("PUT").map(|_| inst.add_verb("PUT"));
                         inst.body.find("DELETE").map(|_| inst.add_verb("DELETE"));
+                        if let Some(v) = inst.meta.get("verb") {
+                            return Some(v.clone());
+                        }
                     }
                     _ => (),
                 }
             }
+        } else {
+            if let Some(v) = inst.meta.get("verb") {
+                return Some(v.clone());
+            }
         }
+        
         if inst.meta.get("verb").is_none() {
             inst.add_verb("GET");
         }
+        Some("GET".to_string())
     }
 
     fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {
