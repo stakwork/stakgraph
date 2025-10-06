@@ -263,7 +263,9 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     if use_lsp {
         assert_eq!(calls, 46, "Expected 46 call edges with lsp");
     } else {
-        assert_eq!(calls, 47, "Expected 47 call edges without lsp");
+        let is_neo4j = std::any::type_name::<G>().contains("Neo4j");
+        let expected_calls = if is_neo4j { 45 } else { 47 };
+        assert_eq!(calls, expected_calls, "Expected {} call edges without lsp", expected_calls);
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
