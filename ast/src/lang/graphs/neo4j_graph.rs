@@ -849,6 +849,7 @@ impl Neo4jGraph {
 
         for (calls, ext_func, class_call) in &funcs {
             if let Some(cls_call) = class_call {
+                txn_manager.add_node(&NodeType::Class, cls_call);
                 let edge = Edge::new(
                     EdgeType::Calls,
                     NodeRef::from(calls.source.clone(), NodeType::Function),
@@ -868,12 +869,24 @@ impl Neo4jGraph {
                 txn_manager.add_edge(&edge);
             }
         }
-        for (test_call, ext_func, _class_call) in &tests {
+        for (test_call, ext_func, class_call) in &tests {
+            let target_empty = test_call.target.is_empty();
+            let has_class = class_call.is_some();
+
+            if let Some(class_nd) = class_call {
+                txn_manager.add_node(&NodeType::Class, class_nd);
+                let edge = Edge::from_test_class_call(test_call, class_nd);
+
+                txn_manager.add_edge(&edge);
+            }
+
             if let Some(ext_nd) = ext_func {
                 txn_manager.add_node(&NodeType::Function, ext_nd);
                 let edge = Edge::uses(test_call.source.clone(), ext_nd);
                 txn_manager.add_edge(&edge);
-            } else {
+            } else if target_empty && !has_class {
+                continue;
+            } else if !target_empty {
                 let edge = Edge::from_test_call(test_call);
                 txn_manager.add_edge(&edge);
             }
@@ -884,6 +897,7 @@ impl Neo4jGraph {
         for edge in extras {
             txn_manager.add_edge(&edge);
         }
+
         txn_manager.execute().await
     }
 
@@ -1132,7 +1146,6 @@ impl Neo4jGraph {
         Ok(triples)
     }
 
-
     pub(super) async fn query_nodes_with_count_async(
         &self,
         node_type: NodeType,
@@ -1142,7 +1155,18 @@ impl Neo4jGraph {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-    ) -> (usize, Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)>) {
+    ) -> (
+        usize,
+        Vec<(
+            NodeData,
+            usize,
+            bool,
+            usize,
+            String,
+            Option<i64>,
+            Option<i64>,
+        )>,
+    ) {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in query_nodes_with_count_async");
             return (0, vec![]);
@@ -1167,24 +1191,32 @@ impl Neo4jGraph {
             Ok(mut result) => {
                 if let Ok(Some(row)) = result.next().await {
                     let total_count = row.get::<i64>("total_count").unwrap_or(0) as usize;
-                    
+
                     let items: Vec<BoltMap> = row.get("items").unwrap_or_default();
-                    
-                    let nodes: Vec<(NodeData, usize, bool, usize, String, Option<i64>, Option<i64>)> = items
+
+                    let nodes: Vec<(
+                        NodeData,
+                        usize,
+                        bool,
+                        usize,
+                        String,
+                        Option<i64>,
+                        Option<i64>,
+                    )> = items
                         .into_iter()
                         .filter_map(|item| {
                             let node: neo4rs::Node = item.get("node").ok()?;
-                            
+
                             let node_data = NodeData::try_from(&node).ok()?;
-                            
+
                             let usage_count: i64 = item.get("usage_count").ok().unwrap_or(0);
                             let is_covered: bool = item.get("is_covered").ok().unwrap_or(false);
                             let test_count: i64 = item.get("test_count").ok().unwrap_or(0);
                             let body_length: Option<i64> = item.get("body_length").ok();
                             let line_count: Option<i64> = item.get("line_count").ok();
-                            
+
                             let ref_id = extract_ref_id(&node_data);
-                            
+
                             Some((
                                 node_data,
                                 usage_count as usize,

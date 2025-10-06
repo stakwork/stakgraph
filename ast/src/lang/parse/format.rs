@@ -8,7 +8,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::QueryMatch;
 
 use super::super::queries::consts::FUNCTION_COMMENT;
-use super::utils::{find_def, is_capitalized, log_cmd, trim_quotes};
+use super::utils::{clean_class_name, find_def, is_capitalized, log_cmd, trim_quotes};
 
 impl Lang {
     pub fn format_class_with_associations<G: Graph>(
@@ -27,7 +27,7 @@ impl Lang {
 
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == CLASS_NAME {
-                cls.name = body;
+                cls.name = clean_class_name(&body);
             } else if o == CLASS_DEFINITION {
                 cls.body = body;
                 cls.start = node.start_position().row;
@@ -757,6 +757,7 @@ impl Lang {
         let mut external_func = None;
         let mut class_call = None;
         let mut call_name_and_point = None;
+        let mut is_variable_call = false;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 trace!("format_function_call {} {}", caller_name, body);
@@ -766,9 +767,15 @@ impl Lang {
             } else if o == OPERAND {
                 fc.operand = Some(body.clone());
                 if self.lang.direct_class_calls() {
-                    let possible_classes = graph.find_nodes_by_name(NodeType::Class, &body);
-                    if possible_classes.len() == 1 {
-                        class_call = Some(possible_classes[0].clone())
+                    if let Some(first_char) = body.chars().next() {
+                        if first_char.is_uppercase() {
+                            let possible_classes = graph.find_nodes_by_name(NodeType::Class, &body);
+                            if possible_classes.len() == 1 {
+                                class_call = Some(possible_classes[0].clone())
+                            }
+                        } else {
+                            is_variable_call = true;
+                        }
                     }
                 }
             }
@@ -779,6 +786,14 @@ impl Lang {
             return Ok(None);
         }
         let (called, call_point) = call_name_and_point.unwrap();
+
+        if is_variable_call || self.lang.should_skip_function_call(&called, &fc.operand) {
+            return Ok(None);
+        }
+
+        if called.is_empty() {
+            return Ok(None);
+        }
 
         if let Some(lsp) = lsp_tx {
             log_cmd(format!("=> {} looking for {:?}", caller_name, called));
@@ -869,6 +884,16 @@ impl Lang {
                     called, &tf.file
                 ));
                 fc.target = tf.into();
+            }
+        }
+
+        if fc.target.is_empty() {
+            if let Some(class_nd) = &class_call {
+                if let Some(class_method) =
+                    graph.find_node_by_name_in_file(NodeType::Function, &called, &class_nd.file)
+                {
+                    fc.target = class_method.into();
+                }
             }
         }
 

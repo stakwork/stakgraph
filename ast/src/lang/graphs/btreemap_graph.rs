@@ -371,6 +371,8 @@ impl Graph for BTreeMapGraph {
     // Add calls only between function definitions not between function calls
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)) {
         let (funcs, tests, int_tests, extras) = calls;
+        // Diagnostic flag (see array_graph.rs for rationale)
+        let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
         let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
 
         for (fc, ext_func, class_call) in funcs {
@@ -420,7 +422,31 @@ impl Graph for BTreeMapGraph {
             }
         }
 
-        for (tc, ext_func, _) in tests {
+        for (tc, ext_func, class_call) in tests {
+            if let Some(class_nd) = class_call {
+                if !disable_test_class_edges {
+                    let class_edge_key = (
+                        tc.source.name.clone(),
+                        tc.source.file.clone(),
+                        class_nd.name.clone(),
+                        class_nd.file.clone(),
+                    );
+
+                    if !unique_edges.contains(&class_edge_key) {
+                        unique_edges.insert(class_edge_key);
+
+                        let edge = Edge::from_test_class_call(&tc, &class_nd);
+                        self.add_edge(edge);
+
+                        // Ensure class node exists in graph
+                        let class_node = Node::new(NodeType::Class, class_nd.clone());
+                        let class_key = create_node_key(&class_node);
+                        if !self.nodes.contains_key(&class_key) {
+                            self.nodes.insert(class_key, class_node);
+                        }
+                    }
+                }
+            }
             if let Some(ext_nd) = ext_func {
                 let edge_key = (
                     tc.source.name.clone(),
@@ -440,12 +466,14 @@ impl Graph for BTreeMapGraph {
                         self.nodes.insert(ext_key, ext_node);
                     }
                 }
+            } else if tc.target.is_empty() {
+                continue;
             } else {
                 let edge_key = (
                     tc.source.name.clone(),
                     tc.source.file.clone(),
                     tc.target.name.clone(),
-                    tc.source.file.clone(),
+                    tc.target.file.clone(),
                 );
 
                 if !unique_edges.contains(&edge_key) {
