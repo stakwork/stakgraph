@@ -440,6 +440,15 @@ impl Graph for BTreeMapGraph {
                             "<<<===>>> Created test→class edge: {} ({}) → {} ({})",
                             tc.source.name, tc.source.file, class_nd.name, class_nd.file
                         );
+                        println!(
+                            "GT_TEST_CLASS_EDGE backend=in_memory source_name={} source_file={} source_start={} class_name={} class_file={} class_start={}",
+                            tc.source.name,
+                            tc.source.file,
+                            tc.source.start,
+                            class_nd.name,
+                            class_nd.file,
+                            class_nd.start
+                        );
                         self.add_edge(edge);
 
                         // Ensure class node exists in graph

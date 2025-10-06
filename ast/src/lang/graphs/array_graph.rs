@@ -451,6 +451,15 @@ impl Graph for ArrayGraph {
                         unique_edges.insert(class_edge_key);
 
                         let edge = Edge::from_test_class_call(&tc, &class_nd);
+                        println!(
+                            "GT_TEST_CLASS_EDGE backend=in_memory source_name={} source_file={} source_start={} class_name={} class_file={} class_start={}",
+                            tc.source.name,
+                            tc.source.file,
+                            tc.source.start,
+                            class_nd.name,
+                            class_nd.file,
+                            class_nd.start
+                        );
                         self.add_edge(edge);
                         if self
                             .find_node_by_name_in_file(NodeType::Class, &class_nd.name, &class_nd.file)
