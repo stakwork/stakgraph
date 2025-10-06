@@ -219,7 +219,7 @@ pub async fn ingest(
             Some(final_repo_url.clone()),
             Vec::new(),
             Vec::new(),
-            use_lsp,
+            Some(false)
         )
         .await
         .map_err(|e| {
