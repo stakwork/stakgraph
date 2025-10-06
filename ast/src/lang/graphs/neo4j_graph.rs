@@ -847,14 +847,6 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        // Diagnostic counters
-        let mut func_direct_calls = 0usize;          // function -> function
-        let mut func_class_calls = 0usize;           // function -> class
-        let mut test_direct_calls = 0usize;          // test -> function/endpoint/etc
-        let mut test_class_calls = 0usize;           // test -> class
-        let mut int_test_calls = 0usize;             // integration/e2e test -> target
-        let mut extra_calls = 0usize;                // any CALLS in extras
-
         for (calls, ext_func, class_call) in &funcs {
             if let Some(cls_call) = class_call {
                 txn_manager.add_node(&NodeType::Class, cls_call);
@@ -864,7 +856,6 @@ impl Neo4jGraph {
                     NodeRef::from(cls_call.into(), NodeType::Class),
                 );
                 txn_manager.add_edge(&edge);
-                func_class_calls += 1;
             }
             if calls.target.is_empty() {
                 continue;
@@ -876,39 +867,19 @@ impl Neo4jGraph {
             } else {
                 let edge: Edge = calls.clone().into();
                 txn_manager.add_edge(&edge);
-                if edge.edge == EdgeType::Calls { func_direct_calls += 1; }
             }
         }
         for (test_call, ext_func, class_call) in &tests {
             let target_empty = test_call.target.is_empty();
             let has_class = class_call.is_some();
-            if has_class {
-                println!(
-                    "[NEO4J] Processing test call: test='{}', has_class_call={} target_empty={}",
-                    test_call.source.name,
-                    has_class,
-                    target_empty
-                );
-            }
 
-            // 1. Always add class_call edge if present (even when target is empty)
             if let Some(class_nd) = class_call {
                 txn_manager.add_node(&NodeType::Class, class_nd);
                 let edge = Edge::from_test_class_call(test_call, class_nd);
-                println!(
-                    "GT_TEST_CLASS_EDGE backend=neo4j source_name={} source_file={} source_start={} class_name={} class_file={} class_start={}",
-                    test_call.source.name,
-                    test_call.source.file,
-                    test_call.source.start,
-                    class_nd.name,
-                    class_nd.file,
-                    class_nd.start
-                );
+
                 txn_manager.add_edge(&edge);
-                test_class_calls += 1;
             }
 
-            // 2. Add function/external edges (skip only if no target AND no class call)
             if let Some(ext_nd) = ext_func {
                 txn_manager.add_node(&NodeType::Function, ext_nd);
                 let edge = Edge::uses(test_call.source.clone(), ext_nd);
@@ -918,21 +889,15 @@ impl Neo4jGraph {
             } else if !target_empty {
                 let edge = Edge::from_test_call(test_call);
                 txn_manager.add_edge(&edge);
-                if edge.edge == EdgeType::Calls { test_direct_calls += 1; }
             }
         }
         for edge in int_tests {
             txn_manager.add_edge(&edge);
-            if edge.edge == EdgeType::Calls { int_test_calls += 1; }
         }
         for edge in extras {
             txn_manager.add_edge(&edge);
-            if edge.edge == EdgeType::Calls { extra_calls += 1; }
         }
 
-        println!("[NEO4J] CALLS_SUMMARY func_direct={} func_class={} test_direct={} test_class={} int_test={} extra_calls={} total_calls_logged={}",
-            func_direct_calls, func_class_calls, test_direct_calls, test_class_calls, int_test_calls, extra_calls,
-            func_direct_calls + func_class_calls + test_direct_calls + test_class_calls + int_test_calls + extra_calls);
         txn_manager.execute().await
     }
 

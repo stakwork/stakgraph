@@ -436,19 +436,6 @@ impl Graph for BTreeMapGraph {
                         unique_edges.insert(class_edge_key);
 
                         let edge = Edge::from_test_class_call(&tc, &class_nd);
-                        println!(
-                            "<<<===>>> Created test→class edge: {} ({}) → {} ({})",
-                            tc.source.name, tc.source.file, class_nd.name, class_nd.file
-                        );
-                        println!(
-                            "GT_TEST_CLASS_EDGE backend=in_memory source_name={} source_file={} source_start={} class_name={} class_file={} class_start={}",
-                            tc.source.name,
-                            tc.source.file,
-                            tc.source.start,
-                            class_nd.name,
-                            class_nd.file,
-                            class_nd.start
-                        );
                         self.add_edge(edge);
 
                         // Ensure class node exists in graph
@@ -458,9 +445,6 @@ impl Graph for BTreeMapGraph {
                             self.nodes.insert(class_key, class_node);
                         }
                     }
-                } else {
-                    // Skipped intentionally for diagnosis
-                    // println!("Skipping test->class edge (diagnostic) {} -> {}", tc.source.name, class_nd.name);
                 }
             }
             if let Some(ext_nd) = ext_func {

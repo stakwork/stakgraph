@@ -1068,35 +1068,6 @@ impl Repo {
                     .await?;
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();
-                // Instrumentation: summarize test calls vector before passing to graph backend.
-                // all_calls.1 corresponds to test-originated calls as per Lang::add_calls_inside
-                if !all_calls.1.is_empty() {
-                    let mut test_class_count = 0usize;
-                    for (_tc, _ext, class_opt) in &all_calls.1 {
-                        if class_opt.is_some() { test_class_count += 1; }
-                    }
-                    println!("PRE_ADD_CALLS_SUMMARY file={} test_calls={} with_class_calls={}", filename, all_calls.1.len(), test_class_count);
-                    for (tc, _ext, class_opt) in &all_calls.1 {
-                        if let Some(class_nd) = class_opt {
-                            println!(
-                                "PRE_CALL_ENTRY has_class_call=true test_name={} test_file={} test_start={} class_name={} class_file={} class_start={}",
-                                tc.source.name,
-                                tc.source.file,
-                                tc.source.start,
-                                class_nd.name,
-                                class_nd.file,
-                                class_nd.start
-                            );
-                        } else {
-                            println!(
-                                "PRE_CALL_ENTRY has_class_call=false test_name={} test_file={} test_start={}",
-                                tc.source.name,
-                                tc.source.file,
-                                tc.source.start
-                            );
-                        }
-                    }
-                }
                 graph.add_calls(all_calls);
             }
             stats.insert("function_calls".to_string(), function_call_count);

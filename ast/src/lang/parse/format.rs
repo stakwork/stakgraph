@@ -902,21 +902,6 @@ impl Lang {
             // NOTE should we only do the class call if there is no direct function target?
             return Ok(None);
         }
-        // Instrumentation: log when a class_call is captured at the parsing/formatting layer.
-        if let Some(class_nd) = &class_call {
-            // Decide if caller is a test (unit/integration/e2e) for easier diff vs Neo4j path.
-            let is_test = self.lang.is_test(&caller_name, file);
-            println!(
-                "GT_FUNC_CALL_CLASS_CAPTURE stage=format_function_call caller_name={} caller_file={} caller_start={} is_test={} class_name={} class_file={} class_start={}",
-                caller_name,
-                file,
-                caller_start,
-                is_test,
-                class_nd.name,
-                class_nd.file,
-                class_nd.start
-            );
-        }
         Ok(Some((fc, external_func, class_call)))
     }
     pub fn format_extra<G: Graph>(
