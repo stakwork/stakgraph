@@ -1,6 +1,7 @@
 mod client;
 pub mod git;
 pub mod language;
+pub mod workspace;
 mod utils;
 
 use client::strip_root;

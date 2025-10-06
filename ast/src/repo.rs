@@ -230,7 +230,31 @@ impl Repo {
         revs: Vec<String>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
-        // First, collect all detected languages
+        let enable_workspace = std::env::var("WORKSPACE_DETECT")
+            .unwrap_or_else(|_| "false".to_string()) == "true";
+        
+        if enable_workspace {
+            let workspace_packages = lsp::workspace::find_workspace_packages(root);
+            if !workspace_packages.is_empty() {
+                info!("Detected workspace with {} packages", workspace_packages.len());
+                let mut all_repos: Vec<Repo> = Vec::new();
+                
+                for package_path in workspace_packages {
+                    info!("Processing workspace package: {}", package_path);
+                    let package_repos = Box::pin(Self::new_multi_detect(
+                        &package_path,
+                        url.clone(),
+                        files_filter.clone(),
+                        revs.clone(),
+                        use_lsp,
+                    )).await?;
+                    all_repos.extend(package_repos.0);
+                }
+                
+                return Ok(Repos(all_repos));
+            }
+        }
+        
         let mut detected_langs: Vec<Language> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
             if let Ok(only_lang) = std::env::var("ONLY_LANG") {

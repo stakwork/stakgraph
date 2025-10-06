@@ -281,6 +281,25 @@ impl Language {
             _ => None,
         }
     }
+    
+    pub fn workspace_files(&self) -> Vec<&'static str> {
+        match self {
+            Self::Typescript | Self::React | Self::Svelte | Self::Angular => {
+                vec!["pnpm-workspace.yaml", "package.json"]
+            }
+            Self::Rust => vec!["Cargo.toml"],
+            _ => Vec::new(),
+        }
+    }
+    
+    pub fn workspace_config_key(&self) -> Option<&'static str> {
+        match self {
+            Self::Typescript | Self::React | Self::Svelte | Self::Angular => Some("packages"),
+            Self::Rust => Some("members"),
+            _ => None,
+        }
+    }
+    
     pub fn is_package_file(&self, file_name: &str) -> bool {
         self.pkg_files()
             .iter()
