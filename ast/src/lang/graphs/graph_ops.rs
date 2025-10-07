@@ -29,6 +29,9 @@ pub struct CoverageStat {
     pub total_tests: usize,
     pub covered: usize,
     pub percent: f64,
+    pub total_lines: usize,
+    pub covered_lines: usize,
+    pub line_percent: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -242,10 +245,18 @@ impl GraphOps {
         Ok(self.graph.get_graph_size_async().await?)
     }
 
-    pub async fn get_coverage(&mut self, repo: Option<&str>) -> Result<GraphCoverage> {
+    pub async fn get_coverage(
+        &mut self,
+        repo: Option<&str>,
+        ignore_dirs: Vec<String>,
+    ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
 
-        let in_scope = |n: &NodeData| repo.map_or(true, |r| n.file.starts_with(r));
+        let in_scope = |n: &NodeData| {
+            let repo_match = repo.map_or(true, |r| n.file.starts_with(r));
+            let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
+            repo_match && not_ignored
+        };
 
         let unit_tests = self
             .graph
@@ -341,11 +352,37 @@ impl GraphOps {
             } else {
                 (covered_count as f64 / total_nodes.len() as f64) * 100.0
             };
+            
+            // Calculate line-based coverage
+            let total_lines: usize = total_nodes
+                .iter()
+                .map(|n| {
+                    n.end.saturating_sub(n.start) + 1
+                })
+                .sum();
+            
+            let covered_lines: usize = total_nodes
+                .iter()
+                .filter(|n| covered_set.contains(&format!("{}:{}:{}", n.name, n.file, n.start)))
+                .map(|n| {
+                    n.end.saturating_sub(n.start) + 1
+                })
+                .sum();
+            
+            let line_percent = if total_lines == 0 {
+                0.0
+            } else {
+                (covered_lines as f64 / total_lines as f64) * 100.0
+            };
+            
             Some(CoverageStat {
                 total: total_nodes.len(),
                 total_tests: total_tests.len(),
                 covered: covered_count,
                 percent: (percent * 100.0).round() / 100.0,
+                total_lines,
+                covered_lines,
+                line_percent: (line_percent * 100.0).round() / 100.0,
             })
         };
 
@@ -579,6 +616,7 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
+        ignore_dirs: Vec<String>,
     ) -> Result<(
         usize,
         Vec<(
@@ -602,6 +640,7 @@ impl GraphOps {
                 coverage_filter,
                 body_length,
                 line_count,
+                ignore_dirs,
             )
             .await)
     }

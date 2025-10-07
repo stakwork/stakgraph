@@ -1277,6 +1277,7 @@ pub fn query_nodes_with_count(
     coverage_filter: Option<&str>,
     body_length: bool,
     line_count: bool,
+    ignore_dirs: Vec<String>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1305,9 +1306,19 @@ pub fn query_nodes_with_count(
         _ => "",
     };
 
+    let ignore_dirs_filter = if !ignore_dirs.is_empty() {
+        let conditions: Vec<String> = ignore_dirs
+            .iter()
+            .map(|dir| format!("NOT n.file CONTAINS '/{}/'", dir))
+            .collect();
+        format!("AND {}", conditions.join(" AND "))
+    } else {
+        String::new()
+    };
+
     let query = format!(
         "MATCH (n:{})
-         WHERE {}
+         WHERE {} {}
          OPTIONAL MATCH (test)-[:CALLS]->(n) 
          WHERE {}
          WITH n, count(DISTINCT test) AS test_count
@@ -1321,13 +1332,14 @@ pub fn query_nodes_with_count(
              is_covered: is_covered,
              test_count: test_count,
              body_length: size(n.body),
-             line_count: (n.end - n.start)
+             line_count: (n.end - n.start + 1)
          }}) AS all_items
          RETURN 
              size(all_items) AS total_count,
              [item IN all_items | item][$offset..($offset + $limit)] AS items",
         node_type.to_string(),
         unique_functions_filters().join(" AND "),
+        ignore_dirs_filter,
         test_type_match,
         coverage_where,
         order_clause
