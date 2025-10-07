@@ -33,6 +33,7 @@ export function toReturnNode(node: Neo4jNode): ReturnNode {
   delete properties.ref_id;
   delete properties.text_embeddings;
   delete properties.embeddings;
+  delete properties.Data_Bank;
   if (IS_TEST && properties.date_added_to_graph) {
     delete properties.date_added_to_graph;
   }
