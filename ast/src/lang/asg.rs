@@ -243,21 +243,26 @@ impl FromStr for NodeType {
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
         match s {
+            "Repository" => Ok(NodeType::Repository),
+            "Package" => Ok(NodeType::Package),
+            "Language" => Ok(NodeType::Language),
+            "Directory" => Ok(NodeType::Directory),
+            "File" => Ok(NodeType::File),
+            "Import" => Ok(NodeType::Import),
+            "Library" => Ok(NodeType::Library),
             "Class" => Ok(NodeType::Class),
             "Trait" => Ok(NodeType::Trait),
             "Instance" => Ok(NodeType::Instance),
             "Function" => Ok(NodeType::Function),
-            "UnitTest" => Ok(NodeType::UnitTest),
-            "IntegrationTest" => Ok(NodeType::IntegrationTest),
-            "E2etest" => Ok(NodeType::E2eTest),
-            "File" => Ok(NodeType::File),
-            "Repository" => Ok(NodeType::Repository),
             "Endpoint" => Ok(NodeType::Endpoint),
             "Request" => Ok(NodeType::Request),
             "Datamodel" => Ok(NodeType::DataModel),
             "Feature" => Ok(NodeType::Feature),
             "Page" => Ok(NodeType::Page),
             "Var" => Ok(NodeType::Var),
+            "UnitTest" => Ok(NodeType::UnitTest),
+            "IntegrationTest" => Ok(NodeType::IntegrationTest),
+            "E2etest" => Ok(NodeType::E2eTest),
             _ => Err(Error::Custom(format!("Invalid NodeType string: {}", s))),
         }
     }
@@ -266,24 +271,25 @@ impl ToString for NodeType {
     fn to_string(&self) -> String {
         match self {
             NodeType::Repository => "Repository".to_string(),
+            NodeType::Package => "Package".to_string(),
+            NodeType::Language => "Language".to_string(),
             NodeType::Directory => "Directory".to_string(),
             NodeType::File => "File".to_string(),
-            NodeType::Language => "Language".to_string(),
+            NodeType::Import => "Import".to_string(),
             NodeType::Library => "Library".to_string(),
             NodeType::Class => "Class".to_string(),
             NodeType::Trait => "Trait".to_string(),
-            NodeType::Import => "Import".to_string(),
             NodeType::Instance => "Instance".to_string(),
             NodeType::Function => "Function".to_string(),
-            NodeType::UnitTest => "UnitTest".to_string(),
-            NodeType::IntegrationTest => "IntegrationTest".to_string(),
-            NodeType::E2eTest => "E2etest".to_string(),
             NodeType::Endpoint => "Endpoint".to_string(),
             NodeType::Request => "Request".to_string(),
             NodeType::DataModel => "Datamodel".to_string(),
             NodeType::Feature => "Feature".to_string(),
             NodeType::Page => "Page".to_string(),
             NodeType::Var => "Var".to_string(),
+            NodeType::UnitTest => "UnitTest".to_string(),
+            NodeType::IntegrationTest => "IntegrationTest".to_string(),
+            NodeType::E2eTest => "E2etest".to_string(),
         }
     }
 }
