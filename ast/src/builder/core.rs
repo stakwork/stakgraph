@@ -252,8 +252,17 @@ impl Repo {
                 let parent = parts.join("/");
                 (NodeType::Directory, parent)
             } else {
-                let repo_file = strip_tmp(&self.root).display().to_string();
-                (NodeType::Repository, repo_file)
+                if !self.workspace_packages.is_empty() {
+                    if let Some(pkg_path) = self.find_package_for_path(&dir_no_tmp) {
+                        (NodeType::Package, pkg_path)
+                    } else {
+                        let repo_file = strip_tmp(&self.root).display().to_string();
+                        (NodeType::Repository, repo_file)
+                    }
+                } else {
+                    let repo_file = strip_tmp(&self.root).display().to_string();
+                    (NodeType::Repository, repo_file)
+                }
             };
 
             let dir_name = dir_no_tmp.rsplit('/').next().unwrap().to_string();
@@ -469,40 +478,43 @@ impl Repo {
         let commit_hash = get_commit_hash(&self.root.to_str().unwrap()).await?;
         info!("Commit(commit_hash): {:?}", commit_hash);
 
-        let (org, repo_name) = if !self.url.is_empty() {
-            let gurl = GitUrl::parse(&self.url)?;
-            (gurl.owner.unwrap_or_default(), gurl.name)
-        } else {
-            ("".to_string(), format!("{:?}", self.lang.kind))
-        };
-        info!("add repository... {}", self.root.display());
         let repo_file = strip_tmp(&self.root).display().to_string();
-        let mut repo_data = NodeData {
-            name: format!("{}/{}", org, repo_name),
-            file: repo_file.clone(),
-            hash: Some(commit_hash.to_string()),
-            ..Default::default()
-        };
-        repo_data.add_source_link(&self.url);
-        graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
+        
+        if self.workspace_packages.is_empty() {
+            let (org, repo_name) = if !self.url.is_empty() {
+                let gurl = GitUrl::parse(&self.url)?;
+                (gurl.owner.unwrap_or_default(), gurl.name)
+            } else {
+                ("".to_string(), format!("{:?}", self.lang.kind))
+            };
+            info!("add repository... {}", self.root.display());
+            let mut repo_data = NodeData {
+                name: format!("{}/{}", org, repo_name),
+                file: repo_file.clone(),
+                hash: Some(commit_hash.to_string()),
+                ..Default::default()
+            };
+            repo_data.add_source_link(&self.url);
+            graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
 
-        debug!("add language...");
-        let lang_data = NodeData {
-            name: self.lang.kind.to_string(),
-            file: strip_tmp(&self.root).display().to_string(),
-            ..Default::default()
-        };
-        graph.add_node_with_parent(
-            NodeType::Language,
-            lang_data,
-            NodeType::Repository,
-            &repo_file,
-        );
-
-        let mut stats = std::collections::HashMap::new();
-        stats.insert("repository".to_string(), 1);
-        stats.insert("language".to_string(), 1);
-        self.send_status_with_stats(stats);
+            debug!("add language...");
+            let lang_data = NodeData {
+                name: self.lang.kind.to_string(),
+                file: strip_tmp(&self.root).display().to_string(),
+                ..Default::default()
+            };
+            graph.add_node_with_parent(
+                NodeType::Language,
+                lang_data,
+                NodeType::Repository,
+                &repo_file,
+            );
+            
+            let mut stats = std::collections::HashMap::new();
+            stats.insert("repository".to_string(), 1);
+            stats.insert("language".to_string(), 1);
+            self.send_status_with_stats(stats);
+        }
 
         Ok(())
     }

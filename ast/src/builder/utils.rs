@@ -115,6 +115,21 @@ impl Repo {
         file_data.hash = Some(sha256::digest(&file_data.body));
         file_data
     }
+    
+    pub fn find_package_for_path(&self, path: &str) -> Option<String> {
+        if self.workspace_packages.is_empty() {
+            return None;
+        }
+        
+        for pkg in &self.workspace_packages {
+            let pkg_path = pkg.path.display().to_string();
+            if path.starts_with(&pkg_path) {
+                return Some(pkg_path);
+            }
+        }
+        None
+    }
+    
     pub fn get_parent_info(&self, path: &PathBuf) -> (NodeType, String) {
         let stripped_path = strip_tmp(&path).display().to_string();
 
@@ -132,8 +147,18 @@ impl Repo {
             let fin = strip_tmp(&PathBuf::from(dirpath)).display().to_string();
             (NodeType::Directory, fin)
         } else {
-            let repo_file = strip_tmp(&self.root).display().to_string();
-            (NodeType::Repository, repo_file)
+            if !self.workspace_packages.is_empty() {
+                let stripped_path = strip_tmp(&path).display().to_string();
+                if let Some(pkg_path) = self.find_package_for_path(&stripped_path) {
+                    (NodeType::Package, pkg_path)
+                } else {
+                    let repo_file = strip_tmp(&self.root).display().to_string();
+                    (NodeType::Repository, repo_file)
+                }
+            } else {
+                let repo_file = strip_tmp(&self.root).display().to_string();
+                (NodeType::Repository, repo_file)
+            }
         }
     }
 }
