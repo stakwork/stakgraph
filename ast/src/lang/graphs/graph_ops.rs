@@ -245,10 +245,18 @@ impl GraphOps {
         Ok(self.graph.get_graph_size_async().await?)
     }
 
-    pub async fn get_coverage(&mut self, repo: Option<&str>) -> Result<GraphCoverage> {
+    pub async fn get_coverage(
+        &mut self,
+        repo: Option<&str>,
+        ignore_dirs: Vec<String>,
+    ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
 
-        let in_scope = |n: &NodeData| repo.map_or(true, |r| n.file.starts_with(r));
+        let in_scope = |n: &NodeData| {
+            let repo_match = repo.map_or(true, |r| n.file.starts_with(r));
+            let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
+            repo_match && not_ignored
+        };
 
         let unit_tests = self
             .graph
@@ -608,6 +616,7 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
+        ignore_dirs: Vec<String>,
     ) -> Result<(
         usize,
         Vec<(
@@ -631,6 +640,7 @@ impl GraphOps {
                 coverage_filter,
                 body_length,
                 line_count,
+                ignore_dirs,
             )
             .await)
     }

@@ -736,7 +736,15 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let totals = graph_ops.get_coverage(params.repo.as_deref()).await?;
+    let ignore_dirs: Vec<String> = params
+        .ignore_dirs
+        .as_ref()
+        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
+
+    let totals = graph_ops
+        .get_coverage(params.repo.as_deref(), ignore_dirs)
+        .await?;
 
     Ok(Json(Coverage {
         unit_tests: totals.unit_tests.map(|s| CoverageStat {
@@ -793,7 +801,12 @@ pub async fn nodes_handler(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    // Single DB call that returns both count and paginated data
+    let ignore_dirs: Vec<String> = params
+        .ignore_dirs
+        .as_ref()
+        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
+
     let (total_count, results) = graph_ops
         .query_nodes_with_count(
             node_type.clone(),
@@ -803,6 +816,7 @@ pub async fn nodes_handler(
             coverage_filter,
             body_length,
             line_count,
+            ignore_dirs,
         )
         .await?;
 
