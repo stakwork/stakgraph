@@ -44,6 +44,9 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
+        if self.lang.is_test_file(file) {
+            return Ok(Vec::new());
+        }
         let tree = self.lang.parse(&code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
