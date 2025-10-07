@@ -6,12 +6,8 @@ use crate::lang::graphs::graph::Graph;
 use crate::lang::graphs::neo4j_graph::Neo4jGraph;
 use crate::lang::graphs::utils::tests_sources;
 use crate::lang::graphs::BTreeMapGraph;
-use crate::lang::linker::{
-    extract_test_ids, infer_lang, normalize_backend_path, normalize_frontend_path, paths_match,
-    verbs_match,
-};
-use crate::lang::neo4j_utils::{add_edge_query, add_node_query, build_batch_edge_queries};
-use crate::lang::{Edge, EdgeType, Node, NodeData, NodeType};
+use crate::lang::neo4j_utils::{add_node_query, build_batch_edge_queries};
+use crate::lang::{EdgeType, Node, NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo};
 use crate::utils::create_node_key;
 use neo4rs::BoltMap;
@@ -297,7 +293,8 @@ impl GraphOps {
                     .get("component")
                     .map(|v| v == "true")
                     .unwrap_or(false);
-                !is_component
+                let is_operand = n.meta.get("operand").is_some();
+                !is_component && !is_operand
             })
             .collect();
         let integration_endpoints_in_scope: Vec<NodeData> =
