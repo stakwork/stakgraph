@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 pub enum NodeType {
     Repository,
+    Package,
     Language,
     Directory,
     File,
@@ -36,10 +37,6 @@ pub enum NodeType {
     Trait,
     Instance,
     Function,
-    UnitTest,
-    IntegrationTest,
-    #[serde(rename = "E2etest")]
-    E2eTest,
     Endpoint,
     Request,
     #[serde(rename = "Datamodel")]
@@ -47,6 +44,10 @@ pub enum NodeType {
     Feature,
     Page,
     Var,
+    UnitTest,
+    IntegrationTest,
+    #[serde(rename = "E2etest")]
+    E2eTest,
 }
 
 // pub enum TestType {
