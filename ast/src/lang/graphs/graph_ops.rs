@@ -216,6 +216,12 @@ impl GraphOps {
         }
         self.graph.create_indexes().await?;
 
+        // Set Data_Bank property for nodes that don't have it
+        info!("Setting Data_Bank property for nodes missing it...");
+        if let Err(e) = self.graph.set_missing_data_bank().await {
+            tracing::warn!("Error setting Data_Bank property: {:?}", e);
+        }
+
         self.graph
             .update_repository_hash(repo_url, current_hash)
             .await?;
@@ -434,6 +440,11 @@ impl GraphOps {
         self.graph.clear_existing_graph(root).await?;
         Ok(())
     }
+
+    pub async fn set_missing_data_bank(&mut self) -> Result<u32> {
+        self.graph.set_missing_data_bank().await
+    }
+
     pub async fn embed_data_bank_bodies(&mut self, do_files: bool) -> Result<()> {
         let batch_size = 32;
         // let mut skip = 0;

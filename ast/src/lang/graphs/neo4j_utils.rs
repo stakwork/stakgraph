@@ -1347,3 +1347,13 @@ pub fn query_nodes_with_count(
 
     (query, params)
 }
+
+pub fn set_missing_data_bank_query() -> String {
+    r#"
+        MATCH (n)
+        WHERE n.Data_Bank IS NULL AND n.name IS NOT NULL
+        SET n.Data_Bank = n.name
+        RETURN count(n) as updated_count
+    "#
+    .to_string()
+}

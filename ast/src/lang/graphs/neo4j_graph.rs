@@ -120,6 +120,19 @@ impl Neo4jGraph {
         Ok(())
     }
 
+    pub async fn set_missing_data_bank(&self) -> Result<u32> {
+        let connection = self.ensure_connected().await?;
+        let query_str = set_missing_data_bank_query();
+        let mut result = connection.execute(query(&query_str)).await?;
+        if let Some(row) = result.next().await? {
+            let count = row.get::<i64>("updated_count").unwrap_or(0);
+            info!("Set Data_Bank property for {} nodes", count);
+            Ok(count as u32)
+        } else {
+            Ok(0)
+        }
+    }
+
     pub async fn clear(&self) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn = connection.start_txn().await?;

@@ -304,6 +304,12 @@ pub async fn ingest(
         res
     };
 
+    // Set Data_Bank property for nodes that don't have it
+    info!("Setting Data_Bank property for nodes missing it...");
+    if let Err(e) = graph_ops.set_missing_data_bank().await {
+        tracing::warn!("Error setting Data_Bank property: {:?}", e);
+    }
+
     let _ = state.tx.send(ast::repo::StatusUpdate {
         status: "Complete".to_string(),
         message: "Graph building completed successfully".to_string(),
