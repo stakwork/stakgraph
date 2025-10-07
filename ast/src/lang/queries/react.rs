@@ -567,6 +567,9 @@ impl Stack for ReactTs {
                         name: (identifier) @{FUNCTION_NAME}
                     )
                 ]
+                (
+                    new_expression (identifier) @{CLASS_NAME}
+                )
             ] @{FUNCTION_CALL}"
         )
     }
@@ -614,7 +617,7 @@ impl Stack for ReactTs {
                 return Some(v.clone());
             }
         }
-        
+
         if inst.meta.get("verb").is_none() {
             inst.add_verb("GET");
         }

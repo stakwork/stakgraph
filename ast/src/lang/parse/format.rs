@@ -360,17 +360,17 @@ impl Lang {
             }
             Ok(())
         })?;
-        
+
         let verb_resolution = if endp.meta.get("verb").is_none() {
             self.lang.add_endpoint_verb(&mut endp, &call)
         } else {
             endp.meta.get("verb").cloned()
         };
-        
+
         self.lang.update_endpoint(&mut endp, &call);
-        
+
         if let Some(ref verb) = verb_resolution {
-            if verb == "USE" || verb == "use"{
+            if verb == "USE" || verb == "use" {
                 if let Some(graph) = graph {
                     if let Some(handler_name) = endp.meta.get("handler") {
                         let handler_node = if let Some(lsp) = lsp_tx {
@@ -390,29 +390,40 @@ impl Lang {
                                 None
                             }
                         } else {
-                            graph.find_nodes_by_name(NodeType::Function, &handler_name).first().cloned()
+                            graph
+                                .find_nodes_by_name(NodeType::Function, &handler_name)
+                                .first()
+                                .cloned()
                         };
-                        
+
                         if let Some(handler_fn) = handler_node {
                             let methods = extract_methods_from_handler(&handler_fn.body, self);
-                            
+
                             if !methods.is_empty() {
                                 let mut result = Vec::new();
                                 for method in methods {
                                     let mut endpoint_clone = endp.clone();
                                     endpoint_clone.name = format!("{}_{}", endp.name, method);
-                                    endpoint_clone.meta.insert("verb".to_string(), method.clone());
-                                    
+                                    endpoint_clone
+                                        .meta
+                                        .insert("verb".to_string(), method.clone());
+
                                     let edge = Some(Edge::handler(&endpoint_clone, &handler_fn));
                                     result.push((endpoint_clone, edge));
                                 }
                                 return Ok(result);
                             } else {
-                                log_cmd(format!("No methods found in handler {}, defaulting to GET", handler_name));
+                                log_cmd(format!(
+                                    "No methods found in handler {}, defaulting to GET",
+                                    handler_name
+                                ));
                                 endp.add_verb("GET");
                             }
                         } else {
-                            log_cmd(format!("Handler {} not found for USE endpoint, defaulting to GET", handler_name));
+                            log_cmd(format!(
+                                "Handler {} not found for USE endpoint, defaulting to GET",
+                                handler_name
+                            ));
                             endp.add_verb("GET");
                         }
                     } else {
@@ -423,7 +434,7 @@ impl Lang {
                 }
             }
         }
-        
+
         // for multi-handle endpoints with no "name:" (ENDPOINT)
         if endp.name.is_empty() {
             if let Some(handler) = endp.meta.get("handler") {
@@ -823,6 +834,12 @@ impl Lang {
             if o == FUNCTION_NAME {
                 trace!("format_function_call {} {}", caller_name, body);
                 call_name_and_point = Some((body, node.start_position()));
+            } else if o == CLASS_NAME {
+                // query the graph
+                let founds = graph.find_nodes_by_name(NodeType::Class, &body);
+                if founds.len() == 1 {
+                    class_call = Some(founds[0].clone());
+                }
             } else if o == FUNCTION_CALL {
                 fc.source = NodeKeys::new(&caller_name, file, caller_start);
             } else if o == OPERAND {
