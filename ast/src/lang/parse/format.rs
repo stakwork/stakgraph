@@ -839,6 +839,7 @@ impl Lang {
                 let founds = graph.find_nodes_by_name(NodeType::Class, &body);
                 if founds.len() == 1 {
                     class_call = Some(founds[0].clone());
+                    call_name_and_point = Some((body, node.start_position()));
                 }
             } else if o == FUNCTION_CALL {
                 fc.source = NodeKeys::new(&caller_name, file, caller_start);

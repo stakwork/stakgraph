@@ -557,6 +557,9 @@ impl Stack for ReactTs {
                         )
                     ]
                 )
+                (
+                    new_expression (identifier) @{CLASS_NAME}
+                )
                 [
                     (jsx_element
                         open_tag: (jsx_opening_element
@@ -567,9 +570,6 @@ impl Stack for ReactTs {
                         name: (identifier) @{FUNCTION_NAME}
                     )
                 ]
-                (
-                    new_expression (identifier) @{CLASS_NAME}
-                )
             ] @{FUNCTION_CALL}"
         )
     }

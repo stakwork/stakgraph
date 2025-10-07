@@ -37,7 +37,9 @@ impl Graph for BTreeMapGraph {
         }
 
         for (src_key, dst_key, edge_type) in &self.edges {
+            // if matches!(edge_type, EdgeType::Calls) {
             println!("Edge: {} - {:?} -> {}", src_key, edge_type, dst_key);
+            // }
         }
     }
 
