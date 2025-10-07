@@ -333,4 +333,27 @@ impl Stack for TypeScript {
 
         path
     }
+     fn is_test_file(&self, file_name: &str) -> bool {
+        file_name.contains("__tests__")
+            || file_name.ends_with(".test.ts")
+            || file_name.ends_with(".test.tsx")
+            || file_name.ends_with(".test.jsx")
+            || file_name.ends_with(".test.js")
+            || file_name.ends_with(".e2e.ts")
+            || file_name.ends_with(".e2e.tsx")
+            || file_name.ends_with(".e2e.jsx")
+            || file_name.ends_with(".e2e.js")
+            || file_name.ends_with(".spec.ts")
+            || file_name.ends_with(".spec.tsx")
+            || file_name.ends_with(".spec.jsx")
+            || file_name.ends_with(".spec.js")
+    }
+
+    fn is_test(&self, _func_name: &str, func_file: &str) -> bool {
+        if self.is_test_file(func_file) {
+            true
+        } else {
+            false
+        }
+    }
 }
