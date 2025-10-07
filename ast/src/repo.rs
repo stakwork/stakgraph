@@ -18,6 +18,13 @@ use walkdir::{DirEntry, WalkDir};
 
 const CONF_FILE_PATH: &str = ".ast.json";
 
+pub struct PackageInfo {
+    pub path: PathBuf,
+    pub relative_path: String,
+    pub lang: Lang,
+    pub lsp_tx: Option<CmdSender>,
+}
+
 pub async fn clone_repo(
     url: &str,
     path: &str,
@@ -45,12 +52,13 @@ pub async fn clone_repo(
 
 pub struct Repo {
     pub url: String,
-    pub root: PathBuf, // the absolute path to the repo (/tmp/stakwork/hive)
+    pub root: PathBuf,
     pub lang: Lang,
     pub lsp_tx: Option<CmdSender>,
     pub files_filter: Vec<String>,
     pub revs: Vec<String>,
     pub status_tx: Option<Sender<StatusUpdate>>,
+    pub workspace_packages: Vec<PackageInfo>,
 }
 
 pub struct Repos(pub Vec<Repo>);
@@ -163,6 +171,7 @@ impl Repo {
             files_filter,
             revs,
             status_tx: None,
+            workspace_packages: Vec::new(),
         })
     }
     pub async fn new_clone_multi_detect(
@@ -233,7 +242,7 @@ impl Repo {
         let enable_workspace = std::env::var("WORKSPACE_DETECT")
             .unwrap_or_else(|_| "false".to_string()) == "true";
         
-        if enable_workspace {
+        if enable_workspace && lsp::workspace::is_workspace(root) {
             let workspace_packages = lsp::workspace::find_workspace_packages(root);
             if !workspace_packages.is_empty() {
                 info!("Detected workspace with {} packages", workspace_packages.len());
@@ -241,14 +250,29 @@ impl Repo {
                 
                 for package_path in workspace_packages {
                     info!("Processing workspace package: {}", package_path);
-                    let package_repos = Box::pin(Self::new_multi_detect(
-                        &package_path,
-                        url.clone(),
-                        files_filter.clone(),
-                        revs.clone(),
-                        use_lsp,
-                    )).await?;
-                    all_repos.extend(package_repos.0);
+                    
+                    let detected_lang = Language::detect_from_package(&package_path)
+                        .ok_or_else(|| Error::Custom(format!("No language detected for package: {}", package_path)))?;
+                    
+                    let lang = Lang::from_language(detected_lang);
+                    
+                    for cmd in lang.kind.post_clone_cmd() {
+                        Self::run_cmd(&cmd, &package_path)?;
+                    }
+                    
+                    let lsp_enabled = use_lsp.unwrap_or_else(|| lang.kind.default_do_lsp());
+                    let lsp_tx = Self::start_lsp(&package_path, &lang, lsp_enabled)?;
+                    
+                    all_repos.push(Repo {
+                        url: url.clone().unwrap_or_default(),
+                        root: package_path.into(),
+                        lang,
+                        lsp_tx,
+                        files_filter: files_filter.clone(),
+                        revs: revs.clone(),
+                        status_tx: None,
+                        workspace_packages: Vec::new(),
+                    });
                 }
                 
                 return Ok(Repos(all_repos));
@@ -281,7 +305,6 @@ impl Repo {
                 found_pkg_file
             });
             if has_pkg_file {
-                // Don't add duplicate languages
                 if !detected_langs.iter().any(|lang| lang == &l) {
                     detected_langs.push(l);
                 }
@@ -312,21 +335,21 @@ impl Repo {
                 root
             )));
         }
-        // Then, set up each repository with LSP
+        
         let mut repos: Vec<Repo> = Vec::new();
         for l in filtered_langs {
             let thelang = Lang::from_language(l);
-            // Run post-clone commands
+            
             for cmd in thelang.kind.post_clone_cmd() {
                 Self::run_cmd(&cmd, &root).map_err(|e| {
                     Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
                 })?;
             }
-            // Start LSP server
+            
             let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
             let lsp_tx = Self::start_lsp(&root, &thelang, lsp_enabled)
                 .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
-            // Add to repositories
+            
             repos.push(Repo {
                 url: url.clone().map(|u| u.into()).unwrap_or_default(),
                 root: root.into(),
@@ -335,6 +358,7 @@ impl Repo {
                 files_filter: files_filter.clone(),
                 revs: revs.clone(),
                 status_tx: None,
+                workspace_packages: Vec::new(),
             });
         }
         println!("REPOS!!! {:?}", repos);
@@ -371,6 +395,7 @@ impl Repo {
             files_filter,
             revs,
             status_tx: None,
+            workspace_packages: Vec::new(),
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
@@ -581,6 +606,7 @@ impl Repo {
             files_filter,
             revs: Vec::new(),
             status_tx: None,
+            workspace_packages: Vec::new(),
         })
     }
 }

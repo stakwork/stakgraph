@@ -173,6 +173,21 @@ pub fn find_workspace_packages(root: &str) -> Vec<String> {
     expand_patterns(root, patterns)
 }
 
+pub fn get_relative_path(root: &str, full_path: &str) -> String {
+    let root_path = Path::new(root);
+    let full = Path::new(full_path);
+    
+    if let Ok(rel) = full.strip_prefix(root_path) {
+        rel.to_str().unwrap_or("").to_string()
+    } else {
+        full_path.to_string()
+    }
+}
+
+pub fn is_workspace(root: &str) -> bool {
+    detect_workspace_type(root).is_some()
+}
+
 pub fn has_framework_dependency(root: &str, lang: &Language) -> bool {
     let package_json = Path::new(root).join("package.json");
     if !package_json.exists() {

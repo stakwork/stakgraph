@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::str::FromStr;
-
+use std::path::Path;
+use std::fs;
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub enum Language {
     Bash,
@@ -355,6 +356,57 @@ impl Language {
         for lang in PROGRAMMING_LANGUAGES.iter() {
             if lang.exts().iter().any(|e| e.eq_ignore_ascii_case(&ext)) {
                 return Some(lang.clone());
+            }
+        }
+        None
+    }
+
+    pub fn parse_package_name(&self, package_root: &str) -> Result<String> {
+        match self {
+            Self::Typescript | Self::React | Self::Svelte | Self::Angular => {
+                let pkg_json = Path::new(package_root).join("package.json");
+                if pkg_json.exists() {
+                    let content = fs::read_to_string(&pkg_json)?;
+                    let json: serde_json::Value = serde_json::from_str(&content)
+                        .map_err(|e| Error::Custom(format!("Failed to parse package.json: {}", e)))?;
+                    if let Some(name) = json.get("name").and_then(|v| v.as_str()) {
+                        return Ok(name.to_string());
+                    }
+                }
+                Self::dir_name_fallback(package_root)
+            }
+            Self::Rust => {
+                let cargo_toml = Path::new(package_root).join("Cargo.toml");
+                if cargo_toml.exists() {
+                    let content = fs::read_to_string(&cargo_toml)?;
+                    let toml: toml::Value = toml::from_str(&content)
+                        .map_err(|e| Error::Custom(format!("Failed to parse Cargo.toml: {}", e)))?;
+                    if let Some(package) = toml.get("package") {
+                        if let Some(name) = package.get("name").and_then(|v| v.as_str()) {
+                            return Ok(name.to_string());
+                        }
+                    }
+                }
+                Self::dir_name_fallback(package_root)
+            }
+            _ => Self::dir_name_fallback(package_root)
+        }
+    }
+
+    fn dir_name_fallback(path: &str) -> Result<String> {
+        Ok(Path::new(path)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string())
+    }
+
+    pub fn detect_from_package(package_path: &str) -> Option<Self> {
+        for lang in PROGRAMMING_LANGUAGES.iter() {
+            for pkg_file in lang.pkg_files() {
+                if Path::new(package_path).join(pkg_file).exists() {
+                    return Some(lang.clone());
+                }
             }
         }
         None
