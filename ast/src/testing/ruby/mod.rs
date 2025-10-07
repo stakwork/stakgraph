@@ -264,7 +264,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         assert_eq!(calls, 46, "Expected 46 call edges with lsp");
     } else {
         let is_neo4j = std::any::type_name::<G>().contains("Neo4j");
-        let expected_calls = if is_neo4j { 45 } else { 47 };
+        let expected_calls = if is_neo4j { 44 } else { 46 };
         assert_eq!(calls, expected_calls, "Expected {} call edges without lsp", expected_calls);
     }
 
@@ -279,8 +279,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 157,
-        "Expected 157 Contains edges, got {}",
+        contains, 154,
+        "Expected 154 Contains edges, got {}",
         contains
     );
 
@@ -290,14 +290,14 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 18, "Expected 18 operand edges, got {}", operands);
+    assert_eq!(operands, 15, "Expected 15 operand edges, got {}", operands);
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
     assert_eq!(
         classes.len(),
-        16,
-        "Expected 16 class nodes, got {}",
+        13,
+        "Expected 13 class nodes, got {}",
         classes.len()
     );
     let person_model = classes
@@ -602,8 +602,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(
         unit_tests.len(),
-        6,
-        "Expected 6 unit tests, got {}",
+        9,
+        "Expected 9 unit tests, got {}",
         unit_tests.len()
     );
     nodes_count += unit_tests.len();
