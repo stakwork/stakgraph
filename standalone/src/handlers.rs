@@ -744,18 +744,27 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
             total_tests: s.total_tests,
             covered: s.covered,
             percent: s.percent,
+            total_lines: s.total_lines,
+            covered_lines: s.covered_lines,
+            line_percent: s.line_percent,
         }),
         integration_tests: totals.integration_tests.map(|s| CoverageStat {
             total: s.total,
             total_tests: s.total_tests,
             covered: s.covered,
             percent: s.percent,
+            total_lines: s.total_lines,
+            covered_lines: s.covered_lines,
+            line_percent: s.line_percent,
         }),
         e2e_tests: totals.e2e_tests.map(|s| CoverageStat {
             total: s.total,
             total_tests: s.total_tests,
             covered: s.covered,
             percent: s.percent,
+            total_lines: s.total_lines,
+            covered_lines: s.covered_lines,
+            line_percent: s.line_percent,
         }),
     }))
 }

@@ -1321,7 +1321,7 @@ pub fn query_nodes_with_count(
              is_covered: is_covered,
              test_count: test_count,
              body_length: size(n.body),
-             line_count: (n.end - n.start)
+             line_count: (n.end - n.start + 1)
          }}) AS all_items
          RETURN 
              size(all_items) AS total_count,

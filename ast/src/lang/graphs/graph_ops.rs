@@ -29,6 +29,9 @@ pub struct CoverageStat {
     pub total_tests: usize,
     pub covered: usize,
     pub percent: f64,
+    pub total_lines: usize,
+    pub covered_lines: usize,
+    pub line_percent: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -341,11 +344,37 @@ impl GraphOps {
             } else {
                 (covered_count as f64 / total_nodes.len() as f64) * 100.0
             };
+            
+            // Calculate line-based coverage
+            let total_lines: usize = total_nodes
+                .iter()
+                .map(|n| {
+                    n.end.saturating_sub(n.start) + 1
+                })
+                .sum();
+            
+            let covered_lines: usize = total_nodes
+                .iter()
+                .filter(|n| covered_set.contains(&format!("{}:{}:{}", n.name, n.file, n.start)))
+                .map(|n| {
+                    n.end.saturating_sub(n.start) + 1
+                })
+                .sum();
+            
+            let line_percent = if total_lines == 0 {
+                0.0
+            } else {
+                (covered_lines as f64 / total_lines as f64) * 100.0
+            };
+            
             Some(CoverageStat {
                 total: total_nodes.len(),
                 total_tests: total_tests.len(),
                 covered: covered_count,
                 percent: (percent * 100.0).round() / 100.0,
+                total_lines,
+                covered_lines,
+                line_percent: (line_percent * 100.0).round() / 100.0,
             })
         };
 

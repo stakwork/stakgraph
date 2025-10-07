@@ -105,6 +105,9 @@ pub struct CoverageStat {
     pub total_tests: usize,
     pub covered: usize,
     pub percent: f64,
+    pub total_lines: usize,
+    pub covered_lines: usize,
+    pub line_percent: f64,
 }
 
 /// Coverage report per test category.
