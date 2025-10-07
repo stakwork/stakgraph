@@ -18,10 +18,11 @@ use walkdir::{DirEntry, WalkDir};
 
 const CONF_FILE_PATH: &str = ".ast.json";
 
+#[derive(Clone)]
 pub struct PackageInfo {
     pub path: PathBuf,
     pub relative_path: String,
-    pub lang: Lang,
+    pub lang: Language,
     pub lsp_tx: Option<CmdSender>,
 }
 
@@ -59,6 +60,7 @@ pub struct Repo {
     pub revs: Vec<String>,
     pub status_tx: Option<Sender<StatusUpdate>>,
     pub workspace_packages: Vec<PackageInfo>,
+    pub workspace_root: Option<String>,
 }
 
 pub struct Repos(pub Vec<Repo>);
@@ -92,6 +94,47 @@ impl Repos {
             } else {
                 None
             };
+
+        let is_workspace = self.is_workspace_build();
+        
+        if is_workspace {
+            if let Some(workspace_root) = self.get_workspace_root() {
+                use crate::lang::{NodeData, NodeType, Edge};
+                
+                let first_repo = &self.0[0];
+                let repo_name = if !first_repo.url.is_empty() {
+                    let gurl = git_url_parse::GitUrl::parse(&first_repo.url)?;
+                    format!("{}/{}", gurl.owner.unwrap_or_default(), gurl.name)
+                } else {
+                    workspace_root.clone()
+                };
+                
+                let mut repo_data = NodeData::name_file(&repo_name, &workspace_root);
+                repo_data.add_source_link(&first_repo.url);
+                repo_data.meta.insert("workspace_type".to_string(), "detected".to_string());
+                
+                graph.add_node(NodeType::Repository, repo_data.clone());
+                
+                for repo in &self.0 {
+                    let pkg_name = extract_package_name(&repo.root, &repo.lang)?;
+                    let pkg_path_stripped = lsp::strip_tmp(&repo.root).display().to_string();
+                    let mut pkg_data = NodeData::name_file(&pkg_name, &pkg_path_stripped);
+                    pkg_data.meta.insert("language".to_string(), repo.lang.kind.to_string());
+                    
+                    graph.add_node(NodeType::Package, pkg_data.clone());
+                    
+                    graph.add_edge(Edge::contains(
+                        NodeType::Repository, &repo_data,
+                        NodeType::Package, &pkg_data
+                    ));
+                    
+                    let lang_data = NodeData::name_file(&repo.lang.kind.to_string(), "");
+                    graph.add_node(NodeType::Language, lang_data.clone());
+                    graph.add_edge(Edge::uses(pkg_data.clone().into(), &lang_data));
+                }
+            }
+        }
+        
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
             let subgraph = repo.build_graph_inner().await?;
@@ -126,6 +169,46 @@ impl Repos {
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
         Ok(graph)
     }
+
+    pub fn is_workspace_build(&self) -> bool {
+        self.0.len() > 1
+    }
+
+    pub fn get_workspace_root(&self) -> Option<String> {
+        if !self.is_workspace_build() {
+            return None;
+        }
+        
+        if let Some(first_repo) = self.0.first() {
+            if let Some(workspace_root) = &first_repo.workspace_root {
+                return Some(workspace_root.clone());
+            }
+        }
+        None
+    }
+}
+
+pub fn extract_package_name(root: &PathBuf, lang: &Lang) -> Result<String> {
+    let root_str = root.to_str().unwrap_or("");
+    lang.kind.parse_package_name(root_str)
+}
+
+pub fn get_workspace_root_from_repos(repos: &[Repo]) -> String {
+    if repos.is_empty() {
+        return String::new();
+    }
+    
+    if repos.len() == 1 {
+        return repos[0].root.display().to_string();
+    }
+    
+    if let Some(first_repo) = repos.first() {
+        if let Some(parent) = first_repo.root.parent() {
+            return parent.display().to_string();
+        }
+    }
+    
+    String::new()
 }
 
 // from the .ast.json file
@@ -172,6 +255,7 @@ impl Repo {
             revs,
             status_tx: None,
             workspace_packages: Vec::new(),
+            workspace_root: None,
         })
     }
     pub async fn new_clone_multi_detect(
@@ -239,14 +323,28 @@ impl Repo {
         revs: Vec<String>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
-        let enable_workspace = std::env::var("WORKSPACE_DETECT")
+        let disable_workspace = std::env::var("DISABLE_WORKSPACE")
             .unwrap_or_else(|_| "false".to_string()) == "true";
         
-        if enable_workspace && lsp::workspace::is_workspace(root) {
+        if !disable_workspace && lsp::workspace::is_workspace(root) {
             let workspace_packages = lsp::workspace::find_workspace_packages(root);
             if !workspace_packages.is_empty() {
                 info!("Detected workspace with {} packages", workspace_packages.len());
                 let mut all_repos: Vec<Repo> = Vec::new();
+                
+                let workspace_root = root.to_string();
+                let pkg_info_list: Vec<PackageInfo> = workspace_packages.iter().map(|pkg_path| {
+                    let relative_path = lsp::workspace::get_relative_path(&workspace_root, pkg_path);
+                    let lang = Language::detect_from_package(pkg_path).unwrap_or(Language::Typescript);
+                    let pkg_pathbuf: PathBuf = pkg_path.clone().into();
+                    let stripped_path = lsp::strip_tmp(&pkg_pathbuf);
+                    PackageInfo {
+                        path: stripped_path.to_path_buf(),
+                        relative_path,
+                        lang,
+                        lsp_tx: None,
+                    }
+                }).collect();
                 
                 for package_path in workspace_packages {
                     info!("Processing workspace package: {}", package_path);
@@ -271,7 +369,8 @@ impl Repo {
                         files_filter: files_filter.clone(),
                         revs: revs.clone(),
                         status_tx: None,
-                        workspace_packages: Vec::new(),
+                        workspace_packages: pkg_info_list.clone(),
+                        workspace_root: Some(workspace_root.clone()),
                     });
                 }
                 
@@ -359,6 +458,7 @@ impl Repo {
                 revs: revs.clone(),
                 status_tx: None,
                 workspace_packages: Vec::new(),
+                workspace_root: None,
             });
         }
         println!("REPOS!!! {:?}", repos);
@@ -396,6 +496,7 @@ impl Repo {
             revs,
             status_tx: None,
             workspace_packages: Vec::new(),
+            workspace_root: None,
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
@@ -607,6 +708,7 @@ impl Repo {
             revs: Vec::new(),
             status_tx: None,
             workspace_packages: Vec::new(),
+            workspace_root: None,
         })
     }
 }
