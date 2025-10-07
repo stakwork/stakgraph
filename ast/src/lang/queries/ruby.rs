@@ -253,8 +253,11 @@ impl Stack for Ruby {
         self.is_test_file(func_file)
     }
     fn is_test_file(&self, filename: &str) -> bool {
-        filename.ends_with("_spec.rb")
-    }
+    filename.ends_with("_spec.rb")          
+        || filename.ends_with("_test.rb")   
+        || filename.contains("/spec/")       
+        || filename.contains("/test/")
+}
     fn e2e_test_id_finder_string(&self) -> Option<String> {
         Some("get_by_test_id".to_string())
     }
