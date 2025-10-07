@@ -92,7 +92,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<()> {
         .unwrap();
 
     let app_body = format!(
-        r#"import React from "react";
+        r#"import React, {{useEffect}} from "react";
 import {{ BrowserRouter as Router, Route, Routes }} from "react-router-dom";
 import "./App.css";
 import People from "./components/People";
@@ -136,10 +136,29 @@ import NewPerson from "./components/NewPerson";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 21, "Expected 21 functions/components");
+        assert_eq!(functions.len(), 22, "Expected 21 functions/components");
     } else {
-        assert_eq!(functions.len(), 16, "Expected 16 functions/components");
+        assert_eq!(functions.len(), 17, "Expected 16 functions/components");
     }
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += classes.len();
+    assert_eq!(classes.len(), 1, "Expected 1 class");
+
+    let class = classes
+        .iter()
+        .find(|c| c.name == "TestThing")
+        .expect("TestThing class not found");
+    assert_eq!(
+        normalize_path(&class.file),
+        "src/testing/react/src/App.tsx",
+        "TestThing class file path is incorrect"
+    );
+    assert_eq!(
+        class.body.contains("constructor"),
+        true,
+        "TestThing class should have a constructor"
+    );
 
     let mut sorted_functions = functions.clone();
     sorted_functions.sort_by(|a, b| a.name.cmp(&b.name));
@@ -487,18 +506,22 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 68,
-        "Expected 68 contains edges, got {}",
+        contains_edges_count, 70,
+        "Expected 70 contains edges, got {}",
         contains_edges_count
     );
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
-    assert_eq!(calls, 12, "Expected 12 calls edges");
+    assert_eq!(calls, 13, "Expected 13 calls edges");
 
     let imports = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imports;
     assert_eq!(imports, 5, "Expected 5 imports edges");
+
+    let operand_edges = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operand_edges;
+    assert_eq!(operand_edges, 1, "Expected 1 operand edges");
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes_count += file_nodes.len();

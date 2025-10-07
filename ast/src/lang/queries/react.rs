@@ -557,6 +557,9 @@ impl Stack for ReactTs {
                         )
                     ]
                 )
+                (
+                    new_expression (identifier) @{CLASS_NAME}
+                )
                 [
                     (jsx_element
                         open_tag: (jsx_opening_element
@@ -614,7 +617,7 @@ impl Stack for ReactTs {
                 return Some(v.clone());
             }
         }
-        
+
         if inst.meta.get("verb").is_none() {
             inst.add_verb("GET");
         }

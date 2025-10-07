@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useEffect} from "react";
 import { BrowserRouter as Router, Route, Routes } from "react-router-dom";
 import "./App.css";
 import People from "./components/People";
@@ -13,7 +13,16 @@ enum APP_NAMES{
 export const AppName: string = APP_NAMES.MyReactApp;
 export const hostPort: string = "http://localhost:5002";
 
+class TestThing() {
+  constructor() {
+    super();
+  }
+}
+
 function App() {
+
+  const testThing = new TestThing();
+
   return (
     <div className="App">
       <header className="App-header">

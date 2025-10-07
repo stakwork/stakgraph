@@ -41,7 +41,7 @@ pub type Function = (
     Option<Edge>,
     Vec<Edge>,
 );
-// Calls, args, external function (from library or std), call another Class
+// Calls, external function (from library or std), Class calls another Class
 pub type FunctionCall = (Calls, Option<NodeData>, Option<NodeData>);
 
 struct FunctionComment {
