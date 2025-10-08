@@ -130,6 +130,16 @@ impl GraphOps {
             );
 
             if !modified_files.is_empty() {
+                let mut all_dynamic_edges = Vec::new();
+                
+                for file in &modified_files {
+                    let dynamic_edges = self.graph.get_dynamic_edges_for_file(file).await?;
+                    if !dynamic_edges.is_empty() {
+                        info!("Found {} dynamic edges for file: {}", dynamic_edges.len(), file);
+                        all_dynamic_edges.extend(dynamic_edges);
+                    }
+                }
+
                 for file in &modified_files {
                     self.graph.remove_nodes_by_file(file).await?;
                 }
@@ -156,6 +166,11 @@ impl GraphOps {
                     "[DEBUG]  Graph  AFTER build {} nodes, {} edges",
                     nodes_after_reassign, edges_after_reassign
                 );
+
+                if !all_dynamic_edges.is_empty() {
+                    let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
+                    info!("Restored {} dynamic edges after rebuild", restored_count);
+                }
             }
             info!("Setting Data_Bank property for nodes missing it...");
             if let Err(e) = self.graph.set_missing_data_bank().await {
