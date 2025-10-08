@@ -287,12 +287,12 @@ impl Neo4jGraph {
         let mut edges = Vec::new();
         let mut result = connection.execute(query_obj).await?;
         while let Some(row) = result.next().await? {
-            if let (Ok(source_key), Ok(edge_type), Ok(target_key)) = (
-                row.get::<String>("source_key"),
+            if let (Ok(source_ref_id), Ok(edge_type), Ok(target_key)) = (
+                row.get::<String>("source_ref_id"),
                 row.get::<String>("edge_type"),
                 row.get::<String>("target_key"),
             ) {
-                edges.push((source_key, edge_type, target_key));
+                edges.push((source_ref_id, edge_type, target_key));
             }
         }
         Ok(edges)
@@ -306,8 +306,8 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut restored_count = 0;
 
-        for (source_key, edge_type, target_key) in edges {
-            let (query_str, params) = restore_dynamic_edge_query(&source_key, &edge_type, &target_key);
+        for (source_ref_id, edge_type, target_key) in edges {
+            let (query_str, params) = restore_dynamic_edge_query(&source_ref_id, &edge_type, &target_key);
             let mut query_obj = query(&query_str);
             for (k, v) in params.value.iter() {
                 query_obj = query_obj.param(k.value.as_str(), v.clone());
@@ -320,7 +320,7 @@ impl Neo4jGraph {
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to restore edge {} -> {} -> {}: {}", source_key, edge_type, target_key, e);
+                    debug!("Failed to restore edge {} -> {} -> {}: {}", source_ref_id, edge_type, target_key, e);
                 }
             }
         }

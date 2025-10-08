@@ -1381,21 +1381,21 @@ pub fn find_dynamic_edges_for_file_query(file: &str) -> (String, BoltMap) {
         "MATCH (source)-[r]->(target)
          WHERE target.file = $file 
          AND NOT ({})
-         RETURN source.node_key as source_key, type(r) as edge_type, target.node_key as target_key",
+         RETURN source.ref_id as source_ref_id, type(r) as edge_type, target.node_key as target_key",
         static_labels
     );
 
     (query, params)
 }
 
-pub fn restore_dynamic_edge_query(source_key: &str, edge_type: &str, target_key: &str) -> (String, BoltMap) {
+pub fn restore_dynamic_edge_query(source_ref_id: &str, edge_type: &str, target_key: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "source_key", source_key);
+    boltmap_insert_str(&mut params, "source_ref_id", source_ref_id);
     boltmap_insert_str(&mut params, "edge_type", edge_type);
     boltmap_insert_str(&mut params, "target_key", target_key);
 
     let query = format!(
-        "MATCH (source {{node_key: $source_key}})
+        "MATCH (source {{ref_id: $source_ref_id}})
          MATCH (target {{node_key: $target_key}})
          MERGE (source)-[r:{}]->(target)
          RETURN r",
