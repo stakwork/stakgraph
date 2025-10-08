@@ -1179,13 +1179,6 @@ pub fn data_bank_bodies_query_no_embeddings(
     .to_string();
     (query, params)
 }
-// pub fn bulk_update_embeddings_query() -> String {
-//     r#"
-//     UNWIND $batch as item
-//     MATCH (n:Data_Bank {node_key: item.node_key})
-//     SET n.embeddings = item.embeddings
-//     "#.to_string()
-// }
 pub fn update_embedding_query(node_key: &str, embedding: &[f32]) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "node_key", node_key);
@@ -1368,4 +1361,46 @@ pub fn set_default_namespace_query() -> String {
         RETURN count(n) as updated_count
     "#
     .to_string()
+}
+pub fn find_dynamic_edges_for_file_query(file: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "file", file);
+
+    let static_types = vec![
+        "Repository", "Package", "Language", "Directory", "File", "Import", "Library",
+        "Class", "Trait", "Instance", "Function", "Endpoint", "Request", "Datamodel",
+        "Feature", "Page", "Var", "UnitTest", "IntegrationTest", "E2etest"
+    ];
+    
+    let static_labels = static_types.iter()
+        .map(|t| format!("source:{}", t))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+
+    let query = format!(
+        "MATCH (source)-[r]->(target)
+         WHERE target.file = $file 
+         AND NOT ({})
+         RETURN source.ref_id as source_ref_id, type(r) as edge_type, target.node_key as target_key",
+        static_labels
+    );
+
+    (query, params)
+}
+
+pub fn restore_dynamic_edge_query(source_ref_id: &str, edge_type: &str, target_key: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "source_ref_id", source_ref_id);
+    boltmap_insert_str(&mut params, "edge_type", edge_type);
+    boltmap_insert_str(&mut params, "target_key", target_key);
+
+    let query = format!(
+        "MATCH (source {{ref_id: $source_ref_id}})
+         MATCH (target {{node_key: $target_key}})
+         MERGE (source)-[r:{}]->(target)
+         RETURN r",
+        edge_type
+    );
+
+    (query, params)
 }
