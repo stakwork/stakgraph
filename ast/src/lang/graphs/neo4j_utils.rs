@@ -1361,7 +1361,7 @@ pub fn set_missing_data_bank_query() -> String {
 pub fn set_default_namespace_query() -> String {
     r#"
         MATCH (n)
-        WHERE n.namespace IS NULL
+        WHERE n.namespace IS NULL AND NOT n:Schema
         SET n.namespace = "default"
         RETURN count(n) as updated_count
     "#
