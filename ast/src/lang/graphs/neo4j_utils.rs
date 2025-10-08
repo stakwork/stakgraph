@@ -1351,8 +1351,18 @@ pub fn query_nodes_with_count(
 pub fn set_missing_data_bank_query() -> String {
     r#"
         MATCH (n)
-        WHERE n.Data_Bank IS NULL AND n.name IS NOT NULL
+        WHERE n.Data_Bank IS NULL AND n.name IS NOT NULL AND NOT n:Schema
         SET n.Data_Bank = n.name
+        RETURN count(n) as updated_count
+    "#
+    .to_string()
+}
+
+pub fn set_default_namespace_query() -> String {
+    r#"
+        MATCH (n)
+        WHERE n.namespace IS NULL AND NOT n:Schema
+        SET n.namespace = "default"
         RETURN count(n) as updated_count
     "#
     .to_string()

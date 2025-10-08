@@ -161,6 +161,16 @@ impl GraphOps {
                     nodes_after_reassign, edges_after_reassign
                 );
             }
+            info!("Setting Data_Bank property for nodes missing it...");
+            if let Err(e) = self.graph.set_missing_data_bank().await {
+                tracing::warn!("Error setting Data_Bank property: {:?}", e);
+            }
+
+            info!("Setting default namespace for nodes missing it...");
+            if let Err(e) = self.graph.set_default_namespace().await {
+                tracing::warn!("Error setting default namespace: {:?}", e);
+            }
+
             self.graph
                 .update_repository_hash(repo_url, current_hash)
                 .await?;
@@ -179,6 +189,20 @@ impl GraphOps {
             .await?;
 
             let _graph = repos.build_graphs_inner::<Neo4jGraph>().await?;
+
+            info!("Setting Data_Bank property for nodes missing it...");
+            if let Err(e) = self.graph.set_missing_data_bank().await {
+                tracing::warn!("Error setting Data_Bank property: {:?}", e);
+            }
+
+            info!("Setting default namespace for nodes missing it...");
+            if let Err(e) = self.graph.set_default_namespace().await {
+                tracing::warn!("Error setting default namespace: {:?}", e);
+            }
+
+            self.graph
+                .update_repository_hash(repo_url, current_hash)
+                .await?;
         }
 
         self.graph.get_graph_size_async().await
@@ -220,6 +244,11 @@ impl GraphOps {
         info!("Setting Data_Bank property for nodes missing it...");
         if let Err(e) = self.graph.set_missing_data_bank().await {
             tracing::warn!("Error setting Data_Bank property: {:?}", e);
+        }
+
+        info!("Setting default namespace for nodes missing it...");
+        if let Err(e) = self.graph.set_default_namespace().await {
+            tracing::warn!("Error setting default namespace: {:?}", e);
         }
 
         self.graph
@@ -443,6 +472,10 @@ impl GraphOps {
 
     pub async fn set_missing_data_bank(&mut self) -> Result<u32> {
         self.graph.set_missing_data_bank().await
+    }
+
+    pub async fn set_default_namespace(&mut self) -> Result<u32> {
+        self.graph.set_default_namespace().await
     }
 
     pub async fn embed_data_bank_bodies(&mut self, do_files: bool) -> Result<()> {

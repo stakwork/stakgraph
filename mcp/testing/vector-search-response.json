@@ -2,6 +2,7 @@
   {
     "node": {
       "Data_Bank": "NewRouter",
+      "namespace": "default",
       "name": "NewRouter",
       "file": "stakwork/demo-repo/routes.go",
       "body": "func NewRouter() *http.Server {\n\tr := initChi()\n\n\tr.Group(func(r chi.Router) {\n\t\tr.Get(\"/person/{id}\", GetPerson)\n\t\tr.Post(\"/person\", CreatePerson)\n\t\tr.Get(\"/people\", GetPeople)\n\t})\n\n\tPORT := os.Getenv(\"PORT\")\n\tif PORT == \"\" {\n\t\tPORT = \"5002\"\n\t}\n\n\tserver := &http.Server{Addr: \":\" + PORT, Handler: r}\n\n\tgo func() {\n\t\tfmt.Printf(\"Listening on port %s\\n\", PORT)\n\t\tif err := server.ListenAndServe(); err != nil {\n\t\t\tfmt.Printf(\"server err: %s\\n\", err.Error())\n\t\t}\n\t}()\n\n\treturn server\n}",
