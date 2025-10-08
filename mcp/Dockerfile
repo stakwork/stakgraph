@@ -10,6 +10,26 @@ WORKDIR /usr/src/app
 RUN apt update
 RUN apt install -y sed git vim tree ripgrep
 
+# install Gitleaks (supports x64 and arm64)
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        GITLEAKS_URL="https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_x64.tar.gz"; \
+    elif [ "$ARCH" = "arm64" ]; then \
+        GITLEAKS_URL="https://github.com/gitleaks/gitleaks/releases/download/v8.28.0/gitleaks_8.28.0_linux_arm64.tar.gz"; \
+    else \
+        GITLEAKS_URL=""; \
+    fi && \
+    if [ -n "$GITLEAKS_URL" ]; then \
+        echo "Installing gitleaks for architecture: $ARCH" && \
+        wget -O /tmp/gitleaks.tar.gz "$GITLEAKS_URL" && \
+        tar -xzf /tmp/gitleaks.tar.gz -C /tmp && \
+        mv /tmp/gitleaks /usr/local/bin/gitleaks && \
+        chmod +x /usr/local/bin/gitleaks && \
+        rm /tmp/gitleaks.tar.gz; \
+    else \
+        echo "Skipping gitleaks install: unsupported architecture $ARCH"; \
+    fi
+
 RUN npx -y playwright install-deps
 RUN npx -y playwright install
 
