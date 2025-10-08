@@ -1011,6 +1011,7 @@ fn unique_functions_filters() -> Vec<String> {
         "NOT (:Endpoint)-[:HANDLER]->(n)".to_string(),
         "(n.component IS NULL OR n.component <> 'true')".to_string(),
         "n.operand IS NULL".to_string(),
+        "EXISTS(()-[:CALLS]->(n))".to_string(),
     ]
 }
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
