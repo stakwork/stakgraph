@@ -164,6 +164,7 @@ pub struct QueryNodesParams {
     pub body_length: Option<bool>,
     pub line_count: Option<bool>,
     pub ignore_dirs: Option<String>,
+    pub repo: Option<String>,
 }
 
 #[derive(Serialize)]
