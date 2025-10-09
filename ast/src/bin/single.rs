@@ -1,8 +1,27 @@
 use ast::lang::graphs::NodeType;
 use ast::lang::BTreeMapGraph;
+use ast::repo::Repo;
+use ast::Lang;
+use shared::{Error, Result};
+
+/// Limits text to 100 lines, with each line limited to 200 characters
+fn limit_output(text: &str) -> String {
+    text.lines()
+        .take(100)
+        .map(|line| {
+            if line.len() > 200 {
+                format!("{}...", &line[..200])
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 fn print_node_summary(node: &ast::lang::graphs::Node) {
     let nd = &node.node_data;
+    // println!("Node: {:?}", nd.name);
     match &node.node_type {
         NodeType::Function => {
             let lines = if nd.start != nd.end {
@@ -21,7 +40,11 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
             println!("Endpoint: {} {}", verb, nd.name);
         }
         NodeType::DataModel | NodeType::Import | NodeType::Request => {
-            println!("{}: \n{}", node.node_type.to_string(), nd.body);
+            println!(
+                "{}: \n{}",
+                node.node_type.to_string(),
+                limit_output(&nd.body)
+            );
         }
         NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => {
             println!("Test: {}", nd.name);
@@ -50,14 +73,10 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     }
     Ok(())
 }
-use ast::repo::Repo;
-use ast::utils::logger;
-use ast::Lang;
-use shared::{Error, Result};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    logger();
+    // logger();
     let mut args = std::env::args().skip(1);
     let file_path = args
         .next()
@@ -71,9 +90,10 @@ async fn main() -> Result<()> {
     let lang = match language {
         Some(lang) => Lang::from_language(lang),
         None => {
-            return Err(Error::Custom(
-                "Could not determine language from file extension".into(),
-            ))
+            // If language cannot be determined, output limited file contents
+            let contents = std::fs::read_to_string(&file_path)?;
+            println!("{}", limit_output(&contents));
+            return Ok(());
         }
     };
     let repo = Repo::from_single_file(&file_path, lang)?;

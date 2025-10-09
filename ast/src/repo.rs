@@ -405,7 +405,7 @@ impl Repo {
     }
     pub fn collect_dirs_with_tmp(&self) -> Result<Vec<PathBuf>> {
         let conf = self.merge_config_with_lang();
-        println!("==>>ROOT: {:?}", self.root);
+        info!("==>>ROOT: {:?}", self.root);
         let dirs = walk_dirs(&self.root, &conf)?;
         Ok(dirs)
     }
