@@ -12,7 +12,7 @@ import dotenv from "dotenv";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
-import { get_leaks } from "./repo/gitleaks.js";
+import { get_leaks, repo_agent } from "./repo/index.js";
 
 dotenv.config();
 
@@ -86,6 +86,7 @@ app.get("/agent", r.gitsee_agent);
 app.post("/gitsee", r.gitsee);
 app.get("/progress", r.get_script_progress);
 app.get("/leaks", get_leaks);
+app.post("/repo/agent", repo_agent);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (req: Request, res: Response): void => {
