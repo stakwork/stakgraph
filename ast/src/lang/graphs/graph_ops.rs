@@ -277,7 +277,18 @@ impl GraphOps {
         self.graph.ensure_connected().await?;
 
         let in_scope = |n: &NodeData| {
-            let repo_match = repo.map_or(true, |r| n.file.starts_with(r));
+            let repo_match = if let Some(r) = repo {
+                if r.is_empty() || r == "all" {
+                    true
+                } else if r.contains(',') {
+                    let repos: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
+                    repos.iter().any(|repo_path| n.file.starts_with(repo_path))
+                } else {
+                    n.file.starts_with(r)
+                }
+            } else {
+                true
+            };
             let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
             repo_match && not_ignored
         };
@@ -547,6 +558,7 @@ impl GraphOps {
         body_length: bool,
         line_count: bool,
         ignore_dirs: Vec<String>,
+        repo: Option<&str>,
     ) -> Result<(
         usize,
         Vec<(
@@ -571,6 +583,7 @@ impl GraphOps {
                 body_length,
                 line_count,
                 ignore_dirs,
+                repo,
             )
             .await)
     }
@@ -585,7 +598,20 @@ impl GraphOps {
         tests_filter: Option<&str>,
     ) -> Result<bool> {
         self.graph.ensure_connected().await?;
-        let in_scope = |n: &NodeData| root.map_or(true, |r| n.file.starts_with(r));
+        let in_scope = |n: &NodeData| {
+            if let Some(r) = root {
+                if r.is_empty() || r == "all" {
+                    true
+                } else if r.contains(',') {
+                    let roots: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
+                    roots.iter().any(|root_path| n.file.starts_with(root_path))
+                } else {
+                    n.file.starts_with(r)
+                }
+            } else {
+                true
+            }
+        };
 
         if node_type == NodeType::Function {
             let target = if let Some(s) = start {

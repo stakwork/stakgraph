@@ -1273,6 +1273,7 @@ pub fn query_nodes_with_count(
     body_length: bool,
     line_count: bool,
     ignore_dirs: Vec<String>,
+    repo: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1301,6 +1302,23 @@ pub fn query_nodes_with_count(
         _ => "",
     };
 
+    let repo_filter = if let Some(r) = repo {
+        if r.is_empty() || r == "all" {
+            String::new()
+        } else if r.contains(',') {
+            let repos: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
+            let conditions: Vec<String> = repos
+                .iter()
+                .map(|repo_path| format!("n.file STARTS WITH '{}'", repo_path))
+                .collect();
+            format!("AND ({})", conditions.join(" OR "))
+        } else {
+            format!("AND n.file STARTS WITH '{}'", r)
+        }
+    } else {
+        String::new()
+    };
+
     let ignore_dirs_filter = if !ignore_dirs.is_empty() {
         let conditions: Vec<String> = ignore_dirs
             .iter()
@@ -1313,7 +1331,7 @@ pub fn query_nodes_with_count(
 
     let query = format!(
         "MATCH (n:{})
-         WHERE {} {}
+         WHERE {} {} {}
          OPTIONAL MATCH (test)-[:CALLS]->(n) 
          WHERE {}
          WITH n, count(DISTINCT test) AS test_count
@@ -1334,6 +1352,7 @@ pub fn query_nodes_with_count(
              [item IN all_items | item][$offset..($offset + $limit)] AS items",
         node_type.to_string(),
         unique_functions_filters().join(" AND "),
+        repo_filter,
         ignore_dirs_filter,
         test_type_match,
         coverage_where,

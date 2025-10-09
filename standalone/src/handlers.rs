@@ -828,6 +828,7 @@ pub async fn nodes_handler(
             body_length,
             line_count,
             ignore_dirs,
+            params.repo.as_deref(),
         )
         .await?;
 
