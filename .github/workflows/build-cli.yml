@@ -1,0 +1,62 @@
+name: Build CLI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-cli:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+          # macOS
+          - target: x86_64-apple-darwin
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            archive: tar.gz
+          # Windows
+          - target: x86_64-pc-windows-gnu
+            archive: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - run: cross build --release --target ${{ matrix.target }} --bin stakgraph
+
+      - name: Package (Unix)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf stakgraph-${{ matrix.target }}.tar.gz stakgraph
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        run: |
+          cd target/${{ matrix.target }}/release
+          zip stakgraph-${{ matrix.target }}.zip stakgraph.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: stakgraph-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/stakgraph-${{ matrix.target }}.${{ matrix.archive }}
+
+  release:
+    needs: build-cli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: stakgraph-*/stakgraph-*.*

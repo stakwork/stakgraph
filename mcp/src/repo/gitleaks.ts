@@ -24,27 +24,6 @@ export interface GitLeakResult {
   Tags: string[];
 }
 
-export async function get_leaks(req: Request, res: Response) {
-  const repoUrl = req.query.repo_url as string;
-  const username = req.query.username as string | undefined;
-  const pat = req.query.pat as string | undefined;
-  const commit = req.query.commit as string | undefined;
-  const ignore = req.query.ignore as string | undefined;
-
-  const repoDir = await cloneOrUpdateRepo(repoUrl, username, pat, commit);
-
-  console.log(`===> GET /leaks ${repoDir}`);
-  try {
-    const ignoreList = ignore?.split(",").map((dir) => dir.trim()) || [];
-    const detect = gitleaksDetect(repoDir, ignoreList);
-    const protect = gitleaksProtect(repoDir, ignoreList);
-    res.json({ success: true, detect, protect });
-  } catch (e) {
-    console.error("Error running gitleaks:", e);
-    res.status(500).json({ error: "Error running gitleaks" });
-  }
-}
-
 const CMD_END =
   "--no-banner --no-color --log-level=fatal --report-format=json --report-path=-";
 
