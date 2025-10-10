@@ -46,7 +46,7 @@
     "node-cache": "^5.1.2",
     "simple-git": "^3.28.0",
     "uuid": "^11.1.0",
-    "zod": "4.0.17"
+    "zod": "4.1.12"
   },
   "devDependencies": {
     "@types/archy": "^0.0.36",

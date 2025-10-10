@@ -29,7 +29,7 @@
     "@ai-sdk/openai": "^2.0.19",
     "ai": "^5.0.57",
     "ai-sdk-provider-claude-code": "^1.1.0",
-    "zod": "^4.0.17"
+    "zod": "4.1.12"
   },
   "devDependencies": {
     "@types/json-schema": "^7.0.15",
