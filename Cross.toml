@@ -5,9 +5,21 @@ pre-build = [
     "apt-get update && apt-get install -y perl make cmake"
 ]
 
+[target.aarch64-unknown-linux-gnu.env]
+passthrough = [
+    "OPENSSL_STATIC=1",
+    "OPENSSL_NO_PKG_CONFIG=1"
+]
+
 [target.x86_64-unknown-linux-gnu]
 pre-build = [
     "apt-get update && apt-get install -y perl make cmake"
+]
+
+[target.x86_64-unknown-linux-gnu.env]
+passthrough = [
+    "OPENSSL_STATIC=1",
+    "OPENSSL_NO_PKG_CONFIG=1"
 ]
 
 [target.x86_64-pc-windows-gnu]
@@ -17,5 +29,6 @@ pre-build = [
 
 [target.x86_64-pc-windows-gnu.env]
 passthrough = [
-    "OPENSSL_STATIC=1"
+    "OPENSSL_STATIC=1",
+    "OPENSSL_NO_PKG_CONFIG=1"
 ]
