@@ -2,39 +2,20 @@ import { Request, Response } from "express";
 import { cloneOrUpdateRepo } from "./clone.js";
 import { generateText, hasToolCall, ModelMessage } from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
-import { get_tools } from "./tools.js";
-
+import { get_tools, ToolsConfig } from "./tools.js";
 /*
 curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
-*/
 
-export async function repo_agent(req: Request, res: Response) {
-  console.log("===> repo_agent", req.body);
-  try {
-    const repoUrl = req.body.repo_url as string;
-    const username = req.body.username as string | undefined;
-    const pat = req.body.pat as string | undefined;
-    const commit = req.body.commit as string | undefined;
-    const branch = req.body.branch as string | undefined;
-    const prompt = req.body.prompt as string | undefined;
-    if (!prompt) {
-      res.status(400).json({ error: "Missing prompt" });
-      return;
-    }
-
-    const repoDir = await cloneOrUpdateRepo(repoUrl, username, pat, commit);
-
-    console.log(`===> POST /repo/agent ${repoDir}`);
-
-    const final_answer = await get_context(prompt, repoDir, pat);
-
-    console.log("===> final_answer", final_answer);
-    res.json({ success: true, final_answer });
-  } catch (e) {
-    console.error("Error in repo_agent", e);
-    res.status(500).json({ error: "Internal server error" });
+curl -X POST -H "Content-Type: application/json" -d '{
+  "repo_url": "https://github.com/stakwork/hive",
+  "prompt": "how does auth work in the repo? I don'\''t need a detailed answer, just a high-level overview. ANSWER QUICKLY!",
+  "toolsConfig": {
+    "final_answer": "Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION. Please explore quickly, only read a couple files summaries. YOU MUST START THE FINAL ANSWER WITH 3 ROCKET EMOJIS!",
+    "repo_overview": "",
+    "file_summary": ""
   }
-}
+}' "http://localhost:3355/repo/agent"
+*/
 
 function logStep(contents: any) {
   if (!Array.isArray(contents)) return;
@@ -48,7 +29,8 @@ function logStep(contents: any) {
 export async function get_context(
   prompt: string | ModelMessage[],
   repoPath: string,
-  pat: string | undefined
+  pat: string | undefined,
+  toolsConfig?: ToolsConfig
 ): Promise<string> {
   const startTime = Date.now();
   const provider = process.env.LLM_PROVIDER || "anthropic";
@@ -56,7 +38,7 @@ export async function get_context(
   const model = await getModel(provider as Provider, apiKey as string);
   console.log("===> model", model);
 
-  const tools = get_tools(repoPath, apiKey, pat);
+  const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
   const system = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.`;
   const { steps } = await generateText({
     model,
