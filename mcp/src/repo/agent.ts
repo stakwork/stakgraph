@@ -25,6 +25,16 @@ curl -X POST \
   }' \
   "http://localhost:3355/repo/agent"
 
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "please call the web_search tool to make sure it works. Search for Evan Feenstra online. Then call final_answer to say the answer.",
+    "toolsConfig": {
+      "web_search": ""
+    }
+  }' \
+  "http://localhost:3355/repo/agent"
 */
 
 function logStep(contents: any) {

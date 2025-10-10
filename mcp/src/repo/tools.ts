@@ -199,7 +199,7 @@ export function get_tools(
     selectedTools.final_answer = allTools.final_answer;
   }
 
-  console.log("selectedTools", selectedTools);
+  console.log("selectedTools", Object.keys(selectedTools));
 
   return selectedTools;
 }
