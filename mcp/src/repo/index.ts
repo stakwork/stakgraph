@@ -1,6 +1,6 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { ToolsConfig } from "./tools.js";
+import { ToolsConfig, getDefaultToolDescriptions } from "./tools.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 
@@ -29,6 +29,17 @@ export async function repo_agent(req: Request, res: Response) {
     res.json({ success: true, final_answer });
   } catch (e) {
     console.error("Error in repo_agent", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+export async function get_agent_tools(req: Request, res: Response) {
+  console.log("===> GET /repo/agent/tools");
+  try {
+    const toolsConfig = getDefaultToolDescriptions();
+    res.json({ success: true, toolsConfig });
+  } catch (e) {
+    console.error("Error in get_agent_tools", e);
     res.status(500).json({ error: "Internal server error" });
   }
 }

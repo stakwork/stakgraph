@@ -1,6 +1,7 @@
 import { generateText, hasToolCall, ModelMessage } from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
+
 /*
 curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
 
@@ -50,7 +51,8 @@ export async function get_context(
   prompt: string | ModelMessage[],
   repoPath: string,
   pat: string | undefined,
-  toolsConfig?: ToolsConfig
+  toolsConfig?: ToolsConfig,
+  systemOverride?: string
 ): Promise<string> {
   const startTime = Date.now();
   const provider = process.env.LLM_PROVIDER || "anthropic";
@@ -59,7 +61,9 @@ export async function get_context(
   console.log("===> model", model);
 
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
-  const system = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.`;
+  const system =
+    systemOverride ||
+    `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.`;
   const { steps } = await generateText({
     model,
     tools,
