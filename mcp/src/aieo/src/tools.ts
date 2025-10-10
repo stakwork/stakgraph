@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { Provider } from "./provider.js";
 
-export type ProviderTool = "webSearch";
+export type ProviderTool = "webSearch" | "bash";
 
 export function getProviderTool(
   provider: Provider,
@@ -25,6 +25,8 @@ function getAnthropicTool(apiKey: string, toolName: ProviderTool) {
       return anthropic.tools.webSearch_20250305({
         maxUses: 3,
       });
+    case "bash":
+      return anthropic.tools.bash_20241022({});
     default:
       throw new Error(`Unsupported tool: ${toolName}`);
   }

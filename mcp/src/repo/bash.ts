@@ -3,7 +3,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 // Execute ripgrep commands with proper streaming
-function execCommand(
+function execRipgrepCommand(
   command: string,
   cwd: string,
   timeoutMs: number = 10000
@@ -101,7 +101,85 @@ function execCommand(
   });
 }
 
-// Get repository map using ripgrep --files
+// Execute any shell command with proper streaming
+function execShellCommand(
+  command: string,
+  cwd: string,
+  timeoutMs: number = 10000
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const process = spawn(command, {
+      cwd,
+      shell: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let resolved = false;
+
+    // Set up timeout
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        process.kill("SIGKILL");
+        resolved = true;
+        reject(new Error(`Command timed out after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
+
+    process.stdout.on("data", (data) => {
+      stdout += data.toString();
+
+      // Safety check: if output gets too large, kill process and resolve
+      if (stdout.length > 10000) {
+        process.kill("SIGKILL");
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          const truncated =
+            stdout.substring(0, 10000) +
+            "\n\n[... output truncated due to size limit ...]";
+          resolve(truncated);
+        }
+        return;
+      }
+    });
+
+    process.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    process.on("close", (code) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+
+        if (code === 0) {
+          if (stdout.length > 10000) {
+            const truncated =
+              stdout.substring(0, 10000) +
+              "\n\n[... output truncated to 10,000 characters ...]";
+            resolve(truncated);
+          } else {
+            resolve(stdout);
+          }
+        } else {
+          reject(new Error(`Command failed with code ${code}: ${stderr}`));
+        }
+      }
+    });
+
+    process.on("error", (error) => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+  });
+}
+
+// Get repository map
 export async function getRepoMap(repoPath: string): Promise<string> {
   if (!repoPath) {
     return "No repository path provided";
@@ -113,7 +191,7 @@ export async function getRepoMap(repoPath: string): Promise<string> {
 
   // "rg --files",
   try {
-    const result = await execCommand(
+    const result = await execShellCommand(
       "git ls-tree -r --name-only HEAD | tree -L 3 --fromfile",
       repoPath
     );
@@ -169,7 +247,7 @@ export async function fulltextSearch(
   }
 
   try {
-    const result = await execCommand(
+    const result = await execRipgrepCommand(
       `rg --glob '!dist' --ignore-file .gitignore -C 2 -n --max-count 10 --max-columns 200 "${query}"`,
       repoPath,
       5000
@@ -190,5 +268,27 @@ export async function fulltextSearch(
       return `No matches found for "${query}"`;
     }
     return `Error searching: ${error.message}`;
+  }
+}
+
+// Execute arbitrary bash command
+export async function executeBashCommand(
+  command: string,
+  repoPath: string,
+  timeoutMs?: number
+): Promise<string> {
+  if (!repoPath) {
+    return "No repository path provided";
+  }
+
+  if (!fs.existsSync(repoPath)) {
+    return "Repository not cloned yet";
+  }
+
+  try {
+    const result = await execShellCommand(command, repoPath, timeoutMs);
+    return result;
+  } catch (error: any) {
+    return `Error executing command: ${error.message}`;
   }
 }
