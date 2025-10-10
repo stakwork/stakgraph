@@ -145,9 +145,9 @@ export function get_tools(
     }),
   };
 
-  // Add web_search tool directly (Anthropic SDK tool)
+  // Add web_search tool directly (Anthropic SDK tool) with type assertion
   if (web_search_tool) {
-    allTools.web_search = web_search_tool;
+    allTools.web_search = web_search_tool as any as Tool<any, any>;
   }
 
   // Implement bash tool using our executeBashCommand
