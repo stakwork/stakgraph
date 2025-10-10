@@ -1,5 +1,7 @@
 ### build docs
 
+tsc --noEmit && npx tsx docs/gen-redoc.ts
+
 redocly build-docs docs/swagger.yaml --output docs/redoc-static.html
 
 # try it out
