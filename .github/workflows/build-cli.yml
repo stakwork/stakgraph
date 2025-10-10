@@ -49,13 +49,19 @@ jobs:
 
       - name: Build (native)
         if: ${{ !matrix.use-cross }}
+        env:
+          OPENSSL_STATIC: "1"
+          OPENSSL_NO_PKG_CONFIG: "1"
         run: cargo build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl
 
       - name: Build with cross
         if: matrix.use-cross
+        env:
+          OPENSSL_STATIC: "1"
+          OPENSSL_NO_PKG_CONFIG: "1"
         run: |
-          export OPENSSL_STATIC=1
-          cross build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl -v
+          echo "Building for target: ${{ matrix.target }}"
+          cross build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl -vv
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
