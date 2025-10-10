@@ -20,7 +20,7 @@ export function get_tools(
   apiKey: string,
   pat: string | undefined,
   toolsConfig?: ToolsConfig
-): Record<string, Tool> {
+) {
   const repoArr = repoPath.split("/");
   const repoOwner = repoArr[repoArr.length - 2];
   const repoName = repoArr[repoArr.length - 1];
