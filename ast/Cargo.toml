@@ -13,7 +13,7 @@ vendored-openssl = ["git2/vendored-openssl"]
 lsp = { path = "../lsp" }
 shared = { path = "../shared" }
 tokio = { version = "1.27.0", features = ["full"] }
-git2 = { version = "*", features = ["vendored-openssl"] }
+git2 = { version = "*", default-features = false}
 
 tree-sitter = "0.25.6"
 tree-sitter-rust = "0.23.0"
