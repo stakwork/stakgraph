@@ -1,16 +1,15 @@
 [target.x86_64-unknown-linux-musl]
 pre-build = [
-    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl make cmake"
+    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl make cmake gcc"
 ]
 
 [target.aarch64-unknown-linux-musl]
 pre-build = [
-    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl make cmake"
+    "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl make cmake gcc-aarch64-linux-gnu"
 ]
 
 [build.env]
 passthrough = [
     "OPENSSL_STATIC",
-    "OPENSSL_VENDORED", 
-    "OPENSSL_NO_PKG_CONFIG",
+    "OPENSSL_VENDORED",
 ]
