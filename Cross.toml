@@ -1,18 +1,2 @@
-# Configuration for cross-compiling with vendored OpenSSL
-
-[build.env]
-passthrough = [
-    "OPENSSL_STATIC",
-    "OPENSSL_NO_PKG_CONFIG",
-    "OPENSSL_VENDORED"
-]
-
-[target.aarch64-unknown-linux-gnu]
-pre-build = [
-    "apt-get update && apt-get install -y perl make cmake"
-]
-
-[target.x86_64-unknown-linux-gnu]
-pre-build = [
-    "apt-get update && apt-get install -y perl make cmake"
-]
+[target.x86_64-unknown-linux-musl]
+[target.aarch64-unknown-linux-musl]
