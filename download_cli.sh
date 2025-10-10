@@ -52,11 +52,11 @@ if [ "$OS" = "darwin" ]; then
   FILE="stakgraph-$TARGET.tar.gz"
   BINARY="stakgraph"
 elif [ "$OS" = "windows" ]; then
-  TARGET="x86_64-pc-windows-gnu"
+  TARGET="x86_64-pc-windows-msvc"
   FILE="stakgraph-$TARGET.zip"
   BINARY="stakgraph.exe"
 else
-  TARGET="$ARCH-unknown-linux-gnu"
+  TARGET="$ARCH-unknown-linux-musl"
   FILE="stakgraph-$TARGET.tar.gz"
   BINARY="stakgraph"
 fi
