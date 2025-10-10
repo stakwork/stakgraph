@@ -31,9 +31,12 @@ fn format_lines(start: usize, end: usize) -> String {
 fn print_node_summary(node: &ast::lang::graphs::Node) {
     let nd = &node.node_data;
 
-    // Build name (including verb if present, like "GET /api/users")
     let name = if let Some(verb) = nd.meta.get("verb") {
+        // Build name (including verb if present, like "GET /api/users")
         format!("{} {}", verb, nd.name)
+    } else if matches!(node.node_type, NodeType::Import) {
+        // skip Import node name
+        "".to_string()
     } else {
         nd.name.clone()
     };
@@ -56,7 +59,17 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
         };
 
         if body_lines > 0 && !nd.body.is_empty() {
-            let body_preview = first_lines(&nd.body, body_lines, 200);
+            let body = if matches!(node.node_type, NodeType::Import) {
+                // Remove empty lines from Import nodes
+                nd.body
+                    .lines()
+                    .filter(|line| !line.trim().is_empty())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                nd.body.clone()
+            };
+            let body_preview = first_lines(&body, body_lines, 200);
             println!("```\n{}\n```", body_preview);
         }
     }
@@ -71,16 +84,32 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     let file_path = std::fs::canonicalize(file_path)?
         .to_string_lossy()
         .to_string();
-    for node in graph.nodes.values() {
-        let node_file = std::fs::canonicalize(&node.node_data.file)
-            .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
-            .to_string_lossy()
-            .to_string();
-        if node_file == file_path {
-            print_node_summary(node);
-            println!(); // Add blank line between nodes
-        }
+
+    // Collect matching nodes
+    let mut nodes: Vec<_> = graph
+        .nodes
+        .values()
+        .filter(|node| {
+            if matches!(node.node_type, NodeType::File | NodeType::Directory) {
+                return false;
+            }
+            let node_file = std::fs::canonicalize(&node.node_data.file)
+                .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
+                .to_string_lossy()
+                .to_string();
+            node_file == file_path
+        })
+        .collect();
+
+    // Sort by start line
+    nodes.sort_by_key(|node| node.node_data.start);
+
+    // Print nodes in order
+    for node in nodes {
+        print_node_summary(node);
+        println!(); // Add blank line between nodes
     }
+
     Ok(())
 }
 
