@@ -21,6 +21,22 @@ type ToolName =
 
 export type ToolsConfig = Partial<Record<ToolName, string | null>>;
 
+const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
+  repo_overview:
+    "Get a high-level view of the codebase architecture and structure. Use this to understand the project layout and identify where specific functionality might be located. Call this when you need to: 1) Orient yourself in an unfamiliar codebase, 2) Locate which directories/files might contain relevant code for a user's question, 3) Understand the overall project structure before diving deeper. Don't call this if you already know which specific files you need to examine.",
+  file_summary:
+    "Get a summary of what a specific file contains and its role in the codebase. Use this when you have identified a potentially relevant file and need to understand: 1) What functions/components it exports, 2) What its main responsibility is, 3) Whether it's worth exploring further for the user's question. Only the first 40-100 lines of the file will be returned. Call this with a hypothesis like 'This file probably handles user authentication' or 'This looks like the main dashboard component'. Don't call this to browse random files.",
+  recent_commits:
+    "Query a repo for recent commits. The output is a list of recent commits.",
+  recent_contributions:
+    "Query a repo for recent PRs by a specific contributor. Input is the contributor's GitHub login. The output is a list of their most recent contributions, including PR titles, issue titles, commit messages, and code review comments.",
+  fulltext_search:
+    "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
+  web_search: "Search the web for information",
+  bash: "Execute bash commands",
+  final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
+};
+
 export function get_tools(
   repoPath: string,
   apiKey: string,
@@ -34,19 +50,9 @@ export function get_tools(
   const bash_tool = getProviderTool("anthropic", apiKey, "bash");
 
   const defaultDescriptions: Record<ToolName, string> = {
-    repo_overview:
-      "Get a high-level view of the codebase architecture and structure. Use this to understand the project layout and identify where specific functionality might be located. Call this when you need to: 1) Orient yourself in an unfamiliar codebase, 2) Locate which directories/files might contain relevant code for a user's question, 3) Understand the overall project structure before diving deeper. Don't call this if you already know which specific files you need to examine.",
-    file_summary:
-      "Get a summary of what a specific file contains and its role in the codebase. Use this when you have identified a potentially relevant file and need to understand: 1) What functions/components it exports, 2) What its main responsibility is, 3) Whether it's worth exploring further for the user's question. Only the first 40-100 lines of the file will be returned. Call this with a hypothesis like 'This file probably handles user authentication' or 'This looks like the main dashboard component'. Don't call this to browse random files.",
-    recent_commits:
-      "Query a repo for recent commits. The output is a list of recent commits.",
-    recent_contributions:
-      "Query a repo for recent PRs by a specific contributor. Input is the contributor's GitHub login. The output is a list of their most recent contributions, including PR titles, issue titles, commit messages, and code review comments.",
-    fulltext_search:
-      "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
-    web_search: web_search_tool?.description || "",
-    bash: bash_tool?.description || "",
-    final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
+    ...DEFAULT_DESCRIPTIONS,
+    web_search: web_search_tool?.description || DEFAULT_DESCRIPTIONS.web_search,
+    bash: bash_tool?.description || DEFAULT_DESCRIPTIONS.bash,
   };
 
   const allTools: Record<string, Tool<any, any>> = {
@@ -202,4 +208,8 @@ export function get_tools(
   console.log("selectedTools", Object.keys(selectedTools));
 
   return selectedTools;
+}
+
+export function getDefaultToolDescriptions(): ToolsConfig {
+  return DEFAULT_DESCRIPTIONS;
 }
