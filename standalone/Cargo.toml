@@ -8,6 +8,8 @@ shared = { path = "../shared", features = ["codecov"] }
 ast = { path = "../ast" , features = []}
 lsp = { path = "../lsp" }
 
+openssl = { version = "0.10", features = [] }
+
 serde = "1.0.210"
 serde_json = "1.0.129"
 tokio = { version = "1", features = ["macros"] }

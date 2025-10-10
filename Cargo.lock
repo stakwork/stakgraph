@@ -4443,6 +4443,7 @@ dependencies = [
  "hex",
  "hmac",
  "lsp",
+ "openssl",
  "reqwest",
  "serde",
  "serde_json",
