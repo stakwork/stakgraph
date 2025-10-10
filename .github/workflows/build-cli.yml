@@ -53,7 +53,9 @@ jobs:
 
       - name: Build with cross
         if: matrix.use-cross
-        run: cross build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl
+        run: |
+          export OPENSSL_STATIC=1
+          cross build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl -v
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
