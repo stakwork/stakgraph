@@ -137,9 +137,19 @@ export function get_tools(
     }),
   };
 
-  // Add web_search only if it exists
+  // Wrap web_search to make it compatible with the ai package's Tool type
   if (web_search_tool) {
-    allTools.web_search = web_search_tool as Tool<any, any>;
+    allTools.web_search = tool({
+      description:
+        web_search_tool.description || defaultDescriptions.web_search,
+      inputSchema: z.object({
+        query: z.string().describe("The search query"),
+      }),
+      execute: async ({ query }: { query: string }) => {
+        // Call the original web_search tool's execute function
+        return await (web_search_tool as any).execute({ query });
+      },
+    });
   }
 
   // If no config, return all tools
