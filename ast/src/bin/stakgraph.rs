@@ -4,57 +4,66 @@ use ast::repo::Repo;
 use ast::Lang;
 use shared::{Error, Result};
 
-/// Limits text to 100 lines, with each line limited to 200 characters
-fn limit_output(text: &str) -> String {
+/// Limits text to n lines, with each line limited to max_line_len characters
+fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
     text.lines()
-        .take(100)
+        .take(n)
         .map(|line| {
-            if line.len() > 200 {
-                format!("{}...", &line[..200])
+            if line.len() > max_line_len {
+                &line[..max_line_len]
             } else {
-                line.to_string()
+                line
             }
         })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
+/// Format line numbers as "start-end" or just "start" if single line
+fn format_lines(start: usize, end: usize) -> String {
+    if start != end {
+        format!("{}-{}", start + 1, end + 1)
+    } else {
+        format!("{}", start + 1)
+    }
+}
+
 fn print_node_summary(node: &ast::lang::graphs::Node) {
     let nd = &node.node_data;
-    // println!("Node: {:?}", nd.name);
-    match &node.node_type {
-        NodeType::Function => {
-            let lines = if nd.start != nd.end {
-                format!("lines {} - {}", nd.start + 1, nd.end + 1)
-            } else {
-                format!("line {}", nd.start + 1)
-            };
-            if let Some(interface) = nd.meta.get("interface") {
-                println!("Function: {}\n({})", interface, lines);
-            } else {
-                println!("Function: {} ({})", nd.name, lines);
-            }
+
+    // Build name (including verb if present, like "GET /api/users")
+    let name = if let Some(verb) = nd.meta.get("verb") {
+        format!("{} {}", verb, nd.name)
+    } else {
+        nd.name.clone()
+    };
+
+    let lines = format_lines(nd.start, nd.end);
+
+    // Always print: NodeType: name (lines)
+    println!("{}: {} ({})", node.node_type.to_string(), name, lines);
+
+    // Show interface if available, otherwise show body
+    if let Some(interface) = nd.meta.get("interface") {
+        println!("```\n{}\n```", interface);
+    } else {
+        // Determine how many lines of body to show based on node type
+        let body_lines = match node.node_type {
+            NodeType::Function | NodeType::Endpoint | NodeType::Var => 20,
+            NodeType::DataModel | NodeType::Import | NodeType::Request => 100,
+            NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => 0,
+            _ => 0,
+        };
+
+        if body_lines > 0 && !nd.body.is_empty() {
+            let body_preview = first_lines(&nd.body, body_lines, 200);
+            println!("```\n{}\n```", body_preview);
         }
-        NodeType::Endpoint => {
-            let verb = nd.meta.get("verb").map(|v| v.as_str()).unwrap_or("");
-            println!("Endpoint: {} {}", verb, nd.name);
-        }
-        NodeType::DataModel | NodeType::Import | NodeType::Request => {
-            println!(
-                "{}: \n{}",
-                node.node_type.to_string(),
-                limit_output(&nd.body)
-            );
-        }
-        NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => {
-            println!("Test: {}", nd.name);
-        }
-        NodeType::Directory => {
-            // skip directories in summary
-        }
-        _ => {
-            println!("{}: {}", node.node_type.to_string(), nd.name);
-        }
+    }
+
+    // Always print docs if available
+    if let Some(docs) = nd.meta.get("docs") {
+        println!("Docs: {}", first_lines(docs, 3, 200));
     }
 }
 
@@ -69,6 +78,7 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
             .to_string();
         if node_file == file_path {
             print_node_summary(node);
+            println!(); // Add blank line between nodes
         }
     }
     Ok(())
@@ -76,7 +86,6 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // logger();
     let mut args = std::env::args().skip(1);
     let file_path = args
         .next()
@@ -92,7 +101,7 @@ async fn main() -> Result<()> {
         None => {
             // If language cannot be determined, output limited file contents
             let contents = std::fs::read_to_string(&file_path)?;
-            println!("{}", limit_output(&contents));
+            println!("{}", first_lines(&contents, 40, 200));
             return Ok(());
         }
     };
