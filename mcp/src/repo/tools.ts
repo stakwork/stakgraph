@@ -1,6 +1,11 @@
 import { tool, Tool } from "ai";
 import { z } from "zod";
-import { getRepoMap, getFileSummary, fulltextSearch } from "./bash.js";
+import {
+  getRepoMap,
+  getFileSummary,
+  fulltextSearch,
+  executeBashCommand,
+} from "./bash.js";
 import { getProviderTool } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 
@@ -11,6 +16,7 @@ type ToolName =
   | "recent_contributions"
   | "fulltext_search"
   | "web_search"
+  | "bash"
   | "final_answer";
 
 export type ToolsConfig = Partial<Record<ToolName, string | null>>;
@@ -25,6 +31,7 @@ export function get_tools(
   const repoOwner = repoArr[repoArr.length - 2];
   const repoName = repoArr[repoArr.length - 1];
   const web_search_tool = getProviderTool("anthropic", apiKey, "webSearch");
+  const bash_tool = getProviderTool("anthropic", apiKey, "bash");
 
   const defaultDescriptions: Record<ToolName, string> = {
     repo_overview:
@@ -38,6 +45,7 @@ export function get_tools(
     fulltext_search:
       "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
     web_search: web_search_tool?.description || "",
+    bash: bash_tool?.description || "",
     final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
   };
 
@@ -137,17 +145,24 @@ export function get_tools(
     }),
   };
 
-  // Wrap web_search to make it compatible with the ai package's Tool type
+  // Add web_search tool directly (Anthropic SDK tool)
   if (web_search_tool) {
-    allTools.web_search = tool({
-      description:
-        web_search_tool.description || defaultDescriptions.web_search,
+    allTools.web_search = web_search_tool;
+  }
+
+  // Implement bash tool using our executeBashCommand
+  if (bash_tool) {
+    allTools.bash = tool({
+      description: bash_tool.description || defaultDescriptions.bash,
       inputSchema: z.object({
-        query: z.string().describe("The search query"),
+        command: z.string().describe("The bash command to execute"),
       }),
-      execute: async ({ query }: { query: string }) => {
-        // Call the original web_search tool's execute function
-        return await (web_search_tool as any).execute({ query });
+      execute: async ({ command }: { command: string }) => {
+        try {
+          return await executeBashCommand(command, repoPath);
+        } catch (e) {
+          return `Command execution failed: ${e}`;
+        }
       },
     });
   }
@@ -183,6 +198,8 @@ export function get_tools(
   if (!selectedTools.final_answer) {
     selectedTools.final_answer = allTools.final_answer;
   }
+
+  console.log("selectedTools", Object.keys(selectedTools));
 
   return selectedTools;
 }

@@ -1,5 +1,3 @@
-import { Request, Response } from "express";
-import { cloneOrUpdateRepo } from "./clone.js";
 import { generateText, hasToolCall, ModelMessage } from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
@@ -15,6 +13,28 @@ curl -X POST -H "Content-Type: application/json" -d '{
     "file_summary": ""
   }
 }' "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "please call the bash tool to make sure it works. List my docker containers currently running. Then call final_answer to say the answer.",
+    "toolsConfig": {
+      "bash": ""
+    }
+  }' \
+  "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "please call the web_search tool to make sure it works. Search for Evan Feenstra online. Then call final_answer to say the answer.",
+    "toolsConfig": {
+      "web_search": ""
+    }
+  }' \
+  "http://localhost:3355/repo/agent"
 */
 
 function logStep(contents: any) {
