@@ -30,10 +30,10 @@ jobs:
             build-on: macos-latest
             use-cross: false
           # Windows
-          - target: x86_64-pc-windows-gnu
+          - target: x86_64-pc-windows-msvc
             archive: zip
-            build-on: ubuntu-latest
-            use-cross: true
+            build-on: windows-latest
+            use-cross: false
 
     steps:
       - uses: actions/checkout@v4
@@ -60,9 +60,8 @@ jobs:
         env:
           OPENSSL_STATIC: "1"
           OPENSSL_NO_PKG_CONFIG: "1"
-        run: |
-          echo "Building for target: ${{ matrix.target }}"
-          cross build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl -vv
+          OPENSSL_VENDORED: "1"
+        run: cross build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
@@ -72,9 +71,10 @@ jobs:
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
+        shell: bash
         run: |
           cd target/${{ matrix.target }}/release
-          zip stakgraph-${{ matrix.target }}.zip stakgraph.exe
+          7z a stakgraph-${{ matrix.target }}.zip stakgraph.exe
 
       - uses: actions/upload-artifact@v4
         with:
