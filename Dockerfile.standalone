@@ -29,7 +29,7 @@ RUN mkdir -p ast/src lsp/src standalone/src shared/src && \
 # Build dependencies - disable defaults, use system-openssl
 RUN cargo build --release --bin standalone \
     --no-default-features \
-    --features "neo4j,system-openssl"
+    --features neo4j
 
 # Remove dummy files
 RUN rm -rf ast/src lsp/src standalone/src shared/src
@@ -45,7 +45,7 @@ COPY standalone/static standalone/static
 RUN touch ast/src/lib.rs lsp/src/lib.rs standalone/src/main.rs shared/src/lib.rs && \
     cargo build --release --bin standalone \
     --no-default-features \
-    --features "neo4j,system-openssl"
+    --features neo4j
 
 # Runtime stage
 FROM debian:bookworm-slim
