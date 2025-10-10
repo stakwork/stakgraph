@@ -26,7 +26,7 @@ function getAnthropicTool(apiKey: string, toolName: ProviderTool) {
         maxUses: 3,
       });
     case "bash":
-      return anthropic.tools.bash_20241022({});
+      return anthropic.tools.bash_20250124({});
     default:
       throw new Error(`Unsupported tool: ${toolName}`);
   }

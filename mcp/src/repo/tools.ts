@@ -145,28 +145,24 @@ export function get_tools(
     }),
   };
 
-  // Wrap web_search to make it compatible with the ai package's Tool type
+  // Add web_search tool directly (Anthropic SDK tool)
   if (web_search_tool) {
-    allTools.web_search = tool({
-      description:
-        web_search_tool.description || defaultDescriptions.web_search,
-      inputSchema: z.object({
-        query: z.string().describe("The search query"),
-      }),
-      execute: async ({ query }: { query: string }) => {
-        // Call the original web_search tool's execute function
-        return await (web_search_tool as any).execute({ query });
-      },
-    });
+    allTools.web_search = web_search_tool;
   }
+
+  // Implement bash tool using our executeBashCommand
   if (bash_tool) {
     allTools.bash = tool({
       description: bash_tool.description || defaultDescriptions.bash,
       inputSchema: z.object({
-        command: z.string().describe("The command to execute"),
+        command: z.string().describe("The bash command to execute"),
       }),
       execute: async ({ command }: { command: string }) => {
-        return executeBashCommand(command, repoPath);
+        try {
+          return await executeBashCommand(command, repoPath);
+        } catch (e) {
+          return `Command execution failed: ${e}`;
+        }
       },
     });
   }
@@ -202,6 +198,8 @@ export function get_tools(
   if (!selectedTools.final_answer) {
     selectedTools.final_answer = allTools.final_answer;
   }
+
+  console.log("selectedTools", selectedTools);
 
   return selectedTools;
 }
