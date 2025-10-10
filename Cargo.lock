@@ -165,6 +165,7 @@ dependencies = [
  "lazy_static",
  "lsp",
  "neo4rs",
+ "openssl",
  "regex",
  "serde",
  "serde-jsonlines",
