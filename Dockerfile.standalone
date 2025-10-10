@@ -34,7 +34,7 @@ COPY standalone/src standalone/src
 COPY standalone/static standalone/static
 
 # Build the actual application (only this rebuilds when source changes)
-RUN cargo build --release --bin standalone --features neo4j
+RUN cargo build --release --bin standalone --features neo4j --config 'patch.crates-io.openssl.features=[]'
 
 FROM sphinxlightning/stakgraph-lsp:latest
 
