@@ -1,4 +1,3 @@
-# Configuration for cross-compiling using cross
 
 [target.aarch64-unknown-linux-gnu]
 pre-build = [

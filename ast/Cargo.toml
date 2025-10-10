@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["vendored-openssl"]
+default = []
 neo4j = ["dep:neo4rs"]
 fulltest = []
 vendored-openssl = ["git2/vendored-openssl"]
