@@ -15,20 +15,20 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             archive: tar.gz
             build-on: ubuntu-latest
-            use-cross: true
+            use-cross: false
           - target: aarch64-unknown-linux-gnu
             archive: tar.gz
             build-on: ubuntu-latest
             use-cross: true
-          # macOS - these need macOS runners!
+          # macOS - separate runners for each arch
           - target: x86_64-apple-darwin
             archive: tar.gz
-            build-on: macos-latest
-            use-cross: true
+            build-on: macos-13 # ← Intel runner
+            use-cross: false
           - target: aarch64-apple-darwin
             archive: tar.gz
-            build-on: macos-latest
-            use-cross: true
+            build-on: macos-latest # ← Apple Silicon runner
+            use-cross: false
           # Windows
           - target: x86_64-pc-windows-gnu
             archive: zip
@@ -40,6 +40,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Install system dependencies (Linux native)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libssl-dev
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install openssl@3
+
       - name: Install cross
         if: matrix.use-cross
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -47,7 +58,12 @@ jobs:
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
+      - name: Build (native)
+        if: ${{ !matrix.use-cross }}
+        run: cargo build --release --target ${{ matrix.target }} --bin stakgraph
+
       - name: Build with cross
+        if: matrix.use-cross
         env:
           CROSS_NO_WARNINGS: 0
         run: cross build --release --target ${{ matrix.target }} --bin stakgraph

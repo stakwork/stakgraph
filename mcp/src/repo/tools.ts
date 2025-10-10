@@ -24,7 +24,7 @@ export function get_tools(
   const repoArr = repoPath.split("/");
   const repoOwner = repoArr[repoArr.length - 2];
   const repoName = repoArr[repoArr.length - 1];
-  const web_search = getProviderTool("anthropic", apiKey, "webSearch");
+  const web_search_tool = getProviderTool("anthropic", apiKey, "webSearch");
 
   const defaultDescriptions: Record<ToolName, string> = {
     repo_overview:
@@ -37,11 +37,11 @@ export function get_tools(
       "Query a repo for recent PRs by a specific contributor. Input is the contributor's GitHub login. The output is a list of their most recent contributions, including PR titles, issue titles, commit messages, and code review comments.",
     fulltext_search:
       "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
-    web_search: web_search?.description || "",
+    web_search: web_search_tool?.description || "",
     final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
   };
 
-  const allTools = {
+  const allTools: Record<string, Tool<any, any>> = {
     repo_overview: tool({
       description: defaultDescriptions.repo_overview,
       inputSchema: z.object({}),
@@ -130,7 +130,6 @@ export function get_tools(
         }
       },
     }),
-    web_search,
     final_answer: tool({
       description: defaultDescriptions.final_answer,
       inputSchema: z.object({ answer: z.string() }),
@@ -138,13 +137,28 @@ export function get_tools(
     }),
   };
 
+  // Wrap web_search to make it compatible with the ai package's Tool type
+  if (web_search_tool) {
+    allTools.web_search = tool({
+      description:
+        web_search_tool.description || defaultDescriptions.web_search,
+      inputSchema: z.object({
+        query: z.string().describe("The search query"),
+      }),
+      execute: async ({ query }: { query: string }) => {
+        // Call the original web_search tool's execute function
+        return await (web_search_tool as any).execute({ query });
+      },
+    });
+  }
+
   // If no config, return all tools
   if (!toolsConfig) {
     return allTools;
   }
 
   // Return only configured tools, with custom descriptions if provided
-  const selectedTools: Record<string, Tool> = {};
+  const selectedTools: Record<string, Tool<any, any>> = {};
   for (const [toolName, customDesc] of Object.entries(toolsConfig) as [
     ToolName,
     string | null
@@ -157,7 +171,7 @@ export function get_tools(
           description: customDesc,
           inputSchema: (originalTool as any).inputSchema,
           execute: (originalTool as any).execute,
-        });
+        }) as Tool<any, any>;
       } else {
         // Use default
         selectedTools[toolName] = originalTool;
