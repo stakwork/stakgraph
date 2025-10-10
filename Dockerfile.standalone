@@ -13,47 +13,49 @@ RUN echo '[workspace]' > Cargo.toml && \
     echo 'members = ["ast", "lsp", "standalone", "shared"]' >> Cargo.toml && \
     echo 'resolver = "2"' >> Cargo.toml
 
-# Create .cargo/config.toml to disable vendored OpenSSL
-RUN mkdir -p .cargo && \
-    cat > .cargo/config.toml << 'EOF'
-[patch.crates-io]
-openssl = { version = "0.10", default-features = false }
-EOF
-
-# Copy all Cargo.toml files
+# Copy Cargo.toml files
 COPY ast/Cargo.toml ast/Cargo.toml
 COPY lsp/Cargo.toml lsp/Cargo.toml
 COPY standalone/Cargo.toml standalone/Cargo.toml
 COPY shared/Cargo.toml shared/Cargo.toml
 
-# Create dummy src files for dependency caching
+# Create dummy src files
 RUN mkdir -p ast/src lsp/src standalone/src shared/src && \
     echo "pub fn dummy() {}" > ast/src/lib.rs && \
     echo "pub fn dummy() {}" > lsp/src/lib.rs && \
     echo "fn main() {}" > standalone/src/main.rs && \
     echo "pub fn dummy() {}" > shared/src/lib.rs
 
-# Build dependencies (this layer caches)
-RUN cargo build --release --bin standalone --features neo4j
+# Build dependencies - disable defaults, use system-openssl
+RUN cargo build --release --bin standalone \
+    --no-default-features \
+    --features "neo4j,system-openssl"
 
 # Remove dummy files
 RUN rm -rf ast/src lsp/src standalone/src shared/src
 
-# Copy actual source code
+# Copy actual source
 COPY ast/src ast/src
 COPY lsp/src lsp/src
 COPY standalone/src standalone/src
 COPY shared/src shared/src
 COPY standalone/static standalone/static
 
-# Build actual application (only rebuilds when source changes)
+# Build actual application
 RUN touch ast/src/lib.rs lsp/src/lib.rs standalone/src/main.rs shared/src/lib.rs && \
-    cargo build --release --bin standalone --features neo4j
+    cargo build --release --bin standalone \
+    --no-default-features \
+    --features "neo4j,system-openssl"
 
 # Runtime stage
-FROM sphinxlightning/stakgraph-lsp:latest
+FROM debian:bookworm-slim
 
 WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    libssl3 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/standalone /app/stakgraph
 COPY --from=builder /app/standalone/static /app/standalone/static

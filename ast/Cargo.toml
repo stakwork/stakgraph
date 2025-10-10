@@ -4,16 +4,18 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["vendored-openssl"]
 neo4j = ["dep:neo4rs"]
 fulltest = []
+vendored-openssl = ["openssl", "openssl/vendored"]
+system-openssl = ["openssl"]
 
 [dependencies]
 lsp = { path = "../lsp" }
 shared = { path = "../shared" }
 tokio = { version = "1.27.0", features = ["full"] }
 git2 = { version = "0.20.1" }
-openssl = { version = "0.10", features = ["vendored"] }
+openssl = { version = "0.10", optional = true }
 
 tree-sitter = "0.25.6"
 tree-sitter-rust = "0.23.0"
