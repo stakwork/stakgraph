@@ -1,40 +1,16 @@
 # Configuration for cross-compiling using cross
-[build.env]
-passthrough = ["CC"]
 
 [target.aarch64-unknown-linux-gnu]
-xargo = false
 pre-build = [
-    "dpkg --add-architecture arm64",
-    """\
-    apt-get update && apt-get install -y \
-     pkg-config \
-     libssl-dev:arm64 \
-     gcc-aarch64-linux-gnu
-    """
-]
-
-[target.aarch64-unknown-linux-gnu.env]
-passthrough = [
-    "PKG_CONFIG_ALLOW_CROSS=1",
+    "apt-get update && apt-get install -y perl make cmake"
 ]
 
 [target.x86_64-unknown-linux-gnu]
-xargo = false
 pre-build = [
-    """\
-    apt-get update && apt-get install -y \
-     pkg-config \
-     libssl-dev \
-     build-essential
-    """
+    "apt-get update && apt-get install -y perl make cmake"
 ]
 
 [target.x86_64-pc-windows-gnu]
-image = "ghcr.io/cross-rs/x86_64-pc-windows-gnu:latest"
 pre-build = [
-    """\
-    apt-get update && apt-get install -y \
-     pkg-config
-    """
+    "apt-get update && apt-get install -y perl make cmake"
 ]
