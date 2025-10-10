@@ -52,6 +52,7 @@ jobs:
         env:
           OPENSSL_STATIC: "1"
           OPENSSL_NO_PKG_CONFIG: "1"
+          OPENSSL_VENDORED: "1"
         run: cargo build --release --target ${{ matrix.target }} --bin stakgraph --features vendored-openssl
 
       - name: Build with cross
