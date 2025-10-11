@@ -220,7 +220,6 @@ impl IntoResponse for WebError {
             | shared::Error::Lsp(_)
             | shared::Error::Utf8(_)
             | shared::Error::GitUrlParse(_)
-            | shared::Error::Git2(_)
             | shared::Error::Walkdir(_)
             | shared::Error::Other(_)
             | shared::Error::TreeSitterLanguage(_) => StatusCode::INTERNAL_SERVER_ERROR,

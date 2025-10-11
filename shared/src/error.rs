@@ -29,9 +29,6 @@ pub enum Error {
     #[error("Git URL parse error: {0}")]
     GitUrlParse(#[from] git_url_parse::GitUrlParseError),
 
-    #[error("git2 error: {0}")]
-    Git2(#[from] git2::Error),
-
     #[error("Walkdir error: {0}")]
     Walkdir(#[from] walkdir::Error),
 

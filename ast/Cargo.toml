@@ -4,16 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = []
+default = ["openssl"]
 neo4j = ["dep:neo4rs"]
 fulltest = []
+openssl = ["dep:git2", "dep:fastembed"]
+
 
 [dependencies]
 lsp = { path = "../lsp" }
 shared = { path = "../shared" }
 tokio = { version = "1.27.0", features = ["full"] }
-git2 = { version = "0.20.1", default-features = false, features = ["vendored-openssl", "vendored-libgit2", "https"] }
-openssl = { version = "0.10", default-features = false, features = ["vendored"] }
+git2 = { version = "0.20.1", optional = true}
 
 tree-sitter = "0.25.6"
 tree-sitter-rust = "0.23.0"
@@ -65,7 +66,7 @@ lazy_static = "1.5.0"
 futures = "0.3.31"
 tiktoken-rs = "0.7.0"
 ignore = "0.4.23"
-fastembed = "5.0.0"
+fastembed = { version = "5.2.0", optional = true }
 
 
 [[example]]
