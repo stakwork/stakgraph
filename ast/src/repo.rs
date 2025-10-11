@@ -429,11 +429,14 @@ impl Repo {
         let source_files = walk_files_arbitrary(&self.root, yes_extra_page)?;
         Ok(source_files)
     }
+    #[cfg(feature = "openssl")]
     pub fn get_last_revisions(path: &str, count: usize) -> Result<Vec<String>> {
         let repo = git2::Repository::open(path).context("Failed to open git repository")?;
         let mut revwalk = repo.revwalk().context("Failed to create revwalk:")?;
         revwalk.push_head().context("Failed to push head:")?;
-        revwalk.set_sorting(git2::Sort::TIME).context("Failed to set sorting:")?;
+        revwalk
+            .set_sorting(git2::Sort::TIME)
+            .context("Failed to set sorting:")?;
 
         let mut commits = Vec::new();
         for oid_result in revwalk.take(count) {
@@ -681,6 +684,7 @@ impl std::fmt::Debug for Repo {
     }
 }
 
+#[cfg(feature = "openssl")]
 pub fn check_revs_files(repo_path: &str, mut revs: Vec<String>) -> Option<Vec<String>> {
     if revs.len() == 0 {
         return None;

@@ -1,6 +1,6 @@
 use crate::lang::{asg::NodeData, graphs::NodeType};
 use crate::lang::{Graph, Node};
-use crate::repo::{check_revs_files, Repo};
+use crate::repo::Repo;
 use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
 use std::collections::HashSet;
@@ -8,14 +8,25 @@ use std::path::PathBuf;
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
 
+#[cfg(feature = "openssl")]
 pub fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G, lang_kind: Language) -> G {
     if revs.is_empty() {
         return graph;
     }
-    match check_revs_files(root, revs) {
+    match crate::repo::check_revs_files(root, revs) {
         Some(final_filter) => graph.create_filtered_graph(&final_filter, lang_kind),
         None => graph,
     }
+}
+
+#[cfg(not(feature = "openssl"))]
+pub fn filter_by_revs<G: Graph>(
+    _root: &str,
+    _revs: Vec<String>,
+    graph: G,
+    _lang_kind: Language,
+) -> G {
+    graph
 }
 
 pub fn _filenamey(f: &PathBuf) -> String {

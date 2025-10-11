@@ -1,5 +1,6 @@
 pub mod asg;
 pub mod call_finder;
+#[cfg(feature = "openssl")]
 pub mod embedding;
 pub mod graphs;
 pub mod linker;
