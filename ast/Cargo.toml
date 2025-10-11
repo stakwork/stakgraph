@@ -12,7 +12,7 @@ fulltest = []
 lsp = { path = "../lsp" }
 shared = { path = "../shared" }
 tokio = { version = "1.27.0", features = ["full"] }
-git2 = { version = "0.20.1", features = ["vendored-openssl"] }
+git2 = { version = "0.20.1", default-features = false, features = ["vendored-openssl", "vendored-libgit2", "https"] }
 openssl = { version = "0.10", default-features = false, features = ["vendored"] }
 
 tree-sitter = "0.25.6"
