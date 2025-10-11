@@ -62,3 +62,5 @@ package-lock.json
 standalone/tests/maps/map-*.html
 standalone.log
 standalone/coverage_reports/*
+
+out.txt

@@ -7,9 +7,3 @@ pre-build = [
 pre-build = [
     "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y perl make cmake gcc-aarch64-linux-gnu"
 ]
-
-[build.env]
-passthrough = [
-    "OPENSSL_STATIC",
-    "OPENSSL_VENDORED",
-]
