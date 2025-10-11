@@ -430,10 +430,10 @@ impl Repo {
         Ok(source_files)
     }
     pub fn get_last_revisions(path: &str, count: usize) -> Result<Vec<String>> {
-        let repo = git2::Repository::open(path)?;
-        let mut revwalk = repo.revwalk()?;
-        revwalk.push_head()?;
-        revwalk.set_sorting(git2::Sort::TIME)?;
+        let repo = git2::Repository::open(path).context("Failed to open git repository")?;
+        let mut revwalk = repo.revwalk().context("Failed to create revwalk:")?;
+        revwalk.push_head().context("Failed to push head:")?;
+        revwalk.set_sorting(git2::Sort::TIME).context("Failed to set sorting:")?;
 
         let mut commits = Vec::new();
         for oid_result in revwalk.take(count) {
