@@ -51,14 +51,14 @@ jobs:
         if: ${{ !matrix.use-cross }}
         env:
           OPENSSL_VENDORED: "1"
-        run: cargo build --release --target ${{ matrix.target }} --bin stakgraph
+        run: cargo build --release --target ${{ matrix.target }} --bin stakgraph --no-default-features
 
       - name: Build with cross
         if: matrix.use-cross
         run: |
           export OPENSSL_STATIC=1
           export OPENSSL_VENDORED=1
-          cross build --release --target ${{ matrix.target }} --bin stakgraph
+          cross build --release --target ${{ matrix.target }} --bin stakgraph --no-default-features
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
