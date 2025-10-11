@@ -57,7 +57,6 @@ jobs:
         if: matrix.use-cross
         run: |
           export OPENSSL_STATIC=1
-          export OPENSSL_NO_PKG_CONFIG=1
           export OPENSSL_VENDORED=1
           cross build --release --target ${{ matrix.target }} --bin stakgraph
 
