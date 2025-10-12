@@ -5,7 +5,7 @@ set -eu
 # Stakgraph CLI Install Script
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/main/install.sh | bash
 #
 # Environment variables:
 #   STAKGRAPH_VERSION - Version to install (default: latest)
@@ -19,7 +19,7 @@ if ! command -v curl >/dev/null 2>&1; then
 fi
 
 # Variables
-REPO="YOUR_ORG/YOUR_REPO"  # Update this!
+REPO="stakwork/stakgraph"
 VERSION="${STAKGRAPH_VERSION:-latest}"
 INSTALL_DIR="${STAKGRAPH_BIN_DIR:-$HOME/.local/bin}"
 
@@ -82,7 +82,7 @@ chmod +x "$INSTALL_DIR/$BINARY"
 rm -f "$FILE"
 
 echo ""
-echo "✓ Stakgraph installed!"
+echo "✓ stakgraph installed!"
 
 # Check PATH
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
