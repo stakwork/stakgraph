@@ -55,6 +55,7 @@ export const QUESTION_SIMILARITY_THRESHOLD = 0.78;
 export interface CacheControlOptions {
   maxAgeHours?: number; // Maximum age in hours for cached results
   forceRefresh?: boolean; // Force generation of new results regardless of cache
+  forceCache?: boolean; // Force use of cached results, or return nothing
 }
 
 /**
@@ -163,6 +164,15 @@ export async function ask_prompt(
         };
       }
     }
+  }
+
+  // If forceCache is true and no cached result was found, return empty result
+  if (cacheControl?.forceCache) {
+    console.log(">> Cache control: forceCache=true, no cached result found, returning empty result");
+    return {
+      answer: "",
+      hints: [],
+    };
   }
 
   // then decompose and ask

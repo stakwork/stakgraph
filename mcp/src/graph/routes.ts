@@ -166,7 +166,12 @@ export async function ask(req: Request, res: Response) {
     cacheControl.maxAgeHours = parseFloat(req.query.maxAgeHours as string);
   }
   if (req.query.forceRefresh) {
-    cacheControl.forceRefresh = req.query.forceRefresh === "true";
+    cacheControl.forceRefresh =
+      req.query.forceRefresh === "true" || req.query.forceRefresh === "1";
+  }
+  if (req.query.forceCache) {
+    cacheControl.forceCache =
+      req.query.forceCache === "true" || req.query.forceCache === "1";
   }
 
   try {
