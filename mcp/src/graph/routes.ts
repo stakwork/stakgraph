@@ -105,7 +105,7 @@ export async function explore(req: Request, res: Response) {
   }
   try {
     const result = await get_context(prompt);
-    res.json({ result });
+    res.json({ result: result.final, usage: result.usage });
   } catch (error) {
     console.error("Explore Error:", error);
     res.status(500).send("Internal Server Error");
@@ -268,7 +268,7 @@ export async function seed_stories(req: Request, res: Response) {
   const prompt = (req.query.prompt as string | undefined) || default_prompt;
   try {
     const gres = await get_context(prompt, false, true);
-    const stories = JSON.parse(gres) as GeneralContextResult;
+    const stories = JSON.parse(gres.final) as GeneralContextResult;
     let answers = [];
     for (const feature of stories.features) {
       console.log("+++++++++ feature:", feature);

@@ -23,7 +23,7 @@ export async function explore(args: z.infer<typeof ExploreSchema>) {
     content: [
       {
         type: "text",
-        text: JSON.stringify(result),
+        text: JSON.stringify({ result: result.final, usage: result.usage }),
       },
     ],
   };

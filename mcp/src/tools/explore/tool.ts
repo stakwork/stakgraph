@@ -13,6 +13,7 @@ import {
 } from "./prompts.js";
 import { z } from "zod";
 import * as G from "../../graph/graph.js";
+import { ContextResult } from "../types.js";
 
 /*
 curl "http://localhost:3000/explore?prompt=how%20does%20auth%20work%20in%20the%20repo"
@@ -54,7 +55,7 @@ export async function get_context(
   prompt: string | ModelMessage[],
   re_explore: boolean = false,
   general_explore: boolean = false
-): Promise<string> {
+): Promise<ContextResult> {
   const provider = process.env.LLM_PROVIDER || "anthropic";
   const apiKey = getApiKeyForProvider(provider);
   const model = await getModel(provider as Provider, apiKey as string);
@@ -167,7 +168,7 @@ export async function get_context(
     : re_explore
     ? RE_EXPLORER
     : EXPLORER;
-  const { steps } = await generateText({
+  const { steps, totalUsage } = await generateText({
     model,
     tools,
     prompt,
@@ -204,7 +205,14 @@ export async function get_context(
     final = `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last reasoning text as answer.)`;
   }
   // console.log("FINAL", final);
-  return final;
+  return {
+    final,
+    usage: {
+      inputTokens: totalUsage.inputTokens || 0,
+      outputTokens: totalUsage.outputTokens || 0,
+      totalTokens: totalUsage.totalTokens || 0,
+    },
+  };
 }
 
 setTimeout(async () => {

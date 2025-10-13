@@ -5,3 +5,12 @@ export interface Tool {
   description: string;
   inputSchema: Json;
 }
+
+export interface ContextResult {
+  final: string;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+}

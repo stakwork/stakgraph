@@ -64,3 +64,6 @@ standalone.log
 standalone/coverage_reports/*
 
 out.txt
+
+#Local AI files
+.github/copilot-*
