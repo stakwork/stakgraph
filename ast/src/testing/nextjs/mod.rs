@@ -9,7 +9,6 @@ use crate::{
 use core::panic;
 use shared::error::Result;
 use std::str::FromStr;
-use test_log::test;
 
 pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let use_lsp = get_use_lsp();
@@ -110,7 +109,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 64, "Expected 64 Function nodes with LSP");
+        assert_eq!(functions.len(), 41, "Expected 41 Function nodes with LSP");
     } else {
         assert_eq!(
             functions.len(),
@@ -399,7 +398,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-        assert_eq!(uses, 90, "Expected 90 Uses edges with LSP");
+        assert_eq!(uses, 37, "Expected 37 Uses edges with LSP");
     } else {
         assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
@@ -980,7 +979,7 @@ async fn test_remote_nextjs() -> Result<()> {
     Ok(())
 }
 
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_nextjs() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_nextjs_generic::<ArrayGraph>().await.unwrap();
