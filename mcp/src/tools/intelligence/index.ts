@@ -136,6 +136,7 @@ export async function ask_prompt(
             return {
               answer: top.properties.body,
               hints,
+              ref_id: top.ref_id,
             };
           }
         } else {
@@ -149,6 +150,7 @@ export async function ask_prompt(
           return {
             answer: top.properties.body,
             hints,
+            ref_id: top.ref_id,
           };
         }
       } else {
@@ -161,6 +163,7 @@ export async function ask_prompt(
         return {
           answer: top.properties.body,
           hints,
+          ref_id: top.ref_id,
         };
       }
     }
@@ -213,7 +216,10 @@ export async function ask_prompt(
       ]);
     }
 
-    return answer;
+    return {
+      ...answer,
+      ref_id: created.ref_id,
+    };
   } catch (error) {
     console.error("Ask Prompt Error:", error);
     throw error;

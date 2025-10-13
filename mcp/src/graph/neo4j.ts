@@ -574,6 +574,55 @@ class Db {
     }
   }
 
+  async get_node_with_related(ref_id: string) {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_NODE_WITH_RELATED_QUERY, {
+        ref_id,
+      });
+
+      const nodes: any[] = [];
+      const edges: any[] = [];
+      const nodeMap = new Map();
+
+      result.records.forEach((record) => {
+        const h = record.get("h");
+        const m = record.get("m");
+        const source_ref_id = record.get("source_ref_id");
+        const target_ref_id = record.get("target_ref_id");
+        const edge_type = record.get("edge_type");
+        const edge_properties = record.get("edge_properties");
+
+        // Add the main node (h) if not already added
+        if (h && h.properties && h.properties.ref_id && !nodeMap.has(h.properties.ref_id)) {
+          nodeMap.set(h.properties.ref_id, clean_node(h));
+        }
+
+        // Add related node (m) if it exists
+        if (m && m.properties && m.properties.ref_id && !nodeMap.has(m.properties.ref_id)) {
+          nodeMap.set(m.properties.ref_id, clean_node(m));
+        }
+
+        // Add edge if we have the ref_ids
+        if (source_ref_id && target_ref_id && edge_type) {
+          edges.push({
+            edge_type: edge_type,
+            source: source_ref_id,
+            target: target_ref_id,
+            properties: edge_properties || {},
+          });
+        }
+      });
+
+      return {
+        nodes: Array.from(nodeMap.values()),
+        edges,
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
   async delete_node_by_ref_id(ref_id: string): Promise<number> {
     const session = this.driver.session();
     try {

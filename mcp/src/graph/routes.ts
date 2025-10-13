@@ -208,6 +208,24 @@ export async function get_learnings(req: Request, res: Response) {
   }
 }
 
+export async function fetch_node_with_related(req: Request, res: Response) {
+  // curl "http://localhost:3355/node?ref_id=bcc79e17-fae9-41d6-8932-40ea60e34b54"
+  try {
+    const ref_id = req.query.ref_id as string;
+    if (!ref_id) {
+      res.status(400).json({ error: "Missing ref_id parameter" });
+      return;
+    }
+
+    const result = await db.get_node_with_related(ref_id);
+
+    res.json(result);
+  } catch (error) {
+    console.error("Fetch Node with Related Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
 export async function generate_siblings(req: Request, res: Response) {
   try {
     const orphanHints = await db.hints_without_siblings();
