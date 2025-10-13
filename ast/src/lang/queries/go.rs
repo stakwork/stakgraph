@@ -285,6 +285,38 @@ impl Stack for Go {
     fn is_test_file(&self, filename: &str) -> bool {
         filename.ends_with("_test.go")
     }
+
+    fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
+        let f = file.replace('\\', "/").to_lowercase();
+        let lower_code = code.to_lowercase();
+        
+        if f.contains("/e2e/") 
+            || f.contains("/test/e2e/")
+            || f.contains("/tests/e2e/")
+        {
+            return true;
+        }
+        
+        let fname = f.rsplit('/').next().unwrap_or(&f);
+        if fname.contains("e2e") || fname.contains("_e2e_test.go") {
+            return true;
+        }
+        
+        let has_selenium = lower_code.contains("selenium") 
+            || lower_code.contains("webdriver")
+            || lower_code.contains("github.com/tebeka/selenium");
+        
+        let has_chromedp = lower_code.contains("chromedp")
+            || lower_code.contains("github.com/chromedp/chromedp");
+        
+        let has_playwright = lower_code.contains("playwright")
+            || lower_code.contains("github.com/playwright-community/playwright-go");
+        
+        let has_rod = lower_code.contains("github.com/go-rod/rod");
+        
+        has_selenium || has_chromedp || has_playwright || has_rod
+    }
+
     fn integration_test_query(&self) -> Option<String> {
         Some(format!(
             r#"(call_expression

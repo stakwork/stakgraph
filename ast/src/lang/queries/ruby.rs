@@ -253,11 +253,44 @@ impl Stack for Ruby {
         self.is_test_file(func_file)
     }
     fn is_test_file(&self, filename: &str) -> bool {
-    filename.ends_with("_spec.rb")          
-        || filename.ends_with("_test.rb")   
-        || filename.contains("/spec/")       
-        || filename.contains("/test/")
-}
+        filename.ends_with("_spec.rb")          
+            || filename.ends_with("_test.rb")   
+            || filename.contains("/spec/")       
+            || filename.contains("/test/")
+    }
+
+    fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
+        let f = file.replace('\\', "/").to_lowercase();
+        let lower_code = code.to_lowercase();
+        
+        if f.contains("/spec/system/")
+            || f.contains("/spec/features/")
+            || f.contains("/spec/feature/")
+            || f.contains("/spec/acceptance/")
+            || f.contains("/test/system/")
+        {
+            return true;
+        }
+        
+        let fname = f.rsplit('/').next().unwrap_or(&f);
+        if fname.contains("e2e") || fname.contains("system") {
+            return true;
+        }
+        
+        let has_capybara = lower_code.contains("visit(") 
+            || lower_code.contains("click_")
+            || lower_code.contains("fill_in(")
+            || lower_code.contains("have_content(");
+        
+        let has_selenium = lower_code.contains("selenium") 
+            || lower_code.contains("webdriver");
+        
+        let has_cuprite = lower_code.contains("cuprite")
+            || lower_code.contains("driven_by(:cuprite)");
+        
+        has_capybara || has_selenium || has_cuprite
+    }
+
     fn e2e_test_id_finder_string(&self) -> Option<String> {
         Some("get_by_test_id".to_string())
     }

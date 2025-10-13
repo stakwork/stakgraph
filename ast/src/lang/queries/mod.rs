@@ -185,6 +185,9 @@ pub trait Stack {
     fn is_test_file(&self, _filename: &str) -> bool {
         false
     }
+    fn is_e2e_test_file(&self, _file: &str, _code: &str) -> bool {
+        false
+    }
     fn classify_test(&self, _name: &str, _file: &str, _body: &str) -> NodeType {
         NodeType::UnitTest
     }

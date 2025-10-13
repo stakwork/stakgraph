@@ -335,18 +335,35 @@ impl Stack for TypeScript {
     }
      fn is_test_file(&self, file_name: &str) -> bool {
         file_name.contains("__tests__")
+            || file_name.contains(".test.")
+            || file_name.contains(".spec.")
             || file_name.ends_with(".test.ts")
             || file_name.ends_with(".test.tsx")
-            || file_name.ends_with(".test.jsx")
             || file_name.ends_with(".test.js")
-            || file_name.ends_with(".e2e.ts")
-            || file_name.ends_with(".e2e.tsx")
-            || file_name.ends_with(".e2e.jsx")
-            || file_name.ends_with(".e2e.js")
+            || file_name.ends_with(".test.jsx")
             || file_name.ends_with(".spec.ts")
             || file_name.ends_with(".spec.tsx")
-            || file_name.ends_with(".spec.jsx")
             || file_name.ends_with(".spec.js")
+            || file_name.ends_with(".spec.jsx")
+    }
+
+    fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
+        let f = file.replace('\\', "/");
+        let lower_code = code.to_lowercase();
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        
+        let is_e2e_dir = f.contains("/tests/e2e/")
+            || f.contains("/test/e2e")
+            || f.contains("/e2e/")
+            || f.contains("/__e2e__/")
+            || f.contains("e2e.");
+        let has_e2e_in_name = fname.contains("e2e");
+        let has_playwright = lower_code.contains("@playwright/test");
+        let has_cypress = lower_code.contains("cy.");
+        let has_puppeteer =
+            lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+        
+        is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
 
     fn is_test(&self, _func_name: &str, func_file: &str) -> bool {
