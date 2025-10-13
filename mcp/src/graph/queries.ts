@@ -116,6 +116,18 @@ MATCH (p:Prompt {ref_id: $prompt_ref_id})-[r]->(h:Hint)
 RETURN h
 `;
 
+export const GET_NODE_WITH_RELATED_QUERY = `
+MATCH (h {ref_id: $ref_id})
+OPTIONAL MATCH (h)-[e]-(m)
+RETURN h, e, m
+`;
+
+/*
+MATCH (h:Hint|Prompt {ref_id: $ref_id})
+OPTIONAL MATCH (h)-[e:USES]-(m)
+RETURN h, e, m
+*/
+
 export const HINTS_WITHOUT_SIBLINGS_QUERY = `
 MATCH (h:Hint)
 WHERE NOT (h)-[:SIBLING]-(:Hint)
