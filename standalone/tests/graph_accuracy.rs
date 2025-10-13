@@ -71,6 +71,7 @@ async fn test_graph_accuracy() {
                 Some(BEFORE_COMMIT),
                 None,
                 USE_LSP,
+                Some(false),
             )
             .await
             .unwrap();

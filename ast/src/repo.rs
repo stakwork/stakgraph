@@ -70,14 +70,21 @@ impl Repos {
     pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {
         self.build_graphs_inner().await
     }
+    pub async fn build_graphs_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
+        self.build_graphs_inner_impl(streaming).await
+    }
     pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
+        let streaming = std::env::var("STREAM_UPLOAD").is_ok();
+        self.build_graphs_inner_impl(streaming).await
+    }
+    async fn build_graphs_inner_impl<G: Graph>(&self, streaming: bool) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }
         let mut graph = G::new(String::new(), Language::Typescript);
         #[cfg(feature = "neo4j")]
-        let mut streaming: Option<(Neo4jGraph, GraphStreamingUploader)> =
-            if std::env::var("STREAM_UPLOAD").is_ok() {
+        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
+            if streaming {
                 let neo = Neo4jGraph::default();
                 let _ = neo.connect().await;
                 Some((neo, GraphStreamingUploader::new()))
@@ -89,7 +96,7 @@ impl Repos {
             let subgraph = repo.build_graph_inner().await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
-            if let Some((neo, uploader)) = &mut streaming {
+            if let Some((neo, uploader)) = &mut streaming_ctx {
                 let (dn, de) = drain_deltas();
                 if !(dn.is_empty() && de.is_empty()) {
                     let _ = uploader.flush_stage(neo, "repo_complete", &dn, &de).await;
@@ -105,7 +112,7 @@ impl Repos {
         info!("linking api nodes");
         linker::link_api_nodes(&mut graph)?;
         #[cfg(feature = "neo4j")]
-        if let Some((neo, uploader)) = &mut streaming {
+        if let Some((neo, uploader)) = &mut streaming_ctx {
             let (dn, de) = drain_deltas();
             if !(dn.is_empty() && de.is_empty()) {
                 let _ = uploader
