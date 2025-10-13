@@ -57,6 +57,7 @@ YOUR JOB IS TO GENERATE CONCISE INSIGHTS, GUIDANCE, AND POINTERS TO RELEVANTS PA
 export interface RecomposedAnswer {
   answer: string;
   hints: Answer[];
+  ref_id?: string;
 }
 
 export async function recomposeAnswer(
