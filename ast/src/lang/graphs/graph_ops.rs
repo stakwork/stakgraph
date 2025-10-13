@@ -228,6 +228,7 @@ impl GraphOps {
         commit: Option<&str>,
         branch: Option<&str>,
         use_lsp: Option<bool>,
+        streaming: Option<bool>,
     ) -> Result<(u32, u32)> {
         let repos = Repo::new_clone_multi_detect(
             repo_url,
@@ -241,12 +242,17 @@ impl GraphOps {
         )
         .await?;
 
-        let temp_graph = repos.build_graphs_inner::<BTreeMapGraph>().await?;
+        let streaming = streaming.unwrap_or(false);
+        let temp_graph = if streaming {
+            repos.build_graphs_inner_with_streaming::<BTreeMapGraph>(streaming).await?
+        } else {
+            repos.build_graphs_inner::<BTreeMapGraph>().await?
+        };
 
         temp_graph.analysis();
 
         self.graph.clear().await?;
-        if std::env::var("STREAM_UPLOAD").is_err() {
+        if !streaming {
             self.upload_btreemap_to_neo4j(&temp_graph, None).await?;
         }
         self.graph.create_indexes().await?;
