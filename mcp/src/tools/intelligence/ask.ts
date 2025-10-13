@@ -198,7 +198,7 @@ export async function ask_question(
   }
   console.log(">> NEW question:", question);
   const ctx = await get_context(q, reexplore);
-  const answer = ctx;
+  const answer = ctx.final;
   const embeddings = await vectorizeQuery(question);
   const created = await db.create_hint(question, answer, embeddings, "PM");
   let edges_added = 0;

@@ -23,10 +23,10 @@ export async function repo_agent(req: Request, res: Response) {
 
     console.log(`===> POST /repo/agent ${repoDir}`);
 
-    const final_answer = await get_context(prompt, repoDir, pat, toolsConfig);
+    const result = await get_context(prompt, repoDir, pat, toolsConfig);
 
-    // console.log("===> final_answer", final_answer);
-    res.json({ success: true, final_answer });
+    // console.log("===> final_answer", result.final);
+    res.json({ success: true, final_answer: result.final, usage: result.usage });
   } catch (e) {
     console.error("Error in repo_agent", e);
     res.status(500).json({ error: "Internal server error" });
