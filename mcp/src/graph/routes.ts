@@ -312,6 +312,41 @@ export async function get_nodes(req: Request, res: Response) {
   }
 }
 
+export async function post_nodes(req: Request, res: Response) {
+  try {
+    console.log("=> post_nodes", req.body);
+    const node_type = req.body.node_type as NodeType;
+    const concise = req.body.concise === true || req.body.concise === "true";
+    let ref_ids: string[] = [];
+    if (req.body.ref_ids) {
+      if (Array.isArray(req.body.ref_ids)) {
+        ref_ids = req.body.ref_ids;
+      } else {
+        res.status(400).json({ error: "ref_ids must be an array" });
+        return;
+      }
+    }
+    const output = req.body.output as G.OutputFormat;
+    const language = req.body.language as string;
+
+    const result = await G.get_nodes(
+      node_type,
+      concise,
+      ref_ids,
+      output,
+      language
+    );
+    if (output === "snippet") {
+      res.send(result);
+    } else {
+      res.json(result);
+    }
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
+  }
+}
+
 export async function get_edges(req: Request, res: Response) {
   try {
     const edge_type = req.query.edge_type as EdgeType;
