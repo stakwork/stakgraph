@@ -587,8 +587,11 @@ class Db {
 
       result.records.forEach((record) => {
         const h = record.get("h");
-        const e = record.get("e");
         const m = record.get("m");
+        const source_ref_id = record.get("source_ref_id");
+        const target_ref_id = record.get("target_ref_id");
+        const edge_type = record.get("edge_type");
+        const edge_properties = record.get("edge_properties");
 
         // Add the main node (h) if not already added
         if (h && h.properties && h.properties.ref_id && !nodeMap.has(h.properties.ref_id)) {
@@ -600,14 +603,13 @@ class Db {
           nodeMap.set(m.properties.ref_id, clean_node(m));
         }
 
-        // Add edge if it exists (and has both start and end with ref_ids)
-        if (e && e.start && e.end && e.start.properties && e.end.properties &&
-            e.start.properties.ref_id && e.end.properties.ref_id) {
+        // Add edge if we have the ref_ids
+        if (source_ref_id && target_ref_id && edge_type) {
           edges.push({
-            edge_type: e.type,
-            source: e.start.properties.ref_id,
-            target: e.end.properties.ref_id,
-            properties: e.properties,
+            edge_type: edge_type,
+            source: source_ref_id,
+            target: target_ref_id,
+            properties: edge_properties || {},
           });
         }
       });

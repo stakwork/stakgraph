@@ -119,14 +119,20 @@ RETURN h
 export const GET_NODE_WITH_RELATED_QUERY = `
 MATCH (h {ref_id: $ref_id})
 OPTIONAL MATCH (h)-[e]-(m)
-RETURN h, e, m
+RETURN h, m, e,
+  CASE
+    WHEN e IS NOT NULL AND m IS NOT NULL
+    THEN startNode(e).ref_id
+    ELSE null
+  END AS source_ref_id,
+  CASE
+    WHEN e IS NOT NULL AND m IS NOT NULL
+    THEN endNode(e).ref_id
+    ELSE null
+  END AS target_ref_id,
+  type(e) AS edge_type,
+  properties(e) AS edge_properties
 `;
-
-/*
-MATCH (h:Hint|Prompt {ref_id: $ref_id})
-OPTIONAL MATCH (h)-[e:USES]-(m)
-RETURN h, e, m
-*/
 
 export const HINTS_WITHOUT_SIBLINGS_QUERY = `
 MATCH (h:Hint)
