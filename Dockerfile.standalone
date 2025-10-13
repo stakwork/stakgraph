@@ -44,7 +44,6 @@ COPY standalone/static standalone/static
 # Build actual application
 RUN touch ast/src/lib.rs lsp/src/lib.rs standalone/src/main.rs shared/src/lib.rs && \
     cargo build --release --bin standalone \
-    --no-default-features \
     --features neo4j
 
 # Runtime stage
@@ -55,6 +54,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     libssl3 \
     ca-certificates \
+    git \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/target/release/standalone /app/stakgraph
