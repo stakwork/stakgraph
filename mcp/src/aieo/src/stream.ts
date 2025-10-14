@@ -17,7 +17,10 @@ interface CallModelOptions {
   executablePath?: string;
 }
 
-export async function callModel(opts: CallModelOptions): Promise<string> {
+export async function callModel(opts: CallModelOptions): Promise<{
+  text: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}> {
   const {
     provider,
     apiKey,
@@ -52,7 +55,15 @@ export async function callModel(opts: CallModelOptions): Promise<string> {
         break;
     }
   }
-  return fullResponse;
+  const usage = await result.usage;
+  return {
+    text: fullResponse,
+    usage: {
+      inputTokens: usage.inputTokens || 0,
+      outputTokens: usage.outputTokens || 0,
+      totalTokens: usage.totalTokens || 0,
+    },
+  };
 }
 
 interface GenerateObjectArgs {
@@ -62,12 +73,22 @@ interface GenerateObjectArgs {
   schema: any;
 }
 
-export async function callGenerateObject(args: GenerateObjectArgs) {
+export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
+  object: any;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}> {
   const model = await getModel(args.provider, args.apiKey);
-  const { object } = await generateObject({
+  const { object, usage } = await generateObject({
     model,
     schema: args.schema,
     prompt: args.prompt,
   });
-  return object;
+  return {
+    object,
+    usage: {
+      inputTokens: usage.inputTokens || 0,
+      outputTokens: usage.outputTokens || 0,
+      totalTokens: usage.totalTokens || 0,
+    },
+  };
 }

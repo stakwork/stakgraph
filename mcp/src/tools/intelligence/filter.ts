@@ -44,14 +44,20 @@ export async function filterAnswers(
   qas: string,
   originalPrompt: string,
   llm_provider?: string
-): Promise<FilteredAnswer> {
+): Promise<{
+  answer: FilteredAnswer;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}> {
   console.log(">> filterAnswers!!!!");
   const provider = (llm_provider || "anthropic") as Provider;
   const apiKey = getApiKeyForProvider(provider);
-  const filtered = await callModel({
+  const result = await callModel({
     provider,
     apiKey,
     messages: [{ role: "user", content: FILTER_PROMPT(originalPrompt, qas) }],
   });
-  return filtered;
+  return {
+    answer: result.text,
+    usage: result.usage,
+  };
 }

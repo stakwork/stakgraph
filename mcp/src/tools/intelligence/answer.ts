@@ -58,6 +58,7 @@ export interface RecomposedAnswer {
   answer: string;
   hints: Answer[];
   ref_id?: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
 export async function recomposeAnswer(
@@ -74,13 +75,24 @@ export async function recomposeAnswer(
   const provider = llm_provider || "anthropic";
   const apiKey = getApiKeyForProvider(provider as Provider);
   const messages: ModelMessage[] = [{ role: "user", content }];
-  const answer = await callModel({
+  const result = await callModel({
     provider: provider as Provider,
     apiKey,
     messages,
   });
+  const totalUsage = {
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    totalTokens: result.usage.totalTokens,
+  };
+  for (const answer of answers) {
+    totalUsage.inputTokens += answer.usage.inputTokens;
+    totalUsage.outputTokens += answer.usage.outputTokens;
+    totalUsage.totalTokens += answer.usage.totalTokens;
+  }
   return {
-    answer: answer,
+    answer: result.text,
     hints: answers,
+    usage: totalUsage,
   };
 }

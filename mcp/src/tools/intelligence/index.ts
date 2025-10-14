@@ -18,6 +18,7 @@ function mapConnectedHints(connected_hints: any[]) {
     reused_question: hint.properties.question || hint.properties.name,
     edges_added: 0,
     linked_ref_ids: [],
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
   }));
 }
 
@@ -132,11 +133,20 @@ export async function ask_prompt(
             // Fetch connected hints (sub_answers) for this existing prompt
             const connected_hints = await db.get_connected_hints(top.ref_id);
             const hints = mapConnectedHints(connected_hints);
+            const totalUsage = hints.reduce(
+              (acc, h) => ({
+                inputTokens: acc.inputTokens + h.usage.inputTokens,
+                outputTokens: acc.outputTokens + h.usage.outputTokens,
+                totalTokens: acc.totalTokens + h.usage.totalTokens,
+              }),
+              { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+            );
 
             return {
               answer: top.properties.body,
               hints,
               ref_id: top.ref_id,
+              usage: totalUsage,
             };
           }
         } else {
@@ -146,11 +156,20 @@ export async function ask_prompt(
           // Fetch connected hints (sub_answers) for this existing prompt
           const connected_hints = await db.get_connected_hints(top.ref_id);
           const hints = mapConnectedHints(connected_hints);
+          const totalUsage = hints.reduce(
+            (acc, h) => ({
+              inputTokens: acc.inputTokens + h.usage.inputTokens,
+              outputTokens: acc.outputTokens + h.usage.outputTokens,
+              totalTokens: acc.totalTokens + h.usage.totalTokens,
+            }),
+            { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+          );
 
           return {
             answer: top.properties.body,
             hints,
             ref_id: top.ref_id,
+            usage: totalUsage,
           };
         }
       } else {
@@ -159,11 +178,20 @@ export async function ask_prompt(
         // Fetch connected hints (sub_answers) for this existing prompt
         const connected_hints = await db.get_connected_hints(top.ref_id);
         const hints = mapConnectedHints(connected_hints);
+        const totalUsage = hints.reduce(
+          (acc, h) => ({
+            inputTokens: acc.inputTokens + h.usage.inputTokens,
+            outputTokens: acc.outputTokens + h.usage.outputTokens,
+            totalTokens: acc.totalTokens + h.usage.totalTokens,
+          }),
+          { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
+        );
 
         return {
           answer: top.properties.body,
           hints,
           ref_id: top.ref_id,
+          usage: totalUsage,
         };
       }
     }
@@ -175,6 +203,7 @@ export async function ask_prompt(
     return {
       answer: "",
       hints: [],
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     };
   }
 

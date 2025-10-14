@@ -38,19 +38,33 @@ export async function create_hint_edges_llm(
   hint_ref_id: string,
   answer: string,
   llm_provider?: Provider | string
-): Promise<{ edges_added: number; linked_ref_ids: string[] }> {
-  if (!answer) return { edges_added: 0, linked_ref_ids: [] };
+): Promise<{
+  edges_added: number;
+  linked_ref_ids: string[];
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}> {
+  if (!answer)
+    return {
+      edges_added: 0,
+      linked_ref_ids: [],
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    };
   const provider = llm_provider ? llm_provider : "anthropic";
   const apiKey = getApiKeyForProvider(provider);
-  if (!apiKey) return { edges_added: 0, linked_ref_ids: [] };
+  if (!apiKey)
+    return {
+      edges_added: 0,
+      linked_ref_ids: [],
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    };
 
-  const extracted = await extractHintReferences(
+  const result = await extractHintReferences(
     answer,
     provider as Provider,
     apiKey
   );
 
-  const foundNodes = await findNodesFromExtraction(extracted);
+  const foundNodes = await findNodesFromExtraction(result.extraction);
   const weightedRefIds = foundNodes
     .map((item) => ({
       ref_id: item.node.ref_id || item.node.properties.ref_id,
@@ -59,16 +73,27 @@ export async function create_hint_edges_llm(
     .filter((item) => item.ref_id);
 
   if (weightedRefIds.length === 0)
-    return { edges_added: 0, linked_ref_ids: [] };
+    return {
+      edges_added: 0,
+      linked_ref_ids: [],
+      usage: result.usage,
+    };
 
-  return await db.createEdgesDirectly(hint_ref_id, weightedRefIds);
+  const edgeResult = await db.createEdgesDirectly(hint_ref_id, weightedRefIds);
+  return {
+    ...edgeResult,
+    usage: result.usage,
+  };
 }
 
 export async function extractHintReferences(
   answer: string,
   provider: Provider,
   apiKey: string
-): Promise<HintExtraction> {
+): Promise<{
+  extraction: HintExtraction;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}> {
   const truncated = answer.slice(0, 8000);
   const item = z.object({
     name: z.string(),
@@ -102,19 +127,26 @@ export async function extractHintReferences(
       ),
   });
   try {
-    return await callGenerateObject({
+    const result = await callGenerateObject({
       provider,
       apiKey,
       prompt: `Extract exact code nodes referenced with relevancy scores (0.0-1.0). Higher scores for more central/important nodes. Return JSON only. Use empty arrays if none.\n\n${truncated}`,
       schema,
     });
+    return {
+      extraction: result.object,
+      usage: result.usage,
+    };
   } catch (_) {
     return {
-      function_names: [],
-      file_names: [],
-      datamodel_names: [],
-      endpoint_names: [],
-      page_names: [],
+      extraction: {
+        function_names: [],
+        file_names: [],
+        datamodel_names: [],
+        endpoint_names: [],
+        page_names: [],
+      },
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     };
   }
 }
