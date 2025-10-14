@@ -117,21 +117,31 @@ RETURN h
 `;
 
 export const GET_NODE_WITH_RELATED_QUERY = `
+// First, collect all related nodes
 MATCH (h {ref_id: $ref_id})
 OPTIONAL MATCH (h)-[e]-(m)
-RETURN h, m, e,
-  CASE
-    WHEN e IS NOT NULL AND m IS NOT NULL
-    THEN startNode(e).ref_id
-    ELSE null
-  END AS source_ref_id,
-  CASE
-    WHEN e IS NOT NULL AND m IS NOT NULL
-    THEN endNode(e).ref_id
-    ELSE null
-  END AS target_ref_id,
-  type(e) AS edge_type,
-  properties(e) AS edge_properties
+WITH h, collect(DISTINCT m) AS relatedNodes
+
+// Collect all nodes including the main node
+WITH h, relatedNodes, [h] + relatedNodes AS allNodes
+
+// Extract ref_ids for finding interconnections
+WITH h, allNodes, [node IN allNodes WHERE node IS NOT NULL | node.ref_id] AS allRefIds
+
+// Find all edges between any of the collected nodes
+OPTIONAL MATCH (a)-[r]->(b)
+WHERE a.ref_id IN allRefIds
+  AND b.ref_id IN allRefIds
+  AND a.ref_id <> b.ref_id
+
+// Return nodes and interconnecting edges
+RETURN h, allNodes,
+  collect(DISTINCT {
+    source: a.ref_id,
+    target: b.ref_id,
+    edge_type: type(r),
+    properties: properties(r)
+  }) AS edges
 `;
 
 export const HINTS_WITHOUT_SIBLINGS_QUERY = `
