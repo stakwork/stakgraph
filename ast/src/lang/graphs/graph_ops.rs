@@ -230,6 +230,11 @@ impl GraphOps {
         use_lsp: Option<bool>,
         streaming: Option<bool>,
     ) -> Result<(u32, u32)> {
+        let all_dynamic_edges = self.graph.get_all_dynamic_edges().await?;
+        if !all_dynamic_edges.is_empty() {
+            info!("Found {} dynamic edges to preserve", all_dynamic_edges.len());
+        }
+
         let repos = Repo::new_clone_multi_detect(
             repo_url,
             username.clone(),
@@ -257,7 +262,11 @@ impl GraphOps {
         }
         self.graph.create_indexes().await?;
 
-        // Set Data_Bank property for nodes that don't have it
+        if !all_dynamic_edges.is_empty() {
+            let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
+            info!("Restored {} dynamic edges after full rebuild", restored_count);
+        }
+
         info!("Setting Data_Bank property for nodes missing it...");
         if let Err(e) = self.graph.set_missing_data_bank().await {
             tracing::warn!("Error setting Data_Bank property: {:?}", e);
