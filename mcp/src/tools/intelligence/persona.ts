@@ -39,12 +39,13 @@ export async function rephraseHint(
   const provider = (llm_provider || "anthropic") as Provider;
   const apiKey = getApiKeyForProvider(provider);
   const schema = z.object({ question: z.string(), answer: z.string() });
-  return await callGenerateObject({
+  const result = await callGenerateObject({
     provider,
     apiKey,
     prompt: personaPrompt(persona, question, answer),
     schema,
   });
+  return result.object;
 }
 
 export async function generate_persona_variants(llm_provider?: string) {

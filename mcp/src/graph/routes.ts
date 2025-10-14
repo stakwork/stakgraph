@@ -36,6 +36,12 @@ import {
   ask_prompt,
   learnings,
 } from "../tools/intelligence/index.js";
+import {
+  createBudgetTracker,
+  addUsage,
+  isBudgetExceeded,
+  getBudgetInfo,
+} from "../tools/budget.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
 import { GitSeeHandler } from "gitsee/server";
@@ -133,18 +139,72 @@ export async function understand(req: Request, res: Response) {
 
 export async function seed_understanding(req: Request, res: Response) {
   try {
+    const budgetDollars = req.query.budget
+      ? parseFloat(req.query.budget as string)
+      : undefined;
+    const provider = (req.query.provider as string) || "anthropic";
+
     const answers = [];
+    let budgetTracker = createBudgetTracker(
+      budgetDollars || Number.MAX_SAFE_INTEGER,
+      provider as any
+    );
+    let budgetExceeded = false;
+
+    if (budgetDollars) {
+      console.log(`Budget limit enabled: $${budgetDollars}`);
+    }
 
     // Sequential processing - one at a time
     for (const question of QUESTIONS) {
-      const answer = await ask_question(question, 0.85);
+      if (budgetDollars && isBudgetExceeded(budgetTracker)) {
+        console.log("Budget exceeded, stopping processing");
+        budgetExceeded = true;
+        break;
+      }
+
+      const answer = await ask_question(question, 0.85, provider);
       if (!answer.reused) {
         console.log("ANSWERED question:", question);
       }
       answers.push(answer);
+
+      budgetTracker = addUsage(
+        budgetTracker,
+        answer.usage.inputTokens,
+        answer.usage.outputTokens,
+        provider as any
+      );
+      const info = getBudgetInfo(budgetTracker);
+      if (budgetDollars) {
+        console.log(
+          `Budget: $${info.totalCost.toFixed(4)} / $${budgetDollars} (${
+            answers.length
+          } questions)`
+        );
+      } else {
+        console.log(
+          `Cost: $${info.totalCost.toFixed(4)} (${answers.length} questions)`
+        );
+      }
     }
 
-    res.json(answers);
+    const info = getBudgetInfo(budgetTracker);
+    const response: any = {
+      answers,
+      budget: {
+        totalCost: info.totalCost,
+        budgetExceeded,
+        remainingBudget: budgetDollars ? info.remainingBudget : undefined,
+        questionsProcessed: answers.length,
+        questionsSkipped: QUESTIONS.length - answers.length,
+        inputTokens: info.inputTokens,
+        outputTokens: info.outputTokens,
+        totalTokens: info.totalTokens,
+      },
+    };
+
+    res.json(response);
   } catch (e: any) {
     console.error(e);
     res.status(500).json({ error: "Failed" });
@@ -285,16 +345,91 @@ export async function seed_stories(req: Request, res: Response) {
   const default_prompt =
     "How does this repository work? Please provide a summary of the codebase, a few key files, and 50 core user stories.";
   const prompt = (req.query.prompt as string | undefined) || default_prompt;
+  const budgetDollars = req.query.budget
+    ? parseFloat(req.query.budget as string)
+    : undefined;
+  const provider = (req.query.provider as string) || "anthropic";
+
   try {
+    let budgetTracker = createBudgetTracker(
+      budgetDollars || Number.MAX_SAFE_INTEGER,
+      provider as any
+    );
+    let budgetExceeded = false;
+
+    if (budgetDollars) {
+      console.log(`Budget limit enabled: $${budgetDollars}`);
+    }
+
     const gres = await get_context(prompt, false, true);
+
+    budgetTracker = addUsage(
+      budgetTracker,
+      gres.usage.inputTokens,
+      gres.usage.outputTokens,
+      provider as any
+    );
+    const contextInfo = getBudgetInfo(budgetTracker);
+    if (budgetDollars) {
+      console.log(
+        `Initial context: $${contextInfo.totalCost.toFixed(
+          4
+        )} / $${budgetDollars}`
+      );
+    } else {
+      console.log(`Initial context: $${contextInfo.totalCost.toFixed(4)}`);
+    }
+
     const stories = JSON.parse(gres.final) as GeneralContextResult;
     let answers = [];
+
     for (const feature of stories.features) {
+      if (budgetDollars && isBudgetExceeded(budgetTracker)) {
+        console.log("Budget exceeded, stopping processing");
+        budgetExceeded = true;
+        break;
+      }
+
       console.log("+++++++++ feature:", feature);
-      const answer = await ask_prompt(feature);
+      const answer = await ask_prompt(feature, provider);
       answers.push(answer);
+
+      budgetTracker = addUsage(
+        budgetTracker,
+        answer.usage.inputTokens,
+        answer.usage.outputTokens,
+        provider as any
+      );
+      const info = getBudgetInfo(budgetTracker);
+      if (budgetDollars) {
+        console.log(
+          `Budget: $${info.totalCost.toFixed(4)} / $${budgetDollars} (${
+            answers.length
+          } features)`
+        );
+      } else {
+        console.log(
+          `Cost: $${info.totalCost.toFixed(4)} (${answers.length} features)`
+        );
+      }
     }
-    res.json(answers);
+
+    const info = getBudgetInfo(budgetTracker);
+    const response: any = {
+      answers,
+      budget: {
+        totalCost: info.totalCost,
+        budgetExceeded,
+        remainingBudget: budgetDollars ? info.remainingBudget : undefined,
+        featuresProcessed: answers.length,
+        featuresSkipped: stories.features.length - answers.length,
+        inputTokens: info.inputTokens,
+        outputTokens: info.outputTokens,
+        totalTokens: info.totalTokens,
+      },
+    };
+
+    res.json(response);
   } catch (error) {
     console.error("Seed Stories Error:", error);
     res.status(500).send("Internal Server Error");

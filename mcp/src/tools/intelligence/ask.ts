@@ -74,23 +74,22 @@ export interface Answer {
   reused_question?: string;
   edges_added: number;
   linked_ref_ids: string[];
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
 function cached_answer(
   question: string,
   e: Neo4jNode
-): FilterByRelevanceFromCacheResult {
+): Answer {
   return {
-    cachedAnswer: {
-      question,
-      answer: e.properties.body,
-      hint_ref_id: e.ref_id as string,
-      reused: true,
-      reused_question: e.properties.question,
-      edges_added: 0,
-      linked_ref_ids: [],
-    },
-    reexplore: false,
+    question,
+    answer: e.properties.body,
+    hint_ref_id: e.ref_id as string,
+    reused: true,
+    reused_question: e.properties.question,
+    edges_added: 0,
+    linked_ref_ids: [],
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
   };
 }
 
@@ -99,6 +98,7 @@ export const QUESTION_HIGHLY_RELEVANT_THRESHOLD = 0.94;
 interface FilterByRelevanceFromCacheResult {
   cachedAnswer?: Answer;
   reexplore: boolean;
+  filterUsage?: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
 async function filter_by_relevance_from_cache(
@@ -126,18 +126,18 @@ async function filter_by_relevance_from_cache(
   const candidates = persona
     ? existing.filter((e: any) => (e.properties.persona || "PM") === persona)
     : existing;
-  if (Array.isArray(existingAll) && existingAll.length > 0) {
+  if (Array.isArray(candidates) && candidates.length > 0) {
     if (originalPrompt) {
       let qas = "";
       candidates.forEach((e: any) => {
         qas += `**Question:** ${e.properties.question}\n**Answer:** ${e.properties.body}\n\n`;
       });
-      const filtered = await filterAnswers(qas, originalPrompt, provider);
-      if (filtered === "NO_MATCH") {
+      const filterResult = await filterAnswers(qas, originalPrompt, provider);
+      if (filterResult.answer === "NO_MATCH") {
         return;
       }
       const top: any = candidates.find(
-        (e: any) => e.properties.question === filtered
+        (e: any) => e.properties.question === filterResult.answer
       );
       if (!top) {
         return;
@@ -149,7 +149,11 @@ async function filter_by_relevance_from_cache(
           ">>",
           top.properties.question
         );
-        return cached_answer(question, top);
+        return {
+          cachedAnswer: cached_answer(question, top),
+          reexplore: false,
+          filterUsage: filterResult.usage,
+        };
       } else {
         console.log(
           ">> REUSED RELEVANT question but not highly relevant ---- RE-EXPLORING!!!:",
@@ -157,14 +161,16 @@ async function filter_by_relevance_from_cache(
           ">>",
           top.properties.question
         );
-        const ca = cached_answer(question, top);
-        ca.reexplore = true;
-        return ca;
+        return {
+          cachedAnswer: cached_answer(question, top),
+          reexplore: true,
+          filterUsage: filterResult.usage,
+        };
       }
     }
     const top: any = candidates[0];
     console.log(">> REUSED question:", question, ">>", top.properties.question);
-    return cached_answer(question, top);
+    return { cachedAnswer: cached_answer(question, top), reexplore: false };
   }
 }
 
@@ -183,6 +189,9 @@ export async function ask_question(
     persona
   );
   if (filtered && filtered.cachedAnswer && !filtered.reexplore) {
+    if (filtered.filterUsage) {
+      filtered.cachedAnswer.usage = filtered.filterUsage;
+    }
     return filtered.cachedAnswer;
   }
   let q: string | ModelMessage[] = question;
@@ -197,16 +206,24 @@ export async function ask_question(
     reexplore = true;
   }
   console.log(">> NEW question:", question);
-  const ctx = await get_context(q, reexplore);
+  const ctx = await get_context(q, reexplore, false, provider);
   const answer = ctx.final;
   const embeddings = await vectorizeQuery(question);
   const created = await db.create_hint(question, answer, embeddings, "PM");
   let edges_added = 0;
   let linked_ref_ids: string[] = [];
+  let totalUsage = {
+    inputTokens: ctx.usage.inputTokens,
+    outputTokens: ctx.usage.outputTokens,
+    totalTokens: ctx.usage.totalTokens,
+  };
   try {
     const r = await create_hint_edges_llm(created.ref_id, answer, provider);
     edges_added = r.edges_added;
     linked_ref_ids = r.linked_ref_ids;
+    totalUsage.inputTokens += r.usage.inputTokens;
+    totalUsage.outputTokens += r.usage.outputTokens;
+    totalUsage.totalTokens += r.usage.totalTokens;
   } catch (e) {
     console.error("Failed to create edges from hint", e);
   }
@@ -217,6 +234,7 @@ export async function ask_question(
     reused: false,
     edges_added,
     linked_ref_ids,
+    usage: totalUsage,
   };
 }
 
@@ -234,10 +252,11 @@ export async function decomposeQuestion(
     business_context: z.string(),
     questions: z.array(z.string()),
   });
-  return await callGenerateObject({
+  const result = await callGenerateObject({
     provider: provider as Provider,
     apiKey,
     prompt: DECOMPOSE_PROMPT(question),
     schema,
   });
+  return result.object;
 }

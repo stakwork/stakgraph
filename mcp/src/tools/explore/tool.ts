@@ -54,11 +54,12 @@ interface ToolConfig {
 export async function get_context(
   prompt: string | ModelMessage[],
   re_explore: boolean = false,
-  general_explore: boolean = false
+  general_explore: boolean = false,
+  provider?: string
 ): Promise<ContextResult> {
-  const provider = process.env.LLM_PROVIDER || "anthropic";
-  const apiKey = getApiKeyForProvider(provider);
-  const model = await getModel(provider as Provider, apiKey as string);
+  const effectiveProvider = provider || process.env.LLM_PROVIDER || "anthropic";
+  const apiKey = getApiKeyForProvider(effectiveProvider);
+  const model = await getModel(effectiveProvider as Provider, apiKey as string);
   // console.log("call claude:");
   const tools = {
     repo_overview: tool({

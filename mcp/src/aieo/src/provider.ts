@@ -22,6 +22,30 @@ const SOTA = {
   claude_code: "sonnet",
 };
 
+export interface TokenPricing {
+  inputTokenPrice: number;
+  outputTokenPrice: number;
+}
+
+const TOKEN_PRICING: Record<Provider, TokenPricing> = {
+  anthropic: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+  },
+  google: {
+    inputTokenPrice: 1.25,
+    outputTokenPrice: 5.0,
+  },
+  openai: {
+    inputTokenPrice: 2.5,
+    outputTokenPrice: 10.0,
+  },
+  claude_code: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+  },
+};
+
 export function getApiKeyForProvider(provider: Provider | string): string {
   let apiKey: string | undefined;
   switch (provider) {
@@ -90,6 +114,10 @@ export async function getModel(
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
+}
+
+export function getTokenPricing(provider: Provider): TokenPricing {
+  return TOKEN_PRICING[provider];
 }
 
 export type ThinkingSpeed = "thinking" | "fast";
