@@ -47,14 +47,12 @@ RUN touch ast/src/lib.rs lsp/src/lib.rs standalone/src/main.rs shared/src/lib.rs
     --features neo4j
 
 # Runtime stage
-FROM debian:bookworm-slim
+FROM sphinxlightning/stakgraph-lsp:latest
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y \
     libssl3 \
-    ca-certificates \
-    git \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
