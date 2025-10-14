@@ -742,6 +742,16 @@ class Db {
     }
   }
 
+  async get_orphaned_hints(): Promise<Neo4jNode[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.ORPHANED_HINTS_QUERY);
+      return result.records.map((record) => clean_node(record.get("h")));
+    } finally {
+      await session.close();
+    }
+  }
+
   async createIndexes(): Promise<void> {
     let session: Session | null = null;
     try {

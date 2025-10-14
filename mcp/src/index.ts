@@ -89,6 +89,7 @@ app.get("/progress", r.get_script_progress);
 app.get("/leaks", rr.get_leaks);
 app.post("/repo/agent", rr.repo_agent);
 app.get("/repo/agent/tools", rr.get_agent_tools);
+app.get("/reattach", r.reconnect_orphaned_hints);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (req: Request, res: Response): void => {

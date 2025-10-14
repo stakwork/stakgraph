@@ -174,6 +174,12 @@ WHERE n.name = $name
 RETURN n
 LIMIT 5
 `;
+
+export const ORPHANED_HINTS_QUERY = `
+MATCH (h:Hint)
+WHERE NOT (h)-[]->()
+RETURN h
+`;
 export const FIND_FILE_NODES_BY_PATH_QUERY = `
 MATCH (n:File)
 WHERE n.file ENDS WITH $file_path

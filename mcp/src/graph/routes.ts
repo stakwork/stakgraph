@@ -28,6 +28,7 @@ import { db } from "./neo4j.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
 import { get_context, GeneralContextResult } from "../tools/explore/tool.js";
+import { create_hint_edges_llm } from "../tools/intelligence/seed.js";
 import {
   ask_question,
   QUESTIONS,
@@ -783,5 +784,49 @@ export async function get_script_progress(req: Request, res: Response) {
   } catch (error) {
     console.error("Error checking script progress:", error);
     res.status(500).send("Internal Server Error");
+  }
+}
+
+export async function reconnect_orphaned_hints(req: Request, res: Response) {
+  try {
+    const provider = (req.query.provider as string) || "anthropic";
+    const orphanedHints = await db.get_orphaned_hints();
+
+    const results = {
+      processed: orphanedHints.length,
+      reconnected: 0,
+      failed: [] as { ref_id: string; error: string }[],
+    };
+
+    for (const hint of orphanedHints) {
+      const ref_id = hint.ref_id || hint.properties.ref_id;
+      const answer = hint.properties.body || hint.properties.answer;
+
+      if (!ref_id || !answer) {
+        results.failed.push({
+          ref_id: ref_id || "unknown",
+          error: "Missing ref_id or answer",
+        });
+        continue;
+      }
+
+      try {
+        const result = await create_hint_edges_llm(ref_id, answer, provider);
+        if (result.edges_added > 0) {
+          results.reconnected++;
+        }
+      } catch (error: any) {
+        results.failed.push({
+          ref_id,
+          error: error.message || "Unknown error",
+        });
+      }
+    }
+
+    res.json(results);
+  } catch (error: any) {
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to reconnect orphaned hints" });
   }
 }
