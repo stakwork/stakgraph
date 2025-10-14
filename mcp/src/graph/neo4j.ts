@@ -581,41 +581,31 @@ class Db {
         ref_id,
       });
 
-      const nodes: any[] = [];
-      const edges: any[] = [];
-      const nodeMap = new Map();
+      if (result.records.length === 0) {
+        return { nodes: [], edges: [] };
+      }
 
-      result.records.forEach((record) => {
-        const h = record.get("h");
-        const m = record.get("m");
-        const source_ref_id = record.get("source_ref_id");
-        const target_ref_id = record.get("target_ref_id");
-        const edge_type = record.get("edge_type");
-        const edge_properties = record.get("edge_properties");
+      const record = result.records[0];
+      const allNodesArray = record.get("allNodes");
+      const edgesArray = record.get("edges");
 
-        // Add the main node (h) if not already added
-        if (h && h.properties && h.properties.ref_id && !nodeMap.has(h.properties.ref_id)) {
-          nodeMap.set(h.properties.ref_id, clean_node(h));
-        }
+      // Process nodes
+      const nodes = allNodesArray
+        .filter((node: any) => node !== null)
+        .map((node: any) => clean_node(node));
 
-        // Add related node (m) if it exists
-        if (m && m.properties && m.properties.ref_id && !nodeMap.has(m.properties.ref_id)) {
-          nodeMap.set(m.properties.ref_id, clean_node(m));
-        }
-
-        // Add edge if we have the ref_ids
-        if (source_ref_id && target_ref_id && edge_type) {
-          edges.push({
-            edge_type: edge_type,
-            source: source_ref_id,
-            target: target_ref_id,
-            properties: edge_properties || {},
-          });
-        }
-      });
+      // Process edges - filter out any empty edge objects
+      const edges = edgesArray
+        .filter((edge: any) => edge.source && edge.target && edge.edge_type)
+        .map((edge: any) => ({
+          edge_type: edge.edge_type,
+          source: edge.source,
+          target: edge.target,
+          properties: edge.properties || {},
+        }));
 
       return {
-        nodes: Array.from(nodeMap.values()),
+        nodes,
         edges,
       };
     } finally {
