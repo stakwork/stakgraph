@@ -303,70 +303,25 @@ impl Stack for Rust {
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            [
-                (
-                    (attribute_item
-                        (attribute
-                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|wasm_bindgen_test)$")
-                        )
-                    )
-                    .
-                    (function_item
-                        name: (identifier) @{FUNCTION_NAME}
-                        parameters: (parameters) @{ARGUMENTS}
-                        return_type: (_)? @{RETURN_TYPES}
-                        body: (block)? @function.body
-                    ) @{FUNCTION_DEFINITION}
-                )
-                (
-                    (attribute_item
-                        (attribute
+            (
+                (attribute_item
+                    (attribute
+                        [
+                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|quickcheck|wasm_bindgen_test)$")
                             (scoped_identifier
                                 name: (identifier) @test_method (#match? @test_method "^(test|rstest|quickcheck)$")
                             )
-                        )
+                        ]
                     )
-                    .
-                    (function_item
-                        name: (identifier) @{FUNCTION_NAME}
-                        parameters: (parameters) @{ARGUMENTS}
-                        return_type: (_)? @{RETURN_TYPES}
-                        body: (block)? @function.body
-                    ) @{FUNCTION_DEFINITION}
                 )
-                (
-                    (attribute_item
-                        (attribute
-                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|wasm_bindgen_test)$")
-                        )
-                    )
-                    (attribute_item)
-                    .
-                    (function_item
-                        name: (identifier) @{FUNCTION_NAME}
-                        parameters: (parameters) @{ARGUMENTS}
-                        return_type: (_)? @{RETURN_TYPES}
-                        body: (block)? @function.body
-                    ) @{FUNCTION_DEFINITION}
-                )
-                (
-                    (attribute_item
-                        (attribute
-                            (scoped_identifier
-                                name: (identifier) @test_method (#match? @test_method "^(test|rstest|quickcheck)$")
-                            )
-                        )
-                    )
-                    (attribute_item)
-                    .
-                    (function_item
-                        name: (identifier) @{FUNCTION_NAME}
-                        parameters: (parameters) @{ARGUMENTS}
-                        return_type: (_)? @{RETURN_TYPES}
-                        body: (block)? @function.body
-                    ) @{FUNCTION_DEFINITION}
-                )
-            ]
+                .
+                (function_item
+                    name: (identifier) @{FUNCTION_NAME}
+                    parameters: (parameters) @{ARGUMENTS}
+                    return_type: (_)? @{RETURN_TYPES}
+                    body: (block)? @function.body
+                ) @{FUNCTION_DEFINITION}
+            )
             "#
         ))
     }
@@ -432,10 +387,37 @@ impl Stack for Rust {
         normalized.contains("/tests/") || normalized.contains("/benches/")
     }
 
-    fn is_test(&self, _func_name: &str, _func_file: &str) -> bool {
-        // NON-NEGOTIABLE: Only functions captured by test_query() with test attributes are tests
-        // This method is called AFTER test_query() filtering, so always return false
-        // Test identification happens exclusively via attributes in test_query()
+    fn is_test(&self, func_name: &str, func_file: &str) -> bool {
+        let Ok(code) = std::fs::read_to_string(func_file) else {
+            return false;
+        };
+        
+        let test_patterns = [
+            format!("#[test"),
+            format!("#[tokio::test"),
+            format!("#[actix_rt::test"),
+            format!("#[actix_web::test"),
+            format!("#[rstest"),
+            format!("#[rstest("),
+            format!("#[proptest"),
+            format!("#[quickcheck"),
+            format!("#[wasm_bindgen_test"),
+            format!("#[bench"),
+        ];
+        
+        let fn_pattern = format!("fn {}(", func_name);
+        if let Some(fn_pos) = code.find(&fn_pattern) {
+            // Get code before function (up to 100 chars back to catch attributes)
+            let start = fn_pos.saturating_sub(100);
+            let context = &code[start..fn_pos];
+
+            for pattern in &test_patterns {
+                if context.contains(pattern) {
+                    return true;
+                }
+            }
+        }
+        
         false
     }
 
