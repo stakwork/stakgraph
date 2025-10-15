@@ -300,6 +300,36 @@ impl Stack for Rust {
         ))
     }
 
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (
+                [
+                    (attribute_item
+                        (attribute
+                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|wasm_bindgen_test)$")
+                        )
+                    )
+                    (attribute_item
+                        (attribute
+                            (scoped_identifier
+                                name: (identifier) @test_method (#match? @test_method "^(test|rstest|quickcheck)$")
+                            )
+                        )
+                    )
+                ]
+                .
+                (function_item
+                    name: (identifier) @{FUNCTION_NAME}
+                    parameters: (parameters) @{ARGUMENTS}
+                    return_type: (_)? @{RETURN_TYPES}
+                    body: (block)? @function.body
+                ) @{FUNCTION_DEFINITION}
+            )
+            "#
+        ))
+    }
+
     fn add_endpoint_verb(&self, endpoint: &mut NodeData, call: &Option<String>) -> Option<String> {
         if let Some(verb) = endpoint.meta.remove("http_method") {
             endpoint.add_verb(&verb);
@@ -353,5 +383,72 @@ impl Stack for Rust {
     }
     fn filter_by_implements(&self) -> bool {
         true
+    }
+
+    fn is_test_file(&self, filename: &str) -> bool {
+        let normalized = filename.replace('\\', "/");
+        
+        normalized.contains("/tests/")
+            || normalized.contains("/benches/")
+            || normalized.ends_with("_test.rs")
+            || normalized.ends_with("_tests.rs")
+    }
+
+    fn is_test(&self, func_name: &str, func_file: &str) -> bool {
+        if self.is_test_file(func_file) {
+            return true;
+        }
+        
+        func_name.starts_with("test_")
+            || func_name.starts_with("bench_")
+            || func_name.contains("_test_")
+    }
+
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        let name_lower = name.to_lowercase();
+        
+        if f.contains("/tests/e2e/")
+            || f.contains("/e2e/")
+            || fname.starts_with("e2e_")
+            || fname.contains("e2e.rs")
+            || name_lower.starts_with("e2e_")
+            || name_lower.contains("_e2e_")
+            || name_lower.contains("end_to_end")
+        {
+            return NodeType::E2eTest;
+        }
+        
+        if f.contains("/tests/integration/")
+            || fname.starts_with("integration_")
+            || fname.contains("integration.rs")
+            || name_lower.starts_with("integration_")
+            || name_lower.contains("_integration_")
+        {
+            return NodeType::IntegrationTest;
+        }
+        
+        if f.contains("/tests/") && !f.contains("/src/") {
+            return NodeType::IntegrationTest;
+        }
+        
+        let body_l = body.to_lowercase();
+        let http_markers = [
+            "reqwest::",
+            "hyper::client",
+            "actix_web::test",
+            "rocket::local",
+            ".get(",
+            ".post(",
+            "http://",
+            "https://",
+        ];
+        
+        if http_markers.iter().any(|m| body_l.contains(m)) {
+            return NodeType::IntegrationTest;
+        }
+        
+        NodeType::UnitTest
     }
 }

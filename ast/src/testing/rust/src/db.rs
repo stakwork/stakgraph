@@ -12,11 +12,23 @@ pub struct Person {
     pub email: String,
 }
 
+#[derive(Clone)]
 pub struct Database {
     pool: Pool<Sqlite>,
 }
 
 static DB_INSTANCE: OnceLock<Database> = OnceLock::new();
+
+#[inline]
+#[allow(dead_code)]
+fn internal_helper() -> String {
+    "helper".to_string()
+}
+
+#[cfg(feature = "advanced")]
+pub fn advanced_feature() {
+    println!("Advanced feature enabled");
+}
 
 async fn get_db() -> &'static Database {
     DB_INSTANCE.get().expect("Database not initialized")
@@ -88,5 +100,51 @@ impl Database {
     pub async fn get_person_by_id(id: u32) -> Result<Person> {
         let result: Result<Person> = get_db().await.get_person_by_id_impl(id).await;
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_person_creation() {
+        let person = Person {
+            id: None,
+            name: "Alice".to_string(),
+            email: "alice@example.com".to_string(),
+        };
+        assert_eq!(person.name, "Alice");
+        assert_eq!(person.email, "alice@example.com");
+    }
+
+    #[tokio::test]
+    async fn test_init_db() {
+        let result = init_db().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_and_get_person() {
+        init_db().await.unwrap();
+        
+        let person = Person {
+            id: None,
+            name: "Bob".to_string(),
+            email: "bob@example.com".to_string(),
+        };
+        
+        let created = Database::new_person(person).await.unwrap();
+        assert!(created.id.is_some());
+        
+        let retrieved = Database::get_person_by_id(created.id.unwrap() as u32).await.unwrap();
+        assert_eq!(retrieved.name, "Bob");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_slow_operation() {
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        assert!(true);
     }
 }
