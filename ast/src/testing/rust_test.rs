@@ -192,7 +192,7 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 111, "Expected 111 contains edges");
+    assert_eq!(contains_edges, 123, "Expected 123 contains edges");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
@@ -200,11 +200,12 @@ use std::net::SocketAddr;"#
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 25, "Expected 25 functions");
+    assert_eq!(functions.len(), 41, "Expected 41 functions");
+
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 16, "Expected 16 unit tests");
+    assert_eq!(unit_tests.len(), 8, "Expected 8 unit tests (4 db.rs + 2 axum + 2 benchmarks)");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
@@ -212,7 +213,7 @@ use std::net::SocketAddr;"#
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 3, "Expected 3 e2e tests");
+    assert_eq!(e2e_tests.len(), 4, "Expected 4 e2e tests (including #[ignore] test)");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;

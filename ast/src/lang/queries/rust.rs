@@ -303,13 +303,22 @@ impl Stack for Rust {
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (
-                [
+            [
+                (
                     (attribute_item
                         (attribute
                             (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|wasm_bindgen_test)$")
                         )
                     )
+                    .
+                    (function_item
+                        name: (identifier) @{FUNCTION_NAME}
+                        parameters: (parameters) @{ARGUMENTS}
+                        return_type: (_)? @{RETURN_TYPES}
+                        body: (block)? @function.body
+                    ) @{FUNCTION_DEFINITION}
+                )
+                (
                     (attribute_item
                         (attribute
                             (scoped_identifier
@@ -317,15 +326,47 @@ impl Stack for Rust {
                             )
                         )
                     )
-                ]
-                .
-                (function_item
-                    name: (identifier) @{FUNCTION_NAME}
-                    parameters: (parameters) @{ARGUMENTS}
-                    return_type: (_)? @{RETURN_TYPES}
-                    body: (block)? @function.body
-                ) @{FUNCTION_DEFINITION}
-            )
+                    .
+                    (function_item
+                        name: (identifier) @{FUNCTION_NAME}
+                        parameters: (parameters) @{ARGUMENTS}
+                        return_type: (_)? @{RETURN_TYPES}
+                        body: (block)? @function.body
+                    ) @{FUNCTION_DEFINITION}
+                )
+                (
+                    (attribute_item
+                        (attribute
+                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|wasm_bindgen_test)$")
+                        )
+                    )
+                    (attribute_item)
+                    .
+                    (function_item
+                        name: (identifier) @{FUNCTION_NAME}
+                        parameters: (parameters) @{ARGUMENTS}
+                        return_type: (_)? @{RETURN_TYPES}
+                        body: (block)? @function.body
+                    ) @{FUNCTION_DEFINITION}
+                )
+                (
+                    (attribute_item
+                        (attribute
+                            (scoped_identifier
+                                name: (identifier) @test_method (#match? @test_method "^(test|rstest|quickcheck)$")
+                            )
+                        )
+                    )
+                    (attribute_item)
+                    .
+                    (function_item
+                        name: (identifier) @{FUNCTION_NAME}
+                        parameters: (parameters) @{ARGUMENTS}
+                        return_type: (_)? @{RETURN_TYPES}
+                        body: (block)? @function.body
+                    ) @{FUNCTION_DEFINITION}
+                )
+            ]
             "#
         ))
     }
@@ -386,22 +427,16 @@ impl Stack for Rust {
     }
 
     fn is_test_file(&self, filename: &str) -> bool {
+        // Simplified: only used for test classification, not identification
         let normalized = filename.replace('\\', "/");
-        
-        normalized.contains("/tests/")
-            || normalized.contains("/benches/")
-            || normalized.ends_with("_test.rs")
-            || normalized.ends_with("_tests.rs")
+        normalized.contains("/tests/") || normalized.contains("/benches/")
     }
 
-    fn is_test(&self, func_name: &str, func_file: &str) -> bool {
-        if self.is_test_file(func_file) {
-            return true;
-        }
-        
-        func_name.starts_with("test_")
-            || func_name.starts_with("bench_")
-            || func_name.contains("_test_")
+    fn is_test(&self, _func_name: &str, _func_file: &str) -> bool {
+        // NON-NEGOTIABLE: Only functions captured by test_query() with test attributes are tests
+        // This method is called AFTER test_query() filtering, so always return false
+        // Test identification happens exclusively via attributes in test_query()
+        false
     }
 
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
