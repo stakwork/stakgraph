@@ -139,6 +139,12 @@ impl GraphOps {
                         all_dynamic_edges.extend(dynamic_edges);
                     }
                 }
+                
+                if all_dynamic_edges.is_empty() {
+                    info!("No dynamic edges found (no Hint/Prompt nodes connected to modified files)");
+                } else {
+                    info!("Total dynamic edges collected: {}", all_dynamic_edges.len());
+                }
 
                 for file in &modified_files {
                     self.graph.remove_nodes_by_file(file).await?;
@@ -231,7 +237,9 @@ impl GraphOps {
         streaming: Option<bool>,
     ) -> Result<(u32, u32)> {
         let all_dynamic_edges = self.graph.get_all_dynamic_edges().await?;
-        if !all_dynamic_edges.is_empty() {
+        if all_dynamic_edges.is_empty() {
+            info!("No dynamic edges found (no Hint/Prompt nodes in graph)");
+        } else {
             info!("Found {} dynamic edges to preserve", all_dynamic_edges.len());
         }
 
@@ -263,8 +271,9 @@ impl GraphOps {
         self.graph.create_indexes().await?;
 
         if !all_dynamic_edges.is_empty() {
+            info!("Restoring {} dynamic edges...", all_dynamic_edges.len());
             let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
-            info!("Restored {} dynamic edges after full rebuild", restored_count);
+            info!("Successfully restored {} dynamic edges after full rebuild", restored_count);
         }
 
         info!("Setting Data_Bank property for nodes missing it...");

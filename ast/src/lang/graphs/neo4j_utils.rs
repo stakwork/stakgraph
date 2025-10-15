@@ -1398,7 +1398,7 @@ pub fn find_dynamic_edges_for_file_query(file: &str) -> (String, BoltMap) {
 
     let query = format!(
         "MATCH (source)-[r]->(target)
-         WHERE target.file = $file 
+         WHERE target.file ENDS WITH $file 
          AND NOT ({})
          RETURN source.ref_id as source_ref_id, type(r) as edge_type, 
                 target.name as target_name, target.file as target_file, labels(target)[0] as target_type",
