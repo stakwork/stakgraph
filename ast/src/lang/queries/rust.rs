@@ -157,25 +157,38 @@ impl Stack for Rust {
     fn function_definition_query(&self) -> String {
         format!(
             r#"
-            (function_item
-              name: (identifier) @{FUNCTION_NAME}
-              parameters: (parameters) @{ARGUMENTS}
-              return_type: (type_identifier)? @{RETURN_TYPES}
-              body: (block)? @function.body) @{FUNCTION_DEFINITION}
+            (
+              (attribute_item)* @{ATTRIBUTES}
+              .
+              (function_item
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters) @{ARGUMENTS}
+                return_type: (_)? @{RETURN_TYPES}
+                body: (block)? @function.body) @{FUNCTION_DEFINITION}
+            )
               
-            (function_signature_item
-              name: (identifier) @{FUNCTION_NAME}
-              parameters: (parameters) @{ARGUMENTS}
-              return_type: (type_identifier)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
+            (
+              (attribute_item)* @{ATTRIBUTES}
+              .
+              (function_signature_item
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters) @{ARGUMENTS}
+                return_type: (_)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
+            )
             
             (impl_item
               type: (_) @{PARENT_TYPE}
               body: (declaration_list
-                (function_item
-                  name: (identifier) @{FUNCTION_NAME}
-                  parameters: (parameters) @{ARGUMENTS}
-                  return_type: (type_identifier)? @{RETURN_TYPES}
-                  body: (block)? @method.body) @method)) @impl
+                (
+                  (attribute_item)* @{ATTRIBUTES}
+                  .
+                  (function_item
+                    name: (identifier) @{FUNCTION_NAME}
+                    parameters: (parameters) @{ARGUMENTS}
+                    return_type: (_)? @{RETURN_TYPES}
+                    body: (block)? @method.body) @method
+                )
+              )) @impl
             "#
         )
     }
@@ -282,13 +295,21 @@ impl Stack for Rust {
         Some(format!(
             r#"
                 [
-                    (struct_item
-                        name: (type_identifier) @struct-name
+                    (
+                        (attribute_item)* @{ATTRIBUTES}
+                        .
+                        (struct_item
+                            name: (type_identifier) @struct-name
+                        ) @struct
                     )
-                    (enum_item
-                        name: (type_identifier) @struct-name
+                    (
+                        (attribute_item)* @{ATTRIBUTES}
+                        .
+                        (enum_item
+                            name: (type_identifier) @struct-name
+                        ) @struct
                     )
-                ]@struct
+                ]
             "#
         ))
     }

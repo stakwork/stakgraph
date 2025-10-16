@@ -30,6 +30,13 @@ pub fn advanced_feature() {
     println!("Advanced feature enabled");
 }
 
+#[inline(always)]
+#[must_use]
+#[deprecated(since = "1.0.0", note = "use new_helper instead")]
+pub fn multi_attribute_function() -> i32 {
+    42
+}
+
 async fn get_db() -> &'static Database {
     DB_INSTANCE.get().expect("Database not initialized")
 }
