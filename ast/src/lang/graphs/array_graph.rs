@@ -390,7 +390,7 @@ impl Graph for ArrayGraph {
         // discrepancy. This helps isolate that the missing edges problem stems from
         // test->class edge insertion differences rather than downstream logic.
         let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
-        let mut unique_edges: HashSet<(String, String, String, String)> = HashSet::new();
+        let mut unique_edges: HashSet<(String, String, usize, String, String, usize)> = HashSet::new();
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
@@ -407,8 +407,10 @@ impl Graph for ArrayGraph {
                 let edge_key = (
                     fc.source.name.clone(),
                     fc.source.file.clone(),
+                    fc.source.start,
                     ext_nd.name.clone(),
                     ext_nd.file.clone(),
+                    ext_nd.start,
                 );
 
                 if !unique_edges.contains(&edge_key) {
@@ -426,8 +428,10 @@ impl Graph for ArrayGraph {
                 let edge_key = (
                     fc.source.name.clone(),
                     fc.source.file.clone(),
+                    fc.source.start,
                     fc.target.name.clone(),
-                    fc.source.file.clone(),
+                    fc.target.file.clone(),
+                    fc.target.start,
                 );
 
                 if !unique_edges.contains(&edge_key) {
@@ -443,8 +447,10 @@ impl Graph for ArrayGraph {
                     let class_edge_key = (
                         tc.source.name.clone(),
                         tc.source.file.clone(),
+                        tc.source.start,
                         class_nd.name.clone(),
                         class_nd.file.clone(),
+                        class_nd.start,
                     );
 
                     if !unique_edges.contains(&class_edge_key) {
@@ -468,8 +474,10 @@ impl Graph for ArrayGraph {
                 let edge_key = (
                     tc.source.name.clone(),
                     tc.source.file.clone(),
+                    tc.source.start,
                     ext_nd.name.clone(),
                     ext_nd.file.clone(),
+                    ext_nd.start,
                 );
 
                 if !unique_edges.contains(&edge_key) {
@@ -489,8 +497,10 @@ impl Graph for ArrayGraph {
                 let edge_key = (
                     tc.source.name.clone(),
                     tc.source.file.clone(),
+                    tc.source.start,
                     tc.target.name.clone(),
                     tc.target.file.clone(),
+                    tc.target.start,
                 );
 
                 if !unique_edges.contains(&edge_key) {
