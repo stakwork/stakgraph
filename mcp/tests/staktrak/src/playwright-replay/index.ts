@@ -5,6 +5,7 @@ import {
 } from "../types";
 import { parsePlaywrightTest } from "./parser";
 import { executePlaywrightAction, getActionDescription } from "./executor";
+import { domToDataUrl } from 'modern-screenshot';
 
 let playwrightReplayRef = {
   current: null as {
@@ -17,24 +18,11 @@ let playwrightReplayRef = {
   } | null,
 };
 
-// Cache for modern-screenshot module to avoid re-importing on every capture
-let modernScreenshotModule: any = null;
-
 /**
  * Capture screenshot and send to parent window
  */
 async function captureScreenshot(actionIndex: number, url: string): Promise<void> {
   try {
-    // Use cached module or import once
-    if (!modernScreenshotModule) {
-      modernScreenshotModule = await import('https://esm.sh/modern-screenshot@4.4.39');
-    }
-    const domToDataUrl = modernScreenshotModule.domToDataUrl || modernScreenshotModule.default?.domToDataUrl;
-
-    if (!domToDataUrl) {
-      throw new Error('domToDataUrl not found in modern-screenshot module');
-    }
-
     const dataUrl = await domToDataUrl(document.body, {
       quality: 0.8,
       type: 'image/jpeg',
