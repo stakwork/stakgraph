@@ -46,6 +46,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
+    assert_eq!(files.len(), 9, "Expected 9 files");
 
     let pkg_files = files
         .iter()
@@ -73,7 +74,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
             imp.file
         );
     }
-    assert_eq!(imports.len(), 5, "Expected 5 imports");
+    assert_eq!(imports.len(), 6, "Expected 6 imports");
 
     let model_import_body = format!(
         r#"import DataTypes, {{ Model }} from "sequelize";
@@ -99,7 +100,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp == true {
         assert_eq!(functions.len(), 12, "Expected 12 functions");
     } else {
-        assert_eq!(functions.len(), 8, "Expected 8 functions");
+        assert_eq!(functions.len(), 8, "Expected 8 functions"); // 6 + 2 from grouped-routes
     }
 
     let log_fn = functions
@@ -126,7 +127,8 @@ import {{ sequelize }} from "./config.js";"#
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
-    assert_eq!(calls_edges_count, 5, "Expected 5 calls edges");
+
+    assert_eq!(calls_edges_count, 5, "Expected 5 calls edges"); // 4 + 1 from deletePerson
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -142,14 +144,15 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 66, "Expected 66 contains edges");
+
+    assert_eq!(contains, 69, "Expected 69 contains edges"); // 64 + 5 from grouped-routes file
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
     if use_lsp {
-        assert_eq!(import_edges_count, 15, "Expected 15 import edges");
+        assert_eq!(import_edges_count, 19, "Expected 19 import edges"); // 15 + 4 from grouped-routes imports
     } else {
-        assert_eq!(import_edges_count, 12, "Expected 12 import edges");
+        assert_eq!(import_edges_count, 16, "Expected 16 import edges"); // 12 + 4 from grouped-routes imports
     }
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -176,6 +179,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
+    println!("Endpoints: {:#?}", endpoints);
     assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
