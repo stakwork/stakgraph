@@ -196,6 +196,13 @@ impl NodeData {
         self.meta
             .insert("interface".to_string(), interface.to_string());
     }
+    pub fn add_attributes(&mut self, attributes: &str) {
+        if attributes.is_empty() {
+            return;
+        }
+        self.meta
+            .insert("attributes".to_string(), attributes.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

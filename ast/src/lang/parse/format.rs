@@ -8,7 +8,7 @@ use shared::Result;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::QueryMatch;
 
-use super::super::queries::consts::FUNCTION_COMMENT;
+use super::super::queries::consts::*;
 use super::utils::{clean_class_name, find_def, is_capitalized, log_cmd, trim_quotes};
 
 impl Lang {
@@ -508,6 +508,7 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut inst = NodeData::in_file(file);
+        let mut attributes = Vec::new();
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == STRUCT_NAME {
                 inst.name = trim_quotes(&body).to_string();
@@ -515,9 +516,14 @@ impl Lang {
                 inst.body = body;
                 inst.start = node.start_position().row;
                 inst.end = node.end_position().row;
+            } else if o == ATTRIBUTES {
+                attributes.push(body);
             }
             Ok(())
         })?;
+        if !attributes.is_empty() {
+            inst.add_attributes(&attributes.join(" "));
+        }
         Ok(inst)
     }
     pub fn format_function<G: Graph>(
@@ -538,6 +544,7 @@ impl Lang {
         let mut name_pos = None;
         let mut return_type_data_models = Vec::new();
         let mut comments = Vec::new();
+        let mut attributes = Vec::new();
         let mut raw_args: Option<String> = None;
         let mut raw_return: Option<String> = None;
         let mut def_start_byte: Option<usize> = None;
@@ -716,6 +723,8 @@ impl Lang {
                 }
             } else if o == FUNCTION_COMMENT {
                 comments.push(body);
+            } else if o == ATTRIBUTES {
+                attributes.push(body);
             }
             Ok(())
         })?;
@@ -726,6 +735,10 @@ impl Lang {
 
         if !comments.is_empty() {
             func.docs = Some(self.clean_and_combine_comments(&comments));
+        }
+
+        if !attributes.is_empty() {
+            func.add_attributes(&attributes.join(" "));
         }
 
         if let Some(start) = def_start_byte {
