@@ -182,7 +182,7 @@ var PlaywrightGenerator = (() => {
         a.locator.primary = a.locator.fallbacks[0];
         a.locator.fallbacks = a.locator.fallbacks.slice(1);
       }
-      seen.add(a.locator.primary + "::" + a.kind);
+      seen.add(a.locator.primary + "::" + a.type);
     }
   }
   function isUnique(sel) {
