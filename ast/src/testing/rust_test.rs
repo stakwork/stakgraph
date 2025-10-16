@@ -192,7 +192,7 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 113, "Expected 113 contains edges");
+    assert_eq!(contains_edges, 104, "Expected 104 contains edges");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
@@ -206,16 +206,15 @@ use std::net::SocketAddr;"#
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    // FIXME: Unit test deeply flawed... catches all other tests...
-    assert_eq!(unit_tests.len(), 17, "Expected 17 unit tests (4 db.rs + 2 axum + 2 benchmarks)");
+    assert_eq!(unit_tests.len(), 8, "Expected 8 unit tests (4 db.rs + 2 axum + 2 benchmarks)");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
-    assert_eq!(integration_tests.len(), 5, "Expected 5 integration tests");
+    assert_eq!(integration_tests.len(), 4, "Expected 4 integration tests");
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 3, "Expected 3 e2e tests (including #[ignore] test)");
+    assert_eq!(e2e_tests.len(), 4, "Expected 4 e2e tests (including #[ignore] test)");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;

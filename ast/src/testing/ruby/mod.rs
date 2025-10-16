@@ -602,8 +602,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(
         unit_tests.len(),
-        9,
-        "Expected 9 unit tests, got {}",
+        7,
+        "Expected 7 unit tests, got {}",
         unit_tests.len()
     );
     nodes_count += unit_tests.len();
@@ -646,8 +646,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(
         integration_tests.len(),
-        6,
-        "Expected 6 integration tests, got {}",
+        7,
+        "Expected 7 integration tests, got {}",
         integration_tests.len()
     );
     nodes_count += integration_tests.len();
@@ -686,8 +686,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     assert_eq!(
         e2e_tests.len(),
-        7,
-        "Expected 7 e2e tests, got {}",
+        8,
+        "Expected 8 e2e tests, got {}",
         e2e_tests.len()
     );
     nodes_count += e2e_tests.len();
