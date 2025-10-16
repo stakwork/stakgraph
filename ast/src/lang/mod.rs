@@ -424,8 +424,6 @@ impl Lang {
         for t in filtered_tests.iter() {
             let mut nd = t.0.clone();
             let kind = self.lang.classify_test(&nd.name, file, &nd.body);
-            println!("[DEBUG mod.rs] Processing filtered_test '{}': test_kind={:?} -> classified as {:?}", 
-                nd.name, nd.meta.get("test_kind"), kind);
             let meta_kind = match kind {
                 NodeType::IntegrationTest => "integration",
                 NodeType::E2eTest => "e2e",
@@ -441,7 +439,6 @@ impl Lang {
                 let mut nd = mt.0.clone();
                 
                 if !self.lang.is_test(&nd.name, &nd.file) {
-                    println!("[DEBUG mod.rs] Skipping '{}' - not a real test (no test attribute)", nd.name);
                     continue;
                 }
                 

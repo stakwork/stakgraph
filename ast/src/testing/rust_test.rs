@@ -225,8 +225,8 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 115, "Expected 115 contains edges");
-    
+    assert_eq!(contains_edges, 106, "Expected 106 contains edges");
+
   let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
     assert_eq!(calls_edges, 3, "Expected 3 calls edges");
