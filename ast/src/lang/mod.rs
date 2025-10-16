@@ -423,11 +423,9 @@ impl Lang {
         let mut tests: Vec<TestRecord> = Vec::new();
         for t in filtered_tests.iter() {
             let mut nd = t.0.clone();
-            let kind = match nd.meta.get("test_kind").map(|s| s.as_str()) {
-                Some("integration") => NodeType::IntegrationTest,
-                Some("e2e") => NodeType::E2eTest,
-                _ => NodeType::UnitTest,
-            };
+            let kind = self.lang.classify_test(&nd.name, file, &nd.body);
+            println!("[DEBUG mod.rs] Processing filtered_test '{}': test_kind={:?} -> classified as {:?}", 
+                nd.name, nd.meta.get("test_kind"), kind);
             let meta_kind = match kind {
                 NodeType::IntegrationTest => "integration",
                 NodeType::E2eTest => "e2e",
