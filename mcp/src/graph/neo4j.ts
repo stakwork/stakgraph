@@ -16,6 +16,7 @@ import {
   deser_node,
   clean_node,
   getExtensionsForLanguage,
+  toReturnNode,
 } from "./utils.js";
 import * as Q from "./queries.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
@@ -605,7 +606,7 @@ class Db {
         }));
 
       return {
-        nodes,
+        nodes: nodes.map(toReturnNode),
         edges,
       };
     } finally {
