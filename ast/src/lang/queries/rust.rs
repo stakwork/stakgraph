@@ -163,7 +163,7 @@ impl Stack for Rust {
               (function_item
                 name: (identifier) @{FUNCTION_NAME}
                 parameters: (parameters) @{ARGUMENTS}
-                return_type: (type_identifier)? @{RETURN_TYPES}
+                return_type: (_)? @{RETURN_TYPES}
                 body: (block)? @function.body) @{FUNCTION_DEFINITION}
             )
               
@@ -173,7 +173,7 @@ impl Stack for Rust {
               (function_signature_item
                 name: (identifier) @{FUNCTION_NAME}
                 parameters: (parameters) @{ARGUMENTS}
-                return_type: (type_identifier)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
+                return_type: (_)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
             )
             
             (impl_item
@@ -185,7 +185,7 @@ impl Stack for Rust {
                   (function_item
                     name: (identifier) @{FUNCTION_NAME}
                     parameters: (parameters) @{ARGUMENTS}
-                    return_type: (type_identifier)? @{RETURN_TYPES}
+                    return_type: (_)? @{RETURN_TYPES}
                     body: (block)? @method.body) @method
                 )
               )) @impl

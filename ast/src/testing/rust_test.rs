@@ -209,7 +209,6 @@ use std::net::SocketAddr;"#
     let multi_attrs = multi_attr_dm.meta.get("attributes");
     assert!(multi_attrs.is_some(), "MultiAttrStruct should have attributes");
     let attrs = multi_attrs.unwrap();
-    println!("MultiAttrStruct attributes: {}", attrs);
     assert!(attrs.contains("derive"), "MultiAttrStruct attributes should contain 'derive'");
 
     assert!(attrs.contains("Debug") || attrs.contains("Clone") || attrs.contains("PartialEq"), 
@@ -262,6 +261,15 @@ use std::net::SocketAddr;"#
     let attrs = multi_fn_attrs.unwrap();
     assert!(attrs.contains("inline") || attrs.contains("must_use") || attrs.contains("deprecated"), 
         "multi_attribute_function should have at least one attribute captured");
+    
+    let multi_fn_interface = multi_attr_fn.meta.get("interface");
+    assert!(multi_fn_interface.is_some(), "multi_attribute_function should have interface");
+    let interface = multi_fn_interface.unwrap();
+    assert!(interface.contains("#["), "interface should contain attribute markers");
+    assert!(interface.contains("pub fn multi_attribute_function"), "interface should contain function signature");
+    
+    assert!(multi_attr_fn.body.contains("#["), "body should contain attribute markers");
+    assert!(multi_attr_fn.body.contains("pub fn multi_attribute_function"), "body should contain full function with attributes");
 
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);

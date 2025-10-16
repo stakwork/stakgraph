@@ -548,8 +548,10 @@ impl Lang {
         let mut raw_args: Option<String> = None;
         let mut raw_return: Option<String> = None;
         let mut def_start_byte: Option<usize> = None;
+        let mut def_end_byte: Option<usize> = None;
         let mut args_end_byte: Option<usize> = None;
         let mut return_end_byte: Option<usize> = None;
+        let mut attributes_start_byte: Option<usize> = None;
 
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == PARENT_TYPE {
@@ -564,6 +566,10 @@ impl Lang {
                 func.start = node.start_position().row;
                 func.end = node.end_position().row;
                 def_start_byte = Some(node.start_byte());
+                def_end_byte = Some(node.end_byte());
+                if attributes_start_byte.is_none() {
+                    attributes_start_byte = Some(node.start_byte());
+                }
                 // parent
                 parent = self.lang.find_function_parent(
                     node,
@@ -725,6 +731,9 @@ impl Lang {
                 comments.push(body);
             } else if o == ATTRIBUTES {
                 attributes.push(body);
+                if attributes_start_byte.is_none() {
+                    attributes_start_byte = Some(node.start_byte());
+                }
             }
             Ok(())
         })?;
@@ -741,13 +750,18 @@ impl Lang {
             func.add_attributes(&attributes.join(" "));
         }
 
-        if let Some(start) = def_start_byte {
-            let end_byte = return_end_byte.or(args_end_byte);
-            if let Some(end) = end_byte {
-                if end > start && end <= code.len() {
-                    let interface = code[start..end].trim();
-                    if !interface.is_empty() {
-                        func.add_interface(interface);
+        let start_byte = attributes_start_byte.or(def_start_byte);
+        if let (Some(start), Some(def_end)) = (start_byte, def_end_byte) {
+            if def_end > start && def_end <= code.len() {
+                func.body = code[start..def_end].to_string();
+                
+                let interface_end = return_end_byte.or(args_end_byte);
+                if let Some(end) = interface_end {
+                    if end > start && end <= code.len() {
+                        let interface = code[start..end].trim();
+                        if !interface.is_empty() {
+                            func.add_interface(interface);
+                        }
                     }
                 }
             }
