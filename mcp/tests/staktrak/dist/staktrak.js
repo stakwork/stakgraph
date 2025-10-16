@@ -2672,36 +2672,18 @@ var userBehaviour = (() => {
         backgroundColor: "#ffffff"
       });
       const timestamp = Date.now();
-      const randomId = Math.random().toString(36).substring(2, 10);
-      const response = await fetch("/api/screenshots/save", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          dataUrl,
-          timestamp,
-          randomId,
+      const id = `${timestamp}-${actionIndex}`;
+      window.parent.postMessage(
+        {
+          type: "staktrak-playwright-screenshot-captured",
+          screenshot: dataUrl,
+          actionIndex,
           url,
-          actionIndex
-        })
-      });
-      if (response.ok) {
-        const result = await response.json();
-        window.parent.postMessage(
-          {
-            type: "staktrak-playwright-screenshot-captured",
-            screenshotUrl: result.filePath,
-            actionIndex,
-            url,
-            timestamp,
-            id: `${timestamp}-${randomId}`
-          },
-          "*"
-        );
-      } else {
-        console.error(`[Screenshot] Failed to save for actionIndex=${actionIndex}:`, await response.text());
-      }
+          timestamp,
+          id
+        },
+        "*"
+      );
     } catch (error) {
       console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
     }

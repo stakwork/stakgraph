@@ -21,7 +21,7 @@ let playwrightReplayRef = {
 let modernScreenshotModule: any = null;
 
 /**
- * Capture screenshot and save to filesystem
+ * Capture screenshot and send to parent window
  */
 async function captureScreenshot(actionIndex: number, url: string): Promise<void> {
   try {
@@ -43,41 +43,20 @@ async function captureScreenshot(actionIndex: number, url: string): Promise<void
     });
 
     const timestamp = Date.now();
-    const randomId = Math.random().toString(36).substring(2, 10);
+    const id = `${timestamp}-${actionIndex}`;
 
-    // Save screenshot via API endpoint
-    const response = await fetch('/api/screenshots/save', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        dataUrl,
-        timestamp,
-        randomId,
+    // Send screenshot directly to parent window
+    window.parent.postMessage(
+      {
+        type: 'staktrak-playwright-screenshot-captured',
+        screenshot: dataUrl,
+        actionIndex,
         url,
-        actionIndex
-      })
-    });
-
-    if (response.ok) {
-      const result = await response.json();
-
-      // Notify parent window that screenshot was captured and saved
-      window.parent.postMessage(
-        {
-          type: 'staktrak-playwright-screenshot-captured',
-          screenshotUrl: result.filePath,
-          actionIndex,
-          url,
-          timestamp,
-          id: `${timestamp}-${randomId}`
-        },
-        '*'
-      );
-    } else {
-      console.error(`[Screenshot] Failed to save for actionIndex=${actionIndex}:`, await response.text());
-    }
+        timestamp,
+        id
+      },
+      '*'
+    );
   } catch (error) {
     console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
   }
