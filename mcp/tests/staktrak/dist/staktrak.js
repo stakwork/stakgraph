@@ -4189,14 +4189,36 @@ var userBehaviour = (() => {
   var playwrightReplayRef = {
     current: null
   };
-  async function captureScreenshot(actionIndex, url) {
+  var parentOrigin = null;
+  function getParentOrigin() {
+    var _a2;
+    if (parentOrigin) {
+      return parentOrigin;
+    }
     try {
-      const dataUrl = await domToDataUrl(document.body, {
-        quality: 0.8,
-        type: "image/jpeg",
-        scale: 1,
-        backgroundColor: "#ffffff"
-      });
+      const configOrigin = (_a2 = window.STAKTRAK_CONFIG) == null ? void 0 : _a2.parentOrigin;
+      if (configOrigin) {
+        return configOrigin;
+      }
+    } catch (e) {
+    }
+    return "*";
+  }
+  async function captureScreenshot(actionIndex, url) {
+    var _a2, _b, _c, _d, _e;
+    try {
+      let config = {};
+      try {
+        config = ((_a2 = window.STAKTRAK_CONFIG) == null ? void 0 : _a2.screenshot) || {};
+      } catch (e) {
+      }
+      const screenshotOptions = {
+        quality: (_b = config.quality) != null ? _b : 0.8,
+        type: (_c = config.type) != null ? _c : "image/jpeg",
+        scale: (_d = config.scale) != null ? _d : 1,
+        backgroundColor: (_e = config.backgroundColor) != null ? _e : "#ffffff"
+      };
+      const dataUrl = await domToDataUrl(document.body, screenshotOptions);
       const timestamp = Date.now();
       const id = `${timestamp}-${actionIndex}`;
       window.parent.postMessage(
@@ -4208,7 +4230,7 @@ var userBehaviour = (() => {
           timestamp,
           id
         },
-        "*"
+        getParentOrigin()
       );
     } catch (error) {
       console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
@@ -4234,7 +4256,7 @@ var userBehaviour = (() => {
           totalActions: actions.length,
           actions
         },
-        "*"
+        getParentOrigin()
       );
       executeNextPlaywrightAction();
     } catch (error) {
@@ -4243,7 +4265,7 @@ var userBehaviour = (() => {
           type: "staktrak-playwright-replay-error",
           error: error instanceof Error ? error.message : "Unknown error"
         },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -4258,7 +4280,7 @@ var userBehaviour = (() => {
         {
           type: "staktrak-playwright-replay-completed"
         },
-        "*"
+        getParentOrigin()
       );
       return;
     }
@@ -4273,7 +4295,7 @@ var userBehaviour = (() => {
             description: getActionDescription(action)
           })
         },
-        "*"
+        getParentOrigin()
       );
       await executePlaywrightAction(action);
       if (action.type === "waitForURL") {
@@ -4295,7 +4317,7 @@ var userBehaviour = (() => {
           actionIndex: state.currentActionIndex - 1,
           action
         },
-        "*"
+        getParentOrigin()
       );
       executeNextPlaywrightAction();
     }
@@ -4308,7 +4330,7 @@ var userBehaviour = (() => {
       state.timeouts = [];
       window.parent.postMessage(
         { type: "staktrak-playwright-replay-paused" },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -4319,7 +4341,7 @@ var userBehaviour = (() => {
       executeNextPlaywrightAction();
       window.parent.postMessage(
         { type: "staktrak-playwright-replay-resumed" },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -4331,7 +4353,7 @@ var userBehaviour = (() => {
       state.timeouts = [];
       window.parent.postMessage(
         { type: "staktrak-playwright-replay-stopped" },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -4380,6 +4402,9 @@ var userBehaviour = (() => {
       const { data } = event;
       if (!data || !data.type)
         return;
+      if (!parentOrigin && event.origin && event.origin !== "null") {
+        parentOrigin = event.origin;
+      }
       switch (data.type) {
         case "staktrak-playwright-replay-start":
           if (data.testCode) {
@@ -4402,7 +4427,7 @@ var userBehaviour = (() => {
               type: "staktrak-playwright-replay-pong",
               state: currentState
             },
-            "*"
+            getParentOrigin()
           );
           break;
       }
