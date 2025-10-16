@@ -39,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 34, "Expected 34 File nodes");
+    assert_eq!(file_nodes.len(), 36, "Expected 36 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -109,12 +109,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 37, "Expected 37 Function nodes with LSP");
+        assert_eq!(functions.len(), 41, "Expected 41 Function nodes with LSP");
     } else {
         assert_eq!(
             functions.len(),
-            26,
-            "Expected 26 Function nodes without LSP"
+            30,
+            "Expected 30 Function nodes without LSP"
         );
     }
 
@@ -232,11 +232,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    assert_eq!(calls, 69, "Expected 69 Calls edges");
+    assert_eq!(calls, 74, "Expected 74 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 141, "Expected 141 Contains edges");
+    assert_eq!(contains, 150, "Expected 150 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -244,7 +244,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    assert_eq!(tests.len(), 4, "Expected 4 UnitTest nodes");
+    assert_eq!(tests.len(), 5, "Expected 5 UnitTest nodes");
 
     if let Some(test) = tests
         .iter()
@@ -264,6 +264,36 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         assert_eq!(test.body, test_body,)
     } else {
         panic!("Unit test 'unit: utils.cn' not found");
+    }
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    nodes += classes.len();
+    assert_eq!(classes.len(), 1, "Expected 1 Class node");
+
+    let calculator_class = classes
+        .iter()
+        .find(|c| c.name == "Calculator")
+        .expect("Calculator class not found");
+    
+    assert!(calculator_class.file.ends_with("nextjs/lib/calculator.ts"));
+
+    if let Some(calc_test) = tests
+        .iter()
+        .find(|n| n.file.ends_with("nextjs/app/test/unit.class.test.ts"))
+    {
+        assert_eq!(calc_test.name, "unit: Calculator class");
+        
+        let calc_methods = functions
+            .iter()
+            .filter(|f| {
+                f.file.ends_with("nextjs/lib/calculator.ts")
+                    && ["add", "multiply", "subtract", "getResult"].contains(&f.name.as_str())
+            })
+            .collect::<Vec<_>>();
+        
+        assert_eq!(calc_methods.len(), 4, "Expected 4 Calculator methods");
+    } else {
+        panic!("Unit test 'unit: Calculator class' not found");
     }
 
     let integration_test = graph.find_nodes_by_type(NodeType::IntegrationTest);
@@ -352,14 +382,14 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;
     if use_lsp {
-        assert_eq!(import, 17, "Expected 17 Imports edges with LSP");
+        assert_eq!(import, 18, "Expected 18 Imports edges with LSP");
     } else {
         assert_eq!(import, 0, "Expected 0 Imports edge without LSP");
     }
 
     let import_nodes = graph.find_nodes_by_type(NodeType::Import);
     nodes += import_nodes.len();
-    assert_eq!(import_nodes.len(), 18, "Expected 18 Import nodes");
+    assert_eq!(import_nodes.len(), 19, "Expected 19 Import nodes");
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
@@ -376,6 +406,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     assert_eq!(nested_in, 4, "Expected 4 NestedIn edges");
+
+    let operand = graph.count_edges_of_type(EdgeType::Operand);
+    edges += operand;
+    assert_eq!(operand, 4, "Expected 4 Operand edges (Calculator class→methods)");
 
     if use_lsp {
         let get_fn = functions
