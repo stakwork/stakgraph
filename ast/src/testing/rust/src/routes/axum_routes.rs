@@ -16,6 +16,7 @@ pub fn create_router() -> Router {
         .route("/person", post(create_person))
 }
 
+#[tracing::instrument]
 async fn get_person(Path(id): Path<u32>) -> (StatusCode, JsonResponse<serde_json::Value>) {
     let person_result: Result<Person> = Database::get_person_by_id(id).await;
 
@@ -49,5 +50,27 @@ async fn create_person(Json(person): Json<Person>) -> impl axum::response::IntoR
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_router_creation() {
+        let router = create_router();
+        assert_eq!(std::mem::size_of_val(&router), std::mem::size_of::<Router>());
+    }
+
+    #[tokio::test]
+    async fn test_axum_person_validation() {
+        let person = Person {
+            id: None,
+            name: "Charlie".to_string(),
+            email: "charlie@test.com".to_string(),
+        };
+        assert!(!person.name.is_empty());
+        assert!(person.email.contains('@'));
     }
 }

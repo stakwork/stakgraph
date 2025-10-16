@@ -300,6 +300,32 @@ impl Stack for Rust {
         ))
     }
 
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (
+                (attribute_item
+                    (attribute
+                        [
+                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|quickcheck|wasm_bindgen_test)$")
+                            (scoped_identifier
+                                name: (identifier) @test_method (#match? @test_method "^(test|rstest|quickcheck)$")
+                            )
+                        ]
+                    )
+                )
+                .
+                (function_item
+                    name: (identifier) @{FUNCTION_NAME}
+                    parameters: (parameters) @{ARGUMENTS}
+                    return_type: (_)? @{RETURN_TYPES}
+                    body: (block)? @function.body
+                ) @{FUNCTION_DEFINITION}
+            )
+            "#
+        ))
+    }
+
     fn add_endpoint_verb(&self, endpoint: &mut NodeData, call: &Option<String>) -> Option<String> {
         if let Some(verb) = endpoint.meta.remove("http_method") {
             endpoint.add_verb(&verb);
@@ -353,5 +379,93 @@ impl Stack for Rust {
     }
     fn filter_by_implements(&self) -> bool {
         true
+    }
+
+    fn is_test_file(&self, filename: &str) -> bool {
+        // Simplified: only used for test classification, not identification
+        let normalized = filename.replace('\\', "/");
+        normalized.contains("/tests/") || normalized.contains("/benches/")
+    }
+
+    fn is_test(&self, func_name: &str, func_file: &str) -> bool {
+        let Ok(code) = std::fs::read_to_string(func_file) else {
+            return false;
+        };
+        
+        let test_patterns = [
+            format!("#[test"),
+            format!("#[tokio::test"),
+            format!("#[actix_rt::test"),
+            format!("#[actix_web::test"),
+            format!("#[rstest"),
+            format!("#[rstest("),
+            format!("#[proptest"),
+            format!("#[quickcheck"),
+            format!("#[wasm_bindgen_test"),
+            format!("#[bench"),
+        ];
+        
+        let fn_pattern = format!("fn {}(", func_name);
+        if let Some(fn_pos) = code.find(&fn_pattern) {
+            // Get code before function (up to 100 chars back to catch attributes)
+            let start = fn_pos.saturating_sub(100);
+            let context = &code[start..fn_pos];
+
+            for pattern in &test_patterns {
+                if context.contains(pattern) {
+                    return true;
+                }
+            }
+        }
+        
+        false
+    }
+
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        let name_lower = name.to_lowercase();
+        
+        if f.contains("/tests/e2e/")
+            || f.contains("/e2e/")
+            || fname.starts_with("e2e_")
+            || fname.contains("e2e.rs")
+            || name_lower.starts_with("e2e_")
+            || name_lower.contains("_e2e_")
+            || name_lower.contains("end_to_end")
+        {
+            return NodeType::E2eTest;
+        }
+        
+        if f.contains("/tests/integration/")
+            || fname.starts_with("integration_")
+            || fname.contains("integration.rs")
+            || name_lower.starts_with("integration_")
+            || name_lower.contains("_integration_")
+        {
+            return NodeType::IntegrationTest;
+        }
+        
+        if f.contains("/tests/") && !f.contains("/src/") {
+            return NodeType::IntegrationTest;
+        }
+        
+        let body_l = body.to_lowercase();
+        let http_markers = [
+            "reqwest::",
+            "hyper::client",
+            "actix_web::test",
+            "rocket::local",
+            ".get(",
+            ".post(",
+            "http://",
+            "https://",
+        ];
+        
+        if http_markers.iter().any(|m| body_l.contains(m)) {
+            return NodeType::IntegrationTest;
+        }
+        
+        NodeType::UnitTest
     }
 }
