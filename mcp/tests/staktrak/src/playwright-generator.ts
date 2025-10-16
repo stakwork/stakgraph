@@ -98,7 +98,7 @@ export class RecordingManager {
       case "click":
         return {
           ...baseAction,
-          kind: "click",
+          type: "click",
           locator: eventData.selectors || eventData.locator,
           elementInfo: eventData.elementInfo,
         } as Action;
@@ -106,20 +106,20 @@ export class RecordingManager {
       case "navigation":
         return {
           ...baseAction,
-          kind: "nav",
+          type: "goto",
           url: eventData.url,
         } as Action;
       case "input":
         return {
           ...baseAction,
-          kind: "input",
+          type: "input",
           value: eventData.value,
           locator: eventData.locator || { primary: eventData.selector },
         } as Action;
       case "form":
         return {
           ...baseAction,
-          kind: "form",
+          type: "form",
           formType: eventData.formType,
           checked: eventData.checked,
           value: eventData.value,
@@ -128,14 +128,14 @@ export class RecordingManager {
       case "assertion":
         return {
           ...baseAction,
-          kind: "assertion",
+          type: "assertion",
           value: eventData.value,
           locator: { primary: eventData.selector, fallbacks: [] },
         } as Action;
       default:
         return {
           ...baseAction,
-          kind: eventType,
+          type: eventType,
         } as Action;
     }
   }
@@ -155,14 +155,14 @@ export class RecordingManager {
   private removeFromTrackingData(action: Action): void {
     const timestamp = action.timestamp;
 
-    switch (action.kind) {
+    switch (action.type) {
       case "click":
         this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
           (c) => c.timestamp !== timestamp
         );
         this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
         break;
-      case "nav":
+      case "goto":
         this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
           (n) => n.timestamp !== timestamp
         );
@@ -263,16 +263,16 @@ export function generatePlaywrightTestFromActions(
 ): string {
   const { baseUrl = "" } = options;
 
-  // Generate initial goto if we have a baseUrl and no nav action at the start
-  const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].kind !== 'nav');
+  // Generate initial goto if we have a baseUrl and no goto action at the start
+  const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].type !== 'goto');
   const initialGoto = needsInitialGoto ? `  await page.goto('${baseUrl}');\n` : '';
 
   const body = actions
     .map((action) => {
-      switch (action.kind) {
-        case "nav":
+      switch (action.type) {
+        case "goto":
           return `  await page.goto('${action.url || baseUrl}');`;
-        case "waitForUrl":
+        case "waitForURL":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;
           }

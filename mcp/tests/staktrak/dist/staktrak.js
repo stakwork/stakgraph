@@ -1,11 +1,13 @@
 "use strict";
 var userBehaviour = (() => {
+  var __create = Object.create;
   var __defProp = Object.defineProperty;
   var __defProps = Object.defineProperties;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
   var __getOwnPropNames = Object.getOwnPropertyNames;
   var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+  var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __propIsEnum = Object.prototype.propertyIsEnumerable;
   var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
@@ -21,6 +23,13 @@ var userBehaviour = (() => {
     return a;
   };
   var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+  var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+    get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+  }) : x)(function(x) {
+    if (typeof require !== "undefined")
+      return require.apply(this, arguments);
+    throw Error('Dynamic require of "' + x + '" is not supported');
+  });
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
@@ -33,6 +42,14 @@ var userBehaviour = (() => {
     }
     return to;
   };
+  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+    // If the importer is in node compatibility mode or this is not an ESM
+    // file that has been converted to a CommonJS file using a Babel-
+    // compatible transform (i.e. "__esModule" has not been set), then set
+    // "default" to the CommonJS "module.exports" for node compatibility.
+    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+    mod
+  ));
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
   // src/index.ts
@@ -1733,15 +1750,6 @@ var userBehaviour = (() => {
     try {
       switch (action.type) {
         case "goto" /* GOTO */:
-          if (action.value && typeof action.value === "string") {
-            window.parent.postMessage(
-              {
-                type: "staktrak-iframe-navigate",
-                url: action.value
-              },
-              "*"
-            );
-          }
           break;
         case "setViewportSize" /* SET_VIEWPORT_SIZE */:
           if (action.options) {
@@ -2646,7 +2654,56 @@ var userBehaviour = (() => {
   var playwrightReplayRef = {
     current: null
   };
-  function startPlaywrightReplay(testCode) {
+  async function captureScreenshot(actionIndex, url) {
+    var _a;
+    try {
+      const modernScreenshot = await import("https://esm.sh/modern-screenshot@4.4.39");
+      const domToDataUrl = modernScreenshot.domToDataUrl || ((_a = modernScreenshot.default) == null ? void 0 : _a.domToDataUrl);
+      if (!domToDataUrl) {
+        throw new Error("domToDataUrl not found in modern-screenshot module");
+      }
+      const dataUrl = await domToDataUrl(document.body, {
+        quality: 0.8,
+        type: "image/jpeg",
+        scale: 1,
+        backgroundColor: "#ffffff"
+      });
+      const timestamp = Date.now();
+      const randomId = Math.random().toString(36).substring(2, 10);
+      const response = await fetch("/api/screenshots/save", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          dataUrl,
+          timestamp,
+          randomId,
+          url,
+          actionIndex
+        })
+      });
+      if (response.ok) {
+        const result = await response.json();
+        window.parent.postMessage(
+          {
+            type: "staktrak-playwright-screenshot-captured",
+            screenshotUrl: result.filePath,
+            actionIndex,
+            url,
+            timestamp,
+            id: `${timestamp}-${randomId}`
+          },
+          "*"
+        );
+      } else {
+        console.error(`[Screenshot] Failed to save for actionIndex=${actionIndex}:`, await response.text());
+      }
+    } catch (error) {
+      console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
+    }
+  }
+  async function startPlaywrightReplay(testCode) {
     try {
       const actions = parsePlaywrightTest(testCode);
       if (actions.length === 0) {
@@ -2708,6 +2765,9 @@ var userBehaviour = (() => {
         "*"
       );
       await executePlaywrightAction(action);
+      if (action.type === "waitForURL") {
+        await captureScreenshot(state.currentActionIndex, window.location.href);
+      }
       state.currentActionIndex++;
       setTimeout(() => {
         executeNextPlaywrightAction();
@@ -2862,7 +2922,7 @@ var userBehaviour = (() => {
     for (let i = 0; i < clicks.length; i++) {
       const cd = clicks[i];
       actions.push({
-        kind: "click",
+        type: "click",
         timestamp: cd.timestamp,
         locator: {
           primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
@@ -2878,7 +2938,7 @@ var userBehaviour = (() => {
       if (nav) {
         navTimestampsFromClicks.add(nav.timestamp);
         actions.push({
-          kind: "waitForUrl",
+          type: "waitForURL",
           timestamp: nav.timestamp - 1,
           // ensure ordering between click and nav
           expectedUrl: nav.url,
@@ -2889,14 +2949,14 @@ var userBehaviour = (() => {
     }
     for (const nav of navigations) {
       if (!navTimestampsFromClicks.has(nav.timestamp)) {
-        actions.push({ kind: "nav", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
+        actions.push({ type: "goto", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
       }
     }
     if (results.inputChanges) {
       for (const input of results.inputChanges) {
         if (input.action === "complete" || !input.action) {
           actions.push({
-            kind: "input",
+            type: "input",
             timestamp: input.timestamp,
             locator: { primary: input.elementSelector, fallbacks: [] },
             value: input.value
@@ -2907,7 +2967,7 @@ var userBehaviour = (() => {
     if (results.formElementChanges) {
       for (const fe of results.formElementChanges) {
         actions.push({
-          kind: "form",
+          type: "form",
           timestamp: fe.timestamp,
           locator: { primary: fe.elementSelector, fallbacks: [] },
           formType: fe.type,
@@ -2919,38 +2979,38 @@ var userBehaviour = (() => {
     if (results.assertions) {
       for (const asrt of results.assertions) {
         actions.push({
-          kind: "assertion",
+          type: "assertion",
           timestamp: asrt.timestamp,
           locator: { primary: asrt.selector, fallbacks: [] },
           value: asrt.value
         });
       }
     }
-    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.kind) - weightOrder(b.kind));
+    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type));
     refineLocators(actions);
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
       const previous = actions[i - 1];
-      if (current.kind === "waitForUrl" && previous.kind === "waitForUrl" && current.normalizedUrl === previous.normalizedUrl) {
+      if (current.type === "waitForURL" && previous.type === "waitForURL" && current.normalizedUrl === previous.normalizedUrl) {
         actions.splice(i, 1);
       }
     }
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
       const previous = actions[i - 1];
-      if (current.kind === "input" && previous.kind === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
+      if (current.type === "input" && previous.type === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
         actions.splice(i, 1);
       }
     }
     return actions;
   }
-  function weightOrder(kind) {
-    switch (kind) {
+  function weightOrder(type) {
+    switch (type) {
       case "click":
         return 1;
-      case "waitForUrl":
+      case "waitForURL":
         return 2;
-      case "nav":
+      case "goto":
         return 3;
       default:
         return 4;
@@ -2977,7 +3037,7 @@ var userBehaviour = (() => {
         continue;
       a.locator.primary = validated[0];
       a.locator.fallbacks = validated.slice(1);
-      const key = a.locator.primary + "::" + a.kind;
+      const key = a.locator.primary + "::" + a.type;
       if (seen.has(key) && a.locator.fallbacks.length > 0) {
         a.locator.primary = a.locator.fallbacks[0];
         a.locator.fallbacks = a.locator.fallbacks.slice(1);
@@ -3102,25 +3162,25 @@ var userBehaviour = (() => {
       switch (eventType) {
         case "click":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "click",
+            type: "click",
             locator: eventData.selectors || eventData.locator,
             elementInfo: eventData.elementInfo
           });
         case "nav":
         case "navigation":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "nav",
+            type: "goto",
             url: eventData.url
           });
         case "input":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "input",
+            type: "input",
             value: eventData.value,
             locator: eventData.locator || { primary: eventData.selector }
           });
         case "form":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "form",
+            type: "form",
             formType: eventData.formType,
             checked: eventData.checked,
             value: eventData.value,
@@ -3128,13 +3188,13 @@ var userBehaviour = (() => {
           });
         case "assertion":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "assertion",
+            type: "assertion",
             value: eventData.value,
             locator: { primary: eventData.selector, fallbacks: [] }
           });
         default:
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: eventType
+            type: eventType
           });
       }
     }
@@ -3151,14 +3211,14 @@ var userBehaviour = (() => {
     }
     removeFromTrackingData(action) {
       const timestamp = action.timestamp;
-      switch (action.kind) {
+      switch (action.type) {
         case "click":
           this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
             (c) => c.timestamp !== timestamp
           );
           this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
           break;
-        case "nav":
+        case "goto":
           this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
             (n) => n.timestamp !== timestamp
           );
@@ -3244,15 +3304,15 @@ var userBehaviour = (() => {
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
     const { baseUrl = "" } = options;
-    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].kind !== "nav");
+    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].type !== "goto");
     const initialGoto = needsInitialGoto ? `  await page.goto('${baseUrl}');
 ` : "";
     const body = actions.map((action) => {
       var _a, _b, _c, _d, _e;
-      switch (action.kind) {
-        case "nav":
+      switch (action.type) {
+        case "goto":
           return `  await page.goto('${action.url || baseUrl}');`;
-        case "waitForUrl":
+        case "waitForURL":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;
           }

@@ -17,8 +17,69 @@ let playwrightReplayRef = {
   } | null,
 };
 
+/**
+ * Capture screenshot and save to filesystem
+ */
+async function captureScreenshot(actionIndex: number, url: string): Promise<void> {
+  try {
+    // Use modern-screenshot library to capture page as data URL
+    const modernScreenshot = await import('https://esm.sh/modern-screenshot@4.4.39');
+    const domToDataUrl = modernScreenshot.domToDataUrl || modernScreenshot.default?.domToDataUrl;
 
-export function startPlaywrightReplay(testCode: string): void {
+    if (!domToDataUrl) {
+      throw new Error('domToDataUrl not found in modern-screenshot module');
+    }
+
+    const dataUrl = await domToDataUrl(document.body, {
+      quality: 0.8,
+      type: 'image/jpeg',
+      scale: 1,
+      backgroundColor: '#ffffff'
+    });
+
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 10);
+
+    // Save screenshot via API endpoint
+    const response = await fetch('/api/screenshots/save', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        dataUrl,
+        timestamp,
+        randomId,
+        url,
+        actionIndex
+      })
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+
+      // Notify parent window that screenshot was captured and saved
+      window.parent.postMessage(
+        {
+          type: 'staktrak-playwright-screenshot-captured',
+          screenshotUrl: result.filePath,
+          actionIndex,
+          url,
+          timestamp,
+          id: `${timestamp}-${randomId}`
+        },
+        '*'
+      );
+    } else {
+      console.error(`[Screenshot] Failed to save for actionIndex=${actionIndex}:`, await response.text());
+    }
+  } catch (error) {
+    console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
+  }
+}
+
+
+export async function startPlaywrightReplay(testCode: string): Promise<void> {
   try {
     const actions = parsePlaywrightTest(testCode);
 
@@ -90,6 +151,11 @@ async function executeNextPlaywrightAction(): Promise<void> {
     );
 
     await executePlaywrightAction(action);
+
+    // Capture screenshot after waitForURL actions (meaningful page changes after interactions)
+    if (action.type === "waitForURL") {
+      await captureScreenshot(state.currentActionIndex, window.location.href);
+    }
 
     state.currentActionIndex++;
 

@@ -109,15 +109,7 @@ export async function executePlaywrightAction(
   try {
     switch (action.type) {
       case PlaywrightActionType.GOTO:
-        if (action.value && typeof action.value === "string") {
-          window.parent.postMessage(
-            {
-              type: "staktrak-iframe-navigate",
-              url: action.value,
-            },
-            "*"
-          );
-        }
+        // Skip goto during replay - already on the page
         break;
 
       case PlaywrightActionType.SET_VIEWPORT_SIZE:
