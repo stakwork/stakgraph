@@ -2654,11 +2654,14 @@ var userBehaviour = (() => {
   var playwrightReplayRef = {
     current: null
   };
+  var modernScreenshotModule = null;
   async function captureScreenshot(actionIndex, url) {
     var _a;
     try {
-      const modernScreenshot = await import("https://esm.sh/modern-screenshot@4.4.39");
-      const domToDataUrl = modernScreenshot.domToDataUrl || ((_a = modernScreenshot.default) == null ? void 0 : _a.domToDataUrl);
+      if (!modernScreenshotModule) {
+        modernScreenshotModule = await import("https://esm.sh/modern-screenshot@4.4.39");
+      }
+      const domToDataUrl = modernScreenshotModule.domToDataUrl || ((_a = modernScreenshotModule.default) == null ? void 0 : _a.domToDataUrl);
       if (!domToDataUrl) {
         throw new Error("domToDataUrl not found in modern-screenshot module");
       }

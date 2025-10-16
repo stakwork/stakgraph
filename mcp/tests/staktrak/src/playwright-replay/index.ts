@@ -17,14 +17,19 @@ let playwrightReplayRef = {
   } | null,
 };
 
+// Cache for modern-screenshot module to avoid re-importing on every capture
+let modernScreenshotModule: any = null;
+
 /**
  * Capture screenshot and save to filesystem
  */
 async function captureScreenshot(actionIndex: number, url: string): Promise<void> {
   try {
-    // Use modern-screenshot library to capture page as data URL
-    const modernScreenshot = await import('https://esm.sh/modern-screenshot@4.4.39');
-    const domToDataUrl = modernScreenshot.domToDataUrl || modernScreenshot.default?.domToDataUrl;
+    // Use cached module or import once
+    if (!modernScreenshotModule) {
+      modernScreenshotModule = await import('https://esm.sh/modern-screenshot@4.4.39');
+    }
+    const domToDataUrl = modernScreenshotModule.domToDataUrl || modernScreenshotModule.default?.domToDataUrl;
 
     if (!domToDataUrl) {
       throw new Error('domToDataUrl not found in modern-screenshot module');
