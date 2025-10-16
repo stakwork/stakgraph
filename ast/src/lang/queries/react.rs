@@ -926,6 +926,25 @@ impl Stack for ReactTs {
             || file_name.ends_with(".spec.js")
     }
 
+    fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
+        let f = file.replace('\\', "/");
+        let lower_code = code.to_lowercase();
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        
+        let is_e2e_dir = f.contains("/tests/e2e/")
+            || f.contains("/test/e2e")
+            || f.contains("/e2e/")
+            || f.contains("/__e2e__/")
+            || f.contains("e2e.");
+        let has_e2e_in_name = fname.contains("e2e");
+        let has_playwright = lower_code.contains("@playwright/test");
+        let has_cypress = lower_code.contains("cy.");
+        let has_puppeteer =
+            lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+        
+        is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
+    }
+
     fn is_test(&self, _func_name: &str, func_file: &str) -> bool {
         if self.is_test_file(func_file) {
             true
