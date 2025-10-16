@@ -61,6 +61,7 @@ app.get("/gitsee/events/:owner/:repo", r.gitseeEvents);
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);
 app.get("/nodes", r.get_nodes);
+app.post("/nodes", r.post_nodes);
 app.get("/edges", r.get_edges);
 app.get("/graph", r.get_graph);
 app.get("/search", r.search);
