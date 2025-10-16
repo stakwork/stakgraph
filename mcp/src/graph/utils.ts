@@ -38,14 +38,19 @@ export function toReturnNode(node: Neo4jNode): ReturnNode {
   if (IS_TEST && properties.date_added_to_graph) {
     delete properties.date_added_to_graph;
   }
+
   if (node.score) {
     properties.score = node.score;
   }
-  return {
+  const ret: ReturnNode = {
     node_type: rightLabel(node),
     ref_id,
     properties,
   };
+  if (properties.date_added_to_graph) {
+    ret.date_added_to_graph = properties.date_added_to_graph;
+  }
+  return ret;
 }
 
 export function nameFileOnly(node: Neo4jNode): { name: string; file: string } {

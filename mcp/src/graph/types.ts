@@ -17,6 +17,7 @@ export interface ReturnNode {
   node_type: NodeType;
   ref_id: string;
   properties: NodeData;
+  date_added_to_graph?: string | number;
 }
 
 export interface NodeData {
