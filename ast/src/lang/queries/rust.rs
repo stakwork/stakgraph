@@ -256,7 +256,7 @@ impl Stack for Rust {
                 ) @nested_route
                 "#
             ),
-            // Actix endpoint finder (#[get("/path")])
+            // Actix/Rocket endpoint finder (#[get("/path")] or #[post("/path", data = "...")])
             format!(
                 r#"
                  (
@@ -264,7 +264,7 @@ impl Stack for Rust {
                         (attribute
                         (identifier) @http_method (#match? @http_method "^get$|^post$|^put$|^delete$")
                         arguments: (token_tree
-                            (string_literal) @endpoint . (_)*
+                            (string_literal) @endpoint (#match? @endpoint "^\"\/")
                         )
                         )
                     )
