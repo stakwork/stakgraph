@@ -62,7 +62,7 @@ var PlaywrightGenerator = (() => {
     for (let i = 0; i < clicks.length; i++) {
       const cd = clicks[i];
       actions.push({
-        kind: "click",
+        type: "click",
         timestamp: cd.timestamp,
         locator: {
           primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
@@ -78,7 +78,7 @@ var PlaywrightGenerator = (() => {
       if (nav) {
         navTimestampsFromClicks.add(nav.timestamp);
         actions.push({
-          kind: "waitForUrl",
+          type: "waitForURL",
           timestamp: nav.timestamp - 1,
           // ensure ordering between click and nav
           expectedUrl: nav.url,
@@ -89,14 +89,14 @@ var PlaywrightGenerator = (() => {
     }
     for (const nav of navigations) {
       if (!navTimestampsFromClicks.has(nav.timestamp)) {
-        actions.push({ kind: "nav", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
+        actions.push({ type: "goto", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
       }
     }
     if (results.inputChanges) {
       for (const input of results.inputChanges) {
         if (input.action === "complete" || !input.action) {
           actions.push({
-            kind: "input",
+            type: "input",
             timestamp: input.timestamp,
             locator: { primary: input.elementSelector, fallbacks: [] },
             value: input.value
@@ -107,7 +107,7 @@ var PlaywrightGenerator = (() => {
     if (results.formElementChanges) {
       for (const fe of results.formElementChanges) {
         actions.push({
-          kind: "form",
+          type: "form",
           timestamp: fe.timestamp,
           locator: { primary: fe.elementSelector, fallbacks: [] },
           formType: fe.type,
@@ -119,38 +119,38 @@ var PlaywrightGenerator = (() => {
     if (results.assertions) {
       for (const asrt of results.assertions) {
         actions.push({
-          kind: "assertion",
+          type: "assertion",
           timestamp: asrt.timestamp,
           locator: { primary: asrt.selector, fallbacks: [] },
           value: asrt.value
         });
       }
     }
-    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.kind) - weightOrder(b.kind));
+    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type));
     refineLocators(actions);
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
       const previous = actions[i - 1];
-      if (current.kind === "waitForUrl" && previous.kind === "waitForUrl" && current.normalizedUrl === previous.normalizedUrl) {
+      if (current.type === "waitForURL" && previous.type === "waitForURL" && current.normalizedUrl === previous.normalizedUrl) {
         actions.splice(i, 1);
       }
     }
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
       const previous = actions[i - 1];
-      if (current.kind === "input" && previous.kind === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
+      if (current.type === "input" && previous.type === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
         actions.splice(i, 1);
       }
     }
     return actions;
   }
-  function weightOrder(kind) {
-    switch (kind) {
+  function weightOrder(type) {
+    switch (type) {
       case "click":
         return 1;
-      case "waitForUrl":
+      case "waitForURL":
         return 2;
-      case "nav":
+      case "goto":
         return 3;
       default:
         return 4;
@@ -177,12 +177,12 @@ var PlaywrightGenerator = (() => {
         continue;
       a.locator.primary = validated[0];
       a.locator.fallbacks = validated.slice(1);
-      const key = a.locator.primary + "::" + a.kind;
+      const key = a.locator.primary + "::" + a.type;
       if (seen.has(key) && a.locator.fallbacks.length > 0) {
         a.locator.primary = a.locator.fallbacks[0];
         a.locator.fallbacks = a.locator.fallbacks.slice(1);
       }
-      seen.add(a.locator.primary + "::" + a.kind);
+      seen.add(a.locator.primary + "::" + a.type);
     }
   }
   function isUnique(sel) {
@@ -279,25 +279,25 @@ var PlaywrightGenerator = (() => {
       switch (eventType) {
         case "click":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "click",
+            type: "click",
             locator: eventData.selectors || eventData.locator,
             elementInfo: eventData.elementInfo
           });
         case "nav":
         case "navigation":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "nav",
+            type: "goto",
             url: eventData.url
           });
         case "input":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "input",
+            type: "input",
             value: eventData.value,
             locator: eventData.locator || { primary: eventData.selector }
           });
         case "form":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "form",
+            type: "form",
             formType: eventData.formType,
             checked: eventData.checked,
             value: eventData.value,
@@ -305,13 +305,13 @@ var PlaywrightGenerator = (() => {
           });
         case "assertion":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "assertion",
+            type: "assertion",
             value: eventData.value,
             locator: { primary: eventData.selector, fallbacks: [] }
           });
         default:
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: eventType
+            type: eventType
           });
       }
     }
@@ -328,14 +328,14 @@ var PlaywrightGenerator = (() => {
     }
     removeFromTrackingData(action) {
       const timestamp = action.timestamp;
-      switch (action.kind) {
+      switch (action.type) {
         case "click":
           this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
             (c) => c.timestamp !== timestamp
           );
           this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
           break;
-        case "nav":
+        case "goto":
           this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
             (n) => n.timestamp !== timestamp
           );
@@ -421,15 +421,15 @@ var PlaywrightGenerator = (() => {
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
     const { baseUrl = "" } = options;
-    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].kind !== "nav");
+    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].type !== "goto");
     const initialGoto = needsInitialGoto ? `  await page.goto('${baseUrl}');
 ` : "";
     const body = actions.map((action) => {
       var _a, _b, _c, _d, _e;
-      switch (action.kind) {
-        case "nav":
+      switch (action.type) {
+        case "goto":
           return `  await page.goto('${action.url || baseUrl}');`;
-        case "waitForUrl":
+        case "waitForURL":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;
           }

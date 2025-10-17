@@ -1,6 +1,6 @@
 import { Results } from './types'
 
-export type ActionKind = 'click' | 'input' | 'form' | 'assertion' | 'nav' | 'waitForUrl'
+export type ActionType = 'click' | 'input' | 'form' | 'assertion' | 'goto' | 'waitForURL'
 
 export interface ActionLocator {
   primary: string
@@ -13,7 +13,7 @@ export interface ActionLocator {
 }
 
 export interface Action {
-  kind: ActionKind
+  type: ActionType
   timestamp: number
   locator?: ActionLocator
   value?: string
@@ -41,7 +41,7 @@ export function resultsToActions(results: Results): Action[] {
   for (let i=0;i<clicks.length;i++) {
     const cd = clicks[i]
     actions.push({
-      kind: 'click',
+      type: 'click',
       timestamp: cd.timestamp,
       locator: {
         primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
@@ -58,7 +58,7 @@ export function resultsToActions(results: Results): Action[] {
     if (nav) {
       navTimestampsFromClicks.add(nav.timestamp)
       actions.push({
-        kind: 'waitForUrl',
+        type: 'waitForURL',
         timestamp: nav.timestamp - 1, // ensure ordering between click and nav
         expectedUrl: nav.url,
         normalizedUrl: normalize(nav.url),
@@ -67,10 +67,10 @@ export function resultsToActions(results: Results): Action[] {
     }
   }
 
-  // Add nav actions only for navigations NOT triggered by clicks (e.g., initial page load, manual navigation)
+  // Add goto actions only for navigations NOT triggered by clicks (e.g., initial page load, manual navigation)
   for (const nav of navigations) {
     if (!navTimestampsFromClicks.has(nav.timestamp)) {
-      actions.push({ kind: 'nav', timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) })
+      actions.push({ type: 'goto', timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) })
     }
   }
 
@@ -78,7 +78,7 @@ export function resultsToActions(results: Results): Action[] {
     for (const input of results.inputChanges) {
       if (input.action === 'complete' || !input.action) {
         actions.push({
-          kind: 'input',
+          type: 'input',
           timestamp: input.timestamp,
           locator: { primary: input.elementSelector, fallbacks: [] },
           value: input.value
@@ -90,7 +90,7 @@ export function resultsToActions(results: Results): Action[] {
   if (results.formElementChanges) {
     for (const fe of results.formElementChanges) {
       actions.push({
-        kind: 'form',
+        type: 'form',
         timestamp: fe.timestamp,
         locator: { primary: fe.elementSelector, fallbacks: [] },
         formType: fe.type,
@@ -103,7 +103,7 @@ export function resultsToActions(results: Results): Action[] {
   if (results.assertions) {
     for (const asrt of results.assertions) {
       actions.push({
-        kind: 'assertion',
+        type: 'assertion',
         timestamp: asrt.timestamp,
         locator: { primary: asrt.selector, fallbacks: [] },
         value: asrt.value
@@ -111,14 +111,14 @@ export function resultsToActions(results: Results): Action[] {
     }
   }
 
-  actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.kind)-weightOrder(b.kind))
+  actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type)-weightOrder(b.type))
   refineLocators(actions)
 
   // Deduplicate consecutive waitForURL calls for the same URL
   for (let i = actions.length - 1; i > 0; i--) {
     const current = actions[i]
     const previous = actions[i - 1]
-    if (current.kind === 'waitForUrl' && previous.kind === 'waitForUrl' &&
+    if (current.type === 'waitForURL' && previous.type === 'waitForURL' &&
         current.normalizedUrl === previous.normalizedUrl) {
       actions.splice(i, 1)
     }
@@ -128,7 +128,7 @@ export function resultsToActions(results: Results): Action[] {
   for (let i = actions.length - 1; i > 0; i--) {
     const current = actions[i]
     const previous = actions[i - 1]
-    if (current.kind === 'input' && previous.kind === 'input' &&
+    if (current.type === 'input' && previous.type === 'input' &&
         current.locator?.primary === previous.locator?.primary &&
         current.value === previous.value) {
       actions.splice(i, 1)
@@ -138,11 +138,11 @@ export function resultsToActions(results: Results): Action[] {
   return actions
 }
 
-function weightOrder(kind: ActionKind): number {
-  switch(kind){
+function weightOrder(type: ActionType): number {
+  switch(type){
     case 'click': return 1
-    case 'waitForUrl': return 2
-    case 'nav': return 3
+    case 'waitForURL': return 2
+    case 'goto': return 3
     default: return 4
   }
 }
@@ -162,12 +162,12 @@ function refineLocators(actions: Action[]) {
     if (validated.length === 0) continue
     a.locator.primary = validated[0]
     a.locator.fallbacks = validated.slice(1)
-    const key = a.locator.primary + '::' + a.kind
+    const key = a.locator.primary + '::' + a.type
     if (seen.has(key) && a.locator.fallbacks.length > 0) {
       a.locator.primary = a.locator.fallbacks[0]
       a.locator.fallbacks = a.locator.fallbacks.slice(1)
     }
-    seen.add(a.locator.primary + '::' + a.kind)
+    seen.add(a.locator.primary + '::' + a.type)
   }
 }
 

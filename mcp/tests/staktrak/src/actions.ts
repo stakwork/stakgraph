@@ -5,18 +5,18 @@
 
 export interface Action {
   id: string;
-  kind: 'nav' | 'click' | 'input' | 'form' | 'assertion' | 'waitForUrl';
+  type: 'goto' | 'click' | 'input' | 'form' | 'assertion' | 'waitForURL';
   timestamp: number;
   [key: string]: any;
 }
 
 export interface NavigationAction extends Action {
-  kind: 'nav';
+  type: 'goto';
   url: string;
 }
 
 export interface ClickAction extends Action {
-  kind: 'click';
+  type: 'click';
   locator?: {
     text?: string;
     primary?: string;
@@ -24,35 +24,35 @@ export interface ClickAction extends Action {
 }
 
 export interface InputAction extends Action {
-  kind: 'input';
+  type: 'input';
   value: string;
 }
 
 export interface FormAction extends Action {
-  kind: 'form';
+  type: 'form';
   formType?: 'checkbox' | 'radio' | 'select';
   checked?: boolean;
   value?: string;
 }
 
 export interface AssertionAction extends Action {
-  kind: 'assertion';
+  type: 'assertion';
   value: string;
   selector: string;
 }
 
 export interface WaitForUrlAction extends Action {
-  kind: 'waitForUrl';
+  type: 'waitForURL';
   expectedUrl?: string;
 }
 
 export type AnyAction = NavigationAction | ClickAction | InputAction | FormAction | AssertionAction | WaitForUrlAction;
 
 /**
- * Maps action kinds to their corresponding message types
+ * Maps action types to their corresponding message types
  */
 export const ACTION_MESSAGE_MAP: Record<string, string> = {
-  'nav': 'staktrak-remove-navigation',
+  'goto': 'staktrak-remove-navigation',
   'click': 'staktrak-remove-click',
   'input': 'staktrak-remove-input',
   'form': 'staktrak-remove-form',
@@ -63,8 +63,8 @@ export const ACTION_MESSAGE_MAP: Record<string, string> = {
  * Get display text for an action
  */
 export function getActionDisplayText(action: AnyAction): string {
-  switch (action.kind) {
-    case 'nav':
+  switch (action.type) {
+    case 'goto':
       return `Navigate to ${(action as NavigationAction).url || '/'}`;
     case 'click':
       const click = action as ClickAction;
@@ -84,10 +84,10 @@ export function getActionDisplayText(action: AnyAction): string {
     case 'assertion':
       const assertValue = (action as AssertionAction).value;
       return `Assert "${assertValue.length > 30 ? assertValue.substring(0, 30) + '...' : assertValue}"`;
-    case 'waitForUrl':
+    case 'waitForURL':
       return `Wait for ${(action as WaitForUrlAction).expectedUrl || 'navigation'}`;
     default:
-      return action.kind;
+      return action.type;
   }
 }
 

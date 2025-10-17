@@ -21,6 +21,18 @@ var userBehaviour = (() => {
     return a;
   };
   var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+  var __objRest = (source, exclude) => {
+    var target = {};
+    for (var prop in source)
+      if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
+        target[prop] = source[prop];
+    if (source != null && __getOwnPropSymbols)
+      for (var prop of __getOwnPropSymbols(source)) {
+        if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
+          target[prop] = source[prop];
+      }
+    return target;
+  };
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
@@ -79,7 +91,7 @@ var userBehaviour = (() => {
     return null;
   };
   var getEnhancedElementText = (element) => {
-    var _a;
+    var _a2;
     const ariaLabel = element.getAttribute("aria-label");
     if (ariaLabel)
       return ariaLabel;
@@ -88,7 +100,7 @@ var userBehaviour = (() => {
       return resolvedLabel;
     const tag = element.tagName.toLowerCase();
     if (tag === "button" || tag === "a" && element.hasAttribute("href")) {
-      const text = (_a = element.textContent) == null ? void 0 : _a.trim();
+      const text = (_a2 = element.textContent) == null ? void 0 : _a2.trim();
       if (text && text.length > 0 && text.length < 100) {
         return text;
       }
@@ -116,7 +128,7 @@ var userBehaviour = (() => {
     return null;
   };
   var detectIconContent = (element) => {
-    var _a;
+    var _a2;
     const svg = element.querySelector("svg");
     if (svg) {
       if (svg.getAttribute("data-icon")) {
@@ -139,14 +151,14 @@ var userBehaviour = (() => {
         return { type: "icon-font", selector: `.${iconClasses[0]}` };
       }
     }
-    const text = (_a = element.textContent) == null ? void 0 : _a.trim();
+    const text = (_a2 = element.textContent) == null ? void 0 : _a2.trim();
     if (text && text.length <= 2 && /[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(text)) {
       return { type: "emoji", selector: `text="${text}"` };
     }
     return null;
   };
   var resolveAriaLabelledBy = (element) => {
-    var _a;
+    var _a2;
     const labelledBy = element.getAttribute("aria-labelledby");
     if (!labelledBy)
       return null;
@@ -155,7 +167,7 @@ var userBehaviour = (() => {
     for (const id of ids) {
       const referencedEl = findElementById(element.ownerDocument || document, id);
       if (referencedEl) {
-        const text = (_a = referencedEl.textContent) == null ? void 0 : _a.trim();
+        const text = (_a2 = referencedEl.textContent) == null ? void 0 : _a2.trim();
         if (text)
           texts.push(text);
       }
@@ -170,7 +182,7 @@ var userBehaviour = (() => {
   };
   var isInputOrTextarea = (element) => element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable;
   var generateSelectorStrategies = (element) => {
-    var _a;
+    var _a2;
     const htmlEl = element;
     const tagName = element.tagName.toLowerCase();
     const fallbacks = [];
@@ -207,7 +219,7 @@ var userBehaviour = (() => {
       const ordered = Object.values(dedup).sort((a, b) => b.score - a.score);
       return __spreadProps(__spreadValues({ primary: primary2, fallbacks: fallbacks2 }, extra), { scores: ordered });
     };
-    const testId = (_a = htmlEl.dataset) == null ? void 0 : _a.testid;
+    const testId = (_a2 = htmlEl.dataset) == null ? void 0 : _a2.testid;
     if (testId) {
       const sel = `[data-testid="${testId}"]`;
       pushCandidate(sel, 100, "data-testid attribute");
@@ -746,7 +758,7 @@ var userBehaviour = (() => {
     }
   }
   function extractReactDebugSource(element) {
-    var _a, _b, _c;
+    var _a2, _b, _c;
     try {
       const fiberKey = Object.keys(element).find(
         (key) => key.startsWith("__reactFiber$") || key.startsWith("__reactInternalInstance$")
@@ -756,7 +768,7 @@ var userBehaviour = (() => {
       }
       let fiber = element[fiberKey];
       let level = 0;
-      const maxTraversalDepth = Number((_a = window.STAKTRAK_CONFIG) == null ? void 0 : _a.maxTraversalDepth) || 10;
+      const maxTraversalDepth = Number((_a2 = window.STAKTRAK_CONFIG) == null ? void 0 : _a2.maxTraversalDepth) || 10;
       const extractSource = (source) => {
         if (!source)
           return null;
@@ -781,7 +793,7 @@ var userBehaviour = (() => {
     }
   }
   function debugMsg(data) {
-    var _a, _b;
+    var _a2, _b;
     const { messageId, coordinates } = data;
     try {
       const sourceFiles = [];
@@ -829,7 +841,7 @@ var userBehaviour = (() => {
         const dataLine = element.getAttribute("data-line") || element.getAttribute("data-inspector-line");
         if (dataSource && dataLine) {
           const lineNum = parseInt(dataLine, 10);
-          if (!processedFiles.has(dataSource) || !((_a = processedFiles.get(dataSource)) == null ? void 0 : _a.has(lineNum))) {
+          if (!processedFiles.has(dataSource) || !((_a2 = processedFiles.get(dataSource)) == null ? void 0 : _a2.has(lineNum))) {
             if (!processedFiles.has(dataSource)) {
               processedFiles.set(dataSource, /* @__PURE__ */ new Set());
             }
@@ -932,7 +944,7 @@ var userBehaviour = (() => {
 
   // src/playwright-replay/parser.ts
   function parsePlaywrightTest(testCode) {
-    var _a, _b;
+    var _a2, _b;
     const actions = [];
     const lines = testCode.split("\n");
     let lineNumber = 0;
@@ -1215,7 +1227,7 @@ var userBehaviour = (() => {
               break;
           }
           const block = blockLines.join(" ");
-          const url = (_a = block.match(/page\.waitForURL\(['\"](.*?)['\"]\)/)) == null ? void 0 : _a[1];
+          const url = (_a2 = block.match(/page\.waitForURL\(['\"](.*?)['\"]\)/)) == null ? void 0 : _a2[1];
           const clickSelector = (_b = block.match(/page\.(getBy[^.]+\([^)]*\)|locator\([^)]*\))\.click\(\)/)) == null ? void 0 : _b[1];
           if (url) {
             actions.push({ type: "waitForURL", value: url, comment: (comment ? comment + " " : "") + "(compound)", lineNumber });
@@ -1382,13 +1394,13 @@ var userBehaviour = (() => {
     return actions;
   }
   function parseVariableMethodCall(varName, method, args, comment, lineNumber, selector) {
-    var _a, _b;
+    var _a2, _b;
     const actualSelector = selector || `variable:${varName}`;
     switch (method) {
       case "click":
         return { type: "click", selector: actualSelector, comment, lineNumber };
       case "fill":
-        const fillValue = ((_a = args.match(/['"](.*?)['"]/)) == null ? void 0 : _a[1]) || "";
+        const fillValue = ((_a2 = args.match(/['"](.*?)['"]/)) == null ? void 0 : _a2[1]) || "";
         return {
           type: "fill",
           selector: actualSelector,
@@ -1553,12 +1565,12 @@ var userBehaviour = (() => {
     return selectorArg.trim().replace(/^['"]|['"]$/g, "");
   }
   function parseDirectAction(method, args, comment, lineNumber, selector) {
-    var _a, _b;
+    var _a2, _b;
     switch (method) {
       case "click":
         return { type: "click", selector, comment, lineNumber };
       case "fill":
-        const fillValue = ((_a = args.match(/['"](.*?)['"]/)) == null ? void 0 : _a[1]) || "";
+        const fillValue = ((_a2 = args.match(/['"](.*?)['"]/)) == null ? void 0 : _a2[1]) || "";
         return { type: "fill", selector, value: fillValue, comment, lineNumber };
       case "check":
         return { type: "check", selector, comment, lineNumber };
@@ -1729,19 +1741,10 @@ var userBehaviour = (() => {
     return roleMap[role] || `[role="${role}"]`;
   }
   async function executePlaywrightAction(action) {
-    var _a;
+    var _a2;
     try {
       switch (action.type) {
         case "goto" /* GOTO */:
-          if (action.value && typeof action.value === "string") {
-            window.parent.postMessage(
-              {
-                type: "staktrak-iframe-navigate",
-                url: action.value
-              },
-              "*"
-            );
-          }
           break;
         case "setViewportSize" /* SET_VIEWPORT_SIZE */:
           if (action.options) {
@@ -1946,7 +1949,7 @@ var userBehaviour = (() => {
                 `Element not found for waitFor: ${action.selector}`
               );
             }
-            if (((_a = action.options) == null ? void 0 : _a.state) === "visible") {
+            if (((_a2 = action.options) == null ? void 0 : _a2.state) === "visible") {
               if (!isElementVisible(element)) {
                 throw new Error(`Element is not visible: ${action.selector}`);
               }
@@ -2051,7 +2054,7 @@ var userBehaviour = (() => {
     return element ? [element] : [];
   }
   function findElementWithFallbacks(selector) {
-    var _a, _b;
+    var _a2, _b;
     if (!selector || selector.trim() === "")
       return null;
     try {
@@ -2164,7 +2167,7 @@ var userBehaviour = (() => {
         }
       const all = textSearchCandidates();
       for (const el of all) {
-        const txt = ((_a = el.textContent) == null ? void 0 : _a.trim()) || "";
+        const txt = ((_a2 = el.textContent) == null ? void 0 : _a2.trim()) || "";
         if (r && r.test(txt)) {
           return noteMatch(el, selector, txt);
         }
@@ -2187,8 +2190,8 @@ var userBehaviour = (() => {
     if (selector.startsWith("getByLabel:")) {
       const label = selector.substring("getByLabel:".length).trim();
       const labels = Array.from(document.querySelectorAll("label")).filter((l) => {
-        var _a2;
-        return ((_a2 = l.textContent) == null ? void 0 : _a2.trim()) === label;
+        var _a3;
+        return ((_a3 = l.textContent) == null ? void 0 : _a3.trim()) === label;
       });
       for (const lab of labels) {
         const forId = lab.getAttribute("for");
@@ -2248,15 +2251,15 @@ var userBehaviour = (() => {
     return Array.from(document.querySelectorAll(selector)).filter((el) => el instanceof HTMLElement);
   }
   function getAccessibleName(el) {
-    var _a;
+    var _a2;
     const aria = el.getAttribute("aria-label");
     if (aria)
       return aria.trim();
     const labelled = el.getAttribute("aria-labelledby");
     if (labelled) {
       const parts = labelled.split(/\s+/).map((id) => {
-        var _a2, _b;
-        return (_b = (_a2 = document.getElementById(id)) == null ? void 0 : _a2.textContent) == null ? void 0 : _b.trim();
+        var _a3, _b;
+        return (_b = (_a3 = document.getElementById(id)) == null ? void 0 : _a3.textContent) == null ? void 0 : _b.trim();
       }).filter(Boolean);
       if (parts.length)
         return parts.join(" ");
@@ -2267,7 +2270,7 @@ var userBehaviour = (() => {
       if (val)
         return val.trim();
     }
-    const txt = (_a = el.textContent) == null ? void 0 : _a.trim();
+    const txt = (_a2 = el.textContent) == null ? void 0 : _a2.trim();
     if (txt)
       return txt.slice(0, 120);
     const title = el.getAttribute("title");
@@ -2279,7 +2282,7 @@ var userBehaviour = (() => {
     return Array.from(document.querySelectorAll("button, a, [role], input, textarea, select, label, div, span"));
   }
   function convertToBrowserSelector(selector) {
-    var _a;
+    var _a2;
     if (!selector)
       return selector;
     if (selector.includes(":has-text(")) {
@@ -2290,7 +2293,7 @@ var userBehaviour = (() => {
         const tagName = tagMatch ? tagMatch[1] : "*";
         const elements = Array.from(document.querySelectorAll(tagName));
         for (const element of elements) {
-          if (((_a = element.textContent) == null ? void 0 : _a.trim()) === text) {
+          if (((_a2 = element.textContent) == null ? void 0 : _a2.trim()) === text) {
             const uniqueSelector = createUniqueSelector(element);
             if (uniqueSelector && isValidSelector(uniqueSelector)) {
               return uniqueSelector;
@@ -2316,10 +2319,10 @@ var userBehaviour = (() => {
     }
   }
   function findByDataTestId(selector) {
-    var _a;
+    var _a2;
     if (!selector.includes("data-testid"))
       return null;
-    const testId = (_a = selector.match(/data-testid="([^"]+)"/)) == null ? void 0 : _a[1];
+    const testId = (_a2 = selector.match(/data-testid="([^"]+)"/)) == null ? void 0 : _a2[1];
     if (testId) {
       return document.querySelector(`[data-testid="${testId}"]`);
     }
@@ -2408,14 +2411,14 @@ var userBehaviour = (() => {
     return d;
   }
   function createUniqueSelector(element) {
-    var _a;
+    var _a2;
     if (element.id && /^[a-zA-Z][\w-]*$/.test(element.id)) {
       const idSelector = `#${element.id}`;
       if (document.querySelectorAll(idSelector).length === 1) {
         return idSelector;
       }
     }
-    const testId = (_a = element.dataset) == null ? void 0 : _a.testid;
+    const testId = (_a2 = element.dataset) == null ? void 0 : _a2.testid;
     if (testId) {
       const testIdSelector = `[data-testid="${testId}"]`;
       if (document.querySelectorAll(testIdSelector).length === 1) {
@@ -2536,7 +2539,7 @@ var userBehaviour = (() => {
     doc.head.appendChild(style);
   }
   async function verifyExpectation(action) {
-    var _a, _b;
+    var _a2, _b;
     if (!action.selector)
       return;
     switch (action.expectation) {
@@ -2551,7 +2554,7 @@ var userBehaviour = (() => {
           action.selector,
           String(action.value)
         );
-        if (!textElement || !((_a = textElement.textContent) == null ? void 0 : _a.includes(String(action.value || "")))) {
+        if (!textElement || !((_a2 = textElement.textContent) == null ? void 0 : _a2.includes(String(action.value || "")))) {
           throw new Error(
             `Element does not contain text "${action.value}": ${action.selector}`
           );
@@ -2601,7 +2604,7 @@ var userBehaviour = (() => {
     return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0;
   }
   function getActionDescription(action) {
-    var _a, _b;
+    var _a2, _b;
     switch (action.type) {
       case "goto" /* GOTO */:
         return `Navigate to ${action.value}`;
@@ -2628,7 +2631,7 @@ var userBehaviour = (() => {
       case "expect" /* EXPECT */:
         return `Verify ${action.selector} ${action.expectation}`;
       case "setViewportSize" /* SET_VIEWPORT_SIZE */:
-        return `Set viewport size to ${(_a = action.options) == null ? void 0 : _a.width}x${(_b = action.options) == null ? void 0 : _b.height}`;
+        return `Set viewport size to ${(_a2 = action.options) == null ? void 0 : _a2.width}x${(_b = action.options) == null ? void 0 : _b.height}`;
       case "waitForTimeout" /* WAIT_FOR_TIMEOUT */:
         return `Wait ${action.value}ms`;
       case "waitForLoadState" /* WAIT_FOR_LOAD_STATE */:
@@ -2642,11 +2645,1598 @@ var userBehaviour = (() => {
     }
   }
 
+  // node_modules/modern-screenshot/dist/index.mjs
+  function changeJpegDpi(uint8Array, dpi) {
+    uint8Array[13] = 1;
+    uint8Array[14] = dpi >> 8;
+    uint8Array[15] = dpi & 255;
+    uint8Array[16] = dpi >> 8;
+    uint8Array[17] = dpi & 255;
+    return uint8Array;
+  }
+  var _P = "p".charCodeAt(0);
+  var _H = "H".charCodeAt(0);
+  var _Y = "Y".charCodeAt(0);
+  var _S = "s".charCodeAt(0);
+  var pngDataTable;
+  function createPngDataTable() {
+    const crcTable = new Int32Array(256);
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) {
+        c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+      }
+      crcTable[n] = c;
+    }
+    return crcTable;
+  }
+  function calcCrc(uint8Array) {
+    let c = -1;
+    if (!pngDataTable)
+      pngDataTable = createPngDataTable();
+    for (let n = 0; n < uint8Array.length; n++) {
+      c = pngDataTable[(c ^ uint8Array[n]) & 255] ^ c >>> 8;
+    }
+    return c ^ -1;
+  }
+  function searchStartOfPhys(uint8Array) {
+    const length = uint8Array.length - 1;
+    for (let i = length; i >= 4; i--) {
+      if (uint8Array[i - 4] === 9 && uint8Array[i - 3] === _P && uint8Array[i - 2] === _H && uint8Array[i - 1] === _Y && uint8Array[i] === _S) {
+        return i - 3;
+      }
+    }
+    return 0;
+  }
+  function changePngDpi(uint8Array, dpi, overwritepHYs = false) {
+    const physChunk = new Uint8Array(13);
+    dpi *= 39.3701;
+    physChunk[0] = _P;
+    physChunk[1] = _H;
+    physChunk[2] = _Y;
+    physChunk[3] = _S;
+    physChunk[4] = dpi >>> 24;
+    physChunk[5] = dpi >>> 16;
+    physChunk[6] = dpi >>> 8;
+    physChunk[7] = dpi & 255;
+    physChunk[8] = physChunk[4];
+    physChunk[9] = physChunk[5];
+    physChunk[10] = physChunk[6];
+    physChunk[11] = physChunk[7];
+    physChunk[12] = 1;
+    const crc = calcCrc(physChunk);
+    const crcChunk = new Uint8Array(4);
+    crcChunk[0] = crc >>> 24;
+    crcChunk[1] = crc >>> 16;
+    crcChunk[2] = crc >>> 8;
+    crcChunk[3] = crc & 255;
+    if (overwritepHYs) {
+      const startingIndex = searchStartOfPhys(uint8Array);
+      uint8Array.set(physChunk, startingIndex);
+      uint8Array.set(crcChunk, startingIndex + 13);
+      return uint8Array;
+    } else {
+      const chunkLength = new Uint8Array(4);
+      chunkLength[0] = 0;
+      chunkLength[1] = 0;
+      chunkLength[2] = 0;
+      chunkLength[3] = 9;
+      const finalHeader = new Uint8Array(54);
+      finalHeader.set(uint8Array, 0);
+      finalHeader.set(chunkLength, 33);
+      finalHeader.set(physChunk, 37);
+      finalHeader.set(crcChunk, 50);
+      return finalHeader;
+    }
+  }
+  var b64PhysSignature1 = "AAlwSFlz";
+  var b64PhysSignature2 = "AAAJcEhZ";
+  var b64PhysSignature3 = "AAAACXBI";
+  function detectPhysChunkFromDataUrl(dataUrl) {
+    let b64index = dataUrl.indexOf(b64PhysSignature1);
+    if (b64index === -1) {
+      b64index = dataUrl.indexOf(b64PhysSignature2);
+    }
+    if (b64index === -1) {
+      b64index = dataUrl.indexOf(b64PhysSignature3);
+    }
+    return b64index;
+  }
+  var PREFIX = "[modern-screenshot]";
+  var IN_BROWSER = typeof window !== "undefined";
+  var SUPPORT_WEB_WORKER = IN_BROWSER && "Worker" in window;
+  var SUPPORT_ATOB = IN_BROWSER && "atob" in window;
+  var SUPPORT_BTOA = IN_BROWSER && "btoa" in window;
+  var _a;
+  var USER_AGENT = IN_BROWSER ? (_a = window.navigator) == null ? void 0 : _a.userAgent : "";
+  var IN_CHROME = USER_AGENT.includes("Chrome");
+  var IN_SAFARI = USER_AGENT.includes("AppleWebKit") && !IN_CHROME;
+  var IN_FIREFOX = USER_AGENT.includes("Firefox");
+  var isContext = (value) => value && "__CONTEXT__" in value;
+  var isCssFontFaceRule = (rule) => rule.constructor.name === "CSSFontFaceRule";
+  var isCSSImportRule = (rule) => rule.constructor.name === "CSSImportRule";
+  var isElementNode = (node) => node.nodeType === 1;
+  var isSVGElementNode = (node) => typeof node.className === "object";
+  var isSVGImageElementNode = (node) => node.tagName === "image";
+  var isSVGUseElementNode = (node) => node.tagName === "use";
+  var isHTMLElementNode = (node) => isElementNode(node) && typeof node.style !== "undefined" && !isSVGElementNode(node);
+  var isCommentNode = (node) => node.nodeType === 8;
+  var isTextNode = (node) => node.nodeType === 3;
+  var isImageElement = (node) => node.tagName === "IMG";
+  var isVideoElement = (node) => node.tagName === "VIDEO";
+  var isCanvasElement = (node) => node.tagName === "CANVAS";
+  var isTextareaElement = (node) => node.tagName === "TEXTAREA";
+  var isInputElement = (node) => node.tagName === "INPUT";
+  var isStyleElement = (node) => node.tagName === "STYLE";
+  var isScriptElement = (node) => node.tagName === "SCRIPT";
+  var isSelectElement = (node) => node.tagName === "SELECT";
+  var isSlotElement = (node) => node.tagName === "SLOT";
+  var isIFrameElement = (node) => node.tagName === "IFRAME";
+  var consoleWarn = (...args) => console.warn(PREFIX, ...args);
+  function supportWebp(ownerDocument) {
+    var _a2;
+    const canvas = (_a2 = ownerDocument == null ? void 0 : ownerDocument.createElement) == null ? void 0 : _a2.call(ownerDocument, "canvas");
+    if (canvas) {
+      canvas.height = canvas.width = 1;
+    }
+    return Boolean(canvas) && "toDataURL" in canvas && Boolean(canvas.toDataURL("image/webp").includes("image/webp"));
+  }
+  var isDataUrl = (url) => url.startsWith("data:");
+  function resolveUrl(url, baseUrl) {
+    if (url.match(/^[a-z]+:\/\//i))
+      return url;
+    if (IN_BROWSER && url.match(/^\/\//))
+      return window.location.protocol + url;
+    if (url.match(/^[a-z]+:/i))
+      return url;
+    if (!IN_BROWSER)
+      return url;
+    const doc = getDocument().implementation.createHTMLDocument();
+    const base = doc.createElement("base");
+    const a = doc.createElement("a");
+    doc.head.appendChild(base);
+    doc.body.appendChild(a);
+    if (baseUrl)
+      base.href = baseUrl;
+    a.href = url;
+    return a.href;
+  }
+  function getDocument(target) {
+    var _a2;
+    return (_a2 = target && isElementNode(target) ? target == null ? void 0 : target.ownerDocument : target) != null ? _a2 : window.document;
+  }
+  var XMLNS = "http://www.w3.org/2000/svg";
+  function createSvg(width, height, ownerDocument) {
+    const svg = getDocument(ownerDocument).createElementNS(XMLNS, "svg");
+    svg.setAttributeNS(null, "width", width.toString());
+    svg.setAttributeNS(null, "height", height.toString());
+    svg.setAttributeNS(null, "viewBox", `0 0 ${width} ${height}`);
+    return svg;
+  }
+  function svgToDataUrl(svg, removeControlCharacter) {
+    let xhtml = new XMLSerializer().serializeToString(svg);
+    if (removeControlCharacter) {
+      xhtml = xhtml.replace(/[\u0000-\u0008\v\f\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu, "");
+    }
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xhtml)}`;
+  }
+  function readBlob(blob, type) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.onabort = () => reject(new Error(`Failed read blob to ${type}`));
+      if (type === "dataUrl") {
+        reader.readAsDataURL(blob);
+      } else if (type === "arrayBuffer") {
+        reader.readAsArrayBuffer(blob);
+      }
+    });
+  }
+  var blobToDataUrl = (blob) => readBlob(blob, "dataUrl");
+  function createImage(url, ownerDocument) {
+    const img = getDocument(ownerDocument).createElement("img");
+    img.decoding = "sync";
+    img.loading = "eager";
+    img.src = url;
+    return img;
+  }
+  function loadMedia(media, options) {
+    return new Promise((resolve) => {
+      const { timeout, ownerDocument, onError: userOnError, onWarn } = options != null ? options : {};
+      const node = typeof media === "string" ? createImage(media, getDocument(ownerDocument)) : media;
+      let timer = null;
+      let removeEventListeners = null;
+      function onResolve() {
+        resolve(node);
+        timer && clearTimeout(timer);
+        removeEventListeners == null ? void 0 : removeEventListeners();
+      }
+      if (timeout) {
+        timer = setTimeout(onResolve, timeout);
+      }
+      if (isVideoElement(node)) {
+        const currentSrc = node.currentSrc || node.src;
+        if (!currentSrc) {
+          if (node.poster) {
+            return loadMedia(node.poster, options).then(resolve);
+          }
+          return onResolve();
+        }
+        if (node.readyState >= 2) {
+          return onResolve();
+        }
+        const onLoadeddata = onResolve;
+        const onError = (error) => {
+          onWarn == null ? void 0 : onWarn(
+            "Failed video load",
+            currentSrc,
+            error
+          );
+          userOnError == null ? void 0 : userOnError(error);
+          onResolve();
+        };
+        removeEventListeners = () => {
+          node.removeEventListener("loadeddata", onLoadeddata);
+          node.removeEventListener("error", onError);
+        };
+        node.addEventListener("loadeddata", onLoadeddata, { once: true });
+        node.addEventListener("error", onError, { once: true });
+      } else {
+        const currentSrc = isSVGImageElementNode(node) ? node.href.baseVal : node.currentSrc || node.src;
+        if (!currentSrc) {
+          return onResolve();
+        }
+        const onLoad = async () => {
+          if (isImageElement(node) && "decode" in node) {
+            try {
+              await node.decode();
+            } catch (error) {
+              onWarn == null ? void 0 : onWarn(
+                "Failed to decode image, trying to render anyway",
+                node.dataset.originalSrc || currentSrc,
+                error
+              );
+            }
+          }
+          onResolve();
+        };
+        const onError = (error) => {
+          onWarn == null ? void 0 : onWarn(
+            "Failed image load",
+            node.dataset.originalSrc || currentSrc,
+            error
+          );
+          onResolve();
+        };
+        if (isImageElement(node) && node.complete) {
+          return onLoad();
+        }
+        removeEventListeners = () => {
+          node.removeEventListener("load", onLoad);
+          node.removeEventListener("error", onError);
+        };
+        node.addEventListener("load", onLoad, { once: true });
+        node.addEventListener("error", onError, { once: true });
+      }
+    });
+  }
+  async function waitUntilLoad(node, options) {
+    if (isHTMLElementNode(node)) {
+      if (isImageElement(node) || isVideoElement(node)) {
+        await loadMedia(node, options);
+      } else {
+        await Promise.all(
+          ["img", "video"].flatMap((selectors) => {
+            return Array.from(node.querySelectorAll(selectors)).map((el) => loadMedia(el, options));
+          })
+        );
+      }
+    }
+  }
+  var uuid = /* @__PURE__ */ function uuid2() {
+    let counter = 0;
+    const random = () => `0000${(Math.random() * 36 ** 4 << 0).toString(36)}`.slice(-4);
+    return () => {
+      counter += 1;
+      return `u${random()}${counter}`;
+    };
+  }();
+  function splitFontFamily(fontFamily) {
+    return fontFamily == null ? void 0 : fontFamily.split(",").map((val) => val.trim().replace(/"|'/g, "").toLowerCase()).filter(Boolean);
+  }
+  var uid = 0;
+  function createLogger(debug) {
+    const prefix = `${PREFIX}[#${uid}]`;
+    uid++;
+    return {
+      // eslint-disable-next-line no-console
+      time: (label) => debug && console.time(`${prefix} ${label}`),
+      // eslint-disable-next-line no-console
+      timeEnd: (label) => debug && console.timeEnd(`${prefix} ${label}`),
+      warn: (...args) => debug && consoleWarn(...args)
+    };
+  }
+  function getDefaultRequestInit(bypassingCache) {
+    return {
+      cache: bypassingCache ? "no-cache" : "force-cache"
+    };
+  }
+  async function orCreateContext(node, options) {
+    return isContext(node) ? node : createContext(node, __spreadProps(__spreadValues({}, options), { autoDestruct: true }));
+  }
+  async function createContext(node, options) {
+    var _a2, _b, _c, _d, _e;
+    const { scale = 1, workerUrl, workerNumber = 1 } = options || {};
+    const debug = Boolean(options == null ? void 0 : options.debug);
+    const features = (_a2 = options == null ? void 0 : options.features) != null ? _a2 : true;
+    const ownerDocument = (_b = node.ownerDocument) != null ? _b : IN_BROWSER ? window.document : void 0;
+    const ownerWindow = (_d = (_c = node.ownerDocument) == null ? void 0 : _c.defaultView) != null ? _d : IN_BROWSER ? window : void 0;
+    const requests = /* @__PURE__ */ new Map();
+    const context = __spreadProps(__spreadValues({
+      // Options
+      width: 0,
+      height: 0,
+      quality: 1,
+      type: "image/png",
+      scale,
+      backgroundColor: null,
+      style: null,
+      filter: null,
+      maximumCanvasSize: 0,
+      timeout: 3e4,
+      progress: null,
+      debug,
+      fetch: __spreadValues({
+        requestInit: getDefaultRequestInit((_e = options == null ? void 0 : options.fetch) == null ? void 0 : _e.bypassingCache),
+        placeholderImage: "data:image/png;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+        bypassingCache: false
+      }, options == null ? void 0 : options.fetch),
+      fetchFn: null,
+      font: {},
+      drawImageInterval: 100,
+      workerUrl: null,
+      workerNumber,
+      onCloneEachNode: null,
+      onCloneNode: null,
+      onEmbedNode: null,
+      onCreateForeignObjectSvg: null,
+      includeStyleProperties: null,
+      autoDestruct: false
+    }, options), {
+      // InternalContext
+      __CONTEXT__: true,
+      log: createLogger(debug),
+      node,
+      ownerDocument,
+      ownerWindow,
+      dpi: scale === 1 ? null : 96 * scale,
+      svgStyleElement: createStyleElement(ownerDocument),
+      svgDefsElement: ownerDocument == null ? void 0 : ownerDocument.createElementNS(XMLNS, "defs"),
+      svgStyles: /* @__PURE__ */ new Map(),
+      defaultComputedStyles: /* @__PURE__ */ new Map(),
+      workers: [
+        ...Array.from({
+          length: SUPPORT_WEB_WORKER && workerUrl && workerNumber ? workerNumber : 0
+        })
+      ].map(() => {
+        try {
+          const worker = new Worker(workerUrl);
+          worker.onmessage = async (event) => {
+            var _a3, _b2, _c2, _d2;
+            const { url, result } = event.data;
+            if (result) {
+              (_b2 = (_a3 = requests.get(url)) == null ? void 0 : _a3.resolve) == null ? void 0 : _b2.call(_a3, result);
+            } else {
+              (_d2 = (_c2 = requests.get(url)) == null ? void 0 : _c2.reject) == null ? void 0 : _d2.call(_c2, new Error(`Error receiving message from worker: ${url}`));
+            }
+          };
+          worker.onmessageerror = (event) => {
+            var _a3, _b2;
+            const { url } = event.data;
+            (_b2 = (_a3 = requests.get(url)) == null ? void 0 : _a3.reject) == null ? void 0 : _b2.call(_a3, new Error(`Error receiving message from worker: ${url}`));
+          };
+          return worker;
+        } catch (error) {
+          context.log.warn("Failed to new Worker", error);
+          return null;
+        }
+      }).filter(Boolean),
+      fontFamilies: /* @__PURE__ */ new Map(),
+      fontCssTexts: /* @__PURE__ */ new Map(),
+      acceptOfImage: `${[
+        supportWebp(ownerDocument) && "image/webp",
+        "image/svg+xml",
+        "image/*",
+        "*/*"
+      ].filter(Boolean).join(",")};q=0.8`,
+      requests,
+      drawImageCount: 0,
+      tasks: [],
+      features,
+      isEnable: (key) => {
+        var _a3, _b2;
+        if (key === "restoreScrollPosition") {
+          return typeof features === "boolean" ? false : (_a3 = features[key]) != null ? _a3 : false;
+        }
+        if (typeof features === "boolean") {
+          return features;
+        }
+        return (_b2 = features[key]) != null ? _b2 : true;
+      },
+      shadowRoots: []
+    });
+    context.log.time("wait until load");
+    await waitUntilLoad(node, { timeout: context.timeout, onWarn: context.log.warn });
+    context.log.timeEnd("wait until load");
+    const { width, height } = resolveBoundingBox(node, context);
+    context.width = width;
+    context.height = height;
+    return context;
+  }
+  function createStyleElement(ownerDocument) {
+    if (!ownerDocument)
+      return void 0;
+    const style = ownerDocument.createElement("style");
+    const cssText = style.ownerDocument.createTextNode(`
+.______background-clip--text {
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+`);
+    style.appendChild(cssText);
+    return style;
+  }
+  function resolveBoundingBox(node, context) {
+    let { width, height } = context;
+    if (isElementNode(node) && (!width || !height)) {
+      const box = node.getBoundingClientRect();
+      width = width || box.width || Number(node.getAttribute("width")) || 0;
+      height = height || box.height || Number(node.getAttribute("height")) || 0;
+    }
+    return { width, height };
+  }
+  async function imageToCanvas(image, context) {
+    const {
+      log,
+      timeout,
+      drawImageCount,
+      drawImageInterval
+    } = context;
+    log.time("image to canvas");
+    const loaded = await loadMedia(image, { timeout, onWarn: context.log.warn });
+    const { canvas, context2d } = createCanvas(image.ownerDocument, context);
+    const drawImage = () => {
+      try {
+        context2d == null ? void 0 : context2d.drawImage(loaded, 0, 0, canvas.width, canvas.height);
+      } catch (error) {
+        context.log.warn("Failed to drawImage", error);
+      }
+    };
+    drawImage();
+    if (context.isEnable("fixSvgXmlDecode")) {
+      for (let i = 0; i < drawImageCount; i++) {
+        await new Promise((resolve) => {
+          setTimeout(() => {
+            context2d == null ? void 0 : context2d.clearRect(0, 0, canvas.width, canvas.height);
+            drawImage();
+            resolve();
+          }, i + drawImageInterval);
+        });
+      }
+    }
+    context.drawImageCount = 0;
+    log.timeEnd("image to canvas");
+    return canvas;
+  }
+  function createCanvas(ownerDocument, context) {
+    const { width, height, scale, backgroundColor, maximumCanvasSize: max } = context;
+    const canvas = ownerDocument.createElement("canvas");
+    canvas.width = Math.floor(width * scale);
+    canvas.height = Math.floor(height * scale);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    if (max) {
+      if (canvas.width > max || canvas.height > max) {
+        if (canvas.width > max && canvas.height > max) {
+          if (canvas.width > canvas.height) {
+            canvas.height *= max / canvas.width;
+            canvas.width = max;
+          } else {
+            canvas.width *= max / canvas.height;
+            canvas.height = max;
+          }
+        } else if (canvas.width > max) {
+          canvas.height *= max / canvas.width;
+          canvas.width = max;
+        } else {
+          canvas.width *= max / canvas.height;
+          canvas.height = max;
+        }
+      }
+    }
+    const context2d = canvas.getContext("2d");
+    if (context2d && backgroundColor) {
+      context2d.fillStyle = backgroundColor;
+      context2d.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    return { canvas, context2d };
+  }
+  function cloneCanvas(canvas, context) {
+    if (canvas.ownerDocument) {
+      try {
+        const dataURL = canvas.toDataURL();
+        if (dataURL !== "data:,") {
+          return createImage(dataURL, canvas.ownerDocument);
+        }
+      } catch (error) {
+        context.log.warn("Failed to clone canvas", error);
+      }
+    }
+    const cloned = canvas.cloneNode(false);
+    const ctx = canvas.getContext("2d");
+    const clonedCtx = cloned.getContext("2d");
+    try {
+      if (ctx && clonedCtx) {
+        clonedCtx.putImageData(
+          ctx.getImageData(0, 0, canvas.width, canvas.height),
+          0,
+          0
+        );
+      }
+      return cloned;
+    } catch (error) {
+      context.log.warn("Failed to clone canvas", error);
+    }
+    return cloned;
+  }
+  function cloneIframe(iframe, context) {
+    var _a2;
+    try {
+      if ((_a2 = iframe == null ? void 0 : iframe.contentDocument) == null ? void 0 : _a2.body) {
+        return cloneNode(iframe.contentDocument.body, context);
+      }
+    } catch (error) {
+      context.log.warn("Failed to clone iframe", error);
+    }
+    return iframe.cloneNode(false);
+  }
+  function cloneImage(image) {
+    const cloned = image.cloneNode(false);
+    if (image.currentSrc && image.currentSrc !== image.src) {
+      cloned.src = image.currentSrc;
+      cloned.srcset = "";
+    }
+    if (cloned.loading === "lazy") {
+      cloned.loading = "eager";
+    }
+    return cloned;
+  }
+  async function cloneVideo(video, context) {
+    if (video.ownerDocument && !video.currentSrc && video.poster) {
+      return createImage(video.poster, video.ownerDocument);
+    }
+    const cloned = video.cloneNode(false);
+    cloned.crossOrigin = "anonymous";
+    if (video.currentSrc && video.currentSrc !== video.src) {
+      cloned.src = video.currentSrc;
+    }
+    const ownerDocument = cloned.ownerDocument;
+    if (ownerDocument) {
+      let canPlay = true;
+      await loadMedia(cloned, { onError: () => canPlay = false, onWarn: context.log.warn });
+      if (!canPlay) {
+        if (video.poster) {
+          return createImage(video.poster, video.ownerDocument);
+        }
+        return cloned;
+      }
+      cloned.currentTime = video.currentTime;
+      await new Promise((resolve) => {
+        cloned.addEventListener("seeked", resolve, { once: true });
+      });
+      const canvas = ownerDocument.createElement("canvas");
+      canvas.width = video.offsetWidth;
+      canvas.height = video.offsetHeight;
+      try {
+        const ctx = canvas.getContext("2d");
+        if (ctx)
+          ctx.drawImage(cloned, 0, 0, canvas.width, canvas.height);
+      } catch (error) {
+        context.log.warn("Failed to clone video", error);
+        if (video.poster) {
+          return createImage(video.poster, video.ownerDocument);
+        }
+        return cloned;
+      }
+      return cloneCanvas(canvas, context);
+    }
+    return cloned;
+  }
+  function cloneElement(node, context) {
+    if (isCanvasElement(node)) {
+      return cloneCanvas(node, context);
+    }
+    if (isIFrameElement(node)) {
+      return cloneIframe(node, context);
+    }
+    if (isImageElement(node)) {
+      return cloneImage(node);
+    }
+    if (isVideoElement(node)) {
+      return cloneVideo(node, context);
+    }
+    return node.cloneNode(false);
+  }
+  function getSandBox(context) {
+    let sandbox = context.sandbox;
+    if (!sandbox) {
+      const { ownerDocument } = context;
+      try {
+        if (ownerDocument) {
+          sandbox = ownerDocument.createElement("iframe");
+          sandbox.id = `__SANDBOX__${uuid()}`;
+          sandbox.width = "0";
+          sandbox.height = "0";
+          sandbox.style.visibility = "hidden";
+          sandbox.style.position = "fixed";
+          ownerDocument.body.appendChild(sandbox);
+          sandbox.srcdoc = '<!DOCTYPE html><meta charset="UTF-8"><title></title><body>';
+          context.sandbox = sandbox;
+        }
+      } catch (error) {
+        context.log.warn("Failed to getSandBox", error);
+      }
+    }
+    return sandbox;
+  }
+  var ignoredStyles = [
+    "width",
+    "height",
+    "-webkit-text-fill-color"
+  ];
+  var includedAttributes = [
+    "stroke",
+    "fill"
+  ];
+  function getDefaultStyle(node, pseudoElement, context) {
+    const { defaultComputedStyles } = context;
+    const nodeName = node.nodeName.toLowerCase();
+    const isSvgNode = isSVGElementNode(node) && nodeName !== "svg";
+    const attributes = isSvgNode ? includedAttributes.map((name) => [name, node.getAttribute(name)]).filter(([, value]) => value !== null) : [];
+    const key = [
+      isSvgNode && "svg",
+      nodeName,
+      attributes.map((name, value) => `${name}=${value}`).join(","),
+      pseudoElement
+    ].filter(Boolean).join(":");
+    if (defaultComputedStyles.has(key))
+      return defaultComputedStyles.get(key);
+    const sandbox = getSandBox(context);
+    const sandboxWindow = sandbox == null ? void 0 : sandbox.contentWindow;
+    if (!sandboxWindow)
+      return /* @__PURE__ */ new Map();
+    const sandboxDocument = sandboxWindow == null ? void 0 : sandboxWindow.document;
+    let root;
+    let el;
+    if (isSvgNode) {
+      root = sandboxDocument.createElementNS(XMLNS, "svg");
+      el = root.ownerDocument.createElementNS(root.namespaceURI, nodeName);
+      attributes.forEach(([name, value]) => {
+        el.setAttributeNS(null, name, value);
+      });
+      root.appendChild(el);
+    } else {
+      root = el = sandboxDocument.createElement(nodeName);
+    }
+    el.textContent = " ";
+    sandboxDocument.body.appendChild(root);
+    const computedStyle = sandboxWindow.getComputedStyle(el, pseudoElement);
+    const styles = /* @__PURE__ */ new Map();
+    for (let len = computedStyle.length, i = 0; i < len; i++) {
+      const name = computedStyle.item(i);
+      if (ignoredStyles.includes(name))
+        continue;
+      styles.set(name, computedStyle.getPropertyValue(name));
+    }
+    sandboxDocument.body.removeChild(root);
+    defaultComputedStyles.set(key, styles);
+    return styles;
+  }
+  function getDiffStyle(style, defaultStyle, includeStyleProperties) {
+    var _a2;
+    const diffStyle = /* @__PURE__ */ new Map();
+    const prefixs = [];
+    const prefixTree = /* @__PURE__ */ new Map();
+    if (includeStyleProperties) {
+      for (const name of includeStyleProperties) {
+        applyTo(name);
+      }
+    } else {
+      for (let len = style.length, i = 0; i < len; i++) {
+        const name = style.item(i);
+        applyTo(name);
+      }
+    }
+    for (let len = prefixs.length, i = 0; i < len; i++) {
+      (_a2 = prefixTree.get(prefixs[i])) == null ? void 0 : _a2.forEach((value, name) => diffStyle.set(name, value));
+    }
+    function applyTo(name) {
+      const value = style.getPropertyValue(name);
+      const priority = style.getPropertyPriority(name);
+      const subIndex = name.lastIndexOf("-");
+      const prefix = subIndex > -1 ? name.substring(0, subIndex) : void 0;
+      if (prefix) {
+        let map = prefixTree.get(prefix);
+        if (!map) {
+          map = /* @__PURE__ */ new Map();
+          prefixTree.set(prefix, map);
+        }
+        map.set(name, [value, priority]);
+      }
+      if (defaultStyle.get(name) === value && !priority)
+        return;
+      if (prefix) {
+        prefixs.push(prefix);
+      } else {
+        diffStyle.set(name, [value, priority]);
+      }
+    }
+    return diffStyle;
+  }
+  function copyCssStyles(node, cloned, isRoot, context) {
+    var _a2, _b, _c, _d;
+    const { ownerWindow, includeStyleProperties, currentParentNodeStyle } = context;
+    const clonedStyle = cloned.style;
+    const computedStyle = ownerWindow.getComputedStyle(node);
+    const defaultStyle = getDefaultStyle(node, null, context);
+    currentParentNodeStyle == null ? void 0 : currentParentNodeStyle.forEach((_, key) => {
+      defaultStyle.delete(key);
+    });
+    const style = getDiffStyle(computedStyle, defaultStyle, includeStyleProperties);
+    style.delete("transition-property");
+    style.delete("all");
+    style.delete("d");
+    style.delete("content");
+    if (isRoot) {
+      style.delete("margin-top");
+      style.delete("margin-right");
+      style.delete("margin-bottom");
+      style.delete("margin-left");
+      style.delete("margin-block-start");
+      style.delete("margin-block-end");
+      style.delete("margin-inline-start");
+      style.delete("margin-inline-end");
+      style.set("box-sizing", ["border-box", ""]);
+    }
+    if (((_a2 = style.get("background-clip")) == null ? void 0 : _a2[0]) === "text") {
+      cloned.classList.add("______background-clip--text");
+    }
+    if (IN_CHROME) {
+      if (!style.has("font-kerning"))
+        style.set("font-kerning", ["normal", ""]);
+      if ((((_b = style.get("overflow-x")) == null ? void 0 : _b[0]) === "hidden" || ((_c = style.get("overflow-y")) == null ? void 0 : _c[0]) === "hidden") && ((_d = style.get("text-overflow")) == null ? void 0 : _d[0]) === "ellipsis" && node.scrollWidth === node.clientWidth) {
+        style.set("text-overflow", ["clip", ""]);
+      }
+    }
+    for (let len = clonedStyle.length, i = 0; i < len; i++) {
+      clonedStyle.removeProperty(clonedStyle.item(i));
+    }
+    style.forEach(([value, priority], name) => {
+      clonedStyle.setProperty(name, value, priority);
+    });
+    return style;
+  }
+  function copyInputValue(node, cloned) {
+    if (isTextareaElement(node) || isInputElement(node) || isSelectElement(node)) {
+      cloned.setAttribute("value", node.value);
+    }
+  }
+  var pseudoClasses = [
+    ":before",
+    ":after"
+    // ':placeholder', TODO
+  ];
+  var scrollbarPseudoClasses = [
+    ":-webkit-scrollbar",
+    ":-webkit-scrollbar-button",
+    // ':-webkit-scrollbar:horizontal', TODO
+    ":-webkit-scrollbar-thumb",
+    ":-webkit-scrollbar-track",
+    ":-webkit-scrollbar-track-piece",
+    // ':-webkit-scrollbar:vertical', TODO
+    ":-webkit-scrollbar-corner",
+    ":-webkit-resizer"
+  ];
+  function copyPseudoClass(node, cloned, copyScrollbar, context, addWordToFontFamilies) {
+    const { ownerWindow, svgStyleElement, svgStyles, currentNodeStyle } = context;
+    if (!svgStyleElement || !ownerWindow)
+      return;
+    function copyBy(pseudoClass) {
+      var _a2;
+      const computedStyle = ownerWindow.getComputedStyle(node, pseudoClass);
+      let content = computedStyle.getPropertyValue("content");
+      if (!content || content === "none")
+        return;
+      addWordToFontFamilies == null ? void 0 : addWordToFontFamilies(content);
+      content = content.replace(/(')|(")|(counter\(.+\))/g, "");
+      const klasses = [uuid()];
+      const defaultStyle = getDefaultStyle(node, pseudoClass, context);
+      currentNodeStyle == null ? void 0 : currentNodeStyle.forEach((_, key) => {
+        defaultStyle.delete(key);
+      });
+      const style = getDiffStyle(computedStyle, defaultStyle, context.includeStyleProperties);
+      style.delete("content");
+      style.delete("-webkit-locale");
+      if (((_a2 = style.get("background-clip")) == null ? void 0 : _a2[0]) === "text") {
+        cloned.classList.add("______background-clip--text");
+      }
+      const cloneStyle = [
+        `content: '${content}';`
+      ];
+      style.forEach(([value, priority], name) => {
+        cloneStyle.push(`${name}: ${value}${priority ? " !important" : ""};`);
+      });
+      if (cloneStyle.length === 1)
+        return;
+      try {
+        cloned.className = [cloned.className, ...klasses].join(" ");
+      } catch (err) {
+        context.log.warn("Failed to copyPseudoClass", err);
+        return;
+      }
+      const cssText = cloneStyle.join("\n  ");
+      let allClasses = svgStyles.get(cssText);
+      if (!allClasses) {
+        allClasses = [];
+        svgStyles.set(cssText, allClasses);
+      }
+      allClasses.push(`.${klasses[0]}:${pseudoClass}`);
+    }
+    pseudoClasses.forEach(copyBy);
+    if (copyScrollbar)
+      scrollbarPseudoClasses.forEach(copyBy);
+  }
+  var excludeParentNodes = /* @__PURE__ */ new Set([
+    "symbol"
+    // test/fixtures/svg.symbol.html
+  ]);
+  async function appendChildNode(node, cloned, child, context, addWordToFontFamilies) {
+    if (isElementNode(child) && (isStyleElement(child) || isScriptElement(child)))
+      return;
+    if (context.filter && !context.filter(child))
+      return;
+    if (excludeParentNodes.has(cloned.nodeName) || excludeParentNodes.has(child.nodeName)) {
+      context.currentParentNodeStyle = void 0;
+    } else {
+      context.currentParentNodeStyle = context.currentNodeStyle;
+    }
+    const childCloned = await cloneNode(child, context, false, addWordToFontFamilies);
+    if (context.isEnable("restoreScrollPosition")) {
+      restoreScrollPosition(node, childCloned);
+    }
+    cloned.appendChild(childCloned);
+  }
+  async function cloneChildNodes(node, cloned, context, addWordToFontFamilies) {
+    var _a2;
+    let firstChild = node.firstChild;
+    if (isElementNode(node)) {
+      if (node.shadowRoot) {
+        firstChild = (_a2 = node.shadowRoot) == null ? void 0 : _a2.firstChild;
+        context.shadowRoots.push(node.shadowRoot);
+      }
+    }
+    for (let child = firstChild; child; child = child.nextSibling) {
+      if (isCommentNode(child))
+        continue;
+      if (isElementNode(child) && isSlotElement(child) && typeof child.assignedNodes === "function") {
+        const nodes = child.assignedNodes();
+        for (let i = 0; i < nodes.length; i++) {
+          await appendChildNode(node, cloned, nodes[i], context, addWordToFontFamilies);
+        }
+      } else {
+        await appendChildNode(node, cloned, child, context, addWordToFontFamilies);
+      }
+    }
+  }
+  function restoreScrollPosition(node, chlidCloned) {
+    if (!isHTMLElementNode(node) || !isHTMLElementNode(chlidCloned))
+      return;
+    const { scrollTop, scrollLeft } = node;
+    if (!scrollTop && !scrollLeft) {
+      return;
+    }
+    const { transform } = chlidCloned.style;
+    const matrix = new DOMMatrix(transform);
+    const { a, b, c, d } = matrix;
+    matrix.a = 1;
+    matrix.b = 0;
+    matrix.c = 0;
+    matrix.d = 1;
+    matrix.translateSelf(-scrollLeft, -scrollTop);
+    matrix.a = a;
+    matrix.b = b;
+    matrix.c = c;
+    matrix.d = d;
+    chlidCloned.style.transform = matrix.toString();
+  }
+  function applyCssStyleWithOptions(cloned, context) {
+    const { backgroundColor, width, height, style: styles } = context;
+    const clonedStyle = cloned.style;
+    if (backgroundColor)
+      clonedStyle.setProperty("background-color", backgroundColor, "important");
+    if (width)
+      clonedStyle.setProperty("width", `${width}px`, "important");
+    if (height)
+      clonedStyle.setProperty("height", `${height}px`, "important");
+    if (styles) {
+      for (const name in styles)
+        clonedStyle[name] = styles[name];
+    }
+  }
+  var NORMAL_ATTRIBUTE_RE = /^[\w-:]+$/;
+  async function cloneNode(node, context, isRoot = false, addWordToFontFamilies) {
+    var _a2, _b, _c, _d;
+    const { ownerDocument, ownerWindow, fontFamilies, onCloneEachNode } = context;
+    if (ownerDocument && isTextNode(node)) {
+      if (addWordToFontFamilies && /\S/.test(node.data)) {
+        addWordToFontFamilies(node.data);
+      }
+      return ownerDocument.createTextNode(node.data);
+    }
+    if (ownerDocument && ownerWindow && isElementNode(node) && (isHTMLElementNode(node) || isSVGElementNode(node))) {
+      const cloned2 = await cloneElement(node, context);
+      if (context.isEnable("removeAbnormalAttributes")) {
+        const names = cloned2.getAttributeNames();
+        for (let len = names.length, i = 0; i < len; i++) {
+          const name = names[i];
+          if (!NORMAL_ATTRIBUTE_RE.test(name)) {
+            cloned2.removeAttribute(name);
+          }
+        }
+      }
+      const style = context.currentNodeStyle = copyCssStyles(node, cloned2, isRoot, context);
+      if (isRoot)
+        applyCssStyleWithOptions(cloned2, context);
+      let copyScrollbar = false;
+      if (context.isEnable("copyScrollbar")) {
+        const overflow = [
+          (_a2 = style.get("overflow-x")) == null ? void 0 : _a2[0],
+          (_b = style.get("overflow-y")) == null ? void 0 : _b[0]
+        ];
+        copyScrollbar = overflow.includes("scroll") || (overflow.includes("auto") || overflow.includes("overlay")) && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth);
+      }
+      const textTransform = (_c = style.get("text-transform")) == null ? void 0 : _c[0];
+      const families = splitFontFamily((_d = style.get("font-family")) == null ? void 0 : _d[0]);
+      const addWordToFontFamilies2 = families ? (word) => {
+        if (textTransform === "uppercase") {
+          word = word.toUpperCase();
+        } else if (textTransform === "lowercase") {
+          word = word.toLowerCase();
+        } else if (textTransform === "capitalize") {
+          word = word[0].toUpperCase() + word.substring(1);
+        }
+        families.forEach((family) => {
+          let fontFamily = fontFamilies.get(family);
+          if (!fontFamily) {
+            fontFamilies.set(family, fontFamily = /* @__PURE__ */ new Set());
+          }
+          word.split("").forEach((text) => fontFamily.add(text));
+        });
+      } : void 0;
+      copyPseudoClass(
+        node,
+        cloned2,
+        copyScrollbar,
+        context,
+        addWordToFontFamilies2
+      );
+      copyInputValue(node, cloned2);
+      if (!isVideoElement(node)) {
+        await cloneChildNodes(
+          node,
+          cloned2,
+          context,
+          addWordToFontFamilies2
+        );
+      }
+      await (onCloneEachNode == null ? void 0 : onCloneEachNode(cloned2));
+      return cloned2;
+    }
+    const cloned = node.cloneNode(false);
+    await cloneChildNodes(node, cloned, context);
+    await (onCloneEachNode == null ? void 0 : onCloneEachNode(cloned));
+    return cloned;
+  }
+  function destroyContext(context) {
+    context.ownerDocument = void 0;
+    context.ownerWindow = void 0;
+    context.svgStyleElement = void 0;
+    context.svgDefsElement = void 0;
+    context.svgStyles.clear();
+    context.defaultComputedStyles.clear();
+    if (context.sandbox) {
+      try {
+        context.sandbox.remove();
+      } catch (err) {
+        context.log.warn("Failed to destroyContext", err);
+      }
+      context.sandbox = void 0;
+    }
+    context.workers = [];
+    context.fontFamilies.clear();
+    context.fontCssTexts.clear();
+    context.requests.clear();
+    context.tasks = [];
+    context.shadowRoots = [];
+  }
+  function baseFetch(options) {
+    const _a2 = options, { url, timeout, responseType } = _a2, requestInit = __objRest(_a2, ["url", "timeout", "responseType"]);
+    const controller = new AbortController();
+    const timer = timeout ? setTimeout(() => controller.abort(), timeout) : void 0;
+    return fetch(url, __spreadValues({ signal: controller.signal }, requestInit)).then((response) => {
+      if (!response.ok) {
+        throw new Error("Failed fetch, not 2xx response", { cause: response });
+      }
+      switch (responseType) {
+        case "arrayBuffer":
+          return response.arrayBuffer();
+        case "dataUrl":
+          return response.blob().then(blobToDataUrl);
+        case "text":
+        default:
+          return response.text();
+      }
+    }).finally(() => clearTimeout(timer));
+  }
+  function contextFetch(context, options) {
+    const { url: rawUrl, requestType = "text", responseType = "text", imageDom } = options;
+    let url = rawUrl;
+    const {
+      timeout,
+      acceptOfImage,
+      requests,
+      fetchFn,
+      fetch: {
+        requestInit,
+        bypassingCache,
+        placeholderImage
+      },
+      font,
+      workers,
+      fontFamilies
+    } = context;
+    if (requestType === "image" && (IN_SAFARI || IN_FIREFOX)) {
+      context.drawImageCount++;
+    }
+    let request = requests.get(rawUrl);
+    if (!request) {
+      if (bypassingCache) {
+        if (bypassingCache instanceof RegExp && bypassingCache.test(url)) {
+          url += (/\?/.test(url) ? "&" : "?") + (/* @__PURE__ */ new Date()).getTime();
+        }
+      }
+      const canFontMinify = requestType.startsWith("font") && font && font.minify;
+      const fontTexts = /* @__PURE__ */ new Set();
+      if (canFontMinify) {
+        const families = requestType.split(";")[1].split(",");
+        families.forEach((family) => {
+          if (!fontFamilies.has(family))
+            return;
+          fontFamilies.get(family).forEach((text) => fontTexts.add(text));
+        });
+      }
+      const needFontMinify = canFontMinify && fontTexts.size;
+      const baseFetchOptions = __spreadValues({
+        url,
+        timeout,
+        responseType: needFontMinify ? "arrayBuffer" : responseType,
+        headers: requestType === "image" ? { accept: acceptOfImage } : void 0
+      }, requestInit);
+      request = {
+        type: requestType,
+        resolve: void 0,
+        reject: void 0,
+        response: null
+      };
+      request.response = (async () => {
+        if (fetchFn && requestType === "image") {
+          const result = await fetchFn(rawUrl);
+          if (result)
+            return result;
+        }
+        if (!IN_SAFARI && rawUrl.startsWith("http") && workers.length) {
+          return new Promise((resolve, reject) => {
+            const worker = workers[requests.size & workers.length - 1];
+            worker.postMessage(__spreadValues({ rawUrl }, baseFetchOptions));
+            request.resolve = resolve;
+            request.reject = reject;
+          });
+        }
+        return baseFetch(baseFetchOptions);
+      })().catch((error) => {
+        requests.delete(rawUrl);
+        if (requestType === "image" && placeholderImage) {
+          context.log.warn("Failed to fetch image base64, trying to use placeholder image", url);
+          return typeof placeholderImage === "string" ? placeholderImage : placeholderImage(imageDom);
+        }
+        throw error;
+      });
+      requests.set(rawUrl, request);
+    }
+    return request.response;
+  }
+  async function replaceCssUrlToDataUrl(cssText, baseUrl, context, isImage) {
+    if (!hasCssUrl(cssText))
+      return cssText;
+    for (const [rawUrl, url] of parseCssUrls(cssText, baseUrl)) {
+      try {
+        const dataUrl = await contextFetch(
+          context,
+          {
+            url,
+            requestType: isImage ? "image" : "text",
+            responseType: "dataUrl"
+          }
+        );
+        cssText = cssText.replace(toRE(rawUrl), `$1${dataUrl}$3`);
+      } catch (error) {
+        context.log.warn("Failed to fetch css data url", rawUrl, error);
+      }
+    }
+    return cssText;
+  }
+  function hasCssUrl(cssText) {
+    return /url\((['"]?)([^'"]+?)\1\)/.test(cssText);
+  }
+  var URL_RE = /url\((['"]?)([^'"]+?)\1\)/g;
+  function parseCssUrls(cssText, baseUrl) {
+    const result = [];
+    cssText.replace(URL_RE, (raw, quotation, url) => {
+      result.push([url, resolveUrl(url, baseUrl)]);
+      return raw;
+    });
+    return result.filter(([url]) => !isDataUrl(url));
+  }
+  function toRE(url) {
+    const escaped = url.replace(/([.*+?^${}()|\[\]\/\\])/g, "\\$1");
+    return new RegExp(`(url\\(['"]?)(${escaped})(['"]?\\))`, "g");
+  }
+  var properties = [
+    "background-image",
+    "border-image-source",
+    "-webkit-border-image",
+    "-webkit-mask-image",
+    "list-style-image"
+  ];
+  function embedCssStyleImage(style, context) {
+    return properties.map((property) => {
+      const value = style.getPropertyValue(property);
+      if (!value || value === "none") {
+        return null;
+      }
+      if (IN_SAFARI || IN_FIREFOX) {
+        context.drawImageCount++;
+      }
+      return replaceCssUrlToDataUrl(value, null, context, true).then((newValue) => {
+        if (!newValue || value === newValue)
+          return;
+        style.setProperty(
+          property,
+          newValue,
+          style.getPropertyPriority(property)
+        );
+      });
+    }).filter(Boolean);
+  }
+  function embedImageElement(cloned, context) {
+    if (isImageElement(cloned)) {
+      const originalSrc = cloned.currentSrc || cloned.src;
+      if (!isDataUrl(originalSrc)) {
+        return [
+          contextFetch(context, {
+            url: originalSrc,
+            imageDom: cloned,
+            requestType: "image",
+            responseType: "dataUrl"
+          }).then((url) => {
+            if (!url)
+              return;
+            cloned.srcset = "";
+            cloned.dataset.originalSrc = originalSrc;
+            cloned.src = url || "";
+          })
+        ];
+      }
+      if (IN_SAFARI || IN_FIREFOX) {
+        context.drawImageCount++;
+      }
+    } else if (isSVGElementNode(cloned) && !isDataUrl(cloned.href.baseVal)) {
+      const originalSrc = cloned.href.baseVal;
+      return [
+        contextFetch(context, {
+          url: originalSrc,
+          imageDom: cloned,
+          requestType: "image",
+          responseType: "dataUrl"
+        }).then((url) => {
+          if (!url)
+            return;
+          cloned.dataset.originalSrc = originalSrc;
+          cloned.href.baseVal = url || "";
+        })
+      ];
+    }
+    return [];
+  }
+  function embedSvgUse(cloned, context) {
+    var _a2;
+    const { ownerDocument, svgDefsElement } = context;
+    const href = (_a2 = cloned.getAttribute("href")) != null ? _a2 : cloned.getAttribute("xlink:href");
+    if (!href)
+      return [];
+    const [svgUrl, id] = href.split("#");
+    if (id) {
+      const query = `#${id}`;
+      const definition = context.shadowRoots.reduce(
+        (res, root) => {
+          return res != null ? res : root.querySelector(`svg ${query}`);
+        },
+        ownerDocument == null ? void 0 : ownerDocument.querySelector(`svg ${query}`)
+      );
+      if (svgUrl) {
+        cloned.setAttribute("href", query);
+      }
+      if (svgDefsElement == null ? void 0 : svgDefsElement.querySelector(query))
+        return [];
+      if (definition) {
+        svgDefsElement == null ? void 0 : svgDefsElement.appendChild(definition.cloneNode(true));
+        return [];
+      } else if (svgUrl) {
+        return [
+          contextFetch(context, {
+            url: svgUrl,
+            responseType: "text"
+          }).then((svgData) => {
+            svgDefsElement == null ? void 0 : svgDefsElement.insertAdjacentHTML("beforeend", svgData);
+          })
+        ];
+      }
+    }
+    return [];
+  }
+  function embedNode(cloned, context) {
+    const { tasks } = context;
+    if (isElementNode(cloned)) {
+      if (isImageElement(cloned) || isSVGImageElementNode(cloned)) {
+        tasks.push(...embedImageElement(cloned, context));
+      }
+      if (isSVGUseElementNode(cloned)) {
+        tasks.push(...embedSvgUse(cloned, context));
+      }
+    }
+    if (isHTMLElementNode(cloned)) {
+      tasks.push(...embedCssStyleImage(cloned.style, context));
+    }
+    cloned.childNodes.forEach((child) => {
+      embedNode(child, context);
+    });
+  }
+  async function embedWebFont(clone, context) {
+    const {
+      ownerDocument,
+      svgStyleElement,
+      fontFamilies,
+      fontCssTexts,
+      tasks,
+      font
+    } = context;
+    if (!ownerDocument || !svgStyleElement || !fontFamilies.size) {
+      return;
+    }
+    if (font && font.cssText) {
+      const cssText = filterPreferredFormat(font.cssText, context);
+      svgStyleElement.appendChild(ownerDocument.createTextNode(`${cssText}
+`));
+    } else {
+      const styleSheets = Array.from(ownerDocument.styleSheets).filter((styleSheet) => {
+        try {
+          return "cssRules" in styleSheet && Boolean(styleSheet.cssRules.length);
+        } catch (error) {
+          context.log.warn(`Error while reading CSS rules from ${styleSheet.href}`, error);
+          return false;
+        }
+      });
+      await Promise.all(
+        styleSheets.flatMap((styleSheet) => {
+          return Array.from(styleSheet.cssRules).map(async (cssRule, index) => {
+            if (isCSSImportRule(cssRule)) {
+              let importIndex = index + 1;
+              const baseUrl = cssRule.href;
+              let cssText = "";
+              try {
+                cssText = await contextFetch(context, {
+                  url: baseUrl,
+                  requestType: "text",
+                  responseType: "text"
+                });
+              } catch (error) {
+                context.log.warn(`Error fetch remote css import from ${baseUrl}`, error);
+              }
+              const replacedCssText = cssText.replace(
+                URL_RE,
+                (raw, quotation, url) => raw.replace(url, resolveUrl(url, baseUrl))
+              );
+              for (const rule of parseCss(replacedCssText)) {
+                try {
+                  styleSheet.insertRule(
+                    rule,
+                    rule.startsWith("@import") ? importIndex += 1 : styleSheet.cssRules.length
+                  );
+                } catch (error) {
+                  context.log.warn("Error inserting rule from remote css import", { rule, error });
+                }
+              }
+            }
+          });
+        })
+      );
+      const cssRules = styleSheets.flatMap((styleSheet) => Array.from(styleSheet.cssRules));
+      cssRules.filter((cssRule) => {
+        var _a2;
+        return isCssFontFaceRule(cssRule) && hasCssUrl(cssRule.style.getPropertyValue("src")) && ((_a2 = splitFontFamily(cssRule.style.getPropertyValue("font-family"))) == null ? void 0 : _a2.some((val) => fontFamilies.has(val)));
+      }).forEach((value) => {
+        const rule = value;
+        const cssText = fontCssTexts.get(rule.cssText);
+        if (cssText) {
+          svgStyleElement.appendChild(ownerDocument.createTextNode(`${cssText}
+`));
+        } else {
+          tasks.push(
+            replaceCssUrlToDataUrl(
+              rule.cssText,
+              rule.parentStyleSheet ? rule.parentStyleSheet.href : null,
+              context
+            ).then((cssText2) => {
+              cssText2 = filterPreferredFormat(cssText2, context);
+              fontCssTexts.set(rule.cssText, cssText2);
+              svgStyleElement.appendChild(ownerDocument.createTextNode(`${cssText2}
+`));
+            })
+          );
+        }
+      });
+    }
+  }
+  var COMMENTS_RE = /(\/\*[\s\S]*?\*\/)/g;
+  var KEYFRAMES_RE = /((@.*?keyframes [\s\S]*?){([\s\S]*?}\s*?)})/gi;
+  function parseCss(source) {
+    if (source == null)
+      return [];
+    const result = [];
+    let cssText = source.replace(COMMENTS_RE, "");
+    while (true) {
+      const matches = KEYFRAMES_RE.exec(cssText);
+      if (!matches)
+        break;
+      result.push(matches[0]);
+    }
+    cssText = cssText.replace(KEYFRAMES_RE, "");
+    const IMPORT_RE = /@import[\s\S]*?url\([^)]*\)[\s\S]*?;/gi;
+    const UNIFIED_RE = new RegExp(
+      // eslint-disable-next-line
+      "((\\s*?(?:\\/\\*[\\s\\S]*?\\*\\/)?\\s*?@media[\\s\\S]*?){([\\s\\S]*?)}\\s*?})|(([\\s\\S]*?){([\\s\\S]*?)})",
+      "gi"
+    );
+    while (true) {
+      let matches = IMPORT_RE.exec(cssText);
+      if (!matches) {
+        matches = UNIFIED_RE.exec(cssText);
+        if (!matches) {
+          break;
+        } else {
+          IMPORT_RE.lastIndex = UNIFIED_RE.lastIndex;
+        }
+      } else {
+        UNIFIED_RE.lastIndex = IMPORT_RE.lastIndex;
+      }
+      result.push(matches[0]);
+    }
+    return result;
+  }
+  var URL_WITH_FORMAT_RE = /url\([^)]+\)\s*format\((["']?)([^"']+)\1\)/g;
+  var FONT_SRC_RE = /src:\s*(?:url\([^)]+\)\s*format\([^)]+\)[,;]\s*)+/g;
+  function filterPreferredFormat(str, context) {
+    const { font } = context;
+    const preferredFormat = font ? font == null ? void 0 : font.preferredFormat : void 0;
+    return preferredFormat ? str.replace(FONT_SRC_RE, (match) => {
+      while (true) {
+        const [src, , format] = URL_WITH_FORMAT_RE.exec(match) || [];
+        if (!format)
+          return "";
+        if (format === preferredFormat)
+          return `src: ${src};`;
+      }
+    }) : str;
+  }
+  async function domToForeignObjectSvg(node, options) {
+    const context = await orCreateContext(node, options);
+    if (isElementNode(context.node) && isSVGElementNode(context.node))
+      return context.node;
+    const {
+      ownerDocument,
+      log,
+      tasks,
+      svgStyleElement,
+      svgDefsElement,
+      svgStyles,
+      font,
+      progress,
+      autoDestruct,
+      onCloneNode,
+      onEmbedNode,
+      onCreateForeignObjectSvg
+    } = context;
+    log.time("clone node");
+    const clone = await cloneNode(context.node, context, true);
+    if (svgStyleElement && ownerDocument) {
+      let allCssText = "";
+      svgStyles.forEach((klasses, cssText) => {
+        allCssText += `${klasses.join(",\n")} {
+  ${cssText}
+}
+`;
+      });
+      svgStyleElement.appendChild(ownerDocument.createTextNode(allCssText));
+    }
+    log.timeEnd("clone node");
+    await (onCloneNode == null ? void 0 : onCloneNode(clone));
+    if (font !== false && isElementNode(clone)) {
+      log.time("embed web font");
+      await embedWebFont(clone, context);
+      log.timeEnd("embed web font");
+    }
+    log.time("embed node");
+    embedNode(clone, context);
+    const count = tasks.length;
+    let current = 0;
+    const runTask = async () => {
+      while (true) {
+        const task = tasks.pop();
+        if (!task)
+          break;
+        try {
+          await task;
+        } catch (error) {
+          context.log.warn("Failed to run task", error);
+        }
+        progress == null ? void 0 : progress(++current, count);
+      }
+    };
+    progress == null ? void 0 : progress(current, count);
+    await Promise.all([...Array.from({ length: 4 })].map(runTask));
+    log.timeEnd("embed node");
+    await (onEmbedNode == null ? void 0 : onEmbedNode(clone));
+    const svg = createForeignObjectSvg(clone, context);
+    svgDefsElement && svg.insertBefore(svgDefsElement, svg.children[0]);
+    svgStyleElement && svg.insertBefore(svgStyleElement, svg.children[0]);
+    autoDestruct && destroyContext(context);
+    await (onCreateForeignObjectSvg == null ? void 0 : onCreateForeignObjectSvg(svg));
+    return svg;
+  }
+  function createForeignObjectSvg(clone, context) {
+    const { width, height } = context;
+    const svg = createSvg(width, height, clone.ownerDocument);
+    const foreignObject = svg.ownerDocument.createElementNS(svg.namespaceURI, "foreignObject");
+    foreignObject.setAttributeNS(null, "x", "0%");
+    foreignObject.setAttributeNS(null, "y", "0%");
+    foreignObject.setAttributeNS(null, "width", "100%");
+    foreignObject.setAttributeNS(null, "height", "100%");
+    foreignObject.append(clone);
+    svg.appendChild(foreignObject);
+    return svg;
+  }
+  async function domToCanvas(node, options) {
+    var _a2;
+    const context = await orCreateContext(node, options);
+    const svg = await domToForeignObjectSvg(context);
+    const dataUrl = svgToDataUrl(svg, context.isEnable("removeControlCharacter"));
+    if (!context.autoDestruct) {
+      context.svgStyleElement = createStyleElement(context.ownerDocument);
+      context.svgDefsElement = (_a2 = context.ownerDocument) == null ? void 0 : _a2.createElementNS(XMLNS, "defs");
+      context.svgStyles.clear();
+    }
+    const image = createImage(dataUrl, svg.ownerDocument);
+    return await imageToCanvas(image, context);
+  }
+  async function domToDataUrl(node, options) {
+    const context = await orCreateContext(node, options);
+    const { log, quality, type, dpi } = context;
+    const canvas = await domToCanvas(context);
+    log.time("canvas to data url");
+    let dataUrl = canvas.toDataURL(type, quality);
+    if (["image/png", "image/jpeg"].includes(type) && dpi && SUPPORT_ATOB && SUPPORT_BTOA) {
+      const [format, body] = dataUrl.split(",");
+      let headerLength = 0;
+      let overwritepHYs = false;
+      if (type === "image/png") {
+        const b64Index = detectPhysChunkFromDataUrl(body);
+        if (b64Index >= 0) {
+          headerLength = Math.ceil((b64Index + 28) / 3) * 4;
+          overwritepHYs = true;
+        } else {
+          headerLength = 33 / 3 * 4;
+        }
+      } else if (type === "image/jpeg") {
+        headerLength = 18 / 3 * 4;
+      }
+      const stringHeader = body.substring(0, headerLength);
+      const restOfData = body.substring(headerLength);
+      const headerBytes = window.atob(stringHeader);
+      const uint8Array = new Uint8Array(headerBytes.length);
+      for (let i = 0; i < uint8Array.length; i++) {
+        uint8Array[i] = headerBytes.charCodeAt(i);
+      }
+      const finalArray = type === "image/png" ? changePngDpi(uint8Array, dpi, overwritepHYs) : changeJpegDpi(uint8Array, dpi);
+      const base64Header = window.btoa(String.fromCharCode(...finalArray));
+      dataUrl = [format, ",", base64Header, restOfData].join("");
+    }
+    log.timeEnd("canvas to data url");
+    return dataUrl;
+  }
+
   // src/playwright-replay/index.ts
   var playwrightReplayRef = {
     current: null
   };
-  function startPlaywrightReplay(testCode) {
+  var parentOrigin = null;
+  function getParentOrigin() {
+    var _a2;
+    if (parentOrigin) {
+      return parentOrigin;
+    }
+    try {
+      const configOrigin = (_a2 = window.STAKTRAK_CONFIG) == null ? void 0 : _a2.parentOrigin;
+      if (configOrigin) {
+        return configOrigin;
+      }
+    } catch (e) {
+    }
+    return "*";
+  }
+  async function captureScreenshot(actionIndex, url) {
+    var _a2, _b, _c, _d, _e;
+    try {
+      let config = {};
+      try {
+        config = ((_a2 = window.STAKTRAK_CONFIG) == null ? void 0 : _a2.screenshot) || {};
+      } catch (e) {
+      }
+      const screenshotOptions = {
+        quality: (_b = config.quality) != null ? _b : 0.8,
+        type: (_c = config.type) != null ? _c : "image/jpeg",
+        scale: (_d = config.scale) != null ? _d : 1,
+        backgroundColor: (_e = config.backgroundColor) != null ? _e : "#ffffff"
+      };
+      const dataUrl = await domToDataUrl(document.body, screenshotOptions);
+      const timestamp = Date.now();
+      const id = `${timestamp}-${actionIndex}`;
+      window.parent.postMessage(
+        {
+          type: "staktrak-playwright-screenshot-captured",
+          screenshot: dataUrl,
+          actionIndex,
+          url,
+          timestamp,
+          id
+        },
+        getParentOrigin()
+      );
+    } catch (error) {
+      console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
+    }
+  }
+  async function startPlaywrightReplay(testCode) {
     try {
       const actions = parsePlaywrightTest(testCode);
       if (actions.length === 0) {
@@ -2666,7 +4256,7 @@ var userBehaviour = (() => {
           totalActions: actions.length,
           actions
         },
-        "*"
+        getParentOrigin()
       );
       executeNextPlaywrightAction();
     } catch (error) {
@@ -2675,7 +4265,7 @@ var userBehaviour = (() => {
           type: "staktrak-playwright-replay-error",
           error: error instanceof Error ? error.message : "Unknown error"
         },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -2690,7 +4280,7 @@ var userBehaviour = (() => {
         {
           type: "staktrak-playwright-replay-completed"
         },
-        "*"
+        getParentOrigin()
       );
       return;
     }
@@ -2705,9 +4295,12 @@ var userBehaviour = (() => {
             description: getActionDescription(action)
           })
         },
-        "*"
+        getParentOrigin()
       );
       await executePlaywrightAction(action);
+      if (action.type === "waitForURL") {
+        await captureScreenshot(state.currentActionIndex, window.location.href);
+      }
       state.currentActionIndex++;
       setTimeout(() => {
         executeNextPlaywrightAction();
@@ -2724,7 +4317,7 @@ var userBehaviour = (() => {
           actionIndex: state.currentActionIndex - 1,
           action
         },
-        "*"
+        getParentOrigin()
       );
       executeNextPlaywrightAction();
     }
@@ -2737,7 +4330,7 @@ var userBehaviour = (() => {
       state.timeouts = [];
       window.parent.postMessage(
         { type: "staktrak-playwright-replay-paused" },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -2748,7 +4341,7 @@ var userBehaviour = (() => {
       executeNextPlaywrightAction();
       window.parent.postMessage(
         { type: "staktrak-playwright-replay-resumed" },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -2760,7 +4353,7 @@ var userBehaviour = (() => {
       state.timeouts = [];
       window.parent.postMessage(
         { type: "staktrak-playwright-replay-stopped" },
-        "*"
+        getParentOrigin()
       );
     }
   }
@@ -2809,6 +4402,9 @@ var userBehaviour = (() => {
       const { data } = event;
       if (!data || !data.type)
         return;
+      if (!parentOrigin && event.origin && event.origin !== "null") {
+        parentOrigin = event.origin;
+      }
       switch (data.type) {
         case "staktrak-playwright-replay-start":
           if (data.testCode) {
@@ -2831,7 +4427,7 @@ var userBehaviour = (() => {
               type: "staktrak-playwright-replay-pong",
               state: currentState
             },
-            "*"
+            getParentOrigin()
           );
           break;
       }
@@ -2845,24 +4441,24 @@ var userBehaviour = (() => {
 
   // src/actionModel.ts
   function resultsToActions(results) {
-    var _a, _b, _c;
+    var _a2, _b, _c;
     const actions = [];
     const navigations = (results.pageNavigation || []).slice().sort((a, b) => a.timestamp - b.timestamp);
     const normalize = (u) => {
-      var _a2;
+      var _a3;
       try {
-        const url = new URL(u, ((_a2 = results.userInfo) == null ? void 0 : _a2.url) || "http://localhost");
+        const url = new URL(u, ((_a3 = results.userInfo) == null ? void 0 : _a3.url) || "http://localhost");
         return url.origin + url.pathname.replace(/\/$/, "");
       } catch (e) {
         return u.replace(/[?#].*$/, "").replace(/\/$/, "");
       }
     };
     const navTimestampsFromClicks = /* @__PURE__ */ new Set();
-    const clicks = ((_a = results.clicks) == null ? void 0 : _a.clickDetails) || [];
+    const clicks = ((_a2 = results.clicks) == null ? void 0 : _a2.clickDetails) || [];
     for (let i = 0; i < clicks.length; i++) {
       const cd = clicks[i];
       actions.push({
-        kind: "click",
+        type: "click",
         timestamp: cd.timestamp,
         locator: {
           primary: cd.selectors.stabilizedPrimary || cd.selectors.primary,
@@ -2878,7 +4474,7 @@ var userBehaviour = (() => {
       if (nav) {
         navTimestampsFromClicks.add(nav.timestamp);
         actions.push({
-          kind: "waitForUrl",
+          type: "waitForURL",
           timestamp: nav.timestamp - 1,
           // ensure ordering between click and nav
           expectedUrl: nav.url,
@@ -2889,14 +4485,14 @@ var userBehaviour = (() => {
     }
     for (const nav of navigations) {
       if (!navTimestampsFromClicks.has(nav.timestamp)) {
-        actions.push({ kind: "nav", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
+        actions.push({ type: "goto", timestamp: nav.timestamp, url: nav.url, normalizedUrl: normalize(nav.url) });
       }
     }
     if (results.inputChanges) {
       for (const input of results.inputChanges) {
         if (input.action === "complete" || !input.action) {
           actions.push({
-            kind: "input",
+            type: "input",
             timestamp: input.timestamp,
             locator: { primary: input.elementSelector, fallbacks: [] },
             value: input.value
@@ -2907,7 +4503,7 @@ var userBehaviour = (() => {
     if (results.formElementChanges) {
       for (const fe of results.formElementChanges) {
         actions.push({
-          kind: "form",
+          type: "form",
           timestamp: fe.timestamp,
           locator: { primary: fe.elementSelector, fallbacks: [] },
           formType: fe.type,
@@ -2919,38 +4515,38 @@ var userBehaviour = (() => {
     if (results.assertions) {
       for (const asrt of results.assertions) {
         actions.push({
-          kind: "assertion",
+          type: "assertion",
           timestamp: asrt.timestamp,
           locator: { primary: asrt.selector, fallbacks: [] },
           value: asrt.value
         });
       }
     }
-    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.kind) - weightOrder(b.kind));
+    actions.sort((a, b) => a.timestamp - b.timestamp || weightOrder(a.type) - weightOrder(b.type));
     refineLocators(actions);
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
       const previous = actions[i - 1];
-      if (current.kind === "waitForUrl" && previous.kind === "waitForUrl" && current.normalizedUrl === previous.normalizedUrl) {
+      if (current.type === "waitForURL" && previous.type === "waitForURL" && current.normalizedUrl === previous.normalizedUrl) {
         actions.splice(i, 1);
       }
     }
     for (let i = actions.length - 1; i > 0; i--) {
       const current = actions[i];
       const previous = actions[i - 1];
-      if (current.kind === "input" && previous.kind === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
+      if (current.type === "input" && previous.type === "input" && ((_b = current.locator) == null ? void 0 : _b.primary) === ((_c = previous.locator) == null ? void 0 : _c.primary) && current.value === previous.value) {
         actions.splice(i, 1);
       }
     }
     return actions;
   }
-  function weightOrder(kind) {
-    switch (kind) {
+  function weightOrder(type) {
+    switch (type) {
       case "click":
         return 1;
-      case "waitForUrl":
+      case "waitForURL":
         return 2;
-      case "nav":
+      case "goto":
         return 3;
       default:
         return 4;
@@ -2977,12 +4573,12 @@ var userBehaviour = (() => {
         continue;
       a.locator.primary = validated[0];
       a.locator.fallbacks = validated.slice(1);
-      const key = a.locator.primary + "::" + a.kind;
+      const key = a.locator.primary + "::" + a.type;
       if (seen.has(key) && a.locator.fallbacks.length > 0) {
         a.locator.primary = a.locator.fallbacks[0];
         a.locator.fallbacks = a.locator.fallbacks.slice(1);
       }
-      seen.add(a.locator.primary + "::" + a.kind);
+      seen.add(a.locator.primary + "::" + a.type);
     }
   }
   function isUnique(sel) {
@@ -2998,8 +4594,8 @@ var userBehaviour = (() => {
 
   // src/scenario.ts
   function buildScenario(results, actions) {
-    var _a, _b, _c, _d, _e;
-    const startedAt = ((_a = results == null ? void 0 : results.time) == null ? void 0 : _a.startedAt) || (((_b = actions[0]) == null ? void 0 : _b.timestamp) || Date.now());
+    var _a2, _b, _c, _d, _e;
+    const startedAt = ((_a2 = results == null ? void 0 : results.time) == null ? void 0 : _a2.startedAt) || (((_b = actions[0]) == null ? void 0 : _b.timestamp) || Date.now());
     const completedAt = ((_c = results == null ? void 0 : results.time) == null ? void 0 : _c.completedAt) || (((_d = actions[actions.length - 1]) == null ? void 0 : _d.timestamp) || startedAt);
     return {
       version: 1,
@@ -3102,25 +4698,25 @@ var userBehaviour = (() => {
       switch (eventType) {
         case "click":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "click",
+            type: "click",
             locator: eventData.selectors || eventData.locator,
             elementInfo: eventData.elementInfo
           });
         case "nav":
         case "navigation":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "nav",
+            type: "goto",
             url: eventData.url
           });
         case "input":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "input",
+            type: "input",
             value: eventData.value,
             locator: eventData.locator || { primary: eventData.selector }
           });
         case "form":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "form",
+            type: "form",
             formType: eventData.formType,
             checked: eventData.checked,
             value: eventData.value,
@@ -3128,13 +4724,13 @@ var userBehaviour = (() => {
           });
         case "assertion":
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: "assertion",
+            type: "assertion",
             value: eventData.value,
             locator: { primary: eventData.selector, fallbacks: [] }
           });
         default:
           return __spreadProps(__spreadValues({}, baseAction), {
-            kind: eventType
+            type: eventType
           });
       }
     }
@@ -3151,14 +4747,14 @@ var userBehaviour = (() => {
     }
     removeFromTrackingData(action) {
       const timestamp = action.timestamp;
-      switch (action.kind) {
+      switch (action.type) {
         case "click":
           this.trackingData.clicks.clickDetails = this.trackingData.clicks.clickDetails.filter(
             (c) => c.timestamp !== timestamp
           );
           this.trackingData.clicks.clickCount = this.trackingData.clicks.clickDetails.length;
           break;
-        case "nav":
+        case "goto":
           this.trackingData.pageNavigation = this.trackingData.pageNavigation.filter(
             (n) => n.timestamp !== timestamp
           );
@@ -3244,21 +4840,21 @@ var userBehaviour = (() => {
   }
   function generatePlaywrightTestFromActions(actions, options = {}) {
     const { baseUrl = "" } = options;
-    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].kind !== "nav");
+    const needsInitialGoto = baseUrl && (actions.length === 0 || actions[0].type !== "goto");
     const initialGoto = needsInitialGoto ? `  await page.goto('${baseUrl}');
 ` : "";
     const body = actions.map((action) => {
-      var _a, _b, _c, _d, _e;
-      switch (action.kind) {
-        case "nav":
+      var _a2, _b, _c, _d, _e;
+      switch (action.type) {
+        case "goto":
           return `  await page.goto('${action.url || baseUrl}');`;
-        case "waitForUrl":
+        case "waitForURL":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;
           }
           return "";
         case "click": {
-          const selector = ((_a = action.locator) == null ? void 0 : _a.stableSelector) || ((_b = action.locator) == null ? void 0 : _b.primary);
+          const selector = ((_a2 = action.locator) == null ? void 0 : _a2.stableSelector) || ((_b = action.locator) == null ? void 0 : _b.primary);
           if (!selector)
             return "";
           return `  await page.click('${selector}');`;
@@ -4016,7 +5612,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
       }, 1500);
     }
     setSelectionMode(isActive) {
-      var _a;
+      var _a2;
       this.memory.selectionMode = isActive;
       if (isActive) {
         document.body.classList.add("staktrak-selection-active");
@@ -4048,7 +5644,7 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
         this.memory.listeners.push(() => document.removeEventListener("mouseup", mouseUpHandler));
       } else {
         document.body.classList.remove("staktrak-selection-active");
-        (_a = window.getSelection()) == null ? void 0 : _a.removeAllRanges();
+        (_a2 = window.getSelection()) == null ? void 0 : _a2.removeAllRanges();
       }
       window.parent.postMessage(
         {
