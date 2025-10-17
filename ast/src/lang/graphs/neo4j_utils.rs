@@ -1274,6 +1274,7 @@ pub fn query_nodes_with_count(
     line_count: bool,
     ignore_dirs: Vec<String>,
     repo: Option<&str>,
+    blob: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1329,9 +1330,17 @@ pub fn query_nodes_with_count(
         String::new()
     };
 
+    let blob_filter = if let Some(pattern) = blob {
+        glob_to_cypher_filter(pattern, "n.file")
+            .map(|f| format!("AND {}", f))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     let query = format!(
         "MATCH (n:{})
-         WHERE {} {} {}
+         WHERE {} {} {} {}
          OPTIONAL MATCH (test)-[:CALLS]->(n) 
          WHERE {}
          WITH n, count(DISTINCT test) AS test_count
@@ -1354,6 +1363,7 @@ pub fn query_nodes_with_count(
         unique_functions_filters().join(" AND "),
         repo_filter,
         ignore_dirs_filter,
+        blob_filter,
         test_type_match,
         coverage_where,
         order_clause
@@ -1455,4 +1465,26 @@ pub fn restore_dynamic_edge_query(
     );
 
     (query, params)
+}
+
+fn glob_to_cypher_filter(pattern: &str, field_name: &str) -> Option<String> {
+    if pattern.starts_with("**/") && !pattern[3..].contains('*') {
+        return Some(format!("{} ENDS WITH '{}'", field_name, &pattern[3..]));
+    }
+
+    if pattern.ends_with("/**/*") {
+        let dir = &pattern[..pattern.len() - 5];
+        return Some(format!("{} CONTAINS '/{}/'", field_name, dir));
+    }
+
+    if pattern.ends_with("/*") && !pattern[..pattern.len() - 2].contains('*') {
+        let dir = &pattern[..pattern.len() - 2];
+        return Some(format!("{} STARTS WITH '{}'", field_name, dir));
+    }
+
+    if pattern.starts_with("*.") && !pattern[2..].contains('*') {
+        return Some(format!("{} ENDS WITH '{}'", field_name, &pattern[1..]));
+    }
+
+    None
 }
