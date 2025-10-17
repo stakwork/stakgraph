@@ -1274,7 +1274,7 @@ pub fn query_nodes_with_count(
     line_count: bool,
     ignore_dirs: Vec<String>,
     repo: Option<&str>,
-    blob: Option<&str>,
+    glob: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1330,7 +1330,7 @@ pub fn query_nodes_with_count(
         String::new()
     };
 
-    let blob_filter = if let Some(pattern) = blob {
+    let glob_filter = if let Some(pattern) = glob {
         glob_to_cypher_filter(pattern, "n.file")
             .map(|f| format!("AND {}", f))
             .unwrap_or_default()
@@ -1363,7 +1363,7 @@ pub fn query_nodes_with_count(
         unique_functions_filters().join(" AND "),
         repo_filter,
         ignore_dirs_filter,
-        blob_filter,
+        glob_filter,
         test_type_match,
         coverage_where,
         order_clause
