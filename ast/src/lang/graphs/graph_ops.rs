@@ -14,22 +14,6 @@ use neo4rs::BoltMap;
 use shared::error::{Error, Result};
 use tracing::{debug, error, info};
 
-fn pattern_matches(file: &str, pattern: &str) -> bool {
-    if pattern.starts_with("**/") && !pattern[3..].contains('*') {
-        file.ends_with(&pattern[3..])
-    } else if pattern.ends_with("/**/*") {
-        let dir = &pattern[..pattern.len() - 5];
-        file.contains(&format!("/{}/", dir))
-    } else if pattern.ends_with("/*") && !pattern[..pattern.len() - 2].contains('*') {
-        let dir = &pattern[..pattern.len() - 2];
-        file.starts_with(dir)
-    } else if pattern.starts_with("*.") && !pattern[2..].contains('*') {
-        file.ends_with(&pattern[1..])
-    } else {
-        true
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct GraphOps {
     pub graph: Neo4jGraph,
@@ -313,7 +297,7 @@ impl GraphOps {
         &mut self,
         repo: Option<&str>,
         ignore_dirs: Vec<String>,
-        glob: Option<&str>,
+        regex: Option<&str>,
     ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
 
@@ -331,12 +315,16 @@ impl GraphOps {
                 true
             };
             let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
-            let glob_match = if let Some(pattern) = glob {
-                pattern_matches(&n.file, pattern)
+            let regex_match = if let Some(pattern) = regex {
+                if let Ok(re) = regex::Regex::new(pattern) {
+                    re.is_match(&n.file)
+                } else {
+                    true
+                }
             } else {
                 true
             };
-            repo_match && not_ignored && glob_match
+            repo_match && not_ignored && regex_match
         };
 
         let unit_tests = self
@@ -605,7 +593,7 @@ impl GraphOps {
         line_count: bool,
         ignore_dirs: Vec<String>,
         repo: Option<&str>,
-        glob: Option<&str>,
+        regex: Option<&str>,
     ) -> Result<(
         usize,
         Vec<(
@@ -631,7 +619,7 @@ impl GraphOps {
                 line_count,
                 ignore_dirs,
                 repo,
-                glob,
+                regex,
             )
             .await)
     }
