@@ -297,6 +297,7 @@ impl GraphOps {
         &mut self,
         repo: Option<&str>,
         ignore_dirs: Vec<String>,
+        regex: Option<&str>,
     ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
 
@@ -314,7 +315,16 @@ impl GraphOps {
                 true
             };
             let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
-            repo_match && not_ignored
+            let regex_match = if let Some(pattern) = regex {
+                if let Ok(re) = regex::Regex::new(pattern) {
+                    re.is_match(&n.file)
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+            repo_match && not_ignored && regex_match
         };
 
         let unit_tests = self
@@ -583,6 +593,7 @@ impl GraphOps {
         line_count: bool,
         ignore_dirs: Vec<String>,
         repo: Option<&str>,
+        regex: Option<&str>,
     ) -> Result<(
         usize,
         Vec<(
@@ -608,6 +619,7 @@ impl GraphOps {
                 line_count,
                 ignore_dirs,
                 repo,
+                regex,
             )
             .await)
     }

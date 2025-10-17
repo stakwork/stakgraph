@@ -99,6 +99,7 @@ pub struct VectorSearchParams {
 pub struct CoverageParams {
     pub repo: Option<String>,
     pub ignore_dirs: Option<String>,
+    pub regex: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -166,6 +167,7 @@ pub struct QueryNodesParams {
     pub line_count: Option<bool>,
     pub ignore_dirs: Option<String>,
     pub repo: Option<String>,
+    pub regex: Option<String>,
 }
 
 #[derive(Serialize)]

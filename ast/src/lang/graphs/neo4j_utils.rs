@@ -1274,6 +1274,7 @@ pub fn query_nodes_with_count(
     line_count: bool,
     ignore_dirs: Vec<String>,
     repo: Option<&str>,
+    regex: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1329,9 +1330,15 @@ pub fn query_nodes_with_count(
         String::new()
     };
 
+    let regex_filter = if let Some(pattern) = regex {
+        format!("AND n.file =~ '{}'", pattern)
+    } else {
+        String::new()
+    };
+
     let query = format!(
         "MATCH (n:{})
-         WHERE {} {} {}
+         WHERE {} {} {} {}
          OPTIONAL MATCH (test)-[:CALLS]->(n) 
          WHERE {}
          WITH n, count(DISTINCT test) AS test_count
@@ -1354,6 +1361,7 @@ pub fn query_nodes_with_count(
         unique_functions_filters().join(" AND "),
         repo_filter,
         ignore_dirs_filter,
+        regex_filter,
         test_type_match,
         coverage_where,
         order_clause
@@ -1456,3 +1464,4 @@ pub fn restore_dynamic_edge_query(
 
     (query, params)
 }
+

@@ -1266,6 +1266,7 @@ impl Neo4jGraph {
         line_count: bool,
         ignore_dirs: Vec<String>,
         repo: Option<&str>,
+        regex: Option<&str>,
     ) -> (
         usize,
         Vec<(
@@ -1293,6 +1294,7 @@ impl Neo4jGraph {
             line_count,
             ignore_dirs,
             repo,
+            regex,
         );
 
         let mut query_obj = query(&query_str);
