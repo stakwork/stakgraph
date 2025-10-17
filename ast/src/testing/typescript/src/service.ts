@@ -24,6 +24,10 @@ export async function newPerson(personData: PersonData): Promise<PersonData> {
   const person = await SequelizePerson.create(personData);
   return person.toJSON() as PersonData;
 }
+
+export async function deletePerson(id: IdType): Promise<void> {
+  await SequelizePerson.destroy({ where: { id } });
+}
 export class SequelizePersonService implements PersonService {
   async getById(id: IdType): Promise<PersonData | null> {
     const person = await SequelizePerson.findByPk(id);
