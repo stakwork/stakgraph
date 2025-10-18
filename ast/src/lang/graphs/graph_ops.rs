@@ -593,7 +593,7 @@ impl GraphOps {
         line_count: bool,
         ignore_dirs: Vec<String>,
         repo: Option<&str>,
-        regex: Option<&str>,
+        test_filters: Option<super::TestFilters>,
     ) -> Result<(
         usize,
         Vec<(
@@ -619,7 +619,7 @@ impl GraphOps {
                 line_count,
                 ignore_dirs,
                 repo,
-                regex,
+                test_filters,
             )
             .await)
     }

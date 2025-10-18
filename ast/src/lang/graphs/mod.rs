@@ -105,6 +105,15 @@ impl NodeRef {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct TestFilters {
+    pub unit_regexes: Vec<String>,
+    pub integration_regexes: Vec<String>,
+    pub e2e_regexes: Vec<String>,
+    pub target_regex: Option<String>,
+}
+
+
 impl Edge {
     pub fn new(edge: EdgeType, source: NodeRef, target: NodeRef) -> Self {
         Self {

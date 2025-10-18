@@ -1274,7 +1274,7 @@ pub fn query_nodes_with_count(
     line_count: bool,
     ignore_dirs: Vec<String>,
     repo: Option<&str>,
-    regex: Option<&str>,
+    test_filters: Option<super::TestFilters>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1290,12 +1290,73 @@ pub fn query_nodes_with_count(
         "ORDER BY n.name ASC"
     };
 
-    let test_types = ["UnitTest", "IntegrationTest", "E2etest"];
-    let test_type_match = test_types
-        .iter()
-        .map(|t| format!("test:{}", t))
-        .collect::<Vec<_>>()
-        .join(" OR ");
+    let (test_match_clauses, test_count_expr) = if let Some(filters) = &test_filters {
+        let has_filters = !filters.unit_regexes.is_empty()
+            || !filters.integration_regexes.is_empty()
+            || !filters.e2e_regexes.is_empty();
+
+        if has_filters {
+            let mut clauses = Vec::new();
+            let mut count_parts = Vec::new();
+
+            if !filters.unit_regexes.is_empty() {
+                let regex_conditions: Vec<String> = filters
+                    .unit_regexes
+                    .iter()
+                    .map(|r| format!("ut.file =~ '{}'", r))
+                    .collect();
+                clauses.push(format!(
+                    "OPTIONAL MATCH (ut:UnitTest)-[:CALLS]->(n) WHERE {}",
+                    regex_conditions.join(" OR ")
+                ));
+                count_parts.push("COUNT(DISTINCT ut)");
+            }
+
+            if !filters.integration_regexes.is_empty() {
+                let regex_conditions: Vec<String> = filters
+                    .integration_regexes
+                    .iter()
+                    .map(|r| format!("it.file =~ '{}'", r))
+                    .collect();
+                clauses.push(format!(
+                    "OPTIONAL MATCH (it:IntegrationTest)-[:CALLS]->(n) WHERE {}",
+                    regex_conditions.join(" OR ")
+                ));
+                count_parts.push("COUNT(DISTINCT it)");
+            }
+
+            if !filters.e2e_regexes.is_empty() {
+                let regex_conditions: Vec<String> = filters
+                    .e2e_regexes
+                    .iter()
+                    .map(|r| format!("et.file =~ '{}'", r))
+                    .collect();
+                clauses.push(format!(
+                    "OPTIONAL MATCH (et:E2etest)-[:CALLS]->(n) WHERE {}",
+                    regex_conditions.join(" OR ")
+                ));
+                count_parts.push("COUNT(DISTINCT et)");
+            }
+
+            let test_count = if count_parts.is_empty() {
+                "0".to_string()
+            } else {
+                count_parts.join(" + ")
+            };
+
+            (clauses.join("\n         "), test_count)
+        } else {
+            (
+                "OPTIONAL MATCH (test)-[:CALLS]->(n) WHERE test:UnitTest OR test:IntegrationTest OR test:E2etest".to_string(),
+                "count(DISTINCT test)".to_string(),
+            )
+        }
+    } else {
+        (
+            "OPTIONAL MATCH (test)-[:CALLS]->(n) WHERE test:UnitTest OR test:IntegrationTest OR test:E2etest".to_string(),
+            "count(DISTINCT test)".to_string(),
+        )
+    };
 
     let coverage_where = match coverage_filter {
         Some("tested") => "WHERE test_count > 0",
@@ -1330,18 +1391,17 @@ pub fn query_nodes_with_count(
         String::new()
     };
 
-    let regex_filter = if let Some(pattern) = regex {
-        format!("AND n.file =~ '{}'", pattern)
-    } else {
-        String::new()
-    };
+    let regex_filter = test_filters
+        .as_ref()
+        .and_then(|f| f.target_regex.as_deref())
+        .map(|pattern| format!("AND n.file =~ '{}'", pattern))
+        .unwrap_or_default();
 
     let query = format!(
         "MATCH (n:{})
          WHERE {} {} {} {}
-         OPTIONAL MATCH (test)-[:CALLS]->(n) 
-         WHERE {}
-         WITH n, count(DISTINCT test) AS test_count
+         {}
+         WITH n, {} AS test_count
          {} 
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
@@ -1362,7 +1422,8 @@ pub fn query_nodes_with_count(
         repo_filter,
         ignore_dirs_filter,
         regex_filter,
-        test_type_match,
+        test_match_clauses,
+        test_count_expr,
         coverage_where,
         order_clause
     );
