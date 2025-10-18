@@ -168,6 +168,9 @@ pub struct QueryNodesParams {
     pub ignore_dirs: Option<String>,
     pub repo: Option<String>,
     pub regex: Option<String>,
+    pub unit_regexes: Option<String>,
+    pub integration_regexes: Option<String>,
+    pub e2e_regexes: Option<String>,
 }
 
 #[derive(Serialize)]
