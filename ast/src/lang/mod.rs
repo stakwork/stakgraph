@@ -421,8 +421,16 @@ impl Lang {
         self.attach_function_comments(code, &mut funcs1)?;
         let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
         let mut tests: Vec<TestRecord> = Vec::new();
+        let mut seen_tests = std::collections::HashSet::new();
+        
         for t in filtered_tests.iter() {
             let mut nd = t.0.clone();
+            let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
+            if seen_tests.contains(&test_id) {
+                continue;
+            }
+            seen_tests.insert(test_id);
+            
             let kind = self.lang.classify_test(&nd.name, file, &nd.body);
             let meta_kind = match kind {
                 NodeType::IntegrationTest => "integration",
@@ -442,6 +450,12 @@ impl Lang {
                     continue;
                 }
                 
+                let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
+                if seen_tests.contains(&test_id) {
+                    continue;
+                }
+                seen_tests.insert(test_id);
+                
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
                 let meta_kind = match kind {
                     NodeType::IntegrationTest => "integration",
@@ -455,6 +469,12 @@ impl Lang {
         if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {
             for (nd, tt, edge) in int_tests {
                 let mut nd = nd;
+                let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
+                if seen_tests.contains(&test_id) {
+                    continue;
+                }
+                seen_tests.insert(test_id);
+                
                 let kind = tt;
                 let meta_kind = match kind {
                     NodeType::IntegrationTest => "integration",
@@ -467,6 +487,12 @@ impl Lang {
         }
         if let Ok(e2e_tests) = self.collect_e2e_tests(code, file) {
             for mut nd in e2e_tests {
+                let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
+                if seen_tests.contains(&test_id) {
+                    continue;
+                }
+                seen_tests.insert(test_id);
+                
                 let kind = NodeType::E2eTest;
                 let meta_kind = match kind {
                     NodeType::IntegrationTest => "integration",
