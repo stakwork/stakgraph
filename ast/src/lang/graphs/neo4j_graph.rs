@@ -1264,7 +1264,6 @@ impl Neo4jGraph {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-        ignore_dirs: Vec<String>,
         repo: Option<&str>,
         test_filters: Option<super::TestFilters>,
     ) -> (
@@ -1292,7 +1291,6 @@ impl Neo4jGraph {
             coverage_filter,
             body_length,
             line_count,
-            ignore_dirs,
             repo,
             test_filters,
         );

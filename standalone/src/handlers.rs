@@ -748,14 +748,20 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let ignore_dirs: Vec<String> = params
-        .ignore_dirs
-        .as_ref()
-        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
+    let test_filters = TestFilters {
+        unit_regexes: vec![],
+        integration_regexes: vec![],
+        e2e_regexes: vec![],
+        target_regex: params.regex.clone(),
+        ignore_dirs: params
+            .ignore_dirs
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+    };
 
     let totals = graph_ops
-        .get_coverage(params.repo.as_deref(), ignore_dirs, params.regex.as_deref())
+        .get_coverage(params.repo.as_deref(), Some(test_filters))
         .await?;
 
     Ok(Json(Coverage {
@@ -813,12 +819,6 @@ pub async fn nodes_handler(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let ignore_dirs: Vec<String> = params
-        .ignore_dirs
-        .as_ref()
-        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
-
     let test_filters = TestFilters {
         unit_regexes: params
             .unit_regexes
@@ -836,6 +836,11 @@ pub async fn nodes_handler(
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_default(),
         target_regex: params.regex.clone(),
+        ignore_dirs: params
+            .ignore_dirs
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
     };
 
     let (total_count, results) = graph_ops
@@ -847,7 +852,6 @@ pub async fn nodes_handler(
             coverage_filter,
             body_length,
             line_count,
-            ignore_dirs,
             params.repo.as_deref(),
             Some(test_filters),
         )

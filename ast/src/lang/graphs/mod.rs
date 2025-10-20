@@ -111,6 +111,7 @@ pub struct TestFilters {
     pub integration_regexes: Vec<String>,
     pub e2e_regexes: Vec<String>,
     pub target_regex: Option<String>,
+    pub ignore_dirs: Vec<String>,
 }
 
 

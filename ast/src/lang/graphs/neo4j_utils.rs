@@ -1272,13 +1272,17 @@ pub fn query_nodes_with_count(
     coverage_filter: Option<&str>,
     body_length: bool,
     line_count: bool,
-    ignore_dirs: Vec<String>,
     repo: Option<&str>,
     test_filters: Option<super::TestFilters>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
+
+    let ignore_dirs = test_filters
+        .as_ref()
+        .map(|f| f.ignore_dirs.clone())
+        .unwrap_or_default();
 
     let order_clause = if body_length {
         "ORDER BY size(n.body) DESC, n.name ASC"
