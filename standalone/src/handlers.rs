@@ -8,6 +8,7 @@ use crate::utils::parse_node_type;
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
+use ast::lang::graphs::TestFilters;
 use ast::lang::{Graph, NodeType};
 use ast::repo::{clone_repo, Repo};
 use axum::extract::{Path, Query};
@@ -747,14 +748,20 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let ignore_dirs: Vec<String> = params
-        .ignore_dirs
-        .as_ref()
-        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
+    let test_filters = TestFilters {
+        unit_regexes: vec![],
+        integration_regexes: vec![],
+        e2e_regexes: vec![],
+        target_regex: params.regex.clone(),
+        ignore_dirs: params
+            .ignore_dirs
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+    };
 
     let totals = graph_ops
-        .get_coverage(params.repo.as_deref(), ignore_dirs, params.regex.as_deref())
+        .get_coverage(params.repo.as_deref(), Some(test_filters))
         .await?;
 
     Ok(Json(Coverage {
@@ -812,11 +819,29 @@ pub async fn nodes_handler(
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    let ignore_dirs: Vec<String> = params
-        .ignore_dirs
-        .as_ref()
-        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-        .unwrap_or_default();
+    let test_filters = TestFilters {
+        unit_regexes: params
+            .unit_regexes
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+        integration_regexes: params
+            .integration_regexes
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+        e2e_regexes: params
+            .e2e_regexes
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+        target_regex: params.regex.clone(),
+        ignore_dirs: params
+            .ignore_dirs
+            .as_ref()
+            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+            .unwrap_or_default(),
+    };
 
     let (total_count, results) = graph_ops
         .query_nodes_with_count(
@@ -827,9 +852,8 @@ pub async fn nodes_handler(
             coverage_filter,
             body_length,
             line_count,
-            ignore_dirs,
             params.repo.as_deref(),
-            params.regex.as_deref(),
+            Some(test_filters),
         )
         .await?;
 

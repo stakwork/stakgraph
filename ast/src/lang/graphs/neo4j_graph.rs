@@ -1264,9 +1264,8 @@ impl Neo4jGraph {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-        ignore_dirs: Vec<String>,
         repo: Option<&str>,
-        regex: Option<&str>,
+        test_filters: Option<super::TestFilters>,
     ) -> (
         usize,
         Vec<(
@@ -1292,9 +1291,8 @@ impl Neo4jGraph {
             coverage_filter,
             body_length,
             line_count,
-            ignore_dirs,
             repo,
-            regex,
+            test_filters,
         );
 
         let mut query_obj = query(&query_str);

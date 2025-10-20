@@ -296,10 +296,15 @@ impl GraphOps {
     pub async fn get_coverage(
         &mut self,
         repo: Option<&str>,
-        ignore_dirs: Vec<String>,
-        regex: Option<&str>,
+        test_filters: Option<super::TestFilters>,
     ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
+
+        let ignore_dirs = test_filters
+            .as_ref()
+            .map(|f| f.ignore_dirs.clone())
+            .unwrap_or_default();
+        let regex = test_filters.as_ref().and_then(|f| f.target_regex.as_deref());
 
         let in_scope = |n: &NodeData| {
             let repo_match = if let Some(r) = repo {
@@ -591,9 +596,8 @@ impl GraphOps {
         coverage_filter: Option<&str>,
         body_length: bool,
         line_count: bool,
-        ignore_dirs: Vec<String>,
         repo: Option<&str>,
-        regex: Option<&str>,
+        test_filters: Option<super::TestFilters>,
     ) -> Result<(
         usize,
         Vec<(
@@ -617,9 +621,8 @@ impl GraphOps {
                 coverage_filter,
                 body_length,
                 line_count,
-                ignore_dirs,
                 repo,
-                regex,
+                test_filters,
             )
             .await)
     }
