@@ -97,7 +97,7 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 11, "Expected 11 functions");
+        assert_eq!(functions.len(), 12, "Expected 12 functions");
     } else {
         assert_eq!(functions.len(), 8, "Expected 8 functions");
     }
@@ -185,7 +185,7 @@ import {{ sequelize }} from "./config.js";"#
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 5, "Expected 5 uses edges");
+        assert_eq!(uses, 6, "Expected 6 uses edges");
     } else {
         assert_eq!(uses, 0, "Expected 0 uses edges");
     }
