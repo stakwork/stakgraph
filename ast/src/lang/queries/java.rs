@@ -98,12 +98,13 @@ impl Stack for Java {
         format!(
             r#"
             (method_declaration
+                (modifiers (annotation)*)? @{ATTRIBUTES}
                 type: (_) @{RETURN_TYPES}
                 name: (identifier) @{FUNCTION_NAME}                
                 (formal_parameters
                     (formal_parameter)@{ARGUMENTS}
                 )?  
-            )@{FUNCTION_DEFINITION}
+              )@{FUNCTION_DEFINITION}
             "#
         )
     }
