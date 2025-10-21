@@ -1,5 +1,24 @@
 import { SequelizePerson, TypeORMPerson } from "./model.js";
 import { AppDataSource, prisma } from "./config.js";
+
+function deprecated(message: string) {
+  return function (
+    target: any,
+    propertyKey: string,
+    descriptor: PropertyDescriptor
+  ) {
+    console.warn(`${propertyKey} is deprecated: ${message}`);
+  };
+}
+
+function log(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+  const originalMethod = descriptor.value;
+  descriptor.value = function (...args: any[]) {
+    console.log(`Calling ${propertyKey} with`, args);
+    return originalMethod.apply(this, args);
+  };
+}
+
 export interface PersonData {
   id?: number;
   name: string;
@@ -25,6 +44,7 @@ export async function newPerson(personData: PersonData): Promise<PersonData> {
   return person.toJSON() as PersonData;
 }
 export class SequelizePersonService implements PersonService {
+  @log
   async getById(id: IdType): Promise<PersonData | null> {
     const person = await SequelizePerson.findByPk(id);
     if (!person) {
@@ -32,9 +52,16 @@ export class SequelizePersonService implements PersonService {
     }
     return person.toJSON() as PersonData;
   }
+
+  @log
   async create(personData: PersonData): Promise<PersonData> {
     const person = await SequelizePerson.create(personData);
     return person.toJSON() as PersonData;
+  }
+
+  @deprecated("Use getById instead")
+  async findPerson(id: IdType): Promise<PersonData | null> {
+    return this.getById(id);
   }
 }
 
