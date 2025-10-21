@@ -58,7 +58,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 102, "Expected 102 contains edges");
+    assert_eq!(contains, 106, "Expected 106 contains edges");
     edges_count += contains;
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -88,11 +88,11 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operand;
-    assert_eq!(operand, 6, "Expected 6 operand edges");
+    assert_eq!(operand, 9, "Expected 9 operand edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 20, "Expected 20 functions");
+    assert_eq!(functions.len(), 24, "Expected 24 functions");
 
     let librabries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += librabries.len();
@@ -142,7 +142,7 @@ from flask_app.routes import flask_bp"#
 
     let class_function_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(class_function_edges.len(), 6, "Expected 6 methods");
+    assert_eq!(class_function_edges.len(), 9, "Expected 9 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -338,6 +338,60 @@ from flask_app.routes import flask_bp"#
         .find(|n| n.file == "src/testing/python/db.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("db_session function not found in db.py");
+
+    let db_session_attrs = db_session_fn.node_data.meta.get("attributes");
+    assert!(db_session_attrs.is_some(), "db_session should have attributes");
+    let attrs = db_session_attrs.unwrap();
+    assert!(attrs.contains("contextmanager"), "db_session attributes should contain 'contextmanager'");
+
+    let species_fn = graph
+        .find_nodes_by_name(NodeType::Function, "species")
+        .into_iter()
+        .find(|n| n.file == "src/testing/python/model.py")
+        .map(|n| Node::new(NodeType::Function, n))
+        .expect("species function not found in model.py");
+    
+    let species_attrs = species_fn.node_data.meta.get("attributes");
+    assert!(species_attrs.is_some(), "species should have attributes");
+    let species_attr_val = species_attrs.unwrap();
+    assert!(species_attr_val.contains("property"), "species attributes should contain 'property'");
+
+    let is_mammal_fn = graph
+        .find_nodes_by_name(NodeType::Function, "is_mammal")
+        .into_iter()
+        .find(|n| n.file == "src/testing/python/model.py")
+        .map(|n| Node::new(NodeType::Function, n))
+        .expect("is_mammal function not found in model.py");
+    
+    let is_mammal_attrs = is_mammal_fn.node_data.meta.get("attributes");
+    assert!(is_mammal_attrs.is_some(), "is_mammal should have attributes");
+    let is_mammal_attr_val = is_mammal_attrs.unwrap();
+    assert!(is_mammal_attr_val.contains("staticmethod"), "is_mammal attributes should contain 'staticmethod'");
+
+    let create_puppy_fn = graph
+        .find_nodes_by_name(NodeType::Function, "create_puppy")
+        .into_iter()
+        .find(|n| n.file == "src/testing/python/model.py")
+        .map(|n| Node::new(NodeType::Function, n))
+        .expect("create_puppy function not found in model.py");
+    
+    let create_puppy_attrs = create_puppy_fn.node_data.meta.get("attributes");
+    assert!(create_puppy_attrs.is_some(), "create_puppy should have attributes");
+    let create_puppy_attr_val = create_puppy_attrs.unwrap();
+    assert!(create_puppy_attr_val.contains("classmethod"), "create_puppy attributes should contain 'classmethod'");
+
+    let get_animal_info_fn = graph
+        .find_nodes_by_name(NodeType::Function, "get_animal_info")
+        .into_iter()
+        .find(|n| n.file == "src/testing/python/model.py")
+        .map(|n| Node::new(NodeType::Function, n))
+        .expect("get_animal_info function not found in model.py");
+    
+    let get_animal_info_attrs = get_animal_info_fn.node_data.meta.get("attributes");
+    assert!(get_animal_info_attrs.is_some(), "get_animal_info should have attributes");
+    let get_animal_info_attr_val = get_animal_info_attrs.unwrap();
+    assert!(get_animal_info_attr_val.contains("lru_cache"), "get_animal_info attributes should contain 'lru_cache'");
+    assert!(get_animal_info_attr_val.contains("maxsize"), "get_animal_info attributes should contain decorator argument 'maxsize'");
 
     let get_person_by_id_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_person_by_id")

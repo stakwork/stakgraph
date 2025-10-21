@@ -3,6 +3,7 @@ from database import Base
 from pydantic import BaseModel
 from typing import Optional
 from abc import ABC, abstractmethod
+from functools import lru_cache
 
 
 class Person(Base):
@@ -63,3 +64,25 @@ class Dog(Animal):
 
     def move(self) -> str:
         return "Runs on four legs"
+
+    @property
+    def species(self) -> str:
+        return "Canis familiaris"
+
+    @staticmethod
+    def is_mammal() -> bool:
+        return True
+
+    @classmethod
+    def create_puppy(cls) -> "Dog":
+        return cls()
+
+
+@lru_cache(maxsize=128)
+def get_animal_info(animal_type: str) -> str:
+    """Cached function to get animal information"""
+    if animal_type == "dog":
+        return "Dogs are loyal companions"
+    elif animal_type == "cat":
+        return "Cats are independent"
+    return "Unknown animal"
