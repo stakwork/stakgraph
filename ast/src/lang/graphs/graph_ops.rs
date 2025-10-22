@@ -483,12 +483,12 @@ impl GraphOps {
         if let Some(tx) = &status_tx {
             let _ = tx.send(crate::repo::StatusUpdate {
                 status: "".to_string(),
-                message: "Step 15: Uploading nodes to Neo4j".to_string(),
+                message: "Uploading nodes to Graph DB".to_string(),
                 step: 15,
                 total_steps: 16,
                 progress: 0,
                 stats: None,
-                step_description: Some("Uploading nodes to Neo4j".to_string()),
+                step_description: Some("Uploading nodes to Graph DB".to_string()),
             });
         }
 
@@ -506,12 +506,12 @@ impl GraphOps {
         if let Some(tx) = &status_tx {
             let _ = tx.send(crate::repo::StatusUpdate {
                 status: "".to_string(),
-                message: "Step 16: Uploading edges to Neo4j".to_string(),
+                message: "Uploading edges to Graph DB".to_string(),
                 step: 16,
                 total_steps: 16,
                 progress: 0,
                 stats: None,
-                step_description: Some("Uploading edges to Neo4j".to_string()),
+                step_description: Some("Uploading edges to Graph DB".to_string()),
             });
         }
 
