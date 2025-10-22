@@ -153,12 +153,25 @@ impl Stack for Angular {
     fn function_definition_query(&self) -> String {
         format!(
             r#"
+            (
+              (decorator)* @{ATTRIBUTES}
+              .
+              (function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (formal_parameters)? @{ARGUMENTS}
+                return_type: (type_annotation)? @{RETURN_TYPES}
+              ) @{FUNCTION_DEFINITION}
+            )
 
-
-            (method_definition
+            (
+              (decorator)* @{ATTRIBUTES}
+              .
+              (method_definition
                 name: (property_identifier) @{FUNCTION_NAME}
-                parameters: (formal_parameters)
-            )@{FUNCTION_DEFINITION}
+                parameters: (formal_parameters)? @{ARGUMENTS}
+                return_type: (type_annotation)? @{RETURN_TYPES}
+              ) @{FUNCTION_DEFINITION}
+            )
             "#
         )
     }

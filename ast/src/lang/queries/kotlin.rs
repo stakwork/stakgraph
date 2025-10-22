@@ -110,6 +110,7 @@ impl Stack for Kotlin {
                     (type_identifier)? @{PARENT_TYPE}
                     (class_body
                     (function_declaration
+                        (modifiers (annotation)*)? @{ATTRIBUTES}
                         (simple_identifier) @{FUNCTION_NAME}
                         (function_value_parameters) @{ARGUMENTS}
                     ) @{FUNCTION_DEFINITION}
@@ -119,6 +120,7 @@ impl Stack for Kotlin {
 
                 (
                 (function_declaration
+                    (modifiers (annotation)*)? @{ATTRIBUTES}
                     (simple_identifier) @{FUNCTION_NAME}
                     (function_value_parameters) @{ARGUMENTS}
                 ) @{FUNCTION_DEFINITION}

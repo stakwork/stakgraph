@@ -1,4 +1,4 @@
-import { Component, OnInit } from '@angular/core';
+import { Component, OnInit, Input, Output, EventEmitter } from '@angular/core';
 import { PeopleService } from '../people.service';
 import { Person } from '../models/person.model';
 import { CommonModule } from '@angular/common';
@@ -15,6 +15,12 @@ import { CommonModule } from '@angular/common';
 export class PeopleListComponent implements OnInit {
   people: Person[] = [];
 
+  @Input()
+  maxItems: number = 10;
+
+  @Output()
+  personDeleted = new EventEmitter<number>();
+
   constructor(private peopleService: PeopleService) {}
 
   ngOnInit() {
@@ -25,5 +31,6 @@ export class PeopleListComponent implements OnInit {
 
   deletePerson(id: number) {
     this.peopleService.deletePerson(id);
+    this.personDeleted.emit(id);
   }
 }

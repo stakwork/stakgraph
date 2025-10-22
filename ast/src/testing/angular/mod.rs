@@ -51,11 +51,11 @@ pub async fn test_angular_generic<G: Graph>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    assert_eq!(calls, 8, "Expected 8 call edges");
+    assert_eq!(calls, 11, "Expected 11 call edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 100, "Expected 100 contains edges");
+    assert_eq!(contains, 103, "Expected 103 contains edges");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes += imports.len();
@@ -107,9 +107,15 @@ import {{ AppComponent }} from './app/app.component';"#
         "Expected AddPersonComponent class not found"
     );
 
-    let class_function_edges =
-        graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(class_function_edges.len(), 0, "Expected 0 methods");
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes += functions.len();
+
+    let log_method_fn = functions
+        .iter()
+        .find(|f| f.name == "LogMethod" && f.file == "src/testing/angular/src/app/people.service.ts")
+        .expect("LogMethod function not found in people.service.ts");
+    
+    assert!(log_method_fn.meta.contains_key("interface"), "LogMethod function should have interface metadata");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += data_models.len();
@@ -121,7 +127,7 @@ import {{ AppComponent }} from './app/app.component';"#
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes += requests.len();
-    assert_eq!(requests.len(), 7, "Expected 7 requests");
+    assert_eq!(requests.len(), 10, "Expected 10 requests");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges += imported_edges;
@@ -239,8 +245,7 @@ import {{ AppComponent }} from './app/app.component';"#
     );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    nodes += functions.len();
-    assert_eq!(functions.len(), 8, "Expected 8 functions");
+    assert_eq!(functions.len(), 10, "Expected 10 functions");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();

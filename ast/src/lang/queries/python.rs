@@ -93,10 +93,17 @@ impl Stack for Python {
     // this captures both
     fn function_definition_query(&self) -> String {
         format!(
-            "(function_definition
+            r#"
+            (
+              (decorator)* @{ATTRIBUTES}
+              .
+              (function_definition
                 name: (identifier) @{FUNCTION_NAME}
                 parameters: (parameters) @{ARGUMENTS}
-            ) @{FUNCTION_DEFINITION}"
+                return_type: (type)? @{RETURN_TYPES}
+              ) @{FUNCTION_DEFINITION}
+            )
+            "#
         )
     }
     fn comment_query(&self) -> Option<String> {
