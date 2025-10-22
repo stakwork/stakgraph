@@ -400,7 +400,7 @@ pub async fn ingest_async(
                 status: AsyncStatus::InProgress,
                 result: None,
                 progress: 0,
-                current_update: Some(ast::repo::StatusUpdate {
+                update: Some(ast::repo::StatusUpdate {
                     status: "Starting".to_string(),
                     message: "Job queued".to_string(),
                     step: 0,
@@ -430,8 +430,8 @@ pub async fn ingest_async(
                     * 100.0)
                     .min(100.0) as u32;
                 status.progress = overall_progress;
-                if let Some(existing) = &status.current_update {
-                    status.current_update = Some(ast::repo::StatusUpdate {
+                if let Some(existing) = &status.update {
+                    status.update = Some(ast::repo::StatusUpdate {
                         status: if !update.status.is_empty() { update.status } else { existing.status.clone() },
                         message: if !update.message.is_empty() { update.message } else { existing.message.clone() },
                         step: update.step,
@@ -441,7 +441,7 @@ pub async fn ingest_async(
                         step_description: update.step_description.or_else(|| existing.step_description.clone()),
                     });
                 } else {
-                    status.current_update = Some(update);
+                    status.update = Some(update);
                 }
             }
         }
@@ -460,7 +460,7 @@ pub async fn ingest_async(
                     status: AsyncStatus::Complete,
                     result: Some(resp.clone()),
                     progress: 100,
-                    current_update: Some(ast::repo::StatusUpdate {
+                    update: Some(ast::repo::StatusUpdate {
                         status: "Complete".to_string(),
                         message: "Graph building completed successfully".to_string(),
                         step: 16,
@@ -507,7 +507,7 @@ pub async fn ingest_async(
                     status: AsyncStatus::Failed(format!("{:?}", e)),
                     result: None,
                     progress: 0,
-                    current_update: Some(ast::repo::StatusUpdate {
+                    update: Some(ast::repo::StatusUpdate {
                         status: "Failed".to_string(),
                         message: format!("Error: {:?}", e),
                         step: 0,
@@ -582,7 +582,7 @@ pub async fn sync_async(
                 status: AsyncStatus::InProgress,
                 result: None,
                 progress: 0,
-                current_update: Some(ast::repo::StatusUpdate {
+                update: Some(ast::repo::StatusUpdate {
                     status: "Starting".to_string(),
                     message: "Sync job queued".to_string(),
                     step: 0,
@@ -616,8 +616,8 @@ pub async fn sync_async(
                     .min(100.0) as u32;
                 status.progress = overall_progress;
  
-                if let Some(existing) = &status.current_update {
-                    status.current_update = Some(ast::repo::StatusUpdate {
+                if let Some(existing) = &status.update {
+                    status.update = Some(ast::repo::StatusUpdate {
                         status: if !update.status.is_empty() { update.status } else { existing.status.clone() },
                         message: if !update.message.is_empty() { update.message } else { existing.message.clone() },
                         step: update.step,
@@ -627,7 +627,7 @@ pub async fn sync_async(
                         step_description: update.step_description.or_else(|| existing.step_description.clone()),
                     });
                 } else {
-                    status.current_update = Some(update);
+                    status.update = Some(update);
                 }
             }
         }
@@ -650,7 +650,7 @@ pub async fn sync_async(
                     status: AsyncStatus::Complete,
                     result: Some(resp.clone()),
                     progress: 100,
-                    current_update: Some(ast::repo::StatusUpdate {
+                    update: Some(ast::repo::StatusUpdate {
                         status: "Complete".to_string(),
                         message: "Repository sync completed successfully".to_string(),
                         step: 16,
@@ -696,7 +696,7 @@ pub async fn sync_async(
                     status: AsyncStatus::Failed(format!("{:?}", e)),
                     result: None,
                     progress: 0,
-                    current_update: Some(ast::repo::StatusUpdate {
+                    update: Some(ast::repo::StatusUpdate {
                         status: "Failed".to_string(),
                         message: format!("Error: {:?}", e),
                         step: 0,

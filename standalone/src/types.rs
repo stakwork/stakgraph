@@ -71,7 +71,7 @@ pub struct AsyncRequestStatus {
     pub status: AsyncStatus,
     pub result: Option<ProcessResponse>,
     pub progress: u32,
-    pub current_update: Option<StatusUpdate>,
+    pub update: Option<StatusUpdate>,
 }
 
 pub type AsyncStatusMap = Arc<Mutex<HashMap<String, AsyncRequestStatus>>>;
