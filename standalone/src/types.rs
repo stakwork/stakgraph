@@ -148,6 +148,13 @@ pub struct NodeConcise {
     pub covered: bool,
     pub body_length: Option<i64>,
     pub line_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verb: Option<String>,
+    pub start: usize,
+    pub end: usize,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[serde(default)]
+    pub meta: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
