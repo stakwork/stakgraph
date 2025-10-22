@@ -8,11 +8,12 @@ use crate::lang::graphs::utils::tests_sources;
 use crate::lang::graphs::BTreeMapGraph;
 use crate::lang::neo4j_utils::{add_node_query, build_batch_edge_queries};
 use crate::lang::{EdgeType, Node, NodeData, NodeType};
-use crate::repo::{check_revs_files, Repo};
+use crate::repo::{check_revs_files, Repo, StatusUpdate};
 use crate::utils::create_node_key;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
 use tracing::{debug, error, info};
+use tokio::sync::broadcast::Sender;
 
 #[derive(Debug, Clone)]
 pub struct GraphOps {
@@ -120,6 +121,7 @@ impl GraphOps {
         commit: Option<&str>,
         branch: Option<&str>,
         use_lsp: Option<bool>,
+        status_tx: Option<Sender<StatusUpdate>>,
     ) -> Result<(u32, u32)> {
         let revs = vec![stored_hash.to_string(), current_hash.to_string()];
         let repo_path = Repo::get_path_from_url(repo_url)?;
@@ -150,7 +152,7 @@ impl GraphOps {
                     self.graph.remove_nodes_by_file(file).await?;
                 }
 
-                let subgraph_repos = Repo::new_multi_detect(
+                let mut subgraph_repos = Repo::new_multi_detect(
                     &repo_path,
                     Some(repo_url.to_string()),
                     modified_files,
@@ -159,19 +161,11 @@ impl GraphOps {
                 )
                 .await?;
 
-                let (nodes_before_reassign, edges_before_reassign) = self.graph.get_graph_size();
-                info!(
-                    "[DEBUG]  Graph  BEFORE build {} nodes, {} edges",
-                    nodes_before_reassign, edges_before_reassign
-                );
+                if let Some(tx) = status_tx {
+                    subgraph_repos.set_status_tx(tx).await;
+                }
 
                 subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
-
-                let (nodes_after_reassign, edges_after_reassign) = self.graph.get_graph_size();
-                info!(
-                    "[DEBUG]  Graph  AFTER build {} nodes, {} edges",
-                    nodes_after_reassign, edges_after_reassign
-                );
 
                 if !all_dynamic_edges.is_empty() {
                     let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
@@ -193,7 +187,7 @@ impl GraphOps {
                 .await?;
         } else if stored_hash.is_empty() && !current_hash.is_empty() {
             info!("Processing new repository with hash: {}", current_hash);
-            let repos = Repo::new_clone_multi_detect(
+            let mut repos = Repo::new_clone_multi_detect(
                 repo_url,
                 username.clone(),
                 pat.clone(),
@@ -204,6 +198,10 @@ impl GraphOps {
                 use_lsp,
             )
             .await?;
+
+            if let Some(tx) = status_tx {
+                repos.set_status_tx(tx).await;
+            }
 
             let _graph = repos.build_graphs_inner::<Neo4jGraph>().await?;
 

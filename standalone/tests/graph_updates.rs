@@ -126,6 +126,7 @@ async fn test_graph_update() {
             Some(after_commit),
             None,
             use_lsp,
+            None,
         )
         .await
         .unwrap();
