@@ -861,16 +861,26 @@ pub async fn nodes_handler(
         .into_iter()
         .map(
             |(node_data, usage_count, covered, test_count, ref_id, body_length, line_count)| {
+                let verb = if node_type == NodeType::Endpoint {
+                    node_data.meta.get("verb").cloned()
+                } else {
+                    None
+                };
+
                 if concise {
                     NodesResponseItem::Concise(NodeConcise {
-                        name: node_data.name,
-                        file: node_data.file,
+                        name: node_data.name.clone(),
+                        file: node_data.file.clone(),
                         ref_id,
                         weight: usage_count,
                         test_count,
                         covered,
                         body_length,
                         line_count,
+                        verb,
+                        start: node_data.start,
+                        end: node_data.end,
+                        meta: node_data.meta,
                     })
                 } else {
                     NodesResponseItem::Full(Node {
