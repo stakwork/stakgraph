@@ -1,4 +1,5 @@
 use ast::lang::asg::NodeData;
+use ast::repo::StatusUpdate;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -70,6 +71,7 @@ pub struct AsyncRequestStatus {
     pub status: AsyncStatus,
     pub result: Option<ProcessResponse>,
     pub progress: u32,
+    pub update: Option<StatusUpdate>,
 }
 
 pub type AsyncStatusMap = Arc<Mutex<HashMap<String, AsyncRequestStatus>>>;

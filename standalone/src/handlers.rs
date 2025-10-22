@@ -75,7 +75,10 @@ pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoRes
 }
 
 #[axum::debug_handler]
-pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
+pub async fn process(
+    State(state): State<Arc<AppState>>,
+    body: Json<ProcessBody>,
+) -> Result<Json<ProcessResponse>> {
     if body.repo_url.clone().unwrap_or_default().contains(",") {
         return Err(WebError(shared::Error::Custom(
             "Multiple repositories are not supported in a single request".into(),
@@ -152,6 +155,7 @@ pub async fn process(body: Json<ProcessBody>) -> Result<Json<ProcessResponse>> {
             None,
             branch.as_deref(),
             use_lsp,
+            Some(state.tx.clone()),
         )
         .await?;
 
@@ -400,6 +404,15 @@ pub async fn ingest_async(
                 status: AsyncStatus::InProgress,
                 result: None,
                 progress: 0,
+                update: Some(ast::repo::StatusUpdate {
+                    status: "Starting".to_string(),
+                    message: "Job queued".to_string(),
+                    step: 0,
+                    total_steps: 16,
+                    progress: 0,
+                    stats: None,
+                    step_description: Some("Initializing".to_string()),
+                }),
             },
         );
     }
@@ -421,6 +434,19 @@ pub async fn ingest_async(
                     * 100.0)
                     .min(100.0) as u32;
                 status.progress = overall_progress;
+                if let Some(existing) = &status.update {
+                    status.update = Some(ast::repo::StatusUpdate {
+                        status: if !update.status.is_empty() { update.status } else { existing.status.clone() },
+                        message: if !update.message.is_empty() { update.message } else { existing.message.clone() },
+                        step: update.step,
+                        total_steps: update.total_steps,
+                        progress: update.progress,
+                        stats: update.stats.or_else(|| existing.stats.clone()),
+                        step_description: update.step_description.or_else(|| existing.step_description.clone()),
+                    });
+                } else {
+                    status.update = Some(update);
+                }
             }
         }
     });
@@ -438,6 +464,18 @@ pub async fn ingest_async(
                     status: AsyncStatus::Complete,
                     result: Some(resp.clone()),
                     progress: 100,
+                    update: Some(ast::repo::StatusUpdate {
+                        status: "Complete".to_string(),
+                        message: "Graph building completed successfully".to_string(),
+                        step: 16,
+                        total_steps: 16,
+                        progress: 100,
+                        stats: Some(std::collections::HashMap::from([
+                            ("total_nodes".to_string(), resp.nodes as usize),
+                            ("total_edges".to_string(), resp.edges as usize),
+                        ])),
+                        step_description: Some("Complete".to_string()),
+                    }),
                 };
                 map.insert(request_id_clone.clone(), entry);
                 if let Some(url) = callback_url {
@@ -473,6 +511,15 @@ pub async fn ingest_async(
                     status: AsyncStatus::Failed(format!("{:?}", e)),
                     result: None,
                     progress: 0,
+                    update: Some(ast::repo::StatusUpdate {
+                        status: "Failed".to_string(),
+                        message: format!("Error: {:?}", e),
+                        step: 0,
+                        total_steps: 16,
+                        progress: 0,
+                        stats: None,
+                        step_description: Some("Failed".to_string()),
+                    }),
                 };
                 map.insert(request_id_clone.clone(), entry);
                 if let Some(url) = callback_url {
@@ -530,6 +577,10 @@ pub async fn sync_async(
 
     let request_id = uuid::Uuid::new_v4().to_string();
     let status_map = state.async_status.clone();
+    let mut rx = state.tx.subscribe();
+
+    let callback_url = body.callback_url.clone();
+    let started_at = Utc::now();
 
     {
         let mut map = status_map.lock().await;
@@ -539,23 +590,65 @@ pub async fn sync_async(
                 status: AsyncStatus::InProgress,
                 result: None,
                 progress: 0,
+                update: Some(ast::repo::StatusUpdate {
+                    status: "Starting".to_string(),
+                    message: "Sync job queued".to_string(),
+                    step: 0,
+                    total_steps: 16,
+                    progress: 0,
+                    stats: None,
+                    step_description: Some("Initializing".to_string()),
+                }),
             },
         );
     }
+
+    let status_map_clone = status_map.clone();
     let body_clone = body.clone();
-    let request_id_clone = request_id.clone();
-    let callback_url = body.callback_url.clone();
-    let started_at = Utc::now();
+    let request_id_for_listener = request_id.clone();
+    let request_id_for_work = request_id.clone();
+
+    tokio::spawn(async move {
+        while let Ok(update) = rx.recv().await {
+            let mut map = status_map_clone.lock().await;
+            if let Some(status) = map.get_mut(&request_id_for_listener) {
+                        let total_steps = update.total_steps.max(1) as f64;
+                        let step = update.step.max(1) as f64;
+                        let step_progress = update.progress.min(100) as f64;
+
+                        let overall_progress = (((step - 1.0) + (step_progress / 100.0)) / total_steps
+                            * 100.0)
+                            .min(100.0) as u32;
+                        status.progress = overall_progress;
+         
+                        if let Some(existing) = &status.update {
+                            status.update = Some(ast::repo::StatusUpdate {
+                                status: if !update.status.is_empty() { update.status } else { existing.status.clone() },
+                                message: if !update.message.is_empty() { update.message } else { existing.message.clone() },
+                                step: update.step,
+                                total_steps: update.total_steps,
+                                progress: update.progress,
+                                stats: update.stats.or_else(|| existing.stats.clone()),
+                                step_description: update.step_description.or_else(|| existing.step_description.clone()),
+                            });
+                        } else {
+                            status.update = Some(update);
+                        }
+            }
+        }
+    });
 
     info!(
         "/sync with Request ID: {} and callback_url:  {:?}",
-        request_id_clone.clone(),
-        callback_url.clone()
+        request_id_for_work,
+        callback_url
     );
+
+    let state_for_process = state.clone();
 
     //run /sync as a background task
     tokio::spawn(async move {
-        let result = process(body_clone).await;
+        let result = process(State(state_for_process), body_clone).await;
         let mut map = status_map.lock().await;
 
         match result {
@@ -564,12 +657,24 @@ pub async fn sync_async(
                     status: AsyncStatus::Complete,
                     result: Some(resp.clone()),
                     progress: 100,
+                    update: Some(ast::repo::StatusUpdate {
+                        status: "Complete".to_string(),
+                        message: "Repository sync completed successfully".to_string(),
+                        step: 16,
+                        total_steps: 16,
+                        progress: 100,
+                        stats: Some(std::collections::HashMap::from([
+                            ("total_nodes".to_string(), resp.nodes as usize),
+                            ("total_edges".to_string(), resp.edges as usize),
+                        ])),
+                        step_description: Some("Complete".to_string()),
+                    }),
                 };
-                map.insert(request_id_clone.clone(), entry);
+                map.insert(request_id_for_work.clone(), entry);
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {
                         let payload = WebhookPayload {
-                            request_id: request_id_clone.clone(),
+                            request_id: request_id_for_work.to_string(),
                             status: "Complete".to_string(),
                             progress: 100,
                             result: Some(ProcessResponse {
@@ -585,7 +690,7 @@ pub async fn sync_async(
 
                         let _ = crate::webhook::send_with_retries(
                             &client,
-                            &request_id_clone,
+                            &request_id_for_work.to_string(),
                             &valid,
                             &payload,
                         )
@@ -598,12 +703,21 @@ pub async fn sync_async(
                     status: AsyncStatus::Failed(format!("{:?}", e)),
                     result: None,
                     progress: 0,
+                    update: Some(ast::repo::StatusUpdate {
+                        status: "Failed".to_string(),
+                        message: format!("Error: {:?}", e),
+                        step: 0,
+                        total_steps: 16,
+                        progress: 0,
+                        stats: None,
+                        step_description: Some("Failed".to_string()),
+                    }),
                 };
-                map.insert(request_id_clone.clone(), entry);
+                map.insert(request_id_for_work.clone(), entry);
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {
                         let payload = WebhookPayload {
-                            request_id: request_id_clone.clone(),
+                            request_id: request_id_for_work.to_string(),
                             status: "Failed".to_string(),
                             progress: 0,
                             result: None,
@@ -615,7 +729,7 @@ pub async fn sync_async(
                         let client = Client::new();
                         let _ = crate::webhook::send_with_retries(
                             &client,
-                            &request_id_clone,
+                            &request_id_for_work.to_string(),
                             &valid,
                             &payload,
                         )
