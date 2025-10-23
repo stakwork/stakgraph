@@ -62,7 +62,7 @@ pub struct FetchRepoResponse {
 pub enum AsyncStatus {
     InProgress,
     Complete,
-    Failed(String),
+    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
