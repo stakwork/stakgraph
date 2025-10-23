@@ -641,7 +641,9 @@ pub async fn get_status(
     } else {
         (
             StatusCode::NOT_FOUND,
-            format!("Request ID {} not found", request_id),
+            Json(serde_json::json!({
+                "error": format!("Request ID {} not found", request_id)
+            })),
         )
             .into_response()
     }
