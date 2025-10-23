@@ -3,9 +3,13 @@ import { get_context } from "./agent.js";
 import { ToolsConfig, getDefaultToolDescriptions } from "./tools.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
+import * as asyncReqs from "../graph/reqs.js";
 
 export async function repo_agent(req: Request, res: Response) {
-  console.log("===> repo_agent", req.body);
+  // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
+  // curl "http://localhost:3355/progress?request_id=123"
+  console.log("===> repo_agent", req.body, req.body.prompt);
+  const request_id = asyncReqs.startReq();
   try {
     const repoUrl = req.body.repo_url as string;
     const username = req.body.username as string | undefined;
@@ -19,16 +23,26 @@ export async function repo_agent(req: Request, res: Response) {
       return;
     }
 
-    const repoDir = await cloneOrUpdateRepo(repoUrl, username, pat, commit);
-
-    console.log(`===> POST /repo/agent ${repoDir}`);
-
-    const result = await get_context(prompt, repoDir, pat, toolsConfig);
-
-    // console.log("===> final_answer", result.final);
-    res.json({ success: true, final_answer: result.final, usage: result.usage });
-  } catch (e) {
-    console.error("Error in repo_agent", e);
+    cloneOrUpdateRepo(repoUrl, username, pat, commit)
+      .then((repoDir) => {
+        console.log(`===> POST /repo/agent ${repoDir}`);
+        return get_context(prompt, repoDir, pat, toolsConfig);
+      })
+      .then((result) => {
+        asyncReqs.finishReq(request_id, {
+          success: true,
+          final_answer: result.final,
+          usage: result.usage,
+        });
+      })
+      .catch((error) => {
+        asyncReqs.failReq(request_id, error);
+      });
+    res.json({ request_id, status: "pending" });
+  } catch (error) {
+    console.log("===> error", error);
+    asyncReqs.failReq(request_id, error);
+    console.error("Error in repo_agent", error);
     res.status(500).json({ error: "Internal server error" });
   }
 }
