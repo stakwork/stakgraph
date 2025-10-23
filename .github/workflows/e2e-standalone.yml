@@ -16,6 +16,15 @@ jobs:
       - name: Checkout from Github
         uses: actions/checkout@v4
 
+      - name: Setup Rust cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-v2-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Give Permission
         working-directory: ./mcp
         run: |
