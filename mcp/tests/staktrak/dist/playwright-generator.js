@@ -196,6 +196,42 @@ var PlaywrightGenerator = (() => {
     }
   }
 
+  // src/utils.ts
+  function getRelativeUrl(url) {
+    if (!url)
+      return "/";
+    let pathname;
+    let search = "";
+    let hash = "";
+    try {
+      const urlObj = new URL(url);
+      pathname = urlObj.pathname;
+      search = urlObj.search;
+      hash = urlObj.hash;
+    } catch (e) {
+      if (!url.startsWith("/")) {
+        return url;
+      }
+      const hashIndex = url.indexOf("#");
+      const searchIndex = url.indexOf("?");
+      if (hashIndex !== -1) {
+        pathname = url.substring(0, hashIndex);
+        hash = url.substring(hashIndex);
+      } else if (searchIndex !== -1) {
+        pathname = url.substring(0, searchIndex);
+        search = url.substring(searchIndex);
+      } else {
+        pathname = url;
+      }
+    }
+    const workspacePattern = /^\/w\/[a-zA-Z0-9_-]+/;
+    pathname = pathname.replace(workspacePattern, "");
+    if (!pathname) {
+      pathname = "/";
+    }
+    return pathname + search + hash;
+  }
+
   // src/playwright-generator.ts
   var RecordingManager = class {
     constructor() {
@@ -287,7 +323,7 @@ var PlaywrightGenerator = (() => {
         case "navigation":
           return __spreadProps(__spreadValues({}, baseAction), {
             type: "goto",
-            url: eventData.url
+            url: getRelativeUrl(eventData.url)
           });
         case "input":
           return __spreadProps(__spreadValues({}, baseAction), {
@@ -428,7 +464,7 @@ var PlaywrightGenerator = (() => {
       var _a, _b, _c, _d, _e;
       switch (action.type) {
         case "goto":
-          return `  await page.goto('${action.url || baseUrl}');`;
+          return `  await page.goto('${getRelativeUrl(action.url || baseUrl)}');`;
         case "waitForURL":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;

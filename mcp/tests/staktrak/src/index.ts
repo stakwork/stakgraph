@@ -5,6 +5,7 @@ import {
   getElementSelector,
   createClickDetail,
   filterClickDetails,
+  getRelativeUrl,
 } from "./utils";
 import { debugMsg, isReactDevModeActive } from "./debug";
 import { initPlaywrightReplay } from "./playwright-replay/index";
@@ -657,7 +658,7 @@ class UserBehaviorTracker {
       try {
         const dest = new URL(href, window.location.href);
         if (dest.origin === window.location.origin) {
-          const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
+          const navAction = { type: "anchorClick", url: getRelativeUrl(dest.href), timestamp: getTimeStamp() };
 
           // Only record navigation when actively recording
           if (this.isRunning) {
