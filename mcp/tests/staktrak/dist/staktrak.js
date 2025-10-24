@@ -5438,19 +5438,21 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
           const dest = new URL(href, window.location.href);
           if (dest.origin === window.location.origin) {
             const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
-            this.results.pageNavigation.push(navAction);
-            window.parent.postMessage(
-              {
-                type: "staktrak-action-added",
-                action: {
-                  id: navAction.timestamp + "_nav",
-                  kind: "nav",
-                  timestamp: navAction.timestamp,
-                  url: navAction.url
-                }
-              },
-              "*"
-            );
+            if (this.isRunning) {
+              this.results.pageNavigation.push(navAction);
+              window.parent.postMessage(
+                {
+                  type: "staktrak-action-added",
+                  action: {
+                    id: navAction.timestamp + "_nav",
+                    kind: "nav",
+                    timestamp: navAction.timestamp,
+                    url: navAction.url
+                  }
+                },
+                "*"
+              );
+            }
           }
         } catch (e2) {
         }
