@@ -29,20 +29,20 @@ impl StatusUpdate {
 impl Repo {
     pub fn send_status_update(&self, msg: &str, step: u32) {
         let step_description = match msg {
-            "initialization" => "Initializing repository, directories, and files",
+            "initialization" => "Cloning repository",
             "setup_lsp" => "Initializing language server",
-            "process_libraries" => "Analyzing libraries",
-            "process_imports" => "Processing imports",
+            "process_libraries" => "Scanning libraries",
+            "process_imports" => "Scanning imports",
             "process_variables" => "Analyzing variables",
             "process_classes" => "Detecting classes",
             "process_instances_and_traits" => "Processing traits",
             "process_data_models" => "Analyzing data models",
             "process_functions_and_tests" => "Processing functions and tests",
-            "process_pages_and_templates" => "Analyzing pages and templates",
+            "process_pages_and_templates" => "Analyzing pages",
             "process_endpoints" => "Detecting endpoints",
             "process_integration_tests" => "Processing tests",
             "process_function_calls" => "Analyzing function calls",
-            "linking_graphs" => "Linking graphs",
+            "linking_graphs" => "Linking code relationships",
             _ => msg,
         };
 
