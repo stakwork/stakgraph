@@ -45,19 +45,27 @@ impl Repo {
         self.build_graph_inner().await
     }
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
+        let streaming = std::env::var("STREAM_UPLOAD").is_ok();
+        self.build_graph_inner_with_streaming(streaming).await
+    }
+    pub async fn build_graph_inner_with_streaming<G: Graph>(
+        &self,
+        streaming: bool,
+    ) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         let mut stats = std::collections::HashMap::new();
 
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<StreamingUploadContext> =
-            if std::env::var("STREAM_UPLOAD").is_ok() {
-                let g = Neo4jGraph::default();
-                let _ = g.connect().await;
-                Some(StreamingUploadContext::new(g))
-            } else {
-                None
-            };
+        let mut streaming_ctx: Option<StreamingUploadContext> = if streaming {
+            use super::streaming::enable_streaming;
+            enable_streaming();
+            let g = Neo4jGraph::default();
+            let _ = g.connect().await;
+            Some(StreamingUploadContext::new(g))
+        } else {
+            None
+        };
 
         self.send_status_update("initialization", 1);
         self.add_repository_and_language_nodes(&mut graph).await?;
@@ -205,6 +213,13 @@ impl Repo {
         stats.insert("total_nodes".to_string(), num_of_nodes as usize);
         stats.insert("total_edges".to_string(), num_of_edges as usize);
         self.send_status_with_stats(stats);
+        
+        #[cfg(feature = "neo4j")]
+        if streaming_ctx.is_some() {
+            use super::streaming::disable_streaming;
+            disable_streaming();
+        }
+        
         Ok(graph)
     }
 }

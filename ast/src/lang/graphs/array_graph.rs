@@ -107,9 +107,7 @@ impl Graph for ArrayGraph {
         if self.edge_keys.insert(key) {
             self.edges.push(edge);
             #[cfg(feature = "neo4j")]
-            if std::env::var("STREAM_UPLOAD").is_ok() {
-                streaming::record_edge(self.edges.last().unwrap());
-            }
+            streaming::record_edge(self.edges.last().unwrap());
         }
     }
 
@@ -121,7 +119,7 @@ impl Graph for ArrayGraph {
             self.node_keys.insert(key);
             self.nodes.push(new_node);
             #[cfg(feature = "neo4j")]
-            if std::env::var("STREAM_UPLOAD").is_ok() {
+            {
                 let n = self.nodes.last().unwrap();
                 streaming::record_node(&n.node_type, &n.node_data);
             }

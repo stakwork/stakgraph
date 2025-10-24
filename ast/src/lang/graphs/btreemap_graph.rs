@@ -53,9 +53,7 @@ impl Graph for BTreeMapGraph {
     }
     fn add_edge(&mut self, edge: Edge) {
         #[cfg(feature = "neo4j")]
-        if std::env::var("STREAM_UPLOAD").is_ok() {
-            streaming::record_edge(&edge);
-        }
+        streaming::record_edge(&edge);
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
         let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge.clone());
@@ -67,9 +65,7 @@ impl Graph for BTreeMapGraph {
         let node_key = create_node_key(&node);
         self.nodes.insert(node_key.clone(), node);
         #[cfg(feature = "neo4j")]
-        if std::env::var("STREAM_UPLOAD").is_ok() {
-            streaming::record_node(&node_type, &node_data);
-        }
+        streaming::record_node(&node_type, &node_data);
     }
 
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {

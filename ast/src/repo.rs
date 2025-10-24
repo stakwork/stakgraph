@@ -93,7 +93,7 @@ impl Repos {
             };
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
-            let subgraph = repo.build_graph_inner().await?;
+            let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {

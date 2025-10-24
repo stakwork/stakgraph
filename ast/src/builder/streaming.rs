@@ -84,16 +84,30 @@ impl StreamingUploadContext {
 }
 
 use lazy_static::lazy_static;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 lazy_static! {
-    static ref STREAM_ENABLED: bool = std::env::var("STREAM_UPLOAD").is_ok();
     static ref DELTA_NODES: Mutex<Vec<(String, BoltMap)>> = Mutex::new(Vec::new());
     static ref DELTA_EDGES: Mutex<Vec<Edge>> = Mutex::new(Vec::new());
 }
 
+static STREAM_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_streaming() {
+    STREAM_ENABLED.store(true, Ordering::Relaxed);
+}
+
+pub fn disable_streaming() {
+    STREAM_ENABLED.store(false, Ordering::Relaxed);
+}
+
+pub fn is_streaming_enabled() -> bool {
+    STREAM_ENABLED.load(Ordering::Relaxed)
+}
+
 pub fn record_node(nt: &NodeType, nd: &NodeData) {
-    if !*STREAM_ENABLED {
+    if !is_streaming_enabled() {
         return;
     }
     if let Ok(mut g) = DELTA_NODES.lock() {
@@ -101,7 +115,7 @@ pub fn record_node(nt: &NodeType, nd: &NodeData) {
     }
 }
 pub fn record_edge(e: &Edge) {
-    if !*STREAM_ENABLED {
+    if !is_streaming_enabled() {
         return;
     }
     if let Ok(mut g) = DELTA_EDGES.lock() {
