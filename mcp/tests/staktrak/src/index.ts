@@ -600,23 +600,29 @@ class UserBehaviorTracker {
         url: document.URL,
         timestamp: getTimeStamp(),
       };
-      this.results.pageNavigation.push(navAction);
-      // Send complete navigation data to parent
-      this.sendEventToParent("navigation", navAction);
 
-      // Broadcast navigation action in real-time
-      window.parent.postMessage(
-        {
-          type: "staktrak-action-added",
-          action: {
-            id: navAction.timestamp + "_nav",
-            kind: "nav",
-            timestamp: navAction.timestamp,
-            url: navAction.url,
+      // Only record navigation when actively recording
+      if (this.isRunning) {
+        this.results.pageNavigation.push(navAction);
+        // Send complete navigation data to parent
+        this.sendEventToParent("navigation", navAction);
+
+        // Broadcast navigation action in real-time
+        window.parent.postMessage(
+          {
+            type: "staktrak-action-added",
+            action: {
+              id: navAction.timestamp + "_nav",
+              kind: "nav",
+              timestamp: navAction.timestamp,
+              url: navAction.url,
+            },
           },
-        },
-        "*"
-      );
+          "*"
+        );
+      }
+
+      // Always update the current URL display (even when not recording)
       window.parent.postMessage({ type: "staktrak-page-navigation", data: document.URL }, "*");
     };
 
@@ -652,21 +658,25 @@ class UserBehaviorTracker {
         const dest = new URL(href, window.location.href);
         if (dest.origin === window.location.origin) {
           const navAction = { type: "anchorClick", url: dest.href, timestamp: getTimeStamp() };
-          this.results.pageNavigation.push(navAction);
 
-          // Broadcast navigation action in real-time
-          window.parent.postMessage(
-            {
-              type: "staktrak-action-added",
-              action: {
-                id: navAction.timestamp + "_nav",
-                kind: "nav",
-                timestamp: navAction.timestamp,
-                url: navAction.url,
+          // Only record navigation when actively recording
+          if (this.isRunning) {
+            this.results.pageNavigation.push(navAction);
+
+            // Broadcast navigation action in real-time
+            window.parent.postMessage(
+              {
+                type: "staktrak-action-added",
+                action: {
+                  id: navAction.timestamp + "_nav",
+                  kind: "nav",
+                  timestamp: navAction.timestamp,
+                  url: navAction.url,
+                },
               },
-            },
-            "*"
-          );
+              "*"
+            );
+          }
         }
       } catch {}
     };
