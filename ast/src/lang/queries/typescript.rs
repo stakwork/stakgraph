@@ -69,7 +69,7 @@ impl Stack for TypeScript {
         ))
     }
     fn variables_query(&self) -> Option<String> {
-        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
+        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)(call_expression)";
         Some(format!(
             r#"(program
                     (export_statement
@@ -173,19 +173,34 @@ impl Stack for TypeScript {
     }
 
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"(call_expression
-                function: (member_expression
-                    object: (identifier)
-                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
-                )
-                arguments: (arguments
-                    (string) @{ENDPOINT}
-                    (identifier) @{HANDLER}
-                )
-                ) @{ROUTE}
-            "#
-        )]
+        vec![
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{OPERAND}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (identifier) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{OPERAND}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (arrow_function) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+        ]
     }
 
     fn handler_method_query(&self) -> Option<String> {
@@ -223,6 +238,20 @@ impl Stack for TypeScript {
         }
         None
     }
+    fn endpoint_group_find(&self) -> Option<String> {
+        Some(format!(
+            r#"(call_expression
+                function: (member_expression
+                    object: (identifier) @app_obj
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "use")
+                )
+                arguments: (arguments
+                    (string) @{ENDPOINT}
+                    (identifier) @{ENDPOINT_GROUP}
+                )
+            ) @{ROUTE}"#
+        ))
+}
 
     /*
     POSSIBLE QUERY FOR DATA MODEL that picks up interfaces without methods -- needs work

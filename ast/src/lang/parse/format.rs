@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::lang::call_finder::node_data_finder;
-use crate::lang::parse::extract_methods_from_handler;
+use crate::lang::parse::*;
 use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
@@ -327,24 +327,30 @@ impl Lang {
                 endp.start = node.start_position().row;
                 endp.end = node.end_position().row;
             } else if o == HANDLER {
-                // tracing::info!("found HANDLER {:?} {:?}", body, endp.name);
                 let handler_name = trim_quotes(&body);
-                endp.add_handler(&handler_name);
-                let p = node.start_position();
-                handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
-                if let Some(graph) = graph {
-                    // collect parents
-                    params.parents =
-                        self.lang.find_endpoint_parents(node, code, file, &|name| {
-                            graph
-                                .find_nodes_by_name(NodeType::Function, name)
-                                .first()
-                                .cloned()
-                        })?;
+                
+                if inline_code(&handler_name) {
+                    endp.meta.insert("handler".to_string(), "anonymous".to_string());
+                } else {
+                    endp.add_handler(&handler_name);
+                    let p = node.start_position();
+                    handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
+                    if let Some(graph) = graph {
+                        params.parents =
+                            self.lang.find_endpoint_parents(node, code, file, &|name| {
+                                graph
+                                    .find_nodes_by_name(NodeType::Function, name)
+                                    .first()
+                                    .cloned()
+                            })?;
+                    }
                 }
             } else if o == HANDLER_ACTIONS_ARRAY {
                 // [:destroy, :index]
                 params.actions_array = Some(body);
+            } else if o == OPERAND {
+                println!("=> OPERAND found: {:?}", body);
+                endp.meta.insert("router".to_string(), body);
             } else if o == ENDPOINT_VERB {
                 endp.add_verb(&body.to_uppercase());
             } else if o == REQUEST_CALL {
@@ -498,6 +504,7 @@ impl Lang {
                 }
             }
         }
+        println!("ENDPOINTS : {:#?} and HANDLER: {:#?}", endp, handler);
         Ok(vec![(endp, handler)])
     }
     pub fn format_data_model(

@@ -36,6 +36,14 @@ pub fn is_capitalized(name: &str) -> bool {
     name.chars().next().unwrap().is_uppercase()
 }
 
+pub fn inline_code(text: &str) -> bool {
+    text.len() > 50 
+        || text.contains("=>") 
+        || text.contains(" {")
+        || text.contains("async ")
+        || text.contains("function")
+}
+
 // FIXME also find it its in range!!! not just on the line!!!
 pub fn find_def<G: Graph>(
     pos: Option<Position>,
