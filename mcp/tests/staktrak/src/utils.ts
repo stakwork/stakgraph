@@ -814,7 +814,6 @@ function inferRole(el: HTMLElement): string | null {
 
 /**
  * Extracts the relative URL (pathname + search + hash) from a full URL
- * and removes workspace prefix (/w/[slug]) to show only the page path
  * Returns "/" if the URL is just a domain without a path
  * Returns the original string if it's already a relative URL or can't be parsed
  */
@@ -850,11 +849,6 @@ export function getRelativeUrl(url: string): string {
       pathname = url;
     }
   }
-
-  // Remove workspace prefix pattern: /w/[slug]/
-  // Match /w/ followed by any slug (alphanumeric, hyphens, underscores) followed by /
-  const workspacePattern = /^\/w\/[a-zA-Z0-9_-]+/;
-  pathname = pathname.replace(workspacePattern, "");
 
   // If pathname is now empty, default to "/"
   if (!pathname) {
