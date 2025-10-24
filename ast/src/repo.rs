@@ -97,9 +97,9 @@ impl Repos {
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
-                let (dn, de) = drain_deltas();
-                if !(dn.is_empty() && de.is_empty()) {
-                    let _ = uploader.flush_stage(neo, "repo_complete", &dn, &de).await;
+                let dn = drain_deltas();
+                if !dn.is_empty() {
+                    let _ = uploader.flush_stage(neo, "repo_complete", &dn).await;
                 }
             }
         }
@@ -113,16 +113,28 @@ impl Repos {
         linker::link_api_nodes(&mut graph)?;
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming_ctx {
-            let (dn, de) = drain_deltas();
-            if !(dn.is_empty() && de.is_empty()) {
+            let dn = drain_deltas();
+            if !dn.is_empty() {
                 let _ = uploader
-                    .flush_stage(neo, "cross_repo_linking", &dn, &de)
+                    .flush_stage(neo, "cross_repo_linking", &dn)
                     .await;
             }
         }
 
         let (nodes_size, edges_size) = graph.get_graph_size();
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
+        
+        #[cfg(feature = "neo4j")]
+        if let Some((neo, uploader)) = &mut streaming_ctx {
+            // Bulk upload all edges at the end
+            let edges = graph.get_edges_vec();
+            info!("Bulk uploading {} edges from multi-repo graph", edges.len());
+            let _ = uploader.flush_edges(neo, &edges).await;
+            
+            use crate::builder::streaming::disable_streaming;
+            disable_streaming();
+        }
+        
         Ok(graph)
     }
 }

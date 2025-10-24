@@ -259,7 +259,7 @@ pub async fn ingest(
     );
 
     repos.set_status_tx(state.tx.clone()).await;
-    let streaming = body.stream.unwrap_or_else(|| std::env::var("STREAM_UPLOAD").is_ok());
+    let streaming = body.realtime.unwrap_or(false);
     if streaming {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect().await?;

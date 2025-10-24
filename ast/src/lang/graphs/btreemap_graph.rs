@@ -52,8 +52,6 @@ impl Graph for BTreeMapGraph {
         (self.nodes.len() as u32, self.edges.len() as u32)
     }
     fn add_edge(&mut self, edge: Edge) {
-        #[cfg(feature = "neo4j")]
-        streaming::record_edge(&edge);
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
         let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge.clone());
@@ -63,7 +61,7 @@ impl Graph for BTreeMapGraph {
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
         let node = Node::new(node_type.clone(), node_data.clone());
         let node_key = create_node_key(&node);
-        self.nodes.insert(node_key.clone(), node);
+        self.nodes.insert(node_key, node);
         #[cfg(feature = "neo4j")]
         streaming::record_node(&node_type, &node_data);
     }
@@ -810,6 +808,10 @@ impl Graph for BTreeMapGraph {
         } else {
             return false;
         }
+    }
+
+    fn get_edges_vec(&self) -> Vec<Edge> {
+        self.to_array_graph_edges()
     }
 }
 

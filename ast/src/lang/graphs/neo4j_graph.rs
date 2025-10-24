@@ -1604,4 +1604,8 @@ impl Graph for Neo4jGraph {
     fn has_edge(&self, source: &Node, target: &Node, edge_type: EdgeType) -> bool {
         sync_fn(|| async { self.has_edge_async(source, target, edge_type).await })
     }
+
+    fn get_edges_vec(&self) -> Vec<Edge> {
+        Vec::new()
+    }
 }

@@ -106,8 +106,6 @@ impl Graph for ArrayGraph {
 
         if self.edge_keys.insert(key) {
             self.edges.push(edge);
-            #[cfg(feature = "neo4j")]
-            streaming::record_edge(self.edges.last().unwrap());
         }
     }
 
@@ -791,6 +789,10 @@ impl Graph for ArrayGraph {
                 && edge.target.node_data.name == target.node_data.name
                 && edge.target.node_data.file.ends_with(&target.node_data.file)
         })
+    }
+
+    fn get_edges_vec(&self) -> Vec<Edge> {
+        self.edges.clone()
     }
 }
 
