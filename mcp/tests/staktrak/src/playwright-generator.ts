@@ -1,5 +1,6 @@
 import { Action, resultsToActions } from "./actionModel";
 import { Results as TrackingResults } from "./types";
+import { getRelativeUrl } from "./utils";
 
 export interface GenerateOptions {
   baseUrl?: string;
@@ -107,7 +108,7 @@ export class RecordingManager {
         return {
           ...baseAction,
           type: "goto",
-          url: eventData.url,
+          url: getRelativeUrl(eventData.url),
         } as Action;
       case "input":
         return {
@@ -271,7 +272,7 @@ export function generatePlaywrightTestFromActions(
     .map((action) => {
       switch (action.type) {
         case "goto":
-          return `  await page.goto('${action.url || baseUrl}');`;
+          return `  await page.goto('${getRelativeUrl(action.url || baseUrl)}');`;
         case "waitForURL":
           if (action.normalizedUrl) {
             return `  await page.waitForURL('${action.normalizedUrl}');`;
