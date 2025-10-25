@@ -255,7 +255,7 @@ impl GraphOps {
 
         let streaming = streaming.unwrap_or(false);
         let temp_graph = if streaming {
-            repos.build_graphs_inner_with_streaming::<BTreeMapGraph>(streaming).await?
+            repos.build_graphs_btree_with_streaming(streaming).await?
         } else {
             repos.build_graphs_inner::<BTreeMapGraph>().await?
         };

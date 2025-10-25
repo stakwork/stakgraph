@@ -1,6 +1,6 @@
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
-use crate::builder::streaming::{drain_deltas, GraphStreamingUploader};
+use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
 use crate::lang::graphs::Graph;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
@@ -70,8 +70,11 @@ impl Repos {
     pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {
         self.build_graphs_inner().await
     }
+        pub async fn build_graphs_btree_with_streaming(&self, streaming: bool) -> Result<BTreeMapGraph> {
+        self.build_graphs_inner_impl::<BTreeMapGraph>(streaming).await
+    }
     pub async fn build_graphs_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
-        self.build_graphs_inner_impl(streaming).await
+        self.build_graphs_inner_impl(streaming).await 
     }
     pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
@@ -82,6 +85,9 @@ impl Repos {
             return Err(Error::Custom("Language is not supported".into()));
         }
         let mut graph = G::new(String::new(), Language::Typescript);
+        if streaming {
+            graph.set_realtime(true);
+        }
         #[cfg(feature = "neo4j")]
         let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
             if streaming {
@@ -93,13 +99,14 @@ impl Repos {
             };
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
-            let subgraph = repo.build_graph_inner().await?;
+            let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
-                let (dn, de) = drain_deltas();
-                if !(dn.is_empty() && de.is_empty()) {
-                    let _ = uploader.flush_stage(neo, "repo_complete", &dn, &de).await;
+                let pending = graph.drain_pending_uploads();
+                if !pending.is_empty() {
+                    let bolt_nodes = nodes_to_bolt_format(pending);
+                    let _ = uploader.flush_stage(neo, "repo_complete", &bolt_nodes).await;
                 }
             }
         }
@@ -113,16 +120,31 @@ impl Repos {
         linker::link_api_nodes(&mut graph)?;
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming_ctx {
-            let (dn, de) = drain_deltas();
-            if !(dn.is_empty() && de.is_empty()) {
+            let pending = graph.drain_pending_uploads();
+            if !pending.is_empty() {
+                let bolt_nodes = nodes_to_bolt_format(pending);
                 let _ = uploader
-                    .flush_stage(neo, "cross_repo_linking", &dn, &de)
+                    .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
                     .await;
             }
         }
+        
+        #[cfg(feature = "neo4j")]
+        let final_edges = if streaming_ctx.is_some() {
+            graph.get_edges_vec()
+        } else {
+            vec![]
+        };
 
         let (nodes_size, edges_size) = graph.get_graph_size();
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
+        
+        #[cfg(feature = "neo4j")]
+        if let Some((neo, uploader)) = &mut streaming_ctx {
+            info!("Bulk uploading {} edges from multi-repo graph (includes cross-repo edges)", final_edges.len());
+            let _ = uploader.flush_edges(neo, &final_edges).await;
+        }
+        
         Ok(graph)
     }
 }

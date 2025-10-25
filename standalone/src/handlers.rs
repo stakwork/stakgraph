@@ -259,7 +259,7 @@ pub async fn ingest(
     );
 
     repos.set_status_tx(state.tx.clone()).await;
-    let streaming = body.stream.unwrap_or_else(|| std::env::var("STREAM_UPLOAD").is_ok());
+    let streaming = body.realtime.unwrap_or(false);
     if streaming {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect().await?;
@@ -272,7 +272,7 @@ pub async fn ingest(
 
     let start_build = Instant::now();
     let btree_graph = repos
-        .build_graphs_inner_with_streaming::<ast::lang::graphs::BTreeMapGraph>(streaming)
+        .build_graphs_btree_with_streaming(streaming)
         .await
         .map_err(|e| {
             WebError(shared::Error::Custom(format!(
