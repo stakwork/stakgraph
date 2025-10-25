@@ -1,5 +1,5 @@
 #[cfg(feature = "neo4j")]
-use super::streaming::{drain_deltas, StreamingUploadContext};
+use super::streaming::{nodes_to_bolt_format, StreamingUploadContext};
 use super::utils::*;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
@@ -34,16 +34,17 @@ impl Repo {
     pub async fn build_graph(&self) -> Result<BTreeMapGraph> {
         self.build_graph_inner().await
     }
-    pub async fn build_graph_array(&self) -> Result<ArrayGraph> {
+    pub async fn build_graph_btree(&self) -> Result<BTreeMapGraph> {
         self.build_graph_inner().await
     }
-    pub async fn build_graph_btree(&self) -> Result<BTreeMapGraph> {
+    pub async fn build_graph_array(&self) -> Result<ArrayGraph> {
         self.build_graph_inner().await
     }
     #[cfg(feature = "neo4j")]
     pub async fn build_graph_neo4j(&self) -> Result<Neo4jGraph> {
         self.build_graph_inner().await
     }
+
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graph_inner_with_streaming(streaming).await
@@ -54,12 +55,15 @@ impl Repo {
     ) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
+        
+        if streaming {
+            graph.set_realtime(true);  // Enable realtime tracking via trait method
+        }
+        
         let mut stats = std::collections::HashMap::new();
 
         #[cfg(feature = "neo4j")]
         let mut streaming_ctx: Option<StreamingUploadContext> = if streaming {
-            use super::streaming::enable_streaming;
-            enable_streaming();
             let g = Neo4jGraph::default();
             let _ = g.connect().await;
             Some(StreamingUploadContext::new(g))
@@ -71,11 +75,11 @@ impl Repo {
         self.add_repository_and_language_nodes(&mut graph).await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "repository_language", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "repository_language", &bolt_nodes)
+                .await?;
         }
         let files = self.collect_and_add_directories(&mut graph)?;
         stats.insert("directories".to_string(), files.len());
@@ -86,8 +90,9 @@ impl Repo {
         self.send_status_progress(100, 100, 1);
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx.uploader.flush_stage(&ctx.neo, "files", &dn).await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader.flush_stage(&ctx.neo, "files", &bolt_nodes).await?;
         }
 
         self.setup_lsp(&filez)?;
@@ -100,104 +105,105 @@ impl Repo {
         self.process_libraries(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "libraries", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
+                .await?;
         }
         self.process_import_sections(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "imports", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "imports", &bolt_nodes)
+                .await?;
         }
         self.process_variables(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "variables", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "variables", &bolt_nodes)
+                .await?;
         }
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "classes", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "classes", &bolt_nodes)
+                .await?;
         }
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "instances_traits", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
+                .await?;
         }
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "implements", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "implements", &bolt_nodes)
+                .await?;
         }
         self.process_data_models(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "data_models", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
+                .await?;
         }
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "functions_tests", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
+                .await?;
         }
         self.process_pages_and_templates(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "pages_templates", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
+                .await?;
         }
         self.process_endpoints(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "endpoints", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
+                .await?;
         }
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let dn = drain_deltas();
-            let _ = ctx
-                .uploader
-                .flush_stage(&ctx.neo, "finalize", &dn)
-                .await;
+            let pending = graph.drain_pending_uploads();
+            let bolt_nodes = nodes_to_bolt_format(pending);
+            ctx.uploader
+                .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
+                .await?;
         }
+        
         let graph = filter_by_revs(
             &self.root.to_str().unwrap(),
             self.revs.clone(),
@@ -213,17 +219,6 @@ impl Repo {
         stats.insert("total_nodes".to_string(), num_of_nodes as usize);
         stats.insert("total_edges".to_string(), num_of_edges as usize);
         self.send_status_with_stats(stats);
-        
-        #[cfg(feature = "neo4j")]
-        if let Some(ctx) = &mut streaming_ctx {
-            // Bulk upload all edges at the end
-            let edges = graph.get_edges_vec();
-            info!("Bulk uploading {} edges", edges.len());
-            let _ = ctx.uploader.flush_edges(&ctx.neo, &edges).await;
-            
-            use super::streaming::disable_streaming;
-            disable_streaming();
-        }
         
         Ok(graph)
     }

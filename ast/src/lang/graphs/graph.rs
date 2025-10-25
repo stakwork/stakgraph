@@ -49,6 +49,13 @@ pub trait Graph: Default + Debug {
     fn add_edge(&mut self, edge: Edge);
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData);
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>);
+    
+    fn drain_pending_uploads(&mut self) -> Vec<(NodeType, NodeData)> {
+        vec![]  // Default: no pending uploads for non-streaming graphs
+    }
+    fn set_realtime(&mut self, _enabled: bool) {
+        // Default: no-op for non-streaming graphs
+    }
 
     fn find_source_edge_by_name_and_file(
         &self,

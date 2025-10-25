@@ -1,6 +1,4 @@
 use super::{graph::Graph, *};
-#[cfg(feature = "neo4j")]
-use crate::builder::streaming;
 use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
@@ -116,11 +114,6 @@ impl Graph for ArrayGraph {
         if !self.node_keys.contains(&key) {
             self.node_keys.insert(key);
             self.nodes.push(new_node);
-            #[cfg(feature = "neo4j")]
-            {
-                let n = self.nodes.last().unwrap();
-                streaming::record_node(&n.node_type, &n.node_data);
-            }
         }
     }
 

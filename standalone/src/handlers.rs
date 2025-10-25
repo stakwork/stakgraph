@@ -272,7 +272,7 @@ pub async fn ingest(
 
     let start_build = Instant::now();
     let btree_graph = repos
-        .build_graphs_inner_with_streaming::<ast::lang::graphs::BTreeMapGraph>(streaming)
+        .build_graphs_btree_with_streaming(streaming)
         .await
         .map_err(|e| {
             WebError(shared::Error::Custom(format!(

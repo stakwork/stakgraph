@@ -1,6 +1,4 @@
 use super::{graph::Graph, *};
-#[cfg(feature = "neo4j")]
-use crate::builder::streaming;
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
@@ -13,6 +11,10 @@ pub struct BTreeMapGraph {
     pub nodes: BTreeMap<String, Node>,
     pub edges: BTreeSet<(String, String, EdgeType)>,
     #[serde(skip)]
+    pub pending_uploads: Vec<(NodeType, NodeData)>,
+    #[serde(skip)]
+    pub realtime: bool,
+    #[serde(skip)]
     edge_keys: HashSet<String>,
 }
 
@@ -21,6 +23,8 @@ impl Graph for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
+            pending_uploads: Vec::new(),
+            realtime: false,
             edge_keys: HashSet::new(),
         }
     }
@@ -62,8 +66,10 @@ impl Graph for BTreeMapGraph {
         let node = Node::new(node_type.clone(), node_data.clone());
         let node_key = create_node_key(&node);
         self.nodes.insert(node_key, node);
-        #[cfg(feature = "neo4j")]
-        streaming::record_node(&node_type, &node_data);
+        
+        if self.realtime {
+            self.pending_uploads.push((node_type, node_data));
+        }
     }
 
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
@@ -813,6 +819,13 @@ impl Graph for BTreeMapGraph {
     fn get_edges_vec(&self) -> Vec<Edge> {
         self.to_array_graph_edges()
     }
+    
+    fn drain_pending_uploads(&mut self) -> Vec<(NodeType, NodeData)> {
+        std::mem::take(&mut self.pending_uploads)
+    }
+    fn set_realtime(&mut self, enabled: bool) {
+        self.realtime = enabled;
+    }
 }
 
 impl BTreeMapGraph {
@@ -864,6 +877,8 @@ impl Default for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
+            pending_uploads: Vec::new(),
+            realtime: false,
             edge_keys: HashSet::new(),
         }
     }
