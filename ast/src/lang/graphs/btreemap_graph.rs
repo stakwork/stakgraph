@@ -50,6 +50,7 @@ impl Graph for BTreeMapGraph {
     fn extend_graph(&mut self, other: Self) {
         self.nodes.extend(other.nodes);
         self.edges.extend(other.edges);
+        self.pending_uploads.extend(other.pending_uploads);
     }
 
     fn get_graph_size(&self) -> (u32, u32) {
