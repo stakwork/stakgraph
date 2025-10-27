@@ -85,9 +85,6 @@ impl Repos {
             return Err(Error::Custom("Language is not supported".into()));
         }
         let mut graph = G::new(String::new(), Language::Typescript);
-        if streaming {
-            graph.set_realtime(true);
-        }
         #[cfg(feature = "neo4j")]
         let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
             if streaming {
@@ -103,9 +100,9 @@ impl Repos {
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
-                let pending = graph.drain_pending_uploads();
-                if !pending.is_empty() {
-                    let bolt_nodes = nodes_to_bolt_format(pending);
+                let all_nodes = graph.get_all_nodes();
+                if !all_nodes.is_empty() {
+                    let bolt_nodes = nodes_to_bolt_format(all_nodes);
                     let _ = uploader.flush_stage(neo, "repo_complete", &bolt_nodes).await;
                 }
             }
@@ -120,9 +117,9 @@ impl Repos {
         linker::link_api_nodes(&mut graph)?;
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            if !pending.is_empty() {
-                let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            if !all_nodes.is_empty() {
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
                 let _ = uploader
                     .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
                     .await;

@@ -56,10 +56,6 @@ impl Repo {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         
-        if streaming {
-            graph.set_realtime(true);  // Enable realtime tracking via trait method
-        }
-        
         let mut stats = std::collections::HashMap::new();
 
         #[cfg(feature = "neo4j")]
@@ -75,8 +71,8 @@ impl Repo {
         self.add_repository_and_language_nodes(&mut graph).await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "repository_language", &bolt_nodes)
                 .await?;
@@ -90,8 +86,8 @@ impl Repo {
         self.send_status_progress(100, 100, 1);
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader.flush_stage(&ctx.neo, "files", &bolt_nodes).await?;
         }
 
@@ -105,8 +101,8 @@ impl Repo {
         self.process_libraries(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
                 .await?;
@@ -114,8 +110,8 @@ impl Repo {
         self.process_import_sections(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "imports", &bolt_nodes)
                 .await?;
@@ -123,8 +119,8 @@ impl Repo {
         self.process_variables(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "variables", &bolt_nodes)
                 .await?;
@@ -132,8 +128,8 @@ impl Repo {
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "classes", &bolt_nodes)
                 .await?;
@@ -141,8 +137,8 @@ impl Repo {
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
                 .await?;
@@ -150,8 +146,8 @@ impl Repo {
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "implements", &bolt_nodes)
                 .await?;
@@ -159,8 +155,8 @@ impl Repo {
         self.process_data_models(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
                 .await?;
@@ -169,8 +165,8 @@ impl Repo {
             .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
                 .await?;
@@ -178,8 +174,8 @@ impl Repo {
         self.process_pages_and_templates(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
                 .await?;
@@ -187,8 +183,8 @@ impl Repo {
         self.process_endpoints(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
                 .await?;
@@ -197,8 +193,8 @@ impl Repo {
             .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let pending = graph.drain_pending_uploads();
-            let bolt_nodes = nodes_to_bolt_format(pending);
+            let all_nodes = graph.get_all_nodes();
+            let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
                 .await?;
