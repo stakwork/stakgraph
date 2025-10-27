@@ -3,6 +3,7 @@ use crate::lang::graphs::{neo4j_utils::*, Neo4jGraph};
 use crate::lang::{Edge, NodeData, NodeType};
 use neo4rs::BoltMap;
 use shared::Result;
+use crate::utils::create_node_key_from_ref;
 use tracing::{debug, info};
 
 pub struct GraphStreamingUploader {}
@@ -40,13 +41,19 @@ impl GraphStreamingUploader {
             return Ok(());
         }
         
-        let edge_queries: Vec<(String, BoltMap)> = edges
-            .iter()
-            .map(|e| add_edge_query(e))
-            .collect();
-        
         info!(count = edges.len(), "bulk_upload_edges");
-        neo.execute_batch(edge_queries).await?;
+        let edge_queries = build_batch_edge_queries(
+            edges.iter().map(|e| {
+                (
+                    create_node_key_from_ref(&e.source),
+                    create_node_key_from_ref(&e.target),
+                    e.edge.clone(),
+                )
+            }),
+            256,
+        );
+        
+        neo.execute_simple(edge_queries).await?;
         info!(edges = edges.len(), "bulk_edges_uploaded");
         
         Ok(())

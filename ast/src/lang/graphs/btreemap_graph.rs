@@ -11,10 +11,6 @@ pub struct BTreeMapGraph {
     pub nodes: BTreeMap<String, Node>,
     pub edges: BTreeSet<(String, String, EdgeType)>,
     #[serde(skip)]
-    pub pending_uploads: Vec<(NodeType, NodeData)>,
-    #[serde(skip)]
-    pub realtime: bool,
-    #[serde(skip)]
     edge_keys: HashSet<String>,
 }
 
@@ -23,8 +19,6 @@ impl Graph for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
-            pending_uploads: Vec::new(),
-            realtime: false,
             edge_keys: HashSet::new(),
         }
     }
@@ -50,7 +44,6 @@ impl Graph for BTreeMapGraph {
     fn extend_graph(&mut self, other: Self) {
         self.nodes.extend(other.nodes);
         self.edges.extend(other.edges);
-        self.pending_uploads.extend(other.pending_uploads);
     }
 
     fn get_graph_size(&self) -> (u32, u32) {
@@ -67,10 +60,6 @@ impl Graph for BTreeMapGraph {
         let node = Node::new(node_type.clone(), node_data.clone());
         let node_key = create_node_key(&node);
         self.nodes.insert(node_key, node);
-        
-        if self.realtime {
-            self.pending_uploads.push((node_type, node_data));
-        }
     }
 
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
@@ -821,11 +810,11 @@ impl Graph for BTreeMapGraph {
         self.to_array_graph_edges()
     }
     
-    fn drain_pending_uploads(&mut self) -> Vec<(NodeType, NodeData)> {
-        std::mem::take(&mut self.pending_uploads)
-    }
-    fn set_realtime(&mut self, enabled: bool) {
-        self.realtime = enabled;
+    fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
+        self.nodes
+            .values()
+            .map(|node| (node.node_type.clone(), node.node_data.clone()))
+            .collect()
     }
 }
 
@@ -878,8 +867,6 @@ impl Default for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
-            pending_uploads: Vec::new(),
-            realtime: false,
             edge_keys: HashSet::new(),
         }
     }
