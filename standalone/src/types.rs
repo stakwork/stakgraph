@@ -30,7 +30,7 @@ pub struct ProcessBody {
     pub commit: Option<String>,
     pub branch: Option<String>,
     pub callback_url: Option<String>,
-    pub stream: Option<bool>,
+    pub realtime: Option<bool>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {

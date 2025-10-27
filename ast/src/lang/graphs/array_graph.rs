@@ -1,6 +1,4 @@
 use super::{graph::Graph, *};
-#[cfg(feature = "neo4j")]
-use crate::builder::streaming;
 use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
@@ -106,10 +104,6 @@ impl Graph for ArrayGraph {
 
         if self.edge_keys.insert(key) {
             self.edges.push(edge);
-            #[cfg(feature = "neo4j")]
-            if std::env::var("STREAM_UPLOAD").is_ok() {
-                streaming::record_edge(self.edges.last().unwrap());
-            }
         }
     }
 
@@ -120,11 +114,6 @@ impl Graph for ArrayGraph {
         if !self.node_keys.contains(&key) {
             self.node_keys.insert(key);
             self.nodes.push(new_node);
-            #[cfg(feature = "neo4j")]
-            if std::env::var("STREAM_UPLOAD").is_ok() {
-                let n = self.nodes.last().unwrap();
-                streaming::record_node(&n.node_type, &n.node_data);
-            }
         }
     }
 
@@ -793,6 +782,10 @@ impl Graph for ArrayGraph {
                 && edge.target.node_data.name == target.node_data.name
                 && edge.target.node_data.file.ends_with(&target.node_data.file)
         })
+    }
+
+    fn get_edges_vec(&self) -> Vec<Edge> {
+        self.edges.clone()
     }
 }
 
