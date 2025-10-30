@@ -1,8 +1,10 @@
 use ast::lang::graphs::NodeType;
 use ast::lang::BTreeMapGraph;
+use ast::lang::graphs::Graph;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
+use std::collections::{HashMap, HashSet};
 
 /// Limits text to n lines, with each line limited to max_line_len characters
 fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
@@ -115,6 +117,101 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     Ok(())
 }
 
+fn print_file_edges(graph: &BTreeMapGraph, files: &Vec<String>) -> anyhow::Result<()> {
+    let mut target_files: HashSet<String> = HashSet::new();
+    for f in files {
+        if let Ok(p) = std::fs::canonicalize(f) {
+            target_files.insert(p.to_string_lossy().to_string());
+        } else {
+            target_files.insert(f.clone());
+        }
+    }
+
+    let edges = graph.get_edges_vec();
+
+    for f in files {
+        let fcanon = std::fs::canonicalize(f)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| f.clone());
+
+        println!("Edges for file: {}", fcanon);
+
+        let mut outgoing: HashMap<(String, String), Vec<&ast::lang::graphs::Edge>> = HashMap::new();
+        let mut incoming: HashMap<(String, String), Vec<&ast::lang::graphs::Edge>> = HashMap::new();
+
+        for e in edges.iter() {
+            let s_file_canon = std::fs::canonicalize(&e.source.node_data.file)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| e.source.node_data.file.clone());
+            let t_file_canon = std::fs::canonicalize(&e.target.node_data.file)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| e.target.node_data.file.clone());
+
+            if !(s_file_canon == fcanon || t_file_canon == fcanon) {
+                continue;
+            }
+
+            if s_file_canon == fcanon {
+                let key = (
+                    e.source.node_data.name.clone(),
+                    format!("{:?}", e.source.node_type),
+                );
+                outgoing.entry(key).or_default().push(e);
+            }
+
+            if t_file_canon == fcanon {
+                let key = (
+                    e.target.node_data.name.clone(),
+                    format!("{:?}", e.target.node_type),
+                );
+                incoming.entry(key).or_default().push(e);
+            }
+        }
+
+        if !outgoing.is_empty() {
+            println!("  Outgoing:");
+            for ((s_name, s_type), group) in outgoing.iter() {
+                println!("    {} [{}] ->", s_name, s_type);
+                for e in group.iter() {
+                    let t_name = &e.target.node_data.name;
+                    let t_type = format!("{:?}", e.target.node_type);
+                    let t_file = &e.target.node_data.file;
+                    println!(
+                        "      - {} [{}] ({})   [{}]",
+                        t_name,
+                        t_type,
+                        t_file,
+                        e.edge.to_string()
+                    );
+                }
+            }
+        }
+
+        if !incoming.is_empty() {
+            println!("  Incoming:");
+            for ((t_name, t_type), group) in incoming.iter() {
+                println!("    {} [{}] <-", t_name, t_type);
+                for e in group.iter() {
+                    let s_name = &e.source.node_data.name;
+                    let s_type = format!("{:?}", e.source.node_type);
+                    let s_file = &e.source.node_data.file;
+                    println!(
+                        "      - {} [{}] ({})   [{}]",
+                        s_name,
+                        s_type,
+                        s_file,
+                        e.edge.to_string()
+                    );
+                }
+            }
+        }
+
+        println!();
+    }
+
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
@@ -161,8 +258,11 @@ async fn main() -> Result<()> {
     let repos = Repos(repos_vec);
     let graph = repos.build_graphs_btree().await?;
 
-    for file_path in files_to_print {
-        print_single_file_nodes(&graph, &file_path)?;
+    for file_path in &files_to_print {
+        print_single_file_nodes(&graph, file_path)?;
     }
+
+    // Print grouped edges for the requested files
+    print_file_edges(&graph, &files_to_print)?;
     Ok(())
 }
