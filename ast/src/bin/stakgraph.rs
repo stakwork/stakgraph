@@ -5,6 +5,33 @@ use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
 
+/// Parse edge key format: "{source_key}-{target_key}-{edge_type}"
+/// Returns (source_key, target_key, edge_type_str)
+fn parse_edge_key(edge_key: &str) -> Option<(String, String, String)> {
+    let parts: Vec<&str> = edge_key.rsplitn(3, '-').collect();
+    if parts.len() == 3 {
+        Some((parts[2].to_string(), parts[1].to_string(), parts[0].to_string()))
+    } else {
+        None
+    }
+}
+
+/// Parse node key format: "{nodetype}-{name}-{file}-{line}"
+/// Returns (nodetype, name, file, line)
+fn parse_node_key(node_key: &str) -> Option<(String, String, String, String)> {
+    let parts: Vec<&str> = node_key.splitn(4, '-').collect();
+    if parts.len() == 4 {
+        Some((
+            parts[0].to_string(),
+            parts[1].to_string(),
+            parts[2].to_string(),
+            parts[3].to_string(),
+        ))
+    } else {
+        None
+    }
+}
+
 /// Limits text to n lines, with each line limited to max_line_len characters
 fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
     text.lines()
@@ -106,22 +133,24 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     // Sort by start line
     nodes.sort_by_key(|node| node.node_data.start);
 
-    let edges = graph.get_edges_vec();
-    println!("Edges : {:?}", edges.len());
-
     // Print nodes in order
     for node in nodes {
         print_node_summary(node);
         
         if matches!(node.node_type, NodeType::Function) {
-            let source_key = ast::utils::create_node_key(node);
+            let source_key = ast::utils::create_node_key(node).to_lowercase();
             
-            for e in edges.iter() {
-                let edge_source_key = ast::utils::create_node_key_from_ref(&e.source);
-                
-                if edge_source_key == source_key {
-                    if matches!(e.edge, ast::lang::graphs::EdgeType::Calls | ast::lang::graphs::EdgeType::Contains) {
-                        println!("  • {} → {}", e.edge.to_string(), e.target.node_data.name);
+            for (src_key, tgt_key, edge_type) in &graph.edges {
+                if src_key.to_lowercase() == source_key {
+                    let edge_type_str = format!("{:?}", edge_type);
+                    if edge_type_str == "Calls" || edge_type_str == "Uses" || edge_type_str == "Contains" {
+                        if let Some((_, target_name, target_file, target_line)) = parse_node_key(&tgt_key.to_lowercase()) {
+                            if target_file == "unverified" {
+                                println!("  • {} → {}", edge_type_str.to_uppercase(), target_name);
+                            } else {
+                                println!("  • {} → {} (L{})", edge_type_str.to_uppercase(), target_name, target_line);
+                            }
+                        }
                     }
                 }
             }
