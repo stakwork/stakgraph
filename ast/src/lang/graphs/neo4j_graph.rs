@@ -1608,4 +1608,10 @@ impl Graph for Neo4jGraph {
     fn get_edges_vec(&self) -> Vec<Edge> {
         Vec::new()
     }
+    fn set_allow_unverified_calls(&mut self, _allow: bool) {
+        false;
+    }
+    fn get_allow_unverified_calls(&self) -> bool {
+        false
+    }
 }

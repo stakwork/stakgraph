@@ -1,20 +1,9 @@
 use ast::lang::graphs::NodeType;
 use ast::lang::BTreeMapGraph;
-use ast::lang::graphs::Graph;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
 
-/// Parse edge key format: "{source_key}-{target_key}-{edge_type}"
-/// Returns (source_key, target_key, edge_type_str)
-fn parse_edge_key(edge_key: &str) -> Option<(String, String, String)> {
-    let parts: Vec<&str> = edge_key.rsplitn(3, '-').collect();
-    if parts.len() == 3 {
-        Some((parts[2].to_string(), parts[1].to_string(), parts[0].to_string()))
-    } else {
-        None
-    }
-}
 
 /// Parse node key format: "{nodetype}-{name}-{file}-{line}"
 /// Returns (nodetype, name, file, line)
