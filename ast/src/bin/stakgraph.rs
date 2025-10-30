@@ -4,7 +4,7 @@ use ast::lang::graphs::Graph;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 /// Limits text to n lines, with each line limited to max_line_len characters
 fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
@@ -76,7 +76,6 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
         }
     }
 
-    // Always print docs if available
     if let Some(docs) = nd.meta.get("docs") {
         println!("Docs: {}", first_lines(docs, 3, 200));
     }
@@ -134,11 +133,9 @@ fn print_file_edges(graph: &BTreeMapGraph, files: &Vec<String>) -> anyhow::Resul
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| f.clone());
 
-        println!("Edges for file: {}", fcanon);
+        println!("\n═══ Edges for: {} ═══\n", fcanon);
 
-        let mut outgoing: HashMap<(String, String), Vec<&ast::lang::graphs::Edge>> = HashMap::new();
-        let mut incoming: HashMap<(String, String), Vec<&ast::lang::graphs::Edge>> = HashMap::new();
-
+        let mut file_edges = Vec::new();
         for e in edges.iter() {
             let s_file_canon = std::fs::canonicalize(&e.source.node_data.file)
                 .map(|p| p.to_string_lossy().to_string())
@@ -147,63 +144,33 @@ fn print_file_edges(graph: &BTreeMapGraph, files: &Vec<String>) -> anyhow::Resul
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| e.target.node_data.file.clone());
 
-            if !(s_file_canon == fcanon || t_file_canon == fcanon) {
-                continue;
-            }
-
-            if s_file_canon == fcanon {
-                let key = (
-                    e.source.node_data.name.clone(),
-                    format!("{:?}", e.source.node_type),
-                );
-                outgoing.entry(key).or_default().push(e);
-            }
-
-            if t_file_canon == fcanon {
-                let key = (
-                    e.target.node_data.name.clone(),
-                    format!("{:?}", e.target.node_type),
-                );
-                incoming.entry(key).or_default().push(e);
+            if s_file_canon == fcanon || t_file_canon == fcanon {
+                file_edges.push(e);
             }
         }
 
-        if !outgoing.is_empty() {
-            println!("  Outgoing:");
-            for ((s_name, s_type), group) in outgoing.iter() {
-                println!("    {} [{}] ->", s_name, s_type);
-                for e in group.iter() {
-                    let t_name = &e.target.node_data.name;
-                    let t_type = format!("{:?}", e.target.node_type);
-                    let t_file = &e.target.node_data.file;
-                    println!(
-                        "      - {} [{}] ({})   [{}]",
-                        t_name,
-                        t_type,
-                        t_file,
-                        e.edge.to_string()
-                    );
-                }
-            }
-        }
+        for e in file_edges {
+            let source_key = ast::utils::create_node_key_from_ref(&e.source);
+            let target_key = ast::utils::create_node_key_from_ref(&e.target);
+            
+            let source_node = graph.nodes.get(&source_key).unwrap();
+            let target_node = graph.nodes.get(&target_key).unwrap();
+            
+            let s_lines = format_lines(source_node.node_data.start, source_node.node_data.end);
+            let t_lines = format_lines(target_node.node_data.start, target_node.node_data.end);
 
-        if !incoming.is_empty() {
-            println!("  Incoming:");
-            for ((t_name, t_type), group) in incoming.iter() {
-                println!("    {} [{}] <-", t_name, t_type);
-                for e in group.iter() {
-                    let s_name = &e.source.node_data.name;
-                    let s_type = format!("{:?}", e.source.node_type);
-                    let s_file = &e.source.node_data.file;
-                    println!(
-                        "      - {} [{}] ({})   [{}]",
-                        s_name,
-                        s_type,
-                        s_file,
-                        e.edge.to_string()
-                    );
-                }
-            }
+            println!(
+                "({} | {} | {} | L{}) --[{}]--> ({} | {} | {} | L{})",
+                format!("{:?}", e.source.node_type),
+                e.source.node_data.name,
+                e.source.node_data.file,
+                s_lines,
+                e.edge.to_string(),
+                format!("{:?}", e.target.node_type),
+                e.target.node_data.name,
+                e.target.node_data.file,
+                t_lines
+            );
         }
 
         println!();
