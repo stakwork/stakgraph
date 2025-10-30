@@ -1,6 +1,6 @@
 use ast::lang::graphs::NodeType;
 use ast::lang::BTreeMapGraph;
-use ast::repo::Repo;
+use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
 
@@ -85,6 +85,8 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
         .to_string_lossy()
         .to_string();
 
+    println!("File: {}", file_path);
+
     // Collect matching nodes
     let mut nodes: Vec<_> = graph
         .nodes
@@ -115,27 +117,52 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let mut args = std::env::args().skip(1);
-    let file_path = args
-        .next()
-        .ok_or_else(|| Error::Custom("No file path provided".into()))?;
-    if !std::path::Path::new(&file_path).exists() {
-        return Err(Error::Custom("File does not exist".into()));
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+    let mut files: Vec<String> = Vec::new();
+    for a in raw_args {
+        for part in a.split(',') {
+            let p = part.trim();
+            if !p.is_empty() {
+                files.push(p.to_string());
+            }
+        }
     }
 
-    let language = lsp::Language::from_path(&file_path);
+    if files.is_empty() {
+        return Err(Error::Custom("No file path provided".into()));
+    }
 
-    let lang = match language {
-        Some(lang) => Lang::from_language(lang),
-        None => {
-            // If language cannot be determined, output limited file contents
-            let contents = std::fs::read_to_string(&file_path)?;
-            println!("{}", first_lines(&contents, 40, 200));
-            return Ok(());
+    let mut repos_vec: Vec<Repo> = Vec::new();
+    let mut files_to_print: Vec<String> = Vec::new();
+
+    for file_path in &files {
+        if !std::path::Path::new(&file_path).exists() {
+            return Err(Error::Custom(format!("File does not exist: {}", file_path)));
         }
-    };
-    let repo = Repo::from_single_file(&file_path, lang)?;
-    let graph = repo.build_graph_btree().await?;
-    print_single_file_nodes(&graph, &file_path)?;
+
+        let language = lsp::Language::from_path(&file_path);
+        match language {
+            Some(lang) => {
+                let lang = Lang::from_language(lang);
+                let repo = Repo::from_single_file(&file_path, lang)?;
+                repos_vec.push(repo);
+                files_to_print.push(file_path.clone());
+            }
+            None => {
+                let contents = std::fs::read_to_string(&file_path)?;
+                println!("File: {}\n{}\n", file_path, first_lines(&contents, 40, 200));
+            }
+        }
+    }
+    if repos_vec.is_empty() {
+        return Ok(());
+    }
+
+    let repos = Repos(repos_vec);
+    let graph = repos.build_graphs_btree().await?;
+
+    for file_path in files_to_print {
+        print_single_file_nodes(&graph, &file_path)?;
+    }
     Ok(())
 }
