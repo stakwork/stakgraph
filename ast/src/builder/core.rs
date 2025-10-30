@@ -55,6 +55,7 @@ impl Repo {
     ) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
+        graph.set_allow_unverified_calls(self.allow_unverified_calls);
         
         let mut stats = std::collections::HashMap::new();
 

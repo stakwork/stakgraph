@@ -4,7 +4,6 @@ use ast::lang::graphs::Graph;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
-use std::collections::HashSet;
 
 /// Limits text to n lines, with each line limited to max_line_len characters
 fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
@@ -107,73 +106,28 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     // Sort by start line
     nodes.sort_by_key(|node| node.node_data.start);
 
+    let edges = graph.get_edges_vec();
+    println!("Edges : {:?}", edges.len());
+
     // Print nodes in order
     for node in nodes {
         print_node_summary(node);
-        println!(); // Add blank line between nodes
-    }
-
-    Ok(())
-}
-
-fn print_file_edges(graph: &BTreeMapGraph, files: &Vec<String>) -> anyhow::Result<()> {
-    let mut target_files: HashSet<String> = HashSet::new();
-    for f in files {
-        if let Ok(p) = std::fs::canonicalize(f) {
-            target_files.insert(p.to_string_lossy().to_string());
-        } else {
-            target_files.insert(f.clone());
-        }
-    }
-
-    let edges = graph.get_edges_vec();
-
-    for f in files {
-        let fcanon = std::fs::canonicalize(f)
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| f.clone());
-
-        println!("\n═══ Edges for: {} ═══\n", fcanon);
-
-        let mut file_edges = Vec::new();
-        for e in edges.iter() {
-            let s_file_canon = std::fs::canonicalize(&e.source.node_data.file)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| e.source.node_data.file.clone());
-            let t_file_canon = std::fs::canonicalize(&e.target.node_data.file)
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| e.target.node_data.file.clone());
-
-            if s_file_canon == fcanon || t_file_canon == fcanon {
-                file_edges.push(e);
+        
+        if matches!(node.node_type, NodeType::Function) {
+            let source_key = ast::utils::create_node_key(node);
+            
+            for e in edges.iter() {
+                let edge_source_key = ast::utils::create_node_key_from_ref(&e.source);
+                
+                if edge_source_key == source_key {
+                    if matches!(e.edge, ast::lang::graphs::EdgeType::Calls | ast::lang::graphs::EdgeType::Contains) {
+                        println!("  • {} → {}", e.edge.to_string(), e.target.node_data.name);
+                    }
+                }
             }
         }
-
-        for e in file_edges {
-            let source_key = ast::utils::create_node_key_from_ref(&e.source);
-            let target_key = ast::utils::create_node_key_from_ref(&e.target);
-            
-            let source_node = graph.nodes.get(&source_key).unwrap();
-            let target_node = graph.nodes.get(&target_key).unwrap();
-            
-            let s_lines = format_lines(source_node.node_data.start, source_node.node_data.end);
-            let t_lines = format_lines(target_node.node_data.start, target_node.node_data.end);
-
-            println!(
-                "({} | {} | {} | L{}) --[{}]--> ({} | {} | {} | L{})",
-                format!("{:?}", e.source.node_type),
-                e.source.node_data.name,
-                e.source.node_data.file,
-                s_lines,
-                e.edge.to_string(),
-                format!("{:?}", e.target.node_type),
-                e.target.node_data.name,
-                e.target.node_data.file,
-                t_lines
-            );
-        }
-
-        println!();
+        
+        println!(); // Add blank line between nodes
     }
 
     Ok(())
@@ -235,7 +189,5 @@ async fn main() -> Result<()> {
         print_single_file_nodes(&graph, file_path)?;
     }
 
-    // Print grouped edges for the requested files
-    print_file_edges(&graph, &files_to_print)?;
     Ok(())
 }

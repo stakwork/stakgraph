@@ -401,7 +401,12 @@ impl Graph for BTreeMapGraph {
                         self.nodes.insert(ext_key, ext_node);
                     }
 
-                    let edge = Edge::uses(fc.source, &ext_nd);
+                    // Use CALLS edge for unverified stub nodes, USES for external/library functions
+                    let edge = if ext_nd.file == "<unverified>" {
+                        fc.into()
+                    } else {
+                        Edge::uses(fc.source, &ext_nd)
+                    };
                     self.add_edge(edge);
                 }
             } else {

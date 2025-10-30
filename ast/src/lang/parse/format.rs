@@ -860,7 +860,6 @@ impl Lang {
         let mut is_variable_call = false;
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == FUNCTION_NAME {
-                trace!("format_function_call {} {}", caller_name, body);
                 call_name_and_point = Some((body, node.start_position()));
             } else if o == CLASS_NAME {
                 // query the graph
@@ -991,6 +990,11 @@ impl Lang {
                     called, &tf.file
                 ));
                 fc.target = tf.into();
+            }else{
+                if allow_unverified {
+                    fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
+                }
+
             }
         }
 
@@ -1005,7 +1009,7 @@ impl Lang {
         }
 
         // target must be found OR class call
-        if !allow_unverified && fc.target.is_empty() && class_call.is_none() {
+        if fc.target.is_empty() && class_call.is_none() {
             // NOTE should we only do the class call if there is no direct function target?
             return Ok(None);
         }
