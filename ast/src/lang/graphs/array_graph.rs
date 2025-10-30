@@ -787,6 +787,13 @@ impl Graph for ArrayGraph {
     fn get_edges_vec(&self) -> Vec<Edge> {
         self.edges.clone()
     }
+
+    fn set_allow_unverified_calls(&mut self, _allow: bool) {
+    }
+
+    fn get_allow_unverified_calls(&self) -> bool {
+        false
+    }
 }
 
 impl ArrayGraph {

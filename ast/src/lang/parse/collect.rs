@@ -199,6 +199,7 @@ impl Lang {
         caller_start: usize,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
+        allow_unverified: bool,
     ) -> Result<Vec<FunctionCall>> {
         trace!("collect_calls_in_function");
         let mut cursor = QueryCursor::new();
@@ -214,6 +215,7 @@ impl Lang {
                 caller_start,
                 graph,
                 lsp_tx,
+                allow_unverified,
             )? {
                 res.push(fc);
             }

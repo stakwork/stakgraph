@@ -851,6 +851,7 @@ impl Lang {
         caller_start: usize,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
+        allow_unverified: bool,
     ) -> Result<Option<FunctionCall>> {
         let mut fc = Calls::default();
         let mut external_func = None;
@@ -1004,7 +1005,7 @@ impl Lang {
         }
 
         // target must be found OR class call
-        if fc.target.is_empty() && class_call.is_none() {
+        if !allow_unverified && fc.target.is_empty() && class_call.is_none() {
             // NOTE should we only do the class call if there is no direct function target?
             return Ok(None);
         }

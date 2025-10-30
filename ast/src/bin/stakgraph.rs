@@ -183,7 +183,13 @@ fn print_file_edges(graph: &BTreeMapGraph, files: &Vec<String>) -> anyhow::Resul
 async fn main() -> Result<()> {
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let mut files: Vec<String> = Vec::new();
+    let mut allow_unverified_calls = false;
+
     for a in raw_args {
+        if a == "--allow" {
+            allow_unverified_calls = true;
+            continue;
+        }
         for part in a.split(',') {
             let p = part.trim();
             if !p.is_empty() {
@@ -208,7 +214,7 @@ async fn main() -> Result<()> {
         match language {
             Some(lang) => {
                 let lang = Lang::from_language(lang);
-                let repo = Repo::from_single_file(&file_path, lang)?;
+                let repo = Repo::from_single_file(&file_path, lang, allow_unverified_calls)?;
                 repos_vec.push(repo);
                 files_to_print.push(file_path.clone());
             }
