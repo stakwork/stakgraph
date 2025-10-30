@@ -1,25 +1,9 @@
 use ast::lang::graphs::NodeType;
-use ast::lang::BTreeMapGraph;
+use ast::lang::ArrayGraph;
+use ast::lang::graphs::EdgeType;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
-
-
-/// Parse node key format: "{nodetype}-{name}-{file}-{line}"
-/// Returns (nodetype, name, file, line)
-fn parse_node_key(node_key: &str) -> Option<(String, String, String, String)> {
-    let parts: Vec<&str> = node_key.splitn(4, '-').collect();
-    if parts.len() == 4 {
-        Some((
-            parts[0].to_string(),
-            parts[1].to_string(),
-            parts[2].to_string(),
-            parts[3].to_string(),
-        ))
-    } else {
-        None
-    }
-}
 
 /// Limits text to n lines, with each line limited to max_line_len characters
 fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
@@ -96,7 +80,7 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
     }
 }
 
-fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Result<()> {
+fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Result<()> {
     let file_path = std::fs::canonicalize(file_path)?
         .to_string_lossy()
         .to_string();
@@ -106,7 +90,7 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     // Collect matching nodes
     let mut nodes: Vec<_> = graph
         .nodes
-        .values()
+        .iter()
         .filter(|node| {
             if matches!(node.node_type, NodeType::File | NodeType::Directory) {
                 return false;
@@ -129,17 +113,16 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
         if matches!(node.node_type, NodeType::Function) {
             let source_key = ast::utils::create_node_key(node).to_lowercase();
             
-            for (src_key, tgt_key, edge_type) in &graph.edges {
-                if src_key.to_lowercase() == source_key {
-                    let edge_type_str = format!("{:?}", edge_type);
-                    if edge_type_str == "Calls" || edge_type_str == "Uses" || edge_type_str == "Contains" {
-                        if let Some((_, target_name, target_file, target_line)) = parse_node_key(&tgt_key.to_lowercase()) {
-                            if target_file == "unverified" {
-                                println!("  • {} → {}", edge_type_str.to_uppercase(), target_name);
-                            } else {
-                                println!("  • {} → {} (L{})", edge_type_str.to_uppercase(), target_name, target_line);
-                            }
-                        }
+            for edge in &graph.edges {
+                let edge_source_key = ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
+                
+                if edge_source_key == source_key {
+                    if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
+                        let target_name = &edge.target.node_data.name;
+                        let target_line = edge.target.node_data.start;
+                        
+                        println!("  • {:?} → {} (L{})", edge.edge, target_name, target_line + 1);
+                        
                     }
                 }
             }
@@ -201,7 +184,7 @@ async fn main() -> Result<()> {
     }
 
     let repos = Repos(repos_vec);
-    let graph = repos.build_graphs_btree().await?;
+    let graph = repos.build_graphs_array().await?;
 
     for file_path in &files_to_print {
         print_single_file_nodes(&graph, file_path)?;
