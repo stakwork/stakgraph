@@ -19,7 +19,7 @@ type ToolName =
   | "bash"
   | "final_answer";
 
-export type ToolsConfig = Partial<Record<ToolName, string | null>>;
+export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
 const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   repo_overview:
@@ -178,31 +178,28 @@ export function get_tools(
     return allTools;
   }
 
-  // Return only configured tools, with custom descriptions if provided
-  const selectedTools: Record<string, Tool<any, any>> = {};
-  for (const [toolName, customDesc] of Object.entries(toolsConfig) as [
+  // Start with all tools, then apply config to customize or exclude
+  const selectedTools: Record<string, Tool<any, any>> = { ...allTools };
+
+  for (const [toolName, config] of Object.entries(toolsConfig) as [
     ToolName,
-    string | null
+    string | boolean | null
   ][]) {
     const originalTool = allTools[toolName];
-    if (originalTool) {
-      if (customDesc) {
-        // Override description by recreating the tool
-        selectedTools[toolName] = tool({
-          description: customDesc,
-          inputSchema: (originalTool as any).inputSchema,
-          execute: (originalTool as any).execute,
-        }) as Tool<any, any>;
-      } else {
-        // Use default
-        selectedTools[toolName] = originalTool;
-      }
-    }
-  }
+    if (!originalTool) continue;
 
-  // Always include final_answer tool (with custom description if provided)
-  if (!selectedTools.final_answer) {
-    selectedTools.final_answer = allTools.final_answer;
+    // If config is false, exclude the tool
+    if (config === false) {
+      delete selectedTools[toolName];
+    } else if (typeof config === 'string' && config !== '') {
+      // If config is a non-empty string, override the description
+      selectedTools[toolName] = tool({
+        description: config,
+        inputSchema: (originalTool as any).inputSchema,
+        execute: (originalTool as any).execute,
+      }) as Tool<any, any>;
+    }
+    // If config is null or empty string, keep the default (already in selectedTools)
   }
 
   console.log("selectedTools", Object.keys(selectedTools));
