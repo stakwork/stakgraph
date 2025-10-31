@@ -51,6 +51,7 @@ pub struct Repo {
     pub files_filter: Vec<String>,
     pub revs: Vec<String>,
     pub status_tx: Option<Sender<StatusUpdate>>,
+    pub allow_unverified_calls: bool,
 }
 
 pub struct Repos(pub Vec<Repo>);
@@ -85,6 +86,9 @@ impl Repos {
             return Err(Error::Custom("Language is not supported".into()));
         }
         let mut graph = G::new(String::new(), Language::Typescript);
+        if let Some(first_repo) = self.0.first() {
+            graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
+        }
         #[cfg(feature = "neo4j")]
         let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
             if streaming {
@@ -189,6 +193,7 @@ impl Repo {
             files_filter,
             revs,
             status_tx: None,
+            allow_unverified_calls: false,
         })
     }
     pub async fn new_clone_multi_detect(
@@ -330,6 +335,7 @@ impl Repo {
                 files_filter: files_filter.clone(),
                 revs: revs.clone(),
                 status_tx: None,
+                allow_unverified_calls: false,
             });
         }
         println!("REPOS!!! {:?}", repos);
@@ -366,6 +372,7 @@ impl Repo {
             files_filter,
             revs,
             status_tx: None,
+            allow_unverified_calls: false,
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
@@ -565,7 +572,7 @@ impl Repo {
         }
         false
     }
-    pub fn from_single_file(file_path: &str, lang: Lang) -> Result<Self> {
+    pub fn from_single_file(file_path: &str, lang: Lang, allow_unverified_calls: bool) -> Result<Self> {
         let root = std::path::Path::new(file_path)
             .parent()
             .map(|p| p.to_path_buf())
@@ -579,6 +586,7 @@ impl Repo {
             files_filter,
             revs: Vec::new(),
             status_tx: None,
+            allow_unverified_calls,
         })
     }
 }

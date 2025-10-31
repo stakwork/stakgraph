@@ -228,7 +228,7 @@ use std::net::SocketAddr;"#
 
   let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
-    assert_eq!(calls_edges, 3, "Expected 3 calls edges");
+    assert_eq!(calls_edges, 21, "Expected 21 calls edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();

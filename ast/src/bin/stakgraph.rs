@@ -1,5 +1,6 @@
 use ast::lang::graphs::NodeType;
-use ast::lang::BTreeMapGraph;
+use ast::lang::ArrayGraph;
+use ast::lang::graphs::EdgeType;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
@@ -74,13 +75,12 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
         }
     }
 
-    // Always print docs if available
     if let Some(docs) = nd.meta.get("docs") {
         println!("Docs: {}", first_lines(docs, 3, 200));
     }
 }
 
-fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Result<()> {
+fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Result<()> {
     let file_path = std::fs::canonicalize(file_path)?
         .to_string_lossy()
         .to_string();
@@ -90,7 +90,7 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     // Collect matching nodes
     let mut nodes: Vec<_> = graph
         .nodes
-        .values()
+        .iter()
         .filter(|node| {
             if matches!(node.node_type, NodeType::File | NodeType::Directory) {
                 return false;
@@ -109,6 +109,25 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
     // Print nodes in order
     for node in nodes {
         print_node_summary(node);
+        
+        if matches!(node.node_type, NodeType::Function) {
+            let source_key = ast::utils::create_node_key(node).to_lowercase();
+            
+            for edge in &graph.edges {
+                let edge_source_key = ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
+                
+                if edge_source_key == source_key {
+                    if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
+                        let target_name = &edge.target.node_data.name;
+                        let target_line = edge.target.node_data.start;
+                        
+                        println!("  • {:?} → {} (L{})", edge.edge, target_name, target_line + 1);
+                        
+                    }
+                }
+            }
+        }
+        
         println!(); // Add blank line between nodes
     }
 
@@ -119,7 +138,13 @@ fn print_single_file_nodes(graph: &BTreeMapGraph, file_path: &str) -> anyhow::Re
 async fn main() -> Result<()> {
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let mut files: Vec<String> = Vec::new();
+    let mut allow_unverified_calls = false;
+
     for a in raw_args {
+        if a == "--allow" {
+            allow_unverified_calls = true;
+            continue;
+        }
         for part in a.split(',') {
             let p = part.trim();
             if !p.is_empty() {
@@ -144,7 +169,7 @@ async fn main() -> Result<()> {
         match language {
             Some(lang) => {
                 let lang = Lang::from_language(lang);
-                let repo = Repo::from_single_file(&file_path, lang)?;
+                let repo = Repo::from_single_file(&file_path, lang, allow_unverified_calls)?;
                 repos_vec.push(repo);
                 files_to_print.push(file_path.clone());
             }
@@ -159,10 +184,11 @@ async fn main() -> Result<()> {
     }
 
     let repos = Repos(repos_vec);
-    let graph = repos.build_graphs_btree().await?;
+    let graph = repos.build_graphs_array().await?;
 
-    for file_path in files_to_print {
-        print_single_file_nodes(&graph, &file_path)?;
+    for file_path in &files_to_print {
+        print_single_file_nodes(&graph, file_path)?;
     }
+
     Ok(())
 }

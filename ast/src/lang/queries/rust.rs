@@ -207,19 +207,19 @@ impl Stack for Rust {
             r#"
                 (call_expression
                     function: [
-                        (identifier) @FUNCTION_NAME
+                        (identifier) @{FUNCTION_NAME}
                         ;; module method
                         (scoped_identifier
-                            path: (identifier) @PARENT_NAME
-                            name: (identifier) @FUNCTION_NAME
+                            path: (identifier) @{PARENT_NAME}
+                            name: (identifier) @{FUNCTION_NAME}
                         )
                         ;; chained call
                         (field_expression
-                            field: (field_identifier) @FUNCTION_NAME
+                            field: (field_identifier) @{FUNCTION_NAME}
                         )
                     ]
-                    arguments: (arguments) @ARGUMENTS
-                ) @FUNCTION_CALL
+                    arguments: (arguments) @{ARGUMENTS}
+                ) @{FUNCTION_CALL}
                 "#
         )
     }

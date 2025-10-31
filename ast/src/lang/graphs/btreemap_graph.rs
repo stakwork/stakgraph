@@ -12,6 +12,8 @@ pub struct BTreeMapGraph {
     pub edges: BTreeSet<(String, String, EdgeType)>,
     #[serde(skip)]
     edge_keys: HashSet<String>,
+    #[serde(skip)]
+    allow_unverified_calls: bool,
 }
 
 impl Graph for BTreeMapGraph {
@@ -20,6 +22,7 @@ impl Graph for BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
             edge_keys: HashSet::new(),
+            allow_unverified_calls: false,
         }
     }
 
@@ -398,7 +401,12 @@ impl Graph for BTreeMapGraph {
                         self.nodes.insert(ext_key, ext_node);
                     }
 
-                    let edge = Edge::uses(fc.source, &ext_nd);
+                    // Use CALLS edge for unverified stub nodes, USES for external/library functions
+                    let edge = if ext_nd.file == "<unverified>" {
+                        fc.into()
+                    } else {
+                        Edge::uses(fc.source, &ext_nd)
+                    };
                     self.add_edge(edge);
                 }
             } else {
@@ -809,6 +817,14 @@ impl Graph for BTreeMapGraph {
     fn get_edges_vec(&self) -> Vec<Edge> {
         self.to_array_graph_edges()
     }
+
+    fn set_allow_unverified_calls(&mut self, allow: bool) {
+        self.allow_unverified_calls = allow;
+    }
+
+    fn get_allow_unverified_calls(&self) -> bool {
+        self.allow_unverified_calls
+    }
     
     fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
         self.nodes
@@ -868,6 +884,7 @@ impl Default for BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
             edge_keys: HashSet::new(),
+            allow_unverified_calls: false,
         }
     }
 }

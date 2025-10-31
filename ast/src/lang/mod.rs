@@ -556,6 +556,7 @@ impl Lang {
                         caller_start,
                         graph,
                         lsp_tx,
+                        graph.get_allow_unverified_calls(),
                     )?;
                     self.add_calls_inside(&mut res, &caller_name, file, calls);
                     if self.lang.is_test(&caller_name, file) {
@@ -612,6 +613,7 @@ impl Lang {
                             caller_start,
                             graph,
                             lsp_tx,
+                            graph.get_allow_unverified_calls(),
                         )?;
                         self.add_calls_inside(&mut res, &caller_name, file, calls);
                         // link test to endpoint: integration tests

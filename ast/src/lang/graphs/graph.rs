@@ -158,4 +158,6 @@ pub trait Graph: Default + Debug {
     }
     fn has_edge(&self, source: &Node, target: &Node, edge_type: EdgeType) -> bool;
     fn get_edges_vec(&self) -> Vec<Edge>;
+    fn set_allow_unverified_calls(&mut self, allow: bool);
+    fn get_allow_unverified_calls(&self) -> bool;
 }
