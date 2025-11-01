@@ -512,7 +512,7 @@ pub async fn ingest_async(
             }
             Err(e) => {
                 let entry = AsyncRequestStatus {
-                    status: AsyncStatus::Failed(format!("{:?}", e)),
+                    status: AsyncStatus::Failed,
                     result: None,
                     progress: 0,
                     update: Some(ast::repo::StatusUpdate {
@@ -704,7 +704,7 @@ pub async fn sync_async(
             }
             Err(e) => {
                 let entry = AsyncRequestStatus {
-                    status: AsyncStatus::Failed(format!("{:?}", e)),
+                    status: AsyncStatus::Failed,
                     result: None,
                     progress: 0,
                     update: Some(ast::repo::StatusUpdate {
@@ -759,7 +759,9 @@ pub async fn get_status(
     } else {
         (
             StatusCode::NOT_FOUND,
-            format!("Request ID {} not found", request_id),
+            Json(serde_json::json!({
+                "error": format!("Request ID {} not found", request_id)
+            })),
         )
             .into_response()
     }
@@ -1094,7 +1096,7 @@ pub async fn codecov_handler(
             Err(e) => {
                 let mut map = codecov_status_map_clone.lock().await;
                 if let Some(status) = map.get_mut(&request_id_clone) {
-                    status.status = AsyncStatus::Failed(e.to_string());
+                    status.status = AsyncStatus::Failed;
                     status.error = Some(e.to_string());
                 }
             }
