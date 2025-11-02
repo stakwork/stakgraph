@@ -232,7 +232,9 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    //assert_eq!(calls, 74, "Expected 74 Calls edges");
+    
+    //TODO: Fix lsp calls edge count : locally, it says 74 but on CI it says something else
+   // assert_eq!(calls, 74, "Expected 74 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;

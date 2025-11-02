@@ -126,7 +126,9 @@ import {{ sequelize }} from "./config.js";"#
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
-    //assert_eq!(calls_edges_count, 5, "Expected 5 calls edges");
+    
+    //TODO: Fix lsp calls edge count : locally, it says 5 but on CI it says 7
+    // assert_eq!(calls_edges_count, 5, "Expected 5 calls edges");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
