@@ -555,7 +555,7 @@ import NewPerson from "./components/NewPerson";"#
     assert_eq!(nested_in, 1, "Expected 1 NestedIn edges");
 
     if use_lsp {
-      //  assert_eq!(uses, 13, "Expected 13 uses edges");
+        //assert_eq!(uses, 13, "Expected 13 uses edges");
     }
 
     let (nodes, edges) = graph.get_graph_size();

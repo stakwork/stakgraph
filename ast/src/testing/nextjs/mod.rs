@@ -232,7 +232,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    
+
     //TODO: Fix lsp calls edge count : locally, it says 74 but on CI it says something else
    // assert_eq!(calls, 74, "Expected 74 Calls edges");
 
@@ -884,7 +884,7 @@ async fn test_remote_nextjs() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-      //  assert_eq!(uses, 4, "Expected 4 Uses edges with LSP");
+       // assert_eq!(uses, 4, "Expected 4 Uses edges with LSP");
     } else {
        // assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
