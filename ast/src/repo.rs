@@ -128,23 +128,12 @@ impl Repos {
                     .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
                     .await;
             }
+            let edges = graph.get_edges_vec();
+            let _ = uploader.flush_edges_stage(neo, "cross_repo_linking", &edges).await;
         }
-        
-        #[cfg(feature = "neo4j")]
-        let final_edges = if streaming_ctx.is_some() {
-            graph.get_edges_vec()
-        } else {
-            vec![]
-        };
 
         let (nodes_size, edges_size) = graph.get_graph_size();
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
-        
-        #[cfg(feature = "neo4j")]
-        if let Some((neo, uploader)) = &mut streaming_ctx {
-            info!("Bulk uploading {} edges from multi-repo graph (includes cross-repo edges)", final_edges.len());
-            let _ = uploader.flush_edges(neo, &final_edges).await;
-        }
         
         Ok(graph)
     }
