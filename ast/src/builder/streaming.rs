@@ -78,6 +78,6 @@ pub fn nodes_to_bolt_format(
     nodes: Vec<(NodeType, NodeData)>
 ) -> Vec<(String, BoltMap)> {
     nodes.iter()
-        .map(|(nt, nd)| add_node_query(nt, nd))
+        .map(|(nt, nd)| add_node_query_stream(nt, nd))
         .collect()
 }
