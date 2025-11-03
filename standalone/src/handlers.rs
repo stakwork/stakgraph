@@ -596,7 +596,7 @@ pub async fn sync_async(
                 progress: 0,
                 update: Some(ast::repo::StatusUpdate {
                     status: "Starting".to_string(),
-                    message: "Sync job queued".to_string(),
+                    message: "Cloning repository and installing dependencies".to_string(),
                     step: 0,
                     total_steps: 16,
                     progress: 0,
