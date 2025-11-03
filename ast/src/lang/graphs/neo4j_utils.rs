@@ -95,6 +95,43 @@ impl NodeQueryBuilder {
 
         (query, properties)
     }
+
+    pub fn build_stream(&self) -> (String, BoltMap) {
+        let mut properties: BoltMap = (&self.node_data).into();
+        let ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+            "test_ref_id".to_string()
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+
+        boltmap_insert_str(&mut properties, "ref_id", &ref_id);
+
+        let node_key = create_node_key(&Node::new(self.node_type.clone(), self.node_data.clone()));
+        boltmap_insert_str(&mut properties, "node_key", &node_key);
+
+        let token_count = calculate_token_count(&self.node_data.body).unwrap_or(0);
+        boltmap_insert_int(&mut properties, "token_count", token_count);
+
+        // Add Data_Bank property during node creation (fixes real-time streaming)
+        if !self.node_data.name.is_empty() {
+            boltmap_insert_str(&mut properties, "Data_Bank", &self.node_data.name);
+        }
+
+        // Add default namespace during node creation (fixes real-time streaming)
+        boltmap_insert_str(&mut properties, "namespace", "default");
+
+        // println!("[NodeQueryBuilder] node_key: {}", node_key);
+
+        let query = format!(
+            "MERGE (node:{}:{} {{node_key: $node_key}})
+         ON CREATE SET node += $properties, node.date_added_to_graph = $now
+         Return node",
+            self.node_type.to_string(),
+            DATA_BANK,
+        );
+
+        (query, properties)
+    }
 }
 pub struct EdgeQueryBuilder {
     edge: Edge,
@@ -330,6 +367,10 @@ pub async fn execute_queries_simple(
 
 pub fn add_node_query(node_type: &NodeType, node_data: &NodeData) -> (String, BoltMap) {
     NodeQueryBuilder::new(node_type, node_data).build()
+}
+
+pub fn add_node_query_stream(node_type: &NodeType, node_data: &NodeData) -> (String, BoltMap) {
+    NodeQueryBuilder::new(node_type, node_data).build_stream()
 }
 
 pub fn add_edge_query(edge: &Edge) -> (String, BoltMap) {
