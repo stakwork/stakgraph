@@ -74,6 +74,14 @@ impl NodeQueryBuilder {
         let token_count = calculate_token_count(&self.node_data.body).unwrap_or(0);
         boltmap_insert_int(&mut properties, "token_count", token_count);
 
+        // Add Data_Bank property during node creation (fixes real-time streaming)
+        if !self.node_data.name.is_empty() {
+            boltmap_insert_str(&mut properties, "Data_Bank", &self.node_data.name);
+        }
+
+        // Add default namespace during node creation (fixes real-time streaming)
+        boltmap_insert_str(&mut properties, "namespace", "default");
+
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
         let query = format!(

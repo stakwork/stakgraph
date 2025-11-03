@@ -309,15 +309,19 @@ pub async fn ingest(
         res
     };
 
-    // Set Data_Bank property for nodes that don't have it
-    info!("Setting Data_Bank property for nodes missing it...");
-    if let Err(e) = graph_ops.set_missing_data_bank().await {
-        tracing::warn!("Error setting Data_Bank property: {:?}", e);
-    }
+    // Only set missing properties if not using streaming (for backward compatibility)
+    if !streaming {
+        info!("Setting Data_Bank property for nodes missing it...");
+        if let Err(e) = graph_ops.set_missing_data_bank().await {
+            tracing::warn!("Error setting Data_Bank property: {:?}", e);
+        }
 
-    info!("Setting default namespace for nodes missing it...");
-    if let Err(e) = graph_ops.set_default_namespace().await {
-        tracing::warn!("Error setting default namespace: {:?}", e);
+        info!("Setting default namespace for nodes missing it...");
+        if let Err(e) = graph_ops.set_default_namespace().await {
+            tracing::warn!("Error setting default namespace: {:?}", e);
+        }
+    } else {
+        info!("Skipping post-processing - properties already set during streaming");
     }
 
     let _ = state.tx.send(ast::repo::StatusUpdate {
