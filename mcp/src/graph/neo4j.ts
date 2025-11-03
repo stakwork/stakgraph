@@ -701,6 +701,37 @@ class Db {
     }
   }
 
+  async create_pull_request(name: string, docs: string, embeddings: number[], number: string) {
+    const session = this.driver.session();
+    const short_name = name.slice(0, 80);
+    const node_key = create_node_key({
+      node_type: "PullRequest",
+      node_data: {
+        name: short_name,
+        file: `pr://${number}`,
+        start: 0,
+      },
+    } as Node);
+    try {
+      await session.run(Q.CREATE_PULL_REQUEST_QUERY, {
+        node_key,
+        name: short_name,
+        file: `pr://${number}`,
+        body: docs, // Store docs in body for backward compatibility
+        docs,
+        number,
+        embeddings,
+        ts: Date.now() / 1000,
+      });
+      const r = await session.run(Q.GET_PULL_REQUEST_QUERY, { node_key });
+      const record = r.records[0];
+      const n = record.get("n");
+      return { ref_id: n.properties.ref_id, node_key, number };
+    } finally {
+      await session.close();
+    }
+  }
+
   async createEdgesDirectly(
     hint_ref_id: string,
     weightedRefIds: { ref_id: string; relevancy: number }[]
