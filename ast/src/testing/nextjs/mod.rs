@@ -400,7 +400,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-      //  assert_eq!(uses, 37, "Expected 37 Uses edges with LSP");
+       // assert_eq!(uses, 37, "Expected 37 Uses edges with LSP");
     } else {
       //  assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
