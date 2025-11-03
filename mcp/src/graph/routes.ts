@@ -341,6 +341,36 @@ export function learn(req: Request, res: Response) {
   res.status(401).send("Authentication required");
 }
 
+export async function create_pull_request(req: Request, res: Response) {
+  const { name, docs, number } = req.body;
+
+  if (!name || !docs || !number) {
+    res.status(400).json({
+      error: "Missing required fields: name, docs, and number are required"
+    });
+    return;
+  }
+
+  try {
+    // Vectorize the docs
+    const { vectorizeQuery } = await import("../vector/index.js");
+    const embeddings = await vectorizeQuery(docs);
+
+    // Create the PullRequest node
+    const result = await db.create_pull_request(name, docs, embeddings, number);
+
+    res.json({
+      success: true,
+      ref_id: result.ref_id,
+      number: result.number,
+      node_key: result.node_key,
+    });
+  } catch (error) {
+    console.error("Create PullRequest Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
 export async function seed_stories(req: Request, res: Response) {
   const default_prompt =
     "How does this repository work? Please provide a summary of the codebase, a few key files, and 50 core user stories.";

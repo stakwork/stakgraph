@@ -55,7 +55,8 @@ export type NodeType =
   | "Person"
   | "Video"
   | "Hint"
-  | "Prompt";
+  | "Prompt"
+  | "PullRequest";
 
 export type EdgeType =
   | "CALLS"
@@ -120,6 +121,7 @@ export function relevant_node_types(): NodeType[] {
     "Video",
     "Hint",
     "Prompt",
+    "PullRequest",
   ];
 }
 
@@ -147,6 +149,7 @@ export function all_node_types(): NodeType[] {
     "Video",
     "Hint",
     "Prompt",
+    "PullRequest",
   ];
 }
 
@@ -200,6 +203,8 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Video: "A recorded video conversation between stakeholders.",
     Hint: "A question and answer pair generated from exploring the codebase to capture contextual understanding.",
     Prompt: "A prompt asked by a user to the AI assistant.",
+    PullRequest:
+      "A pull request created by a developer to merge changes into the main branch.",
   };
 }
 
