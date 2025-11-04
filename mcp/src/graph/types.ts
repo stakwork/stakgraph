@@ -56,7 +56,13 @@ export type NodeType =
   | "Video"
   | "Hint"
   | "Prompt"
-  | "PullRequest";
+  | "PullRequest"
+  | "GitHubRepo"
+  | "Contributor"
+  | "Stars"
+  | "Commits"
+  | "Age"
+  | "Issues";
 
 export type EdgeType =
   | "CALLS"
@@ -66,7 +72,13 @@ export type EdgeType =
   | "IMPORTS"
   | "OF"
   | "HANDLER"
-  | "RENDERS";
+  | "RENDERS"
+  | "HAS_CONTRIBUTOR"
+  | "HAS_STARS"
+  | "HAS_COMMITS"
+  | "HAS_AGE"
+  | "HAS_ISSUES"
+  | "METADATA_FOR";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
@@ -150,6 +162,12 @@ export function all_node_types(): NodeType[] {
     "Hint",
     "Prompt",
     "PullRequest",
+    "GitHubRepo",
+    "Contributor",
+    "Stars",
+    "Commits",
+    "Age",
+    "Issues",
   ];
 }
 
@@ -163,6 +181,12 @@ export function all_edge_types(): EdgeType[] {
     "OF",
     "HANDLER",
     "RENDERS",
+    "HAS_CONTRIBUTOR",
+    "HAS_STARS",
+    "HAS_COMMITS",
+    "HAS_AGE",
+    "HAS_ISSUES",
+    "METADATA_FOR",
   ];
 }
 
@@ -205,6 +229,18 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Prompt: "A prompt asked by a user to the AI assistant.",
     PullRequest:
       "A pull request created by a developer to merge changes into the main branch.",
+    GitHubRepo:
+      "A GitHub repository containing metadata such as stars, forks, description, and language information.",
+    Contributor:
+      "A developer who has contributed to a repository, including their GitHub username, avatar, and contribution count.",
+    Stars:
+      "The star count metric for a GitHub repository, indicating popularity and community interest.",
+    Commits:
+      "The total commit count metric for a repository, representing development activity over time.",
+    Age:
+      "The age metric of a repository in years, calculated from creation date to present.",
+    Issues:
+      "The total issue count metric for a repository, representing reported problems and feature requests.",
   };
 }
 

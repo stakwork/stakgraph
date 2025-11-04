@@ -122,6 +122,20 @@ DETACH DELETE n
 RETURN count(n) as deleted_count
 `;
 
+export const ADD_NODE_QUERY = (nodeType: string) => `
+MERGE (n:${nodeType}:${Data_Bank} {node_key: $node_key})
+ON CREATE SET n += $properties, n.date_added_to_graph = $now, n.namespace = 'default'
+ON MATCH SET n += $properties
+RETURN n.ref_id as ref_id
+`;
+
+export const ADD_EDGE_QUERY = (edgeType: string) => `
+MATCH (source {ref_id: $source_ref_id})
+MATCH (target {ref_id: $target_ref_id})
+MERGE (source)-[r:${edgeType}]->(target)
+RETURN r
+`;
+
 export const GET_CONNECTED_HINTS_QUERY = `
 MATCH (p:Prompt {ref_id: $prompt_ref_id})-[r]->(h:Hint)
 RETURN h

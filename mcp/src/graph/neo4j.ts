@@ -627,6 +627,48 @@ class Db {
     }
   }
 
+  async add_node(node_type: NodeType, node_data: any): Promise<string> {
+    const session = this.driver.session();
+    try {
+      const node_key = create_node_key({
+        node_type,
+        node_data: {
+          name: node_data.name,
+          file: node_data.file,
+          start: node_data.start || 0,
+        },
+      } as Node);
+
+      const now = Date.now();
+
+      const result = await session.run(Q.ADD_NODE_QUERY(node_type), {
+        node_key,
+        properties: { ...node_data, node_key },
+        now,
+      });
+
+      return result.records[0].get("ref_id");
+    } finally {
+      await session.close();
+    }
+  }
+
+  async add_edge(
+    edge_type: EdgeType,
+    source_ref_id: string,
+    target_ref_id: string
+  ): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.ADD_EDGE_QUERY(edge_type), {
+        source_ref_id,
+        target_ref_id,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
   async hints_without_siblings(): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {

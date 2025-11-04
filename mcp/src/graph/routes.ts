@@ -44,8 +44,20 @@ import {
 } from "../tools/budget.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
-import { GitSeeHandler } from "gitsee/server";
+import { GitSeeHandler, GitSeeResponse } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
+import {
+  prepareGitHubRepoNode,
+  prepareContributorNode,
+  prepareStarsNode,
+  prepareCommitsNode,
+  prepareAgeNode,
+  prepareIssuesNode,
+  prepareHasStarsEdge,
+  prepareHasCommitsEdge,
+  prepareHasAgeEdge,
+  prepareHasIssuesEdge,
+} from "./gitsee-nodes.js";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -346,7 +358,7 @@ export async function create_pull_request(req: Request, res: Response) {
 
   if (!name || !docs || !number) {
     res.status(400).json({
-      error: "Missing required fields: name, docs, and number are required"
+      error: "Missing required fields: name, docs, and number are required",
     });
     return;
   }
@@ -624,10 +636,143 @@ export async function gitsee(req: Request, res: Response) {
     return;
   }
   try {
-    return await gitSeeHandler.handleJson(req.body, res);
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+    const originalEnd = res.end.bind(res);
+    let responseData: any;
+
+    (res.end as any) = function (this: Response, chunk?: any): Response {
+      if (chunk) {
+        try {
+          responseData = typeof chunk === "string" ? JSON.parse(chunk) : chunk;
+          if (
+            responseData.repo ||
+            responseData.contributors ||
+            responseData.stats
+          ) {
+            if (!responseData.owner && req.body?.owner) {
+              responseData.owner = req.body.owner;
+            }
+            ingestGitSeeData(responseData).catch((err) =>
+              console.error("Background ingestion error:", err)
+            );
+          }
+        } catch (e) {
+          console.error("Error parsing response for ingestion:", e);
+        }
+      }
+      return originalEnd(chunk);
+    };
+
+    await gitSeeHandler.handleJson(req.body, res);
   } catch (error) {
     console.error("gitsee API error:", error);
-    res.status(500).json({ error: "Failed to handle gitsee request" });
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to handle gitsee request",
+    });
+  }
+}
+
+async function ingestGitSeeData(data: any): Promise<void> {
+  try {
+    let repoRefId: string | undefined;
+
+    const repoData =
+      data.exploration?.basic_info?.repository ||
+      data.repo_info ||
+      data.repository;
+
+    if (repoData && typeof repoData === "object") {
+      const repoNode = prepareGitHubRepoNode(repoData);
+      repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
+      console.log(
+        `✓ Added GitHubRepo: ${
+          repoData.full_name || repoData.name || "unknown"
+        }`
+      );
+    } else {
+      if (data.repo && data.owner) {
+        const fullName = `${data.owner}/${data.repo}`;
+        const minimalRepo = {
+          id: Date.now(),
+          full_name: fullName,
+          name: data.repo,
+          html_url: `https://github.com/${fullName}`,
+          stargazers_count: data.stats?.stars || 0,
+          forks_count: 0,
+        };
+        const repoNode = prepareGitHubRepoNode(minimalRepo);
+        repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
+        console.log(`✓ Added GitHubRepo: ${fullName}`);
+      }
+    }
+
+    if (data.contributors && repoRefId) {
+      for (const contributor of data.contributors) {
+        const contribNode = prepareContributorNode(contributor);
+        const contribRefId = await db.add_node(
+          contribNode.node_type,
+          contribNode.node_data
+        );
+
+        await db.add_edge("HAS_CONTRIBUTOR", repoRefId, contribRefId);
+        console.log(`✓ Added Contributor: ${contributor.login}`);
+      }
+    }
+
+    if (data.stats && repoRefId) {
+      // Get repo full name from the actual repo data
+      const repoFullName =
+        repoData?.full_name ||
+        repoData?.name ||
+        `${data.owner || "unknown"}/${data.repo || "unknown"}`;
+
+      // Create Stars node
+      const starsNode = prepareStarsNode(data.stats.stars, repoFullName);
+      const starsRefId = await db.add_node(
+        starsNode.node_type,
+        starsNode.node_data
+      );
+      await db.add_edge("HAS_STARS", repoRefId, starsRefId);
+      console.log(`✓ Added Stars for ${repoFullName}`);
+
+      // Create Commits node
+      const commitsNode = prepareCommitsNode(
+        data.stats.totalCommits,
+        repoFullName
+      );
+      const commitsRefId = await db.add_node(
+        commitsNode.node_type,
+        commitsNode.node_data
+      );
+      await db.add_edge("HAS_COMMITS", repoRefId, commitsRefId);
+      console.log(`✓ Added Commits for ${repoFullName}`);
+
+      // Create Age node
+      const ageNode = prepareAgeNode(data.stats.ageInYears, repoFullName);
+      const ageRefId = await db.add_node(ageNode.node_type, ageNode.node_data);
+      await db.add_edge("HAS_AGE", repoRefId, ageRefId);
+      console.log(`✓ Added Age for ${repoFullName}`);
+
+      // Create Issues node
+      const issuesNode = prepareIssuesNode(
+        data.stats.totalIssues,
+        repoFullName
+      );
+      const issuesRefId = await db.add_node(
+        issuesNode.node_type,
+        issuesNode.node_data
+      );
+      await db.add_edge("HAS_ISSUES", repoRefId, issuesRefId);
+      console.log(`✓ Added Issues for ${repoFullName}`);
+    }
+  } catch (error) {
+    console.error("Error ingesting GitSee data:", error);
   }
 }
 
