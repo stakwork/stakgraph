@@ -44,14 +44,12 @@ impl Stack for ReactTs {
             f.contains("/tests/e2e/") || f.contains("/test/e2e") || f.contains("/e2e/");
         if is_e2e_dir
             || f.contains("/__e2e__/")
-            || f.contains("/e2e/")
             || f.contains(".e2e.")
             || fname.starts_with("e2e.")
             || fname.starts_with("e2e_")
             || fname.starts_with("e2e-")
-            || fname.contains("e2e.test")
-            || fname.contains("e2e.spec")
-            || fname.contains("e2e")
+            || fname.contains(".e2e.test")
+            || fname.contains(".e2e.spec")
         {
             return NodeType::E2eTest;
         }
@@ -73,12 +71,20 @@ impl Stack for ReactTs {
 
         // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
         let body_l = body.to_lowercase();
-        let has_playwright_import = body_l.contains("@playwright/test");
+        let has_playwright_import = body_l.contains("@playwright/test")
+            || body_l.contains("from '@playwright/test'")
+            || body_l.contains("from \"@playwright/test\"");
         let has_browser_actions = body_l.contains("page.goto(")
             || body_l.contains("page.click(")
             || body_l.contains("page.evaluate(");
-        let has_cypress = body_l.contains("cy.") || body_l.contains("cypress");
-        let has_puppeteer = body_l.contains("puppeteer") || body_l.contains("browser.newpage");
+        let has_cypress = body_l.contains("from 'cypress'")
+            || body_l.contains("from \"cypress\"")
+            || body_l.contains("require('cypress')")
+            || body_l.contains("require(\"cypress\")");
+        let has_puppeteer = body_l.contains("from 'puppeteer'")
+            || body_l.contains("from \"puppeteer\"")
+            || body_l.contains("require('puppeteer')")
+            || body_l.contains("require(\"puppeteer\")");
         if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
             return NodeType::E2eTest;
         }
@@ -935,12 +941,23 @@ impl Stack for ReactTs {
             || f.contains("/test/e2e")
             || f.contains("/e2e/")
             || f.contains("/__e2e__/")
-            || f.contains("e2e.");
-        let has_e2e_in_name = fname.contains("e2e");
-        let has_playwright = lower_code.contains("@playwright/test");
-        let has_cypress = lower_code.contains("cy.");
-        let has_puppeteer =
-            lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+            || f.contains(".e2e.test")
+            || f.contains(".e2e.spec");
+        let has_e2e_in_name = fname.starts_with("e2e.") 
+            || fname.starts_with("e2e-") 
+            || fname.starts_with("e2e_")
+            || fname.contains(".e2e.");
+        let has_playwright = lower_code.contains("@playwright/test") 
+            || lower_code.contains("from '@playwright/test'")
+            || lower_code.contains("from \"@playwright/test\"");
+        let has_cypress = lower_code.contains("from 'cypress'")
+            || lower_code.contains("from \"cypress\"")
+            || lower_code.contains("require('cypress')")
+            || lower_code.contains("require(\"cypress\")");
+        let has_puppeteer = lower_code.contains("from 'puppeteer'")
+            || lower_code.contains("from \"puppeteer\"")
+            || lower_code.contains("require('puppeteer')")
+            || lower_code.contains("require(\"puppeteer\")");
         
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
