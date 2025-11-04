@@ -59,7 +59,10 @@ export type NodeType =
   | "PullRequest"
   | "GitHubRepo"
   | "Contributor"
-  | "RepoStats";
+  | "Stars"
+  | "Commits"
+  | "Age"
+  | "Issues";
 
 export type EdgeType =
   | "CALLS"
@@ -71,7 +74,10 @@ export type EdgeType =
   | "HANDLER"
   | "RENDERS"
   | "HAS_CONTRIBUTOR"
-  | "HAS_STATS"
+  | "HAS_STARS"
+  | "HAS_COMMITS"
+  | "HAS_AGE"
+  | "HAS_ISSUES"
   | "METADATA_FOR";
 
 export interface EdgeTypeInterface {
@@ -158,7 +164,10 @@ export function all_node_types(): NodeType[] {
     "PullRequest",
     "GitHubRepo",
     "Contributor",
-    "RepoStats",
+    "Stars",
+    "Commits",
+    "Age",
+    "Issues",
   ];
 }
 
@@ -173,7 +182,10 @@ export function all_edge_types(): EdgeType[] {
     "HANDLER",
     "RENDERS",
     "HAS_CONTRIBUTOR",
-    "HAS_STATS",
+    "HAS_STARS",
+    "HAS_COMMITS",
+    "HAS_AGE",
+    "HAS_ISSUES",
     "METADATA_FOR",
   ];
 }
@@ -221,8 +233,14 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "A GitHub repository containing metadata such as stars, forks, description, and language information.",
     Contributor:
       "A developer who has contributed to a repository, including their GitHub username, avatar, and contribution count.",
-    RepoStats:
-      "Statistical information about a repository including total stars, issues, commits, and repository age.",
+    Stars:
+      "The star count metric for a GitHub repository, indicating popularity and community interest.",
+    Commits:
+      "The total commit count metric for a repository, representing development activity over time.",
+    Age:
+      "The age metric of a repository in years, calculated from creation date to present.",
+    Issues:
+      "The total issue count metric for a repository, representing reported problems and feature requests.",
   };
 }
 

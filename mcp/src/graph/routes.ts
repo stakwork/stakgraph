@@ -49,7 +49,14 @@ import * as asyncReqs from "./reqs.js";
 import {
   prepareGitHubRepoNode,
   prepareContributorNode,
-  prepareRepoStatsNode,
+  prepareStarsNode,
+  prepareCommitsNode,
+  prepareAgeNode,
+  prepareIssuesNode,
+  prepareHasStarsEdge,
+  prepareHasCommitsEdge,
+  prepareHasAgeEdge,
+  prepareHasIssuesEdge,
 } from "./gitsee-nodes.js";
 
 export function schema(_req: Request, res: Response) {
@@ -645,6 +652,9 @@ export async function gitsee(req: Request, res: Response) {
             responseData.contributors ||
             responseData.stats
           ) {
+            if (!responseData.owner && req.body?.owner) {
+              responseData.owner = req.body.owner;
+            }
             ingestGitSeeData(responseData).catch((err) =>
               console.error("Background ingestion error:", err)
             );
@@ -672,10 +682,34 @@ async function ingestGitSeeData(data: any): Promise<void> {
   try {
     let repoRefId: string | undefined;
 
-    if (data.repo) {
-      const repoNode = prepareGitHubRepoNode(data.repo);
+    const repoData =
+      data.exploration?.basic_info?.repository ||
+      data.repo_info ||
+      data.repository;
+
+    if (repoData && typeof repoData === "object") {
+      const repoNode = prepareGitHubRepoNode(repoData);
       repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
-      console.log(`✓ Added GitHubRepo: ${data.repo.full_name}`);
+      console.log(
+        `✓ Added GitHubRepo: ${
+          repoData.full_name || repoData.name || "unknown"
+        }`
+      );
+    } else {
+      if (data.repo && data.owner) {
+        const fullName = `${data.owner}/${data.repo}`;
+        const minimalRepo = {
+          id: Date.now(),
+          full_name: fullName,
+          name: data.repo,
+          html_url: `https://github.com/${fullName}`,
+          stargazers_count: data.stats?.stars || 0,
+          forks_count: 0,
+        };
+        const repoNode = prepareGitHubRepoNode(minimalRepo);
+        repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
+        console.log(`✓ Added GitHubRepo: ${fullName}`);
+      }
     }
 
     if (data.contributors && repoRefId) {
@@ -691,15 +725,51 @@ async function ingestGitSeeData(data: any): Promise<void> {
       }
     }
 
-    if (data.stats && data.repo && repoRefId) {
-      const statsNode = prepareRepoStatsNode(data.stats, data.repo.full_name);
-      const statsRefId = await db.add_node(
-        statsNode.node_type,
-        statsNode.node_data
-      );
+    if (data.stats && repoRefId) {
+      // Get repo full name from the actual repo data
+      const repoFullName =
+        repoData?.full_name ||
+        repoData?.name ||
+        `${data.owner || "unknown"}/${data.repo || "unknown"}`;
 
-      await db.add_edge("HAS_STATS", repoRefId, statsRefId);
-      console.log(`✓ Added RepoStats for ${data.repo.full_name}`);
+      // Create Stars node
+      const starsNode = prepareStarsNode(data.stats.stars, repoFullName);
+      const starsRefId = await db.add_node(
+        starsNode.node_type,
+        starsNode.node_data
+      );
+      await db.add_edge("HAS_STARS", repoRefId, starsRefId);
+      console.log(`✓ Added Stars for ${repoFullName}`);
+
+      // Create Commits node
+      const commitsNode = prepareCommitsNode(
+        data.stats.totalCommits,
+        repoFullName
+      );
+      const commitsRefId = await db.add_node(
+        commitsNode.node_type,
+        commitsNode.node_data
+      );
+      await db.add_edge("HAS_COMMITS", repoRefId, commitsRefId);
+      console.log(`✓ Added Commits for ${repoFullName}`);
+
+      // Create Age node
+      const ageNode = prepareAgeNode(data.stats.ageInYears, repoFullName);
+      const ageRefId = await db.add_node(ageNode.node_type, ageNode.node_data);
+      await db.add_edge("HAS_AGE", repoRefId, ageRefId);
+      console.log(`✓ Added Age for ${repoFullName}`);
+
+      // Create Issues node
+      const issuesNode = prepareIssuesNode(
+        data.stats.totalIssues,
+        repoFullName
+      );
+      const issuesRefId = await db.add_node(
+        issuesNode.node_type,
+        issuesNode.node_data
+      );
+      await db.add_edge("HAS_ISSUES", repoRefId, issuesRefId);
+      console.log(`✓ Added Issues for ${repoFullName}`);
     }
   } catch (error) {
     console.error("Error ingesting GitSee data:", error);
