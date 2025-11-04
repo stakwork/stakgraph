@@ -44,7 +44,7 @@ import {
 } from "../tools/budget.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
-import { GitSeeHandler } from "gitsee/server";
+import { GitSeeHandler, GitSeeResponse } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
 
 export function schema(_req: Request, res: Response) {
@@ -346,7 +346,7 @@ export async function create_pull_request(req: Request, res: Response) {
 
   if (!name || !docs || !number) {
     res.status(400).json({
-      error: "Missing required fields: name, docs, and number are required"
+      error: "Missing required fields: name, docs, and number are required",
     });
     return;
   }
@@ -624,7 +624,26 @@ export async function gitsee(req: Request, res: Response) {
     return;
   }
   try {
-    return await gitSeeHandler.handleJson(req.body, res);
+    // Set CORS headers
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    try {
+      const response: GitSeeResponse = await gitSeeHandler.processRequest(
+        req.body
+      );
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(response));
+    } catch (error) {
+      console.error("GitSee handleJson error:", error);
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error:
+            error instanceof Error ? error.message : "Internal server error",
+        })
+      );
+    }
   } catch (error) {
     console.error("gitsee API error:", error);
     res.status(500).json({ error: "Failed to handle gitsee request" });
