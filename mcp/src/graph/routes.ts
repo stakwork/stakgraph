@@ -46,6 +46,11 @@ import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
 import { GitSeeHandler, GitSeeResponse } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
+import {
+  prepareGitHubRepoNode,
+  prepareContributorNode,
+  prepareRepoStatsNode,
+} from "./gitsee-nodes.js";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -624,29 +629,80 @@ export async function gitsee(req: Request, res: Response) {
     return;
   }
   try {
-    // Set CORS headers
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    try {
-      const response: GitSeeResponse = await gitSeeHandler.processRequest(
-        req.body
-      );
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(JSON.stringify(response));
-    } catch (error) {
-      console.error("GitSee handleJson error:", error);
-      res.writeHead(500, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({
-          error:
-            error instanceof Error ? error.message : "Internal server error",
-        })
-      );
-    }
+
+    const originalEnd = res.end.bind(res);
+    let responseData: any;
+
+    (res.end as any) = function (this: Response, chunk?: any): Response {
+      if (chunk) {
+        try {
+          responseData = typeof chunk === "string" ? JSON.parse(chunk) : chunk;
+          if (
+            responseData.repo ||
+            responseData.contributors ||
+            responseData.stats
+          ) {
+            ingestGitSeeData(responseData).catch((err) =>
+              console.error("Background ingestion error:", err)
+            );
+          }
+        } catch (e) {
+          console.error("Error parsing response for ingestion:", e);
+        }
+      }
+      return originalEnd(chunk);
+    };
+
+    await gitSeeHandler.handleJson(req.body, res);
   } catch (error) {
     console.error("gitsee API error:", error);
-    res.status(500).json({ error: "Failed to handle gitsee request" });
+    res.status(500).json({
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to handle gitsee request",
+    });
+  }
+}
+
+async function ingestGitSeeData(data: any): Promise<void> {
+  try {
+    let repoRefId: string | undefined;
+
+    if (data.repo) {
+      const repoNode = prepareGitHubRepoNode(data.repo);
+      repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
+      console.log(`✓ Added GitHubRepo: ${data.repo.full_name}`);
+    }
+
+    if (data.contributors && repoRefId) {
+      for (const contributor of data.contributors) {
+        const contribNode = prepareContributorNode(contributor);
+        const contribRefId = await db.add_node(
+          contribNode.node_type,
+          contribNode.node_data
+        );
+
+        await db.add_edge("HAS_CONTRIBUTOR", repoRefId, contribRefId);
+        console.log(`✓ Added Contributor: ${contributor.login}`);
+      }
+    }
+
+    if (data.stats && data.repo && repoRefId) {
+      const statsNode = prepareRepoStatsNode(data.stats, data.repo.full_name);
+      const statsRefId = await db.add_node(
+        statsNode.node_type,
+        statsNode.node_data
+      );
+
+      await db.add_edge("HAS_STATS", repoRefId, statsRefId);
+      console.log(`✓ Added RepoStats for ${data.repo.full_name}`);
+    }
+  } catch (error) {
+    console.error("Error ingesting GitSee data:", error);
   }
 }
 
