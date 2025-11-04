@@ -44,7 +44,7 @@ impl GraphStreamingUploader {
         
         debug!(stage = stage, count = edges.len(), "stream_upload_edges");
         
-        let edge_queries = build_batch_edge_queries(
+        let edge_queries = build_batch_edge_queries_stream(
             edges.iter().map(|e| {
                 (
                     create_node_key_from_ref(&e.source),
