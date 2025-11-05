@@ -27,6 +27,12 @@ export interface LLMDecision {
     name: string;
     description: string;
   }>;
+  updateFeatures?: Array<{
+    // Features whose descriptions need updating
+    featureId: string;
+    newDescription: string;
+    reasoning: string;
+  }>;
   summary: string; // Summary of the PR itself
   reasoning: string;
 }

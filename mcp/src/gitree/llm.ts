@@ -19,6 +19,15 @@ const LLMDecisionSchema = z.object({
       })
     )
     .optional(),
+  updateFeatures: z
+    .array(
+      z.object({
+        featureId: z.string(),
+        newDescription: z.string(),
+        reasoning: z.string(),
+      })
+    )
+    .optional(),
   summary: z.string(),
   reasoning: z.string(),
 });
@@ -88,15 +97,25 @@ Features should NOT be:
 
 **Key points:**
 - A PR can belong to MULTIPLE features (e.g., a Google OAuth PR touches both "Authentication" and "Google Integration")
-- ONLY create new features for significant user-facing capabilities or business logic - be very conservative!
+- Create new features when you see a clear user-facing capability emerging - be thoughtful but not overly conservative
+- If you notice multiple recent PRs working toward the same capability, create a feature for it
 - Most PRs should add to existing features
-- When in doubt, add to existing rather than create new
 - If a PR is purely technical (refactoring, infrastructure), consider marking it as "ignore" or adding it to an existing relevant feature
+
+**Updating Feature Descriptions:**
+- Features evolve over time - descriptions should reflect current state, not historical implementation
+- If a PR fundamentally changes HOW a feature works (Bitcoin auth → GitHub OAuth, REST → GraphQL, etc.), update the feature description
+- Keep descriptions focused on WHAT the feature does for users, not implementation details
+- Examples of when to update:
+  * Authentication changes from one provider to another
+  * Major refactor that changes the nature of the feature
+  * Feature gains significant new capabilities that weren't in original description
 
 **Your actions (can combine multiple):**
 1. Add to one or more existing features
-2. Create one or more new features (RARE! Only for major capabilities)
-3. Ignore (for purely technical changes with no user/business impact)
+2. Create one or more new features (when you see a clear capability)
+3. Update feature descriptions (when implementations fundamentally change)
+4. Ignore (for purely technical changes with no user/business impact)
 
 Think: "What user capability or business problem does this PR contribute to?"`;
 
@@ -109,8 +128,9 @@ You need to decide:
 1. **actions**: Array of actions - can include multiple: "add_to_existing", "create_new", "ignore"
 2. **existingFeatureIds**: (if adding to existing) Array of feature IDs to add this PR to
 3. **newFeatures**: (if creating new) Array of {name, description} for new features to create
-4. **summary**: One sentence describing what this PR does
-5. **reasoning**: Why you made this decision
+4. **updateFeatures**: (if updating) Array of {featureId, newDescription, reasoning} for features whose descriptions need updating
+5. **summary**: One sentence describing what this PR does
+6. **reasoning**: Why you made this decision
 
 Examples:
 
@@ -141,6 +161,13 @@ Examples:
 - actions: ["ignore"]
 - summary: "Adds reusable modal component"
 - reasoning: "Generic UI component with no specific feature - will be used across features but isn't itself a feature"
+
+**Update feature description (good):**
+- actions: ["add_to_existing"]
+- existingFeatureIds: ["authentication"]
+- updateFeatures: [{featureId: "authentication", newDescription: "GitHub OAuth-based authentication system with JWT tokens and session management", reasoning: "This PR removes Bitcoin-based auth and replaces it entirely with GitHub OAuth - the feature description needs to reflect current implementation"}]
+- summary: "Replaces Bitcoin authentication with GitHub OAuth"
+- reasoning: "Fundamental change to how authentication works"
 
 **BAD - Don't create features for UI components:**
 ❌ actions: ["create_new"]

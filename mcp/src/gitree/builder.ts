@@ -264,6 +264,24 @@ ${DECISION_GUIDELINES}`;
         }
       }
     }
+
+    // Update feature descriptions
+    if (decision.updateFeatures && decision.updateFeatures.length > 0) {
+      for (const update of decision.updateFeatures) {
+        const feature = await this.storage.getFeature(update.featureId);
+        if (feature) {
+          feature.description = update.newDescription;
+          feature.lastUpdated = pr.mergedAt;
+          await this.storage.saveFeature(feature);
+          console.log(`   🔄 Updated feature description: ${feature.name}`);
+          console.log(`      ${update.reasoning}`);
+        } else {
+          console.log(
+            `   ⚠️  Warning: Cannot update feature ${update.featureId} - not found`
+          );
+        }
+      }
+    }
   }
 
   /**
