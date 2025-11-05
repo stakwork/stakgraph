@@ -1,6 +1,6 @@
 import { Octokit } from "@octokit/rest";
 import { Storage } from "./storage.js";
-import { LLMClient, SYSTEM_PROMPT, DECISION_FORMAT } from "./llm.js";
+import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
 import { Feature, PRRecord, LLMDecision, GitHubPR } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
 
@@ -23,18 +23,26 @@ export class StreamingFeatureBuilder {
     console.log(`Fetching PRs from ${owner}/${repo}...`);
     const prs = await this.fetchPRs(owner, repo, lastProcessed);
 
+    if (prs.length === 0) {
+      console.log(`No new PRs to process.`);
+      return;
+    }
+
     console.log(
-      `Processing ${prs.length} PRs starting from #${lastProcessed + 1}...`
+      `Processing ${prs.length} PRs starting from #${lastProcessed + 1}...\n`
     );
 
-    for (const pr of prs) {
+    for (let i = 0; i < prs.length; i++) {
+      const pr = prs[i];
+      const progress = `[${i + 1}/${prs.length}]`;
+      console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
+
       await this.processPR(owner, repo, pr);
       await this.storage.setLastProcessedPR(pr.number);
-      console.log(`✅ Processed PR #${pr.number}`);
     }
 
     const features = await this.storage.getAllFeatures();
-    console.log(`\nDone! Total features: ${features.length}`);
+    console.log(`\n✅ Done! Total features: ${features.length}`);
   }
 
   /**
@@ -102,7 +110,7 @@ export class StreamingFeatureBuilder {
   ): Promise<void> {
     // Skip obvious noise
     if (this.shouldSkip(pr)) {
-      console.log(`⏭️  Skipping #${pr.number}: ${pr.title}`);
+      console.log(`   ⏭️  Skipped (maintenance/trivial)`);
 
       // Still save the PR record for completeness
       await this.storage.savePR({
@@ -115,16 +123,17 @@ export class StreamingFeatureBuilder {
       return;
     }
 
-    console.log(`\n🔍 Analyzing PR #${pr.number}: ${pr.title}`);
-
     // Get current features for context
     const features = await this.storage.getAllFeatures();
 
     // Fetch full PR content using the existing pr.ts module
+    console.log(`   📥 Fetching PR content...`);
     const prContent = await fetchPullRequestContent(this.octokit, {
       owner,
       repo,
       pull_number: pr.number,
+    }, {
+      maxPatchLines: 100, // Reduce to 100 lines per file to save tokens
     });
 
     // Build decision prompt
@@ -164,7 +173,7 @@ ${this.formatFeatureContext(features)}
 
 ${prContent}
 
-${DECISION_FORMAT}`;
+${DECISION_GUIDELINES}`;
   }
 
   /**
