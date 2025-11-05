@@ -47,3 +47,5 @@ tests/generated_tests/
 !tests/playwright.config.js
 playwright-report/
 test-results/
+
+knowledge-base/

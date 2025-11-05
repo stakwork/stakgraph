@@ -7,6 +7,7 @@
     "dev": "tsx src/index.ts",
     "build": "tsc",
     "start": "node build/index.js",
+    "gitree": "tsx src/gitree/cli.ts",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
@@ -16,7 +17,8 @@
     "build-app": "node build-app.js"
   },
   "bin": {
-    "cursor-tools": "./build/index.js"
+    "cursor-tools": "./build/index.js",
+    "gitree": "./build/gitree/cli.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "2.0.22",
@@ -32,6 +34,7 @@
     "ai-sdk-provider-claude-code": "^1.1.1",
     "archy": "^1.0.0",
     "axios": "^1.9.0",
+    "commander": "^14.0.2",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
@@ -50,6 +53,7 @@
   },
   "devDependencies": {
     "@types/archy": "^0.0.36",
+    "@types/commander": "^2.12.5",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/express-fileupload": "^1.5.1",
