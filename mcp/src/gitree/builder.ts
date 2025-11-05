@@ -37,7 +37,22 @@ export class StreamingFeatureBuilder {
       const progress = `[${i + 1}/${prs.length}]`;
       console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
 
-      await this.processPR(owner, repo, pr);
+      try {
+        await this.processPR(owner, repo, pr);
+      } catch (error) {
+        console.error(`   ❌ Error processing PR #${pr.number}:`, error instanceof Error ? error.message : error);
+        console.log(`   ⏭️  Skipping and continuing with next PR...`);
+
+        // Save a minimal PR record so we know it was attempted
+        await this.storage.savePR({
+          number: pr.number,
+          title: pr.title,
+          summary: `Error during processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          mergedAt: pr.mergedAt,
+          url: pr.url,
+        });
+      }
+
       await this.storage.setLastProcessedPR(pr.number);
     }
 
@@ -46,26 +61,36 @@ export class StreamingFeatureBuilder {
   }
 
   /**
-   * Fetch PRs from GitHub
+   * Fetch PRs from GitHub (with pagination)
    */
   private async fetchPRs(
     owner: string,
     repo: string,
     since: number
   ): Promise<GitHubPR[]> {
-    const { data } = await this.octokit.pulls.list({
-      owner,
-      repo,
-      state: "closed",
-      sort: "created",
-      direction: "asc",
-      per_page: 100,
-    });
+    console.log(`   Fetching all PRs (paginated)...`);
+
+    // Use octokit pagination to get ALL PRs
+    const allPRs = await this.octokit.paginate(
+      this.octokit.pulls.list,
+      {
+        owner,
+        repo,
+        state: "closed",
+        sort: "created",
+        direction: "asc",
+        per_page: 100,
+      }
+    );
+
+    console.log(`   Found ${allPRs.length} closed PRs total`);
 
     // Filter to only merged PRs after the last processed
-    const mergedPRs = data.filter(
+    const mergedPRs = allPRs.filter(
       (pr) => pr.merged_at && pr.number > since
     );
+
+    console.log(`   ${mergedPRs.length} merged PRs to process (after #${since})`);
 
     // Convert to our GitHubPR type
     const gitHubPRs: GitHubPR[] = [];

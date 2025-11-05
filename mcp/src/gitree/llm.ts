@@ -89,18 +89,19 @@ Features should represent:
 ✅ **Major integrations** - What external services are integrated?
    Examples: "Stripe Integration", "Google OAuth", "AWS S3 Storage"
 
-Features should NOT be:
-❌ **UI Components** - "Sidebar Navigation", "Modal System", "Button Library"
-❌ **Technical Infrastructure** - "Redux Store", "API Client", "Error Handling"
-❌ **Code Organization** - "Refactoring", "Type Definitions", "Test Setup"
-❌ **Performance** - "Caching Layer", "Database Optimization" (unless it's a major capability like "Performance Monitoring")
+Features should NOT be (these are the ONLY things to avoid):
+❌ **Generic UI Components** - "Button Library", "Modal System" (but "Sidebar Navigation" for a specific app area CAN be a feature)
+❌ **Pure Infrastructure** - "Redux Store", "Error Handler Class" (but "Error Reporting Dashboard" IS a feature)
+❌ **Code Organization** - "Refactoring", "TypeScript Migration", "Add Types"
+
+When in doubt, CREATE the feature. Better to have a complete map than to miss important capabilities.
 
 **Key points:**
 - A PR can belong to MULTIPLE features (e.g., a Google OAuth PR touches both "Authentication" and "Google Integration")
-- Create new features when you see a clear user-facing capability emerging - be thoughtful but not overly conservative
-- If you notice multiple recent PRs working toward the same capability, create a feature for it
-- Most PRs should add to existing features
-- If a PR is purely technical (refactoring, infrastructure), consider marking it as "ignore" or adding it to an existing relevant feature
+- Create new features freely for any significant capability - we want to capture all major aspects of the system
+- A feature is "significant" if it represents something the application DOES (not how it's structured)
+- When in doubt between creating a new feature vs ignoring, CREATE the feature
+- If a PR is purely technical infrastructure with no user/business value (like "refactor error handling"), then ignore it
 
 **Updating Feature Descriptions:**
 - Features evolve over time - descriptions should reflect current state, not historical implementation
@@ -113,11 +114,11 @@ Features should NOT be:
 
 **Your actions (can combine multiple):**
 1. Add to one or more existing features
-2. Create one or more new features (when you see a clear capability)
+2. Create new features liberally - we want a comprehensive feature map
 3. Update feature descriptions (when implementations fundamentally change)
-4. Ignore (for purely technical changes with no user/business impact)
+4. Ignore (ONLY for pure refactoring/infrastructure with zero functional impact)
 
-Think: "What user capability or business problem does this PR contribute to?"`;
+Think: "What capability does this add to the application? If there's a clear answer, that's probably a feature."`;
 
 /**
  * Decision guidelines for the LLM
@@ -146,11 +147,17 @@ Examples:
 - summary: "Implements Google OAuth login"
 - reasoning: "Touches both authentication capability and Google integration"
 
-**Create new feature (good - major capability):**
+**Create new feature (good):**
 - actions: ["create_new"]
 - newFeatures: [{name: "Task Management", description: "Complete task management system allowing users to create, assign, track, and complete tasks with deadlines and dependencies."}]
 - summary: "Initial task management system"
-- reasoning: "This is a major new user-facing capability - managing tasks is a core business function"
+- reasoning: "This introduces a new capability - task management"
+
+**Create new feature for smaller capability (also good):**
+- actions: ["create_new"]
+- newFeatures: [{name: "Email Notifications", description: "System for sending email notifications to users about important events and updates"}]
+- summary: "Adds email notification system"
+- reasoning: "Email notifications are a distinct capability worth tracking"
 
 **Ignore - technical infrastructure (good):**
 - actions: ["ignore"]
