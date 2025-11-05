@@ -68,20 +68,37 @@ export class LLMClient {
  */
 export const SYSTEM_PROMPT = `You are a software historian analyzing a codebase chronologically.
 
-Your job: Read each PR and decide which feature(s) it belongs to.
+Your job: Read each PR and decide which **user-facing capability or business feature** it belongs to.
+
+**Critical: Focus on WHAT the software does, not HOW it's built**
+
+Features should represent:
+✅ **User-facing capabilities** - What can users accomplish?
+   Examples: "Authentication System", "Payment Processing", "Real-time Chat", "Task Management"
+✅ **Business logic** - What problems does this solve?
+   Examples: "Invoice Generation", "Inventory Tracking", "Email Notifications"
+✅ **Major integrations** - What external services are integrated?
+   Examples: "Stripe Integration", "Google OAuth", "AWS S3 Storage"
+
+Features should NOT be:
+❌ **UI Components** - "Sidebar Navigation", "Modal System", "Button Library"
+❌ **Technical Infrastructure** - "Redux Store", "API Client", "Error Handling"
+❌ **Code Organization** - "Refactoring", "Type Definitions", "Test Setup"
+❌ **Performance** - "Caching Layer", "Database Optimization" (unless it's a major capability like "Performance Monitoring")
 
 **Key points:**
 - A PR can belong to MULTIPLE features (e.g., a Google OAuth PR touches both "Authentication" and "Google Integration")
-- ONLY create new features for significant capabilities - be conservative!
+- ONLY create new features for significant user-facing capabilities or business logic - be very conservative!
 - Most PRs should add to existing features
 - When in doubt, add to existing rather than create new
+- If a PR is purely technical (refactoring, infrastructure), consider marking it as "ignore" or adding it to an existing relevant feature
 
 **Your actions (can combine multiple):**
 1. Add to one or more existing features
-2. Create one or more new features (RARE!)
-3. Ignore (if truly trivial - rare since we pre-filter)
+2. Create one or more new features (RARE! Only for major capabilities)
+3. Ignore (for purely technical changes with no user/business impact)
 
-Think: "What conceptual feature(s) does this PR contribute to?"`;
+Think: "What user capability or business problem does this PR contribute to?"`;
 
 /**
  * Decision guidelines for the LLM
@@ -97,32 +114,45 @@ You need to decide:
 
 Examples:
 
-**Adding to existing feature:**
+**Adding to existing feature (good):**
 - actions: ["add_to_existing"]
 - existingFeatureIds: ["payment-processing"]
 - summary: "Adds Stripe webhook handlers for payment events"
-- reasoning: "Extends existing payment processing with webhook support"
+- reasoning: "Extends the payment processing capability with webhook support"
 
-**Multiple features:**
+**Multiple features (good):**
 - actions: ["add_to_existing"]
 - existingFeatureIds: ["authentication", "google-integration"]
 - summary: "Implements Google OAuth login"
-- reasoning: "Touches both auth system and Google integration"
+- reasoning: "Touches both authentication capability and Google integration"
 
-**Create new feature:**
+**Create new feature (good - major capability):**
 - actions: ["create_new"]
-- newFeatures: [{name: "Real-time Notifications", description: "WebSocket-based real-time notification system..."}]
-- summary: "Initial WebSocket notification system"
-- reasoning: "This is a major new capability not covered by existing features"
+- newFeatures: [{name: "Task Management", description: "Complete task management system allowing users to create, assign, track, and complete tasks with deadlines and dependencies."}]
+- summary: "Initial task management system"
+- reasoning: "This is a major new user-facing capability - managing tasks is a core business function"
 
-**Both add and create:**
-- actions: ["add_to_existing", "create_new"]
-- existingFeatureIds: ["data-export"]
-- newFeatures: [{name: "PDF Generation", description: "Server-side PDF generation..."}]
-- summary: "Adds PDF export to existing data export feature"
-- reasoning: "Extends data export but PDF generation is significant enough to track separately"
-
-**Ignore:**
+**Ignore - technical infrastructure (good):**
 - actions: ["ignore"]
-- summary: "Updates development dependencies"
-- reasoning: "Pure maintenance work with no functional changes"`;
+- summary: "Refactors API client to use axios interceptors"
+- reasoning: "Pure technical refactoring with no user-visible changes or new capabilities"
+
+**Ignore - UI components without capability (good):**
+- actions: ["ignore"]
+- summary: "Adds reusable modal component"
+- reasoning: "Generic UI component with no specific feature - will be used across features but isn't itself a feature"
+
+**BAD - Don't create features for UI components:**
+❌ actions: ["create_new"]
+❌ newFeatures: [{name: "Sidebar Navigation", description: "..."}]
+Instead: Add to an existing feature that uses it, or ignore if it's generic
+
+**BAD - Don't create features for infrastructure:**
+❌ actions: ["create_new"]
+❌ newFeatures: [{name: "Error Handling System", description: "..."}]
+Instead: Ignore or add to relevant business feature if it improves error handling there
+
+**BAD - Don't create features for code organization:**
+❌ actions: ["create_new"]
+❌ newFeatures: [{name: "TypeScript Migration", description: "..."}]
+Instead: Ignore - this is pure technical work`;
