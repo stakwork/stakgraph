@@ -1,6 +1,13 @@
 import { v4 as uuidv4 } from "uuid";
 import { NodeType, NodeData } from "./types.js";
 
+function getTimestamp(): string {
+  const seconds = Date.now() / 1000;
+  const ts = seconds.toFixed(7);
+  console.log(`Generated timestamp: ${ts}`);
+  return ts;
+}
+
 interface GitSeeRepository {
   id: number;
   name?: string;
@@ -41,7 +48,6 @@ export function prepareGitHubRepoNode(repo: GitSeeRepository): {
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const now = Date.now();
   const fullName = repo.full_name || "unknown/unknown";
   const ownerName = repo.owner?.login || fullName.split("/")[0] || "unknown";
 
@@ -54,7 +60,7 @@ export function prepareGitHubRepoNode(repo: GitSeeRepository): {
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: now.toString(),
+      date_added_to_graph: getTimestamp(),
       Data_Bank: fullName,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -74,7 +80,6 @@ export function prepareContributorNode(contributor: GitSeeContributor): {
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const now = Date.now();
   return {
     node_type: "Contributor",
     node_data: {
@@ -84,7 +89,7 @@ export function prepareContributorNode(contributor: GitSeeContributor): {
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: now.toString(),
+      date_added_to_graph: getTimestamp(),
       Data_Bank: contributor.login,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -103,7 +108,6 @@ export function prepareStarsNode(
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const now = Date.now();
   return {
     node_type: "Stars",
     node_data: {
@@ -113,7 +117,7 @@ export function prepareStarsNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: now.toString(),
+      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-stars`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -129,7 +133,6 @@ export function prepareCommitsNode(
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const now = Date.now();
   return {
     node_type: "Commits",
     node_data: {
@@ -139,7 +142,7 @@ export function prepareCommitsNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: now.toString(),
+      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-commits`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -155,7 +158,6 @@ export function prepareAgeNode(
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const now = Date.now();
   return {
     node_type: "Age",
     node_data: {
@@ -165,7 +167,7 @@ export function prepareAgeNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: now.toString(),
+      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-age`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
@@ -181,7 +183,6 @@ export function prepareIssuesNode(
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const now = Date.now();
   return {
     node_type: "Issues",
     node_data: {
@@ -191,7 +192,7 @@ export function prepareIssuesNode(
       start: 0,
       end: 0,
       ref_id: uuidv4(),
-      date_added_to_graph: now.toString(),
+      date_added_to_graph: getTimestamp(),
       Data_Bank: `${repoFullName}-issues`,
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",

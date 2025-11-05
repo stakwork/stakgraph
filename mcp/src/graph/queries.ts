@@ -124,7 +124,7 @@ RETURN count(n) as deleted_count
 
 export const ADD_NODE_QUERY = (nodeType: string) => `
 MERGE (n:${nodeType}:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n += $properties, n.date_added_to_graph = $now, n.namespace = 'default'
+ON CREATE SET n += $properties, n.namespace = 'default'
 ON MATCH SET n += $properties
 RETURN n.ref_id as ref_id
 `;
