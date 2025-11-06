@@ -10,13 +10,7 @@ import {
   EdgeType,
   GraphResponse,
 } from "./types.js";
-import {
-  nameFileOnly,
-  toReturnNode,
-  formatNode,
-  clean_node,
-  getExtensionsForLanguage,
-} from "./utils.js";
+import { nameFileOnly, toReturnNode, formatNode, clean_node } from "./utils.js";
 import { createByModelName } from "@microsoft/tiktokenizer";
 import { generate_services_config } from "./service.js";
 

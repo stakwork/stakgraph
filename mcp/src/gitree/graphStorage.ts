@@ -1,0 +1,476 @@
+import neo4j, { Driver, Session } from "neo4j-driver";
+import { v4 as uuidv4 } from "uuid";
+import { Storage } from "./storage.js";
+import { Feature, PRRecord } from "./types.js";
+
+const Data_Bank = "Data_Bank";
+
+/**
+ * Neo4j graph-based storage implementation for features and PRs
+ */
+export class GraphStorage extends Storage {
+  private driver: Driver;
+
+  constructor() {
+    super();
+    const uri = `neo4j://${process.env.NEO4J_HOST || "localhost:7687"}`;
+    const user = process.env.NEO4J_USER || "neo4j";
+    const pswd = process.env.NEO4J_PASSWORD || "testtest";
+    console.log("===> GraphStorage connecting to", uri, user);
+    this.driver = neo4j.driver(uri, neo4j.auth.basic(user, pswd));
+  }
+
+  /**
+   * Initialize indexes for better query performance
+   */
+  async initialize(): Promise<void> {
+    const session = this.driver.session();
+    try {
+      // Create indexes on id/number for fast lookups
+      await session.run(
+        "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
+      );
+      await session.run(
+        "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
+      );
+    } catch (error) {
+      console.error("Error creating GraphStorage indexes:", error);
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Close the Neo4j driver connection
+   */
+  async close(): Promise<void> {
+    await this.driver.close();
+  }
+
+  // Features
+
+  async saveFeature(feature: Feature): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const dateTimestamp = Math.floor(feature.lastUpdated.getTime() / 1000);
+
+      await session.run(
+        `
+        MERGE (f:${Data_Bank}:Feature {id: $id})
+        SET f.name = $name,
+            f.description = $description,
+            f.prNumbers = $prNumbers,
+            f.date = $date,
+            f.docs = $docs,
+            f.namespace = $namespace,
+            f.Data_Bank = $dataBankName,
+            f.date_added_to_graph = COALESCE(f.date_added_to_graph, $dateAddedToGraph)
+        RETURN f
+        `,
+        {
+          id: feature.id,
+          name: feature.name,
+          description: feature.description,
+          prNumbers: feature.prNumbers,
+          date: dateTimestamp,
+          docs: feature.documentation || "",
+          namespace: "default",
+          dataBankName: feature.id,
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getFeature(id: string): Promise<Feature | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (f:Feature {id: $id})
+        RETURN f
+        `,
+        { id }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const node = result.records[0].get("f");
+      return this.nodeToFeature(node);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllFeatures(): Promise<Feature[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (f:Feature)
+        RETURN f
+        ORDER BY f.date DESC
+        `
+      );
+
+      return result.records.map((record) =>
+        this.nodeToFeature(record.get("f"))
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async deleteFeature(id: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `
+        MATCH (f:Feature {id: $id})
+        DETACH DELETE f
+        `,
+        { id }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  // PRs
+
+  async savePR(pr: PRRecord): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const dateTimestamp = Math.floor(pr.mergedAt.getTime() / 1000);
+      const docs = await this.formatPRMarkdown(pr);
+
+      await session.run(
+        `
+        MERGE (p:${Data_Bank}:PullRequest {number: $number})
+        SET p.title = $title,
+            p.summary = $summary,
+            p.date = $date,
+            p.url = $url,
+            p.files = $files,
+            p.newDeclarations = $newDeclarations,
+            p.docs = $docs,
+            p.namespace = $namespace,
+            p.Data_Bank = $dataBankName,
+            p.date_added_to_graph = COALESCE(p.date_added_to_graph, $dateAddedToGraph)
+        RETURN p
+        `,
+        {
+          number: pr.number,
+          title: pr.title,
+          summary: pr.summary,
+          date: dateTimestamp,
+          url: pr.url,
+          files: pr.files,
+          newDeclarations: pr.newDeclarations
+            ? JSON.stringify(pr.newDeclarations)
+            : null,
+          docs,
+          namespace: "default",
+          dataBankName: `pull-request-${pr.number}`,
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getPR(number: number): Promise<PRRecord | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:PullRequest {number: $number})
+        RETURN p
+        `,
+        { number }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const node = result.records[0].get("p");
+      return this.nodeToPR(node);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllPRs(): Promise<PRRecord[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (p:PullRequest)
+        RETURN p
+        ORDER BY p.number ASC
+        `
+      );
+
+      return result.records.map((record) => this.nodeToPR(record.get("p")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Metadata
+
+  async getLastProcessedPR(): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:FeaturesMetadata {namespace: $namespace})
+        RETURN m.lastProcessedPR as lastProcessedPR
+        `,
+        { namespace: "default" }
+      );
+
+      if (result.records.length === 0) {
+        return 0;
+      }
+
+      return result.records[0].get("lastProcessedPR").toNumber();
+    } catch (error) {
+      return 0;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setLastProcessedPR(number: number): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        SET m.lastProcessedPR = $number,
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+        RETURN m
+        `,
+        {
+          namespace: "default",
+          number,
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Documentation
+
+  async saveDocumentation(
+    featureId: string,
+    documentation: string
+  ): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `
+        MATCH (f:Feature {id: $id})
+        SET f.docs = $docs
+        RETURN f
+        `,
+        {
+          id: featureId,
+          docs: documentation,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Helper methods
+
+  private nodeToFeature(node: any): Feature {
+    const props = node.properties;
+    return {
+      id: props.id,
+      name: props.name,
+      description: props.description,
+      prNumbers: props.prNumbers || [],
+      createdAt: new Date(props.date * 1000),
+      lastUpdated: new Date(props.date * 1000),
+      documentation: props.docs || undefined,
+    };
+  }
+
+  private nodeToPR(node: any): PRRecord {
+    const props = node.properties;
+    return {
+      number: props.number.toNumber ? props.number.toNumber() : props.number,
+      title: props.title,
+      summary: props.summary,
+      mergedAt: new Date(props.date * 1000),
+      url: props.url,
+      files: props.files || [],
+      newDeclarations: props.newDeclarations
+        ? JSON.parse(props.newDeclarations)
+        : undefined,
+    };
+  }
+
+  /**
+   * Format PR as markdown (adapted from FileSystemStore)
+   */
+  private async formatPRMarkdown(pr: PRRecord): Promise<string> {
+    // Get features this PR belongs to
+    const features = await this.getFeaturesForPR(pr.number);
+    const featureLinks =
+      features.length > 0
+        ? `\n---\n\n_Part of features: ${features
+            .map((f) => `\`${f.id}\``)
+            .join(", ")}_`
+        : "";
+
+    const filesList =
+      pr.files.length > 0
+        ? `\n\n## Files Changed (${pr.files.length})\n\n${this.formatFilesList(pr.files, pr.newDeclarations)}`
+        : "";
+
+    return `# PR #${pr.number}: ${pr.title}
+
+**Merged**: ${pr.mergedAt.toISOString().split("T")[0]}
+**URL**: ${pr.url}
+
+## Summary
+
+${pr.summary}${filesList}${featureLinks}
+`.trim();
+  }
+
+  /**
+   * Format files list with intelligent collapsing and inline declarations
+   */
+  private formatFilesList(
+    files: string[],
+    newDeclarations?: PRRecord["newDeclarations"]
+  ): string {
+    // Create a map of file -> declarations for easy lookup
+    const declMap = new Map<string, string[]>();
+    if (newDeclarations) {
+      for (const { file, declarations } of newDeclarations) {
+        declMap.set(file, declarations);
+      }
+    }
+
+    // Only collapse if > 20 files total
+    if (files.length <= 20) {
+      const output: string[] = [];
+      for (const file of files) {
+        output.push(`- ${file}`);
+        const decls = declMap.get(file);
+        if (decls) {
+          for (const decl of decls) {
+            output.push(`  - ${decl}`);
+          }
+        }
+      }
+      return output.join("\n");
+    }
+
+    // Directories to always collapse
+    const autoCollapseDirs = new Set([
+      "node_modules",
+      "dist",
+      "build",
+      "target",
+      "out",
+      ".next",
+      "coverage",
+    ]);
+
+    // Group files by their full directory path
+    const byDirectory: Map<string, string[]> = new Map();
+    const rootFiles: string[] = [];
+
+    for (const file of files) {
+      const parts = file.split("/");
+      if (parts.length === 1) {
+        // File in root
+        rootFiles.push(file);
+      } else {
+        // Get the full directory path (everything except the filename)
+        const dir = parts.slice(0, -1).join("/");
+        if (!byDirectory.has(dir)) {
+          byDirectory.set(dir, []);
+        }
+        byDirectory.get(dir)!.push(file);
+      }
+    }
+
+    const output: string[] = [];
+
+    // Show root files with their declarations
+    for (const file of rootFiles) {
+      output.push(`- ${file}`);
+      const decls = declMap.get(file);
+      if (decls) {
+        for (const decl of decls) {
+          output.push(`  - ${decl}`);
+        }
+      }
+    }
+
+    // Process directories
+    for (const [dir, dirFiles] of byDirectory.entries()) {
+      // Check if any part of the path matches auto-collapse directories
+      const pathParts = dir.split("/");
+      const shouldAutoCollapse = pathParts.some((part) =>
+        autoCollapseDirs.has(part)
+      );
+
+      if (shouldAutoCollapse) {
+        output.push(`- ${dir}/... (${dirFiles.length} files)`);
+        continue;
+      }
+
+      // Show first 10, then indicate more
+      if (dirFiles.length > 10) {
+        // Show first 10 files with declarations
+        for (let i = 0; i < 10; i++) {
+          output.push(`- ${dirFiles[i]}`);
+          const decls = declMap.get(dirFiles[i]);
+          if (decls) {
+            for (const decl of decls) {
+              output.push(`  - ${decl}`);
+            }
+          }
+        }
+        // Indicate there are more
+        const remaining = dirFiles.length - 10;
+        output.push(`- ${dir}/... (${remaining} more files)`);
+      } else {
+        // Show all files with declarations
+        for (const file of dirFiles) {
+          output.push(`- ${file}`);
+          const decls = declMap.get(file);
+          if (decls) {
+            for (const decl of decls) {
+              output.push(`  - ${decl}`);
+            }
+          }
+        }
+      }
+    }
+
+    return output.join("\n");
+  }
+}
