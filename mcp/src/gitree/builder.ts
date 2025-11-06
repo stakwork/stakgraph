@@ -50,6 +50,7 @@ export class StreamingFeatureBuilder {
           summary: `Error during processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
           mergedAt: pr.mergedAt,
           url: pr.url,
+          files: pr.filesChanged,
         });
       }
 
@@ -124,6 +125,7 @@ export class StreamingFeatureBuilder {
         summary: "Skipped (maintenance/trivial)",
         mergedAt: pr.mergedAt,
         url: pr.url,
+        files: pr.filesChanged,
       });
       return;
     }
@@ -158,7 +160,7 @@ export class StreamingFeatureBuilder {
     const decision = await this.llm.decide(prompt);
 
     // Apply decision
-    await this.applyDecision(pr, decision);
+    await this.applyDecision(owner, repo, pr, decision);
   }
 
   /**
@@ -213,9 +215,19 @@ ${DECISION_GUIDELINES}`;
    * Apply LLM decision
    */
   private async applyDecision(
+    owner: string,
+    repo: string,
     pr: GitHubPR,
     decision: LLMDecision
   ): Promise<void> {
+    // Fetch file list for this PR
+    const { data: files } = await this.octokit.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: pr.number,
+      per_page: 100,
+    });
+
     // Save PR record
     const prRecord: PRRecord = {
       number: pr.number,
@@ -223,6 +235,7 @@ ${DECISION_GUIDELINES}`;
       summary: decision.summary,
       mergedAt: pr.mergedAt,
       url: pr.url,
+      files: files.map(f => f.filename),
     };
     await this.storage.savePR(prRecord);
 

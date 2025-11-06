@@ -212,6 +212,10 @@ export class FileSystemStore extends Storage {
             .join(", ")}_`
         : "";
 
+    const filesList = pr.files.length > 0
+      ? `\n\n## Files Changed (${pr.files.length})\n\n${pr.files.map(f => `- ${f}`).join('\n')}`
+      : '';
+
     return `# PR #${pr.number}: ${pr.title}
 
 **Merged**: ${pr.mergedAt.toISOString().split("T")[0]}
@@ -219,7 +223,7 @@ export class FileSystemStore extends Storage {
 
 ## Summary
 
-${pr.summary}${featureLinks}
+${pr.summary}${filesList}${featureLinks}
 `.trim();
   }
 
@@ -230,8 +234,21 @@ ${pr.summary}${featureLinks}
     const mergedMatch = content.match(/\*\*Merged\*\*: (.+)$/m);
     const urlMatch = content.match(/\*\*URL\*\*: (.+)$/m);
     const summaryMatch = content.match(
-      /## Summary\n\n([\s\S]+?)(?:\n---|\n*$)/
+      /## Summary\n\n([\s\S]+?)(?:\n## Files Changed|\n---|\n*$)/
     );
+
+    // Parse files list
+    const filesMatch = content.match(/## Files Changed \(\d+\)\n\n([\s\S]+?)(?:\n---|\n*$)/);
+    const files: string[] = [];
+    if (filesMatch?.[1]) {
+      const fileLines = filesMatch[1].split('\n');
+      for (const line of fileLines) {
+        const fileMatch = line.match(/^- (.+)$/);
+        if (fileMatch) {
+          files.push(fileMatch[1]);
+        }
+      }
+    }
 
     return {
       number,
@@ -239,6 +256,7 @@ ${pr.summary}${featureLinks}
       mergedAt: mergedMatch?.[1] ? new Date(mergedMatch[1]) : new Date(),
       url: urlMatch?.[1]?.trim() || "",
       summary: summaryMatch?.[1]?.trim() || "",
+      files,
     };
   }
 }

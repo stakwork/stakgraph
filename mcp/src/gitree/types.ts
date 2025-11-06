@@ -17,6 +17,7 @@ export interface PRRecord {
   summary: string; // LLM-generated summary of what this PR does
   mergedAt: Date;
   url: string;
+  files: string[]; // List of files changed in this PR
 }
 
 export interface LLMDecision {
