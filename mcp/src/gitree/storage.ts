@@ -213,7 +213,7 @@ export class FileSystemStore extends Storage {
         : "";
 
     const filesList = pr.files.length > 0
-      ? `\n\n## Files Changed (${pr.files.length})\n\n${pr.files.map(f => `- ${f}`).join('\n')}`
+      ? `\n\n## Files Changed (${pr.files.length})\n\n${this.formatFilesList(pr.files)}`
       : '';
 
     return `# PR #${pr.number}: ${pr.title}
@@ -225,6 +225,78 @@ export class FileSystemStore extends Storage {
 
 ${pr.summary}${filesList}${featureLinks}
 `.trim();
+  }
+
+  /**
+   * Format files list with intelligent collapsing
+   */
+  private formatFilesList(files: string[]): string {
+    // Only collapse if > 20 files total
+    if (files.length <= 20) {
+      return files.map(f => `- ${f}`).join('\n');
+    }
+
+    // Directories to always collapse
+    const autoCollapseDirs = new Set([
+      'node_modules',
+      'dist',
+      'build',
+      'target',
+      'out',
+      '.next',
+      'coverage',
+    ]);
+
+    // Group files by directory
+    const byDirectory: Map<string, string[]> = new Map();
+    const rootFiles: string[] = [];
+
+    for (const file of files) {
+      const parts = file.split('/');
+      if (parts.length === 1) {
+        rootFiles.push(file);
+      } else {
+        const dir = parts[0];
+        if (!byDirectory.has(dir)) {
+          byDirectory.set(dir, []);
+        }
+        byDirectory.get(dir)!.push(file);
+      }
+    }
+
+    const output: string[] = [];
+
+    // Show root files (important ones first)
+    for (const file of rootFiles) {
+      output.push(`- ${file}`);
+    }
+
+    // Process directories
+    for (const [dir, dirFiles] of byDirectory.entries()) {
+      // Always collapse certain directories
+      if (autoCollapseDirs.has(dir)) {
+        output.push(`- ${dir}/... (${dirFiles.length} files)`);
+        continue;
+      }
+
+      // Show first 10, then indicate more
+      if (dirFiles.length > 10) {
+        // Show first 10 files
+        for (let i = 0; i < 10; i++) {
+          output.push(`- ${dirFiles[i]}`);
+        }
+        // Indicate there are more
+        const remaining = dirFiles.length - 10;
+        output.push(`- ${dir}/... (${remaining} more files)`);
+      } else {
+        // Show all files
+        for (const file of dirFiles) {
+          output.push(`- ${file}`);
+        }
+      }
+    }
+
+    return output.join('\n');
   }
 
   // TODO: Implement parsing markdown back to PRRecord
