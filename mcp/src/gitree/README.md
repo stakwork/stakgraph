@@ -6,6 +6,7 @@ A tool that processes GitHub PRs chronologically using an LLM to organize them i
 
 - "maybe" feature memory... need to cross a certain threshold to become a feature
 - update feature docs for new PR
+- neo4j backend
 
 ## Features
 

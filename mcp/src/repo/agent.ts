@@ -64,7 +64,7 @@ export async function get_context(
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
   const system =
     systemOverride ||
-    `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.`;
+    `You are a code exploration assistant. Please use the provided tools to answer the user's prompt. ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION. Do NOT create document with your answer, always use the final_answer tool!!!!!!!!!!`;
   const { steps, totalUsage } = await generateText({
     model,
     tools,
