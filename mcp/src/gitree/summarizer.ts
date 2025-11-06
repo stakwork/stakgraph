@@ -99,7 +99,7 @@ export class Summarizer {
     // Format all PRs in a concise format
     const prContents = prs.map((pr) => this.formatPRForSummary(pr)).join("\n\n");
 
-    return `You are generating comprehensive documentation for a software feature based on its complete PR history.
+    return `You are generating SUCCINCT documentation for a software feature to help developers quickly understand and continue working on it.
 
 **Feature**: ${feature.name}
 **ID**: ${feature.id}
@@ -112,21 +112,28 @@ ${prContents}
 
 ---
 
-**Your task**: Generate comprehensive documentation for the CURRENT state of this feature.
+**Your task**: Generate HIGH-LEVEL documentation for the CURRENT state of this feature.
 
-**Requirements**:
-1. Focus on what the feature does NOW (not historical implementation details)
-2. Include the 1-15 core files involved in this feature
-3. Include types/tables/schemas ONLY if they are core to the feature
-4. Use free-form markdown structure (choose what makes sense for this feature)
-5. Be comprehensive but concise
+**CRITICAL REQUIREMENTS**:
+1. **Be SUCCINCT** - Target length: 100-200 lines MAXIMUM
+2. **NO code snippets** - Focus on concepts, not implementation details
+3. **High-level only** - What it does, not how it's coded
+4. **Actionable** - What developers need to know to work on this feature
+5. **Focus on CURRENT state** - Ignore historical implementation details
 
-**Structure suggestions** (adapt as needed):
-- Overview of what this feature does
-- Core files and their purposes
-- Key components/functions/endpoints
-- Data models (if relevant)
-- How it works (architecture/flow)
+**What to include**:
+- Brief overview (2-3 sentences max)
+- List the 5-15 core files (just paths and 1-line purposes)
+- Key concepts/components (high-level only)
+- Main API endpoints/functions (names only, no implementations)
+- Core data models (names only, brief purpose)
+
+**What to AVOID**:
+- Long explanations of how things work internally
+- Code snippets or implementation details
+- Historical information about how it evolved
+- Detailed API documentation
+- Step-by-step flows unless absolutely essential
 
 Generate the documentation in markdown format:`;
   }

@@ -2,6 +2,11 @@
 
 A tool that processes GitHub PRs chronologically using an LLM to organize them into conceptual features. A PR can belong to multiple features, creating a many-to-many relationship between PRs and features.
 
+## next steps:
+
+- "maybe" feature memory... need to cross a certain threshold to become a feature
+- update feature docs for new PR
+
 ## Features
 
 - **Intelligent Feature Extraction**: Uses Claude (Anthropic) to analyze PRs and group them into meaningful features
@@ -51,6 +56,7 @@ yarn gitree process facebook react --token ghp_xxxxx
 ```
 
 The tool will:
+
 1. Fetch all merged PRs chronologically
 2. Skip obvious maintenance PRs (chores, dependabot, etc.)
 3. Ask Claude to categorize each PR into features
@@ -155,12 +161,14 @@ _Part of features: `auth-system`, `google-integration`_
 1. **PR Filtering**: Basic heuristics skip obvious maintenance PRs (bump, chore:, dependabot, docs:, typo, ci:)
 
 2. **LLM Decision**: For each PR, Claude analyzes:
+
    - PR title and description
    - Changed files and diffs
    - Review comments and discussion
    - Commit history
 
    Then decides whether to:
+
    - Add to existing feature(s)
    - Create new feature(s)
    - Ignore (if truly trivial)
@@ -234,22 +242,22 @@ You can also use gitree as a library:
 import {
   FileSystemStore,
   LLMClient,
-  StreamingFeatureBuilder
-} from './src/gitree/index.js';
-import { Octokit } from '@octokit/rest';
+  StreamingFeatureBuilder,
+} from "./src/gitree/index.js";
+import { Octokit } from "@octokit/rest";
 
-const storage = new FileSystemStore('./my-kb');
+const storage = new FileSystemStore("./my-kb");
 await storage.initialize();
 
 const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
-const llm = new LLMClient('anthropic', process.env.ANTHROPIC_API_KEY);
+const llm = new LLMClient("anthropic", process.env.ANTHROPIC_API_KEY);
 const builder = new StreamingFeatureBuilder(storage, llm, octokit);
 
-await builder.processRepo('facebook', 'react');
+await builder.processRepo("facebook", "react");
 
 // Query the results
 const features = await storage.getAllFeatures();
-const authPRs = await storage.getPRsForFeature('authentication-system');
+const authPRs = await storage.getPRsForFeature("authentication-system");
 ```
 
 ## Contributing

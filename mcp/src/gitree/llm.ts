@@ -120,6 +120,7 @@ When in doubt, CREATE the feature. Better to have a complete map than to miss im
   * Authentication changes from one provider to another
   * Major refactor that changes the nature of the feature
   * Feature gains significant new capabilities that weren't in original description
+  * DO NOT INCLUDE INCLUDE VERY SPECIFIC IMPLEMENTATION DETAILS IN THE DESCRIPTION
 
 **Your actions (can combine multiple):**
 1. Add to one or more existing features
