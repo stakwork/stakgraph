@@ -18,6 +18,10 @@ export interface PRRecord {
   mergedAt: Date;
   url: string;
   files: string[]; // List of files changed in this PR
+  newDeclarations?: Array<{
+    file: string;
+    declarations: string[];
+  }>;
 }
 
 export interface LLMDecision {
@@ -36,6 +40,10 @@ export interface LLMDecision {
   }>;
   summary: string; // Summary of the PR itself
   reasoning: string;
+  newDeclarations?: Array<{
+    file: string;
+    declarations: string[];
+  }>;
 }
 
 /**

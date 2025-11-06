@@ -236,6 +236,7 @@ ${DECISION_GUIDELINES}`;
       mergedAt: pr.mergedAt,
       url: pr.url,
       files: files.map(f => f.filename),
+      newDeclarations: decision.newDeclarations,
     };
     await this.storage.savePR(prRecord);
 

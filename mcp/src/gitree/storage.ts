@@ -213,7 +213,7 @@ export class FileSystemStore extends Storage {
         : "";
 
     const filesList = pr.files.length > 0
-      ? `\n\n## Files Changed (${pr.files.length})\n\n${this.formatFilesList(pr.files)}`
+      ? `\n\n## Files Changed (${pr.files.length})\n\n${this.formatFilesList(pr.files, pr.newDeclarations)}`
       : '';
 
     return `# PR #${pr.number}: ${pr.title}
@@ -228,12 +228,29 @@ ${pr.summary}${filesList}${featureLinks}
   }
 
   /**
-   * Format files list with intelligent collapsing
+   * Format files list with intelligent collapsing and inline declarations
    */
-  private formatFilesList(files: string[]): string {
+  private formatFilesList(files: string[], newDeclarations?: PRRecord['newDeclarations']): string {
+    // Create a map of file -> declarations for easy lookup
+    const declMap = new Map<string, string[]>();
+    if (newDeclarations) {
+      for (const { file, declarations } of newDeclarations) {
+        declMap.set(file, declarations);
+      }
+    }
     // Only collapse if > 20 files total
     if (files.length <= 20) {
-      return files.map(f => `- ${f}`).join('\n');
+      const output: string[] = [];
+      for (const file of files) {
+        output.push(`- ${file}`);
+        const decls = declMap.get(file);
+        if (decls) {
+          for (const decl of decls) {
+            output.push(`  - ${decl}`);
+          }
+        }
+      }
+      return output.join('\n');
     }
 
     // Directories to always collapse
@@ -268,9 +285,16 @@ ${pr.summary}${filesList}${featureLinks}
 
     const output: string[] = [];
 
-    // Show root files (important ones first)
+    // Show root files with their declarations
     for (const file of rootFiles) {
       output.push(`- ${file}`);
+      // Add declarations if any
+      const decls = declMap.get(file);
+      if (decls) {
+        for (const decl of decls) {
+          output.push(`  - ${decl}`);
+        }
+      }
     }
 
     // Process directories
@@ -286,17 +310,29 @@ ${pr.summary}${filesList}${featureLinks}
 
       // Show first 10, then indicate more
       if (dirFiles.length > 10) {
-        // Show first 10 files
+        // Show first 10 files with declarations
         for (let i = 0; i < 10; i++) {
           output.push(`- ${dirFiles[i]}`);
+          const decls = declMap.get(dirFiles[i]);
+          if (decls) {
+            for (const decl of decls) {
+              output.push(`  - ${decl}`);
+            }
+          }
         }
         // Indicate there are more
         const remaining = dirFiles.length - 10;
         output.push(`- ${dir}/... (${remaining} more files)`);
       } else {
-        // Show all files
+        // Show all files with declarations
         for (const file of dirFiles) {
           output.push(`- ${file}`);
+          const decls = declMap.get(file);
+          if (decls) {
+            for (const decl of decls) {
+              output.push(`  - ${decl}`);
+            }
+          }
         }
       }
     }
@@ -314,16 +350,41 @@ ${pr.summary}${filesList}${featureLinks}
       /## Summary\n\n([\s\S]+?)(?:\n## Files Changed|\n---|\n*$)/
     );
 
-    // Parse files list
+    // Parse files list and declarations together
     const filesMatch = content.match(/## Files Changed \(\d+\)\n\n([\s\S]+?)(?:\n---|\n*$)/);
     const files: string[] = [];
+    const newDeclarations: PRRecord['newDeclarations'] = [];
+
     if (filesMatch?.[1]) {
-      const fileLines = filesMatch[1].split('\n');
-      for (const line of fileLines) {
+      const lines = filesMatch[1].split('\n');
+      let currentFile: string | null = null;
+      let currentDecls: string[] = [];
+
+      for (const line of lines) {
         const fileMatch = line.match(/^- (.+)$/);
+        const declMatch = line.match(/^  - (.+)$/);
+
         if (fileMatch) {
-          files.push(fileMatch[1]);
+          // Save previous file's declarations if any
+          if (currentFile && currentDecls.length > 0) {
+            newDeclarations.push({ file: currentFile, declarations: currentDecls });
+          }
+          // Add to files list
+          const fileName = fileMatch[1];
+          // Skip summary lines like "public/... (88 more files)"
+          if (!fileName.includes('...')) {
+            files.push(fileName);
+          }
+          currentFile = fileName;
+          currentDecls = [];
+        } else if (declMatch && currentFile) {
+          currentDecls.push(declMatch[1]);
         }
+      }
+
+      // Save last file's declarations
+      if (currentFile && currentDecls.length > 0) {
+        newDeclarations.push({ file: currentFile, declarations: currentDecls });
       }
     }
 
@@ -334,6 +395,7 @@ ${pr.summary}${filesList}${featureLinks}
       url: urlMatch?.[1]?.trim() || "",
       summary: summaryMatch?.[1]?.trim() || "",
       files,
+      newDeclarations: newDeclarations.length > 0 ? newDeclarations : undefined,
     };
   }
 }

@@ -28,6 +28,14 @@ const LLMDecisionSchema = z.object({
     .optional(),
   summary: z.string(),
   reasoning: z.string(),
+  newDeclarations: z
+    .array(
+      z.object({
+        file: z.string(),
+        declarations: z.array(z.string()),
+      })
+    )
+    .optional(),
 });
 
 /**
@@ -137,6 +145,11 @@ You need to decide:
    - Example simple: "Adds user profile editing functionality"
    - Example complex: "Major refactor of authentication system:\n- Migrates from Bitcoin signatures to GitHub OAuth\n- Adds session management with Redis\n- Updates all auth middleware\n- Adds comprehensive auth tests"
 6. **reasoning**: Quick blurb of why you made this decision
+7. **newDeclarations** (optional): If this PR introduces significant NEW code structures, list them organized by file. Skip for PRs that only modify existing code.
+   - Format: Array of {file: string, declarations: string[]}
+   - Include: endpoints, classes, functions, types, tables, components - whatever is significant
+   - Skip: trivial helpers, internal utilities
+   - Example: [{file: "src/api/tasks.ts", declarations: ["GET /api/tasks", "POST /api/tasks", "validateTask"]}, {file: "src/types/task.ts", declarations: ["Task", "TaskStatus"]}]
 
 Examples:
 
@@ -145,6 +158,7 @@ Examples:
 - existingFeatureIds: ["payment-processing"]
 - summary: "Adds Stripe webhook handlers for payment events"
 - reasoning: "Extends the payment processing capability with webhook support"
+- newDeclarations: [{file: "src/api/webhooks.ts", declarations: ["POST /webhooks/stripe", "handleStripeWebhook"]}]
 
 **Adding to existing feature - complex PR (good):**
 - actions: ["add_to_existing"]
