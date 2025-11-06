@@ -513,7 +513,9 @@ import NewPerson from "./components/NewPerson";"#
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
-   // assert_eq!(calls, 13, "Expected 13 calls edges");
+    //TODO: Fix lsp calls edge count : locally, it says 13 but on CI it says something else
+    // assert_eq!(calls, 13, "Expected 13 calls edges");
+
 
     let imports = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imports;
@@ -553,7 +555,7 @@ import NewPerson from "./components/NewPerson";"#
     assert_eq!(nested_in, 1, "Expected 1 NestedIn edges");
 
     if use_lsp {
-      //  assert_eq!(uses, 13, "Expected 13 uses edges");
+        //assert_eq!(uses, 13, "Expected 13 uses edges");
     }
 
     let (nodes, edges) = graph.get_graph_size();

@@ -32,17 +32,19 @@ impl GraphStreamingUploader {
         Ok(())
     }
 
-    pub async fn flush_edges(
+    pub async fn flush_edges_stage(
         &mut self,
         neo: &Neo4jGraph,
+        stage: &str,
         edges: &[Edge],
     ) -> Result<()> {
         if edges.is_empty() {
             return Ok(());
         }
         
-        info!(count = edges.len(), "bulk_upload_edges");
-        let edge_queries = build_batch_edge_queries(
+        debug!(stage = stage, count = edges.len(), "stream_upload_edges");
+        
+        let edge_queries = build_batch_edge_queries_stream(
             edges.iter().map(|e| {
                 (
                     create_node_key_from_ref(&e.source),
@@ -54,8 +56,8 @@ impl GraphStreamingUploader {
         );
         
         neo.execute_simple(edge_queries).await?;
-        info!(edges = edges.len(), "bulk_edges_uploaded");
         
+        info!(stage = stage, edges = edges.len(), "stream_edges_flushed");
         Ok(())
     }
 }

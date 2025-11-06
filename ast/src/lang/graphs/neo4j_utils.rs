@@ -169,6 +169,28 @@ impl EdgeQueryBuilder {
         );
         (query, params)
     }
+
+    pub fn build_stream(&self) -> (String, BoltMap) {
+        let mut params = BoltMap::new();
+
+        let rel_type = self.edge.edge.to_string();
+
+        let source_type = self.edge.source.node_type.to_string();
+        let source_key = create_node_key_from_ref(&self.edge.source);
+        boltmap_insert_str(&mut params, "source_key", &source_key);
+
+        let target_type = self.edge.target.node_type.to_string();
+        let target_key = create_node_key_from_ref(&self.edge.target);
+        boltmap_insert_str(&mut params, "target_key", &target_key);
+
+        let query = format!(
+            "MATCH (source:{} {{node_key: $source_key}}),
+                 (target:{} {{node_key: $target_key}})
+            MERGE (source)-[r:{}]->(target)",
+            source_type, target_type, rel_type
+        );
+        (query, params)
+    }
 }
 
 pub fn build_batch_edge_queries<I>(edges: I, batch_size: usize) -> Vec<(String, BoltMap)>
@@ -217,6 +239,57 @@ where
                          MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
                          CREATE (source)-[r:{}]->(target)
                          RETURN count(r)",
+                        edge_type.to_string()
+                    );
+
+                    (query, params)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+pub fn build_batch_edge_queries_stream<I>(edges: I, batch_size: usize) -> Vec<(String, BoltMap)>
+where
+    I: Iterator<Item = (String, String, EdgeType)>,
+{
+    use itertools::Itertools;
+    use std::collections::HashMap;
+
+    let edges_by_type: HashMap<EdgeType, Vec<(String, String)>> = edges
+        .map(|(source, target, edge_type)| (edge_type, (source, target)))
+        .into_group_map();
+
+    edges_by_type
+        .into_iter()
+        .flat_map(|(edge_type, type_edges)| {
+            let chunks: Vec<Vec<(String, String)>> = type_edges
+                .into_iter()
+                .chunks(batch_size)
+                .into_iter()
+                .map(|chunk| chunk.collect())
+                .collect();
+
+            chunks
+                .into_iter()
+                .map(|chunk| {
+                    let edges_data: Vec<BoltMap> = chunk
+                        .into_iter()
+                        .map(|(source, target)| {
+                            let mut edge_map = BoltMap::new();
+                            boltmap_insert_str(&mut edge_map, "source", &source);
+                            boltmap_insert_str(&mut edge_map, "target", &target);
+                            edge_map
+                        })
+                        .collect();
+
+                    let mut params = BoltMap::new();
+                    boltmap_insert_list_of_maps(&mut params, "edges", edges_data);
+
+                    let query = format!(
+                        "UNWIND $edges AS edge
+                         MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
+                         MERGE (source)-[r:{}]->(target)",
                         edge_type.to_string()
                     );
 
@@ -375,6 +448,10 @@ pub fn add_node_query_stream(node_type: &NodeType, node_data: &NodeData) -> (Str
 
 pub fn add_edge_query(edge: &Edge) -> (String, BoltMap) {
     EdgeQueryBuilder::new(edge).build()
+}
+
+pub fn add_edge_query_stream(edge: &Edge) -> (String, BoltMap) {
+    EdgeQueryBuilder::new(edge).build_stream()
 }
 
 pub async fn execute_node_query(
