@@ -61,14 +61,14 @@ export class StreamingFeatureBuilder {
   }
 
   /**
-   * Fetch PRs from GitHub (with pagination)
+   * Fetch PRs from GitHub (with pagination) - lightweight, just the list
    */
   private async fetchPRs(
     owner: string,
     repo: string,
     since: number
   ): Promise<GitHubPR[]> {
-    console.log(`   Fetching all PRs (paginated)...`);
+    console.log(`   Fetching PR list (paginated)...`);
 
     // Use octokit pagination to get ALL PRs
     const allPRs = await this.octokit.paginate(
@@ -92,37 +92,17 @@ export class StreamingFeatureBuilder {
 
     console.log(`   ${mergedPRs.length} merged PRs to process (after #${since})`);
 
-    // Convert to our GitHubPR type
-    const gitHubPRs: GitHubPR[] = [];
-    for (const pr of mergedPRs) {
-      // Fetch full PR details to get additions/deletions
-      const { data: fullPR } = await this.octokit.pulls.get({
-        owner,
-        repo,
-        pull_number: pr.number,
-      });
-
-      // Fetch files for this PR
-      const { data: files } = await this.octokit.pulls.listFiles({
-        owner,
-        repo,
-        pull_number: pr.number,
-        per_page: 100,
-      });
-
-      gitHubPRs.push({
-        number: fullPR.number,
-        title: fullPR.title,
-        body: fullPR.body,
-        url: fullPR.html_url,
-        mergedAt: new Date(fullPR.merged_at!),
-        additions: fullPR.additions || 0,
-        deletions: fullPR.deletions || 0,
-        filesChanged: files.map((f) => f.filename),
-      });
-    }
-
-    return gitHubPRs;
+    // Convert to lightweight GitHubPR type (detailed info fetched when processing)
+    return mergedPRs.map(pr => ({
+      number: pr.number,
+      title: pr.title,
+      body: pr.body,
+      url: pr.html_url,
+      mergedAt: new Date(pr.merged_at!),
+      additions: 0, // Will fetch when processing
+      deletions: 0, // Will fetch when processing
+      filesChanged: [], // Will fetch when processing
+    }));
   }
 
   /**
@@ -151,8 +131,17 @@ export class StreamingFeatureBuilder {
     // Get current features for context
     const features = await this.storage.getAllFeatures();
 
+    // Fetch detailed PR info (additions/deletions/files) - done lazily per PR
+    console.log(`   📥 Fetching PR details...`);
+    const { data: fullPR } = await this.octokit.pulls.get({
+      owner,
+      repo,
+      pull_number: pr.number,
+    });
+    pr.additions = fullPR.additions || 0;
+    pr.deletions = fullPR.deletions || 0;
+
     // Fetch full PR content using the existing pr.ts module
-    console.log(`   📥 Fetching PR content...`);
     const prContent = await fetchPullRequestContent(this.octokit, {
       owner,
       repo,
