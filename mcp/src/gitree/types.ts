@@ -9,6 +9,7 @@ export interface Feature {
   prNumbers: number[]; // All PRs that touched this feature
   createdAt: Date;
   lastUpdated: Date;
+  documentation?: string; // LLM-generated comprehensive documentation of current state
 }
 
 export interface PRRecord {

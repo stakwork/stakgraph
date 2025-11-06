@@ -5,6 +5,7 @@ import { Octokit } from "@octokit/rest";
 import { FileSystemStore } from "./storage.js";
 import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
+import { Summarizer } from "./summarizer.js";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
 
 const program = new Command();
@@ -224,6 +225,66 @@ program
       console.log();
     } catch (error) {
       console.error("❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * Summarize a single feature
+ */
+program
+  .command("summarize")
+  .description("Generate comprehensive documentation for a feature")
+  .argument("<featureId>", "Feature ID to summarize")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .action(async (featureId: string, options) => {
+    try {
+      // Get Anthropic API key
+      const anthropicKey = getApiKeyForProvider("anthropic");
+
+      // Initialize components
+      const storage = new FileSystemStore(options.dir);
+      await storage.initialize();
+
+      const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
+
+      // Summarize the feature
+      await summarizer.summarizeFeature(featureId);
+
+      console.log("\n✅ Done!\n");
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * Summarize all features
+ */
+program
+  .command("summarize-all")
+  .description("Generate comprehensive documentation for all features")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .action(async (options) => {
+    try {
+      // Get Anthropic API key
+      const anthropicKey = getApiKeyForProvider("anthropic");
+
+      // Initialize components
+      console.log(`\n🚀 Generating documentation for all features...`);
+      console.log(`   Storage: ${options.dir}\n`);
+
+      const storage = new FileSystemStore(options.dir);
+      await storage.initialize();
+
+      const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
+
+      // Summarize all features
+      await summarizer.summarizeAllFeatures();
+
+      console.log("\n✅ Done!\n");
+    } catch (error) {
+      console.error("\n❌ Error:", error);
       process.exit(1);
     }
   });

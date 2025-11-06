@@ -21,6 +21,9 @@ export abstract class Storage {
   abstract getLastProcessedPR(): Promise<number>;
   abstract setLastProcessedPR(number: number): Promise<void>;
 
+  // Documentation
+  abstract saveDocumentation(featureId: string, documentation: string): Promise<void>;
+
   // Query helpers (derived from the graph)
   async getPRsForFeature(featureId: string): Promise<PRRecord[]> {
     const feature = await this.getFeature(featureId);
@@ -49,14 +52,18 @@ export abstract class Storage {
  *   ├── features/
  *   │   ├── auth-system.json
  *   │   └── ...
- *   └── prs/
- *       ├── 1.md
+ *   ├── prs/
+ *   │   ├── 1.md
+ *   │   └── ...
+ *   └── docs/
+ *       ├── auth-system.md
  *       └── ...
  */
 export class FileSystemStore extends Storage {
   private baseDir: string;
   private featuresDir: string;
   private prsDir: string;
+  private docsDir: string;
   private metadataPath: string;
 
   constructor(baseDir: string = "./knowledge-base") {
@@ -64,6 +71,7 @@ export class FileSystemStore extends Storage {
     this.baseDir = baseDir;
     this.featuresDir = path.join(baseDir, "features");
     this.prsDir = path.join(baseDir, "prs");
+    this.docsDir = path.join(baseDir, "docs");
     this.metadataPath = path.join(baseDir, "metadata.json");
   }
 
@@ -73,6 +81,7 @@ export class FileSystemStore extends Storage {
   async initialize(): Promise<void> {
     await fs.mkdir(this.featuresDir, { recursive: true });
     await fs.mkdir(this.prsDir, { recursive: true });
+    await fs.mkdir(this.docsDir, { recursive: true });
 
     try {
       await fs.access(this.metadataPath);
@@ -199,6 +208,12 @@ export class FileSystemStore extends Storage {
     }
     metadata.lastProcessedPR = number;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
+  // Documentation
+  async saveDocumentation(featureId: string, documentation: string): Promise<void> {
+    const filePath = path.join(this.docsDir, `${featureId}.md`);
+    await fs.writeFile(filePath, documentation);
   }
 
   // Helpers

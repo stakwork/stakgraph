@@ -1,4 +1,10 @@
-import { ModelMessage, streamText, ToolSet, generateObject } from "ai";
+import {
+  ModelMessage,
+  streamText,
+  ToolSet,
+  generateObject,
+  generateText,
+} from "ai";
 import {
   Provider,
   getModel,
@@ -85,6 +91,42 @@ export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
   });
   return {
     object,
+    usage: {
+      inputTokens: usage.inputTokens || 0,
+      outputTokens: usage.outputTokens || 0,
+      totalTokens: usage.totalTokens || 0,
+    },
+  };
+}
+
+interface GenerateTextArgs {
+  provider: Provider;
+  apiKey: string;
+  prompt: string;
+  thinkingSpeed?: ThinkingSpeed;
+}
+
+export async function callGenerateText(args: GenerateTextArgs): Promise<{
+  text: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}> {
+  // Convert prompt to messages format
+  const messages: ModelMessage[] = [
+    {
+      role: "user",
+      content: args.prompt,
+    },
+  ];
+  const model = await getModel(args.provider, args.apiKey);
+  const providerOptions = getProviderOptions(args.provider, args.thinkingSpeed);
+  // Use the existing callModel function
+  const { text, usage } = await generateText({
+    model,
+    messages,
+    providerOptions: providerOptions as any,
+  });
+  return {
+    text,
     usage: {
       inputTokens: usage.inputTokens || 0,
       outputTokens: usage.outputTokens || 0,
