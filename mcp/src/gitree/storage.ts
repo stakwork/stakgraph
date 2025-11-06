@@ -247,16 +247,18 @@ ${pr.summary}${filesList}${featureLinks}
       'coverage',
     ]);
 
-    // Group files by directory
+    // Group files by their full directory path
     const byDirectory: Map<string, string[]> = new Map();
     const rootFiles: string[] = [];
 
     for (const file of files) {
       const parts = file.split('/');
       if (parts.length === 1) {
+        // File in root
         rootFiles.push(file);
       } else {
-        const dir = parts[0];
+        // Get the full directory path (everything except the filename)
+        const dir = parts.slice(0, -1).join('/');
         if (!byDirectory.has(dir)) {
           byDirectory.set(dir, []);
         }
@@ -273,8 +275,11 @@ ${pr.summary}${filesList}${featureLinks}
 
     // Process directories
     for (const [dir, dirFiles] of byDirectory.entries()) {
-      // Always collapse certain directories
-      if (autoCollapseDirs.has(dir)) {
+      // Check if any part of the path matches auto-collapse directories
+      const pathParts = dir.split('/');
+      const shouldAutoCollapse = pathParts.some(part => autoCollapseDirs.has(part));
+
+      if (shouldAutoCollapse) {
         output.push(`- ${dir}/... (${dirFiles.length} files)`);
         continue;
       }
