@@ -80,6 +80,22 @@ export class GraphStorage extends Storage {
           dateAddedToGraph: now,
         }
       );
+
+      // Create TOUCHES relationships from PRs to this Feature
+      if (feature.prNumbers.length > 0) {
+        await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          UNWIND $prNumbers as prNumber
+          MATCH (p:PullRequest {number: prNumber})
+          MERGE (p)-[:TOUCHES]->(f)
+          `,
+          {
+            featureId: feature.id,
+            prNumbers: feature.prNumbers,
+          }
+        );
+      }
     } finally {
       await session.close();
     }
@@ -182,23 +198,8 @@ export class GraphStorage extends Storage {
         }
       );
 
-      // Create TOUCHES relationships from PR to Features
-      const features = await this.getFeaturesForPR(pr.number);
-      if (features.length > 0) {
-        const featureIds = features.map((f) => f.id);
-        await session.run(
-          `
-          MATCH (p:PullRequest {number: $prNumber})
-          UNWIND $featureIds as featureId
-          MATCH (f:Feature {id: featureId})
-          MERGE (p)-[:TOUCHES]->(f)
-          `,
-          {
-            prNumber: pr.number,
-            featureIds,
-          }
-        );
-      }
+      // Note: TOUCHES relationships are created in saveFeature()
+      // when features are updated with PR numbers
     } finally {
       await session.close();
     }
