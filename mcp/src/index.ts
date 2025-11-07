@@ -4,6 +4,7 @@ import { sse_routes } from "./tools/sse.js";
 import fileUpload from "express-fileupload";
 import * as r from "./graph/routes.js";
 import * as uploads from "./graph/uploads.js";
+import * as gitree from "./gitree/routes.js";
 import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
@@ -92,6 +93,15 @@ app.post("/repo/agent", rr.repo_agent);
 app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/reattach", r.reconnect_orphaned_hints);
 app.post("/pull_request", r.create_pull_request);
+
+// Gitree routes
+app.post("/gitree/process", gitree.gitree_process);
+app.get("/gitree/features", gitree.gitree_list_features);
+app.get("/gitree/features/:id", gitree.gitree_get_feature);
+app.get("/gitree/prs/:number", gitree.gitree_get_pr);
+app.get("/gitree/stats", gitree.gitree_stats);
+app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);
+app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (req: Request, res: Response): void => {

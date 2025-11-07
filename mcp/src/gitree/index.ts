@@ -7,6 +7,8 @@
 
 export * from "./types.js";
 export * from "./storage.js";
+export * from "./graphStorage.js";
 export * from "./llm.js";
 export * from "./builder.js";
+export * from "./summarizer.js";
 export { fetchPullRequestContent } from "./pr.js";
