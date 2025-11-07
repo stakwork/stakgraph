@@ -640,6 +640,10 @@ export async function gitsee(req: Request, res: Response) {
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+    const { setBusy } = await import("../busy.js");
+    setBusy(true);
+    console.log("[gitsee] Set busy=true before starting work");
+
     const originalEnd = res.end.bind(res);
     let responseData: any;
 
@@ -655,13 +659,22 @@ export async function gitsee(req: Request, res: Response) {
             if (!responseData.owner && req.body?.owner) {
               responseData.owner = req.body.owner;
             }
-            ingestGitSeeData(responseData).catch((err) =>
-              console.error("Background ingestion error:", err)
-            );
+            ingestGitSeeData(responseData)
+              .catch((err) => console.error("Background ingestion error:", err))
+              .finally(() => {
+                setBusy(false);
+                console.log("[gitsee] Background work completed, set busy=false");
+              });
+          } else {
+            setBusy(false);
+            console.log("[gitsee] No background work needed, set busy=false");
           }
         } catch (e) {
           console.error("Error parsing response for ingestion:", e);
+          setBusy(false);
         }
+      } else {
+        setBusy(false);
       }
       return originalEnd(chunk);
     };

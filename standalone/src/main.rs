@@ -1,4 +1,5 @@
 mod auth;
+mod busy;
 mod codecov;
 #[cfg(feature = "neo4j")]
 mod handlers;
@@ -10,6 +11,7 @@ use ast::repo::StatusUpdate;
 use axum::extract::Request;
 use axum::middleware::{self};
 use axum::{routing::get, routing::post, Router};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
@@ -25,6 +27,7 @@ struct AppState {
     api_token: Option<String>,
     async_status: AsyncStatusMap,
     codecov_status: CodecovStatusMap,
+    busy: Arc<AtomicBool>,
 }
 
 #[cfg(feature = "neo4j")]
@@ -69,24 +72,37 @@ async fn main() -> Result<()> {
         api_token,
         async_status: Arc::new(Mutex::new(std::collections::HashMap::new())),
         codecov_status: Arc::new(Mutex::new(std::collections::HashMap::new())),
+        busy: Arc::new(AtomicBool::new(false)),
     });
 
     tracing::debug!("starting server");
     let cors_layer = CorsLayer::permissive();
 
-    let mut app = Router::new().route("/events", get(handlers::sse_handler));
+    let mut app = Router::new()
+        .route("/events", get(handlers::sse_handler))
+        .route("/busy", get(handlers::busy_handler));
 
-    let mut protected_routes = Router::new()
+    // Routes that use busy middleware (synchronous operations)
+    let busy_routes = Router::new()
         .route("/process", post(handlers::process))
         .route("/sync", post(handlers::process))
-        .route("/clear", post(handlers::clear_graph))
         .route("/ingest", post(handlers::ingest))
+        .route("/embed_code", post(handlers::embed_code_handler))
+        .route_layer(middleware::from_fn_with_state(
+            app_state.clone(),
+            busy::busy_middleware,
+        ));
+
+    // Routes that manage busy flag internally (async operations with background tasks)
+    let async_routes = Router::new()
         .route("/ingest_async", post(handlers::ingest_async))
-        .route("/sync_async", post(handlers::sync_async))
+        .route("/sync_async", post(handlers::sync_async));
+
+    let mut protected_routes = Router::new()
+        .route("/clear", post(handlers::clear_graph))
         .route("/status/:request_id", get(handlers::get_status))
         .route("/fetch-repo", post(handlers::fetch_repo))
         .route("/fetch-repos", get(handlers::fetch_repos))
-        .route("/embed_code", post(handlers::embed_code_handler))
         .route("/search", post(handlers::vector_search_handler))
         .route("/tests/coverage", get(handlers::coverage_handler))
         .route("/tests/nodes", get(handlers::nodes_handler))
@@ -95,7 +111,9 @@ async fn main() -> Result<()> {
         .route(
             "/codecov/:request_id",
             get(handlers::codecov_status_handler),
-        );
+        )
+        .merge(busy_routes)
+        .merge(async_routes);
 
     // Add bearer auth middleware only if API token is provided
     if app_state.api_token.is_some() {

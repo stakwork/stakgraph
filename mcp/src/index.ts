@@ -14,6 +14,7 @@ import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
 import * as rr from "./repo/index.js";
+import { getBusy, busyMiddleware } from "./busy.js";
 
 dotenv.config();
 
@@ -57,6 +58,10 @@ test_routes(app);
 // Learn route needs to handle its own authentication
 app.get("/learn", r.learn);
 
+app.get("/busy", (req: Request, res: Response) => {
+  res.json({ busy: getBusy() });
+});
+
 app.get("/gitsee/events/:owner/:repo", r.gitseeEvents);
 
 app.use(r.authMiddleware);
@@ -76,16 +81,16 @@ app.get("/embed_code", uploads.embed_code);
 app.get("/update_token_counts", uploads.update_token_counts);
 app.get("/rules_files", r.get_rules_files);
 app.get("/services", r.get_services);
-app.get("/explore", r.explore);
-app.get("/understand", r.understand);
-app.post("/seed_understanding", r.seed_understanding);
+app.get("/explore", busyMiddleware, r.explore);
+app.get("/understand", busyMiddleware, r.understand);
+app.post("/seed_understanding", busyMiddleware, r.seed_understanding);
 app.get("/ask", r.ask);
 app.get("/learnings", r.get_learnings);
 app.get("/subgraph", r.fetch_node_with_related);
 app.post("/hint_siblings", r.generate_siblings);
 app.post("/seed_stories", r.seed_stories);
 app.get("/services_agent", r.gitsee_services);
-app.get("/agent", r.gitsee_agent);
+app.get("/agent", busyMiddleware, r.gitsee_agent);
 app.post("/gitsee", r.gitsee);
 app.get("/progress", r.get_script_progress);
 app.get("/leaks", rr.get_leaks);
