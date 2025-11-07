@@ -1,4 +1,4 @@
-import { Storage } from "./storage.js";
+import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { Feature, PRRecord } from "./types.js";

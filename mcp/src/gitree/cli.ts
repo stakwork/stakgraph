@@ -2,8 +2,7 @@
 
 import { Command } from "commander";
 import { Octokit } from "@octokit/rest";
-import { Storage, FileSystemStore } from "./storage.js";
-import { GraphStorage } from "./graphStorage.js";
+import { Storage, FileSystemStore, GraphStorage } from "./store/index.js";
 import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";

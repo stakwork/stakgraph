@@ -1,7 +1,8 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
-import { Feature, PRRecord } from "./types.js";
+import { Feature, PRRecord } from "../types.js";
+import { formatPRMarkdown } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
 
@@ -65,6 +66,7 @@ export class GraphStorage extends Storage {
             f.docs = $docs,
             f.namespace = $namespace,
             f.Data_Bank = $dataBankName,
+            f.ref_id = COALESCE(f.ref_id, $refId),
             f.date_added_to_graph = COALESCE(f.date_added_to_graph, $dateAddedToGraph)
         RETURN f
         `,
@@ -77,6 +79,7 @@ export class GraphStorage extends Storage {
           docs: feature.documentation || "",
           namespace: "default",
           dataBankName: feature.id,
+          refId: uuidv4(),
           dateAddedToGraph: now,
         }
       );
@@ -164,12 +167,13 @@ export class GraphStorage extends Storage {
     try {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(pr.mergedAt.getTime() / 1000);
-      const docs = await this.formatPRMarkdown(pr);
+      const docs = await formatPRMarkdown(pr, this);
 
       await session.run(
         `
         MERGE (p:${Data_Bank}:PullRequest {number: $number})
-        SET p.title = $title,
+        SET p.name = $name,
+            p.title = $title,
             p.summary = $summary,
             p.date = $date,
             p.url = $url,
@@ -178,11 +182,13 @@ export class GraphStorage extends Storage {
             p.docs = $docs,
             p.namespace = $namespace,
             p.Data_Bank = $dataBankName,
+            p.ref_id = COALESCE(p.ref_id, $refId),
             p.date_added_to_graph = COALESCE(p.date_added_to_graph, $dateAddedToGraph)
         RETURN p
         `,
         {
           number: pr.number,
+          name: `pr-${pr.number}`,
           title: pr.title,
           summary: pr.summary,
           date: dateTimestamp,
@@ -194,6 +200,7 @@ export class GraphStorage extends Storage {
           docs,
           namespace: "default",
           dataBankName: `pull-request-${pr.number}`,
+          refId: uuidv4(),
           dateAddedToGraph: now,
         }
       );
@@ -251,18 +258,23 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        MATCH (m:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
         RETURN m.lastProcessedPR as lastProcessedPR
         `,
         { namespace: "default" }
       );
 
       if (result.records.length === 0) {
+        console.log("   No lastProcessedPR found, starting from 0");
         return 0;
       }
 
-      return result.records[0].get("lastProcessedPR").toNumber();
+      const value = result.records[0].get("lastProcessedPR");
+      const lastPR = typeof value === 'number' ? value : (value?.toNumber ? value.toNumber() : 0);
+      console.log(`   Resuming from PR #${lastPR}`);
+      return lastPR;
     } catch (error) {
+      console.error("   Error reading lastProcessedPR:", error);
       return 0;
     } finally {
       await session.close();
@@ -278,12 +290,14 @@ export class GraphStorage extends Storage {
         `
         MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
         SET m.lastProcessedPR = $number,
+            m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
         RETURN m
         `,
         {
           namespace: "default",
           number,
+          refId: uuidv4(),
           dateAddedToGraph: now,
         }
       );
@@ -346,150 +360,4 @@ export class GraphStorage extends Storage {
     };
   }
 
-  /**
-   * Format PR as markdown (adapted from FileSystemStore)
-   */
-  private async formatPRMarkdown(pr: PRRecord): Promise<string> {
-    // Get features this PR belongs to
-    const features = await this.getFeaturesForPR(pr.number);
-    const featureLinks =
-      features.length > 0
-        ? `\n---\n\n_Part of features: ${features
-            .map((f) => `\`${f.id}\``)
-            .join(", ")}_`
-        : "";
-
-    const filesList =
-      pr.files.length > 0
-        ? `\n\n## Files Changed (${pr.files.length})\n\n${this.formatFilesList(pr.files, pr.newDeclarations)}`
-        : "";
-
-    return `# PR #${pr.number}: ${pr.title}
-
-**Merged**: ${pr.mergedAt.toISOString().split("T")[0]}
-**URL**: ${pr.url}
-
-## Summary
-
-${pr.summary}${filesList}${featureLinks}
-`.trim();
-  }
-
-  /**
-   * Format files list with intelligent collapsing and inline declarations
-   */
-  private formatFilesList(
-    files: string[],
-    newDeclarations?: PRRecord["newDeclarations"]
-  ): string {
-    // Create a map of file -> declarations for easy lookup
-    const declMap = new Map<string, string[]>();
-    if (newDeclarations) {
-      for (const { file, declarations } of newDeclarations) {
-        declMap.set(file, declarations);
-      }
-    }
-
-    // Only collapse if > 20 files total
-    if (files.length <= 20) {
-      const output: string[] = [];
-      for (const file of files) {
-        output.push(`- ${file}`);
-        const decls = declMap.get(file);
-        if (decls) {
-          for (const decl of decls) {
-            output.push(`  - ${decl}`);
-          }
-        }
-      }
-      return output.join("\n");
-    }
-
-    // Directories to always collapse
-    const autoCollapseDirs = new Set([
-      "node_modules",
-      "dist",
-      "build",
-      "target",
-      "out",
-      ".next",
-      "coverage",
-    ]);
-
-    // Group files by their full directory path
-    const byDirectory: Map<string, string[]> = new Map();
-    const rootFiles: string[] = [];
-
-    for (const file of files) {
-      const parts = file.split("/");
-      if (parts.length === 1) {
-        // File in root
-        rootFiles.push(file);
-      } else {
-        // Get the full directory path (everything except the filename)
-        const dir = parts.slice(0, -1).join("/");
-        if (!byDirectory.has(dir)) {
-          byDirectory.set(dir, []);
-        }
-        byDirectory.get(dir)!.push(file);
-      }
-    }
-
-    const output: string[] = [];
-
-    // Show root files with their declarations
-    for (const file of rootFiles) {
-      output.push(`- ${file}`);
-      const decls = declMap.get(file);
-      if (decls) {
-        for (const decl of decls) {
-          output.push(`  - ${decl}`);
-        }
-      }
-    }
-
-    // Process directories
-    for (const [dir, dirFiles] of byDirectory.entries()) {
-      // Check if any part of the path matches auto-collapse directories
-      const pathParts = dir.split("/");
-      const shouldAutoCollapse = pathParts.some((part) =>
-        autoCollapseDirs.has(part)
-      );
-
-      if (shouldAutoCollapse) {
-        output.push(`- ${dir}/... (${dirFiles.length} files)`);
-        continue;
-      }
-
-      // Show first 10, then indicate more
-      if (dirFiles.length > 10) {
-        // Show first 10 files with declarations
-        for (let i = 0; i < 10; i++) {
-          output.push(`- ${dirFiles[i]}`);
-          const decls = declMap.get(dirFiles[i]);
-          if (decls) {
-            for (const decl of decls) {
-              output.push(`  - ${decl}`);
-            }
-          }
-        }
-        // Indicate there are more
-        const remaining = dirFiles.length - 10;
-        output.push(`- ${dir}/... (${remaining} more files)`);
-      } else {
-        // Show all files with declarations
-        for (const file of dirFiles) {
-          output.push(`- ${file}`);
-          const decls = declMap.get(file);
-          if (decls) {
-            for (const decl of decls) {
-              output.push(`  - ${decl}`);
-            }
-          }
-        }
-      }
-    }
-
-    return output.join("\n");
-  }
 }
