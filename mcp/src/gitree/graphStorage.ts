@@ -181,6 +181,24 @@ export class GraphStorage extends Storage {
           dateAddedToGraph: now,
         }
       );
+
+      // Create TOUCHES relationships from PR to Features
+      const features = await this.getFeaturesForPR(pr.number);
+      if (features.length > 0) {
+        const featureIds = features.map((f) => f.id);
+        await session.run(
+          `
+          MATCH (p:PullRequest {number: $prNumber})
+          UNWIND $featureIds as featureId
+          MATCH (f:Feature {id: featureId})
+          MERGE (p)-[:TOUCHES]->(f)
+          `,
+          {
+            prNumber: pr.number,
+            featureIds,
+          }
+        );
+      }
     } finally {
       await session.close();
     }
