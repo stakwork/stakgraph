@@ -1124,3 +1124,9 @@ pub async fn codecov_status_handler(
             .into_response()
     }
 }
+
+pub async fn busy_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    use std::sync::atomic::Ordering;
+    let busy = state.busy.load(Ordering::SeqCst);
+    Json(serde_json::json!({ "busy": busy }))
+}
