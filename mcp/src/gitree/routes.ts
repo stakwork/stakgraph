@@ -1,22 +1,88 @@
 import { Request, Response } from "express";
 import * as asyncReqs from "../graph/reqs.js";
+import { GraphStorage } from "./graphStorage.js";
+import { LLMClient } from "./llm.js";
+import { StreamingFeatureBuilder } from "./builder.js";
+import { Summarizer } from "./summarizer.js";
+import { Octokit } from "@octokit/rest";
+import { getApiKeyForProvider } from "../aieo/src/provider.js";
 
 /**
- * Process a GitHub repository to extract features
+ * Parse Git repository URL to extract owner and repo
+ * Supports formats:
+ * - https://github.com/owner/repo
+ * - https://gitlab.com/owner/repo
+ * - git@github.com:owner/repo.git
+ * - https://bitbucket.org/owner/repo
+ * - owner/repo
+ * - Any git hosting service with owner/repo pattern
+ */
+function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
+  try {
+    // Remove trailing .git if present
+    let cleanUrl = url.replace(/\.git$/, "");
+
+    // Handle SSH format (git@host:owner/repo)
+    const sshMatch = cleanUrl.match(/git@[^:]+:(.+)/);
+    if (sshMatch) {
+      cleanUrl = sshMatch[1];
+    }
+
+    // Remove protocol and domain (https://, http://, etc.)
+    cleanUrl = cleanUrl.replace(/^https?:\/\//, "");
+    cleanUrl = cleanUrl.replace(/^[^\/]+\//, ""); // Remove domain/host
+
+    // Extract the last two path segments (owner/repo)
+    const pathParts = cleanUrl.split("/").filter(p => p.length > 0);
+
+    if (pathParts.length >= 2) {
+      // Take the last two segments as owner and repo
+      const owner = pathParts[pathParts.length - 2];
+      const repo = pathParts[pathParts.length - 1];
+      return { owner, repo };
+    }
+
+    // Try simple owner/repo format
+    const simpleMatch = cleanUrl.match(/^([^\/]+)\/([^\/]+)$/);
+    if (simpleMatch) {
+      return { owner: simpleMatch[1], repo: simpleMatch[2] };
+    }
+
+    return null;
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Process a Git repository to extract features
  * POST /gitree/process?owner=stakwork&repo=sphinx-tribes&token=...
+ * POST /gitree/process?repo_url=https://github.com/stakwork/sphinx-tribes&token=...
+ * POST /gitree/process?repo_url=https://gitlab.com/owner/repo&token=...
+ * POST /gitree/process?repo_url=git@github.com:owner/repo.git&token=...
  * GET /progress?request_id=xxx
  */
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.url, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const owner = req.query.owner as string;
-    const repo = req.query.repo as string;
+    let owner = req.query.owner as string;
+    let repo = req.query.repo as string;
+    const repoUrl = req.query.repo_url as string;
     const githubToken = req.query.token as string;
 
+    // Parse repo_url if provided
+    if (repoUrl && (!owner || !repo)) {
+      const parsed = parseGitRepoUrl(repoUrl);
+      if (parsed) {
+        owner = parsed.owner;
+        repo = parsed.repo;
+      }
+    }
+
     if (!owner || !repo) {
-      asyncReqs.failReq(request_id, new Error("Missing owner or repo"));
-      res.status(400).json({ error: "Missing owner or repo" });
+      asyncReqs.failReq(request_id, new Error("Missing owner/repo or repo_url"));
+      res.status(400).json({ error: "Missing owner/repo or repo_url" });
       return;
     }
 
@@ -26,15 +92,9 @@ export async function gitree_process(req: Request, res: Response) {
       return;
     }
 
-    // Import gitree components
-    import("./index.js")
-      .then(async (gitree) => {
-        const { Octokit } = await import("@octokit/rest");
-        const { GraphStorage } = gitree;
-        const { LLMClient } = gitree;
-        const { StreamingFeatureBuilder } = gitree;
-        const { getApiKeyForProvider } = await import("../aieo/src/provider.js");
-
+    // Process repository in background
+    (async () => {
+      try {
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -49,10 +109,10 @@ export async function gitree_process(req: Request, res: Response) {
           status: "success",
           message: `Processed ${owner}/${repo}`,
         });
-      })
-      .catch((error) => {
+      } catch (error) {
         asyncReqs.failReq(request_id, error);
-      });
+      }
+    })();
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
@@ -68,7 +128,6 @@ export async function gitree_process(req: Request, res: Response) {
  */
 export async function gitree_list_features(req: Request, res: Response) {
   try {
-    const { GraphStorage } = await import("./index.js");
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -97,7 +156,6 @@ export async function gitree_list_features(req: Request, res: Response) {
 export async function gitree_get_feature(req: Request, res: Response) {
   try {
     const featureId = req.params.id;
-    const { GraphStorage } = await import("./index.js");
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -141,7 +199,6 @@ export async function gitree_get_feature(req: Request, res: Response) {
 export async function gitree_get_pr(req: Request, res: Response) {
   try {
     const prNumber = parseInt(req.params.number);
-    const { GraphStorage } = await import("./index.js");
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -182,7 +239,6 @@ export async function gitree_get_pr(req: Request, res: Response) {
  */
 export async function gitree_stats(req: Request, res: Response) {
   try {
-    const { GraphStorage } = await import("./index.js");
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -233,11 +289,9 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
   try {
     const featureId = req.params.id;
 
-    import("./index.js")
-      .then(async (gitree) => {
-        const { GraphStorage, Summarizer } = gitree;
-        const { getApiKeyForProvider } = await import("../aieo/src/provider.js");
-
+    // Summarize in background
+    (async () => {
+      try {
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -249,10 +303,10 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
           status: "success",
           message: `Summarized feature ${featureId}`,
         });
-      })
-      .catch((error) => {
+      } catch (error) {
         asyncReqs.failReq(request_id, error);
-      });
+      }
+    })();
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
@@ -271,11 +325,9 @@ export async function gitree_summarize_all(req: Request, res: Response) {
   console.log("===> gitree_summarize_all", req.url, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    import("./index.js")
-      .then(async (gitree) => {
-        const { GraphStorage, Summarizer } = gitree;
-        const { getApiKeyForProvider } = await import("../aieo/src/provider.js");
-
+    // Summarize in background
+    (async () => {
+      try {
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -287,10 +339,10 @@ export async function gitree_summarize_all(req: Request, res: Response) {
           status: "success",
           message: "Summarized all features",
         });
-      })
-      .catch((error) => {
+      } catch (error) {
         asyncReqs.failReq(request_id, error);
-      });
+      }
+    })();
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
