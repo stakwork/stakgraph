@@ -28,6 +28,9 @@ pub async fn busy_middleware(
     request: Request,
     next: Next,
 ) -> Response {
+    tracing::info!("[busy_middleware] Setting busy=true");
     let _guard = BusyGuard::new(state);
-    next.run(request).await
+    let response = next.run(request).await;
+    tracing::info!("[busy_middleware] Request completed, guard will drop and set busy=false");
+    response
 }

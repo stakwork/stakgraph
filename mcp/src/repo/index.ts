@@ -23,6 +23,10 @@ export async function repo_agent(req: Request, res: Response) {
       return;
     }
 
+    const { setBusy } = await import("../busy.js");
+    setBusy(true);
+    console.log("[repo_agent] Set busy=true before starting work");
+
     cloneOrUpdateRepo(repoUrl, username, pat, commit)
       .then((repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
@@ -34,9 +38,13 @@ export async function repo_agent(req: Request, res: Response) {
           final_answer: result.final,
           usage: result.usage,
         });
+        setBusy(false);
+        console.log("[repo_agent] Background work completed, set busy=false");
       })
       .catch((error) => {
         asyncReqs.failReq(request_id, error);
+        setBusy(false);
+        console.log("[repo_agent] Background work failed, set busy=false");
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {

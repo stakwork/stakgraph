@@ -82,18 +82,21 @@ async fn main() -> Result<()> {
         .route("/events", get(handlers::sse_handler))
         .route("/busy", get(handlers::busy_handler));
 
+    // Routes that use busy middleware (synchronous operations)
     let busy_routes = Router::new()
         .route("/process", post(handlers::process))
         .route("/sync", post(handlers::process))
         .route("/ingest", post(handlers::ingest))
-        .route("/ingest_async", post(handlers::ingest_async))
-        .route("/sync_async", post(handlers::sync_async))
         .route("/embed_code", post(handlers::embed_code_handler))
-        .route("/codecov", post(handlers::codecov_handler))
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),
             busy::busy_middleware,
         ));
+
+    // Routes that manage busy flag internally (async operations with background tasks)
+    let async_routes = Router::new()
+        .route("/ingest_async", post(handlers::ingest_async))
+        .route("/sync_async", post(handlers::sync_async));
 
     let mut protected_routes = Router::new()
         .route("/clear", post(handlers::clear_graph))
@@ -104,11 +107,13 @@ async fn main() -> Result<()> {
         .route("/tests/coverage", get(handlers::coverage_handler))
         .route("/tests/nodes", get(handlers::nodes_handler))
         .route("/tests/has", get(handlers::has_handler))
+        .route("/codecov", post(handlers::codecov_handler))
         .route(
             "/codecov/:request_id",
             get(handlers::codecov_status_handler),
         )
-        .merge(busy_routes);
+        .merge(busy_routes)
+        .merge(async_routes);
 
     // Add bearer auth middleware only if API token is provided
     if app_state.api_token.is_some() {

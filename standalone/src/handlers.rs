@@ -426,6 +426,9 @@ pub async fn ingest_async(
     let body_clone = body.clone();
     let request_id_clone = request_id.clone();
 
+    state.busy.store(true, std::sync::atomic::Ordering::SeqCst);
+    tracing::info!("[ingest_async] Set busy=true before spawning background work");
+
     tokio::spawn(async move {
         while let Ok(update) = rx.recv().await {
             let mut map = status_map_clone.lock().await;
@@ -459,7 +462,12 @@ pub async fn ingest_async(
 
     //run ingest as a background task
     tokio::spawn(async move {
-        let result = ingest(State(state_clone), body_clone).await;
+        let result = ingest(State(state_clone.clone()), body_clone).await;
+        
+        // Clear busy flag when done
+        state_clone.busy.store(false, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!("[ingest_async] Background work completed, set busy=false");
+        
         let mut map = status_map.lock().await;
 
         match result {
@@ -649,10 +657,17 @@ pub async fn sync_async(
     );
 
     let state_for_process = state.clone();
+    
+    state.busy.store(true, std::sync::atomic::Ordering::SeqCst);
+    tracing::info!("[sync_async] Set busy=true before spawning background work");
 
-    //run /sync as a background task
+
     tokio::spawn(async move {
-        let result = process(State(state_for_process), body_clone).await;
+        let result = process(State(state_for_process.clone()), body_clone).await;
+        
+        state_for_process.busy.store(false, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!("[sync_async] Background work completed, set busy=false");
+        
         let mut map = status_map.lock().await;
 
         match result {
@@ -1128,5 +1143,6 @@ pub async fn codecov_status_handler(
 pub async fn busy_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
     let busy = state.busy.load(Ordering::SeqCst);
+    tracing::debug!("[busy_handler] Returning busy={}", busy);
     Json(serde_json::json!({ "busy": busy }))
 }
