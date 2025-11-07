@@ -60,6 +60,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * POST /gitree/process?repo_url=https://github.com/stakwork/sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://gitlab.com/owner/repo&token=...
  * POST /gitree/process?repo_url=git@github.com:owner/repo.git&token=...
+ * POST /gitree/process?repo_url=...&token=...&summarize=true
  * GET /progress?request_id=xxx
  */
 export async function gitree_process(req: Request, res: Response) {
@@ -70,6 +71,7 @@ export async function gitree_process(req: Request, res: Response) {
     let repo = req.query.repo as string;
     const repoUrl = req.query.repo_url as string;
     const githubToken = req.query.token as string;
+    const shouldSummarize = req.query.summarize === "true";
 
     // Parse repo_url if provided
     if (repoUrl && (!owner || !repo)) {
@@ -105,10 +107,22 @@ export async function gitree_process(req: Request, res: Response) {
 
         await builder.processRepo(owner, repo);
 
-        asyncReqs.finishReq(request_id, {
-          status: "success",
-          message: `Processed ${owner}/${repo}`,
-        });
+        // If summarize flag is set, run summarization after processing
+        if (shouldSummarize) {
+          console.log("===> Starting feature summarization...");
+          const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
+          await summarizer.summarizeAllFeatures();
+
+          asyncReqs.finishReq(request_id, {
+            status: "success",
+            message: `Processed and summarized ${owner}/${repo}`,
+          });
+        } else {
+          asyncReqs.finishReq(request_id, {
+            status: "success",
+            message: `Processed ${owner}/${repo}`,
+          });
+        }
       } catch (error) {
         asyncReqs.failReq(request_id, error);
       }
