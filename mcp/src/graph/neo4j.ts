@@ -9,7 +9,6 @@ import {
   EdgeType,
   Node,
   Edge,
-  HintExtraction,
 } from "./types.js";
 import {
   create_node_key,
@@ -20,9 +19,6 @@ import {
 } from "./utils.js";
 import * as Q from "./queries.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
-import { callGenerateObject } from "../aieo/src/stream.js";
-import { getApiKeyForProvider, Provider } from "../aieo/src/provider.js";
-import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import { createByModelName } from "@microsoft/tiktokenizer";
 
@@ -743,7 +739,12 @@ class Db {
     }
   }
 
-  async create_pull_request(name: string, docs: string, embeddings: number[], number: string) {
+  async create_pull_request(
+    name: string,
+    docs: string,
+    embeddings: number[],
+    number: string
+  ) {
     const session = this.driver.session();
     const short_name = name.slice(0, 80);
     const node_key = create_node_key({
