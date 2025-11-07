@@ -6,6 +6,9 @@ import { Feature, PRRecord } from "./types.js";
  * Abstract storage interface for features and PRs
  */
 export abstract class Storage {
+  // Initialization
+  abstract initialize(): Promise<void>;
+
   // Features
   abstract saveFeature(feature: Feature): Promise<void>;
   abstract getFeature(id: string): Promise<Feature | null>;

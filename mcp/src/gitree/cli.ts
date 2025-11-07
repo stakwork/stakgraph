@@ -2,7 +2,8 @@
 
 import { Command } from "commander";
 import { Octokit } from "@octokit/rest";
-import { FileSystemStore } from "./storage.js";
+import { Storage, FileSystemStore } from "./storage.js";
+import { GraphStorage } from "./graphStorage.js";
 import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
@@ -16,6 +17,24 @@ program
   .version("1.0.0");
 
 /**
+ * Create storage instance based on options
+ */
+async function createStorage(options: any): Promise<Storage> {
+  let storage: Storage;
+
+  if (options.graph) {
+    console.log("   Using: Neo4j GraphStorage");
+    storage = new GraphStorage();
+  } else {
+    console.log(`   Using: FileSystemStorage (${options.dir})`);
+    storage = new FileSystemStore(options.dir);
+  }
+
+  await storage.initialize();
+  return storage;
+}
+
+/**
  * Process a repository
  */
 program
@@ -24,6 +43,7 @@ program
   .argument("<owner>", "Repository owner")
   .argument("<repo>", "Repository name")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-t, --token <token>", "GitHub token (or set GITHUB_TOKEN env)")
   .action(async (owner: string, repo: string, options) => {
     try {
@@ -43,10 +63,8 @@ program
       // Initialize components
       console.log(`\n🚀 Initializing GitHub Feature Knowledge Base...`);
       console.log(`   Repository: ${owner}/${repo}`);
-      console.log(`   Storage: ${options.dir}\n`);
 
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const octokit = new Octokit({ auth: githubToken });
       const llm = new LLMClient("anthropic", anthropicKey);
@@ -69,10 +87,10 @@ program
   .command("list-features")
   .description("List all features in the knowledge base")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (options) => {
     try {
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const features = await storage.getAllFeatures();
 
@@ -109,10 +127,10 @@ program
   .description("Show details of a specific feature")
   .argument("<featureId>", "Feature ID")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (featureId: string, options) => {
     try {
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const feature = await storage.getFeature(featureId);
 
@@ -149,11 +167,11 @@ program
   .description("Show details of a specific PR")
   .argument("<number>", "PR number")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (number: string, options) => {
     try {
       const prNumber = parseInt(number);
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const pr = await storage.getPR(prNumber);
 
@@ -191,10 +209,10 @@ program
   .command("stats")
   .description("Show knowledge base statistics")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (options) => {
     try {
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const features = await storage.getAllFeatures();
       const prs = await storage.getAllPRs();
@@ -237,14 +255,14 @@ program
   .description("Generate comprehensive documentation for a feature")
   .argument("<featureId>", "Feature ID to summarize")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (featureId: string, options) => {
     try {
       // Get Anthropic API key
       const anthropicKey = getApiKeyForProvider("anthropic");
 
       // Initialize components
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
 
@@ -265,6 +283,7 @@ program
   .command("summarize-all")
   .description("Generate comprehensive documentation for all features")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .action(async (options) => {
     try {
       // Get Anthropic API key
@@ -272,10 +291,8 @@ program
 
       // Initialize components
       console.log(`\n🚀 Generating documentation for all features...`);
-      console.log(`   Storage: ${options.dir}\n`);
 
-      const storage = new FileSystemStore(options.dir);
-      await storage.initialize();
+      const storage = await createStorage(options);
 
       const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
 
