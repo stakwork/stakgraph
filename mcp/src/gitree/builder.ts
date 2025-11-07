@@ -1,5 +1,5 @@
 import { Octokit } from "@octokit/rest";
-import { Storage } from "./storage.js";
+import { Storage } from "./store/index.js";
 import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
 import { Feature, PRRecord, LLMDecision, GitHubPR } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";

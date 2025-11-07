@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import * as asyncReqs from "../graph/reqs.js";
-import { GraphStorage } from "./graphStorage.js";
+import { GraphStorage } from "./store/index.js";
 import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
