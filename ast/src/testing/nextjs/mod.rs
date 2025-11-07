@@ -61,7 +61,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let directory_nodes = graph.find_nodes_by_type(NodeType::Directory);
     nodes += directory_nodes.len();
-    assert_eq!(directory_nodes.len(), 14, "Expected 14 Directory nodes");
+    assert_eq!(directory_nodes.len(), 18, "Expected 18 Directory nodes");
 
     let repository = graph.find_nodes_by_type(NodeType::Repository);
     nodes += repository.len();
@@ -100,7 +100,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
-    assert_eq!(endpoints.len(), 6, "Expected 6 Endpoint nodes");
+    assert_eq!(endpoints.len(), 9, "Expected 9 Endpoint nodes");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes += requests.len();
@@ -114,8 +114,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         assert_eq!(
             functions.len(),
             34,
-            "Expected 34 Function nodes without LSP"
-        );
+            "Expected 34 Function nodes without LSP");
     }
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
@@ -238,11 +237,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 159, "Expected 159 Contains edges");
+    assert_eq!(contains, 161, "Expected 161 Contains edges");
+
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
-    assert_eq!(handlers, 6, "Expected 6 Handler edges");
+    assert_eq!(handlers, 9, "Expected 9 Handler edges");
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
