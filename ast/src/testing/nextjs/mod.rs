@@ -39,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 36, "Expected 36 File nodes");
+    assert_eq!(file_nodes.len(), 39, "Expected 39 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -109,12 +109,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 41, "Expected 41 Function nodes with LSP");
+        assert_eq!(functions.len(), 45, "Expected 45 Function nodes with LSP");
     } else {
         assert_eq!(
             functions.len(),
-            30,
-            "Expected 30 Function nodes without LSP"
+            34,
+            "Expected 34 Function nodes without LSP"
         );
     }
 
@@ -238,7 +238,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 150, "Expected 150 Contains edges");
+    assert_eq!(contains, 157, "Expected 157 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -246,7 +246,38 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    assert_eq!(tests.len(), 5, "Expected 5 UnitTest nodes");
+    assert_eq!(tests.len(), 6, "Expected 6 UnitTest nodes");
+
+    if let Some(currency_test) = tests
+        .iter()
+        .find(|t| t.name == "unit: currency conversion" && t.file.ends_with("test/currency.test.ts"))
+    {
+        let convert_sats_currency = functions
+            .iter()
+            .find(|f| f.name == "convertSatsToUSD" && f.file.ends_with("lib/currency.ts"))
+            .expect("convertSatsToUSD from currency.ts not found");
+
+        let convert_sats_helpers = functions
+            .iter()
+            .find(|f| f.name == "convertSatsToUSD" && f.file.ends_with("lib/helpers.ts"))
+            .expect("convertSatsToUSD from helpers.ts not found");
+
+        let currency_test_node = Node::new(NodeType::UnitTest, currency_test.clone());
+        let correct_func_node = Node::new(NodeType::Function, convert_sats_currency.clone());
+        let wrong_func_node = Node::new(NodeType::Function, convert_sats_helpers.clone());
+
+        assert!(
+            graph.has_edge(&currency_test_node, &correct_func_node, EdgeType::Calls),
+            "Currency test should call convertSatsToUSD from lib/currency.ts"
+        );
+
+        assert!(
+            !graph.has_edge(&currency_test_node, &wrong_func_node, EdgeType::Calls),
+            "Currency test should NOT call convertSatsToUSD from lib/helpers.ts"
+        );
+    } else {
+        panic!("Unit test 'unit: currency conversion' not found");
+    }
 
     if let Some(test) = tests
         .iter()

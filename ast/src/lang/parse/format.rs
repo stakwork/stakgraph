@@ -487,6 +487,8 @@ impl Lang {
                                 file,
                                 endp.clone().start,
                                 NodeType::Endpoint,
+                                code,
+                                self,
                             ) {
                                 Some(node_key) => Some(node_key.into()),
                                 None => None,
@@ -925,7 +927,7 @@ impl Lang {
                     }
                 } else {
                     if let Some(one_func) =
-                        node_data_finder(&called, graph, file, fc.source.start, NodeType::Function)
+                        node_data_finder(&called, graph, file, fc.source.start, NodeType::Function, code, self)
                     {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
@@ -983,7 +985,7 @@ impl Lang {
         } else {
             // FALLBACK to find?
             if let Some(tf) =
-                node_data_finder(&called, graph, file, fc.source.start, NodeType::Function)
+                node_data_finder(&called, graph, file, fc.source.start, NodeType::Function, code, self)
             {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
