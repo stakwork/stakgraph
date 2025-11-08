@@ -112,6 +112,11 @@ fn find_function_by_import<G: Graph>(
         if resolved_path.starts_with("@/") {
             resolved_path = resolved_path[2..].to_string();
         }
+
+        let exts = lang.kind.exts();
+        if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
+            resolved_path = resolved_path.trim_end_matches(ext).to_string();
+        }
         
         if let Some(target) = graph.find_node_by_name_and_file_contains(
             NodeType::Function,
