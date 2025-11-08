@@ -12,14 +12,34 @@ For large repos with many contributors working on disparate features simultaneou
 
 ## Solution: Themes
 
-Add a new entity called **Theme** - exactly like a Feature, but represents **emerging work** that hasn't reached critical mass yet.
+Add a new entity called **Theme** - low-level building blocks that track implementation details and technical concepts before they coalesce into high-level features.
+
+### Semantic Distinction: Themes vs Features
+
+**Themes** = Low-level technical building blocks
+
+- Can be implementation details ("jwt-tokens", "redis-caching", "stripe-webhooks")
+- Can be protocols/technologies ("oauth", "websockets", "graphql")
+- Can be architectural patterns ("event-sourcing", "pub-sub")
+- Often too granular to be called a "feature"
+- Multiple themes often combine to form one feature
+
+**Features** = High-level user capabilities
+
+- User-facing functionality ("Authentication System", "Payment Processing")
+- Business capabilities ("Invoice Generation", "Real-time Notifications")
+- Major integrations ("Stripe Integration", "Google OAuth")
+- What users can DO, not HOW it's built
+
+**Example**: Three themes ("oauth", "jwt", "sessions") → One feature ("Authentication System")
 
 ### Key Principles
 
 1. **No hardcoded thresholds**: LLM decides when to promote based on context
-2. **Minimal changes**: Themes are just Features in a different namespace
+2. **Themes are building blocks**: Track low-level work that isn't substantial enough for a feature yet
 3. **LLM has full control**: Sees Features + Themes, decides everything
 4. **Continuous processing**: Works for active repos with many simultaneous PRs
+5. **Multiple themes coalesce**: Several related themes typically merge into one feature
 
 ## Data Structures
 
@@ -27,16 +47,19 @@ Add a new entity called **Theme** - exactly like a Feature, but represents **eme
 
 ```typescript
 interface Theme {
-  id: string; // Slug from name (e.g., "authentication-work")
-  name: string; // Human-readable (e.g., "Authentication Work")
-  description: string; // What this emerging work is about
+  id: string; // Slug from name (e.g., "jwt", "oauth", "redis-caching")
+  name: string; // Human-readable (e.g., "JWT Tokens", "OAuth Flow", "Redis Caching")
+  description: string; // Low-level technical details about this building block
   prNumbers: number[]; // PRs contributing to this theme
   createdAt: Date;
   lastUpdated: Date;
 }
 ```
 
-**Note**: Themes have the exact same structure as Features - just semantically different.
+**Note**: Themes have the exact same structure as Features - the difference is purely semantic:
+
+- **Themes**: Track low-level technical work (jwt, webhooks, caching strategies)
+- **Features**: Track high-level capabilities (Authentication System, Payment Processing)
 
 ### Updated LLM Decision
 
@@ -212,16 +235,42 @@ Decision Guidelines (updated)
 - [ ] Update `SYSTEM_PROMPT` in `llm.ts` to explain Themes vs Features:
 
   ```typescript
-  **Themes vs Features:**
-  - Use THEMES when work is emerging but not yet substantial
-  - PROMOTE themes to features when they reach critical mass (your judgment!)
-  - You can merge MULTIPLE related themes into ONE feature
-  - Example: "oauth-work", "sessions", "jwt" → "Authentication System"
-  - When promoting, all PRs from all themes are included in the new feature
+  **Themes vs Features - Critical Distinction:**
+
+  THEMES = Low-level technical building blocks
+  - Implementation details: "jwt-tokens", "redis-caching", "stripe-webhooks"
+  - Protocols/technologies: "oauth", "websockets", "graphql"
+  - Architectural patterns: "event-sourcing", "pub-sub"
+  - Too granular to be a feature on their own
+  - Multiple themes typically combine to form one feature
+
+  FEATURES = High-level user capabilities
+  - User-facing functionality: "Authentication System", "Payment Processing"
+  - Business capabilities: "Invoice Generation", "Real-time Notifications"
+  - What users can DO, not HOW it's built
+  - Result of multiple themes coalescing
+
+  **Your decision process:**
+  1. Is this PR significant enough for a FEATURE? (Adds major user capability)
+     → Yes: add to existing feature or create new feature
+     → No: Continue to step 2
+
+  2. Is this PR doing low-level technical work? (Implementation detail, protocol, etc.)
+     → Yes: add to existing theme or create new theme
+     → No: Ignore (trivial/maintenance)
+
+  3. Do we have enough related themes to form a feature? (Your judgment!)
+     → Yes: PROMOTE multiple themes into one feature
+     → Example: themes "oauth" + "jwt" + "sessions" → Feature "Authentication System"
+
+  **When promoting:**
+  - Merge MULTIPLE related themes into ONE high-level feature
+  - Write a comprehensive feature description focused on WHAT it does (not HOW)
+  - All PRs from all themes are included in the new feature
   - Promoted themes are automatically deleted
   ```
 
-- [ ] Update `DECISION_GUIDELINES` with theme examples
+- [ ] Update `DECISION_GUIDELINES` with theme examples showing low-level vs high-level
 
 ### 5. Update CLI
 
@@ -260,61 +309,83 @@ Decision Guidelines (updated)
 
 ## Example Workflows
 
-### Scenario 1: Simple Theme Promotion
+### Scenario 1: Themes as Building Blocks → Feature
 
 ```
-PR #101 → Decision: create_theme "authentication-work"
-  → Theme created (1 PR)
+PR #101: "Add JWT token generation"
+  → Decision: create_theme "jwt"
+  → Theme "jwt" created (1 PR)
+  → Reasoning: Low-level implementation detail, not a feature yet
 
-PR #104 → Decision: add_to_theme "authentication-work"
-  → Theme updated (2 PRs)
+PR #104: "Add OAuth callback handler"
+  → Decision: create_theme "oauth"
+  → Theme "oauth" created (1 PR)
+  → Reasoning: Protocol implementation, building block
 
-PR #107 → Decision: add_to_theme "authentication-work"
-  → Theme updated (3 PRs)
+PR #107: "Add session middleware with Redis"
+  → Decision: create_theme "sessions"
+  → Theme "sessions" created (1 PR)
+  → Reasoning: Technical mechanism, not user-facing yet
 
-PR #110 → Decision: add_to_theme + promote_theme
-  → Theme "authentication-work" promoted to Feature "Authentication System"
-  → Theme deleted
-  → Feature created (4 PRs)
+PR #110: "Connect JWT validation to OAuth flow"
+  → Decision: add_to_theme ["jwt", "oauth"]
+  → Both themes updated
+  → Reasoning: Connects existing building blocks
 
-PR #115 → Decision: add_to_existing "authentication-system"
+PR #115: "Complete auth system with user management"
+  → Decision: add_to_theme ["jwt", "oauth", "sessions"] + promote_theme
+  → promotions: [{
+      themeIds: ["jwt", "oauth", "sessions"],
+      featureName: "Authentication System",
+      featureDescription: "Complete OAuth-based authentication with JWT tokens and session management"
+    }]
+  → Feature "Authentication System" created (5 PRs)
+  → All 3 themes deleted
+  → Reasoning: Now substantial enough to be a user-facing capability
+
+PR #120 → Decision: add_to_existing "authentication-system"
   → Normal feature operation
 ```
 
-### Scenario 2: Merging Multiple Themes
+### Scenario 2: Multiple Low-Level Themes Coalesce
 
 ```
 Current state:
-  - Theme "oauth-work" (3 PRs)
-  - Theme "session-handling" (2 PRs)
-  - Theme "jwt-tokens" (2 PRs)
+  - Theme "stripe-webhooks" (2 PRs) - webhook handling
+  - Theme "payment-intent" (2 PRs) - payment creation flow
+  - Theme "subscription-api" (3 PRs) - recurring payments
 
-PR #120 → Decision: promote_theme
+PR #200: "Complete payment flow with subscriptions"
+  → Decision: promote_theme
   → promotions: [{
-      themeIds: ["oauth-work", "session-handling", "jwt-tokens"],
-      featureName: "Authentication System",
-      ...
+      themeIds: ["stripe-webhooks", "payment-intent", "subscription-api"],
+      featureName: "Payment Processing",
+      featureDescription: "Stripe-based payment processing with one-time and recurring payments"
     }]
-  → All 3 themes merged into Feature "Authentication System" (7 PRs)
+  → All 3 low-level themes merged into high-level Feature "Payment Processing" (7 PRs)
   → All 3 themes deleted
 ```
 
-### Scenario 3: Simultaneous Multiple Promotions
+### Scenario 3: Mix of Themes and Features
 
 ```
 Current state:
-  - Theme "auth-work" (5 PRs)
-  - Theme "payment-stripe" (4 PRs)
-  - Theme "email-notifications" (3 PRs)
+  - Feature "Authentication System" (12 PRs) - established high-level feature
+  - Theme "websockets" (2 PRs) - low-level protocol implementation
+  - Theme "push-notifications" (2 PRs) - low-level notification mechanism
+  - Theme "presence-detection" (1 PR) - low-level technical detail
 
-PR #200 → Decision: add_to_theme "email-notifications" + promote_theme
-  → promotions: [
-      { themeIds: ["auth-work"], featureName: "Authentication", ... },
-      { themeIds: ["payment-stripe"], featureName: "Payment Processing", ... }
-    ]
-  → 2 features created
-  → 2 themes deleted
-  → 1 theme remains
+PR #300: "Real-time notification system with WebSocket support"
+  → Decision: add_to_theme ["websockets", "push-notifications", "presence-detection"] + promote_theme
+  → promotions: [{
+      themeIds: ["websockets", "push-notifications", "presence-detection"],
+      featureName: "Real-time Notifications",
+      featureDescription: "WebSocket-based real-time notification system with presence detection"
+    }]
+  → 3 low-level themes promoted to Feature "Real-time Notifications" (5 PRs)
+  → All 3 themes deleted
+  → Authentication feature remains unchanged
+  → Reasoning: The themes were building blocks that now form a complete user-facing capability
 ```
 
 ## Future Enhancements (Optional)
@@ -323,12 +394,15 @@ PR #200 → Decision: add_to_theme "email-notifications" + promote_theme
 2. **Theme merging**: LLM can merge two themes without promoting to feature
 3. **Theme splitting**: LLM can split one theme into two if scope diverges
 4. **Confidence scores**: Track theme "strength" metric (number of PRs, recency, etc.)
+5. **Cross-feature themes**: Allow themes to exist that support multiple features (e.g., "caching" theme used by multiple features)
 
 ## Success Metrics
 
 After implementation, we should see:
 
-- Fewer premature features (features with < 3 PRs)
-- Better feature quality (more comprehensive descriptions)
-- Emerging patterns captured (themes accumulate related work)
-- Cleaner feature list (only substantial work promoted)
+- **Cleaner feature list**: Only high-level, user-facing capabilities become features
+- **Better feature quality**: Features represent substantial capabilities, not implementation details
+- **Low-level work tracked**: Technical building blocks captured as themes (jwt, redis, websockets, etc.)
+- **Natural coalescence**: Multiple related themes merge into coherent features
+- **No premature features**: Features only created when themes reach critical mass
+- **Clear abstraction levels**: Themes = HOW (technical), Features = WHAT (capability)
