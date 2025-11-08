@@ -87,6 +87,7 @@ async fn main() -> Result<()> {
         .route("/process", post(handlers::process))
         .route("/sync", post(handlers::process))
         .route("/ingest", post(handlers::ingest))
+        .route("/graph_ingest", post(handlers::graph_ingest))
         .route("/embed_code", post(handlers::embed_code_handler))
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),

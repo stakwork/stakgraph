@@ -86,6 +86,7 @@ impl Repos {
             return Err(Error::Custom("Language is not supported".into()));
         }
         let mut graph = G::new(String::new(), Language::Typescript);
+        graph.initialize().await?;
         if let Some(first_repo) = self.0.first() {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }

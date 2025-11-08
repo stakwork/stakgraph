@@ -372,6 +372,128 @@ pub async fn ingest(
 }
 
 #[axum::debug_handler]
+pub async fn graph_ingest(
+    State(state): State<Arc<AppState>>,
+    body: Json<ProcessBody>,
+) -> Result<Json<ProcessResponse>> {
+    let start_total = Instant::now();
+    let (final_repo_path, final_repo_url, username, pat, commit, branch) = resolve_repo(&body)?;
+    let use_lsp = body.use_lsp;
+    let repo_url = final_repo_url.clone();
+
+    if let Err(e) = validate_git_credentials(&final_repo_url, username.clone(), pat.clone()).await {
+        return Err(WebError(Error::Custom(format!("Invalid git credentials: {}", e))));
+    }
+
+    let start_clone = Instant::now();
+    let mut repos = if body.repo_path.is_some() || std::env::var("REPO_PATH").is_ok() {
+        info!("Using local repository at: {}", final_repo_path);
+        Repo::new_multi_detect(
+            &final_repo_path,
+            Some(final_repo_url.clone()),
+            Vec::new(),
+            Vec::new(),
+            use_lsp,
+        )
+        .await
+        .map_err(|e| {
+            WebError(shared::Error::Custom(format!(
+                "Repo detection Failed: {}",
+                e
+            )))
+        })?
+    } else {
+        Repo::new_clone_multi_detect(
+            &repo_url,
+            username.clone(),
+            pat.clone(),
+            Vec::new(),
+            Vec::new(),
+            commit.as_deref(),
+            branch.as_deref(),
+            use_lsp,
+        )
+        .await
+        .map_err(|e| {
+            WebError(shared::Error::Custom(format!(
+                "Repo detection Failed: {}",
+                e
+            )))
+        })?
+    };
+    let clone_s = start_clone.elapsed().as_secs_f64();
+    info!(
+        "[perf][graph_ingest] phase=clone_detect repo={} s={:.2}",
+        final_repo_url.clone(), clone_s
+    );
+
+    repos.set_status_tx(state.tx.clone()).await;
+
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await?;
+
+    for repo in &repos.0 {
+        let stripped_root = strip_tmp(&repo.root).display().to_string();
+        info!("[graph_ingest] Clearing old data for {}...", stripped_root);
+        graph_ops.clear_existing_graph(&stripped_root).await?;
+    }
+
+    let start_build = Instant::now();
+    let neo4j_graph = repos
+        .build_graphs_inner_with_streaming::<ast::lang::graphs::neo4j_graph::Neo4jGraph>(true)
+        .await
+        .map_err(|e| {
+            WebError(shared::Error::Custom(format!(
+                "Failed to build graph directly to Neo4j: {}",
+                e
+            )))
+        })?;
+    let build_s = start_build.elapsed().as_secs_f64();
+    info!(
+        "[perf][graph_ingest] phase=build_direct repo={} s={:.2}",
+        final_repo_url.clone(), build_s
+    );
+
+    let (nodes, edges) = neo4j_graph.get_graph_size();
+
+    info!("Setting Data_Bank property for nodes missing it...");
+    if let Err(e) = neo4j_graph.set_missing_data_bank().await {
+        tracing::warn!("Error setting Data_Bank property: {:?}", e);
+    }
+
+    info!("Setting default namespace for nodes missing it...");
+    if let Err(e) = neo4j_graph.set_default_namespace().await {
+        tracing::warn!("Error setting default namespace: {:?}", e);
+    }
+
+    let _ = state.tx.send(ast::repo::StatusUpdate {
+        status: "Complete".to_string(),
+        message: "Direct Neo4j graph building completed successfully".to_string(),
+        step: 16,
+        total_steps: 16,
+        progress: 100,
+        stats: Some(std::collections::HashMap::from([
+            ("total_nodes".to_string(), nodes as usize),
+            ("total_edges".to_string(), edges as usize),
+        ])),
+        step_description: Some("Direct Neo4j graph building completed".to_string()),
+    });
+
+    let total_s = start_total.elapsed().as_secs_f64();
+    info!(
+        "[perf][graph_ingest][results] repo={} clone_s={:.2} build_s={:.2} total_s={:.2} nodes={} edges={}",
+        final_repo_url,
+        clone_s,
+        build_s,
+        total_s,
+        nodes,
+        edges
+    );
+
+    Ok(Json(ProcessResponse { nodes, edges }))
+}
+
+#[axum::debug_handler]
 pub async fn ingest_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,

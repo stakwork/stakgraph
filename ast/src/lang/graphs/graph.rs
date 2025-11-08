@@ -160,4 +160,8 @@ pub trait Graph: Default + Debug {
     fn get_edges_vec(&self) -> Vec<Edge>;
     fn set_allow_unverified_calls(&mut self, allow: bool);
     fn get_allow_unverified_calls(&self) -> bool;
+
+    fn initialize(&mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async { Ok(()) })
+    }
 }

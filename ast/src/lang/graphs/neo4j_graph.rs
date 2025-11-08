@@ -1428,6 +1428,14 @@ impl Graph for Neo4jGraph {
         sync_fn(|| async { self.get_graph_keys_async().await })
     }
 
+    fn initialize(&mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + '_>> {
+        Box::pin(async move {
+            self.connect().await?;
+            self.create_indexes().await?;
+            Ok(())
+        })
+    }
+
     fn find_source_edge_by_name_and_file(
         &self,
         edge_type: EdgeType,
