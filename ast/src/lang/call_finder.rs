@@ -113,10 +113,10 @@ fn find_function_by_import<G: Graph>(
             resolved_path = resolved_path[2..].to_string();
         }
         
-        if let Some(target) = graph.find_node_by_name_and_file_end_with(
+        if let Some(target) = graph.find_node_by_name_and_file_contains(
             NodeType::Function,
             func_name,
-            &resolved_path
+            &resolved_path,
         ) {
             if !target.body.is_empty() {
                 log_cmd(format!(

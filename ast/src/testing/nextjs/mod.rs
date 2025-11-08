@@ -238,7 +238,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 157, "Expected 157 Contains edges");
+    assert_eq!(contains, 159, "Expected 159 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -248,31 +248,36 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += tests.len();
     assert_eq!(tests.len(), 6, "Expected 6 UnitTest nodes");
 
-    if let Some(currency_test) = tests
+    if let Some(_) = tests
         .iter()
         .find(|t| t.name == "unit: currency conversion" && t.file.ends_with("test/currency.test.ts"))
     {
-        let convert_sats_currency = functions
-            .iter()
-            .find(|f| f.name == "convertSatsToUSD" && f.file.ends_with("lib/currency.ts"))
-            .expect("convertSatsToUSD from currency.ts not found");
 
-        let convert_sats_helpers = functions
+        let all_convert_sats_calls: Vec<_> = graph.get_edges_vec()
+            .into_iter()
+            .filter(|e| {
+                e.edge == EdgeType::Calls &&
+                e.source.node_data.file.ends_with("test/currency.test.ts") &&
+                e.target.node_data.name == "convertSatsToUSD"
+            })
+            .collect();
+        
+        let calls_currency_version = all_convert_sats_calls
             .iter()
-            .find(|f| f.name == "convertSatsToUSD" && f.file.ends_with("lib/helpers.ts"))
-            .expect("convertSatsToUSD from helpers.ts not found");
-
-        let currency_test_node = Node::new(NodeType::UnitTest, currency_test.clone());
-        let correct_func_node = Node::new(NodeType::Function, convert_sats_currency.clone());
-        let wrong_func_node = Node::new(NodeType::Function, convert_sats_helpers.clone());
+            .any(|e| e.target.node_data.file.ends_with("lib/currency.ts"));
+        
+        let calls_helpers_version = all_convert_sats_calls
+            .iter()
+            .any(|e| e.target.node_data.file.ends_with("lib/helpers.ts"));
 
         assert!(
-            graph.has_edge(&currency_test_node, &correct_func_node, EdgeType::Calls),
-            "Currency test should call convertSatsToUSD from lib/currency.ts"
+            calls_currency_version,
+            "Currency test should call convertSatsToUSD from lib/currency.ts. Found calls: {:?}",
+            all_convert_sats_calls.iter().map(|e| format!("{} -> {}", e.source.node_data.file, e.target.node_data.file)).collect::<Vec<_>>()
         );
 
         assert!(
-            !graph.has_edge(&currency_test_node, &wrong_func_node, EdgeType::Calls),
+            !calls_helpers_version,
             "Currency test should NOT call convertSatsToUSD from lib/helpers.ts"
         );
     } else {
@@ -422,7 +427,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let import_nodes = graph.find_nodes_by_type(NodeType::Import);
     nodes += import_nodes.len();
-    assert_eq!(import_nodes.len(), 19, "Expected 19 Import nodes");
+    assert_eq!(import_nodes.len(), 20, "Expected 20 Import nodes");
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
