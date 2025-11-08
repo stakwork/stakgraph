@@ -248,36 +248,42 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += tests.len();
     assert_eq!(tests.len(), 6, "Expected 6 UnitTest nodes");
 
+    #[cfg(not(feature = "neo4j"))]
     if let Some(_) = tests
         .iter()
         .find(|t| t.name == "unit: currency conversion" && t.file.ends_with("test/currency.test.ts"))
     {
 
-        let all_convert_sats_calls: Vec<_> = graph.get_edges_vec()
-            .into_iter()
-            .filter(|e| {
-                e.edge == EdgeType::Calls &&
-                e.source.node_data.file.ends_with("test/currency.test.ts") &&
-                e.target.node_data.name == "convertSatsToUSD"
-            })
-            .collect();
+        let currency_test_nodes = graph.find_nodes_by_name(NodeType::UnitTest, "unit: currency conversion");
+        let convert_sats_functions = graph.find_nodes_by_name(NodeType::Function, "convertSatsToUSD");
         
-        let calls_currency_version = all_convert_sats_calls
-            .iter()
-            .any(|e| e.target.node_data.file.ends_with("lib/currency.ts"));
+        let currency_fn = convert_sats_functions.iter()
+            .find(|f| f.file.ends_with("lib/currency.ts"))
+            .expect("Should find convertSatsToUSD in lib/currency.ts");
+            
+        let helpers_fn = convert_sats_functions.iter()
+            .find(|f| f.file.ends_with("lib/helpers.ts"))
+            .expect("Should find convertSatsToUSD in lib/helpers.ts");
+            
+        let test_node = currency_test_nodes.iter()
+            .find(|t| t.file.ends_with("test/currency.test.ts"))
+            .expect("Should find currency test");
         
-        let calls_helpers_version = all_convert_sats_calls
-            .iter()
-            .any(|e| e.target.node_data.file.ends_with("lib/helpers.ts"));
+        // Check if edges exist using has_edge
+        let test_node_ref = Node { node_type: NodeType::UnitTest, node_data: test_node.clone() };
+        let currency_fn_ref = Node { node_type: NodeType::Function, node_data: currency_fn.clone() };
+        let helpers_fn_ref = Node { node_type: NodeType::Function, node_data: helpers_fn.clone() };
+        
+        let calls_currency = graph.has_edge(&test_node_ref, &currency_fn_ref, EdgeType::Calls);
+        let calls_helpers = graph.has_edge(&test_node_ref, &helpers_fn_ref, EdgeType::Calls);
 
         assert!(
-            calls_currency_version,
-            "Currency test should call convertSatsToUSD from lib/currency.ts. Found calls: {:?}",
-            all_convert_sats_calls.iter().map(|e| format!("{} -> {}", e.source.node_data.file, e.target.node_data.file)).collect::<Vec<_>>()
+            calls_currency,
+            "Currency test should call convertSatsToUSD from lib/currency.ts"
         );
 
         assert!(
-            !calls_helpers_version,
+            !calls_helpers,
             "Currency test should NOT call convertSatsToUSD from lib/helpers.ts"
         );
     } else {

@@ -795,6 +795,17 @@ impl Neo4jGraph {
         let nodes = self.find_nodes_by_name_async(node_type, name).await;
         nodes.into_iter().find(|node| node.file.ends_with(suffix))
     }
+
+    pub(super) async fn find_node_by_name_and_file_contains_async(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        file_part: &str,
+    ) -> Option<NodeData> {
+        let nodes = self.find_nodes_by_name_async(node_type, name).await;
+        nodes.into_iter().find(|node| node.file.contains(file_part))
+    }
+
     pub(super) async fn add_node_with_parent_async(
         &self,
         node_type: NodeType,
@@ -1590,6 +1601,18 @@ impl Graph for Neo4jGraph {
     ) -> Option<NodeData> {
         sync_fn(|| async {
             self.find_node_by_name_and_file_end_with_async(node_type, name, suffix)
+                .await
+        })
+    }
+
+    fn find_node_by_name_and_file_contains(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        file_part: &str,
+    ) -> Option<NodeData> {
+        sync_fn(|| async {
+            self.find_node_by_name_and_file_contains_async(node_type, name, file_part)
                 .await
         })
     }
