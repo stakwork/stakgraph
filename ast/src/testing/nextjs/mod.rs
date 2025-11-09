@@ -39,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 39, "Expected 39 File nodes");
+    assert_eq!(file_nodes.len(), 42, "Expected 42 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -113,8 +113,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            34,
-            "Expected 34 Function nodes without LSP");
+            37,
+            "Expected 37 Function nodes without LSP");
     }
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
@@ -237,7 +237,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 161, "Expected 161 Contains edges");
+    assert_eq!(contains, 170, "Expected 170 Contains edges");
 
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -428,7 +428,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let import_nodes = graph.find_nodes_by_type(NodeType::Import);
     nodes += import_nodes.len();
-    assert_eq!(import_nodes.len(), 20, "Expected 20 Import nodes");
+    assert_eq!(import_nodes.len(), 21, "Expected 21 Import nodes");
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
