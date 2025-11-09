@@ -1,4 +1,7 @@
 use super::{graphs::Graph, *};
+use super::queries::consts::{IMPORTS_NAME, IMPORTS_FROM};
+use super::parse::utils::trim_quotes;
+use tree_sitter::QueryCursor;
 
 pub fn node_data_finder<G: Graph>(
     func_name: &str,
@@ -6,6 +9,8 @@ pub fn node_data_finder<G: Graph>(
     current_file: &str,
     source_start: usize,
     source_node_type: NodeType,
+    code: &str,
+    lang: &Lang,
 ) -> Option<NodeData> {
     func_target_file_finder(
         func_name,
@@ -14,6 +19,8 @@ pub fn node_data_finder<G: Graph>(
         current_file,
         source_start,
         source_node_type,
+        code,
+        lang,
     )
 }
 
@@ -21,9 +28,11 @@ pub fn func_target_file_finder<G: Graph>(
     func_name: &str,
     _operand: &Option<String>,
     graph: &G,
-    current_file: &str, // Add current file parameter
+    current_file: &str,
     source_start: usize,
     source_node_type: NodeType,
+    code: &str,
+    lang: &Lang,
 ) -> Option<NodeData> {
     log_cmd(format!(
         "func_target_file_finder {:?} from file {:?}",
@@ -41,12 +50,10 @@ pub fn func_target_file_finder<G: Graph>(
         return Some(tf);
     }
 
-    // Second try: find function with operand
-    // if let Some(op) = operand {
-    //     if let Some(tf) = find_function_with_operand(&op, func_name, graph) {
-    //         return Some(tf);
-    //     }
-    // }
+    // Second try: find function by import
+    if let Some(tf) = find_function_by_import(func_name, current_file, code, lang, graph) {
+        return Some(tf);
+    }
 
     // Third try: find in the same file
     if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
@@ -59,6 +66,73 @@ pub fn func_target_file_finder<G: Graph>(
         return Some(tf);
     }
 
+    None
+}
+
+fn find_function_by_import<G: Graph>(
+    func_name: &str,
+    current_file: &str,
+    code: &str,
+    lang: &Lang,
+    graph: &G,
+) -> Option<NodeData> {
+    let imports_query = lang.lang().imports_query()?;
+    let q = lang.q(&imports_query, &NodeType::Import);
+    
+    let tree = match lang.lang().parse(code, &NodeType::Import) {
+        Ok(t) => t,
+        Err(_) => return None,
+    };
+    
+    let mut cursor = QueryCursor::new();
+    let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+    
+    while let Some(m) = matches.next() {
+        let mut import_names = Vec::new();
+        let mut import_source = None;
+        
+        if Lang::loop_captures_multi(&q, &m, code, |body, _node, o| {
+            if o == IMPORTS_NAME {
+                import_names.push(body.clone());
+            } else if o == IMPORTS_FROM {
+                import_source = Some(trim_quotes(&body).to_string());
+            }
+            Ok(())
+        }).is_err() {
+            continue;
+        }
+        
+        if !import_names.contains(&func_name.to_string()) {
+            continue;
+        }
+        
+        let source_path = import_source?;
+        let mut resolved_path = lang.lang().resolve_import_path(&source_path, current_file);
+        
+        if resolved_path.starts_with("@/") {
+            resolved_path = resolved_path[2..].to_string();
+        }
+
+        let exts = lang.kind.exts();
+        if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
+            resolved_path = resolved_path.trim_end_matches(ext).to_string();
+        }
+        
+        if let Some(target) = graph.find_node_by_name_and_file_contains(
+            NodeType::Function,
+            func_name,
+            &resolved_path,
+        ) {
+            if !target.body.is_empty() {
+                log_cmd(format!(
+                    "::: found function by import: {:?} from {:?} (resolved: {:?})",
+                    func_name, source_path, resolved_path
+                ));
+                return Some(target);
+            }
+        }
+    }
+    
     None
 }
 

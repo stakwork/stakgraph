@@ -145,6 +145,17 @@ pub trait Graph: Default + Debug {
             .find(|node| node.file.ends_with(suffix))
     }
 
+    fn find_node_by_name_and_file_contains(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        path_fragment: &str,
+    ) -> Option<NodeData> {
+        self.find_nodes_by_name(node_type, name)
+            .into_iter()
+            .find(|node| node.file.contains(path_fragment))
+    }
+
     fn find_node_in_range(&self, node_type: NodeType, row: u32, file: &str) -> Option<NodeData> {
         self.find_nodes_by_type(node_type)
             .into_iter()
