@@ -1541,6 +1541,12 @@ pub fn query_nodes_with_count(
         .map(|_| "AND toLower(n.name) CONTAINS toLower($search)".to_string())
         .unwrap_or_default();
 
+    let function_specific_filters = if node_type == &NodeType::Function {
+        unique_functions_filters().join(" AND ")
+    } else {
+        "(n.body IS NOT NULL AND n.body <> '')".to_string()
+    };
+
     let query = format!(
         "MATCH (n:{})
          WHERE {} {} {} {} {}
@@ -1562,7 +1568,7 @@ pub fn query_nodes_with_count(
              size(all_items) AS total_count,
              [item IN all_items | item][$offset..($offset + $limit)] AS items",
         node_type.to_string(),
-        unique_functions_filters().join(" AND "),
+        function_specific_filters,
         repo_filter,
         ignore_dirs_filter,
         regex_filter,
