@@ -39,6 +39,7 @@ export interface LLMDecision {
     newDescription: string;
     reasoning: string;
   }>;
+  themes?: string[]; // 1-3 theme tags for context (can be new or existing)
   summary: string; // Summary of the PR itself
   reasoning: string;
   newDeclarations?: Array<{

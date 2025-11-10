@@ -49,7 +49,7 @@ export class FileSystemStore extends Storage {
     } catch {
       await fs.writeFile(
         this.metadataPath,
-        JSON.stringify({ lastProcessedPR: 0 }, null, 2)
+        JSON.stringify({ lastProcessedPR: 0, recentThemes: [] }, null, 2)
       );
     }
   }
@@ -159,7 +159,7 @@ export class FileSystemStore extends Storage {
   }
 
   async setLastProcessedPR(number: number): Promise<void> {
-    let metadata = { lastProcessedPR: 0 };
+    let metadata = { lastProcessedPR: 0, recentThemes: [] };
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
@@ -168,6 +168,43 @@ export class FileSystemStore extends Storage {
     }
     metadata.lastProcessedPR = number;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
+  // Themes
+  async addThemes(themes: string[]): Promise<void> {
+    let metadata = { lastProcessedPR: 0, recentThemes: [] as string[] };
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      metadata = JSON.parse(content);
+      if (!metadata.recentThemes) {
+        metadata.recentThemes = [];
+      }
+    } catch {
+      // File doesn't exist yet
+    }
+
+    // Remove themes if they already exist (LRU behavior)
+    metadata.recentThemes = metadata.recentThemes.filter((t: string) => !themes.includes(t));
+
+    // Add to end (most recent)
+    metadata.recentThemes.push(...themes);
+
+    // Keep only last 100
+    if (metadata.recentThemes.length > 100) {
+      metadata.recentThemes = metadata.recentThemes.slice(-100);
+    }
+
+    await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
+  async getRecentThemes(): Promise<string[]> {
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      const metadata = JSON.parse(content);
+      return metadata.recentThemes || [];
+    } catch {
+      return [];
+    }
   }
 
   // Documentation

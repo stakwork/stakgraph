@@ -22,6 +22,10 @@ export abstract class Storage {
   abstract getLastProcessedPR(): Promise<number>;
   abstract setLastProcessedPR(number: number): Promise<void>;
 
+  // Themes (sliding window of recent technical tags)
+  abstract addThemes(themes: string[]): Promise<void>;
+  abstract getRecentThemes(): Promise<string[]>;
+
   // Documentation
   abstract saveDocumentation(featureId: string, documentation: string): Promise<void>;
 

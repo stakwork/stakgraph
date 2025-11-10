@@ -26,6 +26,7 @@ const LLMDecisionSchema = z.object({
       })
     )
     .optional(),
+  themes: z.array(z.string()).optional(),
   summary: z.string(),
   reasoning: z.string(),
   newDeclarations: z
@@ -128,7 +129,16 @@ When in doubt, CREATE the feature. Better to have a complete map than to miss im
 3. Update feature descriptions (when implementations fundamentally change)
 4. Ignore (ONLY for pure refactoring/infrastructure with zero functional impact)
 
-Think: "What capability does this add to the application? If there's a clear answer, that's probably a feature."`;
+Think: "What capability does this add to the application? If there's a clear answer, that's probably a feature."
+
+**Using Theme Tags:**
+- You'll see a list of recent technical themes (last 100 low-level tags)
+- These are lightweight context hints showing recent technical work
+- Examples: "jwt", "oauth", "redis", "webhooks", "graphql"
+- Use these as clues to recognize patterns across PRs
+- When you see related themes accumulating, it might be time to create a feature
+- You can add 1-3 theme tags to each PR (optional) - can be NEW or EXISTING themes
+- Keep theme tags short and technical (implementation details, protocols, patterns)`;
 
 /**
  * Decision guidelines for the LLM
@@ -209,4 +219,32 @@ Instead: Ignore or add to relevant business feature if it improves error handlin
 **BAD - Don't create features for code organization:**
 ❌ actions: ["create_new"]
 ❌ newFeatures: [{name: "TypeScript Migration", description: "..."}]
-Instead: Ignore - this is pure technical work`;
+Instead: Ignore - this is pure technical work
+
+**Theme Tags (Optional):**
+- Add 1-3 theme tags to help track low-level technical work
+- Can be NEW tags or EXISTING tags from recent themes
+- Examples: "jwt", "oauth-flow", "redis-caching", "stripe-webhooks"
+- Keep them short and technical
+- These provide context for future PR decisions
+
+Example with themes:
+{
+  "actions": ["add_to_existing"],
+  "existingFeatureIds": ["authentication-system"],
+  "themes": ["jwt", "session-management"],
+  "summary": "Adds JWT refresh token logic",
+  "reasoning": "Extends auth feature with refresh tokens"
+}
+
+Example recognizing pattern from themes:
+{
+  "actions": ["create_new"],
+  "newFeatures": [{
+    "name": "Authentication System",
+    "description": "OAuth-based authentication with JWT and sessions"
+  }],
+  "themes": ["auth-complete"],
+  "summary": "Completes authentication system",
+  "reasoning": "Multiple auth PRs (recent themes show: jwt, oauth, sessions) - now ready for a feature"
+}`;

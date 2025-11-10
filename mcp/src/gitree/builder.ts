@@ -153,7 +153,7 @@ export class StreamingFeatureBuilder {
     });
 
     // Build decision prompt
-    const prompt = this.buildDecisionPrompt(prContent, features);
+    const prompt = await this.buildDecisionPrompt(prContent, features);
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
@@ -182,10 +182,14 @@ export class StreamingFeatureBuilder {
   /**
    * Build the decision prompt
    */
-  private buildDecisionPrompt(prContent: string, features: Feature[]): string {
+  private async buildDecisionPrompt(prContent: string, features: Feature[]): Promise<string> {
+    const themesContext = await this.formatThemeContext();
+
     return `${SYSTEM_PROMPT}
 
 ${this.formatFeatureContext(features)}
+
+${themesContext}
 
 ${prContent}
 
@@ -209,6 +213,22 @@ ${DECISION_GUIDELINES}`;
       .join("\n");
 
     return `## Current Features\n\n${featureList}`;
+  }
+
+  /**
+   * Format recent themes for context
+   */
+  private async formatThemeContext(): Promise<string> {
+    const themes = await this.storage.getRecentThemes();
+
+    if (themes.length === 0) {
+      return "## Recent Technical Themes\n\nNo recent themes.";
+    }
+
+    // Show themes in reverse order (most recent first), limit to 50 for display
+    const themeList = themes.slice().reverse().slice(0, 50).join(", ");
+
+    return `## Recent Technical Themes (last 50 of ${themes.length})\n\n${themeList}`;
   }
 
   /**
@@ -309,6 +329,12 @@ ${DECISION_GUIDELINES}`;
           );
         }
       }
+    }
+
+    // Save themes
+    if (decision.themes && decision.themes.length > 0) {
+      await this.storage.addThemes(decision.themes);
+      console.log(`   🏷️  Tagged: ${decision.themes.join(", ")}`);
     }
   }
 
