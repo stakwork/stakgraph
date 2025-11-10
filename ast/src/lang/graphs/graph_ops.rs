@@ -596,6 +596,7 @@ impl GraphOps {
         line_count: bool,
         repo: Option<&str>,
         test_filters: Option<super::TestFilters>,
+        search: Option<&str>,
     ) -> Result<(
         usize,
         Vec<(
@@ -621,6 +622,7 @@ impl GraphOps {
                 line_count,
                 repo,
                 test_filters,
+                search,
             )
             .await)
     }
