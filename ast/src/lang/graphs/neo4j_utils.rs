@@ -1514,7 +1514,12 @@ pub fn query_nodes_with_count(
     let ignore_dirs_filter = if !ignore_dirs.is_empty() {
         let conditions: Vec<String> = ignore_dirs
             .iter()
-            .map(|dir| format!("NOT n.file CONTAINS '/{}/'", dir))
+            .map(|dir| {
+                format!(
+                    "(NOT n.file CONTAINS '/{dir}/' AND NOT n.file =~ '.*/{dir}$')",
+                    dir = dir
+                )
+            })
             .collect();
         format!("AND {}", conditions.join(" AND "))
     } else {
