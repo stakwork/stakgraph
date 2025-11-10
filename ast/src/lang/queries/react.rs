@@ -206,6 +206,7 @@ impl Stack for ReactTs {
     fn function_definition_query(&self) -> String {
         format!(
             r#"[
+            ;; export function hello()
             (export_statement
                 (function_declaration
                     name: (identifier) @{FUNCTION_NAME}
@@ -214,6 +215,7 @@ impl Stack for ReactTs {
                 )
             ) @{FUNCTION_DEFINITION}
              
+            ;; export const hello = () => 
             (export_statement
                 (lexical_declaration
                     (variable_declarator
@@ -226,19 +228,15 @@ impl Stack for ReactTs {
                 )
             ) @{FUNCTION_DEFINITION}
 
+            ;; export const hello = create()
             (export_statement
                 (lexical_declaration
                     (variable_declarator
-                        name: (identifier) @{FUNCTION_NAME}
-                        value: (call_expression
-                            function: (member_expression
-                                object: (identifier) @styled-object (#eq? @styled-object "styled")
-                                property: (property_identifier) @styled-method
-                            )
-                        )
+                        name: (identifier) @function-name
+                        value: (call_expression)
                     )
                 )
-            ) @{FUNCTION_DEFINITION}
+            ) @function-definition
 
             (program
                 (function_declaration
@@ -263,20 +261,6 @@ impl Stack for ReactTs {
                         value: (arrow_function
                             parameters: (formal_parameters)? @{ARGUMENTS}
                             return_type: (type_annotation)? @{RETURN_TYPES}
-                        )
-                    )
-                ) @{FUNCTION_DEFINITION}
-            )
-
-            (program
-                (lexical_declaration
-                    (variable_declarator
-                        name: (identifier) @{FUNCTION_NAME}
-                        value: (call_expression
-                            function: (member_expression
-                                object: (identifier) @styled-object (#eq? @styled-object "styled")
-                                property: (property_identifier) @styled-method
-                            )
                         )
                     )
                 ) @{FUNCTION_DEFINITION}
@@ -384,6 +368,37 @@ impl Stack for ReactTs {
                     )
                 )
             ) @{FUNCTION_DEFINITION}
+
+            ;; export const hello = styled.div
+            (export_statement
+                (lexical_declaration
+                    (variable_declarator
+                        name: (identifier) @{FUNCTION_NAME}
+                        value: (call_expression
+                            function: (member_expression
+                                object: (identifier) @styled-object (#eq? @styled-object "styled")
+                                property: (property_identifier) @styled-method
+                            )
+                        )
+                    )
+                )
+            ) @{FUNCTION_DEFINITION}
+
+            ;; const hello = styled.div
+            (program
+                (lexical_declaration
+                    (variable_declarator
+                        name: (identifier) @{FUNCTION_NAME}
+                        value: (call_expression
+                            function: (member_expression
+                                object: (identifier) @styled-object (#eq? @styled-object "styled")
+                                property: (property_identifier) @styled-method
+                            )
+                        )
+                    )
+                ) @{FUNCTION_DEFINITION}
+            )
+
             ]"#
         )
     }
@@ -951,18 +966,18 @@ impl Stack for ReactTs {
         let f = file.replace('\\', "/");
         let lower_code = code.to_lowercase();
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
-        
+
         let is_e2e_dir = f.contains("/tests/e2e/")
             || f.contains("/test/e2e")
             || f.contains("/e2e/")
             || f.contains("/__e2e__/")
             || f.contains(".e2e.test")
             || f.contains(".e2e.spec");
-        let has_e2e_in_name = fname.starts_with("e2e.") 
-            || fname.starts_with("e2e-") 
+        let has_e2e_in_name = fname.starts_with("e2e.")
+            || fname.starts_with("e2e-")
             || fname.starts_with("e2e_")
             || fname.contains(".e2e.");
-        let has_playwright = lower_code.contains("@playwright/test") 
+        let has_playwright = lower_code.contains("@playwright/test")
             || lower_code.contains("from '@playwright/test'")
             || lower_code.contains("from \"@playwright/test\"");
         let has_cypress = lower_code.contains("from 'cypress'")
@@ -973,7 +988,7 @@ impl Stack for ReactTs {
             || lower_code.contains("from \"puppeteer\"")
             || lower_code.contains("require('puppeteer')")
             || lower_code.contains("require(\"puppeteer\")");
-        
+
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
 
