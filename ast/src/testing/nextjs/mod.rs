@@ -24,7 +24,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let repos = Repos(vec![repo]);
     let graph = repos.build_graphs_inner::<G>().await?;
 
-    // graph.analysis();
+    graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -724,7 +724,7 @@ async fn test_remote_nextjs() -> Result<()> {
     let graph = Neo4jGraph::default();
     graph.clear().await?;
     let graph = repos.build_graphs_inner::<Neo4jGraph>().await?;
-    // graph.analysis();
+    graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -1007,7 +1007,7 @@ async fn test_remote_nextjs() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_nextjs() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    //test_nextjs_generic::<ArrayGraph>().await.unwrap();
+    test_nextjs_generic::<ArrayGraph>().await.unwrap();
     test_nextjs_generic::<BTreeMapGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
