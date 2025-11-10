@@ -533,6 +533,21 @@ impl Stack for ReactTs {
                         )
                     )
                 ) @{ROUTE}
+
+                 ;; Matches: new Request('/api/...', {{ method: 'POST', ... }})
+                (new_expression
+                    constructor: (identifier) @constructor (#eq? @constructor "Request")
+                    arguments: (arguments
+                        [ (string) (template_string) ] @{ENDPOINT}
+                        (object)?
+                    )
+                ) @{ROUTE}
+
+                 ;; Matches: new NextRequest('/api/...')
+                (new_expression
+                    constructor: (identifier) @constructor (#eq? @constructor "NextRequest")
+                    arguments: (arguments [ (string) (template_string) ] @{ENDPOINT})
+                ) @{ROUTE}
             "#
         ))
     }
