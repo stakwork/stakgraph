@@ -18,8 +18,22 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let mut added = 0;
     for t in &tests {
         let body_lc = t.body.to_lowercase();
+        let test_verbs = extract_http_verbs_from_test(&t.body);
+        
         for ep in &endpoints {
-            if body_lc.contains(&ep.name.to_lowercase()) {
+            if !body_lc.contains(&ep.name.to_lowercase()) {
+                continue;
+            }
+            
+            let matches = if !test_verbs.is_empty() {
+                ep.meta.get("verb")
+                    .map(|v| test_verbs.iter().any(|tv| tv.eq_ignore_ascii_case(v)))
+                    .unwrap_or(true)
+            } else {
+                true
+            };
+            
+            if matches {
                 let edge = Edge::test_calls(NodeType::IntegrationTest, t, NodeType::Endpoint, ep);
                 graph.add_edge(edge);
                 added += 1;
@@ -131,6 +145,52 @@ pub fn extract_test_ids(content: &str, lang: &Language) -> Result<Vec<String>> {
         }
     }
     Ok(test_ids)
+}
+
+/*
+The patterns catch things like:
+GET("/path"), POST("/path")
+.get("/path"), .post(url)
+method: "PUT", type: 'DELETE'
+client.get(...), request.post(...)
+axios.get(...), axios.post(...), etc.
+ky.get(...), ky.post(...), etc.
+superagent.get(...), superagent.post(...), etc.
+api.get(...), api.post(...), etc. (common API client pattern)
+fetch(..., { method: "POST" }) pattern with explicit method option
+*/
+
+pub fn extract_http_verbs_from_test(body: &str) -> Vec<String> {
+    let mut verbs = Vec::new();
+    
+    let patterns = [
+        r#"(?i)\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s*\("#,
+        r#"(?i)\.(get|post|put|delete|patch|head|options)\s*\("#,
+        r#"(?i)method\s*:\s*["']?(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']?"#,
+        r#"(?i)type\s*:\s*["']?(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']?"#,
+        r#"(?i)axios\.(get|post|put|delete|patch|head|options)\("#,
+        r#"(?i)ky\.(get|post|put|delete|patch|head|options)\("#,
+        r#"(?i)superagent\.(get|post|put|delete|patch|head|options)\("#,
+        r#"(?i)api\.(get|post|put|delete|patch|head|options)\("#,
+        r#"(?i)client\.(get|post|put|delete|patch|head|options)\("#,
+        r#"(?i)request\.(get|post|put|delete|patch|head|options)\("#,
+        r#"(?i)fetch\s*\([^,)]*,\s*\{\s*method\s*:\s*["']?(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']?"#,
+    ];
+    
+    for pattern in patterns.iter() {
+        if let Ok(re) = Regex::new(pattern) {
+            for capture in re.captures_iter(body) {
+                if let Some(verb_match) = capture.get(1) {
+                    let verb = verb_match.as_str().to_uppercase();
+                    if !verbs.contains(&verb) {
+                        verbs.push(verb);
+                    }
+                }
+            }
+        }
+    }
+    
+    verbs
 }
 
 pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
