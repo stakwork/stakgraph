@@ -1,6 +1,22 @@
+"use client";
+import { useEffect } from "react";
 import Image from "next/image";
+import { analytics } from "../lib/services/analytics";
 
 export default function Home() {
+  useEffect(() => {
+    analytics.page("Home");
+    analytics.track("view_home", { source: "direct" });
+  }, []);
+
+  const handleDeployClick = () => {
+    analytics.track("click_deploy_button", { target: "vercel" });
+  };
+
+  const handleDocsClick = () => {
+    analytics.track("click_docs_button", { target: "nextjs_docs" });
+  };
+
   return (
     <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
       <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
@@ -31,6 +47,7 @@ export default function Home() {
             href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleDeployClick}
           >
             <Image
               className="dark:invert"
@@ -46,6 +63,7 @@ export default function Home() {
             href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleDocsClick}
           >
             Read our docs
           </a>
