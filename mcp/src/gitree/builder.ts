@@ -40,14 +40,19 @@ export class StreamingFeatureBuilder {
       try {
         await this.processPR(owner, repo, pr);
       } catch (error) {
-        console.error(`   ❌ Error processing PR #${pr.number}:`, error instanceof Error ? error.message : error);
+        console.error(
+          `   ❌ Error processing PR #${pr.number}:`,
+          error instanceof Error ? error.message : error
+        );
         console.log(`   ⏭️  Skipping and continuing with next PR...`);
 
         // Save a minimal PR record so we know it was attempted
         await this.storage.savePR({
           number: pr.number,
           title: pr.title,
-          summary: `Error during processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          summary: `Error during processing: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
           mergedAt: pr.mergedAt,
           url: pr.url,
           files: pr.filesChanged,
@@ -72,29 +77,26 @@ export class StreamingFeatureBuilder {
     console.log(`   Fetching PR list (paginated)...`);
 
     // Use octokit pagination to get ALL PRs
-    const allPRs = await this.octokit.paginate(
-      this.octokit.pulls.list,
-      {
-        owner,
-        repo,
-        state: "closed",
-        sort: "created",
-        direction: "asc",
-        per_page: 100,
-      }
-    );
+    const allPRs = await this.octokit.paginate(this.octokit.pulls.list, {
+      owner,
+      repo,
+      state: "closed",
+      sort: "created",
+      direction: "asc",
+      per_page: 100,
+    });
 
     console.log(`   Found ${allPRs.length} closed PRs total`);
 
     // Filter to only merged PRs after the last processed
-    const mergedPRs = allPRs.filter(
-      (pr) => pr.merged_at && pr.number > since
+    const mergedPRs = allPRs.filter((pr) => pr.merged_at && pr.number > since);
+
+    console.log(
+      `   ${mergedPRs.length} merged PRs to process (after #${since})`
     );
 
-    console.log(`   ${mergedPRs.length} merged PRs to process (after #${since})`);
-
     // Convert to lightweight GitHubPR type (detailed info fetched when processing)
-    return mergedPRs.map(pr => ({
+    return mergedPRs.map((pr) => ({
       number: pr.number,
       title: pr.title,
       body: pr.body,
@@ -144,13 +146,17 @@ export class StreamingFeatureBuilder {
     pr.deletions = fullPR.deletions || 0;
 
     // Fetch full PR content using the existing pr.ts module
-    const prContent = await fetchPullRequestContent(this.octokit, {
-      owner,
-      repo,
-      pull_number: pr.number,
-    }, {
-      maxPatchLines: 100, // Reduce to 100 lines per file to save tokens
-    });
+    const prContent = await fetchPullRequestContent(
+      this.octokit,
+      {
+        owner,
+        repo,
+        pull_number: pr.number,
+      },
+      {
+        maxPatchLines: 100, // Reduce to 100 lines per file to save tokens
+      }
+    );
 
     // Build decision prompt
     const prompt = await this.buildDecisionPrompt(prContent, features);
@@ -182,7 +188,10 @@ export class StreamingFeatureBuilder {
   /**
    * Build the decision prompt
    */
-  private async buildDecisionPrompt(prContent: string, features: Feature[]): Promise<string> {
+  private async buildDecisionPrompt(
+    prContent: string,
+    features: Feature[]
+  ): Promise<string> {
     const themesContext = await this.formatThemeContext();
 
     return `${SYSTEM_PROMPT}
@@ -225,10 +234,10 @@ ${DECISION_GUIDELINES}`;
       return "## Recent Technical Themes\n\nNo recent themes.";
     }
 
-    // Show themes in reverse order (most recent first), limit to 50 for display
-    const themeList = themes.slice().reverse().slice(0, 50).join(", ");
+    // Show themes in reverse order (most recent first), limit to 100 for display
+    const themeList = themes.slice().reverse().slice(0, 100).join(", ");
 
-    return `## Recent Technical Themes (last 50 of ${themes.length})\n\n${themeList}`;
+    return `## Recent Technical Themes (last 100 of ${themes.length})\n\n${themeList}`;
   }
 
   /**
@@ -255,7 +264,7 @@ ${DECISION_GUIDELINES}`;
       summary: decision.summary,
       mergedAt: pr.mergedAt,
       url: pr.url,
-      files: files.map(f => f.filename),
+      files: files.map((f) => f.filename),
       newDeclarations: decision.newDeclarations,
     };
     await this.storage.savePR(prRecord);

@@ -87,45 +87,48 @@ Your job: Read each PR and decide which **user-facing capability or business fea
 
 **Critical: Focus on WHAT users can DO, not HOW it's built**
 
-**IMPORTANT: Be conservative with feature creation. Use THEMES for low-level work, only create FEATURES when there's a clear user capability.**
+Features should represent substantial capabilities (but avoid implementation details in naming):
 
-Features should represent HIGH-LEVEL capabilities:
-✅ **User-facing capabilities** - What can users accomplish?
-   - Good: "Real-time Chat" (users can chat)
-   - Bad: "Pusher WebSocket Infrastructure" (implementation detail)
+✅ **Major user-facing capabilities** - What can users accomplish?
+   - Good: "Real-time Chat", "Task Management", "File Upload", "Search"
+   - Bad: "Pusher WebSocket Infrastructure", "Navigation UI Component"
 
-✅ **Business functionality** - What business value does this provide?
-   - Good: "Invoice Generation" (business can invoice)
-   - Bad: "PDF Export Service" (implementation detail)
+✅ **Major integrations with external systems**
+   - Good: "Stripe Integration", "GitHub OAuth", "AWS S3 Storage", "Slack Notifications"
+   - Bad: "Redis Caching", "Database Connection Pool" (internal infrastructure)
 
-✅ **System-level test infrastructure** (ONLY high-level)
+✅ **Business functionality**
+   - Good: "Invoice Generation", "Payment Processing", "Email Campaigns"
+   - Bad: "PDF Export Service" (too narrow - part of Invoice Generation)
+
+✅ **High-level test infrastructure**
    - Good: "Unit Tests", "Integration Tests", "E2E Tests"
    - Bad: "Workspace Service Tests", "API Tests" (too specific - use themes)
 
 **Features should NEVER:**
-❌ Mention specific technologies in the name ("Pusher", "Redis", "React")
-❌ Focus on implementation details ("SSE", "WebSocket", "REST API")
-❌ Be too narrow ("Navigation UI", "Button Component", "Error Handler")
-❌ Include "-service", "-infrastructure", "-system" unless it's genuinely a major capability
+❌ Mention implementation technologies in the name ("Pusher", "Redis", "WebSocket")
+❌ Be too narrow/specific ("Navigation UI", "Button Component", "Error Handler")
+❌ Use "-infrastructure" or "-service" in the name unless it's a major external integration
 
 **When to use THEMES instead of FEATURES:**
-- Low-level technical work → THEME (e.g., "pusher", "websockets", "redis")
-- UI components → THEME (e.g., "navigation-ui", "sidebar")
+- Implementation details → THEME (e.g., "pusher", "websockets", "redis")
+- UI components without clear capability → THEME (e.g., "navigation-ui", "sidebar")
 - Specific test files → THEME (e.g., "workspace-tests", "api-tests")
-- Infrastructure pieces → THEME (e.g., "error-handling", "logging")
+- Internal infrastructure → THEME (e.g., "error-handling", "logging", "database-migrations")
 
 **When to CREATE a FEATURE:**
-- Multiple related THEMES have accumulated (e.g., "pusher", "websockets", "real-time" → "Real-time Messaging")
-- Clear user-facing capability emerges
-- Major business functionality is complete
-- System-wide test infrastructure (not specific test files)
+- Substantial user-facing work (3+ PRs or major PR completing a capability)
+- Major external integration (Stripe, GitHub, AWS, etc.)
+- Clear business functionality completed
+- System-wide test setup (not just one test file)
 
-**Default: Use THEMES first. Only create FEATURES when patterns clearly emerge.**
+**Balance: Create features liberally for substantial work, but use descriptive names focused on capabilities, not implementation.**
 
 **Key points:**
-- A PR can belong to MULTIPLE features (e.g., a Google OAuth PR touches both "Real-time Chat" and "Notifications")
+- Create features liberally for substantial work - we want a comprehensive feature map
+- A PR can belong to MULTIPLE features (e.g., a Google OAuth PR touches both "Authentication" and "GitHub Integration")
 - A PR can have BOTH themes AND features (tag technical details as themes, assign to user-facing features)
-- When in doubt: TAG with themes, DON'T create a feature yet
+- When naming features: Focus on WHAT it does, not HOW (avoid technology names)
 - If a PR is purely technical infrastructure with no user/business value, tag it with themes OR ignore it
 
 **Updating Feature Descriptions:**
@@ -140,20 +143,27 @@ Features should represent HIGH-LEVEL capabilities:
 
 **Your actions (can combine multiple):**
 1. Add to one or more existing features
-2. Create new features liberally - we want a comprehensive feature map
+2. Create new features for:
+   - Major user-facing capabilities (Real-time Chat, Task Management, File Upload)
+   - Major external integrations (Stripe, GitHub OAuth, AWS S3, Slack)
+   - High-level test infrastructure (Unit Tests, Integration Tests, E2E Tests)
 3. Update feature descriptions (when implementations fundamentally change)
 4. Ignore (ONLY for pure refactoring/infrastructure with zero functional impact)
 
-Think: "What capability does this add to the application? If there's a clear answer, that's probably a feature."
+Think: "What capability does this add? Is it a major integration? If yes to either, create a feature with a good name (no tech details in the name)."
 
 **Using Theme Tags:**
 - You'll see a list of recent technical themes (last 100 low-level tags)
-- These are lightweight context hints showing recent technical work
-- Examples: "jwt", "oauth", "redis", "webhooks", "graphql"
-- Use these as clues to recognize patterns across PRs
-- When you see related themes accumulating, it might be time to create a feature
+- These are lightweight hints showing recent technical work
+- Examples: "jwt", "oauth", "redis", "websockets", "navigation-ui", "workspace-tests"
+- Use themes to TAG implementation details while creating features for capabilities
 - You can add 1-3 theme tags to each PR (optional) - can be NEW or EXISTING themes
-- Keep theme tags short and technical (implementation details, protocols, patterns)`;
+- Keep theme tags short and technical
+
+**When to use both themes AND features:**
+- Create feature for the capability ("Real-time Messaging")
+- Add themes for implementation ("pusher", "websockets")
+- This gives both high-level (features) and low-level (themes) tracking`;
 
 /**
  * Decision guidelines for the LLM
@@ -192,18 +202,25 @@ Examples:
 - summary: "Implements Google OAuth login with full integration:\n- Adds OAuth flow with GitHub provider\n- Implements token refresh logic\n- Updates user model to store OAuth tokens\n- Adds OAuth callback routes"
 - reasoning: "Touches both authentication capability and Google integration, significant changes across multiple areas"
 
-**Create new feature - HIGH-LEVEL only (good):**
+**Create feature for major capability (good):**
 - actions: ["create_new"]
 - newFeatures: [{name: "Task Management", description: "Users can create, assign, track, and complete tasks with deadlines and dependencies"}]
-- themes: ["tasks", "assignments", "deadlines"]
-- summary: "Task management system"
-- reasoning: "Clear user-facing capability for managing tasks"
+- themes: ["tasks", "assignments"]
+- summary: "Complete task management system"
+- reasoning: "Substantial user-facing capability - task management"
 
-**Use themes instead of creating feature (good):**
+**Create feature for major integration (good):**
+- actions: ["create_new"]
+- newFeatures: [{name: "Stripe Integration", description: "Integrate Stripe for payment processing, subscriptions, and billing"}]
+- themes: ["stripe", "payments", "webhooks"]
+- summary: "Adds Stripe payment integration"
+- reasoning: "Major external integration - Stripe"
+
+**Use themes for implementation details (good):**
 - actions: ["ignore"]
-- themes: ["pusher", "websockets", "real-time-infra"]
-- summary: "Adds Pusher WebSocket infrastructure"
-- reasoning: "Low-level infrastructure work - tracking with themes, will create feature when user capability emerges"
+- themes: ["pusher", "websockets"]
+- summary: "Adds Pusher WebSocket connection handling"
+- reasoning: "Infrastructure work - will assign to feature when messaging capability is built"
 
 **Ignore - technical infrastructure (good):**
 - actions: ["ignore"]
@@ -274,16 +291,31 @@ Instead: Ignore - this is pure technical work
   "reasoning": "Recent themes show: pusher, websockets, message-delivery, presence - clear user capability now exists"
 }
 
-**BAD - Feature too low-level:**
-❌ {
-  "actions": ["create_new"],
-  "newFeatures": [{name: "Pusher WebSocket Infrastructure", description: "..."}]
-}
-Instead: Use themes ["pusher", "websockets"], wait for user capability to emerge
-
 **BAD - Feature name has implementation details:**
 ❌ {
   "actions": ["create_new"],
-  "newFeatures": [{name: "Redis Caching Service", description: "..."}]
+  "newFeatures": [{name: "Pusher WebSocket Infrastructure", description: "Pusher-based real-time infrastructure..."}]
 }
-Instead: If creating a feature, name it by capability: "Performance Optimization" + themes ["redis", "caching"]`;
+✅ Instead: {
+  "actions": ["create_new"],
+  "newFeatures": [{name: "Real-time Messaging", description: "Users can send and receive messages instantly"}],
+  "themes": ["pusher", "websockets"]
+}
+
+**BAD - Feature too narrow/specific:**
+❌ {
+  "actions": ["create_new"],
+  "newFeatures": [{name: "Navigation UI", description: "Collapsible sidebar navigation..."}]
+}
+✅ Instead: Add to broader feature or use themes: themes ["navigation-ui", "sidebar"]
+
+**BAD - Test feature too specific:**
+❌ {
+  "actions": ["create_new"],
+  "newFeatures": [{name: "Workspace Service Tests", description: "Tests for workspace service..."}]
+}
+✅ Instead: {
+  "actions": ["add_to_existing"],
+  "existingFeatureIds": ["unit-tests"],
+  "themes": ["workspace-tests"]
+}`;
