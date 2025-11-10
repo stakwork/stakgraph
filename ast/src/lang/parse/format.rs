@@ -491,6 +491,7 @@ impl Lang {
                             endp.clone(),
                             &|handler_name, _suffix| match node_data_finder(
                                 handler_name,
+                                &None,
                                 graph,
                                 file,
                                 endp.clone().start,
@@ -875,6 +876,7 @@ impl Lang {
         let mut class_call = None;
         let mut call_name_and_point = None;
         let mut is_variable_call = false;
+        
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 call_name_and_point = Some((body, node.start_position()));
@@ -910,7 +912,10 @@ impl Lang {
         }
         let (called, call_point) = call_name_and_point.unwrap();
 
-        if is_variable_call || self.lang.should_skip_function_call(&called, &fc.operand) {
+        // REMOVED: is_variable_call gate that was blocking lowercase operand calls
+        // Now we'll try to resolve them via operand-based resolution
+        
+        if self.lang.should_skip_function_call(&called, &fc.operand) {
             return Ok(None);
         }
 
@@ -941,16 +946,9 @@ impl Lang {
                         external_func = Some(t);
                     }
                 } else {
-                    // get Import node here, and parse
-                    let import_names = get_imports_for_file(file, self, graph);
-                    if let Some(one_func) = node_data_finder(
-                        &called,
-                        graph,
-                        file,
-                        fc.source.start,
-                        NodeType::Function,
-                        import_names,
-                    ) {
+                    if let Some(one_func) =
+                        node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, code, self)
+                    {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
                             called, &one_func.file
@@ -1008,15 +1006,9 @@ impl Lang {
             fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
-            let import_names = get_imports_for_file(file, self, graph);
-            if let Some(tf) = node_data_finder(
-                &called,
-                graph,
-                file,
-                fc.source.start,
-                NodeType::Function,
-                import_names,
-            ) {
+            if let Some(tf) =
+                node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, code, self)
+            {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
                     called, &tf.file
