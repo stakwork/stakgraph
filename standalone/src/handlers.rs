@@ -989,6 +989,7 @@ pub async fn nodes_handler(
             line_count,
             params.repo.as_deref(),
             Some(test_filters),
+            params.search.as_deref(),
         )
         .await?;
 

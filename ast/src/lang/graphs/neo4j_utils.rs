@@ -1400,10 +1400,15 @@ pub fn query_nodes_with_count(
     line_count: bool,
     repo: Option<&str>,
     test_filters: Option<super::TestFilters>,
+    search: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
+
+    if let Some(search_term) = search {
+        boltmap_insert_str(&mut params, "search", search_term);
+    }
 
     let ignore_dirs = test_filters
         .as_ref()
@@ -1532,9 +1537,13 @@ pub fn query_nodes_with_count(
         .map(|pattern| format!("AND n.file =~ '{}'", pattern))
         .unwrap_or_default();
 
+    let search_filter = search
+        .map(|_| "AND toLower(n.name) CONTAINS toLower($search)".to_string())
+        .unwrap_or_default();
+
     let query = format!(
         "MATCH (n:{})
-         WHERE {} {} {} {}
+         WHERE {} {} {} {} {}
          {}
          WITH n, {} AS test_count
          {} 
@@ -1557,6 +1566,7 @@ pub fn query_nodes_with_count(
         repo_filter,
         ignore_dirs_filter,
         regex_filter,
+        search_filter,
         test_match_clauses,
         test_count_expr,
         coverage_where,

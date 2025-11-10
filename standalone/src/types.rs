@@ -180,6 +180,7 @@ pub struct QueryNodesParams {
     pub unit_regexes: Option<String>,
     pub integration_regexes: Option<String>,
     pub e2e_regexes: Option<String>,
+    pub search: Option<String>,
 }
 
 #[derive(Serialize)]
