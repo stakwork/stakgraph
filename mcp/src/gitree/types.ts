@@ -1,3 +1,9 @@
+export interface Usage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 /**
  * Core types for the GitHub Feature Knowledge Base
  */

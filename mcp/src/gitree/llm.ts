@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { callGenerateObject } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
-import { LLMDecision } from "./types.js";
+import { LLMDecision, Usage } from "./types.js";
 
 /**
  * Schema for LLM decision using Zod
@@ -48,7 +48,10 @@ export class LLMClient {
   /**
    * Ask LLM to decide what to do with a PR
    */
-  async decide(prompt: string, retries = 3): Promise<LLMDecision> {
+  async decide(
+    prompt: string,
+    retries = 3
+  ): Promise<{ decision: LLMDecision; usage: Usage }> {
     let lastError: Error | undefined;
 
     for (let attempt = 1; attempt <= retries; attempt++) {
@@ -60,7 +63,10 @@ export class LLMClient {
           schema: LLMDecisionSchema,
         });
 
-        return result.object as LLMDecision;
+        return {
+          decision: result.object as LLMDecision,
+          usage: result.usage,
+        };
       } catch (error) {
         lastError = error as Error;
 

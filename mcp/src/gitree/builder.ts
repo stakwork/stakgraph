@@ -1,7 +1,7 @@
 import { Octokit } from "@octokit/rest";
 import { Storage } from "./store/index.js";
 import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
-import { Feature, PRRecord, LLMDecision, GitHubPR } from "./types.js";
+import { Feature, PRRecord, LLMDecision, GitHubPR, Usage } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
 
 /**
@@ -17,7 +17,7 @@ export class StreamingFeatureBuilder {
   /**
    * Main entry point: process a repo
    */
-  async processRepo(owner: string, repo: string): Promise<void> {
+  async processRepo(owner: string, repo: string): Promise<Usage> {
     const lastProcessed = await this.storage.getLastProcessedPR();
 
     console.log(`Fetching PRs from ${owner}/${repo}...`);
@@ -25,12 +25,19 @@ export class StreamingFeatureBuilder {
 
     if (prs.length === 0) {
       console.log(`No new PRs to process.`);
-      return;
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     console.log(
       `Processing ${prs.length} PRs starting from #${lastProcessed + 1}...\n`
     );
+
+    // Accumulate usage across all PRs
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
 
     for (let i = 0; i < prs.length; i++) {
       const pr = prs[i];
@@ -38,7 +45,13 @@ export class StreamingFeatureBuilder {
       console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
 
       try {
-        await this.processPR(owner, repo, pr);
+        const usage = await this.processPR(owner, repo, pr);
+        totalUsage.inputTokens += usage.inputTokens;
+        totalUsage.outputTokens += usage.outputTokens;
+        totalUsage.totalTokens += usage.totalTokens;
+        console.log(
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+        );
       } catch (error) {
         console.error(
           `   ❌ Error processing PR #${pr.number}:`,
@@ -64,6 +77,8 @@ export class StreamingFeatureBuilder {
 
     const features = await this.storage.getAllFeatures();
     console.log(`\n✅ Done! Total features: ${features.length}`);
+
+    return totalUsage;
   }
 
   /**
@@ -115,7 +130,7 @@ export class StreamingFeatureBuilder {
     owner: string,
     repo: string,
     pr: GitHubPR
-  ): Promise<void> {
+  ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkip(pr)) {
       console.log(`   ⏭️  Skipped (maintenance/trivial)`);
@@ -129,7 +144,7 @@ export class StreamingFeatureBuilder {
         url: pr.url,
         files: pr.filesChanged,
       });
-      return;
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     // Get current features for context
@@ -163,10 +178,12 @@ export class StreamingFeatureBuilder {
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const decision = await this.llm.decide(prompt);
+    const { decision, usage } = await this.llm.decide(prompt);
 
     // Apply decision
     await this.applyDecision(owner, repo, pr, decision);
+
+    return usage;
   }
 
   /**

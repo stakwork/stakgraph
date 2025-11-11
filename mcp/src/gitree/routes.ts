@@ -111,22 +111,32 @@ export async function gitree_process(req: Request, res: Response) {
         const llm = new LLMClient("anthropic", anthropicKey);
         const builder = new StreamingFeatureBuilder(storage, llm, octokit);
 
-        await builder.processRepo(owner, repo);
+        const processUsage = await builder.processRepo(owner, repo);
 
         // If summarize flag is set, run summarization after processing
         if (shouldSummarize) {
           console.log("===> Starting feature summarization...");
           const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-          await summarizer.summarizeAllFeatures();
+          const summarizeUsage = await summarizer.summarizeAllFeatures();
+
+          // Combine usage from both operations
+          const totalUsage = {
+            inputTokens: processUsage.inputTokens + summarizeUsage.inputTokens,
+            outputTokens:
+              processUsage.outputTokens + summarizeUsage.outputTokens,
+            totalTokens: processUsage.totalTokens + summarizeUsage.totalTokens,
+          };
 
           asyncReqs.finishReq(request_id, {
             status: "success",
             message: `Processed and summarized ${owner}/${repo}`,
+            usage: totalUsage,
           });
         } else {
           asyncReqs.finishReq(request_id, {
             status: "success",
             message: `Processed ${owner}/${repo}`,
+            usage: processUsage,
           });
         }
       } catch (error) {
@@ -317,11 +327,12 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
         await storage.initialize();
 
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-        await summarizer.summarizeFeature(featureId);
+        const usage = await summarizer.summarizeFeature(featureId);
 
         asyncReqs.finishReq(request_id, {
           status: "success",
           message: `Summarized feature ${featureId}`,
+          usage,
         });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
@@ -353,11 +364,12 @@ export async function gitree_summarize_all(req: Request, res: Response) {
         await storage.initialize();
 
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-        await summarizer.summarizeAllFeatures();
+        const usage = await summarizer.summarizeAllFeatures();
 
         asyncReqs.finishReq(request_id, {
           status: "success",
           message: "Summarized all features",
+          usage,
         });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
