@@ -33,7 +33,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
     cleanUrl = cleanUrl.replace(/^[^\/]+\//, ""); // Remove domain/host
 
     // Extract the last two path segments (owner/repo)
-    const pathParts = cleanUrl.split("/").filter(p => p.length > 0);
+    const pathParts = cleanUrl.split("/").filter((p) => p.length > 0);
 
     if (pathParts.length >= 2) {
       // Take the last two segments as owner and repo
@@ -63,6 +63,8 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * POST /gitree/process?repo_url=...&token=...&summarize=true
  * GET /progress?request_id=xxx
  */
+
+// curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true"
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.url, req.method);
   const request_id = asyncReqs.startReq();
@@ -70,8 +72,9 @@ export async function gitree_process(req: Request, res: Response) {
     let owner = req.query.owner as string;
     let repo = req.query.repo as string;
     const repoUrl = req.query.repo_url as string;
-    const githubToken = req.query.token as string;
+    const githubTokenQuery = req.query.token as string;
     const shouldSummarize = req.query.summarize === "true";
+    const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
     // Parse repo_url if provided
     if (repoUrl && (!owner || !repo)) {
@@ -83,7 +86,10 @@ export async function gitree_process(req: Request, res: Response) {
     }
 
     if (!owner || !repo) {
-      asyncReqs.failReq(request_id, new Error("Missing owner/repo or repo_url"));
+      asyncReqs.failReq(
+        request_id,
+        new Error("Missing owner/repo or repo_url")
+      );
       res.status(400).json({ error: "Missing owner/repo or repo_url" });
       return;
     }
