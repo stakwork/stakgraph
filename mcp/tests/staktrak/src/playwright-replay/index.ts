@@ -86,6 +86,33 @@ async function captureScreenshot(actionIndex: number, url: string): Promise<void
   }
 }
 
+/**
+ * Preview Playwright test by parsing actions without starting replay
+ * Used to populate the actions list before replay begins
+ */
+export function previewPlaywrightTest(testCode: string): void {
+  try {
+    const actions = parsePlaywrightTest(testCode);
+
+    window.parent.postMessage(
+      {
+        type: "staktrak-playwright-replay-preview-ready",
+        totalActions: actions.length,
+        actions,
+      },
+      getParentOrigin()
+    );
+  } catch (error) {
+    window.parent.postMessage(
+      {
+        type: "staktrak-playwright-replay-preview-error",
+        error: error instanceof Error ? error.message : "Unknown error",
+      },
+      getParentOrigin()
+    );
+  }
+}
+
 export async function startPlaywrightReplay(testCode: string): Promise<void> {
   try {
     const actions = parsePlaywrightTest(testCode);
@@ -289,6 +316,12 @@ export function initPlaywrightReplay(): void {
     }
 
     switch (data.type) {
+      case "staktrak-playwright-replay-preview":
+        if (data.testCode) {
+          previewPlaywrightTest(data.testCode);
+        }
+        break;
+
       case "staktrak-playwright-replay-start":
         if (data.testCode) {
           startPlaywrightReplay(data.testCode);
