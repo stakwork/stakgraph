@@ -33,7 +33,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
     cleanUrl = cleanUrl.replace(/^[^\/]+\//, ""); // Remove domain/host
 
     // Extract the last two path segments (owner/repo)
-    const pathParts = cleanUrl.split("/").filter(p => p.length > 0);
+    const pathParts = cleanUrl.split("/").filter((p) => p.length > 0);
 
     if (pathParts.length >= 2) {
       // Take the last two segments as owner and repo
@@ -63,6 +63,8 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * POST /gitree/process?repo_url=...&token=...&summarize=true
  * GET /progress?request_id=xxx
  */
+
+// curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true"
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.url, req.method);
   const request_id = asyncReqs.startReq();
@@ -70,8 +72,9 @@ export async function gitree_process(req: Request, res: Response) {
     let owner = req.query.owner as string;
     let repo = req.query.repo as string;
     const repoUrl = req.query.repo_url as string;
-    const githubToken = req.query.token as string;
+    const githubTokenQuery = req.query.token as string;
     const shouldSummarize = req.query.summarize === "true";
+    const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
     // Parse repo_url if provided
     if (repoUrl && (!owner || !repo)) {
@@ -83,7 +86,10 @@ export async function gitree_process(req: Request, res: Response) {
     }
 
     if (!owner || !repo) {
-      asyncReqs.failReq(request_id, new Error("Missing owner/repo or repo_url"));
+      asyncReqs.failReq(
+        request_id,
+        new Error("Missing owner/repo or repo_url")
+      );
       res.status(400).json({ error: "Missing owner/repo or repo_url" });
       return;
     }
@@ -105,22 +111,32 @@ export async function gitree_process(req: Request, res: Response) {
         const llm = new LLMClient("anthropic", anthropicKey);
         const builder = new StreamingFeatureBuilder(storage, llm, octokit);
 
-        await builder.processRepo(owner, repo);
+        const processUsage = await builder.processRepo(owner, repo);
 
         // If summarize flag is set, run summarization after processing
         if (shouldSummarize) {
           console.log("===> Starting feature summarization...");
           const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-          await summarizer.summarizeAllFeatures();
+          const summarizeUsage = await summarizer.summarizeAllFeatures();
+
+          // Combine usage from both operations
+          const totalUsage = {
+            inputTokens: processUsage.inputTokens + summarizeUsage.inputTokens,
+            outputTokens:
+              processUsage.outputTokens + summarizeUsage.outputTokens,
+            totalTokens: processUsage.totalTokens + summarizeUsage.totalTokens,
+          };
 
           asyncReqs.finishReq(request_id, {
             status: "success",
             message: `Processed and summarized ${owner}/${repo}`,
+            usage: totalUsage,
           });
         } else {
           asyncReqs.finishReq(request_id, {
             status: "success",
             message: `Processed ${owner}/${repo}`,
+            usage: processUsage,
           });
         }
       } catch (error) {
@@ -311,11 +327,12 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
         await storage.initialize();
 
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-        await summarizer.summarizeFeature(featureId);
+        const usage = await summarizer.summarizeFeature(featureId);
 
         asyncReqs.finishReq(request_id, {
           status: "success",
           message: `Summarized feature ${featureId}`,
+          usage,
         });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
@@ -347,11 +364,12 @@ export async function gitree_summarize_all(req: Request, res: Response) {
         await storage.initialize();
 
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-        await summarizer.summarizeAllFeatures();
+        const usage = await summarizer.summarizeAllFeatures();
 
         asyncReqs.finishReq(request_id, {
           status: "success",
           message: "Summarized all features",
+          usage,
         });
       } catch (error) {
         asyncReqs.failReq(request_id, error);

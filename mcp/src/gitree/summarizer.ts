@@ -1,7 +1,7 @@
 import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
-import { Feature, PRRecord } from "./types.js";
+import { Feature, PRRecord, Usage } from "./types.js";
 
 /**
  * Generates comprehensive documentation for features based on their PR history
@@ -16,7 +16,7 @@ export class Summarizer {
   /**
    * Generate documentation for a single feature
    */
-  async summarizeFeature(featureId: string): Promise<void> {
+  async summarizeFeature(featureId: string): Promise<Usage> {
     // Load feature
     const feature = await this.storage.getFeature(featureId);
     if (!feature) {
@@ -30,7 +30,7 @@ export class Summarizer {
 
     if (allPRs.length === 0) {
       console.log(`   ⚠️  No PRs found for this feature`);
-      return;
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     // Sort chronologically and take last 100 if more than 100
@@ -62,15 +62,24 @@ export class Summarizer {
     await this.storage.saveDocumentation(feature.id, documentation);
 
     console.log(`   ✅ Documentation generated (${documentation.length} chars)`);
+
+    return result.usage;
   }
 
   /**
    * Generate documentation for all features
    */
-  async summarizeAllFeatures(): Promise<void> {
+  async summarizeAllFeatures(): Promise<Usage> {
     const features = await this.storage.getAllFeatures();
 
     console.log(`\n📚 Summarizing ${features.length} features...\n`);
+
+    // Accumulate usage across all features
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
 
     for (let i = 0; i < features.length; i++) {
       const feature = features[i];
@@ -79,7 +88,13 @@ export class Summarizer {
       console.log(`${progress} Processing: ${feature.name} (${feature.id})`);
 
       try {
-        await this.summarizeFeature(feature.id);
+        const usage = await this.summarizeFeature(feature.id);
+        totalUsage.inputTokens += usage.inputTokens;
+        totalUsage.outputTokens += usage.outputTokens;
+        totalUsage.totalTokens += usage.totalTokens;
+        console.log(
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+        );
       } catch (error) {
         console.error(
           `   ❌ Error:`,
@@ -90,6 +105,8 @@ export class Summarizer {
     }
 
     console.log(`\n✅ Done summarizing all features!`);
+
+    return totalUsage;
   }
 
   /**

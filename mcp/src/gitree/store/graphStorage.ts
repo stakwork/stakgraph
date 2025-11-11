@@ -306,6 +306,83 @@ export class GraphStorage extends Storage {
     }
   }
 
+  // Themes
+
+  async addThemes(themes: string[]): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      // Get current themes
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        RETURN m.recentThemes as recentThemes
+        `,
+        { namespace: "default" }
+      );
+
+      let recentThemes: string[] = [];
+      if (result.records.length > 0) {
+        recentThemes = result.records[0].get("recentThemes") || [];
+      }
+
+      // Remove themes if they already exist (LRU behavior)
+      recentThemes = recentThemes.filter((t: string) => !themes.includes(t));
+
+      // Add to end (most recent)
+      recentThemes.push(...themes);
+
+      // Keep only last 100
+      if (recentThemes.length > 100) {
+        recentThemes = recentThemes.slice(-100);
+      }
+
+      // Update metadata node
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        SET m.recentThemes = $recentThemes,
+            m.ref_id = COALESCE(m.ref_id, $refId),
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+        RETURN m
+        `,
+        {
+          namespace: "default",
+          recentThemes,
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getRecentThemes(): Promise<string[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        RETURN m.recentThemes as recentThemes
+        `,
+        { namespace: "default" }
+      );
+
+      if (result.records.length === 0) {
+        return [];
+      }
+
+      return result.records[0].get("recentThemes") || [];
+    } catch (error) {
+      console.error("   Error reading recentThemes:", error);
+      return [];
+    } finally {
+      await session.close();
+    }
+  }
+
   // Documentation
 
   async saveDocumentation(

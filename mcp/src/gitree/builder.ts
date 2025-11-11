@@ -1,7 +1,7 @@
 import { Octokit } from "@octokit/rest";
 import { Storage } from "./store/index.js";
 import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
-import { Feature, PRRecord, LLMDecision, GitHubPR } from "./types.js";
+import { Feature, PRRecord, LLMDecision, GitHubPR, Usage } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
 
 /**
@@ -17,7 +17,7 @@ export class StreamingFeatureBuilder {
   /**
    * Main entry point: process a repo
    */
-  async processRepo(owner: string, repo: string): Promise<void> {
+  async processRepo(owner: string, repo: string): Promise<Usage> {
     const lastProcessed = await this.storage.getLastProcessedPR();
 
     console.log(`Fetching PRs from ${owner}/${repo}...`);
@@ -25,12 +25,19 @@ export class StreamingFeatureBuilder {
 
     if (prs.length === 0) {
       console.log(`No new PRs to process.`);
-      return;
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     console.log(
       `Processing ${prs.length} PRs starting from #${lastProcessed + 1}...\n`
     );
+
+    // Accumulate usage across all PRs
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
 
     for (let i = 0; i < prs.length; i++) {
       const pr = prs[i];
@@ -38,16 +45,27 @@ export class StreamingFeatureBuilder {
       console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
 
       try {
-        await this.processPR(owner, repo, pr);
+        const usage = await this.processPR(owner, repo, pr);
+        totalUsage.inputTokens += usage.inputTokens;
+        totalUsage.outputTokens += usage.outputTokens;
+        totalUsage.totalTokens += usage.totalTokens;
+        console.log(
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+        );
       } catch (error) {
-        console.error(`   ❌ Error processing PR #${pr.number}:`, error instanceof Error ? error.message : error);
+        console.error(
+          `   ❌ Error processing PR #${pr.number}:`,
+          error instanceof Error ? error.message : error
+        );
         console.log(`   ⏭️  Skipping and continuing with next PR...`);
 
         // Save a minimal PR record so we know it was attempted
         await this.storage.savePR({
           number: pr.number,
           title: pr.title,
-          summary: `Error during processing: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          summary: `Error during processing: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
           mergedAt: pr.mergedAt,
           url: pr.url,
           files: pr.filesChanged,
@@ -59,6 +77,8 @@ export class StreamingFeatureBuilder {
 
     const features = await this.storage.getAllFeatures();
     console.log(`\n✅ Done! Total features: ${features.length}`);
+
+    return totalUsage;
   }
 
   /**
@@ -72,29 +92,26 @@ export class StreamingFeatureBuilder {
     console.log(`   Fetching PR list (paginated)...`);
 
     // Use octokit pagination to get ALL PRs
-    const allPRs = await this.octokit.paginate(
-      this.octokit.pulls.list,
-      {
-        owner,
-        repo,
-        state: "closed",
-        sort: "created",
-        direction: "asc",
-        per_page: 100,
-      }
-    );
+    const allPRs = await this.octokit.paginate(this.octokit.pulls.list, {
+      owner,
+      repo,
+      state: "closed",
+      sort: "created",
+      direction: "asc",
+      per_page: 100,
+    });
 
     console.log(`   Found ${allPRs.length} closed PRs total`);
 
     // Filter to only merged PRs after the last processed
-    const mergedPRs = allPRs.filter(
-      (pr) => pr.merged_at && pr.number > since
+    const mergedPRs = allPRs.filter((pr) => pr.merged_at && pr.number > since);
+
+    console.log(
+      `   ${mergedPRs.length} merged PRs to process (after #${since})`
     );
 
-    console.log(`   ${mergedPRs.length} merged PRs to process (after #${since})`);
-
     // Convert to lightweight GitHubPR type (detailed info fetched when processing)
-    return mergedPRs.map(pr => ({
+    return mergedPRs.map((pr) => ({
       number: pr.number,
       title: pr.title,
       body: pr.body,
@@ -113,7 +130,7 @@ export class StreamingFeatureBuilder {
     owner: string,
     repo: string,
     pr: GitHubPR
-  ): Promise<void> {
+  ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkip(pr)) {
       console.log(`   ⏭️  Skipped (maintenance/trivial)`);
@@ -127,7 +144,7 @@ export class StreamingFeatureBuilder {
         url: pr.url,
         files: pr.filesChanged,
       });
-      return;
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     // Get current features for context
@@ -144,23 +161,29 @@ export class StreamingFeatureBuilder {
     pr.deletions = fullPR.deletions || 0;
 
     // Fetch full PR content using the existing pr.ts module
-    const prContent = await fetchPullRequestContent(this.octokit, {
-      owner,
-      repo,
-      pull_number: pr.number,
-    }, {
-      maxPatchLines: 100, // Reduce to 100 lines per file to save tokens
-    });
+    const prContent = await fetchPullRequestContent(
+      this.octokit,
+      {
+        owner,
+        repo,
+        pull_number: pr.number,
+      },
+      {
+        maxPatchLines: 100, // Reduce to 100 lines per file to save tokens
+      }
+    );
 
     // Build decision prompt
-    const prompt = this.buildDecisionPrompt(prContent, features);
+    const prompt = await this.buildDecisionPrompt(prContent, features);
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const decision = await this.llm.decide(prompt);
+    const { decision, usage } = await this.llm.decide(prompt);
 
     // Apply decision
     await this.applyDecision(owner, repo, pr, decision);
+
+    return usage;
   }
 
   /**
@@ -182,10 +205,17 @@ export class StreamingFeatureBuilder {
   /**
    * Build the decision prompt
    */
-  private buildDecisionPrompt(prContent: string, features: Feature[]): string {
+  private async buildDecisionPrompt(
+    prContent: string,
+    features: Feature[]
+  ): Promise<string> {
+    const themesContext = await this.formatThemeContext();
+
     return `${SYSTEM_PROMPT}
 
 ${this.formatFeatureContext(features)}
+
+${themesContext}
 
 ${prContent}
 
@@ -212,6 +242,22 @@ ${DECISION_GUIDELINES}`;
   }
 
   /**
+   * Format recent themes for context
+   */
+  private async formatThemeContext(): Promise<string> {
+    const themes = await this.storage.getRecentThemes();
+
+    if (themes.length === 0) {
+      return "## Recent Technical Themes\n\nNo recent themes.";
+    }
+
+    // Show themes in reverse order (most recent first), limit to 100 for display
+    const themeList = themes.slice().reverse().slice(0, 100).join(", ");
+
+    return `## Recent Technical Themes (last 100 of ${themes.length})\n\n${themeList}`;
+  }
+
+  /**
    * Apply LLM decision
    */
   private async applyDecision(
@@ -235,7 +281,7 @@ ${DECISION_GUIDELINES}`;
       summary: decision.summary,
       mergedAt: pr.mergedAt,
       url: pr.url,
-      files: files.map(f => f.filename),
+      files: files.map((f) => f.filename),
       newDeclarations: decision.newDeclarations,
     };
     await this.storage.savePR(prRecord);
@@ -309,6 +355,12 @@ ${DECISION_GUIDELINES}`;
           );
         }
       }
+    }
+
+    // Save themes
+    if (decision.themes && decision.themes.length > 0) {
+      await this.storage.addThemes(decision.themes);
+      console.log(`   🏷️  Tagged: ${decision.themes.join(", ")}`);
     }
   }
 
