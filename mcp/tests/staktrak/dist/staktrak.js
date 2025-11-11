@@ -4270,6 +4270,27 @@ var userBehaviour = (() => {
       console.error(`[Screenshot] Error capturing for actionIndex=${actionIndex}:`, error);
     }
   }
+  function previewPlaywrightTest(testCode) {
+    try {
+      const actions = parsePlaywrightTest(testCode);
+      window.parent.postMessage(
+        {
+          type: "staktrak-playwright-replay-preview-ready",
+          totalActions: actions.length,
+          actions
+        },
+        getParentOrigin()
+      );
+    } catch (error) {
+      window.parent.postMessage(
+        {
+          type: "staktrak-playwright-replay-preview-error",
+          error: error instanceof Error ? error.message : "Unknown error"
+        },
+        getParentOrigin()
+      );
+    }
+  }
   async function startPlaywrightReplay(testCode) {
     try {
       const actions = parsePlaywrightTest(testCode);
@@ -4440,6 +4461,11 @@ var userBehaviour = (() => {
         parentOrigin = event.origin;
       }
       switch (data.type) {
+        case "staktrak-playwright-replay-preview":
+          if (data.testCode) {
+            previewPlaywrightTest(data.testCode);
+          }
+          break;
         case "staktrak-playwright-replay-start":
           if (data.testCode) {
             startPlaywrightReplay(data.testCode);
