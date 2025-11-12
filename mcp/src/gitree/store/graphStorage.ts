@@ -1,7 +1,7 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
-import { Feature, PRRecord } from "../types.js";
+import { Feature, PRRecord, LinkResult } from "../types.js";
 import { formatPRMarkdown } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
@@ -435,6 +435,275 @@ export class GraphStorage extends Storage {
         ? JSON.parse(props.newDeclarations)
         : undefined,
     };
+  }
+
+  // Feature-File Linking
+
+  /**
+   * Smart path matching to detect if a file path appears in documentation
+   * Tries multiple variants: full path, filename only, path segments
+   */
+  private isFileInDocumentation(
+    filePath: string,
+    documentation: string
+  ): boolean {
+    if (!documentation) return false;
+
+    const docLower = documentation.toLowerCase();
+
+    // Extract filename
+    const filename = filePath.split("/").pop() || "";
+
+    // Try various path formats
+    const pathsToCheck = [
+      filePath, // Full path: "src/auth/auth.ts"
+      filename, // Just filename: "auth.ts"
+    ];
+
+    // Add path segments (e.g., "auth/auth.ts" from "owner/repo/src/auth/auth.ts")
+    const segments = filePath.split("/");
+    for (let i = 1; i < segments.length; i++) {
+      pathsToCheck.push(segments.slice(i).join("/"));
+    }
+
+    // Check if any variant exists in documentation
+    return pathsToCheck.some((path) => docLower.includes(path.toLowerCase()));
+  }
+
+  async linkFeaturesToFiles(featureId?: string): Promise<LinkResult> {
+    const session = this.driver.session();
+    try {
+      // Get features to process
+      const features = featureId
+        ? [await this.getFeature(featureId)].filter((f): f is Feature => f !== null)
+        : await this.getAllFeatures();
+
+      if (features.length === 0) {
+        return {
+          featuresProcessed: 0,
+          filesLinked: 0,
+          filesInDocs: 0,
+          filesNotInDocs: 0,
+          featureFileLinks: [],
+        };
+      }
+
+      const result: LinkResult = {
+        featuresProcessed: features.length,
+        filesLinked: 0,
+        filesInDocs: 0,
+        filesNotInDocs: 0,
+        featureFileLinks: [],
+      };
+
+      // Process each feature
+      for (const feature of features) {
+        const documentation = feature.documentation || "";
+
+        // Get all file paths from PRs with their frequency count
+        const filePathsResult = await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          MATCH (pr:PullRequest)-[:TOUCHES]->(f)
+          WHERE pr.files IS NOT NULL
+          UNWIND pr.files as file
+          RETURN file, COUNT(pr) as prCount
+          `,
+          { featureId: feature.id }
+        );
+
+        // Get total PR count for this feature
+        const totalPRs = feature.prNumbers.length;
+
+        if (filePathsResult.records.length === 0) {
+          result.featureFileLinks.push({
+            featureId: feature.id,
+            filesLinked: 0,
+            filesInDocs: 0,
+            filesNotInDocs: 0,
+          });
+          continue;
+        }
+
+        // Process each file path with its PR count
+        let linksCreatedForFeature = 0;
+        let filesInDocsForFeature = 0;
+        let filesNotInDocsForFeature = 0;
+
+        for (const record of filePathsResult.records) {
+          const filePath = record.get("file");
+          const prCountRaw = record.get("prCount");
+          const prCount = prCountRaw?.toNumber ? prCountRaw.toNumber() : prCountRaw || 0;
+
+          // Calculate frequency score (0-1)
+          const frequency = totalPRs > 0 ? prCount / totalPRs : 0;
+
+          // Check if file is in documentation
+          const inDocs = this.isFileInDocumentation(filePath, documentation);
+
+          // Calculate importance using two-tier system
+          // Files in docs: 0.5-1.0, Files not in docs: 0.0-0.49
+          const importance = inDocs
+            ? 0.5 + frequency * 0.5
+            : frequency * 0.49;
+
+          // Track statistics
+          if (inDocs) {
+            filesInDocsForFeature++;
+          } else {
+            filesNotInDocsForFeature++;
+          }
+
+          // Match File nodes where the file property ends with the PR file path
+          // This handles cases like "owner/repo/src/me.ts" matching "src/me.ts"
+          const linkResult = await session.run(
+            `
+            MATCH (f:Feature {id: $featureId})
+            MATCH (file:File)
+            WHERE file.file ENDS WITH $filePath
+            MERGE (f)-[:MODIFIES {importance: $importance}]->(file)
+            RETURN COUNT(file) as linkedCount
+            `,
+            {
+              featureId: feature.id,
+              filePath: filePath,
+              importance: importance,
+            }
+          );
+
+          const linkedCount = linkResult.records[0]?.get("linkedCount");
+          const count = linkedCount?.toNumber ? linkedCount.toNumber() : linkedCount || 0;
+          linksCreatedForFeature += count;
+        }
+
+        result.featureFileLinks.push({
+          featureId: feature.id,
+          filesLinked: linksCreatedForFeature,
+          filesInDocs: filesInDocsForFeature,
+          filesNotInDocs: filesNotInDocsForFeature,
+        });
+        result.filesLinked += linksCreatedForFeature;
+        result.filesInDocs += filesInDocsForFeature;
+        result.filesNotInDocs += filesNotInDocsForFeature;
+      }
+
+      return result;
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Get Files for Feature
+  // Supports expand options: CONTAINS, CALLS
+  // Can be combined: expand=['CONTAINS', 'CALLS']
+
+  async getFilesForFeature(
+    featureId: string,
+    expand?: string[]
+  ): Promise<any[]> {
+    const session = this.driver.session();
+    try {
+      const shouldExpandContains = expand?.includes("CONTAINS") || false;
+      const shouldExpandCalls = expand?.includes("CALLS") || false;
+
+      let query = `
+        MATCH (f:Feature {id: $featureId})-[r:MODIFIES]->(file:File)
+      `;
+
+      if (shouldExpandContains || shouldExpandCalls) {
+        // Build optional matches based on what's being expanded
+        // Use variable-length paths to capture nested structures
+        if (shouldExpandContains) {
+          query += `
+        OPTIONAL MATCH (file)-[:CONTAINS*]->(contained)
+          `;
+        }
+        if (shouldExpandCalls) {
+          query += `
+        OPTIONAL MATCH (file)-[:CONTAINS*]->(node)-[:CALLS]->(called)
+          `;
+        }
+
+        // Collect the results
+        query += `
+        WITH file, r`;
+
+        if (shouldExpandContains) {
+          query += `,
+             COLLECT(DISTINCT {
+               name: contained.name,
+               ref_id: contained.ref_id,
+               node_type: [label IN labels(contained) WHERE label <> 'Data_Bank'][0]
+             }) AS containedNodes`;
+        }
+
+        if (shouldExpandCalls) {
+          query += `,
+             COLLECT(DISTINCT {
+               name: called.name,
+               ref_id: called.ref_id,
+               node_type: [label IN labels(called) WHERE label <> 'Data_Bank'][0]
+             }) AS calledNodes`;
+        }
+
+        query += `
+        RETURN file.name AS name,
+               file.file AS file,
+               file.ref_id AS ref_id,
+               r.importance AS importance`;
+
+        if (shouldExpandContains) {
+          query += `,
+               CASE WHEN SIZE(containedNodes) > 0 AND containedNodes[0].name IS NOT NULL
+                 THEN containedNodes
+                 ELSE []
+               END AS contains`;
+        }
+
+        if (shouldExpandCalls) {
+          query += `,
+               CASE WHEN SIZE(calledNodes) > 0 AND calledNodes[0].name IS NOT NULL
+                 THEN calledNodes
+                 ELSE []
+               END AS calls`;
+        }
+
+        query += `
+        ORDER BY r.importance DESC
+        `;
+      } else {
+        query += `
+        RETURN file.name AS name,
+               file.file AS file,
+               file.ref_id AS ref_id,
+               r.importance AS importance
+        ORDER BY r.importance DESC
+        `;
+      }
+
+      const result = await session.run(query, { featureId });
+
+      return result.records.map((record) => {
+        const fileData: any = {
+          name: record.get("name"),
+          file: record.get("file"),
+          ref_id: record.get("ref_id"),
+          importance: record.get("importance"),
+        };
+
+        if (shouldExpandContains) {
+          fileData.contains = record.get("contains") || [];
+        }
+
+        if (shouldExpandCalls) {
+          fileData.calls = record.get("calls") || [];
+        }
+
+        return fileData;
+      });
+    } finally {
+      await session.close();
+    }
   }
 
 }

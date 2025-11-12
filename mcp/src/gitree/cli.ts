@@ -6,6 +6,7 @@ import { Storage, FileSystemStore, GraphStorage } from "./store/index.js";
 import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
+import { FileLinker } from "./fileLinker.js";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
 
 const program = new Command();
@@ -297,6 +298,36 @@ program
 
       // Summarize all features
       await summarizer.summarizeAllFeatures();
+
+      console.log("\n✅ Done!\n");
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * Link features to files
+ */
+program
+  .command("link-files")
+  .description("Link features to file nodes in the graph based on PR changes")
+  .argument("[featureId]", "Feature ID to link (optional, links all if omitted)")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
+  .action(async (featureId: string | undefined, options) => {
+    try {
+      console.log(`\n🚀 Linking features to files...`);
+
+      const storage = await createStorage(options);
+      const linker = new FileLinker(storage);
+
+      // Link single feature or all
+      if (featureId) {
+        await linker.linkFeature(featureId);
+      } else {
+        await linker.linkAllFeatures();
+      }
 
       console.log("\n✅ Done!\n");
     } catch (error) {

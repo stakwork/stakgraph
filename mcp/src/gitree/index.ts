@@ -10,4 +10,5 @@ export * from "./store/index.js";
 export * from "./llm.js";
 export * from "./builder.js";
 export * from "./summarizer.js";
+export * from "./fileLinker.js";
 export { fetchPullRequestContent } from "./pr.js";

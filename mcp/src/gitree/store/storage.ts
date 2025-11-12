@@ -1,4 +1,4 @@
-import { Feature, PRRecord } from "../types.js";
+import { Feature, PRRecord, LinkResult } from "../types.js";
 
 /**
  * Abstract storage interface for features and PRs
@@ -28,6 +28,12 @@ export abstract class Storage {
 
   // Documentation
   abstract saveDocumentation(featureId: string, documentation: string): Promise<void>;
+
+  // Feature-File Linking
+  abstract linkFeaturesToFiles(featureId?: string): Promise<LinkResult>;
+
+  // Get Files for Feature
+  abstract getFilesForFeature(featureId: string, expand?: string[]): Promise<any[]>;
 
   // Query helpers (derived from the graph)
   async getPRsForFeature(featureId: string): Promise<PRRecord[]> {
