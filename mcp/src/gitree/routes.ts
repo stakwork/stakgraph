@@ -138,9 +138,12 @@ export async function gitree_process(req: Request, res: Response) {
         if (shouldLink) messageParts.push("linked files");
 
         const totalUsage = {
-          inputTokens: processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
-          outputTokens: processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
-          totalTokens: processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
+          inputTokens:
+            processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
+          outputTokens:
+            processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
+          totalTokens:
+            processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
         };
 
         const result: any = {
@@ -289,12 +292,13 @@ export async function gitree_get_pr(req: Request, res: Response) {
 
 /**
  * Get files for a specific feature
- * GET /gitree/features/:id/files?expand=contains,calls
+ * GET /gitree/features/:id/files?expand=contains,calls&output=text
  */
 export async function gitree_get_feature_files(req: Request, res: Response) {
   try {
     const featureId = req.params.id;
     const expandParam = req.query.expand as string | undefined;
+    const outputFormat = req.query.output as string | undefined;
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -303,6 +307,15 @@ export async function gitree_get_feature_files(req: Request, res: Response) {
 
     const files = await storage.getFilesForFeature(featureId, expand);
 
+    // Return text format if requested
+    if (outputFormat === "text") {
+      const textOutput = formatFilesAsText(files);
+      res.setHeader("Content-Type", "text/plain");
+      res.send(textOutput);
+      return;
+    }
+
+    // Default JSON output
     res.json({ files });
   } catch (error: any) {
     console.error("Error getting feature files:", error);
@@ -310,6 +323,39 @@ export async function gitree_get_feature_files(req: Request, res: Response) {
       .status(500)
       .json({ error: error.message || "Failed to get feature files" });
   }
+}
+
+/**
+ * Format files array as text with nested children
+ */
+function formatFilesAsText(files: any[]): string {
+  const lines: string[] = [];
+
+  for (const file of files) {
+    // File line
+    lines.push(`**${file.file || file.name}**`);
+
+    // Contained nodes (indented)
+    if (file.contains && file.contains.length > 0) {
+      for (const contained of file.contains) {
+        const nodeType = contained.node_type ? ` (${contained.node_type})` : "";
+        lines.push(`  - ${contained.name}${nodeType}`);
+      }
+    }
+
+    // Called nodes (indented)
+    if (file.calls && file.calls.length > 0) {
+      for (const called of file.calls) {
+        const nodeType = called.node_type ? ` (${called.node_type})` : "";
+        lines.push(`  → ${called.name}${nodeType}`);
+      }
+    }
+
+    // Empty line between files
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 /**
