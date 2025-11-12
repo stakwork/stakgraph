@@ -224,8 +224,6 @@ var PlaywrightGenerator = (() => {
         pathname = url;
       }
     }
-    const workspacePattern = /^\/w\/[a-zA-Z0-9_-]+/;
-    pathname = pathname.replace(workspacePattern, "");
     if (!pathname) {
       pathname = "/";
     }
