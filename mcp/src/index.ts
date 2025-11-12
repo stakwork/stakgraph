@@ -107,6 +107,7 @@ app.get("/gitree/prs/:number", gitree.gitree_get_pr);
 app.get("/gitree/stats", gitree.gitree_stats);
 app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);
 app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
+app.post("/gitree/link-files", gitree.gitree_link_files);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (req: Request, res: Response): void => {

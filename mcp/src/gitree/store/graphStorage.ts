@@ -1,7 +1,7 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
-import { Feature, PRRecord } from "../types.js";
+import { Feature, PRRecord, LinkResult } from "../types.js";
 import { formatPRMarkdown } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
@@ -435,6 +435,94 @@ export class GraphStorage extends Storage {
         ? JSON.parse(props.newDeclarations)
         : undefined,
     };
+  }
+
+  // Feature-File Linking
+
+  async linkFeaturesToFiles(featureId?: string): Promise<LinkResult> {
+    const session = this.driver.session();
+    try {
+      // Get features to process
+      const features = featureId
+        ? [await this.getFeature(featureId)].filter((f): f is Feature => f !== null)
+        : await this.getAllFeatures();
+
+      if (features.length === 0) {
+        return {
+          featuresProcessed: 0,
+          filesLinked: 0,
+          featureFileLinks: [],
+        };
+      }
+
+      const result: LinkResult = {
+        featuresProcessed: features.length,
+        filesLinked: 0,
+        featureFileLinks: [],
+      };
+
+      // Process each feature
+      for (const feature of features) {
+        // Get all unique file paths from PRs
+        const filePathsResult = await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          MATCH (pr:PullRequest)-[:TOUCHES]->(f)
+          WHERE pr.files IS NOT NULL
+          UNWIND pr.files as file
+          RETURN DISTINCT file
+          `,
+          { featureId: feature.id }
+        );
+
+        const filePaths = filePathsResult.records.map((record) =>
+          record.get("file")
+        );
+
+        if (filePaths.length === 0) {
+          result.featureFileLinks.push({
+            featureId: feature.id,
+            filesLinked: 0,
+          });
+          continue;
+        }
+
+        // For each file path, find matching File nodes and create relationships
+        let linksCreatedForFeature = 0;
+
+        for (const filePath of filePaths) {
+          // Match File nodes where the file property ends with the PR file path
+          // This handles cases like "owner/repo/src/me.ts" matching "src/me.ts"
+          const linkResult = await session.run(
+            `
+            MATCH (f:Feature {id: $featureId})
+            MATCH (file:File)
+            WHERE file.file ENDS WITH $filePath
+            MERGE (f)-[:MODIFIES]->(file)
+            RETURN COUNT(file) as linkedCount
+            `,
+            {
+              featureId: feature.id,
+              filePath: filePath,
+            }
+          );
+
+          const linkedCount = linkResult.records[0]?.get("linkedCount");
+          const count = linkedCount?.toNumber ? linkedCount.toNumber() : linkedCount || 0;
+          linksCreatedForFeature += count;
+        }
+
+        result.featureFileLinks.push({
+          featureId: feature.id,
+          filesLinked: linksCreatedForFeature,
+        });
+        result.filesLinked += linksCreatedForFeature;
+      }
+
+      return result;
+    } finally {
+      await session.close();
+    }
   }
 
 }

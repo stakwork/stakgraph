@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord } from "../types.js";
+import { Feature, PRRecord, LinkResult } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown } from "./utils.js";
 
@@ -214,5 +214,12 @@ export class FileSystemStore extends Storage {
   ): Promise<void> {
     const filePath = path.join(this.docsDir, `${featureId}.md`);
     await fs.writeFile(filePath, documentation);
+  }
+
+  // Feature-File Linking (not supported in FileSystemStorage)
+  async linkFeaturesToFiles(_featureId?: string): Promise<LinkResult> {
+    throw new Error(
+      "Feature-File linking is only supported with GraphStorage. Use --graph flag."
+    );
   }
 }

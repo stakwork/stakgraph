@@ -4,6 +4,15 @@ export interface Usage {
   totalTokens: number;
 }
 
+export interface LinkResult {
+  featuresProcessed: number;
+  filesLinked: number;
+  featureFileLinks: Array<{
+    featureId: string;
+    filesLinked: number;
+  }>;
+}
+
 /**
  * Core types for the GitHub Feature Knowledge Base
  */

@@ -4,6 +4,7 @@ import { GraphStorage } from "./store/index.js";
 import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
+import { FileLinker } from "./fileLinker.js";
 import { Octokit } from "@octokit/rest";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
 
@@ -381,5 +382,51 @@ export async function gitree_summarize_all(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to summarize all features" });
+  }
+}
+
+/**
+ * Link features to file nodes in the graph
+ * POST /gitree/link-files?feature_id=xxx (optional feature_id)
+ * GET /progress?request_id=xxx
+ */
+export async function gitree_link_files(req: Request, res: Response) {
+  console.log("===> gitree_link_files", req.url, req.method);
+  const request_id = asyncReqs.startReq();
+  try {
+    const featureId = req.query.feature_id as string | undefined;
+
+    // Link in background
+    (async () => {
+      try {
+        const storage = new GraphStorage();
+        await storage.initialize();
+
+        const linker = new FileLinker(storage);
+
+        let result;
+        if (featureId) {
+          result = await linker.linkFeature(featureId);
+        } else {
+          result = await linker.linkAllFeatures();
+        }
+
+        asyncReqs.finishReq(request_id, {
+          status: "success",
+          message: featureId
+            ? `Linked files for feature ${featureId}`
+            : "Linked files for all features",
+          result,
+        });
+      } catch (error) {
+        asyncReqs.failReq(request_id, error);
+      }
+    })();
+
+    res.json({ request_id, status: "pending" });
+  } catch (error) {
+    console.log("===> error", error);
+    asyncReqs.failReq(request_id, error);
+    res.status(500).json({ error: "Failed to link files" });
   }
 }
