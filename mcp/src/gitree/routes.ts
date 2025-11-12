@@ -61,11 +61,11 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * POST /gitree/process?repo_url=https://github.com/stakwork/sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://gitlab.com/owner/repo&token=...
  * POST /gitree/process?repo_url=git@github.com:owner/repo.git&token=...
- * POST /gitree/process?repo_url=...&token=...&summarize=true
+ * POST /gitree/process?repo_url=...&token=...&summarize=true&link=true
  * GET /progress?request_id=xxx
  */
 
-// curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true"
+// curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true&link=true"
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.url, req.method);
   const request_id = asyncReqs.startReq();
@@ -75,6 +75,7 @@ export async function gitree_process(req: Request, res: Response) {
     const repoUrl = req.query.repo_url as string;
     const githubTokenQuery = req.query.token as string;
     const shouldSummarize = req.query.summarize === "true";
+    const shouldLink = req.query.link === "true";
     const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
     // Parse repo_url if provided
@@ -114,32 +115,45 @@ export async function gitree_process(req: Request, res: Response) {
 
         const processUsage = await builder.processRepo(owner, repo);
 
+        let summarizeUsage = null;
+        let linkResult = null;
+
         // If summarize flag is set, run summarization after processing
         if (shouldSummarize) {
           console.log("===> Starting feature summarization...");
           const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-          const summarizeUsage = await summarizer.summarizeAllFeatures();
-
-          // Combine usage from both operations
-          const totalUsage = {
-            inputTokens: processUsage.inputTokens + summarizeUsage.inputTokens,
-            outputTokens:
-              processUsage.outputTokens + summarizeUsage.outputTokens,
-            totalTokens: processUsage.totalTokens + summarizeUsage.totalTokens,
-          };
-
-          asyncReqs.finishReq(request_id, {
-            status: "success",
-            message: `Processed and summarized ${owner}/${repo}`,
-            usage: totalUsage,
-          });
-        } else {
-          asyncReqs.finishReq(request_id, {
-            status: "success",
-            message: `Processed ${owner}/${repo}`,
-            usage: processUsage,
-          });
+          summarizeUsage = await summarizer.summarizeAllFeatures();
         }
+
+        // If link flag is set, link files to features
+        if (shouldLink) {
+          console.log("===> Starting feature-file linking...");
+          const linker = new FileLinker(storage);
+          linkResult = await linker.linkAllFeatures();
+        }
+
+        // Build response message and usage
+        const messageParts = [`Processed ${owner}/${repo}`];
+        if (shouldSummarize) messageParts.push("summarized");
+        if (shouldLink) messageParts.push("linked files");
+
+        const totalUsage = {
+          inputTokens: processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
+          outputTokens: processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
+          totalTokens: processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
+        };
+
+        const result: any = {
+          status: "success",
+          message: messageParts.join(", "),
+          usage: totalUsage,
+        };
+
+        if (linkResult) {
+          result.linkResult = linkResult;
+        }
+
+        asyncReqs.finishReq(request_id, result);
       } catch (error) {
         asyncReqs.failReq(request_id, error);
       }
@@ -157,7 +171,7 @@ export async function gitree_process(req: Request, res: Response) {
  * List all features
  * GET /gitree/features
  */
-export async function gitree_list_features(req: Request, res: Response) {
+export async function gitree_list_features(_req: Request, res: Response) {
   try {
     const storage = new GraphStorage();
     await storage.initialize();
