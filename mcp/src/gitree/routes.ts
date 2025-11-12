@@ -182,11 +182,12 @@ export async function gitree_list_features(req: Request, res: Response) {
 
 /**
  * Get a specific feature
- * GET /gitree/features/:id
+ * GET /gitree/features/:id?include=files
  */
 export async function gitree_get_feature(req: Request, res: Response) {
   try {
     const featureId = req.params.id;
+    const include = req.query.include as string | undefined;
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -199,7 +200,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
 
     const prs = await storage.getPRsForFeature(featureId);
 
-    res.json({
+    const response: any = {
       feature: {
         id: feature.id,
         name: feature.name,
@@ -216,7 +217,15 @@ export async function gitree_get_feature(req: Request, res: Response) {
         mergedAt: pr.mergedAt.toISOString(),
         url: pr.url,
       })),
-    });
+    };
+
+    // Include files if requested
+    if (include === "files") {
+      const files = await storage.getFilesForFeature(featureId);
+      response.files = files;
+    }
+
+    res.json(response);
   } catch (error: any) {
     console.error("Error getting feature:", error);
     res.status(500).json({ error: error.message || "Failed to get feature" });
@@ -265,10 +274,35 @@ export async function gitree_get_pr(req: Request, res: Response) {
 }
 
 /**
+ * Get files for a specific feature
+ * GET /gitree/features/:id/files?expand=contains,calls
+ */
+export async function gitree_get_feature_files(req: Request, res: Response) {
+  try {
+    const featureId = req.params.id;
+    const expandParam = req.query.expand as string | undefined;
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Parse expand parameter (comma-separated for future expansion)
+    const expand = expandParam ? expandParam.split(",") : [];
+
+    const files = await storage.getFilesForFeature(featureId, expand);
+
+    res.json({ files });
+  } catch (error: any) {
+    console.error("Error getting feature files:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to get feature files" });
+  }
+}
+
+/**
  * Get knowledge base statistics
  * GET /gitree/stats
  */
-export async function gitree_stats(req: Request, res: Response) {
+export async function gitree_stats(_req: Request, res: Response) {
   try {
     const storage = new GraphStorage();
     await storage.initialize();

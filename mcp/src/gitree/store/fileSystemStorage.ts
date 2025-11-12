@@ -222,4 +222,11 @@ export class FileSystemStore extends Storage {
       "Feature-File linking is only supported with GraphStorage. Use --graph flag."
     );
   }
+
+  // Get Files for Feature (not supported in FileSystemStorage)
+  async getFilesForFeature(_featureId: string, _expand?: string[]): Promise<any[]> {
+    throw new Error(
+      "Getting files for features is only supported with GraphStorage. Use --graph flag."
+    );
+  }
 }

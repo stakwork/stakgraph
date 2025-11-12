@@ -32,6 +32,9 @@ export abstract class Storage {
   // Feature-File Linking
   abstract linkFeaturesToFiles(featureId?: string): Promise<LinkResult>;
 
+  // Get Files for Feature
+  abstract getFilesForFeature(featureId: string, expand?: string[]): Promise<any[]>;
+
   // Query helpers (derived from the graph)
   async getPRsForFeature(featureId: string): Promise<PRRecord[]> {
     const feature = await this.getFeature(featureId);

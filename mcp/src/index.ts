@@ -103,6 +103,7 @@ app.post("/pull_request", r.create_pull_request);
 app.post("/gitree/process", gitree.gitree_process);
 app.get("/gitree/features", gitree.gitree_list_features);
 app.get("/gitree/features/:id", gitree.gitree_get_feature);
+app.get("/gitree/features/:id/files", gitree.gitree_get_feature_files);
 app.get("/gitree/prs/:number", gitree.gitree_get_pr);
 app.get("/gitree/stats", gitree.gitree_stats);
 app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);

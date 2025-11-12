@@ -593,4 +593,131 @@ export class GraphStorage extends Storage {
     }
   }
 
+  // Get Files for Feature
+  // Supports expand options: CONTAINS, CALLS
+  // Can be combined: expand=['CONTAINS', 'CALLS']
+
+  async getFilesForFeature(
+    featureId: string,
+    expand?: string[]
+  ): Promise<any[]> {
+    const session = this.driver.session();
+    try {
+      const shouldExpandContains = expand?.includes("CONTAINS") || false;
+      const shouldExpandCalls = expand?.includes("CALLS") || false;
+
+      let query = `
+        MATCH (f:Feature {id: $featureId})-[r:MODIFIES]->(file:File)
+      `;
+
+      if (shouldExpandContains || shouldExpandCalls) {
+        // Build optional matches based on what's being expanded
+        // Use variable-length paths to capture nested structures
+        if (shouldExpandContains) {
+          query += `
+        OPTIONAL MATCH (file)-[:CONTAINS*]->(contained)
+          `;
+        }
+        if (shouldExpandCalls) {
+          query += `
+        OPTIONAL MATCH (file)-[:CONTAINS*]->(node)-[:CALLS]->(called)
+          `;
+        }
+
+        // Collect the results
+        query += `
+        WITH file, r`;
+
+        if (shouldExpandContains) {
+          query += `,
+             COLLECT(DISTINCT {
+               name: contained.name,
+               ref_id: contained.ref_id,
+               node_type: [label IN labels(contained) WHERE label <> 'Data_Bank'][0]
+             }) AS containedNodes`;
+        }
+
+        if (shouldExpandCalls) {
+          query += `,
+             COLLECT(DISTINCT {
+               name: called.name,
+               ref_id: called.ref_id,
+               node_type: [label IN labels(called) WHERE label <> 'Data_Bank'][0]
+             }) AS calledNodes`;
+        }
+
+        // Filter and return
+        const whereConditions = [];
+        if (shouldExpandContains) {
+          whereConditions.push("contained IS NULL OR contained.name IS NOT NULL");
+        }
+        if (shouldExpandCalls) {
+          whereConditions.push("called IS NULL OR called.name IS NOT NULL");
+        }
+
+        if (whereConditions.length > 0) {
+          query += `
+        WHERE ` + whereConditions.join(" OR ");
+        }
+
+        query += `
+        RETURN file.name AS name,
+               file.file AS file,
+               file.ref_id AS ref_id,
+               r.importance AS importance`;
+
+        if (shouldExpandContains) {
+          query += `,
+               CASE WHEN SIZE(containedNodes) > 0 AND containedNodes[0].name IS NOT NULL
+                 THEN containedNodes
+                 ELSE []
+               END AS contains`;
+        }
+
+        if (shouldExpandCalls) {
+          query += `,
+               CASE WHEN SIZE(calledNodes) > 0 AND calledNodes[0].name IS NOT NULL
+                 THEN calledNodes
+                 ELSE []
+               END AS calls`;
+        }
+
+        query += `
+        ORDER BY r.importance DESC
+        `;
+      } else {
+        query += `
+        RETURN file.name AS name,
+               file.file AS file,
+               file.ref_id AS ref_id,
+               r.importance AS importance
+        ORDER BY r.importance DESC
+        `;
+      }
+
+      const result = await session.run(query, { featureId });
+
+      return result.records.map((record) => {
+        const fileData: any = {
+          name: record.get("name"),
+          file: record.get("file"),
+          ref_id: record.get("ref_id"),
+          importance: record.get("importance"),
+        };
+
+        if (shouldExpandContains) {
+          fileData.contains = record.get("contains") || [];
+        }
+
+        if (shouldExpandCalls) {
+          fileData.calls = record.get("calls") || [];
+        }
+
+        return fileData;
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
 }
