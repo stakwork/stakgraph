@@ -439,6 +439,37 @@ export class GraphStorage extends Storage {
 
   // Feature-File Linking
 
+  /**
+   * Smart path matching to detect if a file path appears in documentation
+   * Tries multiple variants: full path, filename only, path segments
+   */
+  private isFileInDocumentation(
+    filePath: string,
+    documentation: string
+  ): boolean {
+    if (!documentation) return false;
+
+    const docLower = documentation.toLowerCase();
+
+    // Extract filename
+    const filename = filePath.split("/").pop() || "";
+
+    // Try various path formats
+    const pathsToCheck = [
+      filePath, // Full path: "src/auth/auth.ts"
+      filename, // Just filename: "auth.ts"
+    ];
+
+    // Add path segments (e.g., "auth/auth.ts" from "owner/repo/src/auth/auth.ts")
+    const segments = filePath.split("/");
+    for (let i = 1; i < segments.length; i++) {
+      pathsToCheck.push(segments.slice(i).join("/"));
+    }
+
+    // Check if any variant exists in documentation
+    return pathsToCheck.some((path) => docLower.includes(path.toLowerCase()));
+  }
+
   async linkFeaturesToFiles(featureId?: string): Promise<LinkResult> {
     const session = this.driver.session();
     try {
@@ -451,6 +482,8 @@ export class GraphStorage extends Storage {
         return {
           featuresProcessed: 0,
           filesLinked: 0,
+          filesInDocs: 0,
+          filesNotInDocs: 0,
           featureFileLinks: [],
         };
       }
@@ -458,39 +491,69 @@ export class GraphStorage extends Storage {
       const result: LinkResult = {
         featuresProcessed: features.length,
         filesLinked: 0,
+        filesInDocs: 0,
+        filesNotInDocs: 0,
         featureFileLinks: [],
       };
 
       // Process each feature
       for (const feature of features) {
-        // Get all unique file paths from PRs
+        const documentation = feature.documentation || "";
+
+        // Get all file paths from PRs with their frequency count
         const filePathsResult = await session.run(
           `
           MATCH (f:Feature {id: $featureId})
           MATCH (pr:PullRequest)-[:TOUCHES]->(f)
           WHERE pr.files IS NOT NULL
           UNWIND pr.files as file
-          RETURN DISTINCT file
+          RETURN file, COUNT(pr) as prCount
           `,
           { featureId: feature.id }
         );
 
-        const filePaths = filePathsResult.records.map((record) =>
-          record.get("file")
-        );
+        // Get total PR count for this feature
+        const totalPRs = feature.prNumbers.length;
 
-        if (filePaths.length === 0) {
+        if (filePathsResult.records.length === 0) {
           result.featureFileLinks.push({
             featureId: feature.id,
             filesLinked: 0,
+            filesInDocs: 0,
+            filesNotInDocs: 0,
           });
           continue;
         }
 
-        // For each file path, find matching File nodes and create relationships
+        // Process each file path with its PR count
         let linksCreatedForFeature = 0;
+        let filesInDocsForFeature = 0;
+        let filesNotInDocsForFeature = 0;
 
-        for (const filePath of filePaths) {
+        for (const record of filePathsResult.records) {
+          const filePath = record.get("file");
+          const prCountRaw = record.get("prCount");
+          const prCount = prCountRaw?.toNumber ? prCountRaw.toNumber() : prCountRaw || 0;
+
+          // Calculate frequency score (0-1)
+          const frequency = totalPRs > 0 ? prCount / totalPRs : 0;
+
+          // Check if file is in documentation
+          const inDocs = this.isFileInDocumentation(filePath, documentation);
+
+          // Calculate importance using two-tier system
+          // Files in docs: 0.5-1.0, Files not in docs: 0.0-0.49
+          const importance = inDocs
+            ? 0.5 + frequency * 0.5
+            : frequency * 0.49;
+
+          // Track statistics
+          if (inDocs) {
+            filesInDocsForFeature++;
+          } else {
+            filesNotInDocsForFeature++;
+          }
+
           // Match File nodes where the file property ends with the PR file path
           // This handles cases like "owner/repo/src/me.ts" matching "src/me.ts"
           const linkResult = await session.run(
@@ -498,12 +561,13 @@ export class GraphStorage extends Storage {
             MATCH (f:Feature {id: $featureId})
             MATCH (file:File)
             WHERE file.file ENDS WITH $filePath
-            MERGE (f)-[:MODIFIES]->(file)
+            MERGE (f)-[:MODIFIES {importance: $importance}]->(file)
             RETURN COUNT(file) as linkedCount
             `,
             {
               featureId: feature.id,
               filePath: filePath,
+              importance: importance,
             }
           );
 
@@ -515,8 +579,12 @@ export class GraphStorage extends Storage {
         result.featureFileLinks.push({
           featureId: feature.id,
           filesLinked: linksCreatedForFeature,
+          filesInDocs: filesInDocsForFeature,
+          filesNotInDocs: filesNotInDocsForFeature,
         });
         result.filesLinked += linksCreatedForFeature;
+        result.filesInDocs += filesInDocsForFeature;
+        result.filesNotInDocs += filesNotInDocsForFeature;
       }
 
       return result;

@@ -110,7 +110,7 @@ app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);
 
 app.get("/_cache/info", cacheInfo);
-app.post("/_cache/clear", (req: Request, res: Response): void => {
+app.post("/_cache/clear", (_req: Request, res: Response): void => {
   clearCache();
   res.json({ message: "Cache cleared" });
 });

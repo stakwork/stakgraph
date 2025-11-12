@@ -7,9 +7,13 @@ export interface Usage {
 export interface LinkResult {
   featuresProcessed: number;
   filesLinked: number;
+  filesInDocs: number;
+  filesNotInDocs: number;
   featureFileLinks: Array<{
     featureId: string;
     filesLinked: number;
+    filesInDocs: number;
+    filesNotInDocs: number;
   }>;
 }
 

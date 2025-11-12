@@ -20,8 +20,16 @@ export class FileLinker {
 
     const result = await this.storage.linkFeaturesToFiles(featureId);
 
-    const linkedCount = result.featureFileLinks[0]?.filesLinked || 0;
-    console.log(`   ✅ Linked ${linkedCount} files`);
+    const link = result.featureFileLinks[0];
+    if (link) {
+      console.log(`   ✅ Linked ${link.filesLinked} files`);
+      console.log(
+        `      📚 ${link.filesInDocs} in documentation (importance 0.5-1.0)`
+      );
+      console.log(
+        `      📄 ${link.filesNotInDocs} not in documentation (importance 0.0-0.49)`
+      );
+    }
 
     return result;
   }
@@ -39,6 +47,12 @@ export class FileLinker {
     console.log(`\n✅ Done linking files!`);
     console.log(`   Features processed: ${result.featuresProcessed}`);
     console.log(`   Total files linked: ${result.filesLinked}`);
+    console.log(
+      `   📚 ${result.filesInDocs} in documentation (importance 0.5-1.0)`
+    );
+    console.log(
+      `   📄 ${result.filesNotInDocs} not in documentation (importance 0.0-0.49)`
+    );
 
     // Show details for each feature
     if (result.featureFileLinks.length > 0) {
@@ -47,7 +61,7 @@ export class FileLinker {
         const feature = await this.storage.getFeature(link.featureId);
         if (feature) {
           console.log(
-            `   - ${feature.name} (${link.featureId}): ${link.filesLinked} files`
+            `   - ${feature.name} (${link.featureId}): ${link.filesLinked} files (${link.filesInDocs} in docs, ${link.filesNotInDocs} not in docs)`
           );
         }
       }
