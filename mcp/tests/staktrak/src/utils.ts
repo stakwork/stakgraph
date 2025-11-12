@@ -538,6 +538,17 @@ export const createClickDetail = (e: MouseEvent): ClickDetail => {
   }
   if (visualSelector) (selectors as any).visualSelector = visualSelector;
 
+  // Handle SVG elements where className is SVGAnimatedString instead of string
+  let className: string | undefined;
+  if (target.className) {
+    if (typeof target.className === 'string') {
+      className = target.className;
+    } else if (typeof target.className === 'object' && 'baseVal' in target.className) {
+      // SVGAnimatedString has a baseVal property
+      className = (target.className as any).baseVal;
+    }
+  }
+
   return {
     x: e.clientX,
     y: e.clientY,
@@ -546,7 +557,7 @@ export const createClickDetail = (e: MouseEvent): ClickDetail => {
     elementInfo: {
       tagName: target.tagName.toLowerCase(),
       id: (target as HTMLElement).id || undefined,
-      className: target.className || undefined,
+      className: className || undefined,
       attributes: getElementAttributes(target),
     },
   };

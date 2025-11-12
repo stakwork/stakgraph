@@ -459,6 +459,14 @@ var userBehaviour = (() => {
     }
     if (visualSelector)
       selectors.visualSelector = visualSelector;
+    let className;
+    if (target.className) {
+      if (typeof target.className === "string") {
+        className = target.className;
+      } else if (typeof target.className === "object" && "baseVal" in target.className) {
+        className = target.className.baseVal;
+      }
+    }
     return {
       x: e.clientX,
       y: e.clientY,
@@ -467,7 +475,7 @@ var userBehaviour = (() => {
       elementInfo: {
         tagName: target.tagName.toLowerCase(),
         id: target.id || void 0,
-        className: target.className || void 0,
+        className: className || void 0,
         attributes: getElementAttributes(target)
       }
     };
@@ -709,8 +717,6 @@ var userBehaviour = (() => {
         pathname = url;
       }
     }
-    const workspacePattern = /^\/w\/[a-zA-Z0-9_-]+/;
-    pathname = pathname.replace(workspacePattern, "");
     if (!pathname) {
       pathname = "/";
     }
