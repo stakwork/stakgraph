@@ -646,20 +646,6 @@ export class GraphStorage extends Storage {
              }) AS calledNodes`;
         }
 
-        // Filter and return
-        const whereConditions = [];
-        if (shouldExpandContains) {
-          whereConditions.push("contained IS NULL OR contained.name IS NOT NULL");
-        }
-        if (shouldExpandCalls) {
-          whereConditions.push("called IS NULL OR called.name IS NOT NULL");
-        }
-
-        if (whereConditions.length > 0) {
-          query += `
-        WHERE ` + whereConditions.join(" OR ");
-        }
-
         query += `
         RETURN file.name AS name,
                file.file AS file,
