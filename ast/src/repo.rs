@@ -71,11 +71,15 @@ impl Repos {
     pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {
         self.build_graphs_inner().await
     }
-        pub async fn build_graphs_btree_with_streaming(&self, streaming: bool) -> Result<BTreeMapGraph> {
-        self.build_graphs_inner_impl::<BTreeMapGraph>(streaming).await
+    pub async fn build_graphs_btree_with_streaming(
+        &self,
+        streaming: bool,
+    ) -> Result<BTreeMapGraph> {
+        self.build_graphs_inner_impl::<BTreeMapGraph>(streaming)
+            .await
     }
     pub async fn build_graphs_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
-        self.build_graphs_inner_impl(streaming).await 
+        self.build_graphs_inner_impl(streaming).await
     }
     pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
@@ -90,14 +94,13 @@ impl Repos {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
-            if streaming {
-                let neo = Neo4jGraph::default();
-                let _ = neo.connect().await;
-                Some((neo, GraphStreamingUploader::new()))
-            } else {
-                None
-            };
+        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> = if streaming {
+            let neo = Neo4jGraph::default();
+            let _ = neo.connect().await;
+            Some((neo, GraphStreamingUploader::new()))
+        } else {
+            None
+        };
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
             let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
@@ -107,7 +110,9 @@ impl Repos {
                 let all_nodes = graph.get_all_nodes();
                 if !all_nodes.is_empty() {
                     let bolt_nodes = nodes_to_bolt_format(all_nodes);
-                    let _ = uploader.flush_stage(neo, "repo_complete", &bolt_nodes).await;
+                    let _ = uploader
+                        .flush_stage(neo, "repo_complete", &bolt_nodes)
+                        .await;
                 }
             }
         }
@@ -129,12 +134,14 @@ impl Repos {
                     .await;
             }
             let edges = graph.get_edges_vec();
-            let _ = uploader.flush_edges_stage(neo, "cross_repo_linking", &edges).await;
+            let _ = uploader
+                .flush_edges_stage(neo, "cross_repo_linking", &edges)
+                .await;
         }
 
         let (nodes_size, edges_size) = graph.get_graph_size();
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
-        
+
         Ok(graph)
     }
 }
@@ -561,7 +568,29 @@ impl Repo {
         }
         false
     }
-    pub fn from_single_file(file_path: &str, lang: Lang, allow_unverified_calls: bool) -> Result<Self> {
+    pub fn from_files(
+        file_paths: &[&str],
+        root: std::path::PathBuf,
+        lang: Lang,
+        allow_unverified_calls: bool,
+    ) -> Result<Self> {
+        let files_filter = file_paths.iter().map(|p| p.to_string()).collect();
+        Ok(Self {
+            url: String::new(),
+            root,
+            lang,
+            lsp_tx: None,
+            files_filter,
+            revs: Vec::new(),
+            status_tx: None,
+            allow_unverified_calls,
+        })
+    }
+    pub fn from_single_file(
+        file_path: &str,
+        lang: Lang,
+        allow_unverified_calls: bool,
+    ) -> Result<Self> {
         let root = std::path::Path::new(file_path)
             .parent()
             .map(|p| p.to_path_buf())
