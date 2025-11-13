@@ -52,6 +52,7 @@ pub struct Repo {
     pub revs: Vec<String>,
     pub status_tx: Option<Sender<StatusUpdate>>,
     pub allow_unverified_calls: bool,
+    pub skip_calls: bool,
 }
 
 pub struct Repos(pub Vec<Repo>);
@@ -190,6 +191,7 @@ impl Repo {
             revs,
             status_tx: None,
             allow_unverified_calls: false,
+            skip_calls: false,
         })
     }
     pub async fn new_clone_multi_detect(
@@ -332,6 +334,7 @@ impl Repo {
                 revs: revs.clone(),
                 status_tx: None,
                 allow_unverified_calls: false,
+                skip_calls: false,
             });
         }
         println!("REPOS!!! {:?}", repos);
@@ -369,6 +372,7 @@ impl Repo {
             revs,
             status_tx: None,
             allow_unverified_calls: false,
+            skip_calls: false,
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
@@ -573,6 +577,7 @@ impl Repo {
         root: std::path::PathBuf,
         lang: Lang,
         allow_unverified_calls: bool,
+        skip_calls: bool,
     ) -> Result<Self> {
         let files_filter = file_paths.iter().map(|p| p.to_string()).collect();
         Ok(Self {
@@ -584,12 +589,14 @@ impl Repo {
             revs: Vec::new(),
             status_tx: None,
             allow_unverified_calls,
+            skip_calls,
         })
     }
     pub fn from_single_file(
         file_path: &str,
         lang: Lang,
         allow_unverified_calls: bool,
+        skip_calls: bool,
     ) -> Result<Self> {
         let root = std::path::Path::new(file_path)
             .parent()
@@ -605,6 +612,7 @@ impl Repo {
             revs: Vec::new(),
             status_tx: None,
             allow_unverified_calls,
+            skip_calls,
         })
     }
 }

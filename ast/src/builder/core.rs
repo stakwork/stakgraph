@@ -1081,8 +1081,7 @@ impl Repo {
         stats.insert("integration_tests".to_string(), integration_test_count);
         info!("=> got {} integration tests", _i);
 
-        let skip_calls = std::env::var("DEV_SKIP_CALLS").is_ok();
-        if skip_calls {
+        if self.skip_calls {
             info!("=> Skipping function_calls...");
         } else {
             self.send_status_update("process_function_calls", 13);
