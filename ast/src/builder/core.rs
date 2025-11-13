@@ -101,38 +101,16 @@ impl Repo {
             .filter(|(f, _)| is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
             .cloned()
             .collect::<Vec<_>>();
-        self.process_libraries(&mut graph, &allowed_files)?;
+        self.process_libs_imports_vars(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
             let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
-                .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
+                .flush_stage(&ctx.neo, "libs_imports_vars", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "libraries", &edges).await?;
-        }
-        self.process_import_sections(&mut graph, &filez)?;
-        #[cfg(feature = "neo4j")]
-        if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "imports", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "imports", &edges).await?;
-        }
-        self.process_variables(&mut graph, &allowed_files)?;
-        #[cfg(feature = "neo4j")]
-        if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "variables", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "variables", &edges).await?;
+            ctx.uploader.flush_edges_stage(&ctx.neo, "libs_imports_vars", &edges).await?;
         }
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
@@ -498,6 +476,74 @@ impl Repo {
         self.send_status_progress(100, 100, 5);
 
         info!("=> got {} all vars", var_count);
+        Ok(())
+    }
+    fn process_libs_imports_vars<G: Graph>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+    ) -> Result<()> {
+        self.send_status_update("process_libs_imports_vars", 3);
+        let mut i = 0;
+        let mut lib_count = 0;
+        let mut import_count = 0;
+        let mut var_count = 0;
+        let total = filez.len();
+
+        info!("=> get_libs_imports_vars...");
+        for (filename, code) in filez {
+            i += 1;
+            if i % 10 == 0 || i == total {
+                self.send_status_progress(i, total, 5);
+            }
+
+            let (libs, imports, vars) = self.lang.get_libs_imports_vars::<G>(code, filename)?;
+
+            if self.lang.kind.is_package_file(filename) {
+                let mut file_data = self.prepare_file_data(filename, code);
+                file_data.meta.insert("lib".to_string(), "true".to_string());
+                let (parent_type, parent_file) = self.get_parent_info(&filename.into());
+                graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
+            }
+
+            lib_count += libs.len();
+            for lib in libs {
+                graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, filename);
+            }
+
+            let import_section = combine_import_sections(imports);
+            import_count += import_section.len();
+            for import in import_section {
+                graph.add_node_with_parent(
+                    NodeType::Import,
+                    import.clone(),
+                    NodeType::File,
+                    &import.file,
+                );
+            }
+
+            var_count += vars.len();
+            for variable in vars {
+                graph.add_node_with_parent(
+                    NodeType::Var,
+                    variable.clone(),
+                    NodeType::File,
+                    &variable.file,
+                );
+            }
+        }
+
+        let mut stats = std::collections::HashMap::new();
+        stats.insert("libraries".to_string(), lib_count);
+        stats.insert("imports".to_string(), import_count);
+        stats.insert("variables".to_string(), var_count);
+        self.send_status_with_stats(stats);
+        self.send_status_progress(100, 100, 3);
+
+        info!(
+            "=> got {} libs, {} imports, {} vars",
+            lib_count, import_count, var_count
+        );
         Ok(())
     }
     async fn add_repository_and_language_nodes<G: Graph>(&self, graph: &mut G) -> Result<()> {

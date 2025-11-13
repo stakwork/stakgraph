@@ -238,6 +238,14 @@ impl Lang {
             Ok(Vec::new())
         }
     }
+    pub fn get_libs_imports_vars<G: Graph>(
+        &self,
+        code: &str,
+        file: &str,
+    ) -> Result<(Vec<NodeData>, Vec<NodeData>, Vec<NodeData>)> {
+        let types = vec![NodeType::Library, NodeType::Import, NodeType::Var];
+        self.collect_multi::<G>(code, file, &types)
+    }
     pub fn get_pages<G: Graph>(
         &self,
         code: &str,

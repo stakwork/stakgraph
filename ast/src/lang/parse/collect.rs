@@ -37,6 +37,57 @@ impl Lang {
         Ok(res)
     }
 
+    pub fn collect_multi<G: Graph>(
+        &self,
+        code: &str,
+        file: &str,
+        types: &[NodeType],
+    ) -> Result<(Vec<NodeData>, Vec<NodeData>, Vec<NodeData>)> {
+        let tree = self.lang.parse(&code, &NodeType::Import)?;
+        
+        let mut libs = Vec::new();
+        let mut imports = Vec::new();
+        let mut vars = Vec::new();
+        
+        for nt in types {
+            match nt {
+                NodeType::Library => {
+                    if let Some(query_str) = self.lang.lib_query() {
+                        let q = self.q(&query_str, &NodeType::Library);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            libs.push(self.format_library(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Import => {
+                    if let Some(query_str) = self.lang.imports_query() {
+                        let q = self.q(&query_str, &NodeType::Import);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            imports.extend(self.format_imports(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Var => {
+                    if let Some(query_str) = self.lang.variables_query() {
+                        let q = self.q(&query_str, &NodeType::Var);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            vars.extend(self.format_variables(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        Ok((libs, imports, vars))
+    }
+
     pub fn collect_classes<G: Graph>(
         &self,
         q: &Query,
