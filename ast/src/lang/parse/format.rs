@@ -756,7 +756,7 @@ impl Lang {
         if let (Some(start), Some(def_end)) = (start_byte, def_end_byte) {
             if def_end > start && def_end <= code.len() {
                 func.body = code[start..def_end].to_string();
-                
+
                 let interface_end = return_end_byte.or(args_end_byte);
                 if let Some(end) = interface_end {
                     if end > start && end <= code.len() {
@@ -926,9 +926,15 @@ impl Lang {
                         external_func = Some(t);
                     }
                 } else {
-                    if let Some(one_func) =
-                        node_data_finder(&called, graph, file, fc.source.start, NodeType::Function, code, self)
-                    {
+                    if let Some(one_func) = node_data_finder(
+                        &called,
+                        graph,
+                        file,
+                        fc.source.start,
+                        NodeType::Function,
+                        code,
+                        self,
+                    ) {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
                             called, &one_func.file
@@ -982,21 +988,24 @@ impl Lang {
             }
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
+        } else if allow_unverified {
+            fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
-            if let Some(tf) =
-                node_data_finder(&called, graph, file, fc.source.start, NodeType::Function, code, self)
-            {
+            if let Some(tf) = node_data_finder(
+                &called,
+                graph,
+                file,
+                fc.source.start,
+                NodeType::Function,
+                code,
+                self,
+            ) {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
                     called, &tf.file
                 ));
                 fc.target = tf.into();
-            }else{
-                if allow_unverified {
-                    fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
-                }
-
             }
         }
 
