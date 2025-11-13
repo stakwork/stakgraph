@@ -156,6 +156,7 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
 
         if matches!(node.node_type, NodeType::Function) {
             let source_key = ast::utils::create_node_key(node).to_lowercase();
+            let source_file = &node.node_data.file;
 
             for edge in &graph.edges {
                 let edge_source_key =
@@ -165,12 +166,26 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
                     if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
                         let target_name = &edge.target.node_data.name;
                         let target_line = edge.target.node_data.start;
+                        let target_file = &edge.target.node_data.file;
+
+                        // Check if target is in a different file
+                        let file_info = if source_file != target_file {
+                            // Extract just the filename
+                            let filename = std::path::Path::new(target_file)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(target_file);
+                            format!(" [{}]", filename)
+                        } else {
+                            String::new()
+                        };
 
                         println!(
-                            "  • {:?} → {} (L{})",
+                            "  • {:?} → {} (L{}){}",
                             edge.edge,
                             target_name,
-                            target_line + 1
+                            target_line + 1,
+                            file_info
                         );
                     }
                 }
