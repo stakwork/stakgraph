@@ -989,7 +989,6 @@ impl Lang {
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
         } else if allow_unverified {
-            println!("ALLOW_UNVERIFIED_CALLS: {:?}", allow_unverified);
             fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
