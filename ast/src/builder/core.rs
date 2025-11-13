@@ -112,27 +112,16 @@ impl Repo {
             let edges = graph.get_edges_vec();
             ctx.uploader.flush_edges_stage(&ctx.neo, "libs_imports_vars", &edges).await?;
         }
-        let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
+        let impl_relationships = self.process_classes_traits_instances(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
             let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
-                .flush_stage(&ctx.neo, "classes", &bolt_nodes)
+                .flush_stage(&ctx.neo, "classes_traits_instances", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "classes", &edges).await?;
-        }
-        self.process_instances_and_traits(&mut graph, &allowed_files)?;
-        #[cfg(feature = "neo4j")]
-        if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "instances_traits", &edges).await?;
+            ctx.uploader.flush_edges_stage(&ctx.neo, "classes_traits_instances", &edges).await?;
         }
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
         #[cfg(feature = "neo4j")]
@@ -481,18 +470,25 @@ impl Repo {
 
         Ok(())
     }
-    fn process_classes<G: Graph>(
+    fn process_classes_traits_instances<G: Graph>(
         &self,
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<Vec<ImplementsRelationship>> {
-        self.send_status_update("process_classes", 6);
+        self.send_status_update("process_classes_traits_instances", 6);
         let mut i = 0;
         let mut class_count = 0;
+        let trait_count;
+        let instance_count;
         let total = filez.len();
         let mut impl_relationships = Vec::new();
 
-        info!("=> get_classes...");
+        info!("=> get_classes_traits_instances...");
+        let mut all_traits = Vec::new();
+        let mut all_instances = Vec::new();
+
+        // Process classes file-by-file (needed for association edges)
+        // Traits and instances can be batched since they don't have cross-references
         for (filename, code) in filez {
             i += 1;
             if i % 20 == 0 || i == total {
@@ -502,12 +498,12 @@ impl Repo {
             if !self.lang.kind.is_source_file(&filename) {
                 continue;
             }
-            let qo = self
-                .lang
-                .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
-            let classes = self
-                .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
+
+            let (classes, traits, instances) =
+                self.lang
+                    .get_classes_traits_instances::<G>(&code, &filename, &graph)?;
+
+            // Add classes immediately so they're available for association lookups
             class_count += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(
@@ -520,6 +516,10 @@ impl Repo {
                     graph.add_edge(edge);
                 }
             }
+
+            // Collect traits and instances for batch processing
+            all_traits.extend(traits);
+            all_instances.extend(instances);
 
             if let Some(impl_query) = self.lang.lang().implements_query() {
                 let q = self.lang.q(&impl_query, &NodeType::Class);
@@ -534,57 +534,28 @@ impl Repo {
             }
         }
 
+        trait_count = all_traits.len();
+        for tr in all_traits {
+            graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
+        }
+
+        instance_count = all_instances.len();
+        graph.add_instances(all_instances);
+
         let mut stats = std::collections::HashMap::new();
         stats.insert("classes".to_string(), class_count);
+        stats.insert("traits".to_string(), trait_count);
+        stats.insert("instances".to_string(), instance_count);
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 6);
 
-        info!("=> got {} classes", class_count);
+        info!(
+            "=> got {} classes, {} traits, {} instances",
+            class_count, trait_count, instance_count
+        );
         graph.class_inherits();
         graph.class_includes();
         Ok(impl_relationships)
-    }
-    fn process_instances_and_traits<G: Graph>(
-        &self,
-        graph: &mut G,
-        filez: &[(String, String)],
-    ) -> Result<()> {
-        self.send_status_update("process_instances_and_traits", 7);
-        let mut i = 0;
-        let mut instance_count = 0;
-        let mut trait_count = 0;
-        let total = filez.len();
-
-        info!("=> get_traits_instances...");
-        for (filename, code) in filez {
-            i += 1;
-            if i % 20 == 0 || i == total {
-                self.send_status_progress(i, total, 9);
-            }
-
-            if !self.lang.kind.is_source_file(&filename) {
-                continue;
-            }
-
-            let (traits, instances) = self.lang.get_traits_instances::<G>(&code, &filename)?;
-            
-            trait_count += traits.len();
-            for tr in traits {
-                graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
-            }
-
-            instance_count += instances.len();
-            graph.add_instances(instances);
-        }
-
-        let mut stats = std::collections::HashMap::new();
-        stats.insert("instances".to_string(), instance_count);
-        stats.insert("traits".to_string(), trait_count);
-        self.send_status_with_stats(stats);
-        self.send_status_progress(100, 100, 7);
-
-        info!("=> got {} traits and {} instances", trait_count, instance_count);
-        Ok(())
     }
     fn resolve_implements_edges<G: Graph>(
         &self,

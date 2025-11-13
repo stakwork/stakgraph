@@ -256,13 +256,13 @@ impl Lang {
         let types = vec![NodeType::Import, NodeType::Var];
         self.collect_multi::<G>(code, file, &types)
     }
-    pub fn get_traits_instances<G: Graph>(
+    pub fn get_classes_traits_instances<G: Graph>(
         &self,
         code: &str,
         file: &str,
-    ) -> Result<(Vec<NodeData>, Vec<NodeData>)> {
-        let types = vec![NodeType::Trait, NodeType::Instance];
-        self.collect_multi::<G>(code, file, &types)
+        graph: &G,
+    ) -> Result<(Vec<(NodeData, Vec<Edge>)>, Vec<NodeData>, Vec<NodeData>)> {
+        self.collect_classes_traits_instances::<G>(code, file, graph)
     }
     pub fn get_pages<G: Graph>(
         &self,
