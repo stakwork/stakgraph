@@ -4,6 +4,8 @@ use ast::lang::ArrayGraph;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::EnvFilter;
 
 /// Compute the common ancestor directory for a list of file paths
 fn common_ancestor(files: &[String]) -> Option<std::path::PathBuf> {
@@ -150,6 +152,19 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
     // Sort by start line
     nodes.sort_by_key(|node| node.node_data.start);
 
+    // Build an index of edges by source key for faster lookup
+    let mut edges_by_source: std::collections::HashMap<String, Vec<&ast::lang::graphs::Edge>> =
+        std::collections::HashMap::new();
+    for edge in &graph.edges {
+        if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
+            let source_key = ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
+            edges_by_source
+                .entry(source_key)
+                .or_insert_with(Vec::new)
+                .push(edge);
+        }
+    }
+
     // Print nodes in order
     for node in nodes {
         print_node_summary(node);
@@ -158,36 +173,32 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
             let source_key = ast::utils::create_node_key(node).to_lowercase();
             let source_file = &node.node_data.file;
 
-            for edge in &graph.edges {
-                let edge_source_key =
-                    ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
+            // Look up edges for this function using the index
+            if let Some(edges) = edges_by_source.get(&source_key) {
+                for edge in edges {
+                    let target_name = &edge.target.node_data.name;
+                    let target_line = edge.target.node_data.start;
+                    let target_file = &edge.target.node_data.file;
 
-                if edge_source_key == source_key {
-                    if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
-                        let target_name = &edge.target.node_data.name;
-                        let target_line = edge.target.node_data.start;
-                        let target_file = &edge.target.node_data.file;
+                    // Check if target is in a different file
+                    let file_info = if source_file != target_file {
+                        // Extract just the filename
+                        let filename = std::path::Path::new(target_file)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(target_file);
+                        format!(" [{}]", filename)
+                    } else {
+                        String::new()
+                    };
 
-                        // Check if target is in a different file
-                        let file_info = if source_file != target_file {
-                            // Extract just the filename
-                            let filename = std::path::Path::new(target_file)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or(target_file);
-                            format!(" [{}]", filename)
-                        } else {
-                            String::new()
-                        };
-
-                        println!(
-                            "  • {:?} → {} (L{}){}",
-                            edge.edge,
-                            target_name,
-                            target_line + 1,
-                            file_info
-                        );
-                    }
+                    println!(
+                        "  • {:?} → {} (L{}){}",
+                        edge.edge,
+                        target_name,
+                        target_line + 1,
+                        file_info
+                    );
                 }
             }
         }
@@ -200,6 +211,14 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let filter = EnvFilter::builder()
+        .with_default_directive(LevelFilter::INFO.into())
+        .from_env_lossy();
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_env_filter(filter)
+        .init();
+
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let mut files: Vec<String> = Vec::new();
     let mut allow_unverified_calls = false;

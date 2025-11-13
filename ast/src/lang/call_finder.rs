@@ -1,6 +1,6 @@
-use super::{graphs::Graph, *};
-use super::queries::consts::{IMPORTS_NAME, IMPORTS_FROM};
 use super::parse::utils::trim_quotes;
+use super::queries::consts::{IMPORTS_FROM, IMPORTS_NAME};
+use super::{graphs::Graph, *};
 use tree_sitter::QueryCursor;
 
 pub fn node_data_finder<G: Graph>(
@@ -78,19 +78,19 @@ fn find_function_by_import<G: Graph>(
 ) -> Option<NodeData> {
     let imports_query = lang.lang().imports_query()?;
     let q = lang.q(&imports_query, &NodeType::Import);
-    
+
     let tree = match lang.lang().parse(code, &NodeType::Import) {
         Ok(t) => t,
         Err(_) => return None,
     };
-    
+
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
-    
+
     while let Some(m) = matches.next() {
         let mut import_names = Vec::new();
         let mut import_source = None;
-        
+
         if Lang::loop_captures_multi(&q, &m, code, |body, _node, o| {
             if o == IMPORTS_NAME {
                 import_names.push(body.clone());
@@ -98,17 +98,19 @@ fn find_function_by_import<G: Graph>(
                 import_source = Some(trim_quotes(&body).to_string());
             }
             Ok(())
-        }).is_err() {
+        })
+        .is_err()
+        {
             continue;
         }
-        
+
         if !import_names.contains(&func_name.to_string()) {
             continue;
         }
-        
+
         let source_path = import_source?;
         let mut resolved_path = lang.lang().resolve_import_path(&source_path, current_file);
-        
+
         if resolved_path.starts_with("@/") {
             resolved_path = resolved_path[2..].to_string();
         }
@@ -117,12 +119,10 @@ fn find_function_by_import<G: Graph>(
         if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
             resolved_path = resolved_path.trim_end_matches(ext).to_string();
         }
-        
-        if let Some(target) = graph.find_node_by_name_and_file_contains(
-            NodeType::Function,
-            func_name,
-            &resolved_path,
-        ) {
+
+        if let Some(target) =
+            graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &resolved_path)
+        {
             if !target.body.is_empty() {
                 log_cmd(format!(
                     "::: found function by import: {:?} from {:?} (resolved: {:?})",
@@ -132,7 +132,7 @@ fn find_function_by_import<G: Graph>(
             }
         }
     }
-    
+
     None
 }
 
