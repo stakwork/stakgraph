@@ -550,40 +550,31 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_instances_and_traits", 7);
-        let mut cnt = 0;
+        let mut i = 0;
         let mut instance_count = 0;
         let mut trait_count = 0;
         let total = filez.len();
 
-        info!("=> get_instances...");
+        info!("=> get_traits_instances...");
         for (filename, code) in filez {
-            cnt += 1;
-            if cnt % 20 == 0 || cnt == total {
-                self.send_status_progress(cnt, total, 9);
+            i += 1;
+            if i % 20 == 0 || i == total {
+                self.send_status_progress(i, total, 9);
             }
 
             if !self.lang.kind.is_source_file(&filename) {
                 continue;
             }
-            let q = self.lang.lang().instance_definition_query();
-            let instances =
-                self.lang
-                    .get_query_opt::<G>(q, &code, &filename, NodeType::Instance)?;
-            instance_count += instances.len();
-            graph.add_instances(instances);
-        }
 
-        info!("=> get_traits...");
-        for (filename, code) in filez {
-            if !self.lang.kind.is_source_file(&filename) {
-                continue;
-            }
-            let traits = self.lang.get_traits::<G>(&code, &filename)?;
+            let (traits, instances) = self.lang.get_traits_instances::<G>(&code, &filename)?;
+            
             trait_count += traits.len();
-
             for tr in traits {
                 graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
             }
+
+            instance_count += instances.len();
+            graph.add_instances(instances);
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -592,7 +583,7 @@ impl Repo {
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 7);
 
-        info!("=> got {} traits", trait_count);
+        info!("=> got {} traits and {} instances", trait_count, instance_count);
         Ok(())
     }
     fn resolve_implements_edges<G: Graph>(

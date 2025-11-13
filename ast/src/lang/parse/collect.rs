@@ -43,9 +43,10 @@ impl Lang {
         file: &str,
         types: &[NodeType],
     ) -> Result<(Vec<NodeData>, Vec<NodeData>)> {
-        let tree = self.lang.parse(&code, &NodeType::Import)?;
-        let mut imports = Vec::new();
-        let mut vars = Vec::new();
+        let first_type = types.first().context("types array cannot be empty")?;
+        let tree = self.lang.parse(&code, first_type)?;
+        let mut first_results = Vec::new();
+        let mut second_results = Vec::new();
         
         for nt in types {
             match nt {
@@ -55,7 +56,7 @@ impl Lang {
                         let mut cursor = QueryCursor::new();
                         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
                         while let Some(m) = matches.next() {
-                            imports.extend(self.format_imports(&m, code, file, &q)?);
+                            first_results.extend(self.format_imports(&m, code, file, &q)?);
                         }
                     }
                 }
@@ -65,7 +66,27 @@ impl Lang {
                         let mut cursor = QueryCursor::new();
                         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
                         while let Some(m) = matches.next() {
-                            vars.extend(self.format_variables(&m, code, file, &q)?);
+                            second_results.extend(self.format_variables(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Trait => {
+                    if let Some(query_str) = self.lang.trait_query() {
+                        let q = self.q(&query_str, &NodeType::Trait);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            first_results.push(self.format_trait(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Instance => {
+                    if let Some(query_str) = self.lang.instance_definition_query() {
+                        let q = self.q(&query_str, &NodeType::Instance);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            second_results.push(self.format_instance(&m, code, file, &q)?);
                         }
                     }
                 }
@@ -73,7 +94,7 @@ impl Lang {
             }
         }
         
-        Ok((imports, vars))
+        Ok((first_results, second_results))
     }
 
     pub fn collect_classes<G: Graph>(
