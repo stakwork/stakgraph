@@ -101,7 +101,7 @@ impl Repo {
             .filter(|(f, _)| is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
             .cloned()
             .collect::<Vec<_>>();
-        self.process_libs_imports_vars(&mut graph, &filez)?;
+        self.process_libs_imports_vars(&mut graph, &filez, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -482,6 +482,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        allowed_files: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_libs_imports_vars", 3);
         let mut i = 0;
@@ -497,18 +498,19 @@ impl Repo {
                 self.send_status_progress(i, total, 5);
             }
 
-            let (libs, imports, vars) = self.lang.get_libs_imports_vars::<G>(code, filename)?;
+            // Process libraries and imports for all files
+            let (libs, imports, _) = self.lang.get_libs_imports_vars::<G>(code, filename)?;
 
             if self.lang.kind.is_package_file(filename) {
                 let mut file_data = self.prepare_file_data(filename, code);
                 file_data.meta.insert("lib".to_string(), "true".to_string());
                 let (parent_type, parent_file) = self.get_parent_info(&filename.into());
                 graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
-            }
-
-            lib_count += libs.len();
-            for lib in libs {
-                graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, filename);
+                
+                lib_count += libs.len();
+                for lib in libs {
+                    graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, filename);
+                }
             }
 
             let import_section = combine_import_sections(imports);
@@ -521,7 +523,13 @@ impl Repo {
                     &import.file,
                 );
             }
+        }
 
+        // Process variables only for allowed files (filtered)
+        info!("=> processing variables for allowed files...");
+        for (filename, code) in allowed_files {
+            let (_, vars) = self.lang.get_imports_vars::<G>(code, filename)?;
+            
             var_count += vars.len();
             for variable in vars {
                 graph.add_node_with_parent(
