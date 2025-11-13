@@ -212,7 +212,7 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
 #[tokio::main]
 async fn main() -> Result<()> {
     let filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
+        .with_default_directive(LevelFilter::ERROR.into())
         .from_env_lossy();
     tracing_subscriber::fmt()
         .with_target(false)
@@ -222,10 +222,15 @@ async fn main() -> Result<()> {
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
     let mut files: Vec<String> = Vec::new();
     let mut allow_unverified_calls = false;
+    let mut skip_calls = false;
 
     for a in raw_args {
         if a == "--allow" {
             allow_unverified_calls = true;
+            continue;
+        }
+        if a == "--skip-calls" {
+            skip_calls = true;
             continue;
         }
         for part in a.split(',') {
@@ -280,13 +285,19 @@ async fn main() -> Result<()> {
         if let Some(root) = common_ancestor(file_list) {
             // All files share a common ancestor, create a single Repo
             let file_refs: Vec<&str> = file_list.iter().map(|s| s.as_str()).collect();
-            let repo = Repo::from_files(&file_refs, root, lang, allow_unverified_calls)?;
+            let repo =
+                Repo::from_files(&file_refs, root, lang, allow_unverified_calls, skip_calls)?;
             repos_vec.push(repo);
         } else {
             // No common ancestor, create individual repos per file
             for file_path in file_list {
                 let file_lang = Lang::from_language(language.clone());
-                let repo = Repo::from_single_file(file_path, file_lang, allow_unverified_calls)?;
+                let repo = Repo::from_single_file(
+                    file_path,
+                    file_lang,
+                    allow_unverified_calls,
+                    skip_calls,
+                )?;
                 repos_vec.push(repo);
             }
         }
