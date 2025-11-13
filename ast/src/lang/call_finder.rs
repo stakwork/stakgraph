@@ -51,7 +51,14 @@ pub fn func_target_file_finder<G: Graph>(
     }
 
     // Second try: find function by import
-    if let Some(tf) = find_function_by_import(func_name, current_file, code, lang, graph) {
+    let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
+    let code_to_parse = if let Some(import_node) = import_nodes.first() {
+        import_node.body.as_str()
+    } else {
+        code
+    };
+    
+    if let Some(tf) = find_function_by_import(func_name, current_file, code_to_parse, lang, graph) {
         return Some(tf);
     }
 
