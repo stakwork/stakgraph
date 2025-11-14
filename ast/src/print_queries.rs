@@ -20,11 +20,6 @@ fn main() -> Result<()> {
     println!("=======> Function query <=======");
     println!("{}\n", lang.lang().function_definition_query());
 
-    if let Some(tq) = lang.lang().test_query() {
-        println!("=======> Test query <=======");
-        println!("{}\n", tq);
-    }
-
     println!("=======> Function call query <=======");
     println!("{}\n", lang.lang().function_call_query());
 
@@ -79,6 +74,16 @@ fn main() -> Result<()> {
     println!("=======> Extra calls query <=======");
     for eq in lang.lang().extra_calls_queries() {
         println!("{}\n", eq);
+    }
+
+    if let Some(tq) = lang.lang().test_query() {
+        println!("=======> Test query <=======");
+        println!("{}\n", tq);
+    }
+
+    println!("=======> E2E test query <=======");
+    if let Some(e2e_test_query) = lang.lang().e2e_test_query() {
+        println!("{}\n", e2e_test_query);
     }
 
     Ok(())
