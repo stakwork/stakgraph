@@ -178,7 +178,7 @@ impl Repo {
         // if let Some(new_files) = check_revs(&root, revs) {
         //     files_filter = new_files;
         // }
-        for cmd in lang.kind.post_clone_cmd() {
+        for cmd in lang.kind.post_clone_cmd(lsp) {
             Self::run_cmd(&cmd, &root)?;
         }
         let lsp_tx = Self::start_lsp(&root, &lang, lsp)?;
@@ -314,14 +314,14 @@ impl Repo {
         let mut repos: Vec<Repo> = Vec::new();
         for l in filtered_langs {
             let thelang = Lang::from_language(l);
+            // Start LSP server
+            let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
             // Run post-clone commands
-            for cmd in thelang.kind.post_clone_cmd() {
+            for cmd in thelang.kind.post_clone_cmd(lsp_enabled) {
                 Self::run_cmd(&cmd, &root).map_err(|e| {
                     Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
                 })?;
             }
-            // Start LSP server
-            let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
             let lsp_tx = Self::start_lsp(&root, &thelang, lsp_enabled)
                 .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
             // Add to repositories
@@ -359,7 +359,7 @@ impl Repo {
         // if let Some(new_files) = check_revs(&root, revs) {
         //     files_filter = new_files;
         // }
-        for cmd in lang.kind.post_clone_cmd() {
+        for cmd in lang.kind.post_clone_cmd(lsp) {
             Self::run_cmd(&cmd, &root)?;
         }
         let lsp_tx = Self::start_lsp(&root, &lang, lsp)?;
