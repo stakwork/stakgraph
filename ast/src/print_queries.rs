@@ -81,6 +81,11 @@ fn main() -> Result<()> {
         println!("{}\n", tq);
     }
 
+    println!("=======> Integration test query <=======");
+    if let Some(integration_test_query) = lang.lang().integration_test_query() {
+        println!("{}\n", integration_test_query);
+    }
+
     println!("=======> E2E test query <=======");
     if let Some(e2e_test_query) = lang.lang().e2e_test_query() {
         println!("{}\n", e2e_test_query);

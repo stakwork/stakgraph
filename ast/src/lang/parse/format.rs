@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::lang::call_finder::node_data_finder;
+use crate::lang::call_finder::{get_imports_for_file, node_data_finder};
 use crate::lang::parse::extract_methods_from_handler;
 use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
@@ -479,6 +479,7 @@ impl Lang {
                         }
                     } else {
                         // FALLBACK to find?
+                        let import_names = get_imports_for_file(file, code, self);
                         return Ok(self.lang().handler_finder(
                             endp.clone(),
                             &|handler_name, _suffix| match node_data_finder(
@@ -487,8 +488,7 @@ impl Lang {
                                 file,
                                 endp.clone().start,
                                 NodeType::Endpoint,
-                                code,
-                                self,
+                                import_names.clone(),
                             ) {
                                 Some(node_key) => Some(node_key.into()),
                                 None => None,
@@ -926,14 +926,15 @@ impl Lang {
                         external_func = Some(t);
                     }
                 } else {
+                    // get Import node here, and parse
+                    let import_names = get_imports_for_file(file, code, self);
                     if let Some(one_func) = node_data_finder(
                         &called,
                         graph,
                         file,
                         fc.source.start,
                         NodeType::Function,
-                        code,
-                        self,
+                        import_names,
                     ) {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
@@ -992,14 +993,14 @@ impl Lang {
             fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
+            let import_names = get_imports_for_file(file, code, self);
             if let Some(tf) = node_data_finder(
                 &called,
                 graph,
                 file,
                 fc.source.start,
                 NodeType::Function,
-                code,
-                self,
+                import_names,
             ) {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",

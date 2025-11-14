@@ -337,7 +337,7 @@ impl Stack for TypeScript {
 
         path
     }
-     fn is_test_file(&self, file_name: &str) -> bool {
+    fn is_test_file(&self, file_name: &str) -> bool {
         file_name.contains("__tests__")
             || file_name.contains(".test.")
             || file_name.contains(".spec.")
@@ -350,12 +350,15 @@ impl Stack for TypeScript {
             || file_name.ends_with(".spec.js")
             || file_name.ends_with(".spec.jsx")
     }
+    fn tests_are_functions(&self) -> bool {
+        false
+    }
 
     fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
         let f = file.replace('\\', "/");
         let lower_code = code.to_lowercase();
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
-        
+
         let is_e2e_dir = f.contains("/tests/e2e/")
             || f.contains("/test/e2e")
             || f.contains("/e2e/")
@@ -366,7 +369,7 @@ impl Stack for TypeScript {
         let has_cypress = lower_code.contains("cy.");
         let has_puppeteer =
             lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
-        
+
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
 
