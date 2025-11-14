@@ -163,7 +163,8 @@ Think: "What capability does this add? Is it a major integration? If yes to eith
 - These are lightweight hints showing recent technical work
 - Examples: "jwt", "oauth", "redis", "websockets", "navigation-ui", "workspace-tests"
 - Use themes to TAG implementation details while creating features for capabilities
-- You can add 1-3 theme tags to each PR (optional) - can be NEW or EXISTING themes
+- You can add 1-3 theme tags to each PR (optional) - can be NEW or EXISTING themes. 
+- Most PRs should only have one theme, only big PRs should have multiple themes.
 - Keep theme tags short and technical
 
 **When to use both themes AND features:**
