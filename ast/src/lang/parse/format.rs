@@ -479,7 +479,7 @@ impl Lang {
                         }
                     } else {
                         // FALLBACK to find?
-                        let import_names = get_imports_for_file(file, code, self);
+                        let import_names = get_imports_for_file(file, self, graph);
                         return Ok(self.lang().handler_finder(
                             endp.clone(),
                             &|handler_name, _suffix| match node_data_finder(
@@ -927,7 +927,7 @@ impl Lang {
                     }
                 } else {
                     // get Import node here, and parse
-                    let import_names = get_imports_for_file(file, code, self);
+                    let import_names = get_imports_for_file(file, self, graph);
                     if let Some(one_func) = node_data_finder(
                         &called,
                         graph,
@@ -993,7 +993,7 @@ impl Lang {
             fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
-            let import_names = get_imports_for_file(file, code, self);
+            let import_names = get_imports_for_file(file, self, graph);
             if let Some(tf) = node_data_finder(
                 &called,
                 graph,

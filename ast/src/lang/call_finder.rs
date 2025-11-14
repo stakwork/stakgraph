@@ -67,11 +67,15 @@ pub fn func_target_file_finder<G: Graph>(
     None
 }
 
-pub fn get_imports_for_file(
+pub fn get_imports_for_file<G: Graph>(
     current_file: &str,
-    code: &str,
     lang: &Lang,
+    graph: &G,
 ) -> Option<Vec<(String, Vec<String>)>> {
+    let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
+    let import_node = import_nodes.first()?;
+    let code = import_node.body.as_str();
+
     let imports_query = lang.lang().imports_query()?;
     let q = lang.q(&imports_query, &NodeType::Import);
 
