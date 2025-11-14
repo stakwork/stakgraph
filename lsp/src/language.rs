@@ -138,26 +138,18 @@ impl Language {
 
     pub fn default_do_lsp(&self) -> bool {
         if let Ok(use_lsp) = std::env::var("USE_LSP") {
-            if use_lsp == "false" || use_lsp == "0" {
-                return false;
+            if use_lsp == "true" || use_lsp == "1" {
+                return match self {
+                    Self::Rust => true,
+                    Self::Go => true,
+                    Self::Typescript => true,
+                    Self::React => true,
+                    Self::Java => true,
+                    _ => false,
+                };
             }
         }
-        match self {
-            Self::Rust => true,
-            Self::Go => true,
-            Self::Typescript => true,
-            Self::React => true,
-            Self::Python => false,
-            Self::Ruby => false,
-            Self::Kotlin => false,
-            Self::Swift => false,
-            Self::Java => true,
-            Self::Bash => false,
-            Self::Toml => false,
-            Self::Svelte => false,
-            Self::Angular => false,
-            Self::Cpp => false,
-        }
+        false
     }
 
     pub fn lsp_exec(&self) -> String {
@@ -236,21 +228,23 @@ impl Language {
         .to_string()
     }
 
-    pub fn post_clone_cmd(&self) -> Vec<&'static str> {
-        if let Ok(use_lsp) = std::env::var("USE_LSP") {
-            if use_lsp == "false" || use_lsp == "0" {
-                return Vec::new();
-            }
-        }
+    pub fn post_clone_cmd(&self, use_lsp: bool) -> Vec<&'static str> {
         if let Ok(lsp_skip) = std::env::var("LSP_SKIP_POST_CLONE") {
             if lsp_skip == "true" || lsp_skip == "1" {
                 return Vec::new();
             }
         }
-        // for local repo, assume its already cloned
         if let Ok(repo_path) = std::env::var("REPO_PATH") {
             if !repo_path.is_empty() {
                 tracing::info!("skipping post clone cmd for local repo. If its a js/ts repo, run npm install first!");
+                return Vec::new();
+            }
+        }
+        if !use_lsp {
+            return Vec::new();
+        }
+        if let Ok(use_lsp_env) = std::env::var("USE_LSP") {
+            if use_lsp_env == "false" || use_lsp_env == "0" {
                 return Vec::new();
             }
         }
