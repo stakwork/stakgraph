@@ -182,6 +182,9 @@ pub trait Stack {
     fn is_test(&self, _func_name: &str, _func_file: &str) -> bool {
         false
     }
+    fn tests_are_functions(&self) -> bool {
+        true
+    }
     fn is_test_file(&self, _filename: &str) -> bool {
         false
     }
@@ -201,7 +204,12 @@ pub trait Stack {
         let mut ts = Vec::new();
         for func in funcs {
             if self.is_test(&func.0.name, &func.0.file) {
-                ts.push(func);
+                // for JS, tests are not function, but describe, test, it CALLS
+                if self.tests_are_functions() {
+                    ts.push(func);
+                } else {
+                    fs.push(func);
+                }
             } else {
                 fs.push(func);
             }

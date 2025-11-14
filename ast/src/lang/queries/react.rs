@@ -945,8 +945,7 @@ impl Stack for ReactTs {
     }
 
     fn is_test_file(&self, file_name: &str) -> bool {
-        file_name.contains("__tests__")
-            || file_name.ends_with(".test.ts")
+        file_name.ends_with(".test.ts")
             || file_name.ends_with(".test.tsx")
             || file_name.ends_with(".test.jsx")
             || file_name.ends_with(".test.js")
@@ -996,6 +995,10 @@ impl Stack for ReactTs {
         } else {
             false
         }
+    }
+
+    fn tests_are_functions(&self) -> bool {
+        false
     }
 }
 pub fn endpoint_name_from_file(file: &str) -> String {

@@ -9,8 +9,7 @@ pub fn node_data_finder<G: Graph>(
     current_file: &str,
     source_start: usize,
     source_node_type: NodeType,
-    code: &str,
-    lang: &Lang,
+    import_names: Option<Vec<(String, Vec<String>)>>,
 ) -> Option<NodeData> {
     func_target_file_finder(
         func_name,
@@ -19,8 +18,7 @@ pub fn node_data_finder<G: Graph>(
         current_file,
         source_start,
         source_node_type,
-        code,
-        lang,
+        import_names,
     )
 }
 
@@ -31,8 +29,7 @@ pub fn func_target_file_finder<G: Graph>(
     current_file: &str,
     source_start: usize,
     source_node_type: NodeType,
-    code: &str,
-    lang: &Lang,
+    import_names: Option<Vec<(String, Vec<String>)>>,
 ) -> Option<NodeData> {
     log_cmd(format!(
         "func_target_file_finder {:?} from file {:?}",
@@ -50,21 +47,15 @@ pub fn func_target_file_finder<G: Graph>(
         return Some(tf);
     }
 
-    // Second try: find function by import
-    let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
-    let code_to_parse = if let Some(import_node) = import_nodes.first() {
-        import_node.body.as_str()
-    } else {
-        code
-    };
-    
-    if let Some(tf) = find_function_by_import(func_name, current_file, code_to_parse, lang, graph) {
+    // Second try: find in the same file
+    if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
         return Some(tf);
     }
 
-    // Third try: find in the same file
-    if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
-        return Some(tf);
+    if let Some(import_names) = import_names {
+        if let Some(tf) = find_function_by_import(func_name, import_names, graph) {
+            return Some(tf);
+        }
     }
 
     // Fourth try: find in the same directory
@@ -76,13 +67,15 @@ pub fn func_target_file_finder<G: Graph>(
     None
 }
 
-fn find_function_by_import<G: Graph>(
-    func_name: &str,
+pub fn get_imports_for_file<G: Graph>(
     current_file: &str,
-    code: &str,
     lang: &Lang,
     graph: &G,
-) -> Option<NodeData> {
+) -> Option<Vec<(String, Vec<String>)>> {
+    let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
+    let import_node = import_nodes.first()?;
+    let code = import_node.body.as_str();
+
     let imports_query = lang.lang().imports_query()?;
     let q = lang.q(&imports_query, &NodeType::Import);
 
@@ -93,6 +86,7 @@ fn find_function_by_import<G: Graph>(
 
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+    let mut results = Vec::new();
 
     while let Some(m) = matches.next() {
         let mut import_names = Vec::new();
@@ -111,20 +105,37 @@ fn find_function_by_import<G: Graph>(
             continue;
         }
 
-        if !import_names.contains(&func_name.to_string()) {
+        if let Some(source_path) = import_source {
+            let mut resolved_path = lang.lang().resolve_import_path(&source_path, current_file);
+
+            if resolved_path.starts_with("@/") {
+                resolved_path = resolved_path[2..].to_string();
+            }
+
+            let exts = lang.kind.exts();
+            if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
+                resolved_path = resolved_path.trim_end_matches(ext).to_string();
+            }
+
+            results.push((resolved_path, import_names));
+        }
+    }
+
+    if results.is_empty() {
+        None
+    } else {
+        Some(results)
+    }
+}
+
+fn find_function_by_import<G: Graph>(
+    func_name: &str,
+    import_names: Vec<(String, Vec<String>)>,
+    graph: &G,
+) -> Option<NodeData> {
+    for (resolved_path, names) in import_names {
+        if !names.contains(&func_name.to_string()) {
             continue;
-        }
-
-        let source_path = import_source?;
-        let mut resolved_path = lang.lang().resolve_import_path(&source_path, current_file);
-
-        if resolved_path.starts_with("@/") {
-            resolved_path = resolved_path[2..].to_string();
-        }
-
-        let exts = lang.kind.exts();
-        if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
-            resolved_path = resolved_path.trim_end_matches(ext).to_string();
         }
 
         if let Some(target) =
@@ -132,8 +143,8 @@ fn find_function_by_import<G: Graph>(
         {
             if !target.body.is_empty() {
                 log_cmd(format!(
-                    "::: found function by import: {:?} from {:?} (resolved: {:?})",
-                    func_name, source_path, resolved_path
+                    "::: found function by import: {:?} (resolved: {:?})",
+                    func_name, resolved_path
                 ));
                 return Some(target);
             }

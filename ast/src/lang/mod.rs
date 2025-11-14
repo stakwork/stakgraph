@@ -422,7 +422,7 @@ impl Lang {
         let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
         let mut tests: Vec<TestRecord> = Vec::new();
         let mut seen_tests = std::collections::HashSet::new();
-        
+
         for t in filtered_tests.iter() {
             let mut nd = t.0.clone();
             let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
@@ -430,7 +430,7 @@ impl Lang {
                 continue;
             }
             seen_tests.insert(test_id);
-            
+
             let kind = self.lang.classify_test(&nd.name, file, &nd.body);
             let meta_kind = match kind {
                 NodeType::IntegrationTest => "integration",
@@ -445,17 +445,17 @@ impl Lang {
             let more_tests = self.collect_tests(&qo2, code, file, graph)?;
             for (mt, edge) in more_tests {
                 let mut nd = mt.0.clone();
-                
+
                 if !self.lang.is_test(&nd.name, &nd.file) {
                     continue;
                 }
-                
+
                 let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
                 if seen_tests.contains(&test_id) {
                     continue;
                 }
                 seen_tests.insert(test_id);
-                
+
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
                 let meta_kind = match kind {
                     NodeType::IntegrationTest => "integration",
@@ -474,7 +474,7 @@ impl Lang {
                     continue;
                 }
                 seen_tests.insert(test_id);
-                
+
                 let kind = tt;
                 let meta_kind = match kind {
                     NodeType::IntegrationTest => "integration",
@@ -492,7 +492,7 @@ impl Lang {
                     continue;
                 }
                 seen_tests.insert(test_id);
-                
+
                 let kind = NodeType::E2eTest;
                 let meta_kind = match kind {
                     NodeType::IntegrationTest => "integration",
