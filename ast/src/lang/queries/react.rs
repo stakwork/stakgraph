@@ -466,25 +466,23 @@ impl Stack for ReactTs {
     fn e2e_test_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (call_expression
-                function: [
-                    (identifier) @describe1 (#eq? @describe1 "describe")
-                    (member_expression
-                        object: (identifier) @pwtest2 (#match? @pwtest2 "^(test|describe)$")
-                        property: (property_identifier) @method (#eq? @method "describe")
-                    )
+            (program
+                (expression_statement
                     (call_expression
-                        function: (member_expression
-                            object: (identifier) @pwtest3 (#match? @pwtest3 "^(test|describe)$")
-                            property: (property_identifier) @method2 (#eq? @method2 "each")
+                        function: [
+                            (identifier) @func
+                            (member_expression
+                                property: (property_identifier) @func
+                            )
+                        ]
+                        (#match? @func "^(describe|test|it)$")
+                        arguments: (arguments 
+                            [ (string) (template_string) ] @{E2E_TEST_NAME} 
+                            (arrow_function)
                         )
-                    )
-                ]
-                arguments: (arguments 
-                    [ (string) (template_string) ] @{E2E_TEST_NAME} 
-                    (arrow_function)
+                    ) @{E2E_TEST}
                 )
-            ) @{E2E_TEST}
+            )
         "#
         ))
     }

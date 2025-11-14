@@ -109,12 +109,13 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
     if use_lsp {
-       // assert_eq!(functions.len(), 45, "Expected 45 Function nodes with LSP");
+        // assert_eq!(functions.len(), 45, "Expected 45 Function nodes with LSP");
     } else {
         assert_eq!(
             functions.len(),
             37,
-            "Expected 37 Function nodes without LSP");
+            "Expected 37 Function nodes without LSP"
+        );
     }
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
@@ -233,12 +234,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     edges += calls;
 
     //TODO: Fix lsp calls edge count : locally, it says 74 but on CI it says something else
-   // assert_eq!(calls, 74, "Expected 74 Calls edges");
+    // assert_eq!(calls, 74, "Expected 74 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
     assert_eq!(contains, 170, "Expected 170 Contains edges");
-
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -249,24 +249,23 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     assert_eq!(tests.len(), 6, "Expected 6 UnitTest nodes");
 
     #[cfg(not(feature = "neo4j"))]
-    if let Some(_currency_test) = tests
-        .iter()
-        .find(|t| t.name == "unit: currency conversion" && t.file.ends_with("test/currency.test.ts"))
-    {
-
-        let all_convert_sats_calls: Vec<_> = graph.get_edges_vec()
+    if let Some(_currency_test) = tests.iter().find(|t| {
+        t.name == "unit: currency conversion" && t.file.ends_with("test/currency.test.ts")
+    }) {
+        let all_convert_sats_calls: Vec<_> = graph
+            .get_edges_vec()
             .into_iter()
             .filter(|e| {
-                e.edge == EdgeType::Calls &&
-                e.source.node_data.file.ends_with("test/currency.test.ts") &&
-                e.target.node_data.name == "convertSatsToUSD"
+                e.edge == EdgeType::Calls
+                    && e.source.node_data.file.ends_with("test/currency.test.ts")
+                    && e.target.node_data.name == "convertSatsToUSD"
             })
             .collect();
-        
+
         let calls_currency_version = all_convert_sats_calls
             .iter()
             .any(|e| e.target.node_data.file.ends_with("lib/currency.ts"));
-        
+
         let calls_helpers_version = all_convert_sats_calls
             .iter()
             .any(|e| e.target.node_data.file.ends_with("lib/helpers.ts"));
@@ -274,7 +273,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         assert!(
             calls_currency_version,
             "Currency test should call convertSatsToUSD from lib/currency.ts. Found calls: {:?}",
-            all_convert_sats_calls.iter().map(|e| format!("{} -> {}", e.source.node_data.file, e.target.node_data.file)).collect::<Vec<_>>()
+            all_convert_sats_calls
+                .iter()
+                .map(|e| format!("{} -> {}", e.source.node_data.file, e.target.node_data.file))
+                .collect::<Vec<_>>()
         );
 
         assert!(
@@ -313,7 +315,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         .iter()
         .find(|c| c.name == "Calculator")
         .expect("Calculator class not found");
-    
+
     assert!(calculator_class.file.ends_with("nextjs/lib/calculator.ts"));
 
     if let Some(calc_test) = tests
@@ -321,7 +323,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         .find(|n| n.file.ends_with("nextjs/app/test/unit.class.test.ts"))
     {
         assert_eq!(calc_test.name, "unit: Calculator class");
-        
+
         let calc_methods = functions
             .iter()
             .filter(|f| {
@@ -329,7 +331,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
                     && ["add", "multiply", "subtract", "getResult"].contains(&f.name.as_str())
             })
             .collect::<Vec<_>>();
-        
+
         assert_eq!(calc_methods.len(), 4, "Expected 4 Calculator methods");
     } else {
         panic!("Unit test 'unit: Calculator class' not found");
@@ -380,6 +382,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
+
+    // print each test name
+    for test in &e2e_tests {
+        println!("E2E test: {}", test.name);
+    }
     assert_eq!(e2e_tests.len(), 5, "Expected 5 E2eTest nodes");
 
     if let Some(test) = e2e_tests
@@ -421,7 +428,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;
     if use_lsp {
-      //  assert_eq!(import, 18, "Expected 18 Imports edges with LSP");
+        //  assert_eq!(import, 18, "Expected 18 Imports edges with LSP");
     } else {
         assert_eq!(import, 0, "Expected 0 Imports edge without LSP");
     }
@@ -437,9 +444,9 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-       // assert_eq!(uses, 37, "Expected 37 Uses edges with LSP");
+        // assert_eq!(uses, 37, "Expected 37 Uses edges with LSP");
     } else {
-      //  assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
+        //  assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
@@ -448,7 +455,10 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
-    assert_eq!(operand, 4, "Expected 4 Operand edges (Calculator class→methods)");
+    assert_eq!(
+        operand, 4,
+        "Expected 4 Operand edges (Calculator class→methods)"
+    );
 
     if use_lsp {
         let get_fn = functions
@@ -908,7 +918,7 @@ async fn test_remote_nextjs() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-   // assert_eq!(calls, 31, "Expected 31 Calls edges");
+    // assert_eq!(calls, 31, "Expected 31 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
@@ -921,9 +931,9 @@ async fn test_remote_nextjs() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
     if use_lsp {
-       // assert_eq!(uses, 4, "Expected 4 Uses edges with LSP");
+        // assert_eq!(uses, 4, "Expected 4 Uses edges with LSP");
     } else {
-       // assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
+        // assert_eq!(uses, 0, "Expected 0 Uses edge without LSP");
     }
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
