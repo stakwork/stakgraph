@@ -20,6 +20,7 @@ use std::str::FromStr;
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
 use tree_sitter::{Node as TreeNode, Query, QueryCursor};
+use std::collections::HashSet;
 
 pub struct Lang {
     pub kind: Language,
@@ -416,10 +417,10 @@ impl Lang {
         kind: NodeType,
         edge: Option<Edge>,
         tests: &mut Vec<TestRecord>,
-        seen_tests: &mut std::collections::HashSet<(String, String, usize)>,
-        identified_tests: &mut std::collections::HashSet<(String, String, usize)>,
+        seen_tests: &mut HashSet<NodeKeys>,
+        identified_tests: &mut HashSet<NodeKeys>,
     ) {
-        let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
+        let test_id = NodeKeys::new(&nd.name, &nd.file, nd.start);
         if seen_tests.contains(&test_id) {
             return;
         }
@@ -446,7 +447,7 @@ impl Lang {
     ) -> Result<(Vec<Function>, Vec<TestRecord>)> {
         let mut tests: Vec<TestRecord> = Vec::new();
         let mut seen_tests = std::collections::HashSet::new();
-        let mut identified_tests: std::collections::HashSet<(String, String, usize)> = std::collections::HashSet::new();
+        let mut identified_tests =  HashSet::new();
 
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::UnitTest);

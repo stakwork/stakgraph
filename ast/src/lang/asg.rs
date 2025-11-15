@@ -20,13 +20,13 @@ pub struct UniqueKey {
     pub parent: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct NodeKeys {
     pub name: String,
     pub file: String,
     pub start: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub verb: Option<String>, // multiple endpoints can be defined on the same line, like ruby
+    pub verb: Option<String>,
 }
 
 impl NodeKeys {
