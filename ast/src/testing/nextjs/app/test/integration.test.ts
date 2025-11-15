@@ -1,5 +1,25 @@
 // @ts-nocheck
 
+// Helper functions - should be classified as Functions, not Tests
+function createTestPayload(overrides: any = {}) {
+  return {
+    title: "Test Item",
+    price: 100,
+    ...overrides
+  };
+}
+
+const mockApiResponse = (status: number, data: any) => ({
+  status,
+  json: async () => data,
+  ok: status >= 200 && status < 300
+});
+
+async function setupTestDatabase(): Promise<void> {
+  // Simulate DB setup
+  console.log("Setting up test database...");
+}
+
 describe("integration: /api/items", () => {
   it("GET returns items list", async () => {
     const res = await fetch("http://localhost:3000/api/items");
