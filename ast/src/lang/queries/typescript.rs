@@ -380,4 +380,52 @@ impl Stack for TypeScript {
             false
         }
     }
+
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        // Skip if operand exists and is lowercase (instance method on a variable)
+        if let Some(op) = operand {
+            if let Some(first_char) = op.chars().next() {
+                if first_char.is_lowercase() {
+                    // This is an instance method call like arr.push() or str.split()
+                    return true;
+                }
+            }
+        }
+
+        // Common built-in JavaScript/TypeScript methods
+        const BUILTIN_METHODS: [&str; 51] = [
+            // Array methods
+            "push", "pop", "shift", "unshift", "splice", "slice", "concat",
+            "join", "reverse", "sort", "indexOf", "lastIndexOf", "forEach",
+            "map", "filter", "reduce", "reduceRight", "some", "every", "find",
+            "findIndex", "includes", "flat", "flatMap", "fill", "copyWithin",
+            // String methods
+            "split", "substring", "substr", "charAt", "charCodeAt", "trim",
+            "trimStart", "trimEnd", "toLowerCase", "toUpperCase", "replace",
+            "replaceAll", "match", "search", "startsWith", "endsWith", "padStart",
+            "padEnd", "repeat",
+            // Object methods
+            "toString", "valueOf", "hasOwnProperty",
+            // Promise methods
+            "then", "catch", "finally",
+        ];
+
+        if BUILTIN_METHODS.contains(&called) {
+            return true;
+        }
+
+        // SVG/JSX element names (single lowercase letters are often SVG elements)
+        if called.len() <= 2 && called.chars().all(|c| c.is_lowercase()) {
+            const SVG_ELEMENTS: [&str; 20] = [
+                "g", "path", "svg", "rect", "circle", "ellipse", "line", "polyline",
+                "polygon", "text", "tspan", "defs", "use", "symbol", "marker",
+                "clipPath", "mask", "pattern", "image", "a",
+            ];
+            if SVG_ELEMENTS.contains(&called) {
+                return true;
+            }
+        }
+
+        false
+    }
 }

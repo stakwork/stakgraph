@@ -1000,6 +1000,82 @@ impl Stack for ReactTs {
     fn tests_are_functions(&self) -> bool {
         false
     }
+
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        // Skip if operand exists and is lowercase (instance method call)
+        if let Some(op) = operand {
+            if let Some(first_char) = op.chars().next() {
+                if first_char.is_lowercase() {
+                    // Common JS/TS built-in array methods
+                    const ARRAY_METHODS: [&str; 30] = [
+                        "push", "pop", "shift", "unshift", "slice", "splice", "concat",
+                        "join", "reverse", "sort", "indexOf", "lastIndexOf", "forEach",
+                        "map", "filter", "reduce", "reduceRight", "every", "some", "find",
+                        "findIndex", "includes", "flat", "flatMap", "fill", "copyWithin",
+                        "entries", "keys", "values", "at",
+                    ];
+
+                    // Common JS/TS built-in string methods
+                    const STRING_METHODS: [&str; 30] = [
+                        "charAt", "charCodeAt", "concat", "includes", "indexOf",
+                        "lastIndexOf", "match", "matchAll", "replace", "replaceAll",
+                        "search", "slice", "split", "substring", "toLowerCase", "toUpperCase",
+                        "trim", "trimStart", "trimEnd", "padStart", "padEnd", "repeat",
+                        "startsWith", "endsWith", "localeCompare", "normalize", "at",
+                        "codePointAt", "fromCharCode", "fromCodePoint",
+                    ];
+
+                    // Common JS/TS built-in object methods
+                    const OBJECT_METHODS: [&str; 15] = [
+                        "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable",
+                        "toLocaleString", "toString", "valueOf", "keys", "values",
+                        "entries", "assign", "create", "defineProperty", "freeze",
+                        "seal", "preventExtensions",
+                    ];
+
+                    // Common JS/TS built-in promise/async methods
+                    const ASYNC_METHODS: [&str; 6] = [
+                        "then", "catch", "finally", "all", "race", "allSettled",
+                    ];
+
+                    // Common DOM/Browser methods
+                    const DOM_METHODS: [&str; 20] = [
+                        "addEventListener", "removeEventListener", "querySelector",
+                        "querySelectorAll", "getElementById", "getElementsByClassName",
+                        "getElementsByTagName", "appendChild", "removeChild", "replaceChild",
+                        "insertBefore", "cloneNode", "setAttribute", "getAttribute",
+                        "removeAttribute", "classList", "focus", "blur", "click", "submit",
+                    ];
+
+                    if ARRAY_METHODS.contains(&called)
+                        || STRING_METHODS.contains(&called)
+                        || OBJECT_METHODS.contains(&called)
+                        || ASYNC_METHODS.contains(&called)
+                        || DOM_METHODS.contains(&called)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        const JSX_SVG_ATTRS: [&str; 52] = [
+            "g", "path", "svg", "rect", "circle", "ellipse", "line", "polyline",
+            "polygon", "text", "tspan", "defs", "use", "symbol", "marker", "clipPath",
+            "mask", "pattern", "image", "foreignObject", "switch", "a", "view",
+            "animate", "animateMotion", "animateTransform", "set", "desc", "title",
+            "metadata", "stop", "linearGradient", "radialGradient", "feBlend",
+            "feColorMatrix", "feComponentTransfer", "feComposite", "feConvolveMatrix",
+            "feDiffuseLighting", "feDisplacementMap", "feFlood", "feGaussianBlur",
+            "feImage", "feMerge", "feMorphology", "feOffset", "feSpecularLighting",
+            "feTile", "feTurbulence", "feDistantLight", "fePointLight", "feSpotLight",
+        ];
+
+        if JSX_SVG_ATTRS.contains(&called) {
+            return true;
+        }
+
+        false
+    }
 }
 pub fn endpoint_name_from_file(file: &str) -> String {
     let path = file.replace('\\', "/");
