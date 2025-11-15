@@ -408,6 +408,34 @@ impl Lang {
         let name = name_node.node.utf8_text(code.as_bytes())?;
         Ok(Some(name.to_string()))
     }
+
+    fn add_test_to_collections(
+        &self,
+        mut nd: NodeData,
+        _file: &str,
+        kind: NodeType,
+        edge: Option<Edge>,
+        tests: &mut Vec<TestRecord>,
+        seen_tests: &mut std::collections::HashSet<(String, String, usize)>,
+        identified_tests: &mut std::collections::HashSet<(String, String, usize)>,
+    ) {
+        let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
+        if seen_tests.contains(&test_id) {
+            return;
+        }
+        
+        seen_tests.insert(test_id.clone());
+        identified_tests.insert(test_id);
+        
+        let meta_kind = match kind {
+            NodeType::IntegrationTest => "integration",
+            NodeType::E2eTest => "e2e",
+            _ => "unit",
+        };
+        nd.meta.insert("test_kind".into(), meta_kind.into());
+        tests.push(TestRecord::new(nd, kind, edge));
+    }
+
     // returns (Vec<Function>, Vec<TestRecord>)
     pub fn get_functions_and_tests<G: Graph>(
         &self,
@@ -416,93 +444,49 @@ impl Lang {
         graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<Function>, Vec<TestRecord>)> {
-        let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
-        let mut funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx)?;
-        self.attach_function_comments(code, &mut funcs1)?;
-        let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
         let mut tests: Vec<TestRecord> = Vec::new();
         let mut seen_tests = std::collections::HashSet::new();
+        let mut identified_tests: std::collections::HashSet<(String, String, usize)> = std::collections::HashSet::new();
 
-        for t in filtered_tests.iter() {
-            let mut nd = t.0.clone();
-            let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
-            if seen_tests.contains(&test_id) {
-                continue;
-            }
-            seen_tests.insert(test_id);
-
-            let kind = self.lang.classify_test(&nd.name, file, &nd.body);
-            let meta_kind = match kind {
-                NodeType::IntegrationTest => "integration",
-                NodeType::E2eTest => "e2e",
-                _ => "unit",
-            };
-            nd.meta.insert("test_kind".into(), meta_kind.into());
-            tests.push(TestRecord::new(nd, kind, None));
-        }
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::UnitTest);
             let more_tests = self.collect_tests(&qo2, code, file, graph)?;
             for (mt, edge) in more_tests {
-                let mut nd = mt.0.clone();
-
+                let nd = mt.0.clone();
                 if !self.lang.is_test(&nd.name, &nd.file) {
                     continue;
                 }
-
-                let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
-                if seen_tests.contains(&test_id) {
-                    continue;
-                }
-                seen_tests.insert(test_id);
-
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
-                let meta_kind = match kind {
-                    NodeType::IntegrationTest => "integration",
-                    NodeType::E2eTest => "e2e",
-                    _ => "unit",
-                };
-                nd.meta.insert("test_kind".into(), meta_kind.into());
-                tests.push(TestRecord::new(nd, kind, edge));
+                self.add_test_to_collections(nd, file, kind, edge, &mut tests, &mut seen_tests, &mut identified_tests);
             }
         }
         if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {
-            for (nd, tt, edge) in int_tests {
-                let mut nd = nd;
-                let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
-                if seen_tests.contains(&test_id) {
-                    continue;
-                }
-                seen_tests.insert(test_id);
-
-                let kind = tt;
-                let meta_kind = match kind {
-                    NodeType::IntegrationTest => "integration",
-                    NodeType::E2eTest => "e2e",
-                    _ => "unit",
-                };
-                nd.meta.insert("test_kind".into(), meta_kind.into());
-                tests.push(TestRecord::new(nd, kind, edge));
+            for (nd, kind, edge) in int_tests {
+                self.add_test_to_collections(nd, file, kind, edge, &mut tests, &mut seen_tests, &mut identified_tests);
             }
         }
         if let Ok(e2e_tests) = self.collect_e2e_tests(code, file) {
-            for mut nd in e2e_tests {
-                let test_id = (nd.name.clone(), nd.file.clone(), nd.start);
-                if seen_tests.contains(&test_id) {
-                    continue;
-                }
-                seen_tests.insert(test_id);
-
-                let kind = NodeType::E2eTest;
-                let meta_kind = match kind {
-                    NodeType::IntegrationTest => "integration",
-                    NodeType::E2eTest => "e2e",
-                    _ => "unit",
-                };
-                nd.meta.insert("test_kind".into(), meta_kind.into());
-                tests.push(TestRecord::new(nd, kind, None));
+            for nd in e2e_tests {
+                self.add_test_to_collections(nd, file, NodeType::E2eTest, None, &mut tests, &mut seen_tests, &mut identified_tests);
             }
         }
+
+        let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
+        let mut funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
+        self.attach_function_comments(code, &mut funcs1)?;
+
+        let funcs = if self.lang.tests_are_functions() {
+            let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
+            for t in filtered_tests.iter() {
+                let nd = t.0.clone();
+                let kind = self.lang.classify_test(&nd.name, file, &nd.body);
+                self.add_test_to_collections(nd, file, kind, None, &mut tests, &mut seen_tests, &mut identified_tests);
+            }
+            funcs
+        } else {
+            funcs1
+        };
+
         Ok((funcs, tests))
     }
     pub fn get_query_opt<G: Graph>(
