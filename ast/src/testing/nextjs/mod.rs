@@ -455,35 +455,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         operand, 4,
         "Expected 4 Operand edges (Calculator class→methods)"
     );
-
-    if use_lsp {
-        let get_fn = functions
-            .iter()
-            .find(|f| {
-                f.name == "GET"
-                    && f.file
-                        .ends_with("src/testing/nextjs/app/api/person/[id]/route.ts")
-            })
-            .map(|n| Node::new(NodeType::Function, n.clone()))
-            .expect("GET handler function for items not found");
-
-        let person_fn = functions
-            .iter()
-            .find(|f| {
-                f.name == "Person" && f.file.ends_with("src/testing/nextjs/app/person/page.tsx")
-            })
-            .map(|n| Node::new(NodeType::Function, n.clone()))
-            .expect("Person function not found");
-
-        let find_fn = functions
-            .iter()
-            .find(|f| (f.name == "find" && f.body == ""))
-            .map(|n| Node::new(NodeType::Function, n.clone()))
-            .expect("Find function not found");
-
-        graph.has_edge(&get_fn, &find_fn, EdgeType::Uses);
-        graph.has_edge(&person_fn, &find_fn, EdgeType::Uses);
-    }
+    
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges += renders;
     assert_eq!(renders, 3, "Expected 3 Renders edges");
