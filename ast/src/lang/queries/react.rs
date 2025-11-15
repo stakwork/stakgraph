@@ -1058,8 +1058,34 @@ impl Stack for ReactTs {
                 }
             }
         }
-        const JSX_SVG_ATTRS: [&str; 52] = [
-            "g", "path", "svg", "rect", "circle", "ellipse", "line", "polyline",
+
+        // HTML and SVG elements that should not be treated as function calls in JSX
+        const JSX_HTML_ELEMENTS: [&str; 134] = [
+            // HTML structural/semantic
+            "div", "span", "p", "section", "article", "nav", "header", "footer",
+            "main", "aside", "address",
+            // HTML heading
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            // HTML form elements
+            "form", "input", "button", "label", "select", "textarea", "fieldset",
+            "legend", "datalist", "option", "optgroup",
+            // HTML list elements
+            "ul", "ol", "li", "dl", "dt", "dd",
+            // HTML table elements
+            "table", "tbody", "thead", "tfoot", "tr", "td", "th", "caption", "colgroup", "col",
+            // HTML media elements
+            "img", "video", "audio", "source", "track",
+            // HTML link/embedded
+            "canvas", "iframe", "embed", "object", "param", "map", "area",
+            // HTML text formatting
+            "strong", "em", "code", "pre", "kbd", "var", "samp", "mark", "ins", "del",
+            "sub", "sup", "small", "b", "i", "u", "s", "q", "bdi", "bdo",
+            // HTML interactive
+            "details", "summary", "dialog",
+            // HTML meta
+            "meta", "link", "style",
+            // SVG elements
+            "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline",
             "polygon", "text", "tspan", "defs", "use", "symbol", "marker", "clipPath",
             "mask", "pattern", "image", "foreignObject", "switch", "a", "view",
             "animate", "animateMotion", "animateTransform", "set", "desc", "title",
@@ -1070,7 +1096,7 @@ impl Stack for ReactTs {
             "feTile", "feTurbulence", "feDistantLight", "fePointLight", "feSpotLight",
         ];
 
-        if JSX_SVG_ATTRS.contains(&called) {
+        if JSX_HTML_ELEMENTS.contains(&called) {
             return true;
         }
 

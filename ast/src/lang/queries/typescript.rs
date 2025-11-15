@@ -414,16 +414,45 @@ impl Stack for TypeScript {
             return true;
         }
 
-        // SVG/JSX element names (single lowercase letters are often SVG elements)
-        if called.len() <= 2 && called.chars().all(|c| c.is_lowercase()) {
-            const SVG_ELEMENTS: [&str; 20] = [
-                "g", "path", "svg", "rect", "circle", "ellipse", "line", "polyline",
-                "polygon", "text", "tspan", "defs", "use", "symbol", "marker",
-                "clipPath", "mask", "pattern", "image", "a",
-            ];
-            if SVG_ELEMENTS.contains(&called) {
-                return true;
-            }
+        // HTML and SVG elements that should not be treated as function calls in JSX
+        const JSX_HTML_ELEMENTS: [&str; 134] = [
+            // HTML structural/semantic
+            "div", "span", "p", "section", "article", "nav", "header", "footer",
+            "main", "aside", "address",
+            // HTML heading
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            // HTML form elements
+            "form", "input", "button", "label", "select", "textarea", "fieldset",
+            "legend", "datalist", "option", "optgroup",
+            // HTML list elements
+            "ul", "ol", "li", "dl", "dt", "dd",
+            // HTML table elements
+            "table", "tbody", "thead", "tfoot", "tr", "td", "th", "caption", "colgroup", "col",
+            // HTML media elements
+            "img", "video", "audio", "source", "track",
+            // HTML link/embedded
+            "canvas", "iframe", "embed", "object", "param", "map", "area",
+            // HTML text formatting
+            "strong", "em", "code", "pre", "kbd", "var", "samp", "mark", "ins", "del",
+            "sub", "sup", "small", "b", "i", "u", "s", "q", "bdi", "bdo",
+            // HTML interactive
+            "details", "summary", "dialog",
+            // HTML meta
+            "meta", "link", "style",
+            // SVG elements
+            "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline",
+            "polygon", "text", "tspan", "defs", "use", "symbol", "marker", "clipPath",
+            "mask", "pattern", "image", "foreignObject", "switch", "a", "view",
+            "animate", "animateMotion", "animateTransform", "set", "desc", "title",
+            "metadata", "stop", "linearGradient", "radialGradient", "feBlend",
+            "feColorMatrix", "feComponentTransfer", "feComposite", "feConvolveMatrix",
+            "feDiffuseLighting", "feDisplacementMap", "feFlood", "feGaussianBlur",
+            "feImage", "feMerge", "feMorphology", "feOffset", "feSpecularLighting",
+            "feTile", "feTurbulence", "feDistantLight", "fePointLight", "feSpotLight",
+        ];
+
+        if JSX_HTML_ELEMENTS.contains(&called) {
+            return true;
         }
 
         false
