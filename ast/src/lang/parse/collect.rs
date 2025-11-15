@@ -150,6 +150,7 @@ impl Lang {
         file: &str,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
+        identified_tests: &std::collections::HashSet<NodeKeys>,
     ) -> Result<Vec<Function>> {
         let tree = self.lang.parse(&code, &NodeType::Function)?;
         let mut cursor = QueryCursor::new();
@@ -157,6 +158,10 @@ impl Lang {
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             if let Some(ff) = self.format_function(&m, code, file, &q, graph, lsp_tx)? {
+                let test_key = NodeKeys::new(&ff.0.name, &ff.0.file, ff.0.start);
+                if identified_tests.contains(&test_key) {
+                    continue;
+                }
                 res.push(ff);
             }
         }

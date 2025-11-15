@@ -113,8 +113,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            37,
-            "Expected 37 Function nodes without LSP"
+            43,
+            "Expected 43 Function nodes without LSP"
         );
     }
 
@@ -238,7 +238,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 170, "Expected 170 Contains edges");
+    assert_eq!(contains, 176, "Expected 176 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -383,10 +383,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
 
-    // print each test name
-    for test in &e2e_tests {
-        println!("E2E test: {}", test.name);
-    }
     assert_eq!(e2e_tests.len(), 5, "Expected 5 E2eTest nodes");
 
     if let Some(test) = e2e_tests
@@ -451,7 +447,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
-    assert_eq!(nested_in, 4, "Expected 4 NestedIn edges");
+    assert_eq!(nested_in, 5, "Expected 5 NestedIn edges");
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
