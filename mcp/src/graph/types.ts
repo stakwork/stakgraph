@@ -62,7 +62,9 @@ export type NodeType =
   | "Stars"
   | "Commits"
   | "Age"
-  | "Issues";
+  | "Issues"
+  | "Episode"
+  | "Topic";
 
 export type EdgeType =
   | "CALLS"
@@ -168,6 +170,8 @@ export function all_node_types(): NodeType[] {
     "Commits",
     "Age",
     "Issues",
+    "Episode",
+    "Topic",
   ];
 }
 
@@ -241,6 +245,8 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "The age metric of a repository in years, calculated from creation date to present.",
     Issues:
       "The total issue count metric for a repository, representing reported problems and feature requests.",
+    Episode: "A call recording or meeting between stakeholders.",
+    Topic: "A subject or theme discussed in calls and messages.",
   };
 }
 
