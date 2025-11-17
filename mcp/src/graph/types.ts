@@ -136,6 +136,8 @@ export function relevant_node_types(): NodeType[] {
     "Hint",
     "Prompt",
     "PullRequest",
+    "Episode",
+    "Topic",
   ];
 }
 
