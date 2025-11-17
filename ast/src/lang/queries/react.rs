@@ -1000,6 +1000,10 @@ impl Stack for ReactTs {
     fn tests_are_functions(&self) -> bool {
         false
     }
+
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        consts::should_skip_js_function_call(called, operand)
+    }
 }
 pub fn endpoint_name_from_file(file: &str) -> String {
     let path = file.replace('\\', "/");

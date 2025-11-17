@@ -380,4 +380,8 @@ impl Stack for TypeScript {
             false
         }
     }
+
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        consts::should_skip_js_function_call(called, operand)
+    }
 }
