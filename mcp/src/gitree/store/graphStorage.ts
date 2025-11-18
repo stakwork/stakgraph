@@ -776,43 +776,51 @@ export class GraphStorage extends Storage {
           `
           MATCH path = (file:File)-[:CONTAINS*]->(contained)
           WHERE file.ref_id IN $fileRefIds
-          WITH contained, relationships(path) as rels
-          RETURN DISTINCT contained, rels
+          UNWIND relationships(path) AS rel
+          WITH DISTINCT rel, startNode(rel) AS source, endNode(rel) AS target
+          RETURN rel, source, target
           `,
           { fileRefIds }
         );
 
         for (const record of containsResult.records) {
-          const containedNode = record.get("contained");
-          const rels = record.get("rels");
+          const rel = record.get("rel");
+          const source = record.get("source");
+          const target = record.get("target");
 
-          // Add contained node
-          if (containedNode && containedNode.properties && containedNode.properties.ref_id) {
-            const refId = containedNode.properties.ref_id;
-            if (!containedNodesMap.has(refId)) {
-              containedNodesMap.set(refId, containedNode);
+          // Add target node to containedNodesMap (skip Files)
+          if (target && target.properties && target.properties.ref_id) {
+            const isFile = target.labels && target.labels.includes("File");
+            const refId = target.properties.ref_id;
+            if (!isFile && !containedNodesMap.has(refId)) {
+              containedNodesMap.set(refId, target);
             }
           }
 
-          // Add all edges from the path
-          if (Array.isArray(rels)) {
-            for (const rel of rels) {
-              if (rel.start && rel.end) {
-                const sourceRefId = rel.start.properties?.ref_id || "";
-                const targetRefId = rel.end.properties?.ref_id || "";
-                const edgeKey = `${sourceRefId}:${targetRefId}`;
+          // Add source node if it's not a File (for nested CONTAINS)
+          if (source && source.properties && source.properties.ref_id) {
+            const isFile = source.labels && source.labels.includes("File");
+            const refId = source.properties.ref_id;
+            if (!isFile && !containedNodesMap.has(refId)) {
+              containedNodesMap.set(refId, source);
+            }
+          }
 
-                if (!processedEdges.has(edgeKey) && sourceRefId && targetRefId) {
-                  processedEdges.add(edgeKey);
-                  containsEdges.push({
-                    edge_type: "CONTAINS",
-                    ref_id: rel.properties?.ref_id || "",
-                    source: sourceRefId,
-                    target: targetRefId,
-                    properties: rel.properties || {},
-                  });
-                }
-              }
+          // Add CONTAINS edge
+          if (rel && source && target && source.properties && target.properties) {
+            const sourceRefId = source.properties.ref_id || "";
+            const targetRefId = target.properties.ref_id || "";
+            const edgeKey = `${sourceRefId}:${targetRefId}`;
+
+            if (!processedEdges.has(edgeKey) && sourceRefId && targetRefId) {
+              processedEdges.add(edgeKey);
+              containsEdges.push({
+                edge_type: "CONTAINS",
+                ref_id: rel.properties?.ref_id || "",
+                source: sourceRefId,
+                target: targetRefId,
+                properties: rel.properties || {},
+              });
             }
           }
         }
