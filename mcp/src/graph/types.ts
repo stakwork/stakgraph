@@ -64,7 +64,8 @@ export type NodeType =
   | "Age"
   | "Issues"
   | "Episode"
-  | "Topic";
+  | "Topic"
+  | "Feature";
 
 export type EdgeType =
   | "CALLS"
@@ -138,6 +139,7 @@ export function relevant_node_types(): NodeType[] {
     "PullRequest",
     "Episode",
     "Topic",
+    "Feature",
   ];
 }
 
@@ -174,6 +176,7 @@ export function all_node_types(): NodeType[] {
     "Issues",
     "Episode",
     "Topic",
+    "Feature",
   ];
 }
 
@@ -249,6 +252,7 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "The total issue count metric for a repository, representing reported problems and feature requests.",
     Episode: "A call recording or meeting between stakeholders.",
     Topic: "A subject or theme discussed in calls and messages.",
+    Feature: "A specific capability or functionality within the application or codebase.",
   };
 }
 
