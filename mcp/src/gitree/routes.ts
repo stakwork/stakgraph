@@ -7,6 +7,13 @@ import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { Octokit } from "@octokit/rest";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
+import {
+  toReturnNode,
+  parseNodeTypes,
+  parseLimit,
+  buildGraphMeta,
+} from "../graph/utils.js";
+import { NodeType } from "../graph/types.js";
 
 /**
  * Parse Git repository URL to extract owner and repo
@@ -522,5 +529,76 @@ export async function gitree_link_files(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to link files" });
+  }
+}
+
+/**
+ * Get all features with files and contained nodes as a flat graph structure
+ * GET /gitree/all-features-graph?limit=100&node_types=Function,Class
+ */
+export async function gitree_all_features_graph(req: Request, res: Response) {
+  try {
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Get all data from GraphStorage
+    const data = await storage.getAllFeaturesWithFilesAndContains();
+
+    // Parse query parameters
+    const limit = parseLimit(req.query);
+    const requestedNodeTypes = parseNodeTypes(req.query);
+
+    // Combine all nodes
+    let allNodes = [
+      ...data.features,
+      ...data.files,
+      ...data.containedNodes,
+    ];
+
+    // Filter by node types if specified
+    if (requestedNodeTypes.length > 0) {
+      allNodes = allNodes.filter((node) => {
+        const nodeType = node.labels.find((l: string) => l !== "Data_Bank");
+        return nodeType === "Feature" || nodeType === "File" || requestedNodeTypes.includes(nodeType);
+      });
+    }
+
+    // Apply limit if specified
+    if (limit) {
+      allNodes = allNodes.slice(0, limit);
+    }
+
+    // Transform nodes to return format
+    const returnNodes = allNodes.map((node) => toReturnNode(node));
+
+    // Combine all edges
+    const allEdges = [...data.modifiesEdges, ...data.containsEdges];
+
+    // Build meta information
+    const nodeTypes = Array.from(
+      new Set(
+        returnNodes.map((n) => n.node_type)
+      )
+    ) as NodeType[];
+
+    const meta = buildGraphMeta(
+      nodeTypes,
+      allNodes,
+      limit,
+      "total",
+      undefined
+    );
+
+    res.json({
+      nodes: returnNodes,
+      edges: allEdges,
+      status: "Success",
+      meta,
+    });
+  } catch (error: any) {
+    console.error("Error getting all features graph:", error);
+    res.status(500).json({
+      error: error.message || "Failed to get all features graph",
+    });
   }
 }

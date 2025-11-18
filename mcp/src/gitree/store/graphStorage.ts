@@ -706,4 +706,128 @@ export class GraphStorage extends Storage {
     }
   }
 
+  /**
+   * Get all features with their files and contained nodes
+   * Returns structured data for building a flat graph
+   */
+  async getAllFeaturesWithFilesAndContains(): Promise<{
+    features: any[];
+    files: any[];
+    containedNodes: any[];
+    modifiesEdges: any[];
+    containsEdges: any[];
+  }> {
+    const session = this.driver.session();
+    try {
+      // Get all features
+      const featuresResult = await session.run(
+        `MATCH (f:Feature) RETURN f ORDER BY f.date DESC`
+      );
+      const features = featuresResult.records.map((r) => r.get("f"));
+
+      // Get all MODIFIES relationships and files
+      const modifiesResult = await session.run(
+        `
+        MATCH (feature:Feature)-[m:MODIFIES]->(file:File)
+        RETURN feature, m, file
+        `
+      );
+
+      const filesMap = new Map();
+      const modifiesEdges: any[] = [];
+
+      for (const record of modifiesResult.records) {
+        const featureNode = record.get("feature");
+        const modifiesRel = record.get("m");
+        const fileNode = record.get("file");
+
+        // Add file
+        if (fileNode && fileNode.properties && fileNode.properties.ref_id) {
+          const fileRefId = fileNode.properties.ref_id;
+          if (!filesMap.has(fileRefId)) {
+            filesMap.set(fileRefId, fileNode);
+          }
+        }
+
+        // Add MODIFIES edge
+        if (featureNode && modifiesRel && fileNode) {
+          modifiesEdges.push({
+            edge_type: "MODIFIES",
+            ref_id: modifiesRel.properties?.ref_id || "",
+            source: featureNode.properties?.ref_id || "",
+            target: fileNode.properties?.ref_id || "",
+            properties: {
+              importance: modifiesRel.properties?.importance,
+            },
+          });
+        }
+      }
+
+      // Get file ref_ids to use in next query
+      const fileRefIds = Array.from(filesMap.keys());
+
+      // Get all contained nodes and CONTAINS edges starting from these files
+      const containedNodesMap = new Map();
+      const containsEdges: any[] = [];
+      const processedEdges = new Set();
+
+      if (fileRefIds.length > 0) {
+        const containsResult = await session.run(
+          `
+          MATCH path = (file:File)-[:CONTAINS*]->(contained)
+          WHERE file.ref_id IN $fileRefIds
+          WITH contained, relationships(path) as rels
+          RETURN DISTINCT contained, rels
+          `,
+          { fileRefIds }
+        );
+
+        for (const record of containsResult.records) {
+          const containedNode = record.get("contained");
+          const rels = record.get("rels");
+
+          // Add contained node
+          if (containedNode && containedNode.properties && containedNode.properties.ref_id) {
+            const refId = containedNode.properties.ref_id;
+            if (!containedNodesMap.has(refId)) {
+              containedNodesMap.set(refId, containedNode);
+            }
+          }
+
+          // Add all edges from the path
+          if (Array.isArray(rels)) {
+            for (const rel of rels) {
+              if (rel.start && rel.end) {
+                const sourceRefId = rel.start.properties?.ref_id || "";
+                const targetRefId = rel.end.properties?.ref_id || "";
+                const edgeKey = `${sourceRefId}:${targetRefId}`;
+
+                if (!processedEdges.has(edgeKey) && sourceRefId && targetRefId) {
+                  processedEdges.add(edgeKey);
+                  containsEdges.push({
+                    edge_type: "CONTAINS",
+                    ref_id: rel.properties?.ref_id || "",
+                    source: sourceRefId,
+                    target: targetRefId,
+                    properties: rel.properties || {},
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        features,
+        files: Array.from(filesMap.values()),
+        containedNodes: Array.from(containedNodesMap.values()),
+        modifiesEdges,
+        containsEdges,
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
 }
