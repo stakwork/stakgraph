@@ -155,6 +155,13 @@ impl EdgeQueryBuilder {
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
 
+        let edge_ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+            "test_ref_id".to_string()
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+        boltmap_insert_str(&mut params, "edge_ref_id", &edge_ref_id);
+
         // println!(
         //     "[EdgeQueryBuilder] source_key: {}, target_key: {}",
         //     source_key, target_key
@@ -164,6 +171,8 @@ impl EdgeQueryBuilder {
             "MATCH (source:{} {{node_key: $source_key}}),
                  (target:{} {{node_key: $target_key}})
             MERGE (source)-[r:{}]->(target)
+            ON CREATE SET r.ref_id = $edge_ref_id
+            ON MATCH SET r.ref_id = $edge_ref_id
             RETURN r",
             source_type, target_type, rel_type
         );
@@ -183,10 +192,19 @@ impl EdgeQueryBuilder {
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
 
+        let edge_ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+            "test_ref_id".to_string()
+        } else {
+            uuid::Uuid::new_v4().to_string()
+        };
+        boltmap_insert_str(&mut params, "edge_ref_id", &edge_ref_id);
+
         let query = format!(
             "MATCH (source:{} {{node_key: $source_key}}),
                  (target:{} {{node_key: $target_key}})
-            MERGE (source)-[r:{}]->(target)",
+            MERGE (source)-[r:{}]->(target)
+            ON CREATE SET r.ref_id = $edge_ref_id
+            ON MATCH SET r.ref_id = $edge_ref_id",
             source_type, target_type, rel_type
         );
         (query, params)
@@ -224,8 +242,14 @@ where
                         .into_iter()
                         .map(|(source, target)| {
                             let mut edge_map = BoltMap::new();
+                            let edge_ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+                                "test_ref_id".to_string()
+                            } else {
+                                uuid::Uuid::new_v4().to_string()
+                            };
                             boltmap_insert_str(&mut edge_map, "source", &source);
                             boltmap_insert_str(&mut edge_map, "target", &target);
+                            boltmap_insert_str(&mut edge_map, "ref_id", &edge_ref_id);
                             edge_map
                         })
                         .collect();
@@ -238,6 +262,7 @@ where
                         "UNWIND $edges AS edge
                          MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
                          CREATE (source)-[r:{}]->(target)
+                         SET r.ref_id = edge.ref_id
                          RETURN count(r)",
                         edge_type.to_string()
                     );
@@ -277,8 +302,14 @@ where
                         .into_iter()
                         .map(|(source, target)| {
                             let mut edge_map = BoltMap::new();
+                            let edge_ref_id = if std::env::var("TEST_REF_ID").is_ok() {
+                                "test_ref_id".to_string()
+                            } else {
+                                uuid::Uuid::new_v4().to_string()
+                            };
                             boltmap_insert_str(&mut edge_map, "source", &source);
                             boltmap_insert_str(&mut edge_map, "target", &target);
+                            boltmap_insert_str(&mut edge_map, "ref_id", &edge_ref_id);
                             edge_map
                         })
                         .collect();
@@ -289,7 +320,9 @@ where
                     let query = format!(
                         "UNWIND $edges AS edge
                          MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
-                         MERGE (source)-[r:{}]->(target)",
+                         MERGE (source)-[r:{}]->(target)
+                         ON CREATE SET r.ref_id = edge.ref_id
+                         ON MATCH SET r.ref_id = edge.ref_id",
                         edge_type.to_string()
                     );
 
