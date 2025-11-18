@@ -106,6 +106,7 @@ app.get("/gitree/features/:id", gitree.gitree_get_feature);
 app.get("/gitree/features/:id/files", gitree.gitree_get_feature_files);
 app.get("/gitree/prs/:number", gitree.gitree_get_pr);
 app.get("/gitree/stats", gitree.gitree_stats);
+app.get("/gitree/all-features-graph", gitree.gitree_all_features_graph);
 app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);
 app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);

@@ -7,6 +7,15 @@ import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { Octokit } from "@octokit/rest";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
+import {
+  toReturnNode,
+  parseNodeTypes,
+  parseLimit,
+  buildGraphMeta,
+  isTrue,
+  IS_TEST,
+} from "../graph/utils.js";
+import { NodeType, Neo4jNode } from "../graph/types.js";
 
 /**
  * Parse Git repository URL to extract owner and repo
@@ -522,5 +531,105 @@ export async function gitree_link_files(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to link files" });
+  }
+}
+
+/**
+ * Convert node to concise format with only name, file, ref_id, and node_type
+ */
+function toConciseNode(node: Neo4jNode): { name: string; file: string; ref_id: string; node_type: string } {
+  const ref_id = IS_TEST ? "test_ref_id" : node.properties.ref_id || "";
+  const node_type = node.labels.find((l: string) => l !== "Data_Bank") || "";
+  return {
+    name: node.properties.name || "",
+    file: node.properties.file || "",
+    ref_id,
+    node_type,
+  };
+}
+
+/**
+ * Get all features with files and contained nodes as a flat graph structure
+ * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true
+ */
+export async function gitree_all_features_graph(req: Request, res: Response) {
+  try {
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Get all data from GraphStorage
+    const data = await storage.getAllFeaturesWithFilesAndContains();
+
+    // Parse query parameters
+    const limit = parseLimit(req.query);
+    const requestedNodeTypes = parseNodeTypes(req.query);
+    const concise = isTrue(req.query.concise as string);
+
+    // Combine all nodes
+    let allNodes = [
+      ...data.features,
+      ...data.files,
+      ...data.containedNodes,
+    ];
+
+    // Filter by node types if specified
+    if (requestedNodeTypes.length > 0) {
+      allNodes = allNodes.filter((node) => {
+        const nodeType = node.labels.find((l: string) => l !== "Data_Bank");
+        return nodeType === "Feature" || nodeType === "File" || requestedNodeTypes.includes(nodeType);
+      });
+    }
+
+    // Apply limit if specified
+    if (limit) {
+      allNodes = allNodes.slice(0, limit);
+    }
+
+    // Transform nodes to return format
+    const returnNodes = concise
+      ? allNodes.map((node) => toConciseNode(node))
+      : allNodes.map((node) => toReturnNode(node));
+
+    // Combine all edges
+    let allEdges = [...data.modifiesEdges, ...data.containsEdges];
+
+    // Transform edges to concise format if requested
+    if (concise) {
+      allEdges = allEdges.map((e) => ({
+        edge_type: e.edge_type,
+        source: e.source,
+        target: e.target,
+      }));
+    }
+
+    // Build meta information
+    const nodeTypes = Array.from(
+      new Set(
+        allNodes.map((n) => {
+          const label = n.labels.find((l: string) => l !== "Data_Bank");
+          return label;
+        }).filter(Boolean)
+      )
+    ) as NodeType[];
+
+    const meta = buildGraphMeta(
+      nodeTypes,
+      allNodes,
+      limit,
+      "total",
+      undefined
+    );
+
+    res.json({
+      nodes: returnNodes,
+      edges: allEdges,
+      status: "Success",
+      meta,
+    });
+  } catch (error: any) {
+    console.error("Error getting all features graph:", error);
+    res.status(500).json({
+      error: error.message || "Failed to get all features graph",
+    });
   }
 }
