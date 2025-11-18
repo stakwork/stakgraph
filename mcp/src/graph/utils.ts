@@ -205,6 +205,15 @@ export function clean_node(n: Neo4jNode): Neo4jNode {
   if (n.properties.token_count) {
     n.properties.token_count = toNum(n.properties.token_count);
   }
+  if (n.properties.date) {
+    n.properties.date = toNum(n.properties.date);
+  }
+  if (n.properties.amount) {
+    n.properties.amount = toNum(n.properties.amount);
+  }
+  if (n.properties.kind) {
+    n.properties.kind = toNum(n.properties.kind);
+  }
   if (n.properties.ref_id) {
     n.ref_id = n.properties.ref_id;
   }
