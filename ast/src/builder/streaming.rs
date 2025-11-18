@@ -50,6 +50,7 @@ impl GraphStreamingUploader {
                     create_node_key_from_ref(&e.source),
                     create_node_key_from_ref(&e.target),
                     e.edge.clone(),
+                    e.ref_id.clone(),
                 )
             }),
             256,

@@ -24,6 +24,7 @@ use shared::Error;
 
 use crate::lang::asg::*;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
 pub enum NodeType {
     Repository,
@@ -67,6 +68,7 @@ pub struct Edge {
     pub edge: EdgeType,
     pub source: NodeRef,
     pub target: NodeRef,
+    pub ref_id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -121,6 +123,7 @@ impl Edge {
             edge,
             source,
             target,
+            ref_id: Uuid::new_v4().to_string(),
         }
     }
     pub fn from_test_call(call: &Calls) -> Edge {

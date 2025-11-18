@@ -154,6 +154,7 @@ impl EdgeQueryBuilder {
         let target_type = self.edge.target.node_type.to_string();
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
+        boltmap_insert_str(&mut params, "ref_id", &self.edge.ref_id);
 
         // println!(
         //     "[EdgeQueryBuilder] source_key: {}, target_key: {}",
@@ -164,6 +165,7 @@ impl EdgeQueryBuilder {
             "MATCH (source:{} {{node_key: $source_key}}),
                  (target:{} {{node_key: $target_key}})
             MERGE (source)-[r:{}]->(target)
+            SET r.ref_id = $ref_id
             RETURN r",
             source_type, target_type, rel_type
         );
@@ -182,11 +184,13 @@ impl EdgeQueryBuilder {
         let target_type = self.edge.target.node_type.to_string();
         let target_key = create_node_key_from_ref(&self.edge.target);
         boltmap_insert_str(&mut params, "target_key", &target_key);
+        boltmap_insert_str(&mut params, "ref_id", &self.edge.ref_id);
 
         let query = format!(
             "MATCH (source:{} {{node_key: $source_key}}),
                  (target:{} {{node_key: $target_key}})
-            MERGE (source)-[r:{}]->(target)",
+            MERGE (source)-[r:{}]->(target)
+            SET r.ref_id = $ref_id",
             source_type, target_type, rel_type
         );
         (query, params)
@@ -195,14 +199,14 @@ impl EdgeQueryBuilder {
 
 pub fn build_batch_edge_queries<I>(edges: I, batch_size: usize) -> Vec<(String, BoltMap)>
 where
-    I: Iterator<Item = (String, String, EdgeType)>,
+    I: Iterator<Item = (String, String, EdgeType, String)>,
 {
     use itertools::Itertools;
     use std::collections::HashMap;
 
     // Group edges by type
-    let edges_by_type: HashMap<EdgeType, Vec<(String, String)>> = edges
-        .map(|(source, target, edge_type)| (edge_type, (source, target)))
+    let edges_by_type: HashMap<EdgeType, Vec<(String, String, String)>> = edges
+        .map(|(source, target, edge_type, ref_id)| (edge_type, (source, target, ref_id)))
         .into_group_map();
 
     // Create batched queries for each edge type
@@ -210,7 +214,7 @@ where
         .into_iter()
         .flat_map(|(edge_type, type_edges)| {
             // Batch the edges for this type
-            let chunks: Vec<Vec<(String, String)>> = type_edges
+            let chunks: Vec<Vec<(String, String, String)>> = type_edges
                 .into_iter()
                 .chunks(batch_size)
                 .into_iter()
@@ -222,10 +226,11 @@ where
                 .map(|chunk| {
                     let edges_data: Vec<BoltMap> = chunk
                         .into_iter()
-                        .map(|(source, target)| {
+                        .map(|(source, target, ref_id)| {
                             let mut edge_map = BoltMap::new();
                             boltmap_insert_str(&mut edge_map, "source", &source);
                             boltmap_insert_str(&mut edge_map, "target", &target);
+                            boltmap_insert_str(&mut edge_map, "ref_id", &ref_id);
                             edge_map
                         })
                         .collect();
@@ -238,6 +243,7 @@ where
                         "UNWIND $edges AS edge
                          MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
                          CREATE (source)-[r:{}]->(target)
+                         SET r.ref_id = edge.ref_id
                          RETURN count(r)",
                         edge_type.to_string()
                     );
@@ -251,19 +257,19 @@ where
 
 pub fn build_batch_edge_queries_stream<I>(edges: I, batch_size: usize) -> Vec<(String, BoltMap)>
 where
-    I: Iterator<Item = (String, String, EdgeType)>,
+    I: Iterator<Item = (String, String, EdgeType, String)>,
 {
     use itertools::Itertools;
     use std::collections::HashMap;
 
-    let edges_by_type: HashMap<EdgeType, Vec<(String, String)>> = edges
-        .map(|(source, target, edge_type)| (edge_type, (source, target)))
+    let edges_by_type: HashMap<EdgeType, Vec<(String, String, String)>> = edges
+        .map(|(source, target, edge_type, ref_id)| (edge_type, (source, target, ref_id)))
         .into_group_map();
 
     edges_by_type
         .into_iter()
         .flat_map(|(edge_type, type_edges)| {
-            let chunks: Vec<Vec<(String, String)>> = type_edges
+            let chunks: Vec<Vec<(String, String, String)>> = type_edges
                 .into_iter()
                 .chunks(batch_size)
                 .into_iter()
@@ -275,10 +281,11 @@ where
                 .map(|chunk| {
                     let edges_data: Vec<BoltMap> = chunk
                         .into_iter()
-                        .map(|(source, target)| {
+                        .map(|(source, target, ref_id)| {
                             let mut edge_map = BoltMap::new();
                             boltmap_insert_str(&mut edge_map, "source", &source);
                             boltmap_insert_str(&mut edge_map, "target", &target);
+                            boltmap_insert_str(&mut edge_map, "ref_id", &ref_id);
                             edge_map
                         })
                         .collect();
@@ -289,7 +296,8 @@ where
                     let query = format!(
                         "UNWIND $edges AS edge
                          MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
-                         MERGE (source)-[r:{}]->(target)",
+                         MERGE (source)-[r:{}]->(target)
+                         SET r.ref_id = edge.ref_id",
                         edge_type.to_string()
                     );
 

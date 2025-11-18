@@ -514,7 +514,12 @@ impl GraphOps {
         }
 
         info!("preparing edge upload {}", btree_graph.edges.len());
-        let edge_queries = build_batch_edge_queries(btree_graph.edges.iter().cloned(), 256);
+        let edges_with_ref_ids = btree_graph.edges.iter().map(|(src, tgt, et)| {
+            use uuid::Uuid;
+            let ref_id = Uuid::new_v4().to_string();
+            (src.clone(), tgt.clone(), et.clone(), ref_id)
+        });
+        let edge_queries = build_batch_edge_queries(edges_with_ref_ids, 256);
 
         debug!("executing edge upload in batches");
         self.graph.execute_simple(edge_queries).await?;
