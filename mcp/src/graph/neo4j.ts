@@ -148,8 +148,8 @@ class Db {
         return {
           edge_type: edge.type,
           ref_id: edge.properties.ref_id,
-          source: source.properties.node_key,
-          target: target.properties.node_key,
+          source: source.properties.ref_id,
+          target: target.properties.ref_id,
           properties: edge.properties,
         } as Neo4jEdge;
       });
