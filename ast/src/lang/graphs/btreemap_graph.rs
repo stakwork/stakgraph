@@ -557,7 +557,8 @@ impl Graph for BTreeMapGraph {
 
             // Update edges
             for (dst, edge) in edges {
-                self.edges.remove(&(old_key.clone(), dst.clone(), edge.clone()));
+                self.edges
+                    .remove(&(old_key.clone(), dst.clone(), edge.clone()));
                 self.edges.insert((new_key.clone(), dst, edge));
             }
         }
@@ -797,25 +798,24 @@ impl Graph for BTreeMapGraph {
     fn count_edges_of_type(&self, edge_type: EdgeType) -> usize {
         self.edges
             .iter()
-            .filter(|(_, _, et)| *et == edge_type)
+            .filter(|(_, _, edge)| match (edge, &edge_type) {
+                (EdgeType::Calls, EdgeType::Calls) => true,
+                _ => *edge == edge_type,
+            })
             .count()
     }
     fn has_edge(&self, source: &Node, target: &Node, edge_type: EdgeType) -> bool {
         let source_key = create_node_key(source);
         let target_key = create_node_key(target);
-        self.edges
-            .iter()
-            .any(|(s, t, et)| s == &source_key && t == &target_key && et == &edge_type)
+        if let Some(_edge) = self.find_edge_by_keys(&source_key, &target_key, &edge_type) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
     fn get_edges_vec(&self) -> Vec<Edge> {
-        let mut edges_vec = Vec::new();
-        for (src_key, dst_key, edge_type) in &self.edges {
-            if let Some(edge) = self.find_edge_by_keys(src_key, dst_key, edge_type) {
-                edges_vec.push(edge);
-            }
-        }
-        edges_vec
+        self.to_array_graph_edges()
     }
 
     fn set_allow_unverified_calls(&mut self, allow: bool) {
