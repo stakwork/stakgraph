@@ -196,15 +196,13 @@ export function deser_multi(record: any, key: string): Neo4jNode[] {
 }
 
 export function clean_node(n: Neo4jNode): Neo4jNode {
-  if (n.properties.start) {
-    n.properties.start = toNum(n.properties.start);
+  for (const key in n.properties) {
+    const value = n.properties[key];
+    if (typeof value === "object" && value !== null && "low" in value) {
+      n.properties[key] = toNum(value);
+    }
   }
-  if (n.properties.end) {
-    n.properties.end = toNum(n.properties.end);
-  }
-  if (n.properties.token_count) {
-    n.properties.token_count = toNum(n.properties.token_count);
-  }
+  
   if (n.properties.ref_id) {
     n.ref_id = n.properties.ref_id;
   }
