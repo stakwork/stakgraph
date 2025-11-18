@@ -932,9 +932,21 @@ if (!no_db) {
 }
 
 function deser_edge(record: any): Neo4jEdge {
+  const edge_ref_id = record.get("edge_ref_id");
+  const edge_id = record.get("edge_id");
+
+  let ref_id: string;
+  if (edge_ref_id) {
+    ref_id = edge_ref_id;
+  } else if (edge_id !== undefined && edge_id !== null) {
+    ref_id = edge_id.toString();
+  } else {
+    ref_id = uuidv4();
+  }
+  
   return {
     edge_type: record.get("edge_type"),
-    ref_id: uuidv4(),
+    ref_id: ref_id,
     source: record.get("source_ref_id"),
     target: record.get("target_ref_id"),
     properties: record.get("properties") || {},

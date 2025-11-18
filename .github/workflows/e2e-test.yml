@@ -67,7 +67,7 @@ jobs:
           export REPO_URL="https://github.com/stakwork/demo-repo.git"
           export LSP_SKIP_POST_CLONE=1
           export USE_LSP=0
-          OUTPUT_FORMAT=jsonl cargo run --bin index
+          OUTPUT_FORMAT=jsonl cargo run --bin index --no-default-features
 
       - name: Wait for Neo4j to be Ready
         run: |

@@ -133,6 +133,7 @@ export const ADD_EDGE_QUERY = (edgeType: string) => `
 MATCH (source {ref_id: $source_ref_id})
 MATCH (target {ref_id: $target_ref_id})
 MERGE (source)-[r:${edgeType}]->(target)
+ON CREATE SET r.ref_id = randomUUID()
 RETURN r
 `;
 
@@ -165,7 +166,8 @@ RETURN h, allNodes,
     source: a.ref_id,
     target: b.ref_id,
     edge_type: type(r),
-    properties: properties(r)
+    properties: properties(r),
+    ref_id: r.ref_id
   }) AS edges
 `;
 
@@ -180,6 +182,7 @@ MATCH (a:Hint {ref_id: $source_ref_id})
 MATCH (b:Hint {ref_id: $target_ref_id})
 WHERE a.ref_id <> b.ref_id
 MERGE (a)-[r:SIBLING]->(b)
+ON CREATE SET r.ref_id = randomUUID()
 RETURN r
 `;
 
@@ -218,6 +221,7 @@ WHERE h.ref_id = $hint_ref_id AND (h:Hint OR h:Prompt)
 UNWIND $weighted_ref_ids AS weighted_ref
 MATCH (t {ref_id: weighted_ref.ref_id})
 MERGE (h)-[r:USES]->(t)
+ON CREATE SET r.ref_id = randomUUID()
 SET r.relevancy = weighted_ref.relevancy
 RETURN collect(distinct t.ref_id) as refs
 `;
@@ -677,7 +681,7 @@ WHERE
     ELSE (source.file IS NOT NULL AND ANY(ext IN $extensions WHERE source.file ENDS WITH ext))
          OR (target.file IS NOT NULL AND ANY(ext IN $extensions WHERE target.file ENDS WITH ext))
   END
-RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties
+RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties, r.ref_id AS edge_ref_id, id(r) AS edge_id
 ORDER BY edge_type, source_ref_id
 LIMIT toInteger($limit)
 `;
@@ -694,7 +698,7 @@ WHERE (source.ref_id = refId OR target.ref_id = refId)
     ELSE (source.file IS NOT NULL AND ANY(ext IN $extensions WHERE source.file ENDS WITH ext))
          OR (target.file IS NOT NULL AND ANY(ext IN $extensions WHERE target.file ENDS WITH ext))
   END
-RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties
+RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties, r.ref_id AS edge_ref_id, id(r) AS edge_id
 ORDER BY edge_type, source_ref_id
 LIMIT toInteger($limit)
 `;
@@ -709,7 +713,7 @@ WHERE source.ref_id IS NOT NULL
     ELSE (source.file IS NOT NULL AND ANY(ext IN $extensions WHERE source.file ENDS WITH ext))
          OR (target.file IS NOT NULL AND ANY(ext IN $extensions WHERE target.file ENDS WITH ext))
   END
-RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties
+RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties, r.ref_id AS edge_ref_id, id(r) AS edge_id
 ORDER BY edge_type, source_ref_id
 LIMIT toInteger($limit)
 `;
