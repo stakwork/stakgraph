@@ -12,8 +12,10 @@ import {
   parseNodeTypes,
   parseLimit,
   buildGraphMeta,
+  isTrue,
+  IS_TEST,
 } from "../graph/utils.js";
-import { NodeType } from "../graph/types.js";
+import { NodeType, Neo4jNode } from "../graph/types.js";
 
 /**
  * Parse Git repository URL to extract owner and repo
@@ -533,8 +535,22 @@ export async function gitree_link_files(req: Request, res: Response) {
 }
 
 /**
+ * Convert node to concise format with only name, file, ref_id, and node_type
+ */
+function toConciseNode(node: Neo4jNode): { name: string; file: string; ref_id: string; node_type: string } {
+  const ref_id = IS_TEST ? "test_ref_id" : node.properties.ref_id || "";
+  const node_type = node.labels.find((l: string) => l !== "Data_Bank") || "";
+  return {
+    name: node.properties.name || "",
+    file: node.properties.file || "",
+    ref_id,
+    node_type,
+  };
+}
+
+/**
  * Get all features with files and contained nodes as a flat graph structure
- * GET /gitree/all-features-graph?limit=100&node_types=Function,Class
+ * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true
  */
 export async function gitree_all_features_graph(req: Request, res: Response) {
   try {
@@ -547,6 +563,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     // Parse query parameters
     const limit = parseLimit(req.query);
     const requestedNodeTypes = parseNodeTypes(req.query);
+    const concise = isTrue(req.query.concise as string);
 
     // Combine all nodes
     let allNodes = [
@@ -569,15 +586,29 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     }
 
     // Transform nodes to return format
-    const returnNodes = allNodes.map((node) => toReturnNode(node));
+    const returnNodes = concise
+      ? allNodes.map((node) => toConciseNode(node))
+      : allNodes.map((node) => toReturnNode(node));
 
     // Combine all edges
-    const allEdges = [...data.modifiesEdges, ...data.containsEdges];
+    let allEdges = [...data.modifiesEdges, ...data.containsEdges];
+
+    // Transform edges to concise format if requested
+    if (concise) {
+      allEdges = allEdges.map((e) => ({
+        edge_type: e.edge_type,
+        source: e.source,
+        target: e.target,
+      }));
+    }
 
     // Build meta information
     const nodeTypes = Array.from(
       new Set(
-        returnNodes.map((n) => n.node_type)
+        allNodes.map((n) => {
+          const label = n.labels.find((l: string) => l !== "Data_Bank");
+          return label;
+        }).filter(Boolean)
       )
     ) as NodeType[];
 
