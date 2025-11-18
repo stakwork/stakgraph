@@ -550,7 +550,7 @@ function toConciseNode(node: Neo4jNode): { name: string; file: string; ref_id: s
 
 /**
  * Get all features with files and contained nodes as a flat graph structure
- * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true
+ * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true&depth=2&per_type_limits=Function:50,Class:25
  */
 export async function gitree_all_features_graph(req: Request, res: Response) {
   try {
@@ -564,6 +564,23 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     const limit = parseLimit(req.query);
     const requestedNodeTypes = parseNodeTypes(req.query);
     const concise = isTrue(req.query.concise as string);
+    const depth = parseInt(req.query.depth as string) || undefined;
+    const perTypeLimitsParam = req.query.per_type_limits as string;
+
+    // Parse per-type limits (e.g., "Function:50,Class:25")
+    const perTypeLimits: { [nodeType: string]: number } = {};
+    if (perTypeLimitsParam) {
+      const pairs = perTypeLimitsParam.split(',');
+      for (const pair of pairs) {
+        const [nodeType, limitStr] = pair.trim().split(':');
+        if (nodeType && limitStr) {
+          const typeLimit = parseInt(limitStr);
+          if (!isNaN(typeLimit)) {
+            perTypeLimits[nodeType] = typeLimit;
+          }
+        }
+      }
+    }
 
     // Combine all nodes
     let allNodes = [
@@ -580,7 +597,37 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
       });
     }
 
-    // Apply limit if specified
+    // Apply per-type limits if specified
+    if (Object.keys(perTypeLimits).length > 0) {
+      const nodesByType: { [nodeType: string]: any[] } = {};
+
+      // Group nodes by type
+      allNodes.forEach((node) => {
+        const nodeType = node.labels.find((l: string) => l !== "Data_Bank") || "Unknown";
+        if (!nodesByType[nodeType]) {
+          nodesByType[nodeType] = [];
+        }
+        nodesByType[nodeType].push(node);
+      });
+
+      // Apply limits per type
+      allNodes = [];
+      for (const [nodeType, nodes] of Object.entries(nodesByType)) {
+        const typeLimit = perTypeLimits[nodeType];
+        if (typeLimit && nodes.length > typeLimit) {
+          allNodes.push(...nodes.slice(0, typeLimit));
+        } else {
+          allNodes.push(...nodes);
+        }
+      }
+    }
+
+    // TODO: Implement depth filtering
+    // The depth parameter would require traversing the graph relationships
+    // from Features -> Files -> Contained nodes, limiting the traversal depth
+    // This would need to be implemented in the GraphStorage layer
+
+    // Apply global limit if specified (after per-type limits)
     if (limit) {
       allNodes = allNodes.slice(0, limit);
     }
