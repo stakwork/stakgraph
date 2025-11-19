@@ -4,6 +4,16 @@ A source code parser using treesitter, LSP, and neo4j. Software knowledge graphs
 
 ![img](./mcp/docs/sg.png)
 
+### cli
+
+```
+curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/main/install.sh | bash
+```
+
+```
+stakgraph ./file.ts
+```
+
 ### parse a repo
 
 Example of parsing [sphinx-tribes](https://github.com/stakwork/demo-repo) and [sphinx-tribes-frontend](https://github.com/stakwork/sphinx-tribes-frontend). Endpoints, Requests, and E2E tests are linked between the two repos.

@@ -23,7 +23,7 @@ jobs:
           # macOS
           - target: x86_64-apple-darwin
             archive: tar.gz
-            build-on: macos-13
+            build-on: macos-15
             use-cross: false
           - target: aarch64-apple-darwin
             archive: tar.gz

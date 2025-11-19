@@ -64,7 +64,7 @@ export async function get_context(
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
   const system =
     systemOverride ||
-    `You are a code exploration assistant. Please use the provided tools to answer the user's prompt. ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION. Do NOT create document with your answer, always use the final_answer tool!!!!!!!!!!`;
+    `You are a code exploration assistant. Please use the provided tools to answer the user's prompt. ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION. Do NOT write to a document with your answer, instead ALWAYS finish with the final_answer tool!!!!!!!!!!`;
   const { steps, totalUsage } = await generateText({
     model,
     tools,
@@ -94,9 +94,9 @@ export async function get_context(
   }
   if (!final && lastText) {
     console.warn(
-      "No final_answer tool call detected; falling back to last reasoning text."
+      "No final_answer tool call detected; falling back to last text."
     );
-    final = `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last reasoning text as answer.)`;
+    final = `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last text as final answer.)`;
   }
 
   const endTime = Date.now();

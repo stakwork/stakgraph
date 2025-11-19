@@ -31,7 +31,7 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   recent_contributions:
     "Query a repo for recent PRs by a specific contributor. Input is the contributor's GitHub login. The output is a list of their most recent contributions, including PR titles, issue titles, commit messages, and code review comments.",
   fulltext_search:
-    "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
+    "Search the entire codebase for a specific term, using ripgrep (rg). Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
   web_search: "Search the web for information",
   bash: "Execute bash commands",
   final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
@@ -191,7 +191,7 @@ export function get_tools(
     // If config is false, exclude the tool
     if (config === false) {
       delete selectedTools[toolName];
-    } else if (typeof config === 'string' && config !== '') {
+    } else if (typeof config === "string" && config !== "") {
       // If config is a non-empty string, override the description
       selectedTools[toolName] = tool({
         description: config,
