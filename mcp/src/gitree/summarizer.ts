@@ -38,21 +38,29 @@ export class Summarizer {
     const sortedPRs = allPRs.sort((a, b) => a.number - b.number);
     const sortedCommits = allCommits.sort((a, b) => a.committedAt.getTime() - b.committedAt.getTime());
 
-    // Combine and take last 100 total
+    // Combine and sort chronologically (oldest to newest)
     const combined = [
       ...sortedPRs.map(pr => ({ type: 'pr' as const, data: pr, date: pr.mergedAt })),
       ...sortedCommits.map(commit => ({ type: 'commit' as const, data: commit, date: commit.committedAt }))
-    ].sort((a, b) => a.date.getTime() - b.date.getTime()).slice(-100);
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    const prs = combined.filter(c => c.type === 'pr').map(c => c.data as PRRecord);
-    const commits = combined.filter(c => c.type === 'commit').map(c => c.data as CommitRecord);
+    // Bookend strategy: First 8 (foundational) + Last 100 (recent) = 108 total
+    let selected;
+    if (combined.length <= 108) {
+      selected = combined; // Use all if under limit
+    } else {
+      const first8 = combined.slice(0, 8);   // Foundation
+      const last100 = combined.slice(-100);  // Current state
+      selected = [...first8, ...last100];
+    }
 
     console.log(
-      `   Found ${allPRs.length} PRs and ${allCommits.length} commits (using ${combined.length} most recent)`
+      `   Found ${allPRs.length} PRs and ${allCommits.length} commits (using ${selected.length}: ${combined.length <= 108 ? 'all' : 'first 8 + last 100'})`
     );
 
-    // Build prompt with all PR and commit content
-    const prompt = this.buildSummaryPrompt(feature, prs, commits);
+    // Build prompt with selected changes (in chronological order)
+    const isBookended = combined.length > 108;
+    const prompt = this.buildSummaryPrompt(feature, selected, isBookended);
 
     // Generate documentation using LLM
     console.log(`   🤖 Generating documentation...`);
@@ -122,19 +130,30 @@ export class Summarizer {
   /**
    * Build the prompt for generating documentation
    */
-  private buildSummaryPrompt(feature: Feature, prs: PRRecord[], commits: CommitRecord[]): string {
-    // Format all PRs and commits in a concise format, chronologically
-    const prContents = prs.map((pr) => this.formatPRForSummary(pr));
-    const commitContents = commits.map((commit) => this.formatCommitForSummary(commit));
+  private buildSummaryPrompt(
+    feature: Feature,
+    selected: Array<{ type: 'pr' | 'commit', data: PRRecord | CommitRecord, date: Date }>,
+    isBookended: boolean
+  ): string {
+    // Format changes in chronological order
+    const formattedChanges = selected.map((item, index) => {
+      const content = item.type === 'pr'
+        ? this.formatPRForSummary(item.data as PRRecord)
+        : this.formatCommitForSummary(item.data as CommitRecord);
 
-    // Combine and sort by date
-    const allChanges = [
-      ...prContents.map(c => ({ content: c, type: 'pr' })),
-      ...commitContents.map(c => ({ content: c, type: 'commit' }))
-    ];
+      // Add section marker after first 8 if bookended
+      if (isBookended && index === 7) {
+        return content + '\n\n---\n**[NOTE: Gap in history - continuing with most recent 100 changes]**\n---';
+      }
 
-    const changesText = allChanges.map(c => c.content).join("\n\n");
-    const totalChanges = prs.length + commits.length;
+      return content;
+    });
+
+    const changesText = formattedChanges.join("\n\n");
+    const totalChanges = selected.length;
+
+    const prs = selected.filter(c => c.type === 'pr');
+    const commits = selected.filter(c => c.type === 'commit');
 
     return `You are generating SUCCINCT documentation for a software feature to help developers quickly understand and continue working on it.
 
@@ -143,8 +162,8 @@ export class Summarizer {
 **Description**: ${feature.description}
 **Total changes in history**: ${totalChanges} (${prs.length} PRs, ${commits.length} commits)
 
-Below is the COMPLETE chronological history of changes (PRs and commits) that built this feature (from oldest to newest):
-
+Below is ${isBookended ? 'the FOUNDATIONAL (first 8) and RECENT (last 100) changes' : 'the COMPLETE chronological history'} (PRs and commits) that built this feature (from oldest to newest):
+${isBookended ? '\n**NOTE**: The first 8 changes show initial architecture/foundation. After a gap, the remaining changes show the recent state.\n' : ''}
 ${changesText}
 
 ---
