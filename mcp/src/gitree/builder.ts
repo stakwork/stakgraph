@@ -11,7 +11,7 @@ import {
   ChronologicalCheckpoint,
 } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
-import { fetchCommitContent, fetchOrphanCommits } from "./commit.js";
+import { fetchCommitContent } from "./commit.js";
 
 /**
  * Main class for building the feature knowledge base from PRs and commits
@@ -437,7 +437,7 @@ ${DECISION_GUIDELINES}`;
   }
 
   /**
-   * Apply LLM decision
+   * Apply LLM decision for a PR
    */
   private async applyPrDecision(
     owner: string,
@@ -465,83 +465,22 @@ ${DECISION_GUIDELINES}`;
     };
     await this.storage.savePR(prRecord);
 
-    console.log(`   📝 Summary: ${decision.summary}`);
-    console.log(`   💭 Reasoning: ${decision.reasoning}`);
-
-    // Process each action
-    for (const action of decision.actions) {
-      if (action === "ignore") {
-        console.log(`   ⏭️  Ignored`);
-        continue;
-      }
-
-      if (action === "add_to_existing") {
-        // Add to existing feature(s)
-        if (
-          decision.existingFeatureIds &&
-          decision.existingFeatureIds.length > 0
-        ) {
-          for (const featureId of decision.existingFeatureIds) {
-            const feature = await this.storage.getFeature(featureId);
-            if (feature) {
-              if (!feature.prNumbers.includes(pr.number)) {
-                feature.prNumbers.push(pr.number);
-                feature.lastUpdated = pr.mergedAt;
-                await this.storage.saveFeature(feature);
-                console.log(`   → Added to feature: ${feature.name}`);
-              }
-            } else {
-              console.log(
-                `   ⚠️  Warning: Feature ${featureId} not found, skipping`
-              );
-            }
-          }
+    // Apply the decision using shared logic
+    await this.applyDecisionToFeatures(decision, {
+      changeDate: pr.mergedAt,
+      addToFeature: async (feature) => {
+        if (!feature.prNumbers.includes(pr.number)) {
+          feature.prNumbers.push(pr.number);
+          return true;
         }
-      }
-
-      if (action === "create_new") {
-        // Create new feature(s)
-        if (decision.newFeatures && decision.newFeatures.length > 0) {
-          for (const newFeatureData of decision.newFeatures) {
-            const newFeature: Feature = {
-              id: this.generateFeatureId(newFeatureData.name),
-              name: newFeatureData.name,
-              description: newFeatureData.description,
-              prNumbers: [pr.number],
-              commitShas: [],
-              createdAt: pr.mergedAt,
-              lastUpdated: pr.mergedAt,
-            };
-            await this.storage.saveFeature(newFeature);
-            console.log(`   ✨ Created new feature: ${newFeature.name}`);
-          }
-        }
-      }
-    }
-
-    // Update feature descriptions
-    if (decision.updateFeatures && decision.updateFeatures.length > 0) {
-      for (const update of decision.updateFeatures) {
-        const feature = await this.storage.getFeature(update.featureId);
-        if (feature) {
-          feature.description = update.newDescription;
-          feature.lastUpdated = pr.mergedAt;
-          await this.storage.saveFeature(feature);
-          console.log(`   🔄 Updated feature description: ${feature.name}`);
-          console.log(`      ${update.reasoning}`);
-        } else {
-          console.log(
-            `   ⚠️  Warning: Cannot update feature ${update.featureId} - not found`
-          );
-        }
-      }
-    }
-
-    // Save themes
-    if (decision.themes && decision.themes.length > 0) {
-      await this.storage.addThemes(decision.themes);
-      console.log(`   🏷️  Tagged: ${decision.themes.join(", ")}`);
-    }
+        return false;
+      },
+      createFeatureWith: (baseFeature) => ({
+        ...baseFeature,
+        prNumbers: [pr.number],
+        commitShas: [],
+      }),
+    });
   }
 
   /**
@@ -658,6 +597,35 @@ ${DECISION_GUIDELINES}`;
     };
     await this.storage.saveCommit(commitRecord);
 
+    // Apply the decision using shared logic
+    await this.applyDecisionToFeatures(decision, {
+      changeDate: commit.committedAt,
+      addToFeature: async (feature) => {
+        if (!feature.commitShas.includes(commit.sha)) {
+          feature.commitShas.push(commit.sha);
+          return true;
+        }
+        return false;
+      },
+      createFeatureWith: (baseFeature) => ({
+        ...baseFeature,
+        prNumbers: [],
+        commitShas: [commit.sha],
+      }),
+    });
+  }
+
+  /**
+   * Shared logic for applying LLM decision to features
+   */
+  private async applyDecisionToFeatures(
+    decision: LLMDecision,
+    config: {
+      changeDate: Date;
+      addToFeature: (feature: Feature) => Promise<boolean>;
+      createFeatureWith: (base: Omit<Feature, 'prNumbers' | 'commitShas'>) => Feature;
+    }
+  ): Promise<void> {
     console.log(`   📝 Summary: ${decision.summary}`);
     console.log(`   💭 Reasoning: ${decision.reasoning}`);
 
@@ -677,9 +645,9 @@ ${DECISION_GUIDELINES}`;
           for (const featureId of decision.existingFeatureIds) {
             const feature = await this.storage.getFeature(featureId);
             if (feature) {
-              if (!feature.commitShas.includes(commit.sha)) {
-                feature.commitShas.push(commit.sha);
-                feature.lastUpdated = commit.committedAt;
+              const wasAdded = await config.addToFeature(feature);
+              if (wasAdded) {
+                feature.lastUpdated = config.changeDate;
                 await this.storage.saveFeature(feature);
                 console.log(`   → Added to feature: ${feature.name}`);
               }
@@ -696,15 +664,14 @@ ${DECISION_GUIDELINES}`;
         // Create new feature(s)
         if (decision.newFeatures && decision.newFeatures.length > 0) {
           for (const newFeatureData of decision.newFeatures) {
-            const newFeature: Feature = {
+            const baseFeature = {
               id: this.generateFeatureId(newFeatureData.name),
               name: newFeatureData.name,
               description: newFeatureData.description,
-              prNumbers: [],
-              commitShas: [commit.sha],
-              createdAt: commit.committedAt,
-              lastUpdated: commit.committedAt,
+              createdAt: config.changeDate,
+              lastUpdated: config.changeDate,
             };
+            const newFeature = config.createFeatureWith(baseFeature);
             await this.storage.saveFeature(newFeature);
             console.log(`   ✨ Created new feature: ${newFeature.name}`);
           }
@@ -718,7 +685,7 @@ ${DECISION_GUIDELINES}`;
         const feature = await this.storage.getFeature(update.featureId);
         if (feature) {
           feature.description = update.newDescription;
-          feature.lastUpdated = commit.committedAt;
+          feature.lastUpdated = config.changeDate;
           await this.storage.saveFeature(feature);
           console.log(`   🔄 Updated feature description: ${feature.name}`);
           console.log(`      ${update.reasoning}`);
