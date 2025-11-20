@@ -69,7 +69,9 @@ export abstract class Storage {
     if (!feature) return [];
 
     const commits: CommitRecord[] = [];
-    for (const sha of feature.commitShas) {
+    // Handle legacy features without commitShas
+    const commitShas = feature.commitShas || [];
+    for (const sha of commitShas) {
       const commit = await this.getCommit(sha);
       if (commit) commits.push(commit);
     }
@@ -78,6 +80,7 @@ export abstract class Storage {
 
   async getFeaturesForCommit(sha: string): Promise<Feature[]> {
     const allFeatures = await this.getAllFeatures();
-    return allFeatures.filter((f) => f.commitShas.includes(sha));
+    // Handle legacy features without commitShas
+    return allFeatures.filter((f) => (f.commitShas || []).includes(sha));
   }
 }

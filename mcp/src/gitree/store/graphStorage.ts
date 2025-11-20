@@ -106,7 +106,8 @@ export class GraphStorage extends Storage {
       }
 
       // Create TOUCHES relationships from Commits to this Feature
-      if (feature.commitShas.length > 0) {
+      const commitShas = feature.commitShas || [];
+      if (commitShas.length > 0) {
         await session.run(
           `
           MATCH (f:Feature {id: $featureId})
@@ -116,7 +117,7 @@ export class GraphStorage extends Storage {
           `,
           {
             featureId: feature.id,
-            commitShas: feature.commitShas,
+            commitShas: commitShas,
           }
         );
       }
@@ -760,7 +761,7 @@ export class GraphStorage extends Storage {
         );
 
         // Get total PR + commit count for this feature
-        const totalChanges = feature.prNumbers.length + feature.commitShas.length;
+        const totalChanges = feature.prNumbers.length + (feature.commitShas || []).length;
 
         if (filePathsResult.records.length === 0) {
           result.featureFileLinks.push({

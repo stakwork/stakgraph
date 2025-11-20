@@ -108,9 +108,10 @@ program
       for (const feature of sorted) {
         console.log(`🔹 ${feature.name} (${feature.id})`);
         console.log(`   ${feature.description}`);
+        const commitCount = (feature.commitShas || []).length;
         const changesSummary =
-          feature.commitShas.length > 0
-            ? `PRs: ${feature.prNumbers.length} | Commits: ${feature.commitShas.length}`
+          commitCount > 0
+            ? `PRs: ${feature.prNumbers.length} | Commits: ${commitCount}`
             : `PRs: ${feature.prNumbers.length}`;
         console.log(
           `   ${changesSummary} | Last updated: ${feature.lastUpdated.toISOString().split("T")[0]}`
@@ -158,8 +159,9 @@ program
         console.log();
       }
 
-      if (feature.commitShas.length > 0) {
-        console.log(`\nCommits (${feature.commitShas.length}):\n`);
+      const commitCount = (feature.commitShas || []).length;
+      if (commitCount > 0) {
+        console.log(`\nCommits (${commitCount}):\n`);
 
         const commits = await storage.getCommitsForFeature(featureId);
         for (const commit of commits) {

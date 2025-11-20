@@ -409,7 +409,7 @@ ${DECISION_GUIDELINES}`;
       .sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime())
       .map((f) => {
         const prCount = f.prNumbers.length;
-        const commitCount = f.commitShas.length;
+        const commitCount = (f.commitShas || []).length;
         const changesSummary =
           commitCount > 0
             ? `[${prCount} PRs, ${commitCount} commits]`
@@ -602,6 +602,10 @@ ${DECISION_GUIDELINES}`;
     await this.applyDecisionToFeatures(decision, {
       changeDate: commit.committedAt,
       addToFeature: async (feature) => {
+        // Initialize commitShas if it doesn't exist (legacy features)
+        if (!feature.commitShas) {
+          feature.commitShas = [];
+        }
         if (!feature.commitShas.includes(commit.sha)) {
           feature.commitShas.push(commit.sha);
           return true;

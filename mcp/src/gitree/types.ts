@@ -26,7 +26,7 @@ export interface Feature {
   name: string; // Human-readable (e.g., "Authentication System")
   description: string; // What this feature is about
   prNumbers: number[]; // All PRs that touched this feature
-  commitShas: string[]; // All commits (not in PRs) that touched this feature
+  commitShas?: string[]; // All commits (not in PRs) that touched this feature (optional for legacy features)
   createdAt: Date;
   lastUpdated: Date;
   documentation?: string; // LLM-generated comprehensive documentation of current state
