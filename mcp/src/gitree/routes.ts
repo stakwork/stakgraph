@@ -65,7 +65,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
 }
 
 /**
- * Process a Git repository to extract features
+ * Process a Git repository to extract features (PRs and commits)
  * POST /gitree/process?owner=stakwork&repo=sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://github.com/stakwork/sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://gitlab.com/owner/repo&token=...
@@ -85,7 +85,6 @@ export async function gitree_process(req: Request, res: Response) {
     const githubTokenQuery = req.query.token as string;
     const shouldSummarize = req.query.summarize === "true";
     const shouldLink = req.query.link === "true";
-    const shouldProcessCommits = req.query.commits === "true";
     const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
     // Parse repo_url if provided
@@ -125,13 +124,6 @@ export async function gitree_process(req: Request, res: Response) {
 
         const processUsage = await builder.processRepo(owner, repo);
 
-        let commitsUsage = null;
-        // If commits flag is set, process orphan commits
-        if (shouldProcessCommits) {
-          console.log("===> Starting orphan commit processing...");
-          commitsUsage = await builder.processCommits(owner, repo);
-        }
-
         let summarizeUsage = null;
         let linkResult = null;
 
@@ -151,17 +143,16 @@ export async function gitree_process(req: Request, res: Response) {
 
         // Build response message and usage
         const messageParts = [`Processed ${owner}/${repo}`];
-        if (shouldProcessCommits) messageParts.push("processed commits");
         if (shouldSummarize) messageParts.push("summarized");
         if (shouldLink) messageParts.push("linked files");
 
         const totalUsage = {
           inputTokens:
-            processUsage.inputTokens + (commitsUsage?.inputTokens || 0) + (summarizeUsage?.inputTokens || 0),
+            processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
           outputTokens:
-            processUsage.outputTokens + (commitsUsage?.outputTokens || 0) + (summarizeUsage?.outputTokens || 0),
+            processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
           totalTokens:
-            processUsage.totalTokens + (commitsUsage?.totalTokens || 0) + (summarizeUsage?.totalTokens || 0),
+            processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
         };
 
         const result: any = {

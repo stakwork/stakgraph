@@ -16,21 +16,52 @@ export class StreamingFeatureBuilder {
   ) {}
 
   /**
-   * Main entry point: process a repo
+   * Main entry point: process a repo (both PRs and commits)
    */
   async processRepo(owner: string, repo: string): Promise<Usage> {
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+
+    // Process PRs first
+    const prUsage = await this.processPRs(owner, repo);
+    totalUsage.inputTokens += prUsage.inputTokens;
+    totalUsage.outputTokens += prUsage.outputTokens;
+    totalUsage.totalTokens += prUsage.totalTokens;
+
+    // Process orphan commits
+    const commitUsage = await this.processCommits(owner, repo);
+    totalUsage.inputTokens += commitUsage.inputTokens;
+    totalUsage.outputTokens += commitUsage.outputTokens;
+    totalUsage.totalTokens += commitUsage.totalTokens;
+
+    // Show final summary
+    const features = await this.storage.getAllFeatures();
+    console.log(`\n🎉 Repository processing complete!`);
+    console.log(`   Total features: ${features.length}`);
+    console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
+
+    return totalUsage;
+  }
+
+  /**
+   * Process PRs for a repo
+   */
+  async processPRs(owner: string, repo: string): Promise<Usage> {
     const lastProcessed = await this.storage.getLastProcessedPR();
 
-    console.log(`Fetching PRs from ${owner}/${repo}...`);
+    console.log(`\n📋 Fetching PRs from ${owner}/${repo}...`);
     const prs = await this.fetchPRs(owner, repo, lastProcessed);
 
     if (prs.length === 0) {
-      console.log(`No new PRs to process.`);
+      console.log(`   No new PRs to process.`);
       return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     console.log(
-      `Processing ${prs.length} PRs starting from #${lastProcessed + 1}...\n`
+      `   Processing ${prs.length} PRs starting from #${lastProcessed + 1}...\n`
     );
 
     // Accumulate usage across all PRs
@@ -77,7 +108,7 @@ export class StreamingFeatureBuilder {
     }
 
     const features = await this.storage.getAllFeatures();
-    console.log(`\n✅ Done! Total features: ${features.length}`);
+    console.log(`\n✅ PRs done! Total features: ${features.length}`);
 
     return totalUsage;
   }
@@ -377,7 +408,7 @@ ${DECISION_GUIDELINES}`;
   async processCommits(owner: string, repo: string): Promise<Usage> {
     const lastProcessed = await this.storage.getLastProcessedCommit();
 
-    console.log(`Fetching orphan commits from ${owner}/${repo}...`);
+    console.log(`\n💾 Fetching orphan commits from ${owner}/${repo}...`);
     const commits = await fetchOrphanCommits(
       this.octokit,
       owner,
@@ -386,12 +417,12 @@ ${DECISION_GUIDELINES}`;
     );
 
     if (commits.length === 0) {
-      console.log(`No new orphan commits to process.`);
+      console.log(`   No new orphan commits to process.`);
       return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
     console.log(
-      `Processing ${commits.length} orphan commits${
+      `   Processing ${commits.length} orphan commits${
         lastProcessed ? ` starting after ${lastProcessed.substring(0, 7)}` : ""
       }...\n`
     );
@@ -442,8 +473,7 @@ ${DECISION_GUIDELINES}`;
       await this.storage.setLastProcessedCommit(commit.sha);
     }
 
-    const features = await this.storage.getAllFeatures();
-    console.log(`\n✅ Done! Total features: ${features.length}`);
+    console.log(`\n✅ Commits done!`);
 
     return totalUsage;
   }

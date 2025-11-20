@@ -45,7 +45,6 @@ program
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-t, --token <token>", "GitHub token (or set GITHUB_TOKEN env)")
-  .option("-c, --commits", "Also process orphan commits (not in PRs)")
   .action(async (owner: string, repo: string, options) => {
     try {
       // Get GitHub token
@@ -71,14 +70,8 @@ program
       const llm = new LLMClient("anthropic", anthropicKey);
       const builder = new StreamingFeatureBuilder(storage, llm, octokit);
 
-      // Process repo (PRs)
+      // Process repo (both PRs and commits)
       await builder.processRepo(owner, repo);
-
-      // Process commits if requested
-      if (options.commits) {
-        console.log("\n\n🔍 Processing orphan commits...\n");
-        await builder.processCommits(owner, repo);
-      }
 
       console.log("\n✅ Done!\n");
     } catch (error) {
