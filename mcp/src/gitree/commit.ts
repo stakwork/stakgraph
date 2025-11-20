@@ -57,7 +57,8 @@ export async function fetchOrphanCommits(
     url: string;
   }> = [];
 
-  // Fetch all commits from the main branch in chronological order
+  // Fetch all commits from the default branch (main/master)
+  // Note: When no 'sha' is specified, GitHub API defaults to the repository's default branch
   const commits = await octokit.paginate(octokit.repos.listCommits, {
     owner,
     repo,

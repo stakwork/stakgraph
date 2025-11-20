@@ -220,7 +220,8 @@ export class StreamingFeatureBuilder {
       });
     }
 
-    // Fetch commits (use since parameter if we have a checkpoint)
+    // Fetch commits from default branch (use since parameter if we have a checkpoint)
+    // Note: When no 'sha' is specified, GitHub API defaults to the repository's default branch
     const commits = await this.octokit.paginate(
       this.octokit.repos.listCommits,
       {
