@@ -1,8 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord, LinkResult } from "../types.js";
+import { Feature, PRRecord, CommitRecord, LinkResult } from "../types.js";
 import { Storage } from "./storage.js";
-import { formatPRMarkdown, parsePRMarkdown } from "./utils.js";
+import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
 
 /**
  * File system based storage implementation
@@ -16,6 +16,9 @@ import { formatPRMarkdown, parsePRMarkdown } from "./utils.js";
  *   ├── prs/
  *   │   ├── 1.md
  *   │   └── ...
+ *   ├── commits/
+ *   │   ├── abc1234.md
+ *   │   └── ...
  *   └── docs/
  *       ├── auth-system.md
  *       └── ...
@@ -24,6 +27,7 @@ export class FileSystemStore extends Storage {
   private baseDir: string;
   private featuresDir: string;
   private prsDir: string;
+  private commitsDir: string;
   private docsDir: string;
   private metadataPath: string;
 
@@ -32,6 +36,7 @@ export class FileSystemStore extends Storage {
     this.baseDir = baseDir;
     this.featuresDir = path.join(baseDir, "features");
     this.prsDir = path.join(baseDir, "prs");
+    this.commitsDir = path.join(baseDir, "commits");
     this.docsDir = path.join(baseDir, "docs");
     this.metadataPath = path.join(baseDir, "metadata.json");
   }
@@ -42,6 +47,7 @@ export class FileSystemStore extends Storage {
   async initialize(): Promise<void> {
     await fs.mkdir(this.featuresDir, { recursive: true });
     await fs.mkdir(this.prsDir, { recursive: true });
+    await fs.mkdir(this.commitsDir, { recursive: true });
     await fs.mkdir(this.docsDir, { recursive: true });
 
     try {
@@ -49,7 +55,7 @@ export class FileSystemStore extends Storage {
     } catch {
       await fs.writeFile(
         this.metadataPath,
-        JSON.stringify({ lastProcessedPR: 0, recentThemes: [] }, null, 2)
+        JSON.stringify({ lastProcessedPR: 0, lastProcessedCommit: null, recentThemes: [] }, null, 2)
       );
     }
   }
@@ -147,6 +153,42 @@ export class FileSystemStore extends Storage {
     }
   }
 
+  // Commits
+  async saveCommit(commit: CommitRecord): Promise<void> {
+    const filePath = path.join(this.commitsDir, `${commit.sha}.md`);
+    const content = await formatCommitMarkdown(commit, this);
+    await fs.writeFile(filePath, content);
+  }
+
+  async getCommit(sha: string): Promise<CommitRecord | null> {
+    const filePath = path.join(this.commitsDir, `${sha}.md`);
+    try {
+      const content = await fs.readFile(filePath, "utf-8");
+      return parseCommitMarkdown(sha, content);
+    } catch {
+      return null;
+    }
+  }
+
+  async getAllCommits(): Promise<CommitRecord[]> {
+    try {
+      const files = await fs.readdir(this.commitsDir);
+      const commits: CommitRecord[] = [];
+
+      for (const file of files) {
+        if (file.endsWith(".md")) {
+          const sha = file.replace(".md", "");
+          const commit = await this.getCommit(sha);
+          if (commit) commits.push(commit);
+        }
+      }
+
+      return commits.sort((a, b) => a.committedAt.getTime() - b.committedAt.getTime());
+    } catch {
+      return [];
+    }
+  }
+
   // Metadata
   async getLastProcessedPR(): Promise<number> {
     try {
@@ -159,7 +201,7 @@ export class FileSystemStore extends Storage {
   }
 
   async setLastProcessedPR(number: number): Promise<void> {
-    let metadata = { lastProcessedPR: 0, recentThemes: [] };
+    let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] };
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
@@ -170,9 +212,31 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
+  async getLastProcessedCommit(): Promise<string | null> {
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      const metadata = JSON.parse(content);
+      return metadata.lastProcessedCommit || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setLastProcessedCommit(sha: string): Promise<void> {
+    let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] };
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      metadata = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet
+    }
+    metadata.lastProcessedCommit = sha;
+    await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
   // Themes
   async addThemes(themes: string[]): Promise<void> {
-    let metadata = { lastProcessedPR: 0, recentThemes: [] as string[] };
+    let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] as string[] };
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);

@@ -1,11 +1,12 @@
 import { Octokit } from "@octokit/rest";
 import { Storage } from "./store/index.js";
 import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
-import { Feature, PRRecord, LLMDecision, GitHubPR, Usage } from "./types.js";
+import { Feature, PRRecord, CommitRecord, LLMDecision, GitHubPR, Usage } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
+import { fetchCommitContent, fetchOrphanCommits } from "./commit.js";
 
 /**
- * Main class for building the feature knowledge base from PRs
+ * Main class for building the feature knowledge base from PRs and commits
  */
 export class StreamingFeatureBuilder {
   constructor(
@@ -232,10 +233,15 @@ ${DECISION_GUIDELINES}`;
 
     const featureList = features
       .sort((a, b) => b.lastUpdated.getTime() - a.lastUpdated.getTime())
-      .map(
-        (f) =>
-          `- **${f.name}** (\`${f.id}\`): ${f.description} [${f.prNumbers.length} PRs]`
-      )
+      .map((f) => {
+        const prCount = f.prNumbers.length;
+        const commitCount = f.commitShas.length;
+        const changesSummary =
+          commitCount > 0
+            ? `[${prCount} PRs, ${commitCount} commits]`
+            : `[${prCount} PRs]`;
+        return `- **${f.name}** (\`${f.id}\`): ${f.description} ${changesSummary}`;
+      })
       .join("\n");
 
     return `## Current Features\n\n${featureList}`;
@@ -329,6 +335,7 @@ ${DECISION_GUIDELINES}`;
               name: newFeatureData.name,
               description: newFeatureData.description,
               prNumbers: [pr.number],
+              commitShas: [],
               createdAt: pr.mergedAt,
               lastUpdated: pr.mergedAt,
             };
@@ -346,6 +353,276 @@ ${DECISION_GUIDELINES}`;
         if (feature) {
           feature.description = update.newDescription;
           feature.lastUpdated = pr.mergedAt;
+          await this.storage.saveFeature(feature);
+          console.log(`   🔄 Updated feature description: ${feature.name}`);
+          console.log(`      ${update.reasoning}`);
+        } else {
+          console.log(
+            `   ⚠️  Warning: Cannot update feature ${update.featureId} - not found`
+          );
+        }
+      }
+    }
+
+    // Save themes
+    if (decision.themes && decision.themes.length > 0) {
+      await this.storage.addThemes(decision.themes);
+      console.log(`   🏷️  Tagged: ${decision.themes.join(", ")}`);
+    }
+  }
+
+  /**
+   * Process commits not associated with PRs
+   */
+  async processCommits(owner: string, repo: string): Promise<Usage> {
+    const lastProcessed = await this.storage.getLastProcessedCommit();
+
+    console.log(`Fetching orphan commits from ${owner}/${repo}...`);
+    const commits = await fetchOrphanCommits(
+      this.octokit,
+      owner,
+      repo,
+      lastProcessed || undefined
+    );
+
+    if (commits.length === 0) {
+      console.log(`No new orphan commits to process.`);
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+
+    console.log(
+      `Processing ${commits.length} orphan commits${
+        lastProcessed ? ` starting after ${lastProcessed.substring(0, 7)}` : ""
+      }...\n`
+    );
+
+    // Accumulate usage across all commits
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+
+    for (let i = 0; i < commits.length; i++) {
+      const commit = commits[i];
+      const progress = `[${i + 1}/${commits.length}]`;
+      console.log(
+        `\n${progress} Processing commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}`
+      );
+
+      try {
+        const usage = await this.processCommit(owner, repo, commit);
+        totalUsage.inputTokens += usage.inputTokens;
+        totalUsage.outputTokens += usage.outputTokens;
+        totalUsage.totalTokens += usage.totalTokens;
+        console.log(
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+        );
+      } catch (error) {
+        console.error(
+          `   ❌ Error processing commit ${commit.sha.substring(0, 7)}:`,
+          error instanceof Error ? error.message : error
+        );
+        console.log(`   ⏭️  Skipping and continuing with next commit...`);
+
+        // Save a minimal commit record so we know it was attempted
+        await this.storage.saveCommit({
+          sha: commit.sha,
+          message: commit.message,
+          summary: `Error during processing: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+          author: commit.author,
+          committedAt: commit.committedAt,
+          url: commit.url,
+          files: [],
+        });
+      }
+
+      await this.storage.setLastProcessedCommit(commit.sha);
+    }
+
+    const features = await this.storage.getAllFeatures();
+    console.log(`\n✅ Done! Total features: ${features.length}`);
+
+    return totalUsage;
+  }
+
+  /**
+   * Process a single commit
+   */
+  private async processCommit(
+    owner: string,
+    repo: string,
+    commit: {
+      sha: string;
+      message: string;
+      author: string;
+      committedAt: Date;
+      url: string;
+    }
+  ): Promise<Usage> {
+    // Skip obvious noise
+    if (this.shouldSkipCommit(commit)) {
+      console.log(`   ⏭️  Skipped (maintenance/trivial)`);
+
+      // Still save the commit record for completeness
+      await this.storage.saveCommit({
+        sha: commit.sha,
+        message: commit.message,
+        summary: "Skipped (maintenance/trivial)",
+        author: commit.author,
+        committedAt: commit.committedAt,
+        url: commit.url,
+        files: [],
+      });
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+
+    // Get current features for context
+    const features = await this.storage.getAllFeatures();
+
+    // Fetch full commit content
+    console.log(`   📥 Fetching commit details...`);
+    const commitContent = await fetchCommitContent(
+      this.octokit,
+      {
+        owner,
+        repo,
+        sha: commit.sha,
+      },
+      {
+        maxPatchLines: 100, // Same as PRs
+      }
+    );
+
+    // Build decision prompt
+    const prompt = await this.buildDecisionPrompt(commitContent, features);
+
+    // Ask LLM what to do
+    console.log(`   🤖 Asking LLM for decision...`);
+    const { decision, usage } = await this.llm.decide(prompt);
+
+    // Apply decision
+    await this.applyCommitDecision(owner, repo, commit, decision);
+
+    return usage;
+  }
+
+  /**
+   * Quick heuristic filter for commits (same as PRs)
+   */
+  private shouldSkipCommit(commit: { message: string }): boolean {
+    const skipPatterns = [
+      /^bump/i,
+      /^chore:/i,
+      /dependabot/i,
+      /^docs:/i,
+      /typo/i,
+      /^ci:/i,
+    ];
+
+    return skipPatterns.some((pattern) => pattern.test(commit.message));
+  }
+
+  /**
+   * Apply LLM decision for a commit
+   */
+  private async applyCommitDecision(
+    owner: string,
+    repo: string,
+    commit: {
+      sha: string;
+      message: string;
+      author: string;
+      committedAt: Date;
+      url: string;
+    },
+    decision: LLMDecision
+  ): Promise<void> {
+    // Fetch file list for this commit
+    const { data: commitData } = await this.octokit.repos.getCommit({
+      owner,
+      repo,
+      ref: commit.sha,
+    });
+
+    const files = commitData.files || [];
+
+    // Save commit record
+    const commitRecord: CommitRecord = {
+      sha: commit.sha,
+      message: commit.message,
+      summary: decision.summary,
+      author: commit.author,
+      committedAt: commit.committedAt,
+      url: commit.url,
+      files: files.map((f: any) => f.filename),
+      newDeclarations: decision.newDeclarations,
+    };
+    await this.storage.saveCommit(commitRecord);
+
+    console.log(`   📝 Summary: ${decision.summary}`);
+    console.log(`   💭 Reasoning: ${decision.reasoning}`);
+
+    // Process each action
+    for (const action of decision.actions) {
+      if (action === "ignore") {
+        console.log(`   ⏭️  Ignored`);
+        continue;
+      }
+
+      if (action === "add_to_existing") {
+        // Add to existing feature(s)
+        if (
+          decision.existingFeatureIds &&
+          decision.existingFeatureIds.length > 0
+        ) {
+          for (const featureId of decision.existingFeatureIds) {
+            const feature = await this.storage.getFeature(featureId);
+            if (feature) {
+              if (!feature.commitShas.includes(commit.sha)) {
+                feature.commitShas.push(commit.sha);
+                feature.lastUpdated = commit.committedAt;
+                await this.storage.saveFeature(feature);
+                console.log(`   → Added to feature: ${feature.name}`);
+              }
+            } else {
+              console.log(
+                `   ⚠️  Warning: Feature ${featureId} not found, skipping`
+              );
+            }
+          }
+        }
+      }
+
+      if (action === "create_new") {
+        // Create new feature(s)
+        if (decision.newFeatures && decision.newFeatures.length > 0) {
+          for (const newFeatureData of decision.newFeatures) {
+            const newFeature: Feature = {
+              id: this.generateFeatureId(newFeatureData.name),
+              name: newFeatureData.name,
+              description: newFeatureData.description,
+              prNumbers: [],
+              commitShas: [commit.sha],
+              createdAt: commit.committedAt,
+              lastUpdated: commit.committedAt,
+            };
+            await this.storage.saveFeature(newFeature);
+            console.log(`   ✨ Created new feature: ${newFeature.name}`);
+          }
+        }
+      }
+    }
+
+    // Update feature descriptions
+    if (decision.updateFeatures && decision.updateFeatures.length > 0) {
+      for (const update of decision.updateFeatures) {
+        const feature = await this.storage.getFeature(update.featureId);
+        if (feature) {
+          feature.description = update.newDescription;
+          feature.lastUpdated = commit.committedAt;
           await this.storage.saveFeature(feature);
           console.log(`   🔄 Updated feature description: ${feature.name}`);
           console.log(`      ${update.reasoning}`);

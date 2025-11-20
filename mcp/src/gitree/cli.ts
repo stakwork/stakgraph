@@ -45,6 +45,7 @@ program
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-t, --token <token>", "GitHub token (or set GITHUB_TOKEN env)")
+  .option("-c, --commits", "Also process orphan commits (not in PRs)")
   .action(async (owner: string, repo: string, options) => {
     try {
       // Get GitHub token
@@ -70,8 +71,14 @@ program
       const llm = new LLMClient("anthropic", anthropicKey);
       const builder = new StreamingFeatureBuilder(storage, llm, octokit);
 
-      // Process repo
+      // Process repo (PRs)
       await builder.processRepo(owner, repo);
+
+      // Process commits if requested
+      if (options.commits) {
+        console.log("\n\n🔍 Processing orphan commits...\n");
+        await builder.processCommits(owner, repo);
+      }
 
       console.log("\n✅ Done!\n");
     } catch (error) {
@@ -108,8 +115,12 @@ program
       for (const feature of sorted) {
         console.log(`🔹 ${feature.name} (${feature.id})`);
         console.log(`   ${feature.description}`);
+        const changesSummary =
+          feature.commitShas.length > 0
+            ? `PRs: ${feature.prNumbers.length} | Commits: ${feature.commitShas.length}`
+            : `PRs: ${feature.prNumbers.length}`;
         console.log(
-          `   PRs: ${feature.prNumbers.length} | Last updated: ${feature.lastUpdated.toISOString().split("T")[0]}`
+          `   ${changesSummary} | Last updated: ${feature.lastUpdated.toISOString().split("T")[0]}`
         );
         console.log();
       }
@@ -153,6 +164,18 @@ program
         console.log(`     ${pr.url}`);
         console.log();
       }
+
+      if (feature.commitShas.length > 0) {
+        console.log(`\nCommits (${feature.commitShas.length}):\n`);
+
+        const commits = await storage.getCommitsForFeature(featureId);
+        for (const commit of commits) {
+          console.log(`  ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}`);
+          console.log(`     ${commit.summary}`);
+          console.log(`     ${commit.url}`);
+          console.log();
+        }
+      }
     } catch (error) {
       console.error("❌ Error:", error);
       process.exit(1);
@@ -186,6 +209,49 @@ program
       console.log(`Summary: ${pr.summary}`);
       console.log(`Merged: ${pr.mergedAt.toISOString().split("T")[0]}`);
       console.log(`URL: ${pr.url}`);
+
+      if (features.length > 0) {
+        console.log(`\nPart of ${features.length} feature(s):\n`);
+        for (const feature of features) {
+          console.log(`  🔹 ${feature.name} (${feature.id})`);
+        }
+      } else {
+        console.log(`\nNot associated with any features.`);
+      }
+      console.log();
+    } catch (error) {
+      console.error("❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * Show details of a specific commit
+ */
+program
+  .command("show-commit")
+  .description("Show details of a specific commit")
+  .argument("<sha>", "Commit SHA")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
+  .action(async (sha: string, options) => {
+    try {
+      const storage = await createStorage(options);
+
+      const commit = await storage.getCommit(sha);
+
+      if (!commit) {
+        console.log(`❌ Commit not found: ${sha}`);
+        return;
+      }
+
+      const features = await storage.getFeaturesForCommit(sha);
+
+      console.log(`\n📝 Commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}\n`);
+      console.log(`Summary: ${commit.summary}`);
+      console.log(`Author: ${commit.author}`);
+      console.log(`Committed: ${commit.committedAt.toISOString().split("T")[0]}`);
+      console.log(`URL: ${commit.url}`);
 
       if (features.length > 0) {
         console.log(`\nPart of ${features.length} feature(s):\n`);

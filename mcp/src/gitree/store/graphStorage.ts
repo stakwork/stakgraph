@@ -1,8 +1,8 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
-import { Feature, PRRecord, LinkResult } from "../types.js";
-import { formatPRMarkdown } from "./utils.js";
+import { Feature, PRRecord, CommitRecord, LinkResult } from "../types.js";
+import { formatPRMarkdown, formatCommitMarkdown } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
 
@@ -27,12 +27,15 @@ export class GraphStorage extends Storage {
   async initialize(): Promise<void> {
     const session = this.driver.session();
     try {
-      // Create indexes on id/number for fast lookups
+      // Create indexes on id/number/sha for fast lookups
       await session.run(
         "CREATE INDEX feature_id_index IF NOT EXISTS FOR (f:Feature) ON (f.id)"
       );
       await session.run(
         "CREATE INDEX pr_number_index IF NOT EXISTS FOR (p:PullRequest) ON (p.number)"
+      );
+      await session.run(
+        "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
       );
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
@@ -62,6 +65,7 @@ export class GraphStorage extends Storage {
         SET f.name = $name,
             f.description = $description,
             f.prNumbers = $prNumbers,
+            f.commitShas = $commitShas,
             f.date = $date,
             f.docs = $docs,
             f.namespace = $namespace,
@@ -75,6 +79,7 @@ export class GraphStorage extends Storage {
           name: feature.name,
           description: feature.description,
           prNumbers: feature.prNumbers,
+          commitShas: feature.commitShas,
           date: dateTimestamp,
           docs: feature.documentation || "",
           namespace: "default",
@@ -96,6 +101,22 @@ export class GraphStorage extends Storage {
           {
             featureId: feature.id,
             prNumbers: feature.prNumbers,
+          }
+        );
+      }
+
+      // Create TOUCHES relationships from Commits to this Feature
+      if (feature.commitShas.length > 0) {
+        await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          UNWIND $commitShas as commitSha
+          MATCH (c:Commit {sha: commitSha})
+          MERGE (c)-[:TOUCHES]->(f)
+          `,
+          {
+            featureId: feature.id,
+            commitShas: feature.commitShas,
           }
         );
       }
@@ -251,6 +272,99 @@ export class GraphStorage extends Storage {
     }
   }
 
+  // Commits
+
+  async saveCommit(commit: CommitRecord): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const dateTimestamp = Math.floor(commit.committedAt.getTime() / 1000);
+      const docs = await formatCommitMarkdown(commit, this);
+
+      await session.run(
+        `
+        MERGE (c:${Data_Bank}:Commit {sha: $sha})
+        SET c.name = $name,
+            c.message = $message,
+            c.summary = $summary,
+            c.author = $author,
+            c.date = $date,
+            c.url = $url,
+            c.files = $files,
+            c.newDeclarations = $newDeclarations,
+            c.docs = $docs,
+            c.namespace = $namespace,
+            c.Data_Bank = $dataBankName,
+            c.ref_id = COALESCE(c.ref_id, $refId),
+            c.date_added_to_graph = COALESCE(c.date_added_to_graph, $dateAddedToGraph)
+        RETURN c
+        `,
+        {
+          sha: commit.sha,
+          name: `commit-${commit.sha.substring(0, 7)}`,
+          message: commit.message,
+          summary: commit.summary,
+          author: commit.author,
+          date: dateTimestamp,
+          url: commit.url,
+          files: commit.files,
+          newDeclarations: commit.newDeclarations
+            ? JSON.stringify(commit.newDeclarations)
+            : null,
+          docs,
+          namespace: "default",
+          dataBankName: `commit-${commit.sha.substring(0, 7)}`,
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+
+      // Note: TOUCHES relationships are created in saveFeature()
+      // when features are updated with commit SHAs
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getCommit(sha: string): Promise<CommitRecord | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Commit {sha: $sha})
+        RETURN c
+        `,
+        { sha }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const node = result.records[0].get("c");
+      return this.nodeToCommit(node);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllCommits(): Promise<CommitRecord[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Commit)
+        RETURN c
+        ORDER BY c.date ASC
+        `
+      );
+
+      return result.records.map((record) => this.nodeToCommit(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
   // Metadata
 
   async getLastProcessedPR(): Promise<number> {
@@ -297,6 +411,60 @@ export class GraphStorage extends Storage {
         {
           namespace: "default",
           number,
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getLastProcessedCommit(): Promise<string | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        RETURN m.lastProcessedCommit as lastProcessedCommit
+        `,
+        { namespace: "default" }
+      );
+
+      if (result.records.length === 0) {
+        console.log("   No lastProcessedCommit found, starting from beginning");
+        return null;
+      }
+
+      const value = result.records[0].get("lastProcessedCommit");
+      if (value) {
+        console.log(`   Resuming from commit ${value.substring(0, 7)}`);
+      }
+      return value || null;
+    } catch (error) {
+      console.error("   Error reading lastProcessedCommit:", error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setLastProcessedCommit(sha: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        SET m.lastProcessedCommit = $sha,
+            m.ref_id = COALESCE(m.ref_id, $refId),
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+        RETURN m
+        `,
+        {
+          namespace: "default",
+          sha,
           refId: uuidv4(),
           dateAddedToGraph: now,
         }
@@ -416,6 +584,7 @@ export class GraphStorage extends Storage {
       name: props.name,
       description: props.description,
       prNumbers: props.prNumbers || [],
+      commitShas: props.commitShas || [],
       createdAt: new Date(props.date * 1000),
       lastUpdated: new Date(props.date * 1000),
       documentation: props.docs || undefined,
@@ -429,6 +598,22 @@ export class GraphStorage extends Storage {
       title: props.title,
       summary: props.summary,
       mergedAt: new Date(props.date * 1000),
+      url: props.url,
+      files: props.files || [],
+      newDeclarations: props.newDeclarations
+        ? JSON.parse(props.newDeclarations)
+        : undefined,
+    };
+  }
+
+  private nodeToCommit(node: any): CommitRecord {
+    const props = node.properties;
+    return {
+      sha: props.sha,
+      message: props.message,
+      summary: props.summary,
+      author: props.author,
+      committedAt: new Date(props.date * 1000),
       url: props.url,
       files: props.files || [],
       newDeclarations: props.newDeclarations
@@ -504,16 +689,24 @@ export class GraphStorage extends Storage {
         const filePathsResult = await session.run(
           `
           MATCH (f:Feature {id: $featureId})
-          MATCH (pr:PullRequest)-[:TOUCHES]->(f)
+          OPTIONAL MATCH (pr:PullRequest)-[:TOUCHES]->(f)
           WHERE pr.files IS NOT NULL
-          UNWIND pr.files as file
-          RETURN file, COUNT(pr) as prCount
+          UNWIND pr.files as prFile
+          WITH f, prFile, COUNT(pr) as prCount
+          OPTIONAL MATCH (c:Commit)-[:TOUCHES]->(f)
+          WHERE c.files IS NOT NULL
+          UNWIND c.files as commitFile
+          WITH f, prFile, prCount, commitFile, COUNT(c) as commitCount
+          WITH f,
+               COLLECT(DISTINCT {file: prFile, count: prCount}) + COLLECT(DISTINCT {file: commitFile, count: commitCount}) as allFiles
+          UNWIND allFiles as fileData
+          RETURN fileData.file as file, SUM(fileData.count) as changeCount
           `,
           { featureId: feature.id }
         );
 
-        // Get total PR count for this feature
-        const totalPRs = feature.prNumbers.length;
+        // Get total PR + commit count for this feature
+        const totalChanges = feature.prNumbers.length + feature.commitShas.length;
 
         if (filePathsResult.records.length === 0) {
           result.featureFileLinks.push({
@@ -532,11 +725,11 @@ export class GraphStorage extends Storage {
 
         for (const record of filePathsResult.records) {
           const filePath = record.get("file");
-          const prCountRaw = record.get("prCount");
-          const prCount = prCountRaw?.toNumber ? prCountRaw.toNumber() : prCountRaw || 0;
+          const changeCountRaw = record.get("changeCount");
+          const changeCount = changeCountRaw?.toNumber ? changeCountRaw.toNumber() : changeCountRaw || 0;
 
           // Calculate frequency score (0-1)
-          const frequency = totalPRs > 0 ? prCount / totalPRs : 0;
+          const frequency = totalChanges > 0 ? changeCount / totalChanges : 0;
 
           // Check if file is in documentation
           const inDocs = this.isFileInDocumentation(filePath, documentation);

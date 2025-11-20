@@ -1,7 +1,7 @@
-import { Feature, PRRecord, LinkResult } from "../types.js";
+import { Feature, PRRecord, CommitRecord, LinkResult } from "../types.js";
 
 /**
- * Abstract storage interface for features and PRs
+ * Abstract storage interface for features, PRs, and commits
  */
 export abstract class Storage {
   // Initialization
@@ -18,9 +18,16 @@ export abstract class Storage {
   abstract getPR(number: number): Promise<PRRecord | null>;
   abstract getAllPRs(): Promise<PRRecord[]>;
 
+  // Commits
+  abstract saveCommit(commit: CommitRecord): Promise<void>;
+  abstract getCommit(sha: string): Promise<CommitRecord | null>;
+  abstract getAllCommits(): Promise<CommitRecord[]>;
+
   // Metadata
   abstract getLastProcessedPR(): Promise<number>;
   abstract setLastProcessedPR(number: number): Promise<void>;
+  abstract getLastProcessedCommit(): Promise<string | null>;
+  abstract setLastProcessedCommit(sha: string): Promise<void>;
 
   // Themes (sliding window of recent technical tags)
   abstract addThemes(themes: string[]): Promise<void>;
@@ -51,5 +58,22 @@ export abstract class Storage {
   async getFeaturesForPR(prNumber: number): Promise<Feature[]> {
     const allFeatures = await this.getAllFeatures();
     return allFeatures.filter((f) => f.prNumbers.includes(prNumber));
+  }
+
+  async getCommitsForFeature(featureId: string): Promise<CommitRecord[]> {
+    const feature = await this.getFeature(featureId);
+    if (!feature) return [];
+
+    const commits: CommitRecord[] = [];
+    for (const sha of feature.commitShas) {
+      const commit = await this.getCommit(sha);
+      if (commit) commits.push(commit);
+    }
+    return commits;
+  }
+
+  async getFeaturesForCommit(sha: string): Promise<Feature[]> {
+    const allFeatures = await this.getAllFeatures();
+    return allFeatures.filter((f) => f.commitShas.includes(sha));
   }
 }

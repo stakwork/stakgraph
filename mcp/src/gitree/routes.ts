@@ -85,6 +85,7 @@ export async function gitree_process(req: Request, res: Response) {
     const githubTokenQuery = req.query.token as string;
     const shouldSummarize = req.query.summarize === "true";
     const shouldLink = req.query.link === "true";
+    const shouldProcessCommits = req.query.commits === "true";
     const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
     // Parse repo_url if provided
@@ -124,6 +125,13 @@ export async function gitree_process(req: Request, res: Response) {
 
         const processUsage = await builder.processRepo(owner, repo);
 
+        let commitsUsage = null;
+        // If commits flag is set, process orphan commits
+        if (shouldProcessCommits) {
+          console.log("===> Starting orphan commit processing...");
+          commitsUsage = await builder.processCommits(owner, repo);
+        }
+
         let summarizeUsage = null;
         let linkResult = null;
 
@@ -143,16 +151,17 @@ export async function gitree_process(req: Request, res: Response) {
 
         // Build response message and usage
         const messageParts = [`Processed ${owner}/${repo}`];
+        if (shouldProcessCommits) messageParts.push("processed commits");
         if (shouldSummarize) messageParts.push("summarized");
         if (shouldLink) messageParts.push("linked files");
 
         const totalUsage = {
           inputTokens:
-            processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
+            processUsage.inputTokens + (commitsUsage?.inputTokens || 0) + (summarizeUsage?.inputTokens || 0),
           outputTokens:
-            processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
+            processUsage.outputTokens + (commitsUsage?.outputTokens || 0) + (summarizeUsage?.outputTokens || 0),
           totalTokens:
-            processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
+            processUsage.totalTokens + (commitsUsage?.totalTokens || 0) + (summarizeUsage?.totalTokens || 0),
         };
 
         const result: any = {
@@ -195,6 +204,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
         name: f.name,
         description: f.description,
         prCount: f.prNumbers.length,
+        commitCount: f.commitShas.length,
         lastUpdated: f.lastUpdated.toISOString(),
         hasDocumentation: !!f.documentation,
       })),
@@ -225,6 +235,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
     }
 
     const prs = await storage.getPRsForFeature(featureId);
+    const commits = await storage.getCommitsForFeature(featureId);
 
     const response: any = {
       feature: {
@@ -232,6 +243,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
         name: feature.name,
         description: feature.description,
         prNumbers: feature.prNumbers,
+        commitShas: feature.commitShas,
         createdAt: feature.createdAt.toISOString(),
         lastUpdated: feature.lastUpdated.toISOString(),
         documentation: feature.documentation,
@@ -242,6 +254,14 @@ export async function gitree_get_feature(req: Request, res: Response) {
         summary: pr.summary,
         mergedAt: pr.mergedAt.toISOString(),
         url: pr.url,
+      })),
+      commits: commits.map((commit) => ({
+        sha: commit.sha,
+        message: commit.message.split('\n')[0],
+        summary: commit.summary,
+        author: commit.author,
+        committedAt: commit.committedAt.toISOString(),
+        url: commit.url,
       })),
     };
 
@@ -296,6 +316,48 @@ export async function gitree_get_pr(req: Request, res: Response) {
   } catch (error: any) {
     console.error("Error getting PR:", error);
     res.status(500).json({ error: error.message || "Failed to get PR" });
+  }
+}
+
+/**
+ * Get a specific commit
+ * GET /gitree/commits/:sha
+ */
+export async function gitree_get_commit(req: Request, res: Response) {
+  try {
+    const sha = req.params.sha;
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const commit = await storage.getCommit(sha);
+
+    if (!commit) {
+      res.status(404).json({ error: "Commit not found" });
+      return;
+    }
+
+    const features = await storage.getFeaturesForCommit(sha);
+
+    res.json({
+      commit: {
+        sha: commit.sha,
+        message: commit.message,
+        summary: commit.summary,
+        author: commit.author,
+        committedAt: commit.committedAt.toISOString(),
+        url: commit.url,
+        files: commit.files,
+        newDeclarations: commit.newDeclarations,
+      },
+      features: features.map((f) => ({
+        id: f.id,
+        name: f.name,
+        description: f.description,
+      })),
+    });
+  } catch (error: any) {
+    console.error("Error getting commit:", error);
+    res.status(500).json({ error: error.message || "Failed to get commit" });
   }
 }
 
