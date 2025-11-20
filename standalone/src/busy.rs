@@ -1,4 +1,5 @@
 use crate::AppState;
+use axum::response::IntoResponse;
 use axum::{
     extract::{Request, State},
     middleware::Next,
@@ -11,9 +12,21 @@ pub struct BusyGuard {
 }
 
 impl BusyGuard {
-    pub fn new(state: Arc<AppState>) -> Self {
-        state.busy.store(true, Ordering::SeqCst);
-        Self { state }
+    // pub fn new(state: Arc<AppState>) -> Self {
+    //     state.busy.store(true, Ordering::SeqCst);
+    //     Self { state }
+    // }
+
+    /// Attempts to acquire the busy lock atomically.
+    /// Returns Some(BusyGuard) if successful, None if already busy.
+    pub fn try_new(state: Arc<AppState>) -> Option<Self> {
+        match state
+            .busy
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        {
+            Ok(_) => Some(Self { state }),
+            Err(_) => None,
+        }
     }
 }
 
@@ -28,8 +41,22 @@ pub async fn busy_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    tracing::info!("[busy_middleware] Setting busy=true");
-    let _guard = BusyGuard::new(state);
+    let _guard = match BusyGuard::try_new(state) {
+        Some(guard) => {
+            tracing::info!("[busy_middleware] Acquired busy lock");
+            guard
+        }
+        None => {
+            tracing::warn!("[busy_middleware] System already busy, rejecting request");
+            return (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                axum::Json(serde_json::json!({
+                    "error": "System is busy processing another request. Please try again later."
+                })),
+            )
+                .into_response();
+        }
+    };
     let response = next.run(request).await;
     tracing::info!("[busy_middleware] Request completed, guard will drop and set busy=false");
     response
