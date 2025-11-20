@@ -150,115 +150,6 @@ export class StreamingFeatureBuilder {
   }
 
   /**
-   * Process PRs for a repo
-   */
-  async processPRs(owner: string, repo: string): Promise<Usage> {
-    const lastProcessed = await this.storage.getLastProcessedPR();
-
-    console.log(`\n📋 Fetching PRs from ${owner}/${repo}...`);
-    const prs = await this.fetchPRs(owner, repo, lastProcessed);
-
-    if (prs.length === 0) {
-      console.log(`   No new PRs to process.`);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-    }
-
-    console.log(
-      `   Processing ${prs.length} PRs starting from #${lastProcessed + 1}...\n`
-    );
-
-    // Accumulate usage across all PRs
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
-
-    for (let i = 0; i < prs.length; i++) {
-      const pr = prs[i];
-      const progress = `[${i + 1}/${prs.length}]`;
-      console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
-
-      try {
-        const usage = await this.processPR(owner, repo, pr);
-        totalUsage.inputTokens += usage.inputTokens;
-        totalUsage.outputTokens += usage.outputTokens;
-        totalUsage.totalTokens += usage.totalTokens;
-        console.log(
-          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
-        );
-      } catch (error) {
-        console.error(
-          `   ❌ Error processing PR #${pr.number}:`,
-          error instanceof Error ? error.message : error
-        );
-        console.log(`   ⏭️  Skipping and continuing with next PR...`);
-
-        // Save a minimal PR record so we know it was attempted
-        await this.storage.savePR({
-          number: pr.number,
-          title: pr.title,
-          summary: `Error during processing: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
-          mergedAt: pr.mergedAt,
-          url: pr.url,
-          files: pr.filesChanged,
-        });
-      }
-
-      await this.storage.setLastProcessedPR(pr.number);
-    }
-
-    const features = await this.storage.getAllFeatures();
-    console.log(`\n✅ PRs done! Total features: ${features.length}`);
-
-    return totalUsage;
-  }
-
-  /**
-   * Fetch PRs from GitHub (with pagination) - lightweight, just the list
-   */
-  private async fetchPRs(
-    owner: string,
-    repo: string,
-    since: number
-  ): Promise<GitHubPR[]> {
-    console.log(`   Fetching PR list (paginated)...`);
-
-    // Use octokit pagination to get ALL PRs
-    const allPRs = await this.octokit.paginate(this.octokit.pulls.list, {
-      owner,
-      repo,
-      state: "closed",
-      sort: "created",
-      direction: "asc",
-      per_page: 100,
-    });
-
-    console.log(`   Found ${allPRs.length} closed PRs total`);
-
-    // Filter to only merged PRs after the last processed
-    const mergedPRs = allPRs.filter((pr) => pr.merged_at && pr.number > since);
-
-    console.log(
-      `   ${mergedPRs.length} merged PRs to process (after #${since})`
-    );
-
-    // Convert to lightweight GitHubPR type (detailed info fetched when processing)
-    return mergedPRs.map((pr) => ({
-      number: pr.number,
-      title: pr.title,
-      body: pr.body,
-      url: pr.html_url,
-      mergedAt: new Date(pr.merged_at!),
-      additions: 0, // Will fetch when processing
-      deletions: 0, // Will fetch when processing
-      filesChanged: [], // Will fetch when processing
-    }));
-  }
-
-  /**
    * Fetch all changes (PRs and commits) chronologically from checkpoint
    */
   private async fetchAllChanges(
@@ -464,7 +355,7 @@ export class StreamingFeatureBuilder {
     const { decision, usage } = await this.llm.decide(prompt);
 
     // Apply decision
-    await this.applyDecision(owner, repo, pr, decision);
+    await this.applyPrDecision(owner, repo, pr, decision);
 
     return usage;
   }
@@ -548,7 +439,7 @@ ${DECISION_GUIDELINES}`;
   /**
    * Apply LLM decision
    */
-  private async applyDecision(
+  private async applyPrDecision(
     owner: string,
     repo: string,
     pr: GitHubPR,
@@ -651,84 +542,6 @@ ${DECISION_GUIDELINES}`;
       await this.storage.addThemes(decision.themes);
       console.log(`   🏷️  Tagged: ${decision.themes.join(", ")}`);
     }
-  }
-
-  /**
-   * Process commits not associated with PRs
-   */
-  async processCommits(owner: string, repo: string): Promise<Usage> {
-    const lastProcessed = await this.storage.getLastProcessedCommit();
-
-    console.log(`\n💾 Fetching orphan commits from ${owner}/${repo}...`);
-    const commits = await fetchOrphanCommits(
-      this.octokit,
-      owner,
-      repo,
-      lastProcessed || undefined
-    );
-
-    if (commits.length === 0) {
-      console.log(`   No new orphan commits to process.`);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-    }
-
-    console.log(
-      `   Processing ${commits.length} orphan commits${
-        lastProcessed ? ` starting after ${lastProcessed.substring(0, 7)}` : ""
-      }...\n`
-    );
-
-    // Accumulate usage across all commits
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
-
-    for (let i = 0; i < commits.length; i++) {
-      const commit = commits[i];
-      const progress = `[${i + 1}/${commits.length}]`;
-      console.log(
-        `\n${progress} Processing commit ${commit.sha.substring(0, 7)}: ${
-          commit.message.split("\n")[0]
-        }`
-      );
-
-      try {
-        const usage = await this.processCommit(owner, repo, commit);
-        totalUsage.inputTokens += usage.inputTokens;
-        totalUsage.outputTokens += usage.outputTokens;
-        totalUsage.totalTokens += usage.totalTokens;
-        console.log(
-          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
-        );
-      } catch (error) {
-        console.error(
-          `   ❌ Error processing commit ${commit.sha.substring(0, 7)}:`,
-          error instanceof Error ? error.message : error
-        );
-        console.log(`   ⏭️  Skipping and continuing with next commit...`);
-
-        // Save a minimal commit record so we know it was attempted
-        await this.storage.saveCommit({
-          sha: commit.sha,
-          message: commit.message,
-          summary: `Error during processing: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`,
-          author: commit.author,
-          committedAt: commit.committedAt,
-          url: commit.url,
-          files: [],
-        });
-      }
-
-      await this.storage.setLastProcessedCommit(commit.sha);
-    }
-
-    console.log(`\n✅ Commits done!`);
-
-    return totalUsage;
   }
 
   /**
