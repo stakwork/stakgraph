@@ -1,7 +1,7 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
-import { Feature, PRRecord, CommitRecord, LinkResult } from "../types.js";
+import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
 import { formatPRMarkdown, formatCommitMarkdown } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
@@ -465,6 +465,60 @@ export class GraphStorage extends Storage {
         {
           namespace: "default",
           sha,
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        RETURN m.chronologicalCheckpoint as checkpoint
+        `,
+        { namespace: "default" }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const checkpointStr = result.records[0].get("checkpoint");
+      if (!checkpointStr) {
+        return null;
+      }
+
+      return JSON.parse(checkpointStr);
+    } catch (error) {
+      console.error("Error reading chronological checkpoint:", error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        SET m.chronologicalCheckpoint = $checkpoint,
+            m.ref_id = COALESCE(m.ref_id, $refId),
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+        RETURN m
+        `,
+        {
+          namespace: "default",
+          checkpoint: JSON.stringify(checkpoint),
           refId: uuidv4(),
           dateAddedToGraph: now,
         }

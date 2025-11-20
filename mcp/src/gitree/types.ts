@@ -119,3 +119,11 @@ export interface FetchPROptions {
   sort: "created" | "updated";
   direction: "asc" | "desc";
 }
+
+/**
+ * Chronological checkpoint for unified PR and commit processing
+ */
+export interface ChronologicalCheckpoint {
+  lastProcessedTimestamp: string; // ISO date string of last processed item
+  processedAtTimestamp: string[]; // IDs (PR numbers or commit SHAs) processed at exact timestamp
+}

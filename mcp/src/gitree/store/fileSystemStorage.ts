@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord, CommitRecord, LinkResult } from "../types.js";
+import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
 
@@ -55,7 +55,12 @@ export class FileSystemStore extends Storage {
     } catch {
       await fs.writeFile(
         this.metadataPath,
-        JSON.stringify({ lastProcessedPR: 0, lastProcessedCommit: null, recentThemes: [] }, null, 2)
+        JSON.stringify({
+          lastProcessedPR: 0,
+          lastProcessedCommit: null,
+          chronologicalCheckpoint: null,
+          recentThemes: []
+        }, null, 2)
       );
     }
   }
@@ -231,6 +236,28 @@ export class FileSystemStore extends Storage {
       // File doesn't exist yet
     }
     metadata.lastProcessedCommit = sha;
+    await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
+  async getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      const metadata = JSON.parse(content);
+      return metadata.chronologicalCheckpoint || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void> {
+    let metadata: any = { lastProcessedPR: 0, lastProcessedCommit: null, recentThemes: [] };
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      metadata = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet
+    }
+    metadata.chronologicalCheckpoint = checkpoint;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 

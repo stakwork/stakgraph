@@ -1,7 +1,15 @@
 import { Octokit } from "@octokit/rest";
 import { Storage } from "./store/index.js";
 import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
-import { Feature, PRRecord, CommitRecord, LLMDecision, GitHubPR, Usage } from "./types.js";
+import {
+  Feature,
+  PRRecord,
+  CommitRecord,
+  LLMDecision,
+  GitHubPR,
+  Usage,
+  ChronologicalCheckpoint,
+} from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
 import { fetchCommitContent, fetchOrphanCommits } from "./commit.js";
 
@@ -16,7 +24,7 @@ export class StreamingFeatureBuilder {
   ) {}
 
   /**
-   * Main entry point: process a repo (both PRs and commits)
+   * Main entry point: process a repo (both PRs and commits chronologically)
    */
   async processRepo(owner: string, repo: string): Promise<Usage> {
     const totalUsage: Usage = {
@@ -25,23 +33,118 @@ export class StreamingFeatureBuilder {
       totalTokens: 0,
     };
 
-    // Process PRs first
-    const prUsage = await this.processPRs(owner, repo);
-    totalUsage.inputTokens += prUsage.inputTokens;
-    totalUsage.outputTokens += prUsage.outputTokens;
-    totalUsage.totalTokens += prUsage.totalTokens;
+    // Get chronological checkpoint (or migrate from old checkpoints)
+    let checkpoint = await this.storage.getChronologicalCheckpoint();
 
-    // Process orphan commits
-    const commitUsage = await this.processCommits(owner, repo);
-    totalUsage.inputTokens += commitUsage.inputTokens;
-    totalUsage.outputTokens += commitUsage.outputTokens;
-    totalUsage.totalTokens += commitUsage.totalTokens;
+    // Backwards compatibility: migrate old checkpoints if needed
+    if (!checkpoint) {
+      checkpoint = await this.migrateOldCheckpoint();
+    }
+
+    console.log(`\n📋 Fetching changes from ${owner}/${repo}...`);
+    const changes = await this.fetchAllChanges(owner, repo, checkpoint);
+
+    if (changes.length === 0) {
+      console.log(`   No new changes to process.`);
+      const features = await this.storage.getAllFeatures();
+      console.log(`\n🎉 Repository processing complete!`);
+      console.log(`   Total features: ${features.length}`);
+      return totalUsage;
+    }
+
+    console.log(`   Processing ${changes.length} changes chronologically...\n`);
+
+    // Process each change in chronological order
+    for (let i = 0; i < changes.length; i++) {
+      const change = changes[i];
+      const progress = `[${i + 1}/${changes.length}]`;
+
+      if (change.type === "pr") {
+        const pr = change.data as GitHubPR;
+        console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
+
+        try {
+          const usage = await this.processPR(owner, repo, pr);
+          totalUsage.inputTokens += usage.inputTokens;
+          totalUsage.outputTokens += usage.outputTokens;
+          totalUsage.totalTokens += usage.totalTokens;
+          console.log(
+            `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+          );
+        } catch (error) {
+          console.error(
+            `   ❌ Error processing PR #${pr.number}:`,
+            error instanceof Error ? error.message : error
+          );
+          console.log(`   ⏭️  Skipping and continuing with next change...`);
+
+          // Save a minimal PR record so we know it was attempted
+          await this.storage.savePR({
+            number: pr.number,
+            title: pr.title,
+            summary: `Error during processing: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }`,
+            mergedAt: pr.mergedAt,
+            url: pr.url,
+            files: pr.filesChanged,
+          });
+        }
+      } else {
+        const commit = change.data as {
+          sha: string;
+          message: string;
+          author: string;
+          committedAt: Date;
+          url: string;
+        };
+        console.log(
+          `\n${progress} Processing commit ${commit.sha.substring(0, 7)}: ${
+            commit.message.split("\n")[0]
+          }`
+        );
+
+        try {
+          const usage = await this.processCommit(owner, repo, commit);
+          totalUsage.inputTokens += usage.inputTokens;
+          totalUsage.outputTokens += usage.outputTokens;
+          totalUsage.totalTokens += usage.totalTokens;
+          console.log(
+            `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+          );
+        } catch (error) {
+          console.error(
+            `   ❌ Error processing commit ${commit.sha.substring(0, 7)}:`,
+            error instanceof Error ? error.message : error
+          );
+          console.log(`   ⏭️  Skipping and continuing with next change...`);
+
+          // Save a minimal commit record so we know it was attempted
+          await this.storage.saveCommit({
+            sha: commit.sha,
+            message: commit.message,
+            summary: `Error during processing: ${
+              error instanceof Error ? error.message : "Unknown error"
+            }`,
+            author: commit.author,
+            committedAt: commit.committedAt,
+            url: commit.url,
+            files: [],
+          });
+        }
+      }
+
+      // Update checkpoint after processing each change
+      await this.updateCheckpoint(change.date, change.id);
+    }
 
     // Show final summary
     const features = await this.storage.getAllFeatures();
     console.log(`\n🎉 Repository processing complete!`);
     console.log(`   Total features: ${features.length}`);
-    console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
+    console.log(
+      `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
+    );
 
     return totalUsage;
   }
@@ -153,6 +256,154 @@ export class StreamingFeatureBuilder {
       deletions: 0, // Will fetch when processing
       filesChanged: [], // Will fetch when processing
     }));
+  }
+
+  /**
+   * Fetch all changes (PRs and commits) chronologically from checkpoint
+   */
+  private async fetchAllChanges(
+    owner: string,
+    repo: string,
+    checkpoint: ChronologicalCheckpoint | null
+  ): Promise<
+    Array<{ type: "pr" | "commit"; data: any; date: Date; id: string }>
+  > {
+    const changes: Array<{
+      type: "pr" | "commit";
+      data: any;
+      date: Date;
+      id: string;
+    }> = [];
+
+    const sinceDate = checkpoint
+      ? new Date(checkpoint.lastProcessedTimestamp)
+      : null;
+    const processedIds = new Set(checkpoint?.processedAtTimestamp || []);
+
+    console.log(
+      `   Fetching changes since ${
+        sinceDate ? sinceDate.toISOString() : "beginning"
+      }...`
+    );
+
+    // Fetch PRs
+    const allPRs = await this.octokit.paginate(this.octokit.pulls.list, {
+      owner,
+      repo,
+      state: "closed",
+      sort: "created",
+      direction: "asc",
+      per_page: 100,
+    });
+
+    const mergedPRs = allPRs.filter((pr) => {
+      if (!pr.merged_at) return false;
+      const mergedDate = new Date(pr.merged_at);
+
+      if (!sinceDate) return true;
+      if (mergedDate > sinceDate) return true;
+      if (
+        mergedDate.getTime() === sinceDate.getTime() &&
+        !processedIds.has(pr.number.toString())
+      ) {
+        return true;
+      }
+      return false;
+    });
+
+    for (const pr of mergedPRs) {
+      changes.push({
+        type: "pr",
+        data: {
+          number: pr.number,
+          title: pr.title,
+          body: pr.body,
+          url: pr.html_url,
+          mergedAt: new Date(pr.merged_at!),
+          additions: 0,
+          deletions: 0,
+          filesChanged: [],
+        },
+        date: new Date(pr.merged_at!),
+        id: pr.number.toString(),
+      });
+    }
+
+    // Fetch commits (use since parameter if we have a checkpoint)
+    const commits = await this.octokit.paginate(
+      this.octokit.repos.listCommits,
+      {
+        owner,
+        repo,
+        per_page: 100,
+        ...(sinceDate ? { since: sinceDate.toISOString() } : {}),
+      }
+    );
+
+    // Check each commit to see if it's associated with a PR
+    for (const commit of commits) {
+      try {
+        // Type guard - ensure commit has expected structure
+        if (!commit?.sha || !commit?.commit) continue;
+
+        const { data: prs } =
+          await this.octokit.repos.listPullRequestsAssociatedWithCommit({
+            owner,
+            repo,
+            commit_sha: commit.sha,
+          });
+
+        const mergedPRs = prs.filter((pr) => pr.merged_at);
+
+        // ONLY process commits that are not associated with any PR
+        if (mergedPRs.length === 0) {
+          const committedAt = new Date(
+            commit.commit.author?.date || Date.now()
+          );
+
+          // Filter by checkpoint
+          if (sinceDate) {
+            if (committedAt < sinceDate) continue;
+            if (
+              committedAt.getTime() === sinceDate.getTime() &&
+              processedIds.has(commit.sha)
+            ) {
+              continue;
+            }
+          }
+
+          changes.push({
+            type: "commit",
+            data: {
+              sha: commit.sha,
+              message: commit.commit.message,
+              author:
+                commit.commit.author?.name || commit.author?.login || "Unknown",
+              committedAt: committedAt,
+              url: commit.html_url,
+            },
+            date: committedAt,
+            id: commit.sha,
+          });
+        }
+      } catch (error) {
+        console.error(
+          `Error checking PR association for ${commit?.sha}:`,
+          error
+        );
+      }
+    }
+
+    // Sort chronologically (oldest first)
+    changes.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    console.log(
+      `   Found ${changes.filter((c) => c.type === "pr").length} PRs and ${
+        changes.filter((c) => c.type === "commit").length
+      } commits to process`
+    );
+
+    return changes;
   }
 
   /**
@@ -438,7 +689,9 @@ ${DECISION_GUIDELINES}`;
       const commit = commits[i];
       const progress = `[${i + 1}/${commits.length}]`;
       console.log(
-        `\n${progress} Processing commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}`
+        `\n${progress} Processing commit ${commit.sha.substring(0, 7)}: ${
+          commit.message.split("\n")[0]
+        }`
       );
 
       try {
@@ -679,5 +932,82 @@ ${DECISION_GUIDELINES}`;
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
+  }
+
+  /**
+   * Migrate old checkpoint format to new chronological checkpoint
+   */
+  private async migrateOldCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+    const lastPR = await this.storage.getLastProcessedPR();
+    const lastCommit = await this.storage.getLastProcessedCommit();
+
+    // If no old checkpoints exist, return null (start from beginning)
+    if (lastPR === 0 && !lastCommit) {
+      return null;
+    }
+
+    console.log(`   Migrating old checkpoints to chronological format...`);
+
+    // Get the dates of the last processed PR and commit
+    let latestDate: Date | null = null;
+
+    if (lastPR > 0) {
+      const pr = await this.storage.getPR(lastPR);
+      if (pr) {
+        latestDate = pr.mergedAt;
+      }
+    }
+
+    if (lastCommit) {
+      const commit = await this.storage.getCommit(lastCommit);
+      if (commit) {
+        if (!latestDate || commit.committedAt > latestDate) {
+          latestDate = commit.committedAt;
+        }
+      }
+    }
+
+    if (!latestDate) {
+      return null;
+    }
+
+    // Create new checkpoint from the latest date
+    const checkpoint: ChronologicalCheckpoint = {
+      lastProcessedTimestamp: latestDate.toISOString(),
+      processedAtTimestamp: [], // Don't include the last processed items (they're already done)
+    };
+
+    await this.storage.setChronologicalCheckpoint(checkpoint);
+    console.log(
+      `   Migrated to chronological checkpoint: ${checkpoint.lastProcessedTimestamp}`
+    );
+
+    return checkpoint;
+  }
+
+  /**
+   * Update checkpoint after processing a change
+   */
+  private async updateCheckpoint(date: Date, id: string): Promise<void> {
+    const currentCheckpoint = await this.storage.getChronologicalCheckpoint();
+    const dateString = date.toISOString();
+
+    if (
+      !currentCheckpoint ||
+      currentCheckpoint.lastProcessedTimestamp < dateString
+    ) {
+      // New timestamp - replace checkpoint
+      await this.storage.setChronologicalCheckpoint({
+        lastProcessedTimestamp: dateString,
+        processedAtTimestamp: [id],
+      });
+    } else if (currentCheckpoint.lastProcessedTimestamp === dateString) {
+      // Same timestamp - add to processedAtTimestamp array
+      if (!currentCheckpoint.processedAtTimestamp.includes(id)) {
+        currentCheckpoint.processedAtTimestamp.push(id);
+        await this.storage.setChronologicalCheckpoint(currentCheckpoint);
+      }
+    }
+    // If date < checkpoint, this is an old item (shouldn't happen, but ignore)
   }
 }

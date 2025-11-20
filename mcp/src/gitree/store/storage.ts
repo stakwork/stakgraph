@@ -1,4 +1,4 @@
-import { Feature, PRRecord, CommitRecord, LinkResult } from "../types.js";
+import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
 
 /**
  * Abstract storage interface for features, PRs, and commits
@@ -23,11 +23,15 @@ export abstract class Storage {
   abstract getCommit(sha: string): Promise<CommitRecord | null>;
   abstract getAllCommits(): Promise<CommitRecord[]>;
 
-  // Metadata
+  // Metadata (legacy - kept for backwards compatibility)
   abstract getLastProcessedPR(): Promise<number>;
   abstract setLastProcessedPR(number: number): Promise<void>;
   abstract getLastProcessedCommit(): Promise<string | null>;
   abstract setLastProcessedCommit(sha: string): Promise<void>;
+
+  // Chronological checkpoint (new unified approach)
+  abstract getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null>;
+  abstract setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void>;
 
   // Themes (sliding window of recent technical tags)
   abstract addThemes(themes: string[]): Promise<void>;
