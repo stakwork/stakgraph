@@ -1,7 +1,7 @@
-import { Feature, PRRecord, LinkResult } from "../types.js";
+import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
 
 /**
- * Abstract storage interface for features and PRs
+ * Abstract storage interface for features, PRs, and commits
  */
 export abstract class Storage {
   // Initialization
@@ -18,9 +18,20 @@ export abstract class Storage {
   abstract getPR(number: number): Promise<PRRecord | null>;
   abstract getAllPRs(): Promise<PRRecord[]>;
 
-  // Metadata
+  // Commits
+  abstract saveCommit(commit: CommitRecord): Promise<void>;
+  abstract getCommit(sha: string): Promise<CommitRecord | null>;
+  abstract getAllCommits(): Promise<CommitRecord[]>;
+
+  // Metadata (legacy - kept for backwards compatibility)
   abstract getLastProcessedPR(): Promise<number>;
   abstract setLastProcessedPR(number: number): Promise<void>;
+  abstract getLastProcessedCommit(): Promise<string | null>;
+  abstract setLastProcessedCommit(sha: string): Promise<void>;
+
+  // Chronological checkpoint (new unified approach)
+  abstract getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null>;
+  abstract setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void>;
 
   // Themes (sliding window of recent technical tags)
   abstract addThemes(themes: string[]): Promise<void>;
@@ -51,5 +62,25 @@ export abstract class Storage {
   async getFeaturesForPR(prNumber: number): Promise<Feature[]> {
     const allFeatures = await this.getAllFeatures();
     return allFeatures.filter((f) => f.prNumbers.includes(prNumber));
+  }
+
+  async getCommitsForFeature(featureId: string): Promise<CommitRecord[]> {
+    const feature = await this.getFeature(featureId);
+    if (!feature) return [];
+
+    const commits: CommitRecord[] = [];
+    // Handle legacy features without commitShas
+    const commitShas = feature.commitShas || [];
+    for (const sha of commitShas) {
+      const commit = await this.getCommit(sha);
+      if (commit) commits.push(commit);
+    }
+    return commits;
+  }
+
+  async getFeaturesForCommit(sha: string): Promise<Feature[]> {
+    const allFeatures = await this.getAllFeatures();
+    // Handle legacy features without commitShas
+    return allFeatures.filter((f) => (f.commitShas || []).includes(sha));
   }
 }

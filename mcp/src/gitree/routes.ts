@@ -65,7 +65,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
 }
 
 /**
- * Process a Git repository to extract features
+ * Process a Git repository to extract features (PRs and commits)
  * POST /gitree/process?owner=stakwork&repo=sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://github.com/stakwork/sphinx-tribes&token=...
  * POST /gitree/process?repo_url=https://gitlab.com/owner/repo&token=...
@@ -195,6 +195,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
         name: f.name,
         description: f.description,
         prCount: f.prNumbers.length,
+        commitCount: (f.commitShas || []).length,
         lastUpdated: f.lastUpdated.toISOString(),
         hasDocumentation: !!f.documentation,
       })),
@@ -225,6 +226,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
     }
 
     const prs = await storage.getPRsForFeature(featureId);
+    const commits = await storage.getCommitsForFeature(featureId);
 
     const response: any = {
       feature: {
@@ -232,6 +234,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
         name: feature.name,
         description: feature.description,
         prNumbers: feature.prNumbers,
+        commitShas: feature.commitShas || [],
         createdAt: feature.createdAt.toISOString(),
         lastUpdated: feature.lastUpdated.toISOString(),
         documentation: feature.documentation,
@@ -242,6 +245,14 @@ export async function gitree_get_feature(req: Request, res: Response) {
         summary: pr.summary,
         mergedAt: pr.mergedAt.toISOString(),
         url: pr.url,
+      })),
+      commits: commits.map((commit) => ({
+        sha: commit.sha,
+        message: commit.message.split('\n')[0],
+        summary: commit.summary,
+        author: commit.author,
+        committedAt: commit.committedAt.toISOString(),
+        url: commit.url,
       })),
     };
 
@@ -296,6 +307,48 @@ export async function gitree_get_pr(req: Request, res: Response) {
   } catch (error: any) {
     console.error("Error getting PR:", error);
     res.status(500).json({ error: error.message || "Failed to get PR" });
+  }
+}
+
+/**
+ * Get a specific commit
+ * GET /gitree/commits/:sha
+ */
+export async function gitree_get_commit(req: Request, res: Response) {
+  try {
+    const sha = req.params.sha;
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const commit = await storage.getCommit(sha);
+
+    if (!commit) {
+      res.status(404).json({ error: "Commit not found" });
+      return;
+    }
+
+    const features = await storage.getFeaturesForCommit(sha);
+
+    res.json({
+      commit: {
+        sha: commit.sha,
+        message: commit.message,
+        summary: commit.summary,
+        author: commit.author,
+        committedAt: commit.committedAt.toISOString(),
+        url: commit.url,
+        files: commit.files,
+        newDeclarations: commit.newDeclarations,
+      },
+      features: features.map((f) => ({
+        id: f.id,
+        name: f.name,
+        description: f.description,
+      })),
+    });
+  } catch (error: any) {
+    console.error("Error getting commit:", error);
+    res.status(500).json({ error: error.message || "Failed to get commit" });
   }
 }
 

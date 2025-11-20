@@ -1,10 +1,10 @@
 import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
-import { Feature, PRRecord, Usage } from "./types.js";
+import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
 
 /**
- * Generates comprehensive documentation for features based on their PR history
+ * Generates comprehensive documentation for features based on their PR and commit history
  */
 export class Summarizer {
   constructor(
@@ -25,24 +25,42 @@ export class Summarizer {
 
     console.log(`\n📝 Summarizing feature: ${feature.name}`);
 
-    // Get all PRs for this feature
+    // Get all PRs and commits for this feature
     const allPRs = await this.storage.getPRsForFeature(featureId);
+    const allCommits = await this.storage.getCommitsForFeature(featureId);
 
-    if (allPRs.length === 0) {
-      console.log(`   ⚠️  No PRs found for this feature`);
+    if (allPRs.length === 0 && allCommits.length === 0) {
+      console.log(`   ⚠️  No PRs or commits found for this feature`);
       return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
-    // Sort chronologically and take last 100 if more than 100
+    // Sort PRs and commits chronologically
     const sortedPRs = allPRs.sort((a, b) => a.number - b.number);
-    const prs = sortedPRs.slice(-100);
+    const sortedCommits = allCommits.sort((a, b) => a.committedAt.getTime() - b.committedAt.getTime());
+
+    // Combine and sort chronologically (oldest to newest)
+    const combined = [
+      ...sortedPRs.map(pr => ({ type: 'pr' as const, data: pr, date: pr.mergedAt })),
+      ...sortedCommits.map(commit => ({ type: 'commit' as const, data: commit, date: commit.committedAt }))
+    ].sort((a, b) => a.date.getTime() - b.date.getTime());
+
+    // Bookend strategy: First 8 (foundational) + Last 100 (recent) = 108 total
+    let selected;
+    if (combined.length <= 108) {
+      selected = combined; // Use all if under limit
+    } else {
+      const first8 = combined.slice(0, 8);   // Foundation
+      const last100 = combined.slice(-100);  // Current state
+      selected = [...first8, ...last100];
+    }
 
     console.log(
-      `   Found ${allPRs.length} PRs (using ${prs.length} most recent)`
+      `   Found ${allPRs.length} PRs and ${allCommits.length} commits (using ${selected.length}: ${combined.length <= 108 ? 'all' : 'first 8 + last 100'})`
     );
 
-    // Build prompt with all PR content
-    const prompt = this.buildSummaryPrompt(feature, prs);
+    // Build prompt with selected changes (in chronological order)
+    const isBookended = combined.length > 108;
+    const prompt = this.buildSummaryPrompt(feature, selected, isBookended);
 
     // Generate documentation using LLM
     console.log(`   🤖 Generating documentation...`);
@@ -112,20 +130,41 @@ export class Summarizer {
   /**
    * Build the prompt for generating documentation
    */
-  private buildSummaryPrompt(feature: Feature, prs: PRRecord[]): string {
-    // Format all PRs in a concise format
-    const prContents = prs.map((pr) => this.formatPRForSummary(pr)).join("\n\n");
+  private buildSummaryPrompt(
+    feature: Feature,
+    selected: Array<{ type: 'pr' | 'commit', data: PRRecord | CommitRecord, date: Date }>,
+    isBookended: boolean
+  ): string {
+    // Format changes in chronological order
+    const formattedChanges = selected.map((item, index) => {
+      const content = item.type === 'pr'
+        ? this.formatPRForSummary(item.data as PRRecord)
+        : this.formatCommitForSummary(item.data as CommitRecord);
+
+      // Add section marker after first 8 if bookended
+      if (isBookended && index === 7) {
+        return content + '\n\n---\n**[NOTE: Gap in history - continuing with most recent 100 changes]**\n---';
+      }
+
+      return content;
+    });
+
+    const changesText = formattedChanges.join("\n\n");
+    const totalChanges = selected.length;
+
+    const prs = selected.filter(c => c.type === 'pr');
+    const commits = selected.filter(c => c.type === 'commit');
 
     return `You are generating SUCCINCT documentation for a software feature to help developers quickly understand and continue working on it.
 
 **Feature**: ${feature.name}
 **ID**: ${feature.id}
 **Description**: ${feature.description}
-**Total PRs in history**: ${prs.length}
+**Total changes in history**: ${totalChanges} (${prs.length} PRs, ${commits.length} commits)
 
-Below is the COMPLETE chronological history of PRs that built this feature (from oldest to newest):
-
-${prContents}
+Below is ${isBookended ? 'the FOUNDATIONAL (first 8) and RECENT (last 100) changes' : 'the COMPLETE chronological history'} (PRs and commits) that built this feature (from oldest to newest):
+${isBookended ? '\n**NOTE**: The first 8 changes show initial architecture/foundation. After a gap, the remaining changes show the recent state.\n' : ''}
+${changesText}
 
 ---
 
@@ -173,6 +212,33 @@ Generate the documentation in markdown format:`;
     // Include new declarations if any
     if (pr.newDeclarations && pr.newDeclarations.length > 0) {
       const declSummary = pr.newDeclarations
+        .map((d) => `${d.file}: ${d.declarations.join(", ")}`)
+        .join("; ");
+      content += `\n**New declarations**: ${declSummary}`;
+    }
+
+    return content;
+  }
+
+  /**
+   * Format a commit for the summary prompt (lighter weight than full markdown)
+   */
+  private formatCommitForSummary(commit: CommitRecord): string {
+    let content = `### Commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}
+**Author**: ${commit.author}
+**Committed**: ${commit.committedAt.toISOString().split("T")[0]}
+**Summary**: ${commit.summary}`;
+
+    // Include files if reasonable number
+    if (commit.files.length > 0 && commit.files.length <= 30) {
+      content += `\n**Files changed**: ${commit.files.join(", ")}`;
+    } else if (commit.files.length > 30) {
+      content += `\n**Files changed**: ${commit.files.slice(0, 20).join(", ")} ... (${commit.files.length - 20} more)`;
+    }
+
+    // Include new declarations if any
+    if (commit.newDeclarations && commit.newDeclarations.length > 0) {
+      const declSummary = commit.newDeclarations
         .map((d) => `${d.file}: ${d.declarations.join(", ")}`)
         .join("; ");
       content += `\n**New declarations**: ${declSummary}`;

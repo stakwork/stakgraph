@@ -57,6 +57,7 @@ ecosystem.config.js
 package-lock.json
 
 .neo4j
+.neo4j-*
 
 # Tests
 standalone/tests/maps/map-*.html

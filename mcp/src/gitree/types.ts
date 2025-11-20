@@ -26,6 +26,7 @@ export interface Feature {
   name: string; // Human-readable (e.g., "Authentication System")
   description: string; // What this feature is about
   prNumbers: number[]; // All PRs that touched this feature
+  commitShas?: string[]; // All commits (not in PRs) that touched this feature (optional for legacy features)
   createdAt: Date;
   lastUpdated: Date;
   documentation?: string; // LLM-generated comprehensive documentation of current state
@@ -38,6 +39,20 @@ export interface PRRecord {
   mergedAt: Date;
   url: string;
   files: string[]; // List of files changed in this PR
+  newDeclarations?: Array<{
+    file: string;
+    declarations: string[];
+  }>;
+}
+
+export interface CommitRecord {
+  sha: string;
+  message: string;
+  summary: string; // LLM-generated summary of what this commit does
+  committedAt: Date;
+  author: string;
+  url: string;
+  files: string[]; // List of files changed in this commit
   newDeclarations?: Array<{
     file: string;
     declarations: string[];
@@ -82,6 +97,20 @@ export interface GitHubPR {
 }
 
 /**
+ * GitHub Commit data structure (from Octokit)
+ */
+export interface GitHubCommit {
+  sha: string;
+  message: string;
+  url: string;
+  committedAt: Date;
+  author: string;
+  additions: number;
+  deletions: number;
+  filesChanged: string[];
+}
+
+/**
  * Options for fetching PRs
  */
 export interface FetchPROptions {
@@ -89,4 +118,12 @@ export interface FetchPROptions {
   state: "open" | "closed" | "all";
   sort: "created" | "updated";
   direction: "asc" | "desc";
+}
+
+/**
+ * Chronological checkpoint for unified PR and commit processing
+ */
+export interface ChronologicalCheckpoint {
+  lastProcessedTimestamp: string; // ISO date string of last processed item
+  processedAtTimestamp: string[]; // IDs (PR numbers or commit SHAs) processed at exact timestamp
 }

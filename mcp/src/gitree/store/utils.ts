@@ -1,4 +1,4 @@
-import { Feature, PRRecord } from "../types.js";
+import { Feature, PRRecord, CommitRecord } from "../types.js";
 import { Storage } from "./index.js";
 
 /**
@@ -207,6 +207,104 @@ export function parsePRMarkdown(number: number, content: string): PRRecord {
     number,
     title: titleMatch?.[1] || "Unknown",
     mergedAt: mergedMatch?.[1] ? new Date(mergedMatch[1]) : new Date(),
+    url: urlMatch?.[1]?.trim() || "",
+    summary: summaryMatch?.[1]?.trim() || "",
+    files,
+    newDeclarations: newDeclarations.length > 0 ? newDeclarations : undefined,
+  };
+}
+
+/**
+ * Format Commit as markdown
+ */
+export async function formatCommitMarkdown(
+  commit: CommitRecord,
+  storage: Storage
+): Promise<string> {
+  // Get features this commit belongs to
+  const features = await storage.getFeaturesForCommit(commit.sha);
+  const featureLinks =
+    features.length > 0
+      ? `\n---\n\n_Part of features: ${features
+          .map((f) => `\`${f.id}\``)
+          .join(", ")}_`
+      : "";
+
+  const filesList =
+    commit.files.length > 0
+      ? `\n\n## Files Changed (${commit.files.length})\n\n${formatFilesList(commit.files, commit.newDeclarations)}`
+      : "";
+
+  return `# Commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}
+
+**Author**: ${commit.author}
+**Committed**: ${commit.committedAt.toISOString().split("T")[0]}
+**URL**: ${commit.url}
+
+## Summary
+
+${commit.summary}${filesList}${featureLinks}
+`.trim();
+}
+
+/**
+ * Parse Commit markdown back to CommitRecord
+ */
+export function parseCommitMarkdown(sha: string, content: string): CommitRecord {
+  // Simple regex-based parsing for now
+  const messageMatch = content.match(/^# Commit [a-f0-9]+: (.+)$/m);
+  const authorMatch = content.match(/\*\*Author\*\*: (.+)$/m);
+  const committedMatch = content.match(/\*\*Committed\*\*: (.+)$/m);
+  const urlMatch = content.match(/\*\*URL\*\*: (.+)$/m);
+  const summaryMatch = content.match(
+    /## Summary\n\n([\s\S]+?)(?:\n## Files Changed|\n---|\n*$)/
+  );
+
+  // Parse files list and declarations together
+  const filesMatch = content.match(
+    /## Files Changed \(\d+\)\n\n([\s\S]+?)(?:\n---|\n*$)/
+  );
+  const files: string[] = [];
+  const newDeclarations: CommitRecord["newDeclarations"] = [];
+
+  if (filesMatch?.[1]) {
+    const lines = filesMatch[1].split("\n");
+    let currentFile: string | null = null;
+    let currentDecls: string[] = [];
+
+    for (const line of lines) {
+      const fileMatch = line.match(/^- (.+)$/);
+      const declMatch = line.match(/^  - (.+)$/);
+
+      if (fileMatch) {
+        // Save previous file's declarations if any
+        if (currentFile && currentDecls.length > 0) {
+          newDeclarations.push({ file: currentFile, declarations: currentDecls });
+        }
+        // Add to files list
+        const fileName = fileMatch[1];
+        // Skip summary lines like "public/... (88 more files)"
+        if (!fileName.includes("...")) {
+          files.push(fileName);
+        }
+        currentFile = fileName;
+        currentDecls = [];
+      } else if (declMatch && currentFile) {
+        currentDecls.push(declMatch[1]);
+      }
+    }
+
+    // Save last file's declarations
+    if (currentFile && currentDecls.length > 0) {
+      newDeclarations.push({ file: currentFile, declarations: currentDecls });
+    }
+  }
+
+  return {
+    sha,
+    message: messageMatch?.[1] || "Unknown",
+    author: authorMatch?.[1] || "Unknown",
+    committedAt: committedMatch?.[1] ? new Date(committedMatch[1]) : new Date(),
     url: urlMatch?.[1]?.trim() || "",
     summary: summaryMatch?.[1]?.trim() || "",
     files,
