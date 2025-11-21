@@ -393,6 +393,17 @@ pub async fn ingest_async(
         .into_response();
     }
 
+    // Try to acquire the busy lock before creating request_id
+    let guard = match crate::busy::BusyGuard::try_new(state.clone()) {
+        Some(g) => g,
+        None => {
+            return Json(serde_json::json!({
+                "error": "System is busy processing another request. Please try again later."
+            }))
+            .into_response();
+        }
+    };
+
     let request_id = uuid::Uuid::new_v4().to_string();
     let status_map = state.async_status.clone();
     let mut rx = state.tx.subscribe();
@@ -425,9 +436,6 @@ pub async fn ingest_async(
     let status_map_clone = status_map.clone();
     let body_clone = body.clone();
     let request_id_clone = request_id.clone();
-
-    state.busy.store(true, std::sync::atomic::Ordering::SeqCst);
-    tracing::info!("[ingest_async] Set busy=true before spawning background work");
 
     tokio::spawn(async move {
         while let Ok(update) = rx.recv().await {
@@ -462,11 +470,9 @@ pub async fn ingest_async(
 
     //run ingest as a background task
     tokio::spawn(async move {
+        // Move guard into task - it will automatically clear busy flag on drop
+        let _guard = guard;
         let result = ingest(State(state_clone.clone()), body_clone).await;
-        
-        // Clear busy flag when done
-        state_clone.busy.store(false, std::sync::atomic::Ordering::SeqCst);
-        tracing::info!("[ingest_async] Background work completed, set busy=false");
         
         let mut map = status_map.lock().await;
 
@@ -587,6 +593,17 @@ pub async fn sync_async(
         .into_response();
     }
 
+    // Try to acquire the busy lock before creating request_id
+    let guard = match crate::busy::BusyGuard::try_new(state.clone()) {
+        Some(g) => g,
+        None => {
+            return Json(serde_json::json!({
+                "error": "System is busy processing another request. Please try again later."
+            }))
+            .into_response();
+        }
+    };
+
     let request_id = uuid::Uuid::new_v4().to_string();
     let status_map = state.async_status.clone();
     let mut rx = state.tx.subscribe();
@@ -657,16 +674,11 @@ pub async fn sync_async(
     );
 
     let state_for_process = state.clone();
-    
-    state.busy.store(true, std::sync::atomic::Ordering::SeqCst);
-    tracing::info!("[sync_async] Set busy=true before spawning background work");
-
 
     tokio::spawn(async move {
+        // Move guard into task - it will automatically clear busy flag on drop
+        let _guard = guard;
         let result = process(State(state_for_process.clone()), body_clone).await;
-        
-        state_for_process.busy.store(false, std::sync::atomic::Ordering::SeqCst);
-        tracing::info!("[sync_async] Background work completed, set busy=false");
         
         let mut map = status_map.lock().await;
 
