@@ -79,7 +79,12 @@ pub async fn git_clone(
     } else {
         info!("Repository doesn't exist at {}, cloning it", path);
         remove_dir(path)?;
-        let mut clone_args = vec!["clone", &repo_url, "--single-branch"];
+        let mut clone_args = vec![
+            "clone",
+            &repo_url,
+            "--single-branch",
+            "--recurse-submodules",
+        ];
         if let Some(branch) = branch {
             clone_args.extend(&["--branch", branch]);
         }
