@@ -8,10 +8,19 @@ export const GetRulesFilesSchema = z.object({});
 export const RULES_PATTERNS = [
   "/.windsurfrules",
   "/.cursorrules",
+  "/.aiderules",
+  "/.aider.conf.md",
+  "/.clinerules",
+  "/.continuerules",
   "/CLAUDE.md",
   "/.cursor/rules/",
+  "/.github/copilot-instructions.md",
   "/AGENTS.md",
+  "/AI_INSTRUCTIONS.md",
+  "/INSTRUCTIONS.md",
   "**/.goosehints",
+  "./ai",
+  "**/.ai/**",
 ];
 
 export const GetRulesFilesTool: Tool = {
