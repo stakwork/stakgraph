@@ -1,5 +1,5 @@
 use super::parse::utils::trim_quotes;
-use super::queries::consts::{IMPORTS_FROM, IMPORTS_NAME};
+use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
 use tree_sitter::QueryCursor;
 
@@ -91,10 +91,13 @@ pub fn get_imports_for_file<G: Graph>(
     while let Some(m) = matches.next() {
         let mut import_names = Vec::new();
         let mut import_source = None;
+        let mut import_aliases = Vec::new();
 
         if Lang::loop_captures_multi(&q, &m, code, |body, _node, o| {
             if o == IMPORTS_NAME {
                 import_names.push(body.clone());
+            } else if o == IMPORTS_ALIAS {
+                import_aliases.push(body.clone());
             } else if o == IMPORTS_FROM {
                 import_source = Some(trim_quotes(&body).to_string());
             }
@@ -103,6 +106,10 @@ pub fn get_imports_for_file<G: Graph>(
         .is_err()
         {
             continue;
+        }
+
+        if !import_aliases.is_empty() {
+            import_names = import_aliases;
         }
 
         if let Some(source_path) = import_source {
