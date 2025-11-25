@@ -184,6 +184,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
+    
     assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
