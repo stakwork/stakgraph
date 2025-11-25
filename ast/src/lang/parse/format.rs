@@ -416,17 +416,17 @@ impl Lang {
                                 return Ok(result);
                             } else {
                                 log_cmd(format!(
-                                    "No methods found in handler {}, defaulting to GET",
+                                    "No methods found in handler {}, likely a router mount - skipping endpoint",
                                     handler_name
                                 ));
-                                endp.add_verb("GET");
+                                return Ok(vec![]);
                             }
                         } else {
                             log_cmd(format!(
-                                "Handler {} not found for USE endpoint, defaulting to GET",
+                                "Handler {} not found for USE endpoint, likely a router mount - skipping endpoint",
                                 handler_name
                             ));
-                            endp.add_verb("GET");
+                            return Ok(vec![]);
                         }
                     } else {
                         endp.add_verb("GET");
