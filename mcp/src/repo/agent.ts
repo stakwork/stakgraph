@@ -41,6 +41,11 @@ CRITICAL: When you finish exploring, you MUST call EITHER:
 
 The parameters are REQUIRED. Do NOT call these tools with empty objects {}!
 
+Reasons to call ask_clarifying_questions:
+ - The user's query is too general.
+ - You think you can provide a better answer by first gathering more information from the user.
+ - MOST IMPORTANT: Your technical exploration has revealed that there are multiple possible approaches to take, and you want to get the user's input on which one to choose.
+
 ALWAYS USE EITHER THE final_answer OR ask_clarifying_questions TOOL AT THE END!`;
 
 function logStep(contents: any) {
