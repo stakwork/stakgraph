@@ -51,6 +51,7 @@ impl Stack for TypeScript {
                     (named_imports
                         (import_specifier
                             name:(identifier) @{IMPORTS_NAME}
+                            alias: (identifier)? @{IMPORTS_ALIAS}
                         )
                     )?
 

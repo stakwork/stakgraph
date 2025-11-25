@@ -1,5 +1,7 @@
 import express, { Request, Response } from "express";
 import { getPersonById, newPerson, PersonData } from "./service.js";
+import { peopleRouter as crossFilePeopleRouter } from "./people-routes.js";
+import { adminRouter } from "./admin-routes.js";
 
 type PersonRequest = Request<{}, {}, { name: string; email: string }>;
 type PersonResponse = Response<PersonData | { error: string }>;
@@ -22,6 +24,9 @@ export function registerRoutes(app) {
   app.post("/person", createPerson);
 
   app.use("/people", peopleRouter);
+
+  app.use("/api/people", crossFilePeopleRouter);
+  app.use("/api/admin", adminRouter);
 }
 
 async function getPerson(req: Request, res: Response) {
