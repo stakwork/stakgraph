@@ -65,6 +65,12 @@ export async function get_context(
   let system = systemOverride || DEFAULT_SYSTEM;
 
   // FIXME: flexible stopWhen: final_answer might be called with {} and then text as answer after final_answer is called.
+  /*
+    const hasAnswer: StopCondition<typeof tools> = ({ steps }) => {
+      // Stop when the model generates text containing "ANSWER:"
+      return steps.some(step => step.text?.includes('ANSWER:')) ?? false;
+    };
+  */
   let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
     hasToolCall("final_answer");
   let finalPrompt: string | ModelMessage[] = prompt;
