@@ -17,7 +17,8 @@ type ToolName =
   | "fulltext_search"
   | "web_search"
   | "bash"
-  | "final_answer";
+  | "final_answer"
+  | "ask_clarifying_questions";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -34,7 +35,14 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
     "Search the entire codebase for a specific term, using ripgrep (rg). Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
   web_search: "Search the web for information",
   bash: "Execute bash commands",
-  final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
+  final_answer: `Provide the final answer to the user. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
+CRITICAL: Put your ENTIRE response inside the 'answer' parameter as a well-formatted string. Do NOT call this tool with an empty object or without the answer field.
+
+Example usage:
+final_answer({ 
+  "answer": "Based on my exploration of the codebase, here's how authentication works:\n\n1. Users authenticate via...\n2. The auth flow is handled by...\n3. Key files include..."
+})`,
+  ask_clarifying_questions: `Ask clarifying questions to the user, if you need more clarification from the user about specific design or implementation choices. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION. The output is a list of 1-4 questions, in the folling JSON format: [{"question": "question", "type": "multiple_choice", "options": ["option1", "option2"]}] OR [{"question": "question", "type": "text"}]`,
 };
 
 export function get_tools(
@@ -146,8 +154,15 @@ export function get_tools(
     }),
     final_answer: tool({
       description: defaultDescriptions.final_answer,
-      inputSchema: z.object({ answer: z.string() }),
-      execute: async ({ answer }: { answer: string }) => answer,
+      inputSchema: z.object({
+        answer: z
+          .string()
+          .describe("Your complete final answer to the user's question."),
+      }),
+      execute: async (body: { answer: string }) => {
+        console.log("====> final_answer", JSON.stringify(body, null, 2));
+        return body.answer;
+      },
     }),
   };
 
@@ -176,6 +191,32 @@ export function get_tools(
   // If no config, return all tools
   if (!toolsConfig) {
     return allTools;
+  } else {
+    // SPECIAL TOOLS: NOT included by default, but can be enabled with toolsConfig
+    if (toolsConfig.ask_clarifying_questions) {
+      allTools.ask_clarifying_questions = tool({
+        description: defaultDescriptions.ask_clarifying_questions,
+        inputSchema: z.object({
+          questions: z
+            .array(
+              z.object({
+                question: z.string().describe("The question to ask the user"),
+                type: z
+                  .enum(["text", "multiple_choice"])
+                  .describe("The type of question"),
+                options: z
+                  .array(z.string())
+                  .optional()
+                  .describe("Available options for multiple_choice questions"),
+              })
+            )
+            .describe("The questions to ask the user"),
+        }),
+        execute: async ({ questions }: { questions: any[] }) => {
+          return questions;
+        },
+      });
+    }
   }
 
   // Start with all tools, then apply config to customize or exclude
