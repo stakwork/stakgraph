@@ -35,8 +35,14 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
     "Search the entire codebase for a specific term, using ripgrep (rg). Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
   web_search: "Search the web for information",
   bash: "Execute bash commands",
-  final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
-  ask_clarifying_questions: `Ask clarifying questions to the user. The output is a list of questions.`,
+  final_answer: `Provide the final answer to the user. CALL THIS TOOL AT THE END OF YOUR EXPLORATION.
+CRITICAL: Put your ENTIRE response inside the 'answer' parameter as a well-formatted string. Do NOT call this tool with an empty object or without the answer field.
+
+Example usage:
+final_answer({ 
+  "answer": "Based on my exploration of the codebase, here's how authentication works:\n\n1. Users authenticate via...\n2. The auth flow is handled by...\n3. Key files include..."
+})`,
+  ask_clarifying_questions: `Ask clarifying questions to the user. The output is a list of questions, in the folling JSON format: [{"question": "question", "type": "multiple_choice", "options": ["option1", "option2"]}] OR [{"question": "question", "type": "text"}]`,
 };
 
 export function get_tools(
@@ -148,8 +154,15 @@ export function get_tools(
     }),
     final_answer: tool({
       description: defaultDescriptions.final_answer,
-      inputSchema: z.object({ answer: z.string() }),
-      execute: async ({ answer }: { answer: string }) => answer,
+      inputSchema: z.object({
+        answer: z
+          .string()
+          .describe("Your complete final answer to the user's question."),
+      }),
+      execute: async (body: { answer: string }) => {
+        console.log("====> final_answer", JSON.stringify(body, null, 2));
+        return body.answer;
+      },
     }),
   };
 
