@@ -1,4 +1,10 @@
-import { generateText, hasToolCall, ModelMessage } from "ai";
+import {
+  generateText,
+  hasToolCall,
+  ModelMessage,
+  StopCondition,
+  ToolSet,
+} from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
@@ -65,12 +71,20 @@ export async function get_context(
   const system =
     systemOverride ||
     `You are a code exploration assistant. Please use the provided tools to answer the user's prompt. ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION. Do NOT write to a document with your answer, instead ALWAYS finish with the final_answer tool!!!!!!!!!!`;
+  let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
+    hasToolCall("final_answer");
+  if (toolsConfig?.ask_clarifying_questions) {
+    stopWhen = [
+      hasToolCall("final_answer"),
+      hasToolCall("ask_clarifying_questions"),
+    ];
+  }
   const { steps, totalUsage } = await generateText({
     model,
     tools,
     prompt,
     system,
-    stopWhen: hasToolCall("final_answer"),
+    stopWhen,
     onStepFinish: (sf) => logStep(sf.content),
   });
   let final = "";

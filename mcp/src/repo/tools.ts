@@ -17,7 +17,8 @@ type ToolName =
   | "fulltext_search"
   | "web_search"
   | "bash"
-  | "final_answer";
+  | "final_answer"
+  | "ask_clarifying_questions";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -35,6 +36,7 @@ const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   web_search: "Search the web for information",
   bash: "Execute bash commands",
   final_answer: `Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION.`,
+  ask_clarifying_questions: `Ask clarifying questions to the user. The output is a list of questions.`,
 };
 
 export function get_tools(
@@ -176,6 +178,32 @@ export function get_tools(
   // If no config, return all tools
   if (!toolsConfig) {
     return allTools;
+  } else {
+    // SPECIAL TOOLS: NOT included by default, but can be enabled with toolsConfig
+    if (toolsConfig.ask_clarifying_questions) {
+      allTools.ask_clarifying_questions = tool({
+        description: defaultDescriptions.ask_clarifying_questions,
+        inputSchema: z.object({
+          questions: z
+            .array(
+              z.object({
+                question: z.string().describe("The question to ask the user"),
+                type: z
+                  .enum(["text", "multiple_choice"])
+                  .describe("The type of question"),
+                options: z
+                  .array(z.string())
+                  .optional()
+                  .describe("Available options for multiple_choice questions"),
+              })
+            )
+            .describe("The questions to ask the user"),
+        }),
+        execute: async ({ questions }: { questions: any[] }) => {
+          return questions;
+        },
+      });
+    }
   }
 
   // Start with all tools, then apply config to customize or exclude

@@ -16,7 +16,7 @@ export async function repo_agent(req: Request, res: Response) {
     const pat = req.body.pat as string | undefined;
     const commit = req.body.commit as string | undefined;
     const branch = req.body.branch as string | undefined;
-    const prompt = req.body.prompt as string | undefined;
+    const prompt = req.body.prompt as any;
     const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
