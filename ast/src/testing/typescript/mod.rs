@@ -97,9 +97,9 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 12, "Expected 12 functions");
+        assert_eq!(functions.len(), 14, "Expected 14 functions");
     } else {
-        assert_eq!(functions.len(), 8, "Expected 8 functions");
+        assert_eq!(functions.len(), 10, "Expected 10 functions");
     }
 
     let log_fn = functions
@@ -150,7 +150,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 66, "Expected 66 contains edges");
+    assert_eq!(contains, 71, "Expected 71 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -162,7 +162,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 2, "Expected 2 handler edges");
+    assert_eq!(handlers, 4, "Expected 4 handler edges");
 
     let create_person_fn = functions
         .iter()
@@ -184,7 +184,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 2, "Expected 2 endpoints");
+    assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
@@ -226,6 +226,54 @@ import {{ sequelize }} from "./config.js";"#
     assert!(
         graph.has_edge(&get_person_endpoint, &get_person_fn, EdgeType::Handler),
         "Expected '/person/:id' GET endpoint to be handled by getPerson"
+    );
+
+    let create_new_person_fn = functions
+        .iter()
+        .find(|f| {
+            f.name == "createNewPerson"
+                && normalize_path(&f.file) == "src/testing/typescript/src/routes.ts"
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("createNewPerson function not found");
+
+    let get_recent_people_fn = functions
+        .iter()
+        .find(|f| {
+            f.name == "getRecentPeople"
+                && normalize_path(&f.file) == "src/testing/typescript/src/routes.ts"
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("getRecentPeople function not found");
+
+    let post_people_new_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/people/new"
+                && normalize_path(&e.file) == "src/testing/typescript/src/routes.ts"
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("POST /people/new endpoint not found");
+
+    assert!(
+        graph.has_edge(&post_people_new_endpoint, &create_new_person_fn, EdgeType::Handler),
+        "Expected '/people/new' POST endpoint to be handled by createNewPerson"
+    );
+
+    let get_people_recent_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/people/recent"
+                && normalize_path(&e.file) == "src/testing/typescript/src/routes.ts"
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("GET /people/recent endpoint not found");
+
+    assert!(
+        graph.has_edge(&get_people_recent_endpoint, &get_recent_people_fn, EdgeType::Handler),
+        "Expected '/people/recent' GET endpoint to be handled by getRecentPeople"
     );
 
     let (nodes, edges) = graph.get_graph_size();
