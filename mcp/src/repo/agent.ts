@@ -64,6 +64,7 @@ export async function get_context(
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
   let system = systemOverride || DEFAULT_SYSTEM;
 
+  // FIXME: flexible stopWhen: final_answer might be called with {} and then text as answer after final_answer is called.
   let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
     hasToolCall("final_answer");
   let finalPrompt: string | ModelMessage[] = prompt;
