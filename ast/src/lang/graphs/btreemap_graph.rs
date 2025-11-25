@@ -1,4 +1,4 @@
-use super::{graph::Graph, *};
+use super::{graph::Graph, graph::resolve_router_import_source, *};
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
@@ -352,11 +352,12 @@ impl Graph for BTreeMapGraph {
 
     fn add_tests(&mut self, tests: Vec<TestRecord>) {
         for tr in tests {
+            let file = tr.node.file.clone();
             self.add_node_with_parent(
-                tr.kind.clone(),
-                tr.node.clone(),
+                tr.kind,
+                tr.node,
                 NodeType::File,
-                &tr.node.file,
+                &file,
             );
             for e in tr.edges.iter() {
                 self.add_edge(e.clone());
@@ -502,7 +503,7 @@ impl Graph for BTreeMapGraph {
             self.add_edge(extra);
         }
     }
-    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, _lang: &Lang) -> Result<()> {
+    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
         let mut updates = Vec::new();
 
         for group in eg {
@@ -532,6 +533,40 @@ impl Graph for BTreeMapGraph {
                                 .collect();
 
                             updates.push((key.clone(), updated_node, edges_to_update));
+                        }
+                    }
+                }
+
+                let is_defined_locally = self.nodes.values().any(|node| {
+                    node.node_type == NodeType::Endpoint 
+                        && node.node_data.file == *group_file
+                        && node.node_data.meta.get("object") == Some(router_var_name)
+                });
+
+                if !is_defined_locally {
+                    if let Some(resolved_source) = resolve_router_import_source(router_var_name, group_file, lang, self) {
+                        for (key, node) in self.nodes.iter() {
+                            if node.node_type == NodeType::Endpoint {
+                                let endpoint_name = &node.node_data.name;
+                                let endpoint_file = &node.node_data.file;
+
+                                if endpoint_file.contains(&resolved_source)
+                                    && !endpoint_name.starts_with(prefix)
+                                {
+                                let full_path = format!("{}{}", prefix, endpoint_name);
+                                let mut updated_node = node.clone();
+                                updated_node.node_data.name = full_path;
+
+                                let edges_to_update: Vec<_> = self
+                                    .edges
+                                    .iter()
+                                    .filter(|(src, _, _)| src == key)
+                                    .map(|(_, dst, edge)| (dst.clone(), edge.clone()))
+                                    .collect();
+
+                                updates.push((key.clone(), updated_node, edges_to_update));
+                                }
+                            }
                         }
                     }
                 }

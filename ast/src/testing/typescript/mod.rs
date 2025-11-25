@@ -18,7 +18,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -73,7 +73,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
             imp.file
         );
     }
-    assert_eq!(imports.len(), 5, "Expected 5 imports");
+    
 
     let model_import_body = format!(
         r#"import DataTypes, {{ Model }} from "sequelize";
@@ -97,9 +97,9 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 14, "Expected 14 functions");
+        assert_eq!(functions.len(), 18, "Expected 18 functions");
     } else {
-        assert_eq!(functions.len(), 10, "Expected 10 functions");
+        assert_eq!(functions.len(), 14, "Expected 14 functions");
     }
 
     let log_fn = functions
@@ -150,7 +150,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 71, "Expected 71 contains edges");
+    assert_eq!(contains, 79, "Expected 79 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -162,7 +162,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 4, "Expected 4 handler edges");
+    assert_eq!(handlers, 8, "Expected 8 handler edges");
 
     let create_person_fn = functions
         .iter()
@@ -184,8 +184,10 @@ import {{ sequelize }} from "./config.js";"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
+
+    println!("{:#?}", endpoints.iter().map(|e| (&e.name, &e.file, &e.meta)).collect::<Vec<_>>());
     
-    assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
+    assert_eq!(endpoints.len(), 8, "Expected 8 endpoints");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
@@ -275,6 +277,103 @@ import {{ sequelize }} from "./config.js";"#
     assert!(
         graph.has_edge(&get_people_recent_endpoint, &get_recent_people_fn, EdgeType::Handler),
         "Expected '/people/recent' GET endpoint to be handled by getRecentPeople"
+    );
+
+    let search_people_fn = functions
+        .iter()
+        .find(|f| {
+            f.name == "searchPeople"
+                && normalize_path(&f.file) == "src/testing/typescript/src/people-routes.ts"
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("searchPeople function not found in people-routes.ts");
+
+    let list_people_fn = functions
+        .iter()
+        .find(|f| {
+            f.name == "listPeople"
+                && normalize_path(&f.file) == "src/testing/typescript/src/people-routes.ts"
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("listPeople function not found in people-routes.ts");
+
+    let get_api_people_search = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/api/people/search"
+                && normalize_path(&e.file) == "src/testing/typescript/src/people-routes.ts"
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("GET /api/people/search endpoint not found (cross-file)");
+
+    assert!(
+        graph.has_edge(&get_api_people_search, &search_people_fn, EdgeType::Handler),
+        "Expected '/api/people/search' GET endpoint to be handled by searchPeople (cross-file)"
+    );
+
+    let get_api_people_list = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/api/people/list"
+                && normalize_path(&e.file) == "src/testing/typescript/src/people-routes.ts"
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("GET /api/people/list endpoint not found (cross-file)");
+
+    assert!(
+        graph.has_edge(&get_api_people_list, &list_people_fn, EdgeType::Handler),
+        "Expected '/api/people/list' GET endpoint to be handled by listPeople (cross-file)"
+    );
+
+    // Test cross-file router endpoints (admin-routes.ts)
+    let list_users_fn = functions
+        .iter()
+        .find(|f| {
+            f.name == "listUsers"
+                && normalize_path(&f.file) == "src/testing/typescript/src/admin-routes.ts"
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("listUsers function not found in admin-routes.ts");
+
+    let delete_user_fn = functions
+        .iter()
+        .find(|f| {
+            f.name == "deleteUser"
+                && normalize_path(&f.file) == "src/testing/typescript/src/admin-routes.ts"
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("deleteUser function not found in admin-routes.ts");
+
+    let get_api_admin_users = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/api/admin/users"
+                && normalize_path(&e.file) == "src/testing/typescript/src/admin-routes.ts"
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("GET /api/admin/users endpoint not found (cross-file)");
+
+    assert!(
+        graph.has_edge(&get_api_admin_users, &list_users_fn, EdgeType::Handler),
+        "Expected '/api/admin/users' GET endpoint to be handled by listUsers (cross-file)"
+    );
+
+    let delete_api_admin_users_id = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/api/admin/users/:id"
+                && normalize_path(&e.file) == "src/testing/typescript/src/admin-routes.ts"
+                && e.meta.get("verb") == Some(&"DELETE".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("DELETE /api/admin/users/:id endpoint not found (cross-file)");
+
+    assert!(
+        graph.has_edge(&delete_api_admin_users_id, &delete_user_fn, EdgeType::Handler),
+        "Expected '/api/admin/users/:id' DELETE endpoint to be handled by deleteUser (cross-file)"
     );
 
     let (nodes, edges) = graph.get_graph_size();

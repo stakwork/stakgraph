@@ -5,6 +5,7 @@ pub const LIBRARY_VERSION: &str = "LIBRARY_VERSION";
 pub const IMPORTS: &str = "imports";
 pub const IMPORTS_FROM: &str = "imports-from";
 pub const IMPORTS_NAME: &str = "imports-name";
+pub const IMPORTS_ALIAS: &str = "imports-alias";
 pub const TRAIT: &str = "trait";
 pub const TRAIT_NAME: &str = "trait-name";
 pub const TRAIT_METHOD_NAME: &str = "trait-method-name";
