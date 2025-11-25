@@ -347,6 +347,8 @@ impl Lang {
                 params.actions_array = Some(body);
             } else if o == ENDPOINT_VERB {
                 endp.add_verb(&body.to_uppercase());
+            } else if o == ENDPOINT_OBJECT {
+                endp.meta.insert("object".to_string(), body);
             } else if o == REQUEST_CALL {
                 call = Some(body);
             } else if o == ENDPOINT_GROUP {

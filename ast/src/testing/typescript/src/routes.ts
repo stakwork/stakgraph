@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import express, { Request, Response } from "express";
 import { getPersonById, newPerson, PersonData } from "./service.js";
 
 type PersonRequest = Request<{}, {}, { name: string; email: string }>;
@@ -10,10 +10,18 @@ export enum ResponseStatus {
   NOT_FOUND = 404,
   INTERNAL_ERROR = 500,
 }
+
+const peopleRouter = express.Router();
+
+peopleRouter.post("/new", createNewPerson);
+peopleRouter.get("/recent", getRecentPeople);
+
 export function registerRoutes(app) {
   app.get("/person/:id", getPerson);
 
   app.post("/person", createPerson);
+
+  app.use("/people", peopleRouter);
 }
 
 async function getPerson(req: Request, res: Response) {
@@ -40,6 +48,30 @@ async function createPerson(req: PersonRequest, res: PersonResponse) {
   try {
     const person: PersonData = await newPerson({ name, email });
     return res.status(ResponseStatus.CREATED).json(person);
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(ResponseStatus.INTERNAL_ERROR)
+      .json({ error: "Internal server error" });
+  }
+}
+
+async function createNewPerson(req: PersonRequest, res: PersonResponse) {
+  const { name, email } = req.body;
+  try {
+    const person: PersonData = await newPerson({ name, email });
+    return res.status(ResponseStatus.CREATED).json(person);
+  } catch (error) {
+    console.error(error);
+    return res
+      .status(ResponseStatus.INTERNAL_ERROR)
+      .json({ error: "Internal server error" });
+  }
+}
+
+async function getRecentPeople(req: Request, res: Response) {
+  try {
+    return res.json([]);
   } catch (error) {
     console.error(error);
     return res
