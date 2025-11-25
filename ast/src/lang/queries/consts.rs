@@ -37,6 +37,7 @@ pub const ENDPOINT_ACTION: &str = "endpoint-action";
 pub const ENDPOINT: &str = "endpoint";
 pub const ENDPOINT_ALIAS: &str = "endpoint-alias";
 pub const ENDPOINT_VERB: &str = "endpoint-verb";
+pub const ENDPOINT_OBJECT: &str = "endpoint-object";
 pub const ROUTE: &str = "route";
 pub const REQUEST_CALL: &str = "call";
 pub const ENDPOINT_GROUP: &str = "endpoint-group";
