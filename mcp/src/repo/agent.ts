@@ -4,11 +4,11 @@ import {
   ModelMessage,
   StopCondition,
   ToolSet,
-  StepResult,
 } from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
+import { appendTextToPrompt, logStep, extractFinalAnswer } from "./utils.js";
 
 // const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt. ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION. Do NOT write to a document with your answer, instead ALWAYS finish with the final_answer tool!!!!!!!!!!`;
 
@@ -47,106 +47,6 @@ Reasons to call ask_clarifying_questions:
  - MOST IMPORTANT: Your technical exploration has revealed that there are multiple possible approaches to take, and you want to get the user's input on which one to choose.
 
 ALWAYS USE EITHER THE final_answer OR ask_clarifying_questions TOOL AT THE END!`;
-
-function logStep(contents: any) {
-  if (!Array.isArray(contents)) return;
-  for (const content of contents) {
-    if (content.type === "tool-call" && content.toolName !== "final_answer") {
-      console.log("TOOL CALL:", content.toolName, ":", content.input);
-    }
-    console.log("CONTENT:", JSON.stringify(content, null, 2));
-  }
-}
-
-function appendTextToPrompt(
-  prompt: string | ModelMessage[],
-  textToAppend: string
-): string | ModelMessage[] {
-  if (typeof prompt === "string") {
-    return prompt + textToAppend;
-  }
-
-  if (!Array.isArray(prompt)) {
-    return prompt;
-  }
-
-  // Find the last user message and append to it
-  const modifiedPrompt = [...prompt];
-  for (let i = modifiedPrompt.length - 1; i >= 0; i--) {
-    const message = modifiedPrompt[i];
-    if (message.role === "user") {
-      if (typeof message.content === "string") {
-        modifiedPrompt[i] = {
-          ...message,
-          content: message.content + textToAppend,
-        } as ModelMessage;
-      } else if (Array.isArray(message.content)) {
-        // If content is an array of parts, append to the last text part
-        const contentCopy = [...message.content];
-        for (let j = contentCopy.length - 1; j >= 0; j--) {
-          const part = contentCopy[j];
-          if (part.type === "text") {
-            contentCopy[j] = {
-              type: "text",
-              text: part.text + textToAppend,
-            };
-            break;
-          }
-        }
-        modifiedPrompt[i] = {
-          ...message,
-          content: contentCopy,
-        } as ModelMessage;
-      }
-      break;
-    }
-  }
-
-  return modifiedPrompt;
-}
-
-function extractFinalAnswer(steps: StepResult<ToolSet>[]): string {
-  let lastText = "";
-
-  // Collect last text content as fallback
-  for (const step of steps) {
-    for (const item of step.content) {
-      if (item.type === "text" && item.text && item.text.trim().length > 0) {
-        lastText = item.text.trim();
-      }
-    }
-  }
-
-  // Search for ask_clarifying_questions or final_answer tool result (reverse order for efficiency)
-  for (let i = steps.length - 1; i >= 0; i--) {
-    // Check for ask_clarifying_questions first (higher priority)
-    const askQuestionsResult = steps[i].content.find(
-      (c) =>
-        c.type === "tool-result" && c.toolName === "ask_clarifying_questions"
-    );
-    if (askQuestionsResult) {
-      return (askQuestionsResult as any).output;
-    }
-
-    // Then check for final_answer
-    const finalAnswerResult = steps[i].content.find(
-      (c) => c.type === "tool-result" && c.toolName === "final_answer"
-    );
-    if (finalAnswerResult) {
-      return (finalAnswerResult as any).output;
-    }
-  }
-
-  // Fallback to last text if neither tool was found
-  if (lastText) {
-    console.warn(
-      "No final_answer or ask_clarifying_questions tool call detected; falling back to last text."
-    );
-    return `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last text as final answer.)`;
-  }
-
-  return "";
-}
 
 export async function get_context(
   prompt: string | ModelMessage[],
