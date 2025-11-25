@@ -18,7 +18,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -73,6 +73,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
             imp.file
         );
     }
+    
     assert_eq!(imports.len(), 7, "Expected 7 imports");
 
     let model_import_body = format!(
@@ -184,6 +185,8 @@ import {{ sequelize }} from "./config.js";"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
+
+    println!("{:#?}", endpoints.iter().map(|e| (&e.name, &e.file, &e.meta)).collect::<Vec<_>>());
     
     assert_eq!(endpoints.len(), 8, "Expected 8 endpoints");
 
