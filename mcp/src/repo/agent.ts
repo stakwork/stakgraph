@@ -58,6 +58,53 @@ function logStep(contents: any) {
   }
 }
 
+function appendTextToPrompt(
+  prompt: string | ModelMessage[],
+  textToAppend: string
+): string | ModelMessage[] {
+  if (typeof prompt === "string") {
+    return prompt + textToAppend;
+  }
+
+  if (!Array.isArray(prompt)) {
+    return prompt;
+  }
+
+  // Find the last user message and append to it
+  const modifiedPrompt = [...prompt];
+  for (let i = modifiedPrompt.length - 1; i >= 0; i--) {
+    const message = modifiedPrompt[i];
+    if (message.role === "user") {
+      if (typeof message.content === "string") {
+        modifiedPrompt[i] = {
+          ...message,
+          content: message.content + textToAppend,
+        } as ModelMessage;
+      } else if (Array.isArray(message.content)) {
+        // If content is an array of parts, append to the last text part
+        const contentCopy = [...message.content];
+        for (let j = contentCopy.length - 1; j >= 0; j--) {
+          const part = contentCopy[j];
+          if (part.type === "text") {
+            contentCopy[j] = {
+              type: "text",
+              text: part.text + textToAppend,
+            };
+            break;
+          }
+        }
+        modifiedPrompt[i] = {
+          ...message,
+          content: contentCopy,
+        } as ModelMessage;
+      }
+      break;
+    }
+  }
+
+  return modifiedPrompt;
+}
+
 function extractFinalAnswer(steps: StepResult<ToolSet>[]): string {
   let lastText = "";
 
@@ -119,12 +166,20 @@ export async function get_context(
 
   let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
     hasToolCall("final_answer");
+  let finalPrompt: string | ModelMessage[] = prompt;
+
   if (toolsConfig?.ask_clarifying_questions) {
     system = ASK_CLARIFYING_QUESTIONS_SYSTEM;
     stopWhen = [
       hasToolCall("final_answer"),
       hasToolCall("ask_clarifying_questions"),
     ];
+
+    // Add clarifying questions text to prompt
+    finalPrompt = appendTextToPrompt(
+      prompt,
+      " After exploring a bit, ask clarifying questions if needed."
+    );
   }
 
   for (const tool of Object.keys(tools)) {
@@ -134,7 +189,7 @@ export async function get_context(
   const { steps, totalUsage } = await generateText({
     model,
     tools,
-    prompt,
+    prompt: finalPrompt,
     system,
     stopWhen,
     onStepFinish: (sf) => logStep(sf.content),
