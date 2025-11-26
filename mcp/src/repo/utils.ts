@@ -58,11 +58,13 @@ export function appendTextToPrompt(
 }
 
 export interface FinalAnswerResult {
-  answer: string;
+  answer: any;
   tool_use?: string;
 }
 
-export function extractFinalAnswer(steps: StepResult<ToolSet>[]): FinalAnswerResult {
+export function extractFinalAnswer(
+  steps: StepResult<ToolSet>[]
+): FinalAnswerResult {
   let lastText = "";
   let foundFinalAnswerCall = false;
   let textAfterFinalAnswer = "";
@@ -77,7 +79,12 @@ export function extractFinalAnswer(steps: StepResult<ToolSet>[]): FinalAnswerRes
       }
 
       // Capture text after final_answer call
-      if (foundFinalAnswerCall && item.type === "text" && item.text && item.text.trim().length > 0) {
+      if (
+        foundFinalAnswerCall &&
+        item.type === "text" &&
+        item.text &&
+        item.text.trim().length > 0
+      ) {
         textAfterFinalAnswer = item.text.trim();
       }
 

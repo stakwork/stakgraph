@@ -14,5 +14,5 @@ export interface ContextResult {
     totalTokens: number;
   };
   tool_use?: string;
-  content: string;
+  content: any;
 }
