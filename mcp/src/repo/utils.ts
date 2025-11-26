@@ -1,6 +1,8 @@
 import { ModelMessage, ToolSet, StepResult } from "ai";
 
 export function logStep(contents: any) {
+  // console.log("===> logStep", JSON.stringify(contents, null, 2));
+  // return;
   if (!Array.isArray(contents)) return;
   for (const content of contents) {
     if (content.type === "tool-call" && content.toolName !== "final_answer") {
@@ -114,10 +116,14 @@ export function extractFinalAnswer(
       (c) => c.type === "tool-result" && c.toolName === "final_answer"
     );
     if (finalAnswerResult) {
-      return {
-        answer: (finalAnswerResult as any).output,
-        tool_use: "final_answer",
-      };
+      const output = (finalAnswerResult as any).output;
+      // Only return if output is not empty, otherwise fall through to text after tool call
+      if (output && output.trim()) {
+        return {
+          answer: output,
+          tool_use: "final_answer",
+        };
+      }
     }
   }
 

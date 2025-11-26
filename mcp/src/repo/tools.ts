@@ -157,11 +157,12 @@ export function get_tools(
       inputSchema: z.object({
         answer: z
           .string()
+          .optional()
           .describe("Your complete final answer to the user's question."),
       }),
-      execute: async (body: { answer: string }) => {
+      execute: async (body: { answer?: string }) => {
         console.log("====> final_answer", JSON.stringify(body, null, 2));
-        return body.answer;
+        return body.answer || "";
       },
     }),
   };

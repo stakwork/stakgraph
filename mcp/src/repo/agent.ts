@@ -57,9 +57,13 @@ function createHasAnswerCondition<T extends ToolSet>(): StopCondition<T> {
         if (foundFinalAnswerCall && item.type === "text" && item.text?.trim()) {
           return true;
         }
-        // Also check for tool-result of final_answer (successful call)
+        // Check for tool-result of final_answer (successful call with non-empty output)
         if (item.type === "tool-result" && item.toolName === "final_answer") {
-          return true;
+          // Only stop if the output is not empty, otherwise wait for the next text content
+          const output = (item as any).output;
+          if (output && output.trim()) {
+            return true;
+          }
         }
       }
     }
