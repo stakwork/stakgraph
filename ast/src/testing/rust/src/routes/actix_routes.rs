@@ -1,4 +1,5 @@
 use crate::db::{Database, Person};
+use crate::routes::admin_actix::admin_config;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use serde_json::json;
 
@@ -26,6 +27,26 @@ async fn create_person(person: web::Json<Person>) -> impl Responder {
     }
 }
 
+#[get("/profile")]
+async fn get_profile() -> impl Responder {
+    HttpResponse::Ok().json(json!({"profile": "data"}))
+}
+
+#[post("/profile/update")]
+async fn update_profile(data: web::Json<serde_json::Value>) -> impl Responder {
+    HttpResponse::Ok().json(json!({"updated": true}))
+}
+
 pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.service(get_person).service(create_person);
+    cfg.service(
+        web::scope("/api")
+            .service(get_person)
+            .service(create_person),
+    )
+    .service(
+        web::scope("/user")
+            .service(get_profile)
+            .service(update_profile),
+    )
+    .service(web::scope("/admin").configure(admin_config));
 }
