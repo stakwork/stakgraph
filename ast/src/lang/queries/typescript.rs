@@ -400,4 +400,73 @@ impl Stack for TypeScript {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
         consts::should_skip_js_function_call(called, operand)
     }
+
+    fn parse_imports_from_file(
+        &self,
+        file: &str,
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Option<Vec<(String, Vec<String>)>> {
+        use super::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
+        use crate::lang::parse::utils::trim_quotes;
+        use tree_sitter::QueryCursor;
+
+        let import_node = find_import_node(file)?;
+        let code = import_node.body.as_str();
+
+        let imports_query = self.imports_query()?;
+        let q = tree_sitter::Query::new(&self.0, &imports_query).unwrap();
+
+        let tree = match self.parse(code, &NodeType::Import) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+        let mut results = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let mut import_names = Vec::new();
+            let mut import_source = None;
+            let mut import_aliases = Vec::new();
+
+            for capture in m.captures {
+                let capture_name = q.capture_names()[capture.index as usize];
+                let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
+
+                if capture_name == IMPORTS_NAME {
+                    import_names.push(text.to_string());
+                } else if capture_name == IMPORTS_ALIAS {
+                    import_aliases.push(text.to_string());
+                } else if capture_name == IMPORTS_FROM {
+                    import_source = Some(trim_quotes(text).to_string());
+                }
+            }
+
+            if !import_aliases.is_empty() {
+                import_names = import_aliases;
+            }
+
+            if let Some(source_path) = import_source {
+                let mut resolved_path = self.resolve_import_path(&source_path, file);
+
+                if resolved_path.starts_with("@/") {
+                    resolved_path = resolved_path[2..].to_string();
+                }
+
+                let exts = [".ts", ".tsx", ".js", ".jsx"];
+                if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
+                    resolved_path = resolved_path.trim_end_matches(ext).to_string();
+                }
+
+                results.push((resolved_path, import_names));
+            }
+        }
+
+        if results.is_empty() {
+            None
+        } else {
+            Some(results)
+        }
+    }
 }
