@@ -469,4 +469,51 @@ impl Stack for TypeScript {
             Some(results)
         }
     }
+
+    fn match_endpoint_groups(
+        &self,
+        groups: &[NodeData],
+        endpoints: &[NodeData],
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Vec<(NodeData, String)> {
+        let mut matches = Vec::new();
+
+        for group in groups {
+            if let Some(router_var_name) = group.meta.get("group") {
+                let prefix = &group.name;
+                let group_file = &group.file;
+
+                for endpoint in endpoints {
+                    let endpoint_name = &endpoint.name;
+                    let endpoint_file = &endpoint.file;
+
+                    // Same-file matching: check if endpoint's object metadata matches router variable
+                    if endpoint_file == group_file
+                        && !endpoint_name.starts_with(prefix)
+                        && !endpoint_name.contains("/:")
+                        && endpoint.meta.get("object") == Some(router_var_name)
+                    {
+                        matches.push((endpoint.clone(), prefix.clone()));
+                        continue;
+                    }
+
+                    // Cross-file matching: resolve import source and check if endpoint is from that file
+                    if endpoint.meta.get("object") != Some(router_var_name) {
+                        // Check if router is imported in group file
+                        if let Some(resolved_source) =
+                            self.resolve_import_source(router_var_name, group_file, find_import_node)
+                        {
+                            if endpoint_file.contains(&resolved_source)
+                                && !endpoint_name.starts_with(prefix)
+                            {
+                                matches.push((endpoint.clone(), prefix.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        matches
+    }
 }
