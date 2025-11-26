@@ -208,6 +208,7 @@ export async function get_context(
   // console.log("FINAL", final);
   return {
     final,
+    content: final,
     usage: {
       inputTokens: totalUsage.inputTokens || 0,
       outputTokens: totalUsage.outputTokens || 0,
