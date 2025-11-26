@@ -1,40 +1,12 @@
 use crate::lang::asg::TestRecord;
 use crate::lang::{Edge, Lang, Node, NodeType};
 use crate::lang::{Function, FunctionCall};
-use crate::lang::call_finder::get_imports_for_file;
 use lsp::Language;
 use shared::Result;
 use std::collections::{BTreeSet, HashSet};
 use std::fmt::Debug;
 
 use super::{EdgeType, NodeData, NodeKeys};
-
-pub fn resolve_router_import_source<G: Graph>(
-    router_var: &str,
-    mount_file: &str,
-    lang: &Lang,
-    graph: &G,
-) -> Option<String> {
-    let import_map = get_imports_for_file(mount_file, lang, graph)?;
-    
-    for (resolved_path, imported_names) in import_map {
-        if imported_names.contains(&router_var.to_string()) {
-            return Some(resolved_path);
-        }
-    }
-    
-    None
-}
-
-#[cfg(feature = "neo4j")]
-pub async fn resolve_router_import_source_async<G: Graph>(
-    router_var: &str,
-    mount_file: &str,
-    lang: &Lang,
-    graph: &G,
-) -> Option<String> {
-    resolve_router_import_source(router_var, mount_file, lang, graph)
-}
 
 pub trait Graph: Default + Debug {
     fn new(_root: String, _lang_kind: Language) -> Self
