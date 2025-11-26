@@ -487,9 +487,13 @@ impl Stack for TypeScript {
                     let endpoint_name = &endpoint.name;
                     let endpoint_file = &endpoint.file;
 
+                    // Skip if already prefixed
+                    if endpoint_name.starts_with(prefix) {
+                        continue;
+                    }
+
                     // Same-file matching: check if endpoint's object metadata matches router variable
                     if endpoint_file == group_file
-                        && !endpoint_name.starts_with(prefix)
                         && !endpoint_name.contains("/:")
                         && endpoint.meta.get("object") == Some(router_var_name)
                     {
@@ -498,16 +502,12 @@ impl Stack for TypeScript {
                     }
 
                     // Cross-file matching: resolve import source and check if endpoint is from that file
-                    if endpoint.meta.get("object") != Some(router_var_name) {
-                        // Check if router is imported in group file
-                        if let Some(resolved_source) =
-                            self.resolve_import_source(router_var_name, group_file, find_import_node)
-                        {
-                            if endpoint_file.contains(&resolved_source)
-                                && !endpoint_name.starts_with(prefix)
-                            {
-                                matches.push((endpoint.clone(), prefix.clone()));
-                            }
+                    // Check if router is imported in group file
+                    if let Some(resolved_source) =
+                        self.resolve_import_source(router_var_name, group_file, find_import_node)
+                    {
+                        if endpoint_file.contains(&resolved_source) {
+                            matches.push((endpoint.clone(), prefix.clone()));
                         }
                     }
                 }
