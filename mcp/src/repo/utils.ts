@@ -57,12 +57,31 @@ export function appendTextToPrompt(
   return modifiedPrompt;
 }
 
-export function extractFinalAnswer(steps: StepResult<ToolSet>[]): string {
-  let lastText = "";
+export interface FinalAnswerResult {
+  answer: string;
+  tool_use?: string;
+}
 
-  // Collect last text content as fallback
+export function extractFinalAnswer(steps: StepResult<ToolSet>[]): FinalAnswerResult {
+  let lastText = "";
+  let foundFinalAnswerCall = false;
+  let textAfterFinalAnswer = "";
+
+  // Iterate through all steps to find final_answer calls and text
   for (const step of steps) {
     for (const item of step.content) {
+      // Track if we found a final_answer tool call
+      if (item.type === "tool-call" && item.toolName === "final_answer") {
+        foundFinalAnswerCall = true;
+        textAfterFinalAnswer = ""; // Reset text after finding tool call
+      }
+
+      // Capture text after final_answer call
+      if (foundFinalAnswerCall && item.type === "text" && item.text && item.text.trim().length > 0) {
+        textAfterFinalAnswer = item.text.trim();
+      }
+
+      // Keep track of last text as general fallback
       if (item.type === "text" && item.text && item.text.trim().length > 0) {
         lastText = item.text.trim();
       }
@@ -77,16 +96,30 @@ export function extractFinalAnswer(steps: StepResult<ToolSet>[]): string {
         c.type === "tool-result" && c.toolName === "ask_clarifying_questions"
     );
     if (askQuestionsResult) {
-      return (askQuestionsResult as any).output;
+      return {
+        answer: (askQuestionsResult as any).output,
+        tool_use: "ask_clarifying_questions",
+      };
     }
 
-    // Then check for final_answer
+    // Then check for final_answer tool result
     const finalAnswerResult = steps[i].content.find(
       (c) => c.type === "tool-result" && c.toolName === "final_answer"
     );
     if (finalAnswerResult) {
-      return (finalAnswerResult as any).output;
+      return {
+        answer: (finalAnswerResult as any).output,
+        tool_use: "final_answer",
+      };
     }
+  }
+
+  // If final_answer was called but failed, use text that came after it
+  if (foundFinalAnswerCall && textAfterFinalAnswer) {
+    return {
+      answer: textAfterFinalAnswer,
+      tool_use: "final_answer",
+    };
   }
 
   // Fallback to last text if neither tool was found
@@ -94,8 +127,10 @@ export function extractFinalAnswer(steps: StepResult<ToolSet>[]): string {
     console.warn(
       "No final_answer or ask_clarifying_questions tool call detected; falling back to last text."
     );
-    return `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last text as final answer.)`;
+    return {
+      answer: `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last text as final answer.)`,
+    };
   }
 
-  return "";
+  return { answer: "" };
 }

@@ -13,4 +13,6 @@ export interface ContextResult {
     outputTokens: number;
     totalTokens: number;
   };
+  tool_use?: string;
+  content: string;
 }

@@ -1,10 +1,4 @@
-import {
-  generateText,
-  hasToolCall,
-  ModelMessage,
-  StopCondition,
-  ToolSet,
-} from "ai";
+import { generateText, ModelMessage, StopCondition, ToolSet } from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
@@ -32,7 +26,7 @@ The 'answer' field is REQUIRED and must contain your ENTIRE response as a string
 
 ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION with the answer parameter filled in!`;
 
-const ASK_CLARIFYING_QUESTIONS_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt. 
+const ASK_CLARIFYING_QUESTIONS_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
 CRITICAL: When you finish exploring, you MUST call EITHER:
 
@@ -47,6 +41,49 @@ Reasons to call ask_clarifying_questions:
  - MOST IMPORTANT: Your technical exploration has revealed that there are multiple possible approaches to take, and you want to get the user's input on which one to choose.
 
 ALWAYS USE EITHER THE final_answer OR ask_clarifying_questions TOOL AT THE END!`;
+
+// Custom stop condition: final_answer might be called with {} (fail) but text after it is the real answer
+function createHasAnswerCondition<T extends ToolSet>(): StopCondition<T> {
+  return ({ steps }) => {
+    let foundFinalAnswerCall = false;
+
+    for (const step of steps) {
+      for (const item of step.content) {
+        // Check if final_answer tool was called
+        if (item.type === "tool-call" && item.toolName === "final_answer") {
+          foundFinalAnswerCall = true;
+        }
+        // If we found final_answer call before, and now there's text content, stop
+        if (foundFinalAnswerCall && item.type === "text" && item.text?.trim()) {
+          return true;
+        }
+        // Also check for tool-result of final_answer (successful call)
+        if (item.type === "tool-result" && item.toolName === "final_answer") {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  };
+}
+
+function createHasAskQuestionsCondition<T extends ToolSet>(): StopCondition<T> {
+  return ({ steps }) => {
+    for (const step of steps) {
+      for (const item of step.content) {
+        // Check for successful ask_clarifying_questions call
+        if (
+          item.type === "tool-result" &&
+          item.toolName === "ask_clarifying_questions"
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+}
 
 export async function get_context(
   prompt: string | ModelMessage[],
@@ -64,23 +101,15 @@ export async function get_context(
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
   let system = systemOverride || DEFAULT_SYSTEM;
 
-  // FIXME: flexible stopWhen: final_answer might be called with {} and then text as answer after final_answer is called.
-  /*
-    const hasAnswer: StopCondition<typeof tools> = ({ steps }) => {
-      // Stop when the model generates text containing "ANSWER:"
-      return steps.some(step => step.text?.includes('ANSWER:')) ?? false;
-    };
-  */
-  let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
-    hasToolCall("final_answer");
+  const hasAnswer = createHasAnswerCondition<typeof tools>();
+  const hasAskQuestions = createHasAskQuestionsCondition<typeof tools>();
+
+  let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] = hasAnswer;
   let finalPrompt: string | ModelMessage[] = prompt;
 
   if (toolsConfig?.ask_clarifying_questions) {
     system = ASK_CLARIFYING_QUESTIONS_SYSTEM;
-    stopWhen = [
-      hasToolCall("final_answer"),
-      hasToolCall("ask_clarifying_questions"),
-    ];
+    stopWhen = [hasAnswer, hasAskQuestions];
 
     // Add clarifying questions text to prompt
     finalPrompt = appendTextToPrompt(
@@ -113,7 +142,9 @@ export async function get_context(
   );
 
   return {
-    final,
+    final: final.answer,
+    tool_use: final.tool_use,
+    content: final.answer,
     usage: {
       inputTokens: totalUsage.inputTokens || 0,
       outputTokens: totalUsage.outputTokens || 0,
@@ -165,6 +196,25 @@ curl -X POST \
     "toolsConfig": {
       "ask_clarifying_questions": true
     }
+  }' \
+  "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "i want to build a sub-account feature. please tell me a brief technical architecture for this.",
+    "toolsConfig": {
+      "ask_clarifying_questions": true
+    }
+  }' \
+  "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "i want to build a sub-account feature."
   }' \
   "http://localhost:3355/repo/agent"
 */
