@@ -36,6 +36,8 @@ export async function repo_agent(req: Request, res: Response) {
         asyncReqs.finishReq(request_id, {
           success: true,
           final_answer: result.final,
+          tool_use: result.tool_use,
+          content: result.content,
           usage: result.usage,
         });
         setBusy(false);
