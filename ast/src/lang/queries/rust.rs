@@ -648,13 +648,13 @@ impl Stack for Rust {
         let reg_query = match tree_sitter::Query::new(&self.0, &reg_query_str) {
             Ok(q) => q,
             Err(e) => {
-                println!("[Rust] Failed to create service registration query: {:?}", e);
                 return matches;
             }
         };
 
-        // Collect all handler -> prefix mappings from all files
-        let mut handler_to_prefix: HashMap<String, Vec<String>> = HashMap::new();
+        // Collect all (handler, file) -> prefix mappings from all files
+        // Key is (handler_name, file_path) to avoid cross-framework collisions
+        let mut handler_to_prefix: HashMap<(String, String), Vec<String>> = HashMap::new();
         
         // Get unique files from groups
         let mut files_to_scan: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -702,16 +702,19 @@ impl Stack for Rust {
                 // Walk up AST to find web::scope() call
                 if let (Some(h), Some(node)) = (handler, service_node) {
                     if let Some(prefix) = Self::find_scope_prefix(node, &code) {
-                        handler_to_prefix.entry(h).or_insert_with(Vec::new).push(prefix);
+                        // Store with file path to avoid matching across frameworks
+                        let key = (h, file.clone());
+                        handler_to_prefix.entry(key).or_insert_with(Vec::new).push(prefix);
                     }
                 }
             }
         }
         
-        // Match endpoints by handler name
+        // Match endpoints by handler name AND file path
         for endpoint in endpoints {
             if let Some(handler_name) = endpoint.meta.get("handler") {
-                if let Some(prefixes) = handler_to_prefix.get(handler_name) {
+                let key = (handler_name.clone(), endpoint.file.clone());
+                if let Some(prefixes) = handler_to_prefix.get(&key) {
                     for prefix in prefixes {
                         matches.push((endpoint.clone(), prefix.clone()));
                     }
