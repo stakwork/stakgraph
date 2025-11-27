@@ -1,4 +1,38 @@
-import { ModelMessage, ToolSet, StepResult } from "ai";
+import { ModelMessage, ToolSet, StepResult, StopCondition } from "ai";
+
+export function createHasEndMarkerCondition<
+  T extends ToolSet
+>(): StopCondition<T> {
+  return ({ steps }) => {
+    for (const step of steps) {
+      for (const item of step.content) {
+        if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+}
+
+export function createHasAskQuestionsCondition<
+  T extends ToolSet
+>(): StopCondition<T> {
+  return ({ steps }) => {
+    for (const step of steps) {
+      for (const item of step.content) {
+        // Check for successful ask_clarifying_questions call
+        if (
+          item.type === "tool-result" &&
+          item.toolName === "ask_clarifying_questions"
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+}
 
 export function logStep(contents: any) {
   // console.log("===> logStep", JSON.stringify(contents, null, 2));
@@ -67,39 +101,8 @@ export interface FinalAnswerResult {
 export function extractFinalAnswer(
   steps: StepResult<ToolSet>[]
 ): FinalAnswerResult {
-  let lastText = "";
-  let foundFinalAnswerCall = false;
-  let textAfterFinalAnswer = "";
-
-  // Iterate through all steps to find final_answer calls and text
-  for (const step of steps) {
-    for (const item of step.content) {
-      // Track if we found a final_answer tool call
-      if (item.type === "tool-call" && item.toolName === "final_answer") {
-        foundFinalAnswerCall = true;
-        textAfterFinalAnswer = ""; // Reset text after finding tool call
-      }
-
-      // Capture text after final_answer call
-      if (
-        foundFinalAnswerCall &&
-        item.type === "text" &&
-        item.text &&
-        item.text.trim().length > 0
-      ) {
-        textAfterFinalAnswer = item.text.trim();
-      }
-
-      // Keep track of last text as general fallback
-      if (item.type === "text" && item.text && item.text.trim().length > 0) {
-        lastText = item.text.trim();
-      }
-    }
-  }
-
-  // Search for ask_clarifying_questions or final_answer tool result (reverse order for efficiency)
+  // Search for ask_clarifying_questions tool result (highest priority)
   for (let i = steps.length - 1; i >= 0; i--) {
-    // Check for ask_clarifying_questions first (higher priority)
     const askQuestionsResult = steps[i].content.find(
       (c) =>
         c.type === "tool-result" && c.toolName === "ask_clarifying_questions"
@@ -110,38 +113,45 @@ export function extractFinalAnswer(
         tool_use: "ask_clarifying_questions",
       };
     }
+  }
 
-    // Then check for final_answer tool result
-    const finalAnswerResult = steps[i].content.find(
-      (c) => c.type === "tool-result" && c.toolName === "final_answer"
-    );
-    if (finalAnswerResult) {
-      const output = (finalAnswerResult as any).output;
-      // Only return if output is not empty, otherwise fall through to text after tool call
-      if (output && output.trim()) {
-        return {
-          answer: output,
-          tool_use: "final_answer",
-        };
+  // Look for text with [END_OF_ANSWER] sequence
+  let allText = "";
+  for (const step of steps) {
+    for (const item of step.content) {
+      if (item.type === "text" && item.text) {
+        allText += item.text;
       }
     }
   }
 
-  // If final_answer was called but failed, use text that came after it
-  if (foundFinalAnswerCall && textAfterFinalAnswer) {
-    return {
-      answer: textAfterFinalAnswer,
-      tool_use: "final_answer",
-    };
+  const endMarkerIndex = allText.indexOf("[END_OF_ANSWER]");
+  if (endMarkerIndex !== -1) {
+    const answer = allText.substring(0, endMarkerIndex).trim();
+    if (answer) {
+      return {
+        answer,
+        tool_use: "text_with_end_marker",
+      };
+    }
   }
 
-  // Fallback to last text if neither tool was found
+  // Fallback to last text if no marker found
+  let lastText = "";
+  for (const step of steps) {
+    for (const item of step.content) {
+      if (item.type === "text" && item.text && item.text.trim().length > 0) {
+        lastText = item.text.trim();
+      }
+    }
+  }
+
   if (lastText) {
     console.warn(
-      "No final_answer or ask_clarifying_questions tool call detected; falling back to last text."
+      "No [END_OF_ANSWER] marker or ask_clarifying_questions detected; falling back to last text."
     );
     return {
-      answer: `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last text as final answer.)`,
+      answer: lastText,
     };
   }
 
