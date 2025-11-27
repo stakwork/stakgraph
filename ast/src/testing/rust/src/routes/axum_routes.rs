@@ -9,11 +9,19 @@ use axum::{
 use serde_json::json;
 
 use crate::db::{Database, Person};
+use crate::routes::admin_axum::admin_router;
 
 pub fn create_router() -> Router {
     Router::new()
         .route("/person/:id", get(get_person))
         .route("/person", post(create_person))
+        .nest(
+            "/user",
+            Router::new()
+                .route("/profile", get(get_profile))
+                .route("/profile/update", post(update_profile)),
+        )
+        .nest("/admin", admin_router())
 }
 
 #[tracing::instrument]
@@ -51,6 +59,14 @@ async fn create_person(Json(person): Json<Person>) -> impl axum::response::IntoR
                 .into_response()
         }
     }
+}
+
+async fn get_profile() -> (StatusCode, JsonResponse<serde_json::Value>) {
+    (StatusCode::OK, JsonResponse(json!({"profile": "data"})))
+}
+
+async fn update_profile(Json(data): Json<serde_json::Value>) -> impl IntoResponse {
+    (StatusCode::OK, JsonResponse(json!({"updated": true}))).into_response()
 }
 
 #[cfg(test)]
