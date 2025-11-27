@@ -1,3 +1,7 @@
+use std::collections::HashMap;
+
+use crate::lang::parse::trim_quotes;
+
 use super::super::*;
 use super::consts::*;
 use shared::error::{Context, Result};
@@ -7,6 +11,34 @@ pub struct Rust(Language);
 impl Rust {
     pub fn new() -> Self {
         Rust(tree_sitter_rust::LANGUAGE.into())
+    }
+}
+
+impl Rust {
+    // Actix-specific helper: captures web::scope("/prefix").service(handler) pattern for same-file grouping
+    fn actix_service_registration_query() -> String {
+        use super::consts::{HANDLER_REF, ENDPOINT};
+        format!(
+            r#"
+            (call_expression
+                function: (field_expression
+                    value: (call_expression
+                        function: (scoped_identifier
+                            path: (identifier) @web (#eq? @web "web")
+                            name: (identifier) @scope_name (#eq? @scope_name "scope")
+                        )
+                        arguments: (arguments
+                            (string_literal) @{ENDPOINT}
+                        )
+                    )
+                    field: (field_identifier) @service_name (#eq? @service_name "service")
+                )
+                arguments: (arguments
+                    (identifier) @{HANDLER_REF}
+                )
+            ) @service_registration
+            "#
+        )
     }
 }
 
@@ -420,10 +452,6 @@ impl Stack for Rust {
 
         // Default to GET if no verb is found
         if !endpoint.meta.contains_key("verb") {
-            println!(
-                "WARNING: No verb detected for endpoint {}. Using GET as default.",
-                endpoint.name
-            );
             endpoint.add_verb("GET");
         }
         None
@@ -531,9 +559,6 @@ impl Stack for Rust {
         file: &str,
         find_import_node: &dyn Fn(&str) -> Option<NodeData>,
     ) -> Option<Vec<(String, Vec<String>)>> {
-        use super::consts::{IMPORTS_FROM, IMPORTS_NAME};
-        use crate::lang::parse::utils::trim_quotes;
-        use tree_sitter::QueryCursor;
 
         let import_node = find_import_node(file)?;
         let code = import_node.body.as_str();
@@ -584,14 +609,83 @@ impl Stack for Rust {
         endpoints: &[NodeData],
         find_import_node: &dyn Fn(&str) -> Option<NodeData>,
     ) -> Vec<(NodeData, String)> {
+
         let mut matches = Vec::new();
 
+        let reg_query_str = Rust::actix_service_registration_query();
+        
+        let reg_query = match tree_sitter::Query::new(&self.0, &reg_query_str) {
+            Ok(q) => q,
+            Err(_e) => {
+                return matches;
+            }
+        };
+
+
+        let mut handler_to_prefix: HashMap<String, Vec<String>> = HashMap::new();
+        
+    
+        let mut files_to_scan: HashSet<String> = HashSet::new();
+        for group in groups {
+            files_to_scan.insert(group.file.clone());
+        }
+        
+        for file in files_to_scan {
+            
+
+            let code = match std::fs::read_to_string(&file) {
+                Ok(c) => c,
+                Err(_e) => {
+                    continue;
+                }
+            };
+            
+            let tree = match self.parse(&code, &NodeType::Endpoint) {
+                Ok(t) => t,
+                Err(_e) => {
+                    continue;
+                }
+            };
+            
+            let mut cursor = QueryCursor::new();
+            let mut query_matches = cursor.matches(&reg_query, tree.root_node(), code.as_bytes());
+            
+            while let Some(m) = query_matches.next() {
+                let mut handler = None;
+                let mut prefix = None;
+                
+                for capture in m.captures {
+                    let capture_name = &reg_query.capture_names()[capture.index as usize];
+                    let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
+                    
+                    if capture_name == &HANDLER_REF {
+                        handler = Some(text.to_string());
+                    } else if capture_name == &"endpoint" {
+                        prefix = Some(trim_quotes(text));
+                    }
+                }
+                
+                if let (Some(h), Some(p)) = (handler, prefix) {
+                    handler_to_prefix.entry(h).or_insert_with(Vec::new).push(p.to_string());
+                }
+            }
+        }
+
+        for endpoint in endpoints {
+            if let Some(handler_name) = endpoint.meta.get("handler") {
+                if let Some(prefixes) = handler_to_prefix.get(handler_name) {
+                    for prefix in prefixes {
+                        matches.push((endpoint.clone(), prefix.clone()));
+                    }
+                }
+            }
+        }
+        
         for group in groups {
             let prefix = &group.name;
             let group_file = &group.file;
 
             if let Some(router_var) = group.meta.get("group") {
-                println!("[Rust] Processing group with var: prefix='{}', router_var='{}', file='{}'", prefix, router_var, group_file);
 
                 for endpoint in endpoints {
                     let endpoint_name = &endpoint.name;
@@ -604,33 +698,14 @@ impl Stack for Rust {
                     if let Some(resolved_source) =
                         self.resolve_import_source(router_var, group_file, find_import_node)
                     {
-                        println!("[Rust] Resolved import '{}' to source='{}'", router_var, resolved_source);
                         if endpoint_file.contains(&resolved_source) {
-                            println!("[Rust] Cross-file match: endpoint='{}' in file='{}'", endpoint_name, endpoint_file);
                             matches.push((endpoint.clone(), prefix.clone()));
                         }
-                    }
-                }
-            } else {
-                println!("[Rust] Processing scope without var: prefix='{}', file='{}', start={}, end={}", prefix, group_file, group.start, group.end);
-
-                for endpoint in endpoints {
-                    let endpoint_name = &endpoint.name;
-                    let endpoint_file = &endpoint.file;
-
-                    if endpoint_name.starts_with(prefix) {
-                        continue;
-                    }
-
-                    if endpoint_file == group_file && endpoint.start > group.start && endpoint.start < group.end {
-                        println!("[Rust] Same-file scope match: endpoint='{}' at line {} within scope range {}-{}", endpoint_name, endpoint.start, group.start, group.end);
-                        matches.push((endpoint.clone(), prefix.clone()));
                     }
                 }
             }
         }
 
-        println!("[Rust] Total matches found: {}", matches.len());
         matches
     }
 }
