@@ -17,11 +17,6 @@ CORRECT FORMAT:
   "answer": "Your complete answer here with all details, explanations, and code examples if needed"
 }
 
-WRONG FORMAT (DO NOT DO THIS):
-{}
-{ }
-Just calling final_answer without parameters
-
 The 'answer' field is REQUIRED and must contain your ENTIRE response as a string.
 
 ALWAYS USE THE final_answer TOOL AT THE END OF YOUR EXPLORATION with the answer parameter filled in!`;
@@ -61,7 +56,11 @@ function createHasAnswerCondition<T extends ToolSet>(): StopCondition<T> {
         if (item.type === "tool-result" && item.toolName === "final_answer") {
           // Only stop if the output is not empty, otherwise wait for the next text content
           const output = (item as any).output;
-          if (output && output.trim()) {
+          if (
+            output &&
+            output.trim() &&
+            !output.startsWith("__NEEDS_ANSWER__")
+          ) {
             return true;
           }
         }
