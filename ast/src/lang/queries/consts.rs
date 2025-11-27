@@ -42,6 +42,9 @@ pub const ENDPOINT_OBJECT: &str = "endpoint-object";
 pub const ROUTE: &str = "route";
 pub const REQUEST_CALL: &str = "call";
 pub const ENDPOINT_GROUP: &str = "endpoint-group";
+pub const SERVICE_REGISTRATION: &str = "service-registration";
+pub const SCOPE_PREFIX: &str = "scope-prefix";
+pub const HANDLER_REF: &str = "handler-ref";
 
 pub const INTEGRATION_TEST: &str = "integration-test";
 pub const E2E_TEST: &str = "e2e-test";
