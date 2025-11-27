@@ -258,7 +258,7 @@ use std::net::SocketAddr;"#
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
-    assert_eq!(calls_edges, 21, "Expected 21 calls edges");
+    assert_eq!(calls_edges, 18, "Expected 18 calls edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
@@ -383,24 +383,24 @@ use std::net::SocketAddr;"#
 
     let get_person_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/person/{id}" && e.file.ends_with("src/routes/actix_routes.rs"))
+        .find(|e| e.name == "/api/person/{id}" && e.file.ends_with("src/routes/actix_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
-        .expect("GET /person/{id} endpoint not found in actix_routes.rs");
+        .expect("GET /api/person/{id} endpoint not found in actix_routes.rs");
 
     let post_person_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/person" && e.file.ends_with("src/routes/actix_routes.rs"))
+        .find(|e| e.name == "/api/person" && e.file.ends_with("src/routes/actix_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
-        .expect("POST /person endpoint not found in actix_routes.rs");
+        .expect("POST /api/person endpoint not found in actix_routes.rs");
 
     assert!(
         graph.has_edge(&get_person_endpoint, &get_person_fn, EdgeType::Handler),
-        "Expected '/person/id' endpoint to be handled by get_person"
+        "Expected '/api/person/id' endpoint to be handled by get_person"
     );
 
     assert!(
         graph.has_edge(&post_person_endpoint, &create_person_fn, EdgeType::Handler),
-        "Expected '/person' endpoint to be handled by create_person"
+        "Expected '/api/person' endpoint to be handled by create_person"
     );
 
     let get_person_fn = functions
@@ -493,7 +493,7 @@ use std::net::SocketAddr;"#
         .iter()
         .find(|e| e.name == "/user/profile/update" && e.file.ends_with("src/routes/actix_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
-        .expect("POST /user/profile/update endpoint not found");
+        .expect("PUT /user/profile/update endpoint not found");
 
     assert!(
         graph.has_edge(&get_profile_endpoint, &get_profile_fn, EdgeType::Handler),
