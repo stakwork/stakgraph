@@ -45,6 +45,9 @@ pub const ENDPOINT_GROUP: &str = "endpoint-group";
 pub const SERVICE_REGISTRATION: &str = "service-registration";
 pub const SCOPE_PREFIX: &str = "scope-prefix";
 pub const HANDLER_REF: &str = "handler-ref";
+pub const NAMESPACE_NAME: &str = "namespace-name";
+pub const SCOPE_PATH: &str = "scope-path";
+pub const SINGULAR_RESOURCE: &str = "singular-resource";
 
 pub const INTEGRATION_TEST: &str = "integration-test";
 pub const E2E_TEST: &str = "e2e-test";

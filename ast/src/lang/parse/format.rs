@@ -359,6 +359,11 @@ impl Lang {
                 params.item = Some(HandlerItem::new_member(trim_quotes(&body)));
             } else if o == RESOURCE_ITEM {
                 params.item = Some(HandlerItem::new_resource_member(trim_quotes(&body)));
+            } else if o == SINGULAR_RESOURCE {
+                // Singular resource: mark endpoint to omit :id in paths
+                endp.meta.insert("is_singular".to_string(), "true".to_string());
+                let handler_name = trim_quotes(&body);
+                endp.add_handler(&handler_name);
             }
             Ok(())
         })?;

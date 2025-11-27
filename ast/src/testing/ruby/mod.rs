@@ -19,7 +19,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+     graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -41,7 +41,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += files.len();
 
     if use_lsp {
-        let expected = 48;
+        let expected = 56;
         assert!(
             (expected - 1..=expected + 1).contains(&files.len()),
             "Expected ~{} file nodes with LSP, got {}",
@@ -51,8 +51,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     } else {
         assert_eq!(
             files.len(),
-            48,
-            "Expected 48 file nodes, got {}",
+            56,
+            "Expected 56 file nodes, got {}",
             files.len()
         );
     }
@@ -93,8 +93,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += imports.len();
     assert_eq!(
         imports.len(),
-        15,
-        "Expected 15 import nodes, got {}",
+        17,
+        "Expected 17 import nodes, got {}",
         imports.len()
     );
 
@@ -134,28 +134,170 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    println!("{:#?}", endpoints.iter().map(|e| (e.meta.get("verb"), &e.name)).collect::<Vec<_>>());
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 7, "Expected 7 endpoints");
+    assert_eq!(endpoints.len(), 23, "Expected 23 endpoints");
 
     let mut sorted_endpoints = endpoints.clone();
     sorted_endpoints.sort_by(|a, b| a.name.cmp(&b.name));
+    
+    // Test root route
+    let root_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET / (root) endpoint not found");
+    assert_eq!(
+        root_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Root endpoint file path is incorrect"
+    );
+    
+    // Test namespace routes (api/v1)
+    let api_status_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/api/v1/status" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /api/v1/status endpoint not found");
+    assert_eq!(
+        api_status_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "API status endpoint file path is incorrect"
+    );
+    
+    let api_tokens_post_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/api/v1/tokens" && e.meta.get("verb") == Some(&"POST".to_string()))
+        .expect("POST /api/v1/tokens endpoint not found");
+    assert_eq!(
+        api_tokens_post_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "API tokens POST endpoint file path is incorrect"
+    );
+    
+    let api_tokens_delete_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/api/v1/tokens/:id" && e.meta.get("verb") == Some(&"DELETE".to_string()))
+        .expect("DELETE /api/v1/tokens/:id endpoint not found");
+    assert_eq!(
+        api_tokens_delete_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "API tokens DELETE endpoint file path is incorrect"
+    );
+    
+    // Test scope routes (admin)
+    let admin_settings_get_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/admin/settings" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /admin/settings endpoint not found");
+    assert_eq!(
+        admin_settings_get_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Admin settings GET endpoint file path is incorrect"
+    );
+    
+    let admin_settings_put_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/admin/settings/:id" && e.meta.get("verb") == Some(&"PUT".to_string()))
+        .expect("PUT /admin/settings/:id endpoint not found");
+    assert_eq!(
+        admin_settings_put_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Admin settings PUT endpoint file path is incorrect"
+    );
+    
+    // Test singular resources
+    let dashboard_get_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/dashboard" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /dashboard endpoint not found");
+    assert_eq!(
+        dashboard_get_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Dashboard GET endpoint file path is incorrect"
+    );
+    
+    let dashboard_put_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/dashboard" && e.meta.get("verb") == Some(&"PUT".to_string()))
+        .expect("PUT /dashboard endpoint not found");
+    assert_eq!(
+        dashboard_put_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Dashboard PUT endpoint file path is incorrect"
+    );
+    
+    let profile_get_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/profile" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /profile endpoint not found");
+    assert_eq!(
+        profile_get_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Profile GET endpoint file path is incorrect"
+    );
+    
+    let profile_edit_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/profile/edit" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /profile/edit endpoint not found");
+    assert_eq!(
+        profile_edit_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Profile edit endpoint file path is incorrect"
+    );
+    
+    let profile_put_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/profile" && e.meta.get("verb") == Some(&"PUT".to_string()))
+        .expect("PUT /profile endpoint not found");
+    assert_eq!(
+        profile_put_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Profile PUT endpoint file path is incorrect"
+    );
+    
+    // Test nested resources
+    let authors_get_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/authors" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /authors endpoint not found");
+    assert_eq!(
+        authors_get_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Authors GET endpoint file path is incorrect"
+    );
+    
+    let authors_books_get_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/authors/:author_id/books" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /authors/:author_id/books endpoint not found");
+    assert_eq!(
+        authors_books_get_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Authors books GET endpoint file path is incorrect"
+    );
+    
+    let authors_books_post_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/authors/:author_id/books" && e.meta.get("verb") == Some(&"POST".to_string()))
+        .expect("POST /authors/:author_id/books endpoint not found");
+    assert_eq!(
+        authors_books_post_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Authors books POST endpoint file path is incorrect"
+    );
+    
+    let authors_books_show_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/authors/:author_id/books/:id" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /authors/:author_id/books/:id endpoint not found");
+    assert_eq!(
+        authors_books_show_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Authors books show endpoint file path is incorrect"
+    );
 
+    // Test existing routes (now with leading slashes)
     let get_person_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "person/:id" && e.meta.get("verb") == Some(&"GET".to_string()))
-        .expect("GET person/:id endpoint not found");
+        .find(|e| e.name == "/person/:id" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /person/:id endpoint not found");
     assert_eq!(
         get_person_endpoint.file, "src/testing/ruby/config/routes.rb",
-        "Endpoint file path is incorrect"
+        "Person endpoint file path is incorrect"
     );
 
     let post_person_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "person" && e.meta.get("verb") == Some(&"POST".to_string()))
-        .expect("POST person endpoint not found");
+        .find(|e| e.name == "/person" && e.meta.get("verb") == Some(&"POST".to_string()))
+        .expect("POST /person endpoint not found");
     assert_eq!(
         post_person_endpoint.file, "src/testing/ruby/config/routes.rb",
-        "Endpoint file path is incorrect"
+        "Person POST endpoint file path is incorrect"
     );
 
     let delete_people_endpoint = endpoints
@@ -199,15 +341,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         "Endpoint file path is incorrect"
     );
 
-    let get_profile_endpoint = endpoints
-        .iter()
-        .find(|e| e.name == "profile" && e.meta.get("verb") == Some(&"GET".to_string()))
-        .expect("GET profile endpoint not found");
-    assert_eq!(
-        get_profile_endpoint.file, "src/testing/ruby/config/routes.rb",
-        "Endpoint file path is incorrect"
-    );
-
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
     //var is not in a .rb file, so it is not detected
@@ -215,11 +348,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;
-    assert_eq!(handler_edges_count, 7, "Expected 7 handler edges");
+    assert_eq!(handler_edges_count, 23, "Expected 23 handler edges");
 
     let class_counts = graph.count_edges_of_type(EdgeType::ParentOf);
     edges_count += class_counts;
-    assert_eq!(class_counts, 6, "Expected 6 class edges");
+    assert_eq!(class_counts, 14, "Expected 14 class edges");
 
     let class_calls =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Class, EdgeType::Calls);
@@ -260,15 +393,13 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-        assert_eq!(calls, 45, "Expected 45 call edges with lsp");
+        assert_eq!(calls, 48, "Expected 48 call edges with lsp");
     } else {
         let is_neo4j = std::any::type_name::<G>().contains("Neo4j");
-        let expected_calls = if is_neo4j { 44 } else { 46 };
-        assert_eq!(
-            calls, expected_calls,
-            "Expected {} call edges without lsp",
-            expected_calls
-        );
+        
+        let expected_calls = if is_neo4j { 47 } else { 49 };
+        assert_eq!(calls, expected_calls, "Expected {} call edges without lsp", expected_calls);
+
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
@@ -282,8 +413,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 154,
-        "Expected 154 Contains edges, got {}",
+        contains, 202,
+        "Expected 202 Contains edges, got {}",
         contains
     );
 
@@ -293,14 +424,14 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 15, "Expected 15 operand edges, got {}", operands);
+    assert_eq!(operands, 42, "Expected 42 operand edges, got {}", operands);
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
     assert_eq!(
         classes.len(),
-        13,
-        "Expected 13 class nodes, got {}",
+        21,
+        "Expected 21 class nodes, got {}",
         classes.len()
     );
     let person_model = classes
@@ -579,8 +710,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += directories.len();
     assert_eq!(
         directories.len(),
-        25,
-        "Expected 25 directories, got {}",
+        28,
+        "Expected 28 directories, got {}",
         directories.len()
     );
 
