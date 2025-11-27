@@ -1,11 +1,9 @@
-use std::collections::HashMap;
-
-use crate::lang::parse::trim_quotes;
-
 use super::super::*;
 use super::consts::*;
 use shared::error::{Context, Result};
 use tree_sitter::{Language, Parser, Query, Tree};
+use crate::lang::parse::utils::trim_quotes;
+use std::collections::HashMap;
 pub struct Rust(Language);
 
 impl Rust {
@@ -15,30 +13,58 @@ impl Rust {
 }
 
 impl Rust {
-    // Actix-specific helper: captures web::scope("/prefix").service(handler) pattern for same-file grouping
+    // Actix-specific helper: captures .service(handler) calls (on scope or chained)
     fn actix_service_registration_query() -> String {
-        use super::consts::{HANDLER_REF, ENDPOINT};
+        use super::consts::{HANDLER_REF};
         format!(
             r#"
             (call_expression
                 function: (field_expression
-                    value: (call_expression
-                        function: (scoped_identifier
-                            path: (identifier) @web (#eq? @web "web")
-                            name: (identifier) @scope_name (#eq? @scope_name "scope")
-                        )
-                        arguments: (arguments
-                            (string_literal) @{ENDPOINT}
-                        )
-                    )
                     field: (field_identifier) @service_name (#eq? @service_name "service")
                 )
                 arguments: (arguments
                     (identifier) @{HANDLER_REF}
                 )
-            ) @service_registration
+            ) @service_call
             "#
         )
+    }
+
+    // Walk up AST from .service() call to find the parent web::scope("/prefix")
+    fn find_scope_prefix(node: tree_sitter::Node, code: &str) -> Option<String> {
+        // The node passed in is the call_expression for .service()
+        // Pattern: call_expression { function: field_expression { value: ..., field: "service" } }
+        
+        if let Some(func_node) = node.child_by_field_name("function") {
+            if func_node.kind() == "field_expression" {
+                if let Some(value_node) = func_node.child_by_field_name("value") {
+                    if value_node.kind() == "call_expression" {
+                        // Check if this is web::scope()
+                        if let Some(scope_func) = value_node.child_by_field_name("function") {
+                            let func_text = scope_func.utf8_text(code.as_bytes()).ok()?;
+                            if func_text == "web::scope" {
+                                // Found it! Extract the prefix argument
+                                if let Some(args) = value_node.child_by_field_name("arguments") {
+                                    for i in 0..args.child_count() {
+                                        let child = args.child(i)?;
+                                        if child.kind() == "string_literal" {
+                                            let prefix = child.utf8_text(code.as_bytes()).ok()?;
+                                            return Some(trim_quotes(prefix).to_string());
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Not web::scope, but could be chained .service()
+                                // Recurse on this call_expression
+                                return Self::find_scope_prefix(value_node, code);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        None
     }
 }
 
@@ -452,6 +478,10 @@ impl Stack for Rust {
 
         // Default to GET if no verb is found
         if !endpoint.meta.contains_key("verb") {
+            println!(
+                "WARNING: No verb detected for endpoint {}. Using GET as default.",
+                endpoint.name
+            );
             endpoint.add_verb("GET");
         }
         None
@@ -611,38 +641,42 @@ impl Stack for Rust {
     ) -> Vec<(NodeData, String)> {
 
         let mut matches = Vec::new();
-
+        
+        // Build handler-to-prefix mapping using Actix service registration query
         let reg_query_str = Rust::actix_service_registration_query();
         
         let reg_query = match tree_sitter::Query::new(&self.0, &reg_query_str) {
             Ok(q) => q,
-            Err(_e) => {
+            Err(e) => {
+                println!("[Rust] Failed to create service registration query: {:?}", e);
                 return matches;
             }
         };
 
-
+        // Collect all handler -> prefix mappings from all files
         let mut handler_to_prefix: HashMap<String, Vec<String>> = HashMap::new();
         
-    
-        let mut files_to_scan: HashSet<String> = HashSet::new();
+        // Get unique files from groups
+        let mut files_to_scan: std::collections::HashSet<String> = std::collections::HashSet::new();
         for group in groups {
             files_to_scan.insert(group.file.clone());
         }
         
         for file in files_to_scan {
             
-
+            // Read the full file
             let code = match std::fs::read_to_string(&file) {
                 Ok(c) => c,
-                Err(_e) => {
+                Err(e) => {
+                    println!("[Rust] Failed to read file: {:?}", e);
                     continue;
                 }
             };
             
             let tree = match self.parse(&code, &NodeType::Endpoint) {
                 Ok(t) => t,
-                Err(_e) => {
+                Err(e) => {
+                    println!("[Rust] Failed to parse: {:?}", e);
                     continue;
                 }
             };
@@ -652,7 +686,7 @@ impl Stack for Rust {
             
             while let Some(m) = query_matches.next() {
                 let mut handler = None;
-                let mut prefix = None;
+                let mut service_node = None;
                 
                 for capture in m.captures {
                     let capture_name = &reg_query.capture_names()[capture.index as usize];
@@ -660,17 +694,21 @@ impl Stack for Rust {
                     
                     if capture_name == &HANDLER_REF {
                         handler = Some(text.to_string());
-                    } else if capture_name == &"endpoint" {
-                        prefix = Some(trim_quotes(text));
+                    } else if capture_name == &"service_call" {
+                        service_node = Some(capture.node);
                     }
                 }
                 
-                if let (Some(h), Some(p)) = (handler, prefix) {
-                    handler_to_prefix.entry(h).or_insert_with(Vec::new).push(p.to_string());
+                // Walk up AST to find web::scope() call
+                if let (Some(h), Some(node)) = (handler, service_node) {
+                    if let Some(prefix) = Self::find_scope_prefix(node, &code) {
+                        handler_to_prefix.entry(h).or_insert_with(Vec::new).push(prefix);
+                    }
                 }
             }
         }
-
+        
+        // Match endpoints by handler name
         for endpoint in endpoints {
             if let Some(handler_name) = endpoint.meta.get("handler") {
                 if let Some(prefixes) = handler_to_prefix.get(handler_name) {
@@ -681,12 +719,12 @@ impl Stack for Rust {
             }
         }
         
+        // Also handle cross-file grouping via .configure() as before
         for group in groups {
             let prefix = &group.name;
             let group_file = &group.file;
 
             if let Some(router_var) = group.meta.get("group") {
-
                 for endpoint in endpoints {
                     let endpoint_name = &endpoint.name;
                     let endpoint_file = &endpoint.file;
