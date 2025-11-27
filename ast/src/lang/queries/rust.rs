@@ -97,6 +97,21 @@ impl Rust {
         None
     }
 
+    fn extract_rocket_handlers(token_tree_text: &str) -> Vec<String> {
+        let trimmed = token_tree_text.trim();
+        
+        let inner = trimmed
+            .strip_prefix('[')
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or(trimmed);
+        
+        inner
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+
     fn extract_axum_handlers(
         node: tree_sitter::Node,
         code: &str,
@@ -467,6 +482,19 @@ impl Stack for Rust {
                     arguments: (arguments
                         (string_literal) @{ENDPOINT}
                         (_) @router_arg
+                    )
+                ) @{ROUTE}
+                
+                (call_expression
+                    function: (field_expression
+                        field: (field_identifier) @mount_method (#eq? @mount_method "mount")
+                    )
+                    arguments: (arguments
+                        (string_literal) @{ENDPOINT}
+                        (macro_invocation
+                            macro: (identifier) @routes_macro (#eq? @routes_macro "routes")
+                            (token_tree) @{ENDPOINT_GROUP}
+                        )
                     )
                 ) @{ROUTE}
             ]
@@ -892,6 +920,102 @@ impl Stack for Rust {
             if let Some(handler_name) = endpoint.meta.get("handler") {
                 let key = (handler_name.clone(), endpoint.file.clone());
                 if let Some(prefixes) = axum_handler_to_prefix.get(&key) {
+                    for prefix in prefixes {
+                        matches.push((endpoint.clone(), prefix.clone()));
+                    }
+                }
+            }
+        }
+        
+        let mount_query_str = r#"
+            (call_expression
+                function: (field_expression
+                    field: (field_identifier) @mount_method
+                )
+                arguments: (arguments
+                    (string_literal) @prefix
+                    (macro_invocation
+                        macro: (identifier) @macro_name
+                        (token_tree) @handlers_token
+                    )
+                )
+            ) @mount_call
+        "#;
+        
+        let mount_query = match tree_sitter::Query::new(&self.0, mount_query_str) {
+            Ok(q) => q,
+            Err(_) => {
+                return matches;
+            }
+        };
+        
+        let mut rocket_handler_to_prefix: HashMap<(String, String), Vec<String>> = HashMap::new();
+        
+        for file in &files_to_scan {
+            let code = match std::fs::read_to_string(file) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            
+            let tree = match self.parse(&code, &NodeType::Endpoint) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            
+            let mut cursor = QueryCursor::new();
+            let mut query_matches = cursor.matches(&mount_query, tree.root_node(), code.as_bytes());
+            
+            while let Some(m) = query_matches.next() {
+                let mut prefix = None;
+                let mut handlers_text = None;
+                let mut is_mount = false;
+                let mut is_routes_macro = false;
+                
+                for capture in m.captures {
+                    let capture_name = mount_query.capture_names()[capture.index as usize];
+                    let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
+                    
+                    if capture_name == "mount_method" && text == "mount" {
+                        is_mount = true;
+                    } else if capture_name == "macro_name" && text == "routes" {
+                        is_routes_macro = true;
+                    } else if capture_name == "prefix" {
+                        prefix = Some(text.trim_matches('"').to_string());
+                    } else if capture_name == "handlers_token" {
+                        handlers_text = Some(text.to_string());
+                    }
+                }
+                
+                if !is_mount || !is_routes_macro {
+                    continue;
+                }
+                
+                if let (Some(p), Some(token_text)) = (prefix, handlers_text) {
+                    if p == "/" {
+                        continue;
+                    }
+                    
+                    let handlers = Self::extract_rocket_handlers(&token_text);
+                    
+                    for handler in &handlers {
+                        for endpoint in endpoints {
+                            if let Some(ep_handler) = endpoint.meta.get("handler") {
+                                if ep_handler == handler {                                    if endpoint.file.contains("rocket") {
+                                        let key = (ep_handler.clone(), endpoint.file.clone());
+                                        rocket_handler_to_prefix.entry(key).or_insert_with(Vec::new).push(p.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        for endpoint in endpoints {
+            if let Some(handler_name) = endpoint.meta.get("handler") {
+                let key = (handler_name.clone(), endpoint.file.clone());
+                if let Some(prefixes) = rocket_handler_to_prefix.get(&key) {
                     for prefix in prefixes {
                         matches.push((endpoint.clone(), prefix.clone()));
                     }

@@ -44,7 +44,7 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 14, "Expected 14 files");
+    assert_eq!(files.len(), 15, "Expected 15 files");
 
     let rocket_file = files
         .iter()
@@ -78,7 +78,7 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 10, "Expected 10 imports");
+    assert_eq!(imports.len(), 11, "Expected 11 imports");
 
     let traits = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += traits.len();
@@ -246,7 +246,7 @@ use std::net::SocketAddr;"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 14, "Expected 14 endpoints");
+    assert_eq!(endpoints.len(), 18, "Expected 18 endpoints");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imported_edges;
@@ -254,7 +254,7 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 120, "Expected 120 contains edges");
+    assert_eq!(contains_edges, 126, "Expected 126 contains edges");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
@@ -263,7 +263,8 @@ use std::net::SocketAddr;"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
 
-    assert_eq!(functions.len(), 36, "Expected 36 functions");
+    assert_eq!(functions.len(), 40, "Expected 40 functions");
+
     
     let internal_helper_fn = functions
         .iter()
@@ -360,7 +361,7 @@ use std::net::SocketAddr;"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 14, "Expected 14 handler edges");
+    assert_eq!(handlers, 18, "Expected 18 handler edges");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
@@ -536,6 +537,74 @@ use std::net::SocketAddr;"#
     assert!(
         graph.has_edge(&post_person_endpoint, &create_person_fn, EdgeType::Handler),
         "Expected '/person' endpoint to be handled by create_person"
+    );
+
+    let get_profile_rocket_fn = functions
+        .iter()
+        .find(|f| f.name == "get_profile" && f.file.ends_with("src/routes/rocket_routes.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("get_profile function not found in rocket_routes.rs");
+
+    let update_profile_rocket_fn = functions
+        .iter()
+        .find(|f| f.name == "update_profile" && f.file.ends_with("src/routes/rocket_routes.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("update_profile function not found in rocket_routes.rs");
+
+    let get_profile_rocket_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/user/profile" && e.file.ends_with("src/routes/rocket_routes.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("GET /user/profile endpoint not found (Rocket same-file)");
+
+    let update_profile_rocket_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/user/profile/update" && e.file.ends_with("src/routes/rocket_routes.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("POST /user/profile/update endpoint not found (Rocket same-file)");
+
+    assert!(
+        graph.has_edge(&get_profile_rocket_endpoint, &get_profile_rocket_fn, EdgeType::Handler),
+        "Expected '/user/profile' GET endpoint to be handled by get_profile (Rocket same-file)"
+    );
+
+    assert!(
+        graph.has_edge(&update_profile_rocket_endpoint, &update_profile_rocket_fn, EdgeType::Handler),
+        "Expected '/user/profile/update' POST endpoint to be handled by update_profile (Rocket same-file)"
+    );
+
+    let list_users_rocket_fn = functions
+        .iter()
+        .find(|f| f.name == "list_users" && f.file.ends_with("src/routes/admin_rocket.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("list_users function not found in admin_rocket.rs");
+
+    let delete_user_rocket_fn = functions
+        .iter()
+        .find(|f| f.name == "delete_user" && f.file.ends_with("src/routes/admin_rocket.rs"))
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("delete_user function not found in admin_rocket.rs");
+
+    let list_users_rocket_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/admin/users" && e.file.ends_with("src/routes/admin_rocket.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("GET /admin/users endpoint not found (Rocket cross-file)");
+
+    let delete_user_rocket_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/admin/users/<id>" && e.file.ends_with("src/routes/admin_rocket.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("DELETE /admin/users/<id> endpoint not found (Rocket cross-file)");
+
+    assert!(
+        graph.has_edge(&list_users_rocket_endpoint, &list_users_rocket_fn, EdgeType::Handler),
+        "Expected '/admin/users' GET endpoint to be handled by list_users (Rocket cross-file)"
+    );
+
+    assert!(
+        graph.has_edge(&delete_user_rocket_endpoint, &delete_user_rocket_fn, EdgeType::Handler),
+        "Expected '/admin/users/<id>' DELETE endpoint to be handled by delete_user (Rocket cross-file)"
     );
 
     let get_profile_fn = functions
