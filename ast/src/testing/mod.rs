@@ -6,6 +6,8 @@ use std::str::FromStr;
 
 pub mod angular;
 pub mod cpp;
+#[cfg(test)]
+pub mod coverage;
 pub mod go;
 pub mod graphs;
 pub mod java;
