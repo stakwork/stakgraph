@@ -238,7 +238,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 176, "Expected 176 Contains edges");
+    assert_eq!(contains, 178, "Expected 178 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -341,8 +341,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += integration_test.len();
     assert_eq!(
         integration_test.len(),
-        4,
-        "Expected 4 IntegrationTest nodes"
+        5,
+        "Expected 5 IntegrationTest nodes"
     );
 
     if let Some(test) = integration_test
@@ -431,7 +431,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let import_nodes = graph.find_nodes_by_type(NodeType::Import);
     nodes += import_nodes.len();
-    assert_eq!(import_nodes.len(), 21, "Expected 21 Import nodes");
+    assert_eq!(import_nodes.len(), 22, "Expected 22 Import nodes");
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
