@@ -27,10 +27,10 @@ async fn test_nextjs_integration_coverage() -> Result<()> {
     
 
     let endpoints = btree_graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(endpoints.len(), 9, "Expected exactly 9 endpoints");
+    assert_eq!(endpoints.len(), 21, "Expected exactly 21 endpoints");
     
     let integration_tests = btree_graph.find_nodes_by_type(NodeType::IntegrationTest);
-    assert_eq!(integration_tests.len(), 5, "Expected exactly 5 integration test describe blocks");
+    assert_eq!(integration_tests.len(), 11, "Expected exactly 11 integration test describe blocks");
     
     let test_edges = btree_graph.find_nodes_with_edge_type(
         NodeType::IntegrationTest,
@@ -46,8 +46,8 @@ async fn test_nextjs_integration_coverage() -> Result<()> {
     
     assert_eq!(
         unique_tested_endpoints.len(),
-        7,
-        "Expected exactly 7 unique tested endpoints"
+        10,
+        "Expected exactly 10 unique tested endpoints (7 original + 3 from pattern-based tests)"
     );
     
     let tested_endpoints = vec![
@@ -165,14 +165,14 @@ async fn test_nextjs_integration_coverage() -> Result<()> {
         
         assert_eq!(
             tested_count,
-            7,
-            "Neo4j should report exactly 7 tested endpoints"
+            10,
+            "Neo4j should report exactly 10 tested endpoints"
         );
         
         assert_eq!(
             tested_results.len(),
-            7,
-            "Neo4j should return exactly 7 tested endpoint results"
+            10,
+            "Neo4j should return exactly 10 tested endpoint results"
         );
         
         // Verify each tested result has test_count > 0 and is_covered = true
@@ -210,14 +210,14 @@ async fn test_nextjs_integration_coverage() -> Result<()> {
         
         assert_eq!(
             untested_count,
-            2,
-            "Neo4j should report exactly 2 untested endpoints"
+            11,
+            "Neo4j should report exactly 11 untested endpoints"
         );
         
         assert_eq!(
             untested_results.len(),
-            2,
-            "Neo4j should return exactly 2 untested endpoint results"
+            11,
+            "Neo4j should return exactly 11 untested endpoint results"
         );
 
         for (node_data, _usage_count, is_covered, test_count, _ref_id, _body_length, _line_count) in &untested_results {
@@ -247,20 +247,20 @@ async fn test_nextjs_integration_coverage() -> Result<()> {
 
         assert_eq!(
             integration_stats.total,
-            9,
-            "Integration coverage should report 9 total endpoints"
+            21,
+            "Integration coverage should report 21 total endpoints"
         );
         
         assert_eq!(
             integration_stats.covered,
-            7,
-            "Integration coverage should report 7 covered endpoints"
+            10,
+            "Integration coverage should report 10 covered endpoints"
         );
         
         assert_eq!(
             integration_stats.total_tests,
-            5,
-            "Integration coverage should report 5 total integration tests"
+            11,
+            "Integration coverage should report 11 total integration tests"
         );
         
     }
