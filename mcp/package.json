@@ -5,8 +5,13 @@
   "type": "module",
   "private": true,
   "workspaces": {
-    "packages": ["src/aieo"],
-    "nohoist": ["**/gitsee*/aieo"]
+    "packages": [
+      "src/aieo"
+    ],
+    "nohoist": [
+      "**/gitsee*/aieo",
+      "**/gitsee-agent/aieo"
+    ]
   },
   "resolutions": {
     "@ai-sdk/anthropic": "3.0.0-beta.66",
@@ -51,8 +56,8 @@
     "fast-glob": "^3.3.3",
     "fastembed": "^1.14.1",
     "git-url-parse": "^16.0.1",
-    "gitsee": "1.0.17",
-    "gitsee-agent": "1.0.17",
+    "gitsee": "1.0.18",
+    "gitsee-agent": "1.0.18",
     "js-yaml": "^4.1.0",
     "neo4j-driver": "^5.28.1",
     "node-cache": "^5.1.2",
