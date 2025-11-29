@@ -18,6 +18,7 @@ export async function repo_agent(req: Request, res: Response) {
     const branch = req.body.branch as string | undefined;
     const prompt = req.body.prompt as any;
     const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
+    const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
       return;
@@ -30,7 +31,14 @@ export async function repo_agent(req: Request, res: Response) {
     cloneOrUpdateRepo(repoUrl, username, pat, commit)
       .then((repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(prompt, repoDir, pat, toolsConfig);
+        return get_context(
+          prompt,
+          repoDir,
+          pat,
+          toolsConfig,
+          undefined,
+          schema
+        );
       })
       .then((result) => {
         asyncReqs.finishReq(request_id, {

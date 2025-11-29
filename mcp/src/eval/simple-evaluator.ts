@@ -1,10 +1,9 @@
 import { z } from "zod";
 import * as dotenv from "dotenv";
-import { generateObject, LanguageModel } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
-import { openai } from "@ai-sdk/openai";
+import { generateObject } from "ai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
+import { getModel } from "../aieo/src/provider.js";
 
 // Load environment variables
 dotenv.config();
@@ -103,7 +102,6 @@ Example for element existence:
 
 export class SimpleEvaluator {
   stagehand: any;
-  model: any;
   currentProvider: "anthropic" | "openai";
   sessionId: string;
 
@@ -112,18 +110,15 @@ export class SimpleEvaluator {
     // Determine which LLM provider to use based on environment
     this.currentProvider =
       process.env.LLM_PROVIDER === "anthropic" ? "anthropic" : "openai";
-
-    // Initialize the AI model for generateObject based on provider
-    this.model = this.createModel(this.currentProvider);
   }
 
-  createModel(provider: "anthropic" | "openai") {
+  async createModel(provider: "anthropic" | "openai") {
     // if (provider === "anthropic") {
     //   return anthropic("claude-3-5-sonnet-20241022");
     // } else {
     //   return openai("gpt-5");
     // }
-    return anthropic("claude-3-5-sonnet-20241022");
+    return await getModel("anthropic", process.env.ANTHROPIC_API_KEY as string);
   }
 
   async initStagehand() {
@@ -179,8 +174,9 @@ export class SimpleEvaluator {
           await this.sleep(delay);
         }
 
+        const model = await this.createModel(this.currentProvider);
         const result = await generateObject({
-          model: this.model,
+          model: model,
           system: SYSTEM_PROMPT,
           prompt: userMessage,
           schema: StepGenerationSchema,
@@ -238,7 +234,7 @@ export class SimpleEvaluator {
           await this.sleep(delay);
         }
 
-        const fallbackModel = this.createModel(fallbackProvider);
+        const fallbackModel = await this.createModel(fallbackProvider);
         const fallbackResult = await generateObject({
           model: fallbackModel,
           system: SYSTEM_PROMPT,
