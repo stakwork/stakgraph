@@ -4,9 +4,10 @@
   "description": "MCP Server with Stackgraph tool",
   "type": "module",
   "private": true,
-  "workspaces": [
-    "src/aieo"
-  ],
+  "workspaces": {
+    "packages": ["src/aieo"],
+    "nohoist": ["**/gitsee*/aieo"]
+  },
   "resolutions": {
     "@ai-sdk/anthropic": "3.0.0-beta.66",
     "@ai-sdk/google": "3.0.0-beta.62",
