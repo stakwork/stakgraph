@@ -4,7 +4,7 @@ import {
   GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
-import { createClaudeCode } from "ai-sdk-provider-claude-code";
+import { LanguageModel } from "ai";
 
 export type Provider = "anthropic" | "google" | "openai" | "claude_code";
 
@@ -73,7 +73,7 @@ export async function getModel(
   apiKey: string,
   cwd?: string,
   executablePath?: string
-) {
+): Promise<LanguageModel> {
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({

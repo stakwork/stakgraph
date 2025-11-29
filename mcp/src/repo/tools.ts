@@ -57,6 +57,12 @@ export function get_tools(
   const web_search_tool = getProviderTool("anthropic", apiKey, "webSearch");
   const bash_tool = getProviderTool("anthropic", apiKey, "bash");
 
+  console.log("===> web_search_tool type:", web_search_tool?.type);
+  console.log(
+    "===> web_search_tool structure:",
+    JSON.stringify(web_search_tool, null, 2)
+  );
+
   const defaultDescriptions: Record<ToolName, string> = {
     ...DEFAULT_DESCRIPTIONS,
     web_search: web_search_tool?.description || DEFAULT_DESCRIPTIONS.web_search,
@@ -167,9 +173,10 @@ export function get_tools(
     // }),
   };
 
-  // Add web_search tool directly (Anthropic SDK tool) with type assertion
+  // Skip provider-defined tools - not compatible with AI SDK v6 when mixed with regular tools???
   if (web_search_tool) {
     allTools.web_search = web_search_tool as any as Tool<any, any>;
+    // Provider tools need to be added differently
   }
 
   // Implement bash tool using our executeBashCommand

@@ -43,8 +43,8 @@ RUN yarn
 COPY ./tsconfig.json ./tsconfig.json
 COPY ./src ./src
 
-# Install dependencies in src/aieo
-RUN cd src/aieo && yarn
+# Build aieo first so gitsee-agent can find the dist folder
+RUN cd src/aieo && yarn build
 
 RUN mkdir -p ./docs
 COPY ./docs/redoc-static.html ./docs/redoc-static.html

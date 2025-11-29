@@ -3,6 +3,23 @@
   "version": "0.1.0",
   "description": "MCP Server with Stackgraph tool",
   "type": "module",
+  "private": true,
+  "workspaces": {
+    "packages": [
+      "src/aieo"
+    ],
+    "nohoist": [
+      "**/gitsee*/aieo",
+      "**/gitsee-agent/aieo"
+    ]
+  },
+  "resolutions": {
+    "@ai-sdk/anthropic": "3.0.0-beta.66",
+    "@ai-sdk/google": "3.0.0-beta.62",
+    "@ai-sdk/openai": "3.0.0-beta.74",
+    "ai": "6.0.0-beta.124",
+    "@ai-sdk/provider-utils": "4.0.0-beta.40"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
@@ -21,14 +38,14 @@
     "gitree": "./build/gitree/cli.js"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "3.0.0-beta.66",
     "@anthropic-ai/sdk": "^0.37.0",
     "@browserbasehq/stagehand": "^2.4.3",
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.11.4",
     "@octokit/rest": "^22.0.0",
     "@playwright/test": "^1.53.0",
-    "ai": "^6.0.0-beta.124",
-    "ai-sdk-provider-claude-code": "^1.1.1",
+    "ai": "6.0.0-beta.124",
     "archy": "^1.0.0",
     "axios": "^1.9.0",
     "commander": "^14.0.2",
@@ -39,8 +56,8 @@
     "fast-glob": "^3.3.3",
     "fastembed": "^1.14.1",
     "git-url-parse": "^16.0.1",
-    "gitsee": "^1.0.15",
-    "gitsee-agent": "^1.0.13",
+    "gitsee": "1.0.18",
+    "gitsee-agent": "1.0.19",
     "js-yaml": "^4.1.0",
     "neo4j-driver": "^5.28.1",
     "node-cache": "^5.1.2",
