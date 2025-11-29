@@ -90,27 +90,27 @@ export async function getModel(
         apiKey,
       });
       return openai(SOTA[provider]);
-    case "claude_code":
-      try {
-        const customProvider = createClaudeCode({
-          defaultSettings: {
-            pathToClaudeCodeExecutable: executablePath,
-            // Skip permission prompts for all operations
-            permissionMode: "bypassPermissions",
-            // Set working directory for file operations
-            cwd: cwd,
-          },
-        });
-        if (cwd) {
-          console.log("creating claude code model at", cwd);
-        }
-        return customProvider(SOTA[provider]);
-      } catch (error) {
-        console.error("Failed to create Claude Code provider:", error);
-        throw new Error(
-          "Claude Code CLI not available or not properly installed. Make sure Claude Code is installed and accessible in the environment where this code runs."
-        );
-      }
+    // case "claude_code":
+    //   try {
+    //     const customProvider = createClaudeCode({
+    //       defaultSettings: {
+    //         pathToClaudeCodeExecutable: executablePath,
+    //         // Skip permission prompts for all operations
+    //         permissionMode: "bypassPermissions",
+    //         // Set working directory for file operations
+    //         cwd: cwd,
+    //       },
+    //     });
+    //     if (cwd) {
+    //       console.log("creating claude code model at", cwd);
+    //     }
+    //     return customProvider(SOTA[provider]);
+    //   } catch (error) {
+    //     console.error("Failed to create Claude Code provider:", error);
+    //     throw new Error(
+    //       "Claude Code CLI not available or not properly installed. Make sure Claude Code is installed and accessible in the environment where this code runs."
+    //     );
+    //   }
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }

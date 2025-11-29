@@ -34,6 +34,42 @@ export function createHasAskQuestionsCondition<
   };
 }
 
+export function ensureAdditionalPropertiesFalse(schema: {
+  [key: string]: any;
+}): { [key: string]: any } {
+  const result = { ...schema };
+
+  if (result.type === "object" && result.additionalProperties === undefined) {
+    result.additionalProperties = false;
+  }
+
+  // Recursively process properties
+  if (result.properties) {
+    result.properties = Object.keys(result.properties).reduce((acc, key) => {
+      acc[key] = ensureAdditionalPropertiesFalse(result.properties[key]);
+      return acc;
+    }, {} as { [key: string]: any });
+  }
+
+  // Recursively process array items
+  if (result.items) {
+    result.items = ensureAdditionalPropertiesFalse(result.items);
+  }
+
+  // Recursively process anyOf, allOf, oneOf
+  if (result.anyOf) {
+    result.anyOf = result.anyOf.map(ensureAdditionalPropertiesFalse);
+  }
+  if (result.allOf) {
+    result.allOf = result.allOf.map(ensureAdditionalPropertiesFalse);
+  }
+  if (result.oneOf) {
+    result.oneOf = result.oneOf.map(ensureAdditionalPropertiesFalse);
+  }
+
+  return result;
+}
+
 export function logStep(contents: any) {
   // console.log("===> logStep", JSON.stringify(contents, null, 2));
   // return;

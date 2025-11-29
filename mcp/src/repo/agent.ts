@@ -15,6 +15,7 @@ import {
   extractFinalAnswer,
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
+  ensureAdditionalPropertiesFalse,
 } from "./utils.js";
 import { LanguageModel } from "ai";
 
@@ -69,10 +70,12 @@ async function structureFinalAnswer(
     }
   );
 
+  const normalizedSchema = ensureAdditionalPropertiesFalse(schema);
+
   const structured = await generateObject({
     model,
     prompt: msgs,
-    schema: jsonSchema(schema),
+    schema: jsonSchema(normalizedSchema),
   });
 
   return structured.object;
