@@ -663,7 +663,9 @@ export async function gitsee(req: Request, res: Response) {
               .catch((err) => console.error("Background ingestion error:", err))
               .finally(() => {
                 setBusy(false);
-                console.log("[gitsee] Background work completed, set busy=false");
+                console.log(
+                  "[gitsee] Background work completed, set busy=false"
+                );
               });
           } else {
             setBusy(false);

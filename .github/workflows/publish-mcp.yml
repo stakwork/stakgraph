@@ -31,6 +31,7 @@ jobs:
           context: ./mcp
           platforms: linux/amd64,linux/arm64
           push: true
+          # no-cache: true
           tags: |
             ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}
             ghcr.io/stakwork/stakgraph-mcp:latest

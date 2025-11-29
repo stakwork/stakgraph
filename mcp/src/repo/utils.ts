@@ -71,8 +71,8 @@ export function ensureAdditionalPropertiesFalse(schema: {
 }
 
 export function logStep(contents: any) {
-  // console.log("===> logStep", JSON.stringify(contents, null, 2));
-  // return;
+  console.log("===> logStep", JSON.stringify(contents, null, 2));
+  return;
   if (!Array.isArray(contents)) return;
   for (const content of contents) {
     if (content.type === "tool-call" && content.toolName !== "final_answer") {
@@ -151,7 +151,7 @@ export function extractFinalAnswer(
     }
   }
 
-  // Look for text with [END_OF_ANSWER] sequence
+  // Look for text with [END_OF_ANSWER] sequence (search all text)
   let allText = "";
   for (const step of steps) {
     for (const item of step.content) {
@@ -172,22 +172,61 @@ export function extractFinalAnswer(
     }
   }
 
-  // Fallback to last text if no marker found
-  let lastText = "";
-  for (const step of steps) {
-    for (const item of step.content) {
-      if (item.type === "text" && item.text && item.text.trim().length > 0) {
-        lastText = item.text.trim();
+  // Fallback: collect all text after the last tool call
+  let lastToolStepIndex = -1;
+  let lastToolContentIndex = -1;
+
+  // Find the last tool-call or tool-result
+  for (let i = steps.length - 1; i >= 0; i--) {
+    for (let j = steps[i].content.length - 1; j >= 0; j--) {
+      const item = steps[i].content[j];
+      if (item.type === "tool-call" || item.type === "tool-result") {
+        lastToolStepIndex = i;
+        lastToolContentIndex = j;
+        break;
+      }
+    }
+    if (lastToolStepIndex !== -1) break;
+  }
+
+  // Collect all text after the last tool
+  let textAfterLastTool = "";
+  let startCollecting = false;
+
+  for (let i = 0; i < steps.length; i++) {
+    for (let j = 0; j < steps[i].content.length; j++) {
+      const item = steps[i].content[j];
+
+      // Start collecting after we've passed the last tool
+      if (i === lastToolStepIndex && j === lastToolContentIndex) {
+        startCollecting = true;
+        continue;
+      }
+
+      if (startCollecting && item.type === "text" && item.text) {
+        textAfterLastTool += item.text;
       }
     }
   }
 
-  if (lastText) {
+  const trimmedTextAfterLastTool = textAfterLastTool.trim();
+  if (trimmedTextAfterLastTool) {
     console.warn(
-      "No [END_OF_ANSWER] marker or ask_clarifying_questions detected; falling back to last text."
+      "No [END_OF_ANSWER] marker or ask_clarifying_questions detected; falling back to text after last tool call."
     );
     return {
-      answer: lastText,
+      answer: trimmedTextAfterLastTool,
+    };
+  }
+
+  // If no tools were found, fall back to all text
+  const trimmedAllText = allText.trim();
+  if (trimmedAllText) {
+    console.warn(
+      "No tools found; falling back to all text."
+    );
+    return {
+      answer: trimmedAllText,
     };
   }
 

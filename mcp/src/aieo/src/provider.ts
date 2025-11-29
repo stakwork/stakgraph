@@ -4,7 +4,6 @@ import {
   GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
-import { createClaudeCode } from "ai-sdk-provider-claude-code";
 
 export type Provider = "anthropic" | "google" | "openai" | "claude_code";
 

@@ -52,9 +52,10 @@ export async function repo_agent(req: Request, res: Response) {
         console.log("[repo_agent] Background work completed, set busy=false");
       })
       .catch((error) => {
-        asyncReqs.failReq(request_id, error);
+        console.error("[repo_agent] Background work failed with error:", error);
+        asyncReqs.failReq(request_id, error.message || error.toString());
         setBusy(false);
-        console.log("[repo_agent] Background work failed, set busy=false");
+        console.log("[repo_agent] Set busy=false after error");
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {

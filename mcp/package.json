@@ -3,6 +3,18 @@
   "version": "0.1.0",
   "description": "MCP Server with Stackgraph tool",
   "type": "module",
+  "private": true,
+  "workspaces": {
+    "packages": ["src/aieo"],
+    "nohoist": ["**/gitsee", "**/gitsee-agent", "**/gitsee/**", "**/gitsee-agent/**"]
+  },
+  "resolutions": {
+    "aieo/@ai-sdk/anthropic": "3.0.0-beta.66",
+    "aieo/@ai-sdk/google": "3.0.0-beta.62",
+    "aieo/@ai-sdk/openai": "3.0.0-beta.74",
+    "aieo/ai": "6.0.0-beta.124",
+    "aieo/@ai-sdk/provider-utils": "4.0.0-beta.40"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "build": "tsc",
@@ -21,14 +33,14 @@
     "gitree": "./build/gitree/cli.js"
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "3.0.0-beta.66",
     "@anthropic-ai/sdk": "^0.37.0",
     "@browserbasehq/stagehand": "^2.4.3",
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.11.4",
     "@octokit/rest": "^22.0.0",
     "@playwright/test": "^1.53.0",
-    "ai": "^6.0.0-beta.124",
-    "ai-sdk-provider-claude-code": "^1.1.1",
+    "ai": "6.0.0-beta.124",
     "archy": "^1.0.0",
     "axios": "^1.9.0",
     "commander": "^14.0.2",
