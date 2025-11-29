@@ -1,4 +1,11 @@
-import { generateText, ModelMessage, StopCondition, ToolSet } from "ai";
+import {
+  generateObject,
+  generateText,
+  ModelMessage,
+  StopCondition,
+  ToolSet,
+  jsonSchema,
+} from "ai";
 import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
@@ -9,6 +16,7 @@ import {
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
 } from "./utils.js";
+import { LanguageModel } from "ai";
 
 const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
@@ -35,12 +43,48 @@ Call ask_clarifying_questions when:
 
 Otherwise, provide your answer directly followed by [END_OF_ANSWER].`;
 
+async function structureFinalAnswer(
+  finalPrompt: string | ModelMessage[],
+  finalAnswer: string,
+  schema: { [key: string]: any },
+  model: LanguageModel
+): Promise<any> {
+  const msgs: ModelMessage[] = [];
+
+  // Handle finalPrompt - if it's ModelMessage[], push all messages, otherwise create a user message
+  if (Array.isArray(finalPrompt)) {
+    msgs.push(...finalPrompt);
+  } else {
+    msgs.push({ role: "user", content: finalPrompt });
+  }
+
+  // Add the assistant's answer and the structuring request
+  msgs.push(
+    { role: "assistant", content: finalAnswer },
+    {
+      role: "user",
+      content:
+        "Great! Please rephrase your answer in the following JSON format: " +
+        JSON.stringify(schema),
+    }
+  );
+
+  const structured = await generateObject({
+    model,
+    prompt: msgs,
+    schema: jsonSchema(schema),
+  });
+
+  return structured.object;
+}
+
 export async function get_context(
   prompt: string | ModelMessage[],
   repoPath: string,
   pat: string | undefined,
   toolsConfig?: ToolsConfig,
-  systemOverride?: string
+  systemOverride?: string,
+  schema?: { [key: string]: any }
 ): Promise<ContextResult> {
   const startTime = Date.now();
   const provider = process.env.LLM_PROVIDER || "anthropic";
@@ -86,6 +130,16 @@ export async function get_context(
 
   const final = extractFinalAnswer(steps);
 
+  let finalAnswer = final.answer;
+  if (schema) {
+    finalAnswer = await structureFinalAnswer(
+      finalPrompt,
+      finalAnswer,
+      schema,
+      model
+    );
+  }
+
   const endTime = Date.now();
   const duration = endTime - startTime;
   console.log(
@@ -97,7 +151,7 @@ export async function get_context(
   return {
     final: final.answer,
     tool_use: final.tool_use,
-    content: final.answer,
+    content: finalAnswer,
     usage: {
       inputTokens: totalUsage.inputTokens || 0,
       outputTokens: totalUsage.outputTokens || 0,
