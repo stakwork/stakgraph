@@ -132,6 +132,7 @@ export async function get_context(
 
   let finalAnswer = final.answer;
   if (schema) {
+    console.log("===> structuring final answer with schema", schema);
     finalAnswer = await structureFinalAnswer(
       finalPrompt,
       finalAnswer,
