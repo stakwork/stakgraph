@@ -1,4 +1,7 @@
-export async function PUT(request: Request) {
-  const body = await request.json();
-  return Response.json({ orderId: 1, status: body.status });
+import { NextRequest } from 'next/server';
+
+export async function PUT(req: NextRequest) {
+  const orderId = req.nextUrl.searchParams.get('orderId');
+  const body = await req.json();
+  return Response.json({ orderId, status: body.status });
 }

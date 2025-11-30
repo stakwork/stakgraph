@@ -57,3 +57,17 @@ describe("integration: /api/person and /api/person/[id]", () => {
     console.log("DELETE /api/person/1 should return 200");
   });
 });
+
+describe("integration: /api/orders with query params", () => {
+  it("PUT updates order status by orderId query param", async () => {
+    const res = await fetch("http://localhost:3000/api/orders?orderId=123", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "shipped" }),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.orderId).toBe("123");
+    console.log("PUT /api/orders?orderId=123 should return 200");
+  });
+});
