@@ -1502,8 +1502,8 @@ pub fn query_nodes_with_count(
     };
 
     let coverage_where = match coverage_filter {
-        Some("tested") => "WHERE test_count > 0",
-        Some("untested") => "WHERE test_count = 0",
+        Some("tested") => "WHERE test_count > 0 OR n.indirect_test IS NOT NULL",
+        Some("untested") => "WHERE test_count = 0 AND n.indirect_test IS NULL",
         _ => "",
     };
 
@@ -1614,12 +1614,30 @@ pub fn find_dynamic_edges_for_file_query(file: &str) -> (String, BoltMap) {
     boltmap_insert_str(&mut params, "file", file);
 
     let static_types = vec![
-        "Repository", "Package", "Language", "Directory", "File", "Import", "Library",
-        "Class", "Trait", "Instance", "Function", "Endpoint", "Request", "Datamodel",
-        "Feature", "Page", "Var", "UnitTest", "IntegrationTest", "E2etest"
+        "Repository",
+        "Package",
+        "Language",
+        "Directory",
+        "File",
+        "Import",
+        "Library",
+        "Class",
+        "Trait",
+        "Instance",
+        "Function",
+        "Endpoint",
+        "Request",
+        "Datamodel",
+        "Feature",
+        "Page",
+        "Var",
+        "UnitTest",
+        "IntegrationTest",
+        "E2etest",
     ];
-    
-    let static_labels = static_types.iter()
+
+    let static_labels = static_types
+        .iter()
         .map(|t| format!("source:{}", t))
         .collect::<Vec<_>>()
         .join(" OR ");
@@ -1640,12 +1658,30 @@ pub fn find_all_dynamic_edges_query() -> (String, BoltMap) {
     let params = BoltMap::new();
 
     let static_types = vec![
-        "Repository", "Package", "Language", "Directory", "File", "Import", "Library",
-        "Class", "Trait", "Instance", "Function", "Endpoint", "Request", "Datamodel",
-        "Feature", "Page", "Var", "UnitTest", "IntegrationTest", "E2etest"
+        "Repository",
+        "Package",
+        "Language",
+        "Directory",
+        "File",
+        "Import",
+        "Library",
+        "Class",
+        "Trait",
+        "Instance",
+        "Function",
+        "Endpoint",
+        "Request",
+        "Datamodel",
+        "Feature",
+        "Page",
+        "Var",
+        "UnitTest",
+        "IntegrationTest",
+        "E2etest",
     ];
-    
-    let static_labels = static_types.iter()
+
+    let static_labels = static_types
+        .iter()
         .map(|t| format!("source:{}", t))
         .collect::<Vec<_>>()
         .join(" OR ");
@@ -1684,4 +1720,3 @@ pub fn restore_dynamic_edge_query(
 
     (query, params)
 }
-

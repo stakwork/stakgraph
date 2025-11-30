@@ -368,7 +368,8 @@ impl Graph for BTreeMapGraph {
         let (funcs, tests, int_tests, extras) = calls;
         // Diagnostic flag (see array_graph.rs for rationale)
         let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
-        let mut unique_edges: HashSet<(String, String, usize, String, String, usize)> = HashSet::new();
+        let mut unique_edges: HashSet<(String, String, usize, String, String, usize)> =
+            HashSet::new();
 
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
@@ -825,7 +826,7 @@ impl Graph for BTreeMapGraph {
     fn get_allow_unverified_calls(&self) -> bool {
         self.allow_unverified_calls
     }
-    
+
     fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
         self.nodes
             .values()

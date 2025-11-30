@@ -340,9 +340,15 @@ from flask_app.routes import flask_bp"#
         .expect("db_session function not found in db.py");
 
     let db_session_attrs = db_session_fn.node_data.meta.get("attributes");
-    assert!(db_session_attrs.is_some(), "db_session should have attributes");
+    assert!(
+        db_session_attrs.is_some(),
+        "db_session should have attributes"
+    );
     let attrs = db_session_attrs.unwrap();
-    assert!(attrs.contains("contextmanager"), "db_session attributes should contain 'contextmanager'");
+    assert!(
+        attrs.contains("contextmanager"),
+        "db_session attributes should contain 'contextmanager'"
+    );
 
     let species_fn = graph
         .find_nodes_by_name(NodeType::Function, "species")
@@ -350,11 +356,14 @@ from flask_app.routes import flask_bp"#
         .find(|n| n.file == "src/testing/python/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("species function not found in model.py");
-    
+
     let species_attrs = species_fn.node_data.meta.get("attributes");
     assert!(species_attrs.is_some(), "species should have attributes");
     let species_attr_val = species_attrs.unwrap();
-    assert!(species_attr_val.contains("property"), "species attributes should contain 'property'");
+    assert!(
+        species_attr_val.contains("property"),
+        "species attributes should contain 'property'"
+    );
 
     let is_mammal_fn = graph
         .find_nodes_by_name(NodeType::Function, "is_mammal")
@@ -362,11 +371,17 @@ from flask_app.routes import flask_bp"#
         .find(|n| n.file == "src/testing/python/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("is_mammal function not found in model.py");
-    
+
     let is_mammal_attrs = is_mammal_fn.node_data.meta.get("attributes");
-    assert!(is_mammal_attrs.is_some(), "is_mammal should have attributes");
+    assert!(
+        is_mammal_attrs.is_some(),
+        "is_mammal should have attributes"
+    );
     let is_mammal_attr_val = is_mammal_attrs.unwrap();
-    assert!(is_mammal_attr_val.contains("staticmethod"), "is_mammal attributes should contain 'staticmethod'");
+    assert!(
+        is_mammal_attr_val.contains("staticmethod"),
+        "is_mammal attributes should contain 'staticmethod'"
+    );
 
     let create_puppy_fn = graph
         .find_nodes_by_name(NodeType::Function, "create_puppy")
@@ -374,11 +389,17 @@ from flask_app.routes import flask_bp"#
         .find(|n| n.file == "src/testing/python/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("create_puppy function not found in model.py");
-    
+
     let create_puppy_attrs = create_puppy_fn.node_data.meta.get("attributes");
-    assert!(create_puppy_attrs.is_some(), "create_puppy should have attributes");
+    assert!(
+        create_puppy_attrs.is_some(),
+        "create_puppy should have attributes"
+    );
     let create_puppy_attr_val = create_puppy_attrs.unwrap();
-    assert!(create_puppy_attr_val.contains("classmethod"), "create_puppy attributes should contain 'classmethod'");
+    assert!(
+        create_puppy_attr_val.contains("classmethod"),
+        "create_puppy attributes should contain 'classmethod'"
+    );
 
     let get_animal_info_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_animal_info")
@@ -386,12 +407,21 @@ from flask_app.routes import flask_bp"#
         .find(|n| n.file == "src/testing/python/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("get_animal_info function not found in model.py");
-    
+
     let get_animal_info_attrs = get_animal_info_fn.node_data.meta.get("attributes");
-    assert!(get_animal_info_attrs.is_some(), "get_animal_info should have attributes");
+    assert!(
+        get_animal_info_attrs.is_some(),
+        "get_animal_info should have attributes"
+    );
     let get_animal_info_attr_val = get_animal_info_attrs.unwrap();
-    assert!(get_animal_info_attr_val.contains("lru_cache"), "get_animal_info attributes should contain 'lru_cache'");
-    assert!(get_animal_info_attr_val.contains("maxsize"), "get_animal_info attributes should contain decorator argument 'maxsize'");
+    assert!(
+        get_animal_info_attr_val.contains("lru_cache"),
+        "get_animal_info attributes should contain 'lru_cache'"
+    );
+    assert!(
+        get_animal_info_attr_val.contains("maxsize"),
+        "get_animal_info attributes should contain decorator argument 'maxsize'"
+    );
 
     let get_person_by_id_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_person_by_id")

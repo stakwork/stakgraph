@@ -203,6 +203,14 @@ impl NodeData {
         self.meta
             .insert("attributes".to_string(), attributes.to_string());
     }
+    pub fn add_indirect_test(&mut self, test_name: &str) {
+        self.meta
+            .insert("indirect_test".to_string(), test_name.to_string());
+    }
+    pub fn add_test_helper(&mut self, helper: &str) {
+        self.meta
+            .insert("test_helper".to_string(), helper.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

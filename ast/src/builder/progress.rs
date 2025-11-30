@@ -46,7 +46,7 @@ impl Repo {
             _ => msg,
         };
 
-        let formatted_msg = format!("{}",step_description);
+        let formatted_msg = format!("{}", step_description);
 
         let su = StatusUpdate {
             status: "".to_string(),

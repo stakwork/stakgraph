@@ -116,7 +116,6 @@ pub struct TestFilters {
     pub ignore_dirs: Vec<String>,
 }
 
-
 impl Edge {
     pub fn new(edge: EdgeType, source: NodeRef, target: NodeRef) -> Self {
         Self {

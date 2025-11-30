@@ -15,12 +15,12 @@ pub use graphs::*;
 use lsp::{CmdSender, Language};
 use queries::*;
 use shared::{Context, Result};
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
 use tree_sitter::{Node as TreeNode, Query, QueryCursor};
-use std::collections::HashSet;
 
 pub struct Lang {
     pub kind: Language,
@@ -424,10 +424,10 @@ impl Lang {
         if seen_tests.contains(&test_id) {
             return;
         }
-        
+
         seen_tests.insert(test_id.clone());
         identified_tests.insert(test_id);
-        
+
         let meta_kind = match kind {
             NodeType::IntegrationTest => "integration",
             NodeType::E2eTest => "e2e",
@@ -447,7 +447,7 @@ impl Lang {
     ) -> Result<(Vec<Function>, Vec<TestRecord>)> {
         let mut tests: Vec<TestRecord> = Vec::new();
         let mut seen_tests = std::collections::HashSet::new();
-        let mut identified_tests =  HashSet::new();
+        let mut identified_tests = HashSet::new();
 
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::UnitTest);
@@ -458,22 +458,47 @@ impl Lang {
                     continue;
                 }
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
-                self.add_test_to_collections(nd, file, kind, edge, &mut tests, &mut seen_tests, &mut identified_tests);
+                self.add_test_to_collections(
+                    nd,
+                    file,
+                    kind,
+                    edge,
+                    &mut tests,
+                    &mut seen_tests,
+                    &mut identified_tests,
+                );
             }
         }
         if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {
             for (nd, kind, edge) in int_tests {
-                self.add_test_to_collections(nd, file, kind, edge, &mut tests, &mut seen_tests, &mut identified_tests);
+                self.add_test_to_collections(
+                    nd,
+                    file,
+                    kind,
+                    edge,
+                    &mut tests,
+                    &mut seen_tests,
+                    &mut identified_tests,
+                );
             }
         }
         if let Ok(e2e_tests) = self.collect_e2e_tests(code, file) {
             for nd in e2e_tests {
-                self.add_test_to_collections(nd, file, NodeType::E2eTest, None, &mut tests, &mut seen_tests, &mut identified_tests);
+                self.add_test_to_collections(
+                    nd,
+                    file,
+                    NodeType::E2eTest,
+                    None,
+                    &mut tests,
+                    &mut seen_tests,
+                    &mut identified_tests,
+                );
             }
         }
 
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
-        let mut funcs1 = self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
+        let mut funcs1 =
+            self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
         self.attach_function_comments(code, &mut funcs1)?;
 
         let funcs = if self.lang.tests_are_functions() {
@@ -481,7 +506,15 @@ impl Lang {
             for t in filtered_tests.iter() {
                 let nd = t.0.clone();
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
-                self.add_test_to_collections(nd, file, kind, None, &mut tests, &mut seen_tests, &mut identified_tests);
+                self.add_test_to_collections(
+                    nd,
+                    file,
+                    kind,
+                    None,
+                    &mut tests,
+                    &mut seen_tests,
+                    &mut identified_tests,
+                );
             }
             funcs
         } else {

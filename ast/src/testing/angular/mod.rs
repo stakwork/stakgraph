@@ -112,10 +112,15 @@ import {{ AppComponent }} from './app/app.component';"#
 
     let log_method_fn = functions
         .iter()
-        .find(|f| f.name == "LogMethod" && f.file == "src/testing/angular/src/app/people.service.ts")
+        .find(|f| {
+            f.name == "LogMethod" && f.file == "src/testing/angular/src/app/people.service.ts"
+        })
         .expect("LogMethod function not found in people.service.ts");
-    
-    assert!(log_method_fn.meta.contains_key("interface"), "LogMethod function should have interface metadata");
+
+    assert!(
+        log_method_fn.meta.contains_key("interface"),
+        "LogMethod function should have interface metadata"
+    );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += data_models.len();

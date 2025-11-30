@@ -277,7 +277,10 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn get_dynamic_edges_for_file(&self, file: &str) -> Result<Vec<(String, String, String, String, String)>> {
+    pub async fn get_dynamic_edges_for_file(
+        &self,
+        file: &str,
+    ) -> Result<Vec<(String, String, String, String, String)>> {
         let connection = self.ensure_connected().await?;
         let (query_str, params) = find_dynamic_edges_for_file_query(file);
         let mut query_obj = query(&query_str);
@@ -287,20 +290,34 @@ impl Neo4jGraph {
         let mut edges = Vec::new();
         let mut result = connection.execute(query_obj).await?;
         while let Some(row) = result.next().await? {
-            if let (Ok(source_ref_id), Ok(edge_type), Ok(target_name), Ok(target_file), Ok(target_type)) = (
+            if let (
+                Ok(source_ref_id),
+                Ok(edge_type),
+                Ok(target_name),
+                Ok(target_file),
+                Ok(target_type),
+            ) = (
                 row.get::<String>("source_ref_id"),
                 row.get::<String>("edge_type"),
                 row.get::<String>("target_name"),
                 row.get::<String>("target_file"),
                 row.get::<String>("target_type"),
             ) {
-                edges.push((source_ref_id, edge_type, target_name, target_file, target_type));
+                edges.push((
+                    source_ref_id,
+                    edge_type,
+                    target_name,
+                    target_file,
+                    target_type,
+                ));
             }
         }
         Ok(edges)
     }
 
-    pub async fn get_all_dynamic_edges(&self) -> Result<Vec<(String, String, String, String, String)>> {
+    pub async fn get_all_dynamic_edges(
+        &self,
+    ) -> Result<Vec<(String, String, String, String, String)>> {
         let connection = self.ensure_connected().await?;
         let (query_str, params) = find_all_dynamic_edges_query();
         let mut query_obj = query(&query_str);
@@ -310,20 +327,35 @@ impl Neo4jGraph {
         let mut edges = Vec::new();
         let mut result = connection.execute(query_obj).await?;
         while let Some(row) = result.next().await? {
-            if let (Ok(source_ref_id), Ok(edge_type), Ok(target_name), Ok(target_file), Ok(target_type)) = (
+            if let (
+                Ok(source_ref_id),
+                Ok(edge_type),
+                Ok(target_name),
+                Ok(target_file),
+                Ok(target_type),
+            ) = (
                 row.get::<String>("source_ref_id"),
                 row.get::<String>("edge_type"),
                 row.get::<String>("target_name"),
                 row.get::<String>("target_file"),
                 row.get::<String>("target_type"),
             ) {
-                edges.push((source_ref_id, edge_type, target_name, target_file, target_type));
+                edges.push((
+                    source_ref_id,
+                    edge_type,
+                    target_name,
+                    target_file,
+                    target_type,
+                ));
             }
         }
         Ok(edges)
     }
 
-    pub async fn restore_dynamic_edges(&self, edges: Vec<(String, String, String, String, String)>) -> Result<usize> {
+    pub async fn restore_dynamic_edges(
+        &self,
+        edges: Vec<(String, String, String, String, String)>,
+    ) -> Result<usize> {
         if edges.is_empty() {
             return Ok(0);
         }
@@ -343,7 +375,7 @@ impl Neo4jGraph {
             for (k, v) in params.value.iter() {
                 query_obj = query_obj.param(k.value.as_str(), v.clone());
             }
-            
+
             match connection.execute(query_obj).await {
                 Ok(mut result) => {
                     if result.next().await?.is_some() {
@@ -351,7 +383,10 @@ impl Neo4jGraph {
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to restore edge {} -> {} -> {}:{}: {}", source_ref_id, edge_type, target_type, target_name, e);
+                    debug!(
+                        "Failed to restore edge {} -> {} -> {}:{}: {}",
+                        source_ref_id, edge_type, target_type, target_name, e
+                    );
                 }
             }
         }

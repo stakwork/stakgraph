@@ -68,7 +68,7 @@ async fn test_graph_update() {
             Some(before_commit),
             None,
             use_lsp,
-            Some(false)
+            Some(false),
         )
         .await
         .unwrap();

@@ -1,9 +1,9 @@
 #![cfg(feature = "neo4j")]
 use crate::lang::graphs::{neo4j_utils::*, Neo4jGraph};
 use crate::lang::{Edge, NodeData, NodeType};
+use crate::utils::create_node_key_from_ref;
 use neo4rs::BoltMap;
 use shared::Result;
-use crate::utils::create_node_key_from_ref;
 use tracing::{debug, info};
 
 pub struct GraphStreamingUploader {}
@@ -23,11 +23,7 @@ impl GraphStreamingUploader {
         if node_cnt > 0 {
             debug!(stage = stage, count = node_cnt, "stream_upload_nodes");
             neo.execute_batch(delta_node_queries.to_vec()).await?;
-            info!(
-                stage = stage,
-                nodes = node_cnt,
-                "stream_stage_flush"
-            );
+            info!(stage = stage, nodes = node_cnt, "stream_stage_flush");
         }
         Ok(())
     }
@@ -41,9 +37,9 @@ impl GraphStreamingUploader {
         if edges.is_empty() {
             return Ok(());
         }
-        
+
         debug!(stage = stage, count = edges.len(), "stream_upload_edges");
-        
+
         let edge_queries = build_batch_edge_queries_stream(
             edges.iter().map(|e| {
                 (
@@ -55,9 +51,9 @@ impl GraphStreamingUploader {
             }),
             256,
         );
-        
+
         neo.execute_simple(edge_queries).await?;
-        
+
         info!(stage = stage, edges = edges.len(), "stream_edges_flushed");
         Ok(())
     }
@@ -77,10 +73,9 @@ impl StreamingUploadContext {
     }
 }
 
-pub fn nodes_to_bolt_format(
-    nodes: Vec<(NodeType, NodeData)>
-) -> Vec<(String, BoltMap)> {
-    nodes.iter()
+pub fn nodes_to_bolt_format(nodes: Vec<(NodeType, NodeData)>) -> Vec<(String, BoltMap)> {
+    nodes
+        .iter()
         .map(|(nt, nd)| add_node_query_stream(nt, nd))
         .collect()
 }
