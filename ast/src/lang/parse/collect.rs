@@ -37,6 +37,116 @@ impl Lang {
         Ok(res)
     }
 
+    pub fn collect_multi<G: Graph>(
+        &self,
+        code: &str,
+        file: &str,
+        types: &[NodeType],
+    ) -> Result<(Vec<NodeData>, Vec<NodeData>)> {
+        let first_type = types.first().context("types array cannot be empty")?;
+        let tree = self.lang.parse(&code, first_type)?;
+        let mut first_results = Vec::new();
+        let mut second_results = Vec::new();
+        
+        for nt in types {
+            match nt {
+                NodeType::Import => {
+                    if let Some(query_str) = self.lang.imports_query() {
+                        let q = self.q(&query_str, &NodeType::Import);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            first_results.extend(self.format_imports(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Var => {
+                    if let Some(query_str) = self.lang.variables_query() {
+                        let q = self.q(&query_str, &NodeType::Var);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            second_results.extend(self.format_variables(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Trait => {
+                    if let Some(query_str) = self.lang.trait_query() {
+                        let q = self.q(&query_str, &NodeType::Trait);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            first_results.push(self.format_trait(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                NodeType::Instance => {
+                    if let Some(query_str) = self.lang.instance_definition_query() {
+                        let q = self.q(&query_str, &NodeType::Instance);
+                        let mut cursor = QueryCursor::new();
+                        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+                        while let Some(m) = matches.next() {
+                            second_results.push(self.format_instance(&m, code, file, &q)?);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        
+        Ok((first_results, second_results))
+    }
+
+    pub fn collect_classes_traits_instances<G: Graph>(
+        &self,
+        code: &str,
+        file: &str,
+        graph: &G,
+    ) -> Result<(Vec<(NodeData, Vec<Edge>)>, Vec<NodeData>, Vec<NodeData>)> {
+        if self.lang.is_test_file(file) {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
+        
+        let mut classes = Vec::new();
+        let mut traits = Vec::new();
+        let mut instances = Vec::new();
+
+        let class_tree = self.lang.parse(&code, &NodeType::Class)?;
+        let class_query_str = self.lang.class_definition_query();
+        let class_q = self.q(&class_query_str, &NodeType::Class);
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&class_q, class_tree.root_node(), code.as_bytes());
+        while let Some(m) = matches.next() {
+            if let Some((cls, edges)) =
+                self.format_class_with_associations(&m, code, file, &class_q, graph)?
+            {
+                classes.push((cls, edges));
+            }
+        }
+
+        let trait_or_instance_tree = self.lang.parse(&code, &NodeType::Trait)?;
+        
+        if let Some(trait_query_str) = self.lang.trait_query() {
+            let trait_q = self.q(&trait_query_str, &NodeType::Trait);
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(&trait_q, trait_or_instance_tree.root_node(), code.as_bytes());
+            while let Some(m) = matches.next() {
+                traits.push(self.format_trait(&m, code, file, &trait_q)?);
+            }
+        }
+
+        if let Some(instance_query_str) = self.lang.instance_definition_query() {
+            let instance_q = self.q(&instance_query_str, &NodeType::Instance);
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(&instance_q, trait_or_instance_tree.root_node(), code.as_bytes());
+            while let Some(m) = matches.next() {
+                instances.push(self.format_instance(&m, code, file, &instance_q)?);
+            }
+        }
+
+        Ok((classes, traits, instances))
+    }
+
     pub fn collect_classes<G: Graph>(
         &self,
         q: &Query,
