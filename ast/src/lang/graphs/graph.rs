@@ -49,7 +49,7 @@ pub trait Graph: Default + Debug {
     fn add_edge(&mut self, edge: Edge);
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData);
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>);
-    
+
     fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
         vec![]
     }

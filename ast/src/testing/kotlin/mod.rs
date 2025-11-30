@@ -381,7 +381,10 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let oncreate_attrs = oncreate_fn.meta.get("attributes");
     assert!(oncreate_attrs.is_some(), "onCreate should have attributes");
-    assert!(oncreate_attrs.unwrap().contains("SuppressLint"), "onCreate should have @SuppressLint annotation");
+    assert!(
+        oncreate_attrs.unwrap().contains("SuppressLint"),
+        "onCreate should have @SuppressLint annotation"
+    );
 
     let use_app_context_fn = functions
         .iter()

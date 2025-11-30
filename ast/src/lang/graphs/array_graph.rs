@@ -379,7 +379,8 @@ impl Graph for ArrayGraph {
         // discrepancy. This helps isolate that the missing edges problem stems from
         // test->class edge insertion differences rather than downstream logic.
         let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
-        let mut unique_edges: HashSet<(String, String, usize, String, String, usize)> = HashSet::new();
+        let mut unique_edges: HashSet<(String, String, usize, String, String, usize)> =
+            HashSet::new();
         for (fc, ext_func, class_call) in funcs {
             if let Some(class_call) = &class_call {
                 self.add_edge(Edge::new(
@@ -448,7 +449,11 @@ impl Graph for ArrayGraph {
                         let edge = Edge::from_test_class_call(&tc, &class_nd);
                         self.add_edge(edge);
                         if self
-                            .find_node_by_name_in_file(NodeType::Class, &class_nd.name, &class_nd.file)
+                            .find_node_by_name_in_file(
+                                NodeType::Class,
+                                &class_nd.name,
+                                &class_nd.file,
+                            )
                             .is_none()
                         {
                             self.add_node(NodeType::Class, class_nd);
@@ -788,8 +793,7 @@ impl Graph for ArrayGraph {
         self.edges.clone()
     }
 
-    fn set_allow_unverified_calls(&mut self, _allow: bool) {
-    }
+    fn set_allow_unverified_calls(&mut self, _allow: bool) {}
 
     fn get_allow_unverified_calls(&self) -> bool {
         false

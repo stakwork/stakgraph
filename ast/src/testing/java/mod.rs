@@ -178,8 +178,14 @@ import java.util.Optional;"#
     .expect("getPerson function not found");
 
     let get_person_attrs = get_person_fn.node_data.meta.get("attributes");
-    assert!(get_person_attrs.is_some(), "getPerson should have attributes");
-    assert!(get_person_attrs.unwrap().contains("GetMapping"), "getPerson should have @GetMapping annotation");
+    assert!(
+        get_person_attrs.is_some(),
+        "getPerson should have attributes"
+    );
+    assert!(
+        get_person_attrs.unwrap().contains("GetMapping"),
+        "getPerson should have @GetMapping annotation"
+    );
 
     let create_person_fn = functions
     .iter()
@@ -188,8 +194,14 @@ import java.util.Optional;"#
     .expect("createPerson function not found");
 
     let create_person_attrs = create_person_fn.node_data.meta.get("attributes");
-    assert!(create_person_attrs.is_some(), "createPerson should have attributes");
-    assert!(create_person_attrs.unwrap().contains("PostMapping"), "createPerson should have @PostMapping annotation");
+    assert!(
+        create_person_attrs.is_some(),
+        "createPerson should have attributes"
+    );
+    assert!(
+        create_person_attrs.unwrap().contains("PostMapping"),
+        "createPerson should have @PostMapping annotation"
+    );
 
     assert!(
         graph.has_edge(&get_person_endpoint, &get_person_fn, EdgeType::Handler),

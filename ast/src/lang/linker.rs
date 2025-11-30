@@ -1,4 +1,4 @@
-use crate::lang::graphs::{Graph, NodeType};
+use crate::lang::graphs::{EdgeType, Graph, NodeType};
 use crate::lang::{Edge, Language, NodeData};
 use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
@@ -15,33 +15,138 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     if endpoints.is_empty() {
         return Ok(());
     }
-    let mut added = 0;
+
+    let mut added_direct = 0;
+    let mut added_indirect = 0;
+
     for t in &tests {
         let body_lc = t.body.to_lowercase();
         let test_verbs = extract_http_verbs_from_test(&t.body);
-        
+
         for ep in &endpoints {
-            if !body_lc.contains(&ep.name.to_lowercase()) {
-                continue;
+            if body_lc.contains(&ep.name.to_lowercase()) {
+                let matches = if !test_verbs.is_empty() {
+                    ep.meta
+                        .get("verb")
+                        .map(|v| test_verbs.iter().any(|tv| tv.eq_ignore_ascii_case(v)))
+                        .unwrap_or(true)
+                } else {
+                    true
+                };
+
+                if matches {
+                    let edge =
+                        Edge::test_calls(NodeType::IntegrationTest, t, NodeType::Endpoint, ep);
+                    graph.add_edge(edge);
+                    added_direct += 1;
+                }
             }
-            
-            let matches = if !test_verbs.is_empty() {
-                ep.meta.get("verb")
-                    .map(|v| test_verbs.iter().any(|tv| tv.eq_ignore_ascii_case(v)))
-                    .unwrap_or(true)
-            } else {
-                true
-            };
-            
-            if matches {
-                let edge = Edge::test_calls(NodeType::IntegrationTest, t, NodeType::Endpoint, ep);
-                graph.add_edge(edge);
-                added += 1;
+        }
+
+        let helper_functions = get_called_helpers(graph, t);
+
+        for helper in &helper_functions {
+            let requests_in_helper = get_requests_from_helper(graph, helper);
+
+            for request in &requests_in_helper {
+                let normalized_request_path = normalize_frontend_path(&request.name);
+                if normalized_request_path.is_none() {
+                    continue;
+                }
+                let req_path = normalized_request_path.unwrap();
+
+                for ep in &endpoints {
+                    let normalized_ep_path =
+                        normalize_backend_path(&ep.name).unwrap_or(ep.name.clone());
+
+                    let paths_match = req_path == normalized_ep_path;
+                    let verbs_match = match (request.meta.get("verb"), ep.meta.get("verb")) {
+                        (Some(req_verb), Some(ep_verb)) => {
+                            req_verb.to_uppercase() == ep_verb.to_uppercase()
+                        }
+                        _ => false,
+                    };
+
+                    if paths_match && verbs_match {
+                        let mut updated_ep = ep.clone();
+                        updated_ep.add_indirect_test(&t.name);
+                        updated_ep.add_test_helper(&helper.name);
+                        graph.add_node(NodeType::Endpoint, updated_ep);
+                        added_indirect += 1;
+                    }
+                }
             }
         }
     }
-    info!("linked {} integration test edges", added);
+
+    info!(
+        "linked {} direct + {} indirect integration test edges",
+        added_direct, added_indirect
+    );
     Ok(())
+}
+
+fn get_called_helpers<G: Graph>(graph: &G, test: &NodeData) -> Vec<NodeData> {
+    let all_functions = graph.find_nodes_by_type(NodeType::Function);
+
+    all_functions
+        .into_iter()
+        .filter(|function| has_edge_by_data(graph, test, function, EdgeType::Calls))
+        .collect()
+}
+
+fn get_requests_from_helper<G: Graph>(graph: &G, helper: &NodeData) -> Vec<NodeData> {
+    let all_requests = graph.find_nodes_by_type(NodeType::Request);
+    let mut requests = Vec::new();
+
+    for request in all_requests {
+        if has_edge_by_data(graph, helper, &request, EdgeType::Calls)
+            || (request.file == helper.file
+                && request.start >= helper.start
+                && request.start <= helper.end)
+        {
+            requests.push(request);
+        }
+    }
+
+    let nested_helpers = get_called_helpers(graph, helper);
+    for nested_helper in nested_helpers {
+        let nested_requests = get_requests_from_nested_helper(graph, &nested_helper);
+        requests.extend(nested_requests);
+    }
+
+    requests
+}
+
+fn get_requests_from_nested_helper<G: Graph>(graph: &G, helper: &NodeData) -> Vec<NodeData> {
+    let all_requests = graph.find_nodes_by_type(NodeType::Request);
+
+    all_requests
+        .into_iter()
+        .filter(|request| {
+            has_edge_by_data(graph, helper, request, EdgeType::Calls)
+                || (request.file == helper.file
+                    && request.start >= helper.start
+                    && request.start <= helper.end)
+        })
+        .collect()
+}
+
+fn has_edge_by_data<G: Graph>(
+    graph: &G,
+    source: &NodeData,
+    target: &NodeData,
+    edge_type: EdgeType,
+) -> bool {
+    graph.get_edges_vec().iter().any(|edge| {
+        edge.source.node_data.name == source.name
+            && edge.source.node_data.file == source.file
+            && edge.source.node_data.start == source.start
+            && edge.target.node_data.name == target.name
+            && edge.target.node_data.file == target.file
+            && edge.target.node_data.start == target.start
+            && edge.edge == edge_type
+    })
 }
 
 pub fn link_e2e_tests_pages<G: Graph>(graph: &mut G) -> Result<()> {
@@ -162,7 +267,7 @@ fetch(..., { method: "POST" }) pattern with explicit method option
 
 pub fn extract_http_verbs_from_test(body: &str) -> Vec<String> {
     let mut verbs = Vec::new();
-    
+
     let patterns = [
         r#"(?i)\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)\s*\("#,
         r#"(?i)\.(get|post|put|delete|patch|head|options)\s*\("#,
@@ -176,7 +281,7 @@ pub fn extract_http_verbs_from_test(body: &str) -> Vec<String> {
         r#"(?i)request\.(get|post|put|delete|patch|head|options)\("#,
         r#"(?i)fetch\s*\([^,)]*,\s*\{\s*method\s*:\s*["']?(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS)["']?"#,
     ];
-    
+
     for pattern in patterns.iter() {
         if let Ok(re) = Regex::new(pattern) {
             for capture in re.captures_iter(body) {
@@ -189,7 +294,7 @@ pub fn extract_http_verbs_from_test(body: &str) -> Vec<String> {
             }
         }
     }
-    
+
     verbs
 }
 
@@ -230,24 +335,23 @@ pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
 }
 
 pub fn normalize_frontend_path(path: &str) -> Option<String> {
-    // Skip paths that are entirely template literals
     if path.starts_with("${") && path.ends_with("}") && !path[2..].contains("${") {
         return None;
     }
 
-    // Extract path part after any leading template prefix (like ${ROOT}/...)
-    let path_part = if path.starts_with("${") {
-        // Find the end of the first template literal
-        if let Some(close_brace) = path.find('}') {
-            &path[close_brace + 1..]
+    let path_stripped = path
+        .replace("http://localhost:3000", "");
+
+    let path_part = if path_stripped.starts_with("${") {
+        if let Some(close_brace) = path_stripped.find('}') {
+            &path_stripped[close_brace + 1..]
         } else {
             return None;
         }
     } else {
-        path
+        &path_stripped
     };
 
-    // Replace remaining template expressions like ${var} with :param
     let re = Regex::new(r"\$\{[^}]+\}").ok()?;
     let normalized = re
         .replace_all(path_part, ":param")
@@ -255,7 +359,6 @@ pub fn normalize_frontend_path(path: &str) -> Option<String> {
         .trim_start_matches('/')
         .to_string();
 
-    // Ensure the path starts with /
     Some(format!("/{}", normalized))
 }
 

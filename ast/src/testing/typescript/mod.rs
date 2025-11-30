@@ -106,15 +106,21 @@ import {{ sequelize }} from "./config.js";"#
         .iter()
         .find(|f| f.name == "log" && f.file == "src/testing/typescript/src/service.ts")
         .expect("log function not found in service.ts");
-    
-    assert!(log_fn.meta.contains_key("interface"), "log function should have interface metadata");
+
+    assert!(
+        log_fn.meta.contains_key("interface"),
+        "log function should have interface metadata"
+    );
 
     let deprecated_fn = functions
         .iter()
         .find(|f| f.name == "deprecated" && f.file == "src/testing/typescript/src/service.ts")
         .expect("deprecated function not found in service.ts");
-    
-    assert!(deprecated_fn.meta.contains_key("interface"), "deprecated function should have interface metadata");
+
+    assert!(
+        deprecated_fn.meta.contains_key("interface"),
+        "deprecated function should have interface metadata"
+    );
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
@@ -126,7 +132,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
-    
+
     //TODO: Fix lsp calls edge count : locally, it says 5 but on CI it says 7
     // assert_eq!(calls_edges_count, 5, "Expected 5 calls edges");
 
@@ -187,9 +193,9 @@ import {{ sequelize }} from "./config.js";"#
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-       // assert_eq!(uses, 6, "Expected 6 uses edges");
+        // assert_eq!(uses, 6, "Expected 6 uses edges");
     } else {
-    //    assert_eq!(uses, 0, "Expected 0 uses edges");
+        //    assert_eq!(uses, 0, "Expected 0 uses edges");
     }
 
     let post_person_endpoint = endpoints

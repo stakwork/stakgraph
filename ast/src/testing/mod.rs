@@ -5,9 +5,9 @@ use std::str::FromStr;
 // use tracing_test::traced_test;
 
 pub mod angular;
-pub mod cpp;
 #[cfg(test)]
 pub mod coverage;
+pub mod cpp;
 pub mod go;
 pub mod graphs;
 pub mod java;

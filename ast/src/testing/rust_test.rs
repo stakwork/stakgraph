@@ -127,14 +127,26 @@ use std::net::SocketAddr;"#
         .find(|dm| dm.name == "Person" && dm.file.ends_with("src/testing/rust/src/db.rs"))
         .map(|n| Node::new(NodeType::DataModel, n.clone()))
         .expect("Data model 'Person' not found in models.rs");
-    
+
     let person_attrs = person_dm.node_data.meta.get("attributes");
     assert!(person_attrs.is_some(), "Person should have attributes");
     let attrs = person_attrs.unwrap();
-    assert!(attrs.contains("derive"), "Person attributes should contain 'derive'");
-    assert!(attrs.contains("Debug"), "Person attributes should contain 'Debug'");
-    assert!(attrs.contains("Serialize"), "Person attributes should contain 'Serialize'");
-    assert!(attrs.contains("FromRow"), "Person attributes should contain 'FromRow'");
+    assert!(
+        attrs.contains("derive"),
+        "Person attributes should contain 'derive'"
+    );
+    assert!(
+        attrs.contains("Debug"),
+        "Person attributes should contain 'Debug'"
+    );
+    assert!(
+        attrs.contains("Serialize"),
+        "Person attributes should contain 'Serialize'"
+    );
+    assert!(
+        attrs.contains("FromRow"),
+        "Person attributes should contain 'FromRow'"
+    );
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
@@ -189,7 +201,7 @@ use std::net::SocketAddr;"#
         implements_edge_exist,
         "Expected 'Greet' class to implement 'Greet' trait"
     );
-    
+
     let greeter_dm = data_models
         .iter()
         .find(|dm| dm.name == "Greeter" && dm.file.ends_with("src/testing/rust/src/traits.rs"))
@@ -197,22 +209,40 @@ use std::net::SocketAddr;"#
     let greeter_attrs = greeter_dm.meta.get("attributes");
     assert!(greeter_attrs.is_some(), "Greeter should have attributes");
     let attrs = greeter_attrs.unwrap();
-    assert!(attrs.contains("derive"), "Greeter attributes should contain 'derive'");
-    assert!(attrs.contains("Debug"), "Greeter attributes should contain 'Debug'");
-    assert!(attrs.contains("Clone"), "Greeter attributes should contain 'Clone'");
-    
+    assert!(
+        attrs.contains("derive"),
+        "Greeter attributes should contain 'derive'"
+    );
+    assert!(
+        attrs.contains("Debug"),
+        "Greeter attributes should contain 'Debug'"
+    );
+    assert!(
+        attrs.contains("Clone"),
+        "Greeter attributes should contain 'Clone'"
+    );
 
     let multi_attr_dm = data_models
         .iter()
-        .find(|dm| dm.name == "MultiAttrStruct" && dm.file.ends_with("src/testing/rust/src/traits.rs"))
+        .find(|dm| {
+            dm.name == "MultiAttrStruct" && dm.file.ends_with("src/testing/rust/src/traits.rs")
+        })
         .expect("Data model 'MultiAttrStruct' not found in traits.rs");
     let multi_attrs = multi_attr_dm.meta.get("attributes");
-    assert!(multi_attrs.is_some(), "MultiAttrStruct should have attributes");
+    assert!(
+        multi_attrs.is_some(),
+        "MultiAttrStruct should have attributes"
+    );
     let attrs = multi_attrs.unwrap();
-    assert!(attrs.contains("derive"), "MultiAttrStruct attributes should contain 'derive'");
+    assert!(
+        attrs.contains("derive"),
+        "MultiAttrStruct attributes should contain 'derive'"
+    );
 
-    assert!(attrs.contains("Debug") || attrs.contains("Clone") || attrs.contains("PartialEq"), 
-        "MultiAttrStruct attributes should contain derive traits");
+    assert!(
+        attrs.contains("Debug") || attrs.contains("Clone") || attrs.contains("PartialEq"),
+        "MultiAttrStruct attributes should contain derive traits"
+    );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
@@ -226,55 +256,94 @@ use std::net::SocketAddr;"#
     edges_count += contains_edges;
     assert_eq!(contains_edges, 106, "Expected 106 contains edges");
 
-  let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
+    let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
     assert_eq!(calls_edges, 21, "Expected 21 calls edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     assert_eq!(functions.len(), 26, "Expected 26 functions");
-    
+
     let internal_helper_fn = functions
         .iter()
         .find(|f| f.name == "internal_helper" && f.file.ends_with("src/testing/rust/src/db.rs"))
         .expect("internal_helper function not found in db.rs");
     let helper_attrs = internal_helper_fn.meta.get("attributes");
-    assert!(helper_attrs.is_some(), "internal_helper should have attributes");
+    assert!(
+        helper_attrs.is_some(),
+        "internal_helper should have attributes"
+    );
     let attrs = helper_attrs.unwrap();
-    assert!(attrs.contains("inline"), "internal_helper attributes should contain 'inline'");
-    
+    assert!(
+        attrs.contains("inline"),
+        "internal_helper attributes should contain 'inline'"
+    );
+
     let advanced_fn = functions
         .iter()
         .find(|f| f.name == "advanced_feature" && f.file.ends_with("src/testing/rust/src/db.rs"))
         .expect("advanced_feature function not found in db.rs");
     let cfg_attrs = advanced_fn.meta.get("attributes");
-    assert!(cfg_attrs.is_some(), "advanced_feature should have attributes");
+    assert!(
+        cfg_attrs.is_some(),
+        "advanced_feature should have attributes"
+    );
     let attrs = cfg_attrs.unwrap();
-    assert!(attrs.contains("cfg"), "advanced_feature attributes should contain 'cfg'");
-    
+    assert!(
+        attrs.contains("cfg"),
+        "advanced_feature attributes should contain 'cfg'"
+    );
+
     let multi_attr_fn = functions
         .iter()
-        .find(|f| f.name == "multi_attribute_function" && f.file.ends_with("src/testing/rust/src/db.rs"))
+        .find(|f| {
+            f.name == "multi_attribute_function" && f.file.ends_with("src/testing/rust/src/db.rs")
+        })
         .expect("multi_attribute_function not found in db.rs");
     let multi_fn_attrs = multi_attr_fn.meta.get("attributes");
-    assert!(multi_fn_attrs.is_some(), "multi_attribute_function should have attributes");
+    assert!(
+        multi_fn_attrs.is_some(),
+        "multi_attribute_function should have attributes"
+    );
     let attrs = multi_fn_attrs.unwrap();
-    assert!(attrs.contains("inline") || attrs.contains("must_use") || attrs.contains("deprecated"), 
-        "multi_attribute_function should have at least one attribute captured");
-    
-    let multi_fn_interface = multi_attr_fn.meta.get("interface");
-    assert!(multi_fn_interface.is_some(), "multi_attribute_function should have interface");
-    let interface = multi_fn_interface.unwrap();
-    assert!(interface.contains("#["), "interface should contain attribute markers");
-    assert!(interface.contains("pub fn multi_attribute_function"), "interface should contain function signature");
-    
-    assert!(multi_attr_fn.body.contains("#["), "body should contain attribute markers");
-    assert!(multi_attr_fn.body.contains("pub fn multi_attribute_function"), "body should contain full function with attributes");
+    assert!(
+        attrs.contains("inline") || attrs.contains("must_use") || attrs.contains("deprecated"),
+        "multi_attribute_function should have at least one attribute captured"
+    );
 
+    let multi_fn_interface = multi_attr_fn.meta.get("interface");
+    assert!(
+        multi_fn_interface.is_some(),
+        "multi_attribute_function should have interface"
+    );
+    let interface = multi_fn_interface.unwrap();
+    assert!(
+        interface.contains("#["),
+        "interface should contain attribute markers"
+    );
+    assert!(
+        interface.contains("pub fn multi_attribute_function"),
+        "interface should contain function signature"
+    );
+
+    assert!(
+        multi_attr_fn.body.contains("#["),
+        "body should contain attribute markers"
+    );
+    assert!(
+        multi_attr_fn
+            .body
+            .contains("pub fn multi_attribute_function"),
+        "body should contain full function with attributes"
+    );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 8, "Expected 8 unit tests (4 db.rs + 2 axum + 2 benchmarks)");
+    assert_eq!(
+        unit_tests.len(),
+        8,
+        "Expected 8 unit tests (4 db.rs + 2 axum + 2 benchmarks)"
+    );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
@@ -282,7 +351,11 @@ use std::net::SocketAddr;"#
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 4, "Expected 4 e2e tests (including #[ignore] test)");
+    assert_eq!(
+        e2e_tests.len(),
+        4,
+        "Expected 4 e2e tests (including #[ignore] test)"
+    );
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;

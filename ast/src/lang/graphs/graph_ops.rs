@@ -12,8 +12,8 @@ use crate::repo::{check_revs_files, Repo, StatusUpdate};
 use crate::utils::create_node_key;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
-use tracing::{debug, error, info};
 use tokio::sync::broadcast::Sender;
+use tracing::{debug, error, info};
 
 #[derive(Debug, Clone)]
 pub struct GraphOps {
@@ -133,17 +133,23 @@ impl GraphOps {
 
             if !modified_files.is_empty() {
                 let mut all_dynamic_edges = Vec::new();
-                
+
                 for file in &modified_files {
                     let dynamic_edges = self.graph.get_dynamic_edges_for_file(file).await?;
                     if !dynamic_edges.is_empty() {
-                        info!("Found {} dynamic edges for file: {}", dynamic_edges.len(), file);
+                        info!(
+                            "Found {} dynamic edges for file: {}",
+                            dynamic_edges.len(),
+                            file
+                        );
                         all_dynamic_edges.extend(dynamic_edges);
                     }
                 }
-                
+
                 if all_dynamic_edges.is_empty() {
-                    info!("No dynamic edges found (no Hint/Prompt nodes connected to modified files)");
+                    info!(
+                        "No dynamic edges found (no Hint/Prompt nodes connected to modified files)"
+                    );
                 } else {
                     info!("Total dynamic edges collected: {}", all_dynamic_edges.len());
                 }
@@ -168,7 +174,8 @@ impl GraphOps {
                 subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
 
                 if !all_dynamic_edges.is_empty() {
-                    let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
+                    let restored_count =
+                        self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
                     info!("Restored {} dynamic edges after rebuild", restored_count);
                 }
             }
@@ -238,7 +245,10 @@ impl GraphOps {
         if all_dynamic_edges.is_empty() {
             info!("No dynamic edges found (no Hint/Prompt nodes in graph)");
         } else {
-            info!("Found {} dynamic edges to preserve", all_dynamic_edges.len());
+            info!(
+                "Found {} dynamic edges to preserve",
+                all_dynamic_edges.len()
+            );
         }
 
         let repos = Repo::new_clone_multi_detect(
@@ -271,7 +281,10 @@ impl GraphOps {
         if !all_dynamic_edges.is_empty() {
             info!("Restoring {} dynamic edges...", all_dynamic_edges.len());
             let restored_count = self.graph.restore_dynamic_edges(all_dynamic_edges).await?;
-            info!("Successfully restored {} dynamic edges after full rebuild", restored_count);
+            info!(
+                "Successfully restored {} dynamic edges after full rebuild",
+                restored_count
+            );
         }
 
         info!("Setting Data_Bank property for nodes missing it...");
@@ -302,7 +315,9 @@ impl GraphOps {
             .as_ref()
             .map(|f| f.ignore_dirs.clone())
             .unwrap_or_default();
-        let regex = test_filters.as_ref().and_then(|f| f.target_regex.as_deref());
+        let regex = test_filters
+            .as_ref()
+            .and_then(|f| f.target_regex.as_deref());
 
         let in_scope = |n: &NodeData| {
             let repo_match = if let Some(r) = repo {

@@ -255,7 +255,8 @@ pub async fn ingest(
     let clone_s = start_clone.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=clone_detect repo={} s={:.2}",
-        final_repo_url.clone(), clone_s
+        final_repo_url.clone(),
+        clone_s
     );
 
     repos.set_status_tx(state.tx.clone()).await;
@@ -283,7 +284,9 @@ pub async fn ingest(
     let build_s = start_build.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=build repo={} streaming={} s={:.2}",
-        final_repo_url.clone(), streaming, build_s
+        final_repo_url.clone(),
+        streaming,
+        build_s
     );
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
@@ -451,13 +454,23 @@ pub async fn ingest_async(
                 status.progress = overall_progress;
                 if let Some(existing) = &status.update {
                     status.update = Some(ast::repo::StatusUpdate {
-                        status: if !update.status.is_empty() { update.status } else { existing.status.clone() },
-                        message: if !update.message.is_empty() { update.message } else { existing.message.clone() },
+                        status: if !update.status.is_empty() {
+                            update.status
+                        } else {
+                            existing.status.clone()
+                        },
+                        message: if !update.message.is_empty() {
+                            update.message
+                        } else {
+                            existing.message.clone()
+                        },
                         step: update.step,
                         total_steps: update.total_steps,
                         progress: update.progress,
                         stats: update.stats.or_else(|| existing.stats.clone()),
-                        step_description: update.step_description.or_else(|| existing.step_description.clone()),
+                        step_description: update
+                            .step_description
+                            .or_else(|| existing.step_description.clone()),
                     });
                 } else {
                     status.update = Some(update);
@@ -473,7 +486,7 @@ pub async fn ingest_async(
         // Move guard into task - it will automatically clear busy flag on drop
         let _guard = guard;
         let result = ingest(State(state_clone.clone()), body_clone).await;
-        
+
         let mut map = status_map.lock().await;
 
         match result {
@@ -641,36 +654,45 @@ pub async fn sync_async(
         while let Ok(update) = rx.recv().await {
             let mut map = status_map_clone.lock().await;
             if let Some(status) = map.get_mut(&request_id_for_listener) {
-                        let total_steps = update.total_steps.max(1) as f64;
-                        let step = update.step.max(1) as f64;
-                        let step_progress = update.progress.min(100) as f64;
+                let total_steps = update.total_steps.max(1) as f64;
+                let step = update.step.max(1) as f64;
+                let step_progress = update.progress.min(100) as f64;
 
-                        let overall_progress = (((step - 1.0) + (step_progress / 100.0)) / total_steps
-                            * 100.0)
-                            .min(100.0) as u32;
-                        status.progress = overall_progress;
-         
-                        if let Some(existing) = &status.update {
-                            status.update = Some(ast::repo::StatusUpdate {
-                                status: if !update.status.is_empty() { update.status } else { existing.status.clone() },
-                                message: if !update.message.is_empty() { update.message } else { existing.message.clone() },
-                                step: update.step,
-                                total_steps: update.total_steps,
-                                progress: update.progress,
-                                stats: update.stats.or_else(|| existing.stats.clone()),
-                                step_description: update.step_description.or_else(|| existing.step_description.clone()),
-                            });
+                let overall_progress = (((step - 1.0) + (step_progress / 100.0)) / total_steps
+                    * 100.0)
+                    .min(100.0) as u32;
+                status.progress = overall_progress;
+
+                if let Some(existing) = &status.update {
+                    status.update = Some(ast::repo::StatusUpdate {
+                        status: if !update.status.is_empty() {
+                            update.status
                         } else {
-                            status.update = Some(update);
-                        }
+                            existing.status.clone()
+                        },
+                        message: if !update.message.is_empty() {
+                            update.message
+                        } else {
+                            existing.message.clone()
+                        },
+                        step: update.step,
+                        total_steps: update.total_steps,
+                        progress: update.progress,
+                        stats: update.stats.or_else(|| existing.stats.clone()),
+                        step_description: update
+                            .step_description
+                            .or_else(|| existing.step_description.clone()),
+                    });
+                } else {
+                    status.update = Some(update);
+                }
             }
         }
     });
 
     info!(
         "/sync with Request ID: {} and callback_url:  {:?}",
-        request_id_for_work,
-        callback_url
+        request_id_for_work, callback_url
     );
 
     let state_for_process = state.clone();
@@ -679,7 +701,7 @@ pub async fn sync_async(
         // Move guard into task - it will automatically clear busy flag on drop
         let _guard = guard;
         let result = process(State(state_for_process.clone()), body_clone).await;
-        
+
         let mut map = status_map.lock().await;
 
         match result {

@@ -86,7 +86,7 @@ pub fn extract_methods_from_handler(handler_body: &str, lang: &Lang) -> Vec<Stri
             let query = lang.q(&query_str, &NodeType::Function);
             let mut cursor = tree_sitter::QueryCursor::new();
             let mut matches = cursor.matches(&query, tree.root_node(), handler_body.as_bytes());
-            
+
             while let Some(m) = matches.next() {
                 for capture in m.captures {
                     if let Ok(method_text) = capture.node.utf8_text(handler_body.as_bytes()) {
@@ -99,7 +99,7 @@ pub fn extract_methods_from_handler(handler_body: &str, lang: &Lang) -> Vec<Stri
             }
         }
     }
-    
+
     methods
 }
 

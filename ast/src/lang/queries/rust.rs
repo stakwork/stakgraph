@@ -412,7 +412,7 @@ impl Stack for Rust {
         let Ok(code) = std::fs::read_to_string(func_file) else {
             return false;
         };
-        
+
         let test_patterns = [
             format!("#[test"),
             format!("#[tokio::test"),
@@ -425,7 +425,7 @@ impl Stack for Rust {
             format!("#[wasm_bindgen_test"),
             format!("#[bench"),
         ];
-        
+
         let fn_pattern = format!("fn {}(", func_name);
         if let Some(fn_pos) = code.find(&fn_pattern) {
             // Get code before function (up to 100 chars back to catch attributes)
@@ -438,7 +438,7 @@ impl Stack for Rust {
                 }
             }
         }
-        
+
         false
     }
 
@@ -446,7 +446,7 @@ impl Stack for Rust {
         let f = file.replace('\\', "/");
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
         let name_lower = name.to_lowercase();
-        
+
         if f.contains("/tests/e2e/")
             || f.contains("/e2e/")
             || fname.starts_with("e2e_")
@@ -457,7 +457,7 @@ impl Stack for Rust {
         {
             return NodeType::E2eTest;
         }
-        
+
         if f.contains("/tests/integration/")
             || fname.starts_with("integration_")
             || fname.contains("integration.rs")
@@ -466,11 +466,11 @@ impl Stack for Rust {
         {
             return NodeType::IntegrationTest;
         }
-        
+
         if f.contains("/tests/") && !f.contains("/src/") {
             return NodeType::IntegrationTest;
         }
-        
+
         let body_l = body.to_lowercase();
         let http_markers = [
             "reqwest::",
@@ -482,11 +482,11 @@ impl Stack for Rust {
             "http://",
             "https://",
         ];
-        
+
         if http_markers.iter().any(|m| body_l.contains(m)) {
             return NodeType::IntegrationTest;
         }
-        
+
         NodeType::UnitTest
     }
 }

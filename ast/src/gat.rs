@@ -1,6 +1,5 @@
 use git2::{DiffOptions, Repository};
-use shared::error::{Result, Error, Context};
-
+use shared::error::{Context, Error, Result};
 
 pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Result<Vec<String>> {
     // Open the repository
@@ -8,26 +7,31 @@ pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Resul
         .map_err(|e| Error::Custom(format!("Failed to open git repository: {}", e)))?;
 
     // Look up the two commits
-    let old_commit = repo.revparse_single(old_rev)
+    let old_commit = repo
+        .revparse_single(old_rev)
         .context("Failed to find old revision")?
         .peel_to_commit()
         .context("Failed to peel old revision to commit")?;
-    let new_commit = repo.revparse_single(new_rev)
+    let new_commit = repo
+        .revparse_single(new_rev)
         .context("Failed to find new revision")?
         .peel_to_commit()
         .context("Failed to peel new revision to commit")?;
 
     // Get the trees for both commits
-    let old_tree = old_commit.tree()
+    let old_tree = old_commit
+        .tree()
         .context("Failed to get tree for old commit")?;
-    let new_tree = new_commit.tree()
+    let new_tree = new_commit
+        .tree()
         .context("Failed to get tree for new commit")?;
 
     // Create diff options
     let mut diff_opts = DiffOptions::new();
 
     // Get the diff between the two trees
-    let diff = repo.diff_tree_to_tree(Some(&old_tree), Some(&new_tree), Some(&mut diff_opts))
+    let diff = repo
+        .diff_tree_to_tree(Some(&old_tree), Some(&new_tree), Some(&mut diff_opts))
         .context("Failed to generate diff")?;
 
     // Collect changed files
@@ -46,7 +50,8 @@ pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Resul
         None,
         None,
         None,
-    ).map_err(|e| shared::Error::Custom(format!("Failed to iterate diff deltas: {e}")))?;
+    )
+    .map_err(|e| shared::Error::Custom(format!("Failed to iterate diff deltas: {e}")))?;
 
     Ok(changed_files)
 }

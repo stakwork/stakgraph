@@ -49,14 +49,11 @@ impl Repo {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graph_inner_with_streaming(streaming).await
     }
-    pub async fn build_graph_inner_with_streaming<G: Graph>(
-        &self,
-        streaming: bool,
-    ) -> Result<G> {
+    pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         graph.set_allow_unverified_calls(self.allow_unverified_calls);
-        
+
         let mut stats = std::collections::HashMap::new();
 
         #[cfg(feature = "neo4j")]
@@ -89,9 +86,13 @@ impl Repo {
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
             let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader.flush_stage(&ctx.neo, "files", &bolt_nodes).await?;
+            ctx.uploader
+                .flush_stage(&ctx.neo, "files", &bolt_nodes)
+                .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "files", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "files", &edges)
+                .await?;
         }
 
         self.setup_lsp(&filez)?;
@@ -110,7 +111,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "libraries", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "libraries", &edges)
+                .await?;
         }
         self.process_import_sections(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
@@ -121,7 +124,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "imports", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "imports", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "imports", &edges)
+                .await?;
         }
         self.process_variables(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
@@ -132,7 +137,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "variables", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "variables", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "variables", &edges)
+                .await?;
         }
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
@@ -143,7 +150,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "classes", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "classes", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "classes", &edges)
+                .await?;
         }
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
@@ -154,7 +163,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "instances_traits", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "instances_traits", &edges)
+                .await?;
         }
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
         #[cfg(feature = "neo4j")]
@@ -165,7 +176,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "implements", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "implements", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "implements", &edges)
+                .await?;
         }
         self.process_data_models(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
@@ -176,7 +189,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "data_models", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "data_models", &edges)
+                .await?;
         }
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
@@ -188,7 +203,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "functions_tests", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "functions_tests", &edges)
+                .await?;
         }
         self.process_pages_and_templates(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
@@ -199,7 +216,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "pages_templates", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "pages_templates", &edges)
+                .await?;
         }
         self.process_endpoints(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
@@ -210,7 +229,9 @@ impl Repo {
                 .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "endpoints", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "endpoints", &edges)
+                .await?;
         }
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
@@ -222,9 +243,11 @@ impl Repo {
                 .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
                 .await?;
             let edges = graph.get_edges_vec();
-            ctx.uploader.flush_edges_stage(&ctx.neo, "finalize", &edges).await?;
+            ctx.uploader
+                .flush_edges_stage(&ctx.neo, "finalize", &edges)
+                .await?;
         }
-        
+
         let graph = filter_by_revs(
             &self.root.to_str().unwrap(),
             self.revs.clone(),
@@ -240,7 +263,7 @@ impl Repo {
         stats.insert("total_nodes".to_string(), num_of_nodes as usize);
         stats.insert("total_edges".to_string(), num_of_edges as usize);
         self.send_status_with_stats(stats);
-        
+
         Ok(graph)
     }
 }
