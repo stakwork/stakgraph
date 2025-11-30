@@ -347,6 +347,8 @@ impl Lang {
                 params.actions_array = Some(body);
             } else if o == ENDPOINT_VERB {
                 endp.add_verb(&body.to_uppercase());
+            } else if o == ENDPOINT_OBJECT {
+                endp.meta.insert("object".to_string(), body);
             } else if o == REQUEST_CALL {
                 call = Some(body);
             } else if o == ENDPOINT_GROUP {
@@ -357,6 +359,11 @@ impl Lang {
                 params.item = Some(HandlerItem::new_member(trim_quotes(&body)));
             } else if o == RESOURCE_ITEM {
                 params.item = Some(HandlerItem::new_resource_member(trim_quotes(&body)));
+            } else if o == SINGULAR_RESOURCE {
+                // Singular resource: mark endpoint to omit :id in paths
+                endp.meta.insert("is_singular".to_string(), "true".to_string());
+                let handler_name = trim_quotes(&body);
+                endp.add_handler(&handler_name);
             }
             Ok(())
         })?;
@@ -414,17 +421,17 @@ impl Lang {
                                 return Ok(result);
                             } else {
                                 log_cmd(format!(
-                                    "No methods found in handler {}, defaulting to GET",
+                                    "No methods found in handler {}, likely a router mount - skipping endpoint",
                                     handler_name
                                 ));
-                                endp.add_verb("GET");
+                                return Ok(vec![]);
                             }
                         } else {
                             log_cmd(format!(
-                                "Handler {} not found for USE endpoint, defaulting to GET",
+                                "Handler {} not found for USE endpoint, likely a router mount - skipping endpoint",
                                 handler_name
                             ));
-                            endp.add_verb("GET");
+                            return Ok(vec![]);
                         }
                     } else {
                         endp.add_verb("GET");

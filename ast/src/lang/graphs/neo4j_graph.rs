@@ -1070,47 +1070,43 @@ impl Neo4jGraph {
         eg: Vec<NodeData>,
         lang: &Lang,
     ) -> Result<()> {
-        let mut groups_with_endpoints = Vec::new();
-
-        for group in &eg {
-            if let Some(group_function_name) = group.meta.get("group") {
-                let group_functions = self
-                    .find_nodes_by_name_async(NodeType::Function, group_function_name)
-                    .await;
-
-                if let Some(group_function) = group_functions.first() {
-                    let mut all_endpoints = Vec::new();
-
-                    for finder_query in lang.lang().endpoint_finders() {
-                        if let Ok(endpoints) = lang.get_query_opt::<Self>(
-                            Some(finder_query),
-                            &group_function.body,
-                            &group_function.file,
-                            NodeType::Endpoint,
-                        ) {
-                            all_endpoints.extend(endpoints);
-                        }
-                    }
-
-                    if !all_endpoints.is_empty() {
-                        groups_with_endpoints.push((group.clone(), all_endpoints));
-                    }
-                }
-            }
+        if eg.is_empty() {
+            return Ok(());
         }
 
-        if !groups_with_endpoints.is_empty() {
-            let connection = self.ensure_connected().await?;
-            let mut txn_manager = TransactionManager::new(&connection);
+        let connection = self.ensure_connected().await?;
+        
+        let endpoints = self.find_nodes_by_type_async(NodeType::Endpoint).await;
+        
+        let imports = self.find_nodes_by_type_async(NodeType::Import).await;
 
-            let queries = process_endpoint_groups_queries(&groups_with_endpoints);
-            for query in queries {
-                txn_manager.add_query(query);
-            }
-
-            txn_manager.execute().await?;
+        let find_import_node = |file: &str| -> Option<NodeData> {
+            imports
+                .iter()
+                .find(|node| node.file == file)
+                .cloned()
+        };
+        
+        let matches = lang.lang().match_endpoint_groups(&eg, &endpoints, &find_import_node);
+        
+        let mut txn_manager = TransactionManager::new(&connection);
+        
+        for (endpoint, prefix) in matches {
+            let full_path = format!("{}{}", prefix, endpoint.name);
+            
+            let update_query = format!(
+                "MATCH (e:Endpoint) WHERE e.name = $old_name AND e.file = $file \
+                 SET e.name = $new_name RETURN e.name"
+            );
+            let mut params = BoltMap::new();
+            boltmap_insert_str(&mut params, "old_name", &endpoint.name);
+            boltmap_insert_str(&mut params, "file", &endpoint.file);
+            boltmap_insert_str(&mut params, "new_name", &full_path);
+            
+            txn_manager.add_query((update_query, params));
         }
-
+        
+        txn_manager.execute().await?;
         Ok(())
     }
 
