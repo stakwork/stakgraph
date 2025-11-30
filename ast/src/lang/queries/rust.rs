@@ -2,11 +2,69 @@ use super::super::*;
 use super::consts::*;
 use shared::error::{Context, Result};
 use tree_sitter::{Language, Parser, Query, Tree};
+use crate::lang::parse::utils::trim_quotes;
+use std::collections::HashMap;
 pub struct Rust(Language);
 
 impl Rust {
     pub fn new() -> Self {
         Rust(tree_sitter_rust::LANGUAGE.into())
+    }
+}
+
+impl Rust {
+    // Actix-specific helper: captures .service(handler) calls (on scope or chained)
+    fn actix_service_registration_query() -> String {
+        use super::consts::{HANDLER_REF};
+        format!(
+            r#"
+            (call_expression
+                function: (field_expression
+                    field: (field_identifier) @service_name (#eq? @service_name "service")
+                )
+                arguments: (arguments
+                    (identifier) @{HANDLER_REF}
+                )
+            ) @service_call
+            "#
+        )
+    }
+
+    // Walk up AST from .service() call to find the parent web::scope("/prefix")
+    fn find_scope_prefix(node: tree_sitter::Node, code: &str) -> Option<String> {
+        // The node passed in is the call_expression for .service()
+        // Pattern: call_expression { function: field_expression { value: ..., field: "service" } }
+        
+        if let Some(func_node) = node.child_by_field_name("function") {
+            if func_node.kind() == "field_expression" {
+                if let Some(value_node) = func_node.child_by_field_name("value") {
+                    if value_node.kind() == "call_expression" {
+                        // Check if this is web::scope()
+                        if let Some(scope_func) = value_node.child_by_field_name("function") {
+                            let func_text = scope_func.utf8_text(code.as_bytes()).ok()?;
+                            if func_text == "web::scope" {
+                                // Found it! Extract the prefix argument
+                                if let Some(args) = value_node.child_by_field_name("arguments") {
+                                    for i in 0..args.child_count() {
+                                        let child = args.child(i)?;
+                                        if child.kind() == "string_literal" {
+                                            let prefix = child.utf8_text(code.as_bytes()).ok()?;
+                                            return Some(trim_quotes(prefix).to_string());
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Not web::scope, but could be chained .service()
+                                // Recurse on this call_expression
+                                return Self::find_scope_prefix(value_node, code);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        None
     }
 }
 
@@ -291,6 +349,42 @@ impl Stack for Rust {
         ]
     }
 
+    fn endpoint_group_find(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+                (call_expression
+                    function: (field_expression
+                        value: (call_expression
+                            function: (scoped_identifier
+                                path: (identifier) @web (#eq? @web "web")
+                                name: (identifier) @scope (#eq? @scope "scope")
+                            )
+                            arguments: (arguments
+                                (string_literal) @{ENDPOINT}
+                            )
+                        )
+                        field: (field_identifier) @configure (#eq? @configure "configure")
+                    )
+                    arguments: (arguments
+                        (identifier) @{ENDPOINT_GROUP}
+                    )
+                ) @{ROUTE}
+                
+                (call_expression
+                    function: (scoped_identifier
+                        path: (identifier) @web2 (#eq? @web2 "web")
+                        name: (identifier) @scope2 (#eq? @scope2 "scope")
+                    )
+                    arguments: (arguments
+                        (string_literal) @{ENDPOINT}
+                    )
+                ) @{ROUTE}
+            ]
+            "#
+        ))
+    }
+
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"
@@ -488,5 +582,171 @@ impl Stack for Rust {
         }
         
         NodeType::UnitTest
+    }
+
+    fn parse_imports_from_file(
+        &self,
+        file: &str,
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Option<Vec<(String, Vec<String>)>> {
+
+        let import_node = find_import_node(file)?;
+        let code = import_node.body.as_str();
+
+        let imports_query = self.imports_query()?;
+        let q = tree_sitter::Query::new(&self.0, &imports_query).unwrap();
+
+        let tree = match self.parse(code, &NodeType::Import) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+        let mut results = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let mut import_names = Vec::new();
+            let mut import_source = None;
+
+            for capture in m.captures {
+                let capture_name = q.capture_names()[capture.index as usize];
+                let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
+
+                if capture_name == IMPORTS_NAME {
+                    import_names.push(text.to_string());
+                } else if capture_name == IMPORTS_FROM {
+                    import_source = Some(trim_quotes(text).to_string());
+                }
+            }
+
+            if let Some(source_path) = import_source {
+                let resolved_path = self.resolve_import_path(&source_path, file);
+                results.push((resolved_path, import_names));
+            }
+        }
+
+        if results.is_empty() {
+            None
+        } else {
+            Some(results)
+        }
+    }
+
+    fn match_endpoint_groups(
+        &self,
+        groups: &[NodeData],
+        endpoints: &[NodeData],
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Vec<(NodeData, String)> {
+
+        let mut matches = Vec::new();
+        
+        // Build handler-to-prefix mapping using Actix service registration query
+        let reg_query_str = Rust::actix_service_registration_query();
+        
+        let reg_query = match tree_sitter::Query::new(&self.0, &reg_query_str) {
+            Ok(q) => q,
+            Err(e) => {
+                return matches;
+            }
+        };
+
+        // Collect all (handler, file) -> prefix mappings from all files
+        // Key is (handler_name, file_path) to avoid cross-framework collisions
+        let mut handler_to_prefix: HashMap<(String, String), Vec<String>> = HashMap::new();
+        
+        // Get unique files from groups
+        let mut files_to_scan: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for group in groups {
+            files_to_scan.insert(group.file.clone());
+        }
+        
+        for file in files_to_scan {
+            
+            // Read the full file
+            let code = match std::fs::read_to_string(&file) {
+                Ok(c) => c,
+                Err(e) => {
+                    println!("[Rust] Failed to read file: {:?}", e);
+                    continue;
+                }
+            };
+            
+            let tree = match self.parse(&code, &NodeType::Endpoint) {
+                Ok(t) => t,
+                Err(e) => {
+                    println!("[Rust] Failed to parse: {:?}", e);
+                    continue;
+                }
+            };
+            
+            let mut cursor = QueryCursor::new();
+            let mut query_matches = cursor.matches(&reg_query, tree.root_node(), code.as_bytes());
+            
+            while let Some(m) = query_matches.next() {
+                let mut handler = None;
+                let mut service_node = None;
+                
+                for capture in m.captures {
+                    let capture_name = &reg_query.capture_names()[capture.index as usize];
+                    let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
+                    
+                    if capture_name == &HANDLER_REF {
+                        handler = Some(text.to_string());
+                    } else if capture_name == &"service_call" {
+                        service_node = Some(capture.node);
+                    }
+                }
+                
+                // Walk up AST to find web::scope() call
+                if let (Some(h), Some(node)) = (handler, service_node) {
+                    if let Some(prefix) = Self::find_scope_prefix(node, &code) {
+                        // Store with file path to avoid matching across frameworks
+                        let key = (h, file.clone());
+                        handler_to_prefix.entry(key).or_insert_with(Vec::new).push(prefix);
+                    }
+                }
+            }
+        }
+        
+        // Match endpoints by handler name AND file path
+        for endpoint in endpoints {
+            if let Some(handler_name) = endpoint.meta.get("handler") {
+                let key = (handler_name.clone(), endpoint.file.clone());
+                if let Some(prefixes) = handler_to_prefix.get(&key) {
+                    for prefix in prefixes {
+                        matches.push((endpoint.clone(), prefix.clone()));
+                    }
+                }
+            }
+        }
+        
+        // Also handle cross-file grouping via .configure() as before
+        for group in groups {
+            let prefix = &group.name;
+            let group_file = &group.file;
+
+            if let Some(router_var) = group.meta.get("group") {
+                for endpoint in endpoints {
+                    let endpoint_name = &endpoint.name;
+                    let endpoint_file = &endpoint.file;
+
+                    if endpoint_name.starts_with(prefix) {
+                        continue;
+                    }
+
+                    if let Some(resolved_source) =
+                        self.resolve_import_source(router_var, group_file, find_import_node)
+                    {
+                        if endpoint_file.contains(&resolved_source) {
+                            matches.push((endpoint.clone(), prefix.clone()));
+                        }
+                    }
+                }
+            }
+        }
+
+        matches
     }
 }
