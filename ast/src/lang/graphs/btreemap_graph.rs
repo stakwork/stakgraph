@@ -352,11 +352,12 @@ impl Graph for BTreeMapGraph {
 
     fn add_tests(&mut self, tests: Vec<TestRecord>) {
         for tr in tests {
+            let file = tr.node.file.clone();
             self.add_node_with_parent(
-                tr.kind.clone(),
-                tr.node.clone(),
+                tr.kind,
+                tr.node,
                 NodeType::File,
-                &tr.node.file,
+                &file,
             );
             for e in tr.edges.iter() {
                 self.add_edge(e.clone());
@@ -502,60 +503,56 @@ impl Graph for BTreeMapGraph {
         }
     }
     fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
-        // Collect all updates we need to make
+        // Collect all endpoints
+        let endpoints: Vec<NodeData> = self
+            .nodes
+            .values()
+            .filter(|node| node.node_type == NodeType::Endpoint)
+            .map(|node| node.node_data.clone())
+            .collect();
+
+        // Create callback to find Import nodes by file
+        let find_import_node = |file: &str| -> Option<NodeData> {
+            self.nodes
+                .values()
+                .find(|node| node.node_type == NodeType::Import && node.node_data.file == file)
+                .map(|node| node.node_data.clone())
+        };
+
+        // Delegate matching logic to language implementation
+        let matches = lang.lang().match_endpoint_groups(&eg, &endpoints, &find_import_node);
+
+        // Apply prefix updates to nodes and edges
         let mut updates = Vec::new();
+        for (endpoint, prefix) in matches {
+            // Find the node key for this endpoint
+            if let Some((key, node)) = self.nodes.iter().find(|(_, n)| {
+                n.node_type == NodeType::Endpoint 
+                    && n.node_data.name == endpoint.name 
+                    && n.node_data.file == endpoint.file
+            }) {
+                let full_path = format!("{}{}", prefix, endpoint.name);
+                let mut updated_node = node.clone();
+                updated_node.node_data.name = full_path;
 
-        for group in eg {
-            if let Some(g) = group.meta.get("group") {
-                if let Some(gf) = self.find_nodes_by_name(NodeType::Function, g).first() {
-                    for q in lang.lang().endpoint_finders() {
-                        let endpoints_in_group = lang.get_query_opt::<Self>(
-                            Some(q),
-                            &gf.body,
-                            &gf.file,
-                            NodeType::Endpoint,
-                        )?;
+                let edges_to_update: Vec<_> = self
+                    .edges
+                    .iter()
+                    .filter(|(src, _, _)| src == key)
+                    .map(|(_, dst, edge)| (dst.clone(), edge.clone()))
+                    .collect();
 
-                        for end in endpoints_in_group {
-                            let prefix =
-                                format!("{:?}-{}", NodeType::Endpoint, sanitize_string(&end.name))
-                                    .to_lowercase();
-                            if let Some((key, node)) = self
-                                .nodes
-                                .range(prefix.clone()..)
-                                .take_while(|(k, _)| k.starts_with(&prefix))
-                                .next()
-                            {
-                                let new_endpoint =
-                                    format!("{}{}", group.name, &node.node_data.name);
-                                let mut updated_node = node.clone();
-                                updated_node.node_data.name = new_endpoint.clone();
-
-                                // Collect edges that need to be updated
-                                let edges_to_update: Vec<_> = self
-                                    .edges
-                                    .iter()
-                                    .filter(|(src, _, _)| src == key)
-                                    .map(|(_, dst, edge)| (dst.clone(), edge.clone()))
-                                    .collect();
-
-                                updates.push((key.clone(), updated_node, edges_to_update));
-                            }
-                        }
-                    }
-                }
+                updates.push((key.clone(), updated_node, edges_to_update));
             }
         }
 
-        // Apply all updates at once
+        // Apply all updates
         for (old_key, updated_node, edges) in updates {
             let new_key = create_node_key(&updated_node);
 
-            // Update node
             self.nodes.remove(&old_key);
             self.nodes.insert(new_key.clone(), updated_node);
 
-            // Update edges
             for (dst, edge) in edges {
                 self.edges
                     .remove(&(old_key.clone(), dst.clone(), edge.clone()));

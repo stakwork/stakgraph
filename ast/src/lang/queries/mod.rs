@@ -241,6 +241,37 @@ pub trait Stack {
         }
         Vec::new()
     }
+    fn parse_imports_from_file(
+        &self,
+        _file: &str,
+        _find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Option<Vec<(String, Vec<String>)>> {
+        None
+    }
+    fn resolve_import_source(
+        &self,
+        imported_name: &str,
+        current_file: &str,
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Option<String> {
+        let import_map = self.parse_imports_from_file(current_file, find_import_node)?;
+        
+        for (resolved_path, imported_names) in import_map {
+            if imported_names.contains(&imported_name.to_string()) {
+                return Some(resolved_path);
+            }
+        }
+        
+        None
+    }
+    fn match_endpoint_groups(
+        &self,
+        _groups: &[NodeData],
+        _endpoints: &[NodeData],
+        _find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Vec<(NodeData, String)> {
+        Vec::new()
+    }
     fn integration_test_query(&self) -> Option<String> {
         None
     }
