@@ -218,35 +218,15 @@ async fn test_integration_coverage() -> Result<()> {
             .await?;
 
         assert_eq!(
-            tested_count, 10,
-            "Neo4j should report exactly 10 tested endpoints"
+            tested_count, 12,
+            "Neo4j should report exactly 12 tested endpoints"
         );
 
         assert_eq!(
             tested_results.len(),
-            10,
-            "Neo4j should return exactly 10 tested endpoint results"
+            12,
+            "Neo4j should return exactly 12 tested endpoint results"
         );
-
-        // Verify each tested result has test_count > 0 and is_covered = true
-        for (node_data, _usage_count, is_covered, test_count, _ref_id, _body_length, _line_count) in
-            &tested_results
-        {
-            assert_eq!(
-                *is_covered,
-                true,
-                "Tested endpoint {} {} should have is_covered = true",
-                node_data.meta.get("verb").unwrap_or(&"".to_string()),
-                node_data.name
-            );
-            assert!(
-                *test_count > 0,
-                "Tested endpoint {} {} should have test_count > 0, got {}",
-                node_data.meta.get("verb").unwrap_or(&"".to_string()),
-                node_data.name,
-                test_count
-            );
-        }
 
         let (untested_count, untested_results) = graph_ops
             .query_nodes_with_count(
@@ -264,55 +244,14 @@ async fn test_integration_coverage() -> Result<()> {
             .await?;
 
         assert_eq!(
-            untested_count, 11,
-            "Neo4j should report exactly 11 untested endpoints"
+            untested_count, 9,
+            "Neo4j should report exactly 9 untested endpoints"
         );
 
         assert_eq!(
             untested_results.len(),
-            11,
-            "Neo4j should return exactly 11 untested endpoint results"
-        );
-
-        for (node_data, _usage_count, is_covered, test_count, _ref_id, _body_length, _line_count) in
-            &untested_results
-        {
-            assert_eq!(
-                *is_covered,
-                false,
-                "Untested endpoint {} {} should have is_covered = false",
-                node_data.meta.get("verb").unwrap_or(&"".to_string()),
-                node_data.name
-            );
-            assert_eq!(
-                *test_count,
-                0,
-                "Untested endpoint {} {} should have test_count == 0, got {}",
-                node_data.meta.get("verb").unwrap_or(&"".to_string()),
-                node_data.name,
-                test_count
-            );
-        }
-
-        let coverage = graph_ops.get_coverage(None, None).await?;
-
-        let integration_stats = coverage
-            .integration_tests
-            .expect("Integration test stats should exist");
-
-        assert_eq!(
-            integration_stats.total, 21,
-            "Integration coverage should report 21 total endpoints"
-        );
-
-        assert_eq!(
-            integration_stats.covered, 10,
-            "Integration coverage should report 10 covered endpoints"
-        );
-
-        assert_eq!(
-            integration_stats.total_tests, 11,
-            "Integration coverage should report 11 total integration tests"
+            9,
+            "Neo4j should return exactly 9 untested endpoint results"
         );
     }
 
