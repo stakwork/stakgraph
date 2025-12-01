@@ -4,14 +4,14 @@ use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct BTreeMapGraph {
     pub nodes: BTreeMap<String, Node>,
     pub edges: BTreeSet<(String, String, EdgeType)>,
     #[serde(skip)]
-    edge_keys: HashSet<String>,
+    edge_cache: HashMap<String, Edge>,
     #[serde(skip)]
     allow_unverified_calls: bool,
 }
@@ -21,7 +21,7 @@ impl Graph for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
-            edge_keys: HashSet::new(),
+            edge_cache: HashMap::new(),
             allow_unverified_calls: false,
         }
     }
@@ -47,6 +47,7 @@ impl Graph for BTreeMapGraph {
     fn extend_graph(&mut self, other: Self) {
         self.nodes.extend(other.nodes);
         self.edges.extend(other.edges);
+        self.edge_cache.extend(other.edge_cache);
     }
 
     fn get_graph_size(&self) -> (u32, u32) {
@@ -56,7 +57,7 @@ impl Graph for BTreeMapGraph {
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
         let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge.clone());
-        self.edge_keys.insert(edge_key);
+        self.edge_cache.insert(edge_key, edge.clone());
         self.edges.insert((source_key, target_key, edge.edge));
     }
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
@@ -68,7 +69,7 @@ impl Graph for BTreeMapGraph {
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
         let node_keys: HashSet<String> = self.nodes.keys().map(|s| s.to_lowercase()).collect();
 
-        let edge_keys: HashSet<String> = self.edge_keys.iter().map(|s| s.to_lowercase()).collect();
+        let edge_keys: HashSet<String> = self.edge_cache.keys().map(|s| s.to_lowercase()).collect();
         (node_keys, edge_keys)
     }
 
@@ -837,22 +838,7 @@ impl Graph for BTreeMapGraph {
 
 impl BTreeMapGraph {
     pub fn to_array_graph_edges(&self) -> Vec<Edge> {
-        let mut formatted_edges = Vec::with_capacity(self.edges.len());
-
-        for (src_key, dst_key, edge_type) in &self.edges {
-            if let Some(edge) = self.find_edge_by_keys(src_key, dst_key, edge_type) {
-                formatted_edges.push(edge);
-            } else {
-                tracing::warn!(
-                    "Edge not found for keys: src_key: {}, dst_key: {}, edge_type: {:?}",
-                    src_key,
-                    dst_key,
-                    edge_type
-                );
-            }
-        }
-
-        formatted_edges
+        self.edge_cache.values().cloned().collect()
     }
 
     pub fn find_edge_by_keys(
@@ -884,7 +870,7 @@ impl Default for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
-            edge_keys: HashSet::new(),
+            edge_cache: HashMap::new(),
             allow_unverified_calls: false,
         }
     }

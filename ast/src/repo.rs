@@ -121,6 +121,8 @@ impl Repos {
         if let Some(first_repo) = &self.0.get(0) {
             first_repo.send_status_update("linking_graphs", 14);
         }
+        info!("linking integration tests");
+        linker::link_integration_tests(&mut graph)?;
         info!("linking e2e tests");
         linker::link_e2e_tests(&mut graph)?;
         info!("linking api nodes");
