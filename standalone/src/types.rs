@@ -140,6 +140,7 @@ pub struct Node {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NodeConcise {
+    pub node_type: String,
     pub name: String,
     pub file: String,
     pub ref_id: String,
