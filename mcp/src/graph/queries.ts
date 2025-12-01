@@ -182,7 +182,9 @@ WITH w, w.published_workflow_version_id AS version_id
 MATCH (wv:Workflow_version {workflow_version_id: version_id})
 
 // Get all descendants of the Workflow_version node at any depth
+// Only include Generated_step and Skill nodes
 OPTIONAL MATCH path = (wv)-[*]->(descendant)
+WHERE descendant:Generated_step OR descendant:Skill
 WITH w, wv, collect(DISTINCT descendant) AS descendants
 
 // Combine all nodes: Workflow + Workflow_version + all descendants
