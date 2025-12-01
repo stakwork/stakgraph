@@ -171,6 +171,43 @@ RETURN h, allNodes,
   }) AS edges
 `;
 
+export const GET_WORKFLOW_PUBLISHED_VERSION_SUBGRAPH_QUERY = `
+// Match the Workflow node by ref_id
+MATCH (w:Workflow {ref_id: $ref_id})
+
+// Get the published_workflow_version_id property
+WITH w, w.published_workflow_version_id AS version_id
+
+// Match the corresponding Workflow_version node
+MATCH (wv:Workflow_version {workflow_version_id: version_id})
+
+// Get all descendants of the Workflow_version node at any depth
+OPTIONAL MATCH path = (wv)-[*]->(descendant)
+WITH w, wv, collect(DISTINCT descendant) AS descendants
+
+// Combine all nodes: Workflow + Workflow_version + all descendants
+WITH [w, wv] + descendants AS allNodes
+
+// Extract ref_ids for finding interconnections
+WITH allNodes, [node IN allNodes WHERE node IS NOT NULL | node.ref_id] AS allRefIds
+
+// Find all edges between any of the collected nodes
+OPTIONAL MATCH (a)-[r]->(b)
+WHERE a.ref_id IN allRefIds
+  AND b.ref_id IN allRefIds
+  AND a.ref_id <> b.ref_id
+
+// Return nodes and interconnecting edges
+RETURN allNodes,
+  collect(DISTINCT {
+    source: a.ref_id,
+    target: b.ref_id,
+    edge_type: type(r),
+    properties: properties(r),
+    ref_id: r.ref_id
+  }) AS edges
+`;
+
 export const HINTS_WITHOUT_SIBLINGS_QUERY = `
 MATCH (h:Hint)
 WHERE NOT (h)-[:SIBLING]-(:Hint)

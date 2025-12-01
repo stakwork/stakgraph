@@ -16,6 +16,7 @@ import {
   clean_node,
   getExtensionsForLanguage,
   toReturnNode,
+  nameFileOnly,
 } from "./utils.js";
 import * as Q from "./queries.js";
 import { vectorizeCodeDocument, vectorizeQuery } from "../vector/index.js";
@@ -610,6 +611,53 @@ class Db {
     }
   }
 
+  async get_workflow_published_version_subgraph(
+    ref_id: string,
+    concise: boolean = false
+  ) {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        Q.GET_WORKFLOW_PUBLISHED_VERSION_SUBGRAPH_QUERY,
+        {
+          ref_id,
+        }
+      );
+
+      if (result.records.length === 0) {
+        return { nodes: [], edges: [] };
+      }
+
+      const record = result.records[0];
+      const allNodesArray = record.get("allNodes");
+      const edgesArray = record.get("edges");
+
+      // Process nodes
+      const nodes = allNodesArray
+        .filter((node: any) => node !== null)
+        .map((node: any) => clean_node(node));
+
+      // Process edges - filter out any empty edge objects
+      const edges = edgesArray
+        .filter((edge: any) => edge.source && edge.target && edge.edge_type)
+        .map((edge: any) => ({
+          edge_type: edge.edge_type,
+          source: edge.source,
+          target: edge.target,
+          properties: edge.properties || {},
+        }));
+
+      return {
+        nodes: concise
+          ? nodes.map((n: any) => nameFileOnly(n))
+          : nodes.map(toReturnNode),
+        edges,
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
   async delete_node_by_ref_id(ref_id: string): Promise<number> {
     const session = this.driver.session();
     try {
@@ -943,7 +991,7 @@ function deser_edge(record: any): Neo4jEdge {
   } else {
     ref_id = uuidv4();
   }
-  
+
   return {
     edge_type: record.get("edge_type"),
     ref_id: ref_id,
