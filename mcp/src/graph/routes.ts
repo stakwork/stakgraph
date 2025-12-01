@@ -299,6 +299,31 @@ export async function fetch_node_with_related(req: Request, res: Response) {
   }
 }
 
+export async function fetch_workflow_published_version(
+  req: Request,
+  res: Response
+) {
+  // curl "http://localhost:3355/workflow?ref_id=<workflow-ref-id>&concise=true"
+  try {
+    const ref_id = req.query.ref_id as string;
+    if (!ref_id) {
+      res.status(400).json({ error: "Missing ref_id parameter" });
+      return;
+    }
+
+    const concise = isTrue(req.query.concise as string);
+    const result = await db.get_workflow_published_version_subgraph(
+      ref_id,
+      concise
+    );
+
+    res.json(result);
+  } catch (error) {
+    console.error("Fetch Workflow Published Version Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
 export async function generate_siblings(req: Request, res: Response) {
   try {
     const orphanHints = await db.hints_without_siblings();

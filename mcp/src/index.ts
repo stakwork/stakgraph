@@ -87,6 +87,7 @@ app.post("/seed_understanding", busyMiddleware, r.seed_understanding);
 app.get("/ask", r.ask);
 app.get("/learnings", r.get_learnings);
 app.get("/subgraph", r.fetch_node_with_related);
+app.get("/workflow", r.fetch_workflow_published_version);
 app.post("/hint_siblings", r.generate_siblings);
 app.post("/seed_stories", r.seed_stories);
 app.get("/services_agent", r.gitsee_services);
