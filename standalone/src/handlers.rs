@@ -4,7 +4,7 @@ use crate::types::{
     NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams,
     QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
 };
-use crate::utils::parse_node_type;
+use crate::utils::parse_node_types;
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
@@ -968,7 +968,7 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
 pub async fn nodes_handler(
     Query(params): Query<QueryNodesParams>,
 ) -> Result<Json<QueryNodesResponse>> {
-    let node_type = parse_node_type(&params.node_type).map_err(|e| WebError(e))?;
+    let node_types = parse_node_types(&params.node_type).map_err(|e| WebError(e))?;
     let offset = params.offset.unwrap_or(0);
     let limit = params.limit.unwrap_or(10).min(100);
     let sort_by_test_count = params.sort.as_deref().unwrap_or("test_count") == "test_count";
@@ -1012,74 +1012,91 @@ pub async fn nodes_handler(
             .unwrap_or_default(),
     };
 
-    let (total_count, results) = graph_ops
-        .query_nodes_with_count(
-            node_type.clone(),
-            offset,
-            limit,
-            sort_by_test_count,
-            coverage_filter,
-            body_length,
-            line_count,
-            params.repo.as_deref(),
-            Some(test_filters),
-            params.search.as_deref(),
-        )
-        .await?;
+    let mut all_results = Vec::new();
+    let mut combined_total_count = 0;
 
-    let items: Vec<NodesResponseItem> = results
+    for node_type in node_types {
+        let (count, results) = graph_ops
+            .query_nodes_with_count(
+                node_type.clone(),
+                0,
+                usize::MAX,
+                sort_by_test_count,
+                coverage_filter,
+                body_length,
+                line_count,
+                params.repo.as_deref(),
+                Some(test_filters.clone()),
+                params.search.as_deref(),
+            )
+            .await?;
+
+        combined_total_count += count;
+
+        for (node_data, usage_count, covered, test_count, ref_id, body_length, line_count) in
+            results
+        {
+            let verb = if node_type == NodeType::Endpoint {
+                node_data.meta.get("verb").cloned()
+            } else {
+                None
+            };
+
+            let item = if concise {
+                NodesResponseItem::Concise(NodeConcise {
+                    node_type: node_type.to_string(),
+                    name: node_data.name.clone(),
+                    file: node_data.file.clone(),
+                    ref_id,
+                    weight: usage_count,
+                    test_count,
+                    covered,
+                    body_length,
+                    line_count,
+                    verb,
+                    start: node_data.start,
+                    end: node_data.end,
+                    meta: node_data.meta,
+                })
+            } else {
+                NodesResponseItem::Full(Node {
+                    node_type: node_type.to_string(),
+                    ref_id,
+                    weight: usage_count,
+                    test_count,
+                    covered,
+                    properties: node_data,
+                    body_length,
+                    line_count,
+                })
+            };
+            all_results.push((test_count, usage_count, item));
+        }
+    }
+
+    if sort_by_test_count {
+        all_results.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+    }
+
+    let paginated_results: Vec<NodesResponseItem> = all_results
         .into_iter()
-        .map(
-            |(node_data, usage_count, covered, test_count, ref_id, body_length, line_count)| {
-                let verb = if node_type == NodeType::Endpoint {
-                    node_data.meta.get("verb").cloned()
-                } else {
-                    None
-                };
-
-                if concise {
-                    NodesResponseItem::Concise(NodeConcise {
-                        name: node_data.name.clone(),
-                        file: node_data.file.clone(),
-                        ref_id,
-                        weight: usage_count,
-                        test_count,
-                        covered,
-                        body_length,
-                        line_count,
-                        verb,
-                        start: node_data.start,
-                        end: node_data.end,
-                        meta: node_data.meta,
-                    })
-                } else {
-                    NodesResponseItem::Full(Node {
-                        node_type: node_type.to_string(),
-                        ref_id,
-                        weight: usage_count,
-                        test_count,
-                        covered,
-                        properties: node_data,
-                        body_length,
-                        line_count,
-                    })
-                }
-            },
-        )
+        .skip(offset)
+        .take(limit)
+        .map(|(_, _, item)| item)
         .collect();
 
-    let total_returned = items.len();
+    let total_returned = paginated_results.len();
     let total_pages = if limit > 0 {
-        (total_count + limit - 1) / limit
+        (combined_total_count + limit - 1) / limit
     } else {
         0
     };
     let current_page = if limit > 0 { (offset / limit) + 1 } else { 0 };
 
     Ok(Json(QueryNodesResponse {
-        items,
+        items: paginated_results,
         total_returned,
-        total_count,
+        total_count: combined_total_count,
         total_pages,
         current_page,
     }))

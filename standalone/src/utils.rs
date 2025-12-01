@@ -10,3 +10,10 @@ pub fn parse_node_type(node_type: &str) -> Result<NodeType> {
     let titled_case = chars.into_iter().collect::<String>();
     NodeType::from_str(&titled_case)
 }
+
+pub fn parse_node_types(node_types_str: &str) -> Result<Vec<NodeType>> {
+    node_types_str
+        .split(',')
+        .map(|s| parse_node_type(s.trim()))
+        .collect()
+}
