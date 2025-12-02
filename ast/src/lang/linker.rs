@@ -17,7 +17,7 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     }
 
     let mut added_direct = 0;
-    let mut added_indirect = 0;
+    let mut _added_indirect = 0;
 
     for t in &tests {
         let body_lc = t.body.to_lowercase();
@@ -43,46 +43,46 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
             }
         }
 
-        let helper_functions = get_called_helpers(graph, t);
+    //     let helper_functions = get_called_helpers(graph, t);
 
-        for helper in &helper_functions {
-            let requests_in_helper = get_requests_from_helper(graph, helper);
+    //     for helper in &helper_functions {
+    //         let requests_in_helper = get_requests_from_helper(graph, helper);
 
-            for request in &requests_in_helper {
-                let normalized_request_path = normalize_frontend_path(&request.name);
-                if normalized_request_path.is_none() {
-                    continue;
-                }
-                let req_path = normalized_request_path.unwrap();
+    //         for request in &requests_in_helper {
+    //             let normalized_request_path = normalize_frontend_path(&request.name);
+    //             if normalized_request_path.is_none() {
+    //                 continue;
+    //             }
+    //             let req_path = normalized_request_path.unwrap();
 
-                for ep in &endpoints {
-                    let normalized_ep_path =
-                        normalize_backend_path(&ep.name).unwrap_or(ep.name.clone());
+    //             for ep in &endpoints {
+    //                 let normalized_ep_path =
+    //                     normalize_backend_path(&ep.name).unwrap_or(ep.name.clone());
 
-                    let paths_match = req_path == normalized_ep_path;
-                    let verbs_match = match (request.meta.get("verb"), ep.meta.get("verb")) {
-                        (Some(req_verb), Some(ep_verb)) => {
-                            req_verb.to_uppercase() == ep_verb.to_uppercase()
-                        }
-                        _ => false,
-                    };
+    //                 let paths_match = req_path == normalized_ep_path;
+    //                 let verbs_match = match (request.meta.get("verb"), ep.meta.get("verb")) {
+    //                     (Some(req_verb), Some(ep_verb)) => {
+    //                         req_verb.to_uppercase() == ep_verb.to_uppercase()
+    //                     }
+    //                     _ => false,
+    //                 };
 
-                    if paths_match && verbs_match {
-                        let mut updated_ep = ep.clone();
-                        updated_ep.add_indirect_test(&t.name);
-                        updated_ep.add_test_helper(&helper.name);
-                        graph.add_node(NodeType::Endpoint, updated_ep);
-                        added_indirect += 1;
-                    }
-                }
-            }
-        }
+    //                 if paths_match && verbs_match {
+    //                     let mut updated_ep = ep.clone();
+    //                     updated_ep.add_indirect_test(&t.name);
+    //                     updated_ep.add_test_helper(&helper.name);
+    //                     graph.add_node(NodeType::Endpoint, updated_ep);
+    //                     added_indirect += 1;
+    //                 }
+    //             }
+    //         }
+    //     }
     }
 
-    info!(
-        "linked {} direct + {} indirect integration test edges",
-        added_direct, added_indirect
-    );
+    // info!(
+    //     "linked {} direct + {} indirect integration test edges",
+    //     added_direct, added_indirect
+    // );
     Ok(())
 }
 
@@ -91,7 +91,7 @@ fn get_called_helpers<G: Graph>(graph: &G, test: &NodeData) -> Vec<NodeData> {
 
     all_functions
         .into_iter()
-        .filter(|function| has_edge_by_data(graph, test, function, EdgeType::Calls))
+        .filter(|function: &NodeData| has_edge_by_data(graph, test, function, EdgeType::Calls))
         .collect()
 }
 
