@@ -6,11 +6,11 @@
   "private": true,
   "workspaces": {
     "packages": [
-      "src/aieo"
+      "src/aieo",
+      "src/gitsee/agent"
     ],
     "nohoist": [
-      "**/gitsee*/aieo",
-      "**/gitsee-agent/aieo"
+      "**/gitsee*/aieo"
     ]
   },
   "resolutions": {

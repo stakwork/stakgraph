@@ -43,7 +43,10 @@ import {
   getBudgetInfo,
 } from "../tools/budget.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
-import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
+import {
+  clone_and_explore_parse_files,
+  clone_and_explore,
+} from "../gitsee/agent/index.js";
 import { GitSeeHandler, GitSeeResponse } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
 import {

@@ -1,0 +1,43 @@
+{
+  "name": "gitsee-agent",
+  "version": "1.0.19",
+  "description": "AI agent for analyzing git repositories",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "git",
+    "ai",
+    "agent",
+    "repository",
+    "analysis"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@ai-sdk/anthropic": "3.0.0-beta.66",
+    "ai": "6.0.0-beta.124",
+    "dotenv": "^17.2.2",
+    "isomorphic-git": "^1.25.0",
+    "zod": "^4.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.13",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
+}
