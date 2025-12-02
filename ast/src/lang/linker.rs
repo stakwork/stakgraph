@@ -3,8 +3,33 @@ use crate::lang::{Edge, Language, NodeData};
 use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
 use shared::{Context, Error, Result};
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{debug, info};
+
+type EdgeKey = (String, String, usize);
+type EdgeIndex = HashMap<EdgeKey, HashSet<(EdgeKey, EdgeType)>>;
+
+fn build_edge_index(edges: &[Edge]) -> EdgeIndex {
+    let mut index: EdgeIndex = HashMap::new();
+    for edge in edges {
+        let source_key = (
+            edge.source.node_data.name.clone(),
+            edge.source.node_data.file.clone(),
+            edge.source.node_data.start,
+        );
+        let target_key = (
+            edge.target.node_data.name.clone(),
+            edge.target.node_data.file.clone(),
+            edge.target.node_data.start,
+        );
+        index
+            .entry(source_key)
+            .or_default()
+            .insert((target_key, edge.edge.clone()));
+    }
+    index
+}
 
 pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
@@ -16,8 +41,22 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
         return Ok(());
     }
 
+    let all_functions = graph.find_nodes_by_type(NodeType::Function);
+    let all_requests = graph.find_nodes_by_type(NodeType::Request);
+    let all_edges = graph.get_edges_vec();
+    let edge_index = build_edge_index(&all_edges);
+
+    debug!(
+        "linking {} integration tests against {} endpoints ({} functions, {} requests, {} edges)",
+        tests.len(),
+        endpoints.len(),
+        all_functions.len(),
+        all_requests.len(),
+        all_edges.len()
+    );
+
     let mut added_direct = 0;
-    let mut _added_indirect = 0;
+    let mut added_indirect = 0;
 
     for t in &tests {
         let body_lc = t.body.to_lowercase();
@@ -43,110 +82,131 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
             }
         }
 
-    //     let helper_functions = get_called_helpers(graph, t);
+        let helper_functions = get_called_helpers(&all_functions, &edge_index, t);
 
-    //     for helper in &helper_functions {
-    //         let requests_in_helper = get_requests_from_helper(graph, helper);
+        if !helper_functions.is_empty() {
+            debug!(
+                "test '{}' calls {} helper functions",
+                t.name,
+                helper_functions.len()
+            );
+        }
 
-    //         for request in &requests_in_helper {
-    //             let normalized_request_path = normalize_frontend_path(&request.name);
-    //             if normalized_request_path.is_none() {
-    //                 continue;
-    //             }
-    //             let req_path = normalized_request_path.unwrap();
+        for helper in &helper_functions {
+            let requests_in_helper =
+                get_requests_from_helper(&all_functions, &all_requests, &edge_index, helper);
 
-    //             for ep in &endpoints {
-    //                 let normalized_ep_path =
-    //                     normalize_backend_path(&ep.name).unwrap_or(ep.name.clone());
+            for request in &requests_in_helper {
+                let normalized_request_path = normalize_frontend_path(&request.name);
+                if normalized_request_path.is_none() {
+                    continue;
+                }
+                let req_path = normalized_request_path.unwrap();
 
-    //                 let paths_match = req_path == normalized_ep_path;
-    //                 let verbs_match = match (request.meta.get("verb"), ep.meta.get("verb")) {
-    //                     (Some(req_verb), Some(ep_verb)) => {
-    //                         req_verb.to_uppercase() == ep_verb.to_uppercase()
-    //                     }
-    //                     _ => false,
-    //                 };
+                for ep in &endpoints {
+                    let normalized_ep_path =
+                        normalize_backend_path(&ep.name).unwrap_or(ep.name.clone());
 
-    //                 if paths_match && verbs_match {
-    //                     let mut updated_ep = ep.clone();
-    //                     updated_ep.add_indirect_test(&t.name);
-    //                     updated_ep.add_test_helper(&helper.name);
-    //                     graph.add_node(NodeType::Endpoint, updated_ep);
-    //                     added_indirect += 1;
-    //                 }
-    //             }
-    //         }
-    //     }
+                    let paths_match = req_path == normalized_ep_path;
+                    let verbs_match = match (request.meta.get("verb"), ep.meta.get("verb")) {
+                        (Some(req_verb), Some(ep_verb)) => {
+                            req_verb.to_uppercase() == ep_verb.to_uppercase()
+                        }
+                        _ => false,
+                    };
+
+                    if paths_match && verbs_match {
+                        debug!(
+                            "indirect link: test '{}' -> helper '{}' -> request '{}' -> endpoint '{} {}'",
+                            t.name, helper.name, request.name, ep.meta.get("verb").unwrap_or(&"".to_string()), ep.name
+                        );
+                        let mut updated_ep = ep.clone();
+                        updated_ep.add_indirect_test(&t.name);
+                        updated_ep.add_test_helper(&helper.name);
+                        graph.add_node(NodeType::Endpoint, updated_ep);
+                        added_indirect += 1;
+                    }
+                }
+            }
+        }
     }
 
-    // info!(
-    //     "linked {} direct + {} indirect integration test edges",
-    //     added_direct, added_indirect
-    // );
+    info!(
+        "linked {} direct + {} indirect integration test edges",
+        added_direct, added_indirect
+    );
     Ok(())
 }
 
-fn get_called_helpers<G: Graph>(graph: &G, test: &NodeData) -> Vec<NodeData> {
-    let all_functions = graph.find_nodes_by_type(NodeType::Function);
-
+fn get_called_helpers(
+    all_functions: &[NodeData],
+    edge_index: &EdgeIndex,
+    test: &NodeData,
+) -> Vec<NodeData> {
     all_functions
-        .into_iter()
-        .filter(|function: &NodeData| has_edge_by_data(graph, test, function, EdgeType::Calls))
+        .iter()
+        .filter(|function| has_edge_by_index(edge_index, test, function, &EdgeType::Calls))
+        .cloned()
         .collect()
 }
 
-fn get_requests_from_helper<G: Graph>(graph: &G, helper: &NodeData) -> Vec<NodeData> {
-    let all_requests = graph.find_nodes_by_type(NodeType::Request);
+fn get_requests_from_helper(
+    all_functions: &[NodeData],
+    all_requests: &[NodeData],
+    edge_index: &EdgeIndex,
+    helper: &NodeData,
+) -> Vec<NodeData> {
     let mut requests = Vec::new();
 
     for request in all_requests {
-        if has_edge_by_data(graph, helper, &request, EdgeType::Calls)
+        if has_edge_by_index(edge_index, helper, request, &EdgeType::Calls)
             || (request.file == helper.file
                 && request.start >= helper.start
                 && request.start <= helper.end)
         {
-            requests.push(request);
+            requests.push(request.clone());
         }
     }
 
-    let nested_helpers = get_called_helpers(graph, helper);
+    let nested_helpers = get_called_helpers(all_functions, edge_index, helper);
     for nested_helper in nested_helpers {
-        let nested_requests = get_requests_from_nested_helper(graph, &nested_helper);
+        let nested_requests =
+            get_requests_from_nested_helper(all_requests, edge_index, &nested_helper);
         requests.extend(nested_requests);
     }
 
     requests
 }
 
-fn get_requests_from_nested_helper<G: Graph>(graph: &G, helper: &NodeData) -> Vec<NodeData> {
-    let all_requests = graph.find_nodes_by_type(NodeType::Request);
-
+fn get_requests_from_nested_helper(
+    all_requests: &[NodeData],
+    edge_index: &EdgeIndex,
+    helper: &NodeData,
+) -> Vec<NodeData> {
     all_requests
-        .into_iter()
+        .iter()
         .filter(|request| {
-            has_edge_by_data(graph, helper, request, EdgeType::Calls)
+            has_edge_by_index(edge_index, helper, request, &EdgeType::Calls)
                 || (request.file == helper.file
                     && request.start >= helper.start
                     && request.start <= helper.end)
         })
+        .cloned()
         .collect()
 }
 
-fn has_edge_by_data<G: Graph>(
-    graph: &G,
+fn has_edge_by_index(
+    edge_index: &EdgeIndex,
     source: &NodeData,
     target: &NodeData,
-    edge_type: EdgeType,
+    edge_type: &EdgeType,
 ) -> bool {
-    graph.get_edges_vec().iter().any(|edge| {
-        edge.source.node_data.name == source.name
-            && edge.source.node_data.file == source.file
-            && edge.source.node_data.start == source.start
-            && edge.target.node_data.name == target.name
-            && edge.target.node_data.file == target.file
-            && edge.target.node_data.start == target.start
-            && edge.edge == edge_type
-    })
+    let source_key = (source.name.clone(), source.file.clone(), source.start);
+    let target_key = (target.name.clone(), target.file.clone(), target.start);
+    edge_index
+        .get(&source_key)
+        .map(|targets| targets.contains(&(target_key, edge_type.clone())))
+        .unwrap_or(false)
 }
 
 pub fn link_e2e_tests_pages<G: Graph>(graph: &mut G) -> Result<()> {
