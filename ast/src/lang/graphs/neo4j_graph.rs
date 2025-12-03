@@ -1665,8 +1665,8 @@ impl Graph for Neo4jGraph {
         sync_fn(|| async { self.has_edge_async(source, target, edge_type).await })
     }
 
-    fn get_edges_vec(&self) -> Vec<Edge> {
-        Vec::new()
+    fn get_edges_vec(&self) -> &[Edge] {
+        &[]
     }
     fn set_allow_unverified_calls(&mut self, _allow: bool) {
         false;
