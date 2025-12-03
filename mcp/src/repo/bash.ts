@@ -130,17 +130,23 @@ function execShellCommand(
         resolved = true;
         clearTimeout(timeout);
 
+        // Truncate if needed
+        let output = stdout;
+        if (output.length > 10000) {
+          output =
+            output.substring(0, 10000) +
+            "\n\n[... output truncated to 10,000 characters ...]";
+        }
+
         if (code === 0) {
-          if (stdout.length > 10000) {
-            const truncated =
-              stdout.substring(0, 10000) +
-              "\n\n[... output truncated to 10,000 characters ...]";
-            resolve(truncated);
-          } else {
-            resolve(stdout);
-          }
+          resolve(output);
+        } else if (code === 1 && !stderr) {
+          // Exit code 1 with no stderr often means "no matches" (grep, find, etc.)
+          resolve(output || "No matches found");
         } else {
-          reject(new Error(`Command failed with code ${code}: ${stderr}`));
+          // Include both stdout and stderr in error for debugging
+          const errorOutput = stderr || stdout || "Unknown error";
+          reject(new Error(`Command failed with code ${code}: ${errorOutput}`));
         }
       }
     });

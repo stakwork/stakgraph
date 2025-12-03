@@ -66,6 +66,7 @@ export async function repo_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     console.error("Error in repo_agent", error);
     res.status(500).json({ error: "Internal server error" });
+    setBusy(false);
   }
 }
 

@@ -37,10 +37,7 @@ export async function services_agent(req: Request, res: Response) {
       })
       .then((result) => {
         const files = parse_files_contents(result);
-        asyncReqs.finishReq(request_id, {
-          success: true,
-          ...files,
-        });
+        asyncReqs.finishReq(request_id, files);
         setBusy(false);
         console.log("[repo_agent] Background work completed, set busy=false");
       })
@@ -56,6 +53,7 @@ export async function services_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     console.error("Error in repo_agent", error);
     res.status(500).json({ error: "Internal server error" });
+    setBusy(false);
   }
 }
 
