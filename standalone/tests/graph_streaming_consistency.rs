@@ -34,8 +34,8 @@ fn format_sample<T: std::fmt::Debug>(v: &[T]) -> String {
     out
 }
 
-#[cfg(feature = "neo4j")]
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+#[cfg(feature = "neo4j")]
 async fn graph_streaming_consistency() {
     use ast::lang::graphs::graph_ops::GraphOps;
     use ast::lang::graphs::{BTreeMapGraph, EdgeType};
@@ -86,7 +86,7 @@ async fn graph_streaming_consistency() {
 
     // Local sizes
     let local_node_count = local_graph.nodes.len();
-    let local_edge_vec = local_graph.to_array_graph_edges();
+    let local_edge_vec = local_graph.get_edges_vec();
     let local_edge_count = local_edge_vec.len();
 
     info!(
@@ -111,14 +111,9 @@ async fn graph_streaming_consistency() {
     let local_node_keys: Vec<String> = local_graph.nodes.keys().cloned().collect();
     let remote_node_keys = graph_ops.fetch_all_node_keys().await.unwrap_or_default();
 
-    let local_edge_triples: Vec<(String, String, EdgeType)> = local_edge_vec
-        .iter()
-        .map(|e| {
-            let s = ast::utils::create_node_key_from_ref(&e.source);
-            let t = ast::utils::create_node_key_from_ref(&e.target);
-            (s, t, e.edge.clone())
-        })
-        .collect();
+    let local_edge_triples: Vec<(String, String, EdgeType)> = local_graph.get_edge_keys().iter().map(|(s, t, e)| {
+        (s.clone(), t.clone(), e.clone())
+    }).collect();
     let remote_edge_triples = graph_ops.fetch_all_edge_triples().await.unwrap_or_default();
 
     let (missing_nodes, extra_nodes) = diff_sets(local_node_keys.clone(), remote_node_keys.clone());

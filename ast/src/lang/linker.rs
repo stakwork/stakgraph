@@ -45,6 +45,17 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let all_requests = graph.find_nodes_by_type(NodeType::Request);
     let all_edges = graph.get_edges_vec();
     let edge_index = build_edge_index(&all_edges);
+    let edges_count = &all_edges.len();
+
+    let mut endpoint_index: HashMap<(String, String), Vec<&NodeData>> = HashMap::new();
+    for ep in &endpoints {
+        if let Some(normalized_path) = normalize_backend_path(&ep.name) {
+            if let Some(verb) = ep.meta.get("verb") {
+                let key = (normalized_path, verb.to_uppercase());
+                endpoint_index.entry(key).or_default().push(ep);
+            }
+        }
+    }
 
     debug!(
         "linking {} integration tests against {} endpoints ({} functions, {} requests, {} edges)",
@@ -52,7 +63,7 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
         endpoints.len(),
         all_functions.len(),
         all_requests.len(),
-        all_edges.len()
+        edges_count
     );
 
     let mut added_direct = 0;
@@ -103,28 +114,20 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
                 }
                 let req_path = normalized_request_path.unwrap();
 
-                for ep in &endpoints {
-                    let normalized_ep_path =
-                        normalize_backend_path(&ep.name).unwrap_or(ep.name.clone());
-
-                    let paths_match = req_path == normalized_ep_path;
-                    let verbs_match = match (request.meta.get("verb"), ep.meta.get("verb")) {
-                        (Some(req_verb), Some(ep_verb)) => {
-                            req_verb.to_uppercase() == ep_verb.to_uppercase()
+                if let Some(req_verb) = request.meta.get("verb") {
+                    let key = (req_path, req_verb.to_uppercase());
+                    if let Some(matching_endpoints) = endpoint_index.get(&key) {
+                        for ep in matching_endpoints {
+                            debug!(
+                                "indirect link: test '{}' -> helper '{}' -> request '{}' -> endpoint '{} {}'",
+                                t.name, helper.name, request.name, req_verb, ep.name
+                            );
+                            let mut updated_ep = (*ep).clone();
+                            updated_ep.add_indirect_test(&t.name);
+                            updated_ep.add_test_helper(&helper.name);
+                            graph.add_node(NodeType::Endpoint, updated_ep);
+                            added_indirect += 1;
                         }
-                        _ => false,
-                    };
-
-                    if paths_match && verbs_match {
-                        debug!(
-                            "indirect link: test '{}' -> helper '{}' -> request '{}' -> endpoint '{} {}'",
-                            t.name, helper.name, request.name, ep.meta.get("verb").unwrap_or(&"".to_string()), ep.name
-                        );
-                        let mut updated_ep = ep.clone();
-                        updated_ep.add_indirect_test(&t.name);
-                        updated_ep.add_test_helper(&helper.name);
-                        graph.add_node(NodeType::Endpoint, updated_ep);
-                        added_indirect += 1;
                     }
                 }
             }

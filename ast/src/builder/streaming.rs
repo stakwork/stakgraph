@@ -1,10 +1,12 @@
 #![cfg(feature = "neo4j")]
+use std::collections::BTreeSet;
+
 use crate::lang::graphs::{neo4j_utils::*, Neo4jGraph};
-use crate::lang::{Edge, NodeData, NodeType};
-use crate::utils::create_node_key_from_ref;
+use crate::lang::{EdgeType, NodeData, NodeType};
 use neo4rs::BoltMap;
 use shared::Result;
 use tracing::{debug, info};
+use uuid::Uuid;
 
 pub struct GraphStreamingUploader {}
 
@@ -32,7 +34,7 @@ impl GraphStreamingUploader {
         &mut self,
         neo: &Neo4jGraph,
         stage: &str,
-        edges: &[Edge],
+        edges: &BTreeSet<(String, String, EdgeType)>,
     ) -> Result<()> {
         if edges.is_empty() {
             return Ok(());
@@ -43,10 +45,10 @@ impl GraphStreamingUploader {
         let edge_queries = build_batch_edge_queries_stream(
             edges.iter().map(|e| {
                 (
-                    create_node_key_from_ref(&e.source),
-                    create_node_key_from_ref(&e.target),
-                    e.edge.clone(),
-                    e.ref_id.clone(),
+                    e.0.clone(),
+                    e.1.clone(),
+                    e.2.clone(),
+                    Uuid::new_v4().to_string(),
                 )
             }),
             256,

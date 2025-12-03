@@ -89,7 +89,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "files", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "files", &edges)
                 .await?;
@@ -110,7 +110,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "libraries", &edges)
                 .await?;
@@ -123,7 +123,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "imports", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "imports", &edges)
                 .await?;
@@ -136,7 +136,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "variables", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "variables", &edges)
                 .await?;
@@ -149,7 +149,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "classes", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "classes", &edges)
                 .await?;
@@ -162,7 +162,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "instances_traits", &edges)
                 .await?;
@@ -175,7 +175,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "implements", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "implements", &edges)
                 .await?;
@@ -188,7 +188,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "data_models", &edges)
                 .await?;
@@ -202,7 +202,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "functions_tests", &edges)
                 .await?;
@@ -215,7 +215,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "pages_templates", &edges)
                 .await?;
@@ -228,7 +228,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "endpoints", &edges)
                 .await?;
@@ -242,7 +242,7 @@ impl Repo {
             ctx.uploader
                 .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
                 .await?;
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             ctx.uploader
                 .flush_edges_stage(&ctx.neo, "finalize", &edges)
                 .await?;
