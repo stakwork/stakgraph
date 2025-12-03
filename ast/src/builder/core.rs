@@ -91,7 +91,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "files", edges)
+                .flush_edges_stage(&ctx.neo, "files", &edges)
                 .await?;
         }
 
@@ -112,7 +112,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "libraries", edges)
+                .flush_edges_stage(&ctx.neo, "libraries", &edges)
                 .await?;
         }
         self.process_import_sections(&mut graph, &filez)?;
@@ -125,7 +125,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "imports", edges)
+                .flush_edges_stage(&ctx.neo, "imports", &edges)
                 .await?;
         }
         self.process_variables(&mut graph, &allowed_files)?;
@@ -138,7 +138,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "variables", edges)
+                .flush_edges_stage(&ctx.neo, "variables", &edges)
                 .await?;
         }
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
@@ -151,7 +151,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "classes", edges)
+                .flush_edges_stage(&ctx.neo, "classes", &edges)
                 .await?;
         }
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
@@ -164,7 +164,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "instances_traits", edges)
+                .flush_edges_stage(&ctx.neo, "instances_traits", &edges)
                 .await?;
         }
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
@@ -177,7 +177,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "implements", edges)
+                .flush_edges_stage(&ctx.neo, "implements", &edges)
                 .await?;
         }
         self.process_data_models(&mut graph, &allowed_files)?;
@@ -190,7 +190,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "data_models", edges)
+                .flush_edges_stage(&ctx.neo, "data_models", &edges)
                 .await?;
         }
         self.process_functions_and_tests(&mut graph, &allowed_files)
@@ -204,7 +204,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "functions_tests", edges)
+                .flush_edges_stage(&ctx.neo, "functions_tests", &edges)
                 .await?;
         }
         self.process_pages_and_templates(&mut graph, &filez)?;
@@ -217,7 +217,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "pages_templates", edges)
+                .flush_edges_stage(&ctx.neo, "pages_templates", &edges)
                 .await?;
         }
         self.process_endpoints(&mut graph, &allowed_files)?;
@@ -230,7 +230,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "endpoints", edges)
+                .flush_edges_stage(&ctx.neo, "endpoints", &edges)
                 .await?;
         }
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
@@ -244,7 +244,7 @@ impl Repo {
                 .await?;
             let edges = graph.get_edge_keys();
             ctx.uploader
-                .flush_edges_stage(&ctx.neo, "finalize", edges)
+                .flush_edges_stage(&ctx.neo, "finalize", &edges)
                 .await?;
         }
 

@@ -44,7 +44,8 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let all_functions = graph.find_nodes_by_type(NodeType::Function);
     let all_requests = graph.find_nodes_by_type(NodeType::Request);
     let all_edges = graph.get_edges_vec();
-    let edge_index = build_edge_index(all_edges);
+    let edge_index = build_edge_index(&all_edges);
+    let edges_count = &all_edges.len();
 
     let mut endpoint_index: HashMap<(String, String), Vec<&NodeData>> = HashMap::new();
     for ep in &endpoints {
@@ -62,7 +63,7 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
         endpoints.len(),
         all_functions.len(),
         all_requests.len(),
-        all_edges.len()
+        edges_count
     );
 
     let mut added_direct = 0;
