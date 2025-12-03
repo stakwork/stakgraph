@@ -252,8 +252,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     if let Some(_currency_test) = tests.iter().find(|t| {
         t.name == "unit: currency conversion" && t.file.ends_with("test/currency.test.ts")
     }) {
-        let all_convert_sats_calls: Vec<_> = graph
-            .get_edges_vec()
+        let edges_vec = graph.get_edges_vec();
+        let all_convert_sats_calls: Vec<_> = edges_vec
             .iter()
             .filter(|e| {
                 e.edge == EdgeType::Calls
