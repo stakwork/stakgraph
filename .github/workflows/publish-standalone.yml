@@ -7,6 +7,7 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     permissions:
       contents: read
       packages: write
@@ -35,6 +36,23 @@ jobs:
           # Use registry cache which is more reliable for multi-platform
           cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache
           cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache,mode=max
+          provenance: false
+          sbom: false
+          tags: |
+            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}
+            ghcr.io/stakwork/stakgraph-standalone:latest
+
+      - name: Build and push Docker image (fallback)
+        if: failure()
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile.standalone
+          platforms: linux/amd64,linux/arm64
+          push: true
+          no-cache: true
+          provenance: false
+          sbom: false
           tags: |
             ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}
             ghcr.io/stakwork/stakgraph-standalone:latest
