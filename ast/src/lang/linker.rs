@@ -44,7 +44,7 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let all_functions = graph.find_nodes_by_type(NodeType::Function);
     let all_requests = graph.find_nodes_by_type(NodeType::Request);
     let all_edges = graph.get_edges_vec();
-    let edge_index = build_edge_index(&all_edges);
+    let edge_index = build_edge_index(all_edges);
 
     debug!(
         "linking {} integration tests against {} endpoints ({} functions, {} requests, {} edges)",

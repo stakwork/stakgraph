@@ -813,6 +813,7 @@ impl Graph for BTreeMapGraph {
         self.edges.clone()
     }
 
+
     fn get_edges_vec(&self) -> Vec<Edge> {
         self.edges
             .iter()

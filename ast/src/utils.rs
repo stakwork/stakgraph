@@ -29,7 +29,7 @@ pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Resu
                 write_json_lines(nodepath, &node_values)?;
                 let edgepath = format!("{print_root}/{name}-edges.jsonl");
                 let edge_values = btreemap_graph.get_edges_vec();
-                write_json_lines(edgepath, &edge_values)?;
+                write_json_lines(edgepath, edge_values)?;
             } else {
                 //seriolize the whole graph otherwise
                 let pretty = serde_json::to_string_pretty(&graph)?;
