@@ -90,7 +90,7 @@ app.get("/subgraph", r.fetch_node_with_related);
 app.get("/workflow", r.fetch_workflow_published_version);
 app.post("/hint_siblings", r.generate_siblings);
 app.post("/seed_stories", r.seed_stories);
-app.get("/services_agent", r.gitsee_services);
+app.get("/services_agent", rr.services_agent);
 app.get("/agent", busyMiddleware, r.gitsee_agent);
 app.post("/gitsee", r.gitsee);
 app.get("/progress", r.get_script_progress);

@@ -2,32 +2,13 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
-// Execute ripgrep commands with proper streaming
-function execRipgrepCommand(
-  command: string,
+// Execute ripgrep with args array directly
+function execRipgrepCommandDirect(
+  args: string[],
   cwd: string,
   timeoutMs: number = 10000
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Parse the ripgrep command and add explicit directory
-    const parts = command.split(" ");
-    const rgIndex = parts.findIndex(
-      (part) => part === "rg" || part.endsWith("/rg")
-    );
-
-    // Build ripgrep arguments properly, removing quotes and adding explicit directory
-    const args = parts.slice(rgIndex + 1).map((arg) => {
-      // Remove surrounding quotes (both single and double)
-      if (
-        (arg.startsWith('"') && arg.endsWith('"')) ||
-        (arg.startsWith("'") && arg.endsWith("'"))
-      ) {
-        return arg.slice(1, -1);
-      }
-      return arg;
-    });
-    args.push("./"); // Add explicit directory to prevent stdin detection issues
-
     const process = spawn("rg", args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -37,7 +18,6 @@ function execRipgrepCommand(
     let stderr = "";
     let resolved = false;
 
-    // Set up timeout
     const timeout = setTimeout(() => {
       if (!resolved) {
         process.kill("SIGKILL");
@@ -49,7 +29,6 @@ function execRipgrepCommand(
     process.stdout.on("data", (data) => {
       stdout += data.toString();
 
-      // Safety check: if output gets too large, kill process and resolve
       if (stdout.length > 10000) {
         process.kill("SIGKILL");
         if (!resolved) {
@@ -83,7 +62,6 @@ function execRipgrepCommand(
             resolve(stdout);
           }
         } else if (code === 1) {
-          // ripgrep returns exit code 1 when no matches found
           resolve("No matches found");
         } else {
           reject(new Error(`Command failed with code ${code}: ${stderr}`));
@@ -118,7 +96,6 @@ function execShellCommand(
     let stderr = "";
     let resolved = false;
 
-    // Set up timeout
     const timeout = setTimeout(() => {
       if (!resolved) {
         process.kill("SIGKILL");
@@ -130,7 +107,6 @@ function execShellCommand(
     process.stdout.on("data", (data) => {
       stdout += data.toString();
 
-      // Safety check: if output gets too large, kill process and resolve
       if (stdout.length > 10000) {
         process.kill("SIGKILL");
         if (!resolved) {
@@ -189,7 +165,6 @@ export async function getRepoMap(repoPath: string): Promise<string> {
     return "Repository not cloned yet";
   }
 
-  // "rg --files",
   try {
     const result = await execShellCommand(
       "git ls-tree -r --name-only HEAD | tree -L 3 --fromfile",
@@ -223,7 +198,6 @@ export function getFileSummary(
       .split("\n")
       .slice(0, linesLimit || 40)
       .map((line) => {
-        // Limit each line to 200 characters to handle minified files
         return line.length > 200 ? line.substring(0, 200) + "..." : line;
       });
 
@@ -247,13 +221,24 @@ export async function fulltextSearch(
   }
 
   try {
-    const result = await execRipgrepCommand(
-      `rg --glob '!dist' --ignore-file .gitignore -C 2 -n --max-count 10 --max-columns 200 "${query}"`,
-      repoPath,
-      5000
-    );
+    const args = [
+      "--glob",
+      "!dist",
+      "--ignore-file",
+      ".gitignore",
+      "-C",
+      "2",
+      "-n",
+      "--max-count",
+      "10",
+      "--max-columns",
+      "200",
+      query,
+      "./",
+    ];
 
-    // Limit the result to 10,000 characters to prevent overwhelming output
+    const result = await execRipgrepCommandDirect(args, repoPath, 5000);
+
     if (result.length > 10000) {
       return (
         result.substring(0, 10000) +
@@ -263,7 +248,6 @@ export async function fulltextSearch(
 
     return result;
   } catch (error: any) {
-    // Ripgrep returns exit code 1 when no matches found, which is not really an error
     if (error.message.includes("code 1")) {
       return `No matches found for "${query}"`;
     }

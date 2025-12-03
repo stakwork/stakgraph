@@ -4,9 +4,9 @@ import {
   getApiKeyForProvider,
   Provider,
 } from "../../aieo/src/index.js";
-import * as prompts from "./prompts";
+import * as prompts from "./prompts/index.js";
 import { z } from "zod";
-import { getRepoMap, getFileSummary, fulltextSearch } from "./tools";
+import { getRepoMap, getFileSummary, fulltextSearch } from "./tools.js";
 
 function logStep(contents: any) {
   if (!Array.isArray(contents)) return;

@@ -4,6 +4,10 @@ import { ToolsConfig, getDefaultToolDescriptions } from "./tools.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
+import { setBusy } from "../busy.js";
+import { services_agent } from "./services.js";
+
+export { services_agent };
 
 export async function repo_agent(req: Request, res: Response) {
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
@@ -24,7 +28,6 @@ export async function repo_agent(req: Request, res: Response) {
       return;
     }
 
-    const { setBusy } = await import("../busy.js");
     setBusy(true);
     console.log("[repo_agent] Set busy=true before starting work");
 

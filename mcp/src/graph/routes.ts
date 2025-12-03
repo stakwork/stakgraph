@@ -47,7 +47,7 @@ import {
   clone_and_explore_parse_files,
   clone_and_explore,
 } from "../gitsee/agent/index.js";
-import { GitSeeHandler, GitSeeResponse } from "gitsee/server";
+import { GitSeeHandler } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
 import {
   prepareGitHubRepoNode,
@@ -56,10 +56,6 @@ import {
   prepareCommitsNode,
   prepareAgeNode,
   prepareIssuesNode,
-  prepareHasStarsEdge,
-  prepareHasCommitsEdge,
-  prepareHasAgeEdge,
-  prepareHasIssuesEdge,
 } from "./gitsee-nodes.js";
 
 export function schema(_req: Request, res: Response) {
