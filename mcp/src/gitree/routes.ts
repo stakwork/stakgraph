@@ -189,6 +189,8 @@ export async function gitree_list_features(_req: Request, res: Response) {
     await storage.initialize();
 
     const features = await storage.getAllFeatures();
+    const checkpoint = await storage.getChronologicalCheckpoint();
+
     res.json({
       features: features.map((f) => ({
         id: f.id,
@@ -200,6 +202,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
         hasDocumentation: !!f.documentation,
       })),
       total: features.length,
+      lastProcessedTimestamp: checkpoint?.lastProcessedTimestamp || null,
     });
   } catch (error: any) {
     console.error("Error listing features:", error);
@@ -248,7 +251,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
       })),
       commits: commits.map((commit) => ({
         sha: commit.sha,
-        message: commit.message.split('\n')[0],
+        message: commit.message.split("\n")[0],
         summary: commit.summary,
         author: commit.author,
         committedAt: commit.committedAt.toISOString(),
@@ -590,7 +593,12 @@ export async function gitree_link_files(req: Request, res: Response) {
 /**
  * Convert node to concise format with only name, file, ref_id, and node_type
  */
-function toConciseNode(node: Neo4jNode): { name: string; file: string; ref_id: string; node_type: string } {
+function toConciseNode(node: Neo4jNode): {
+  name: string;
+  file: string;
+  ref_id: string;
+  node_type: string;
+} {
   const ref_id = IS_TEST ? "test_ref_id" : node.properties.ref_id || "";
   const node_type = node.labels.find((l: string) => l !== "Data_Bank") || "";
   return {
@@ -623,9 +631,9 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     // Parse per-type limits (e.g., "Function:50,Class:25")
     const perTypeLimits: { [nodeType: string]: number } = {};
     if (perTypeLimitsParam) {
-      const pairs = perTypeLimitsParam.split(',');
+      const pairs = perTypeLimitsParam.split(",");
       for (const pair of pairs) {
-        const [nodeType, limitStr] = pair.trim().split(':');
+        const [nodeType, limitStr] = pair.trim().split(":");
         if (nodeType && limitStr) {
           const typeLimit = parseInt(limitStr);
           if (!isNaN(typeLimit)) {
@@ -636,17 +644,17 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     }
 
     // Combine all nodes
-    let allNodes = [
-      ...data.features,
-      ...data.files,
-      ...data.containedNodes,
-    ];
+    let allNodes = [...data.features, ...data.files, ...data.containedNodes];
 
     // Filter by node types if specified
     if (requestedNodeTypes.length > 0) {
       allNodes = allNodes.filter((node) => {
         const nodeType = node.labels.find((l: string) => l !== "Data_Bank");
-        return nodeType === "Feature" || nodeType === "File" || requestedNodeTypes.includes(nodeType);
+        return (
+          nodeType === "Feature" ||
+          nodeType === "File" ||
+          requestedNodeTypes.includes(nodeType)
+        );
       });
     }
 
@@ -656,7 +664,8 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
 
       // Group nodes by type
       allNodes.forEach((node) => {
-        const nodeType = node.labels.find((l: string) => l !== "Data_Bank") || "Unknown";
+        const nodeType =
+          node.labels.find((l: string) => l !== "Data_Bank") || "Unknown";
         if (!nodesByType[nodeType]) {
           nodesByType[nodeType] = [];
         }
@@ -705,20 +714,16 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     // Build meta information
     const nodeTypes = Array.from(
       new Set(
-        allNodes.map((n) => {
-          const label = n.labels.find((l: string) => l !== "Data_Bank");
-          return label;
-        }).filter(Boolean)
+        allNodes
+          .map((n) => {
+            const label = n.labels.find((l: string) => l !== "Data_Bank");
+            return label;
+          })
+          .filter(Boolean)
       )
     ) as NodeType[];
 
-    const meta = buildGraphMeta(
-      nodeTypes,
-      allNodes,
-      limit,
-      "total",
-      undefined
-    );
+    const meta = buildGraphMeta(nodeTypes, allNodes, limit, "total", undefined);
 
     res.json({
       nodes: returnNodes,

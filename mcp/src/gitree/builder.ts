@@ -178,6 +178,7 @@ export class StreamingFeatureBuilder {
     );
 
     // Fetch PRs
+    console.log(`   📡 Fetching PRs from GitHub API...`);
     const allPRs = await this.octokit.paginate(this.octokit.pulls.list, {
       owner,
       repo,
@@ -186,7 +187,9 @@ export class StreamingFeatureBuilder {
       direction: "asc",
       per_page: 100,
     });
+    console.log(`   ✓ Fetched ${allPRs.length} total closed PRs`);
 
+    console.log(`   🔍 Filtering for merged PRs after checkpoint...`);
     const mergedPRs = allPRs.filter((pr) => {
       if (!pr.merged_at) return false;
       const mergedDate = new Date(pr.merged_at);
@@ -201,7 +204,9 @@ export class StreamingFeatureBuilder {
       }
       return false;
     });
+    console.log(`   ✓ Found ${mergedPRs.length} merged PRs to process`);
 
+    console.log(`   📝 Adding ${mergedPRs.length} PRs to changes list...`);
     for (const pr of mergedPRs) {
       changes.push({
         type: "pr",
@@ -222,6 +227,7 @@ export class StreamingFeatureBuilder {
 
     // Fetch commits from default branch (use since parameter if we have a checkpoint)
     // Note: When no 'sha' is specified, GitHub API defaults to the repository's default branch
+    console.log(`   📡 Fetching commits from default branch...`);
     const commits = await this.octokit.paginate(
       this.octokit.repos.listCommits,
       {
@@ -231,12 +237,25 @@ export class StreamingFeatureBuilder {
         ...(sinceDate ? { since: sinceDate.toISOString() } : {}),
       }
     );
+    console.log(`   ✓ Fetched ${commits.length} total commits`);
 
     // Check each commit to see if it's associated with a PR
+    console.log(`   🔍 Checking commits for PR associations...`);
+    let skippedPRCommits = 0;
+    let standaloneCommits = 0;
+    let processedCount = 0;
     for (const commit of commits) {
       try {
         // Type guard - ensure commit has expected structure
         if (!commit?.sha || !commit?.commit) continue;
+
+        processedCount++;
+        // Log progress every 50 commits
+        if (processedCount % 50 === 0) {
+          console.log(
+            `      Progress: ${processedCount}/${commits.length} commits checked (${standaloneCommits} standalone, ${skippedPRCommits} PR-associated)`
+          );
+        }
 
         const { data: prs } =
           await this.octokit.repos.listPullRequestsAssociatedWithCommit({
@@ -277,20 +296,27 @@ export class StreamingFeatureBuilder {
             date: committedAt,
             id: commit.sha,
           });
+          standaloneCommits++;
+        } else {
+          skippedPRCommits++;
         }
       } catch (error) {
         console.error(
-          `Error checking PR association for ${commit?.sha}:`,
+          `   ❌ Error checking PR association for ${commit?.sha}:`,
           error
         );
       }
     }
+    console.log(
+      `   ✓ Found ${standaloneCommits} standalone commits (skipped ${skippedPRCommits} PR-associated commits)`
+    );
 
     // Sort chronologically (oldest first)
+    console.log(`   🔄 Sorting changes chronologically...`);
     changes.sort((a, b) => a.date.getTime() - b.date.getTime());
 
     console.log(
-      `   Found ${changes.filter((c) => c.type === "pr").length} PRs and ${
+      `   ✅ Found ${changes.filter((c) => c.type === "pr").length} PRs and ${
         changes.filter((c) => c.type === "commit").length
       } commits to process`
     );
