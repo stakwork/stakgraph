@@ -2,13 +2,37 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 
-// Execute ripgrep with args array directly
-function execRipgrepCommandDirect(
-  args: string[],
+// Execute ripgrep commands with proper streaming
+function execCommand(
+  command: string,
   cwd: string,
   timeoutMs: number = 10000
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    // Parse the ripgrep command and add explicit directory
+    const parts = command.split(" ");
+    const rgIndex = parts.findIndex(
+      (part) => part === "rg" || part.endsWith("/rg")
+    );
+
+    // if (rgIndex === -1) {
+    //   reject(new Error("Not a ripgrep command"));
+    //   return;
+    // }
+
+    // Build ripgrep arguments properly, removing quotes and adding explicit directory
+    const args = parts.slice(rgIndex + 1).map((arg) => {
+      // Remove surrounding quotes (both single and double)
+      if (
+        (arg.startsWith('"') && arg.endsWith('"')) ||
+        (arg.startsWith("'") && arg.endsWith("'"))
+      ) {
+        return arg.slice(1, -1);
+      }
+      return arg;
+    });
+    args.push("./"); // Add explicit directory to prevent stdin detection issues
+
     const process = spawn("rg", args, {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -18,6 +42,7 @@ function execRipgrepCommandDirect(
     let stderr = "";
     let resolved = false;
 
+    // Set up timeout
     const timeout = setTimeout(() => {
       if (!resolved) {
         process.kill("SIGKILL");
@@ -29,6 +54,7 @@ function execRipgrepCommandDirect(
     process.stdout.on("data", (data) => {
       stdout += data.toString();
 
+      // Safety check: if output gets too large, kill process and resolve
       if (stdout.length > 10000) {
         process.kill("SIGKILL");
         if (!resolved) {
@@ -62,6 +88,7 @@ function execRipgrepCommandDirect(
             resolve(stdout);
           }
         } else if (code === 1) {
+          // ripgrep returns exit code 1 when no matches found
           resolve("No matches found");
         } else {
           reject(new Error(`Command failed with code ${code}: ${stderr}`));
@@ -79,89 +106,7 @@ function execRipgrepCommandDirect(
   });
 }
 
-// Execute any shell command with proper streaming
-function execShellCommand(
-  command: string,
-  cwd: string,
-  timeoutMs: number = 10000
-): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const process = spawn(command, {
-      cwd,
-      shell: true,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let resolved = false;
-
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        process.kill("SIGKILL");
-        resolved = true;
-        reject(new Error(`Command timed out after ${timeoutMs}ms`));
-      }
-    }, timeoutMs);
-
-    process.stdout.on("data", (data) => {
-      stdout += data.toString();
-
-      if (stdout.length > 10000) {
-        process.kill("SIGKILL");
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeout);
-          const truncated =
-            stdout.substring(0, 10000) +
-            "\n\n[... output truncated due to size limit ...]";
-          resolve(truncated);
-        }
-        return;
-      }
-    });
-
-    process.stderr.on("data", (data) => {
-      stderr += data.toString();
-    });
-
-    process.on("close", (code) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-
-        // Truncate if needed
-        let output = stdout;
-        if (output.length > 10000) {
-          output =
-            output.substring(0, 10000) +
-            "\n\n[... output truncated to 10,000 characters ...]";
-        }
-
-        if (code === 0) {
-          resolve(output);
-        } else if (code === 1 && !stderr) {
-          // Exit code 1 with no stderr often means "no matches" (grep, find, etc.)
-          resolve(output || "No matches found");
-        } else {
-          // Include both stdout and stderr in error for debugging
-          const errorOutput = stderr || stdout || "Unknown error";
-          reject(new Error(`Command failed with code ${code}: ${errorOutput}`));
-        }
-      }
-    });
-
-    process.on("error", (error) => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timeout);
-        reject(error);
-      }
-    });
-  });
-}
-
-// Get repository map
+// Get repository map using ripgrep --files
 export async function getRepoMap(repoPath: string): Promise<string> {
   if (!repoPath) {
     return "No repository path provided";
@@ -171,8 +116,9 @@ export async function getRepoMap(repoPath: string): Promise<string> {
     return "Repository not cloned yet";
   }
 
+  // "rg --files",
   try {
-    const result = await execShellCommand(
+    const result = await execCommand(
       "git ls-tree -r --name-only HEAD | tree -L 3 --fromfile",
       repoPath
     );
@@ -204,6 +150,7 @@ export function getFileSummary(
       .split("\n")
       .slice(0, linesLimit || 40)
       .map((line) => {
+        // Limit each line to 200 characters to handle minified files
         return line.length > 200 ? line.substring(0, 200) + "..." : line;
       });
 
@@ -227,24 +174,13 @@ export async function fulltextSearch(
   }
 
   try {
-    const args = [
-      "--glob",
-      "!dist",
-      "--ignore-file",
-      ".gitignore",
-      "-C",
-      "2",
-      "-n",
-      "--max-count",
-      "10",
-      "--max-columns",
-      "200",
-      query,
-      "./",
-    ];
+    const result = await execCommand(
+      `rg --glob '!dist' --ignore-file .gitignore -C 2 -n --max-count 10 --max-columns 200 "${query}"`,
+      repoPath,
+      5000
+    );
 
-    const result = await execRipgrepCommandDirect(args, repoPath, 5000);
-
+    // Limit the result to 10,000 characters to prevent overwhelming output
     if (result.length > 10000) {
       return (
         result.substring(0, 10000) +
@@ -254,31 +190,10 @@ export async function fulltextSearch(
 
     return result;
   } catch (error: any) {
+    // Ripgrep returns exit code 1 when no matches found, which is not really an error
     if (error.message.includes("code 1")) {
       return `No matches found for "${query}"`;
     }
     return `Error searching: ${error.message}`;
-  }
-}
-
-// Execute arbitrary bash command
-export async function executeBashCommand(
-  command: string,
-  repoPath: string,
-  timeoutMs?: number
-): Promise<string> {
-  if (!repoPath) {
-    return "No repository path provided";
-  }
-
-  if (!fs.existsSync(repoPath)) {
-    return "Repository not cloned yet";
-  }
-
-  try {
-    const result = await execShellCommand(command, repoPath, timeoutMs);
-    return result;
-  } catch (error: any) {
-    return `Error executing command: ${error.message}`;
   }
 }

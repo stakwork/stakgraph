@@ -43,8 +43,11 @@ import {
   getBudgetInfo,
 } from "../tools/budget.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
-import { clone_and_explore_parse_files, clone_and_explore } from "gitsee-agent";
-import { GitSeeHandler, GitSeeResponse } from "gitsee/server";
+import {
+  clone_and_explore_parse_files,
+  clone_and_explore,
+} from "../gitsee/agent/index.js";
+import { GitSeeHandler } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
 import {
   prepareGitHubRepoNode,
@@ -53,10 +56,6 @@ import {
   prepareCommitsNode,
   prepareAgeNode,
   prepareIssuesNode,
-  prepareHasStarsEdge,
-  prepareHasCommitsEdge,
-  prepareHasAgeEdge,
-  prepareHasIssuesEdge,
 } from "./gitsee-nodes.js";
 
 export function schema(_req: Request, res: Response) {
