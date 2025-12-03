@@ -134,7 +134,7 @@ impl Repos {
                     .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
                     .await;
             }
-            let edges = graph.get_edges_vec();
+            let edges = graph.get_edge_keys();
             let _ = uploader
                 .flush_edges_stage(neo, "cross_repo_linking", &edges)
                 .await;

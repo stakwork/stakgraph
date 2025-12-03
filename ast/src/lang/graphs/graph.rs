@@ -3,7 +3,7 @@ use crate::lang::{Edge, Lang, Node, NodeType};
 use crate::lang::{Function, FunctionCall};
 use lsp::Language;
 use shared::Result;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fmt::Debug;
 
 use super::{EdgeType, NodeData, NodeKeys};
@@ -49,6 +49,9 @@ pub trait Graph: Default + Debug {
     fn add_edge(&mut self, edge: Edge);
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData);
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>);
+    fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)>{
+        BTreeSet::new()
+    }
 
     fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
         vec![]

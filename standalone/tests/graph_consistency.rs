@@ -42,7 +42,7 @@ async fn test_graph_consistency() {
     btree_graph.analysis();
 
     let btree_node_count = btree_graph.nodes.len();
-    let btree_edge_count = btree_graph.get_edges_vec().len();
+    let btree_edge_count = btree_graph.get_edge_keys().len();
 
     info!(
         "BTreeMapGraph: {} nodes, {} edges (formatted)",

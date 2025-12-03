@@ -11,10 +11,6 @@ pub struct BTreeMapGraph {
     pub nodes: BTreeMap<String, Node>,
     pub edges: BTreeSet<(String, String, EdgeType)>,
     #[serde(skip)]
-    edge_keys: HashSet<String>,
-    #[serde(skip)]
-    full_edges: Vec<Edge>,
-    #[serde(skip)]
     allow_unverified_calls: bool,
 }
 
@@ -23,8 +19,6 @@ impl Graph for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
-            edge_keys: HashSet::new(),
-            full_edges: Vec::new(),
             allow_unverified_calls: false,
         }
     }
@@ -50,14 +44,6 @@ impl Graph for BTreeMapGraph {
     fn extend_graph(&mut self, other: Self) {
         self.nodes.extend(other.nodes);
         self.edges.extend(other.edges);
-        for edge in other.full_edges {
-            let source_key = create_node_key_from_ref(&edge.source);
-            let target_key = create_node_key_from_ref(&edge.target);
-            let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge);
-            if self.edge_keys.insert(edge_key) {
-                self.full_edges.push(edge);
-            }
-        }
     }
 
     fn get_graph_size(&self) -> (u32, u32) {
@@ -66,26 +52,7 @@ impl Graph for BTreeMapGraph {
     fn add_edge(&mut self, edge: Edge) {
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
-        let edge_key = format!("{}-{}-{:?}", source_key, target_key, edge.edge.clone());
-        if self.edge_keys.insert(edge_key) {
-            self.edges
-                .insert((source_key.clone(), target_key.clone(), edge.edge.clone()));
-            if let (Some(src_node), Some(dst_node)) =
-                (self.nodes.get(&source_key), self.nodes.get(&target_key))
-            {
-                self.full_edges.push(Edge::new(
-                    edge.edge.clone(),
-                    NodeRef::from(
-                        src_node.node_data.clone().into(),
-                        src_node.node_type.clone(),
-                    ),
-                    NodeRef::from(
-                        dst_node.node_data.clone().into(),
-                        dst_node.node_type.clone(),
-                    ),
-                ));
-            }
-        }
+        self.edges.insert((source_key, target_key, edge.edge));
     }
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
         let node = Node::new(node_type.clone(), node_data.clone());
@@ -96,7 +63,7 @@ impl Graph for BTreeMapGraph {
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
         let node_keys: HashSet<String> = self.nodes.keys().map(|s| s.to_lowercase()).collect();
 
-        let edge_keys: HashSet<String> = self.edge_keys.iter().map(|s| s.to_lowercase()).collect();
+        let edge_keys: HashSet<String> = self.edges.iter().map(|(src, dst, edge_type)| format!("{}-{}-{:?}", src.to_lowercase(), dst.to_lowercase(), edge_type)).collect();
         (node_keys, edge_keys)
     }
 
@@ -697,12 +664,6 @@ impl Graph for BTreeMapGraph {
             self.nodes.remove(key);
             self.edges
                 .retain(|(src, dst, _)| src != key && dst != key);
-            self.full_edges.retain(|e| {
-                let src_key = create_node_key_from_ref(&e.source);
-                let dst_key = create_node_key_from_ref(&e.target);
-                &src_key != key && &dst_key != key
-            });
-            self.edge_keys.retain(|k| !k.starts_with(key) && !k.contains(&format!("-{}-", key)));
         }
     }
 
@@ -848,9 +809,29 @@ impl Graph for BTreeMapGraph {
             return false;
         }
     }
+    fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)> {
+        self.edges.clone()
+    }
 
     fn get_edges_vec(&self) -> Vec<Edge> {
-        self.full_edges.clone()
+        self.edges
+            .iter()
+            .filter_map(|(src_key, dst_key, edge_type)| {
+                let src_node = self.nodes.get(src_key)?;
+                let dst_node = self.nodes.get(dst_key)?;
+                Some(Edge::new(
+                    edge_type.clone(),
+                    NodeRef::from(
+                        src_node.node_data.clone().into(),
+                        src_node.node_type.clone(),
+                    ),
+                    NodeRef::from(
+                        dst_node.node_data.clone().into(),
+                        dst_node.node_type.clone(),
+                    ),
+                ))
+            })
+            .collect()
     }
 
     fn set_allow_unverified_calls(&mut self, allow: bool) {
@@ -900,8 +881,6 @@ impl Default for BTreeMapGraph {
         BTreeMapGraph {
             nodes: BTreeMap::new(),
             edges: BTreeSet::new(),
-            edge_keys: HashSet::new(),
-            full_edges: Vec::new(),
             allow_unverified_calls: false,
         }
     }
