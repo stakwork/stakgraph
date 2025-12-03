@@ -34,8 +34,8 @@ fn format_sample<T: std::fmt::Debug>(v: &[T]) -> String {
     out
 }
 
-#[cfg(feature = "neo4j")]
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
+#[cfg(feature = "neo4j")]
 async fn graph_streaming_consistency() {
     use ast::lang::graphs::graph_ops::GraphOps;
     use ast::lang::graphs::{BTreeMapGraph, EdgeType};
@@ -86,7 +86,7 @@ async fn graph_streaming_consistency() {
 
     // Local sizes
     let local_node_count = local_graph.nodes.len();
-    let local_edge_vec = local_graph.to_array_graph_edges();
+    let local_edge_vec = local_graph.get_edges_vec();
     let local_edge_count = local_edge_vec.len();
 
     info!(

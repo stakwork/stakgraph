@@ -28,7 +28,7 @@ pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Resu
                 let node_values: Vec<_> = btreemap_graph.nodes.values().collect();
                 write_json_lines(nodepath, &node_values)?;
                 let edgepath = format!("{print_root}/{name}-edges.jsonl");
-                let edge_values = btreemap_graph.to_array_graph_edges();
+                let edge_values = btreemap_graph.get_edges_vec();
                 write_json_lines(edgepath, &edge_values)?;
             } else {
                 //seriolize the whole graph otherwise
@@ -91,7 +91,7 @@ pub fn create_node_key(node: &Node) -> String {
 
 pub fn get_use_lsp() -> bool {
     println!("===-==> Getting use LSP");
-    env::set_var("LSP_SKIP_POST_CLONE", "true");
+    
     delete_react_testing_node_modules().ok();
     let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
     if lsp == "true" || lsp == "1" {
