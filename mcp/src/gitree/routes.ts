@@ -17,6 +17,9 @@ import {
 } from "../graph/utils.js";
 import { NodeType, Neo4jNode } from "../graph/types.js";
 
+// In-memory flag to track if processing is currently running
+let isProcessing = false;
+
 /**
  * Parse Git repository URL to extract owner and repo
  * Supports formats:
@@ -112,6 +115,7 @@ export async function gitree_process(req: Request, res: Response) {
     }
 
     // Process repository in background
+    isProcessing = true;
     (async () => {
       try {
         const anthropicKey = getApiKeyForProvider("anthropic");
@@ -166,8 +170,10 @@ export async function gitree_process(req: Request, res: Response) {
         }
 
         asyncReqs.finishReq(request_id, result);
+        isProcessing = false;
       } catch (error) {
         asyncReqs.failReq(request_id, error);
+        isProcessing = false;
       }
     })();
 
@@ -175,6 +181,7 @@ export async function gitree_process(req: Request, res: Response) {
   } catch (error) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
+    isProcessing = false;
     res.status(500).json({ error: "Failed to process repository" });
   }
 }
@@ -203,6 +210,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
       })),
       total: features.length,
       lastProcessedTimestamp: checkpoint?.lastProcessedTimestamp || null,
+      processing: isProcessing,
     });
   } catch (error: any) {
     console.error("Error listing features:", error);
