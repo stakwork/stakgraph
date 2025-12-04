@@ -133,7 +133,7 @@ MATCH (n:Mock) RETURN n
 
 export const LINK_MOCK_TO_FILE_QUERY = `
 MATCH (m:Mock {ref_id: $mock_ref_id})
-MATCH (f:File {file: $file_path})
+MATCH (f:File) WHERE f.file ENDS WITH $file_path
 MERGE (m)-[r:MOCKS]->(f)
 ON CREATE SET r.ref_id = randomUUID()
 RETURN r

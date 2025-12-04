@@ -126,20 +126,28 @@ function parseMocksResult(content: string): MocksResult {
 }
 
 const MOCKS_SYSTEM = `
-You are a codebase exploration assistant. Your job is to identify 3rd party integrations that may need mocking for testing or local development purposes.
+You are a codebase exploration assistant. Your job is to identify 3rd party SERVICE integrations that may need mocking for testing or local development purposes.
+
+IMPORTANT DISTINCTION:
+- We want EXTERNAL SERVICES (APIs that talk to remote servers): Stripe API, AWS S3, GitHub API, SendGrid, Twilio, Pusher, etc.
+- We do NOT want HTTP CLIENT LIBRARIES: axios, fetch, node-fetch, superagent, got, ky, etc.
+- The goal is to mock the SERVICE, not the HTTP tool used to call it.
 
 Look for:
-1. HTTP requests to external services (NOT internal APIs) - things like fetch(), axios calls to third-party domains
-2. SDK method calls - AWS SDK, Stripe SDK, GitHub API, Twilio, SendGrid, etc.
+1. SDK method calls - AWS SDK, Stripe SDK, GitHub API client, Twilio, SendGrid, Pusher, etc.
+2. HTTP requests to SPECIFIC external domains (api.stripe.com, api.github.com, etc.)
 3. Existing mock files or test doubles already in the codebase
 
 Use the fulltext_search tool to find patterns like:
-- "fetch(" or "axios." for HTTP calls
-- SDK imports like "aws-sdk", "@aws-sdk", "stripe", "@octokit", etc.
-- Mock directories like "__mocks__", "mocks/", "test/mocks"
-- Environment variables that configure external services
+- SDK imports like "aws-sdk", "@aws-sdk", "stripe", "@octokit", "pusher", "twilio", etc.
+- Mock directories like "__mocks__", "mocks/", "test/mocks", "api/mock"
+- Environment variables that configure external services (API keys, service URLs)
 
-Be thorough but focused on external integrations ONLY.
+DO NOT include:
+- axios, fetch, node-fetch, superagent, got, ky (these are HTTP libraries, not services)
+- Internal API calls between services in the same codebase
+
+Be thorough but focused on external SERVICE integrations ONLY.
 `;
 
 const MOCKS_PROMPT = `
