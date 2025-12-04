@@ -116,6 +116,29 @@ export const GET_PULL_REQUEST_QUERY = `
 MATCH (n:PullRequest {node_key: $node_key}) RETURN n
 `;
 
+export const CREATE_MOCK_QUERY = `
+MERGE (n:Mock:${Data_Bank} {node_key: $node_key})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts
+SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.description = $description
+RETURN n
+`;
+
+export const GET_MOCK_QUERY = `
+MATCH (n:Mock {node_key: $node_key}) RETURN n
+`;
+
+export const GET_ALL_MOCKS_QUERY = `
+MATCH (n:Mock) RETURN n
+`;
+
+export const LINK_MOCK_TO_FILE_QUERY = `
+MATCH (m:Mock {ref_id: $mock_ref_id})
+MATCH (f:File {file: $file_path})
+MERGE (m)-[r:MOCKS]->(f)
+ON CREATE SET r.ref_id = randomUUID()
+RETURN r
+`;
+
 export const DELETE_NODE_BY_REF_ID_QUERY = `
 MATCH (n {ref_id: $ref_id})
 DETACH DELETE n

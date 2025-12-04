@@ -572,6 +572,60 @@ class Db {
     }
   }
 
+  async create_mock(
+    name: string,
+    description: string,
+    files: string[]
+  ) {
+    const session = this.driver.session();
+    const node_key = create_node_key({
+      node_type: "Mock",
+      node_data: {
+        name,
+        file: files[0] || "mock://generated",
+        start: 0,
+      },
+    } as Node);
+    try {
+      await session.run(Q.CREATE_MOCK_QUERY, {
+        node_key,
+        name,
+        file: files[0] || "mock://generated",
+        body: JSON.stringify(files),
+        description,
+        ts: Date.now() / 1000,
+      });
+      const r = await session.run(Q.GET_MOCK_QUERY, { node_key });
+      const record = r.records[0];
+      const n = record.get("n");
+      return { ref_id: n.properties.ref_id, node_key };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async link_mock_to_file(mock_ref_id: string, file_path: string) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.LINK_MOCK_TO_FILE_QUERY, {
+        mock_ref_id,
+        file_path,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_all_mocks(): Promise<Neo4jNode[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_ALL_MOCKS_QUERY);
+      return result.records.map((record) => clean_node(record.get("n")));
+    } finally {
+      await session.close();
+    }
+  }
+
   async get_node_with_related(ref_id: string) {
     const session = this.driver.session();
     try {

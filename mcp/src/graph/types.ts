@@ -65,7 +65,8 @@ export type NodeType =
   | "Issues"
   | "Episode"
   | "Topic"
-  | "Feature";
+  | "Feature"
+  | "Mock";
 
 export type EdgeType =
   | "CALLS"
@@ -81,7 +82,8 @@ export type EdgeType =
   | "HAS_COMMITS"
   | "HAS_AGE"
   | "HAS_ISSUES"
-  | "METADATA_FOR";
+  | "METADATA_FOR"
+  | "MOCKS";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
@@ -177,6 +179,7 @@ export function all_node_types(): NodeType[] {
     "Episode",
     "Topic",
     "Feature",
+    "Mock",
   ];
 }
 
@@ -196,6 +199,7 @@ export function all_edge_types(): EdgeType[] {
     "HAS_AGE",
     "HAS_ISSUES",
     "METADATA_FOR",
+    "MOCKS",
   ];
 }
 
@@ -246,13 +250,14 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "The star count metric for a GitHub repository, indicating popularity and community interest.",
     Commits:
       "The total commit count metric for a repository, representing development activity over time.",
-    Age:
-      "The age metric of a repository in years, calculated from creation date to present.",
+    Age: "The age metric of a repository in years, calculated from creation date to present.",
     Issues:
       "The total issue count metric for a repository, representing reported problems and feature requests.",
     Episode: "A call recording or meeting between stakeholders.",
     Topic: "A subject or theme discussed in calls and messages.",
-    Feature: "A specific capability or functionality within the application or codebase.",
+    Feature:
+      "A specific capability or functionality within the application or codebase.",
+    Mock: "A 3rd party integration mock representing external HTTP services or SDK methods that need to be mocked for testing or development.",
   };
 }
 
