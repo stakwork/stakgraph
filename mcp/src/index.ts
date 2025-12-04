@@ -92,6 +92,7 @@ app.post("/hint_siblings", r.generate_siblings);
 app.post("/seed_stories", r.seed_stories);
 app.get("/services_agent", rr.services_agent);
 app.get("/mocks", rr.mocks_agent);
+app.get("/mocks/inventory", r.mocks_inventory);
 app.get("/agent", busyMiddleware, r.gitsee_agent);
 app.post("/gitsee", r.gitsee);
 app.get("/progress", r.get_script_progress);

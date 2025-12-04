@@ -575,7 +575,8 @@ class Db {
   async create_mock(
     name: string,
     description: string,
-    files: string[]
+    files: string[],
+    mocked: boolean
   ) {
     const session = this.driver.session();
     const node_key = create_node_key({
@@ -593,6 +594,7 @@ class Db {
         file: files[0] || "mock://generated",
         body: JSON.stringify(files),
         description,
+        mocked,
         ts: Date.now() / 1000,
       });
       const r = await session.run(Q.GET_MOCK_QUERY, { node_key });
@@ -621,6 +623,33 @@ class Db {
     try {
       const result = await session.run(Q.GET_ALL_MOCKS_QUERY);
       return result.records.map((record) => clean_node(record.get("n")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_mocks_inventory(): Promise<{
+    name: string;
+    ref_id: string;
+    description: string;
+    linked_files: string[];
+    file_count: number;
+    mocked: boolean;
+  }[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_MOCKS_INVENTORY_QUERY);
+      return result.records.map((record) => {
+        const linked_files: string[] = record.get("linked_files") || [];
+        return {
+          name: record.get("name") || "",
+          ref_id: record.get("ref_id") || "",
+          description: record.get("description") || "",
+          linked_files,
+          file_count: record.get("file_count")?.toNumber?.() || record.get("file_count") || 0,
+          mocked: record.get("mocked") ?? false,
+        };
+      });
     } finally {
       await session.close();
     }

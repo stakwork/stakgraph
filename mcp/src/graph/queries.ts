@@ -119,7 +119,7 @@ MATCH (n:PullRequest {node_key: $node_key}) RETURN n
 export const CREATE_MOCK_QUERY = `
 MERGE (n:Mock:${Data_Bank} {node_key: $node_key})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts
-SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.description = $description
+SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.description = $description, n.mocked = $mocked
 RETURN n
 `;
 
@@ -137,6 +137,15 @@ MATCH (f:File) WHERE f.file ENDS WITH $file_path
 MERGE (m)-[r:MOCKS]->(f)
 ON CREATE SET r.ref_id = randomUUID()
 RETURN r
+`;
+
+export const GET_MOCKS_INVENTORY_QUERY = `
+MATCH (m:Mock)
+OPTIONAL MATCH (m)-[:MOCKS]->(f:File)
+WITH m, collect(f.file) as linked_files
+RETURN m.name as name, m.ref_id as ref_id, m.description as description,
+       m.mocked as mocked, linked_files, size(linked_files) as file_count
+ORDER BY file_count DESC
 `;
 
 export const DELETE_NODE_BY_REF_ID_QUERY = `

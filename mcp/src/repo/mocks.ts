@@ -9,6 +9,7 @@ export interface MockInfo {
   name: string;
   files: string[];
   description: string;
+  mocked: boolean;
 }
 
 export interface MocksResult {
@@ -82,7 +83,8 @@ async function persistMocksToGraph(mocksResult: MocksResult) {
       const { ref_id } = await db.create_mock(
         mock.name,
         mock.description,
-        mock.files
+        mock.files,
+        mock.mocked
       );
       for (const filePath of mock.files) {
         await db.link_mock_to_file(ref_id, filePath);
@@ -126,7 +128,7 @@ function parseMocksResult(content: string): MocksResult {
 }
 
 const MOCKS_SYSTEM = `
-You are a codebase exploration assistant. Your job is to identify 3rd party SERVICE integrations that may need mocking for testing or local development purposes.
+You are a codebase exploration assistant. Your job is to identify 3rd party SERVICE integrations and determine if they already have mock implementations.
 
 IMPORTANT DISTINCTION:
 - We want EXTERNAL SERVICES (APIs that talk to remote servers): Stripe API, AWS S3, GitHub API, SendGrid, Twilio, Pusher, etc.
@@ -137,6 +139,11 @@ Look for:
 1. SDK method calls - AWS SDK, Stripe SDK, GitHub API client, Twilio, SendGrid, Pusher, etc.
 2. HTTP requests to SPECIFIC external domains (api.stripe.com, api.github.com, etc.)
 3. Existing mock files or test doubles already in the codebase
+
+For EACH service you find, determine if it has an existing mock by checking:
+- Mock files in __mocks__/, mocks/, test/mocks, api/mock directories
+- Jest mocks, test doubles, or stub implementations
+- Fake/mock classes or functions in test files
 
 Use the fulltext_search tool to find patterns like:
 - SDK imports like "aws-sdk", "@aws-sdk", "stripe", "@octokit", "pusher", "twilio", etc.
@@ -170,17 +177,20 @@ Return a JSON object with the following structure. Output ONLY the JSON in a cod
     {
       "name": "github",
       "files": ["src/lib/github.ts", "api/mock/github/route.ts"],
-      "description": "GitHub API integration for repository operations"
+      "description": "GitHub API integration for repository operations",
+      "mocked": true
     },
     {
       "name": "stripe",
       "files": ["src/payments/stripe.ts"],
-      "description": "Stripe payment processing"
+      "description": "Stripe payment processing",
+      "mocked": false
     },
     {
       "name": "sendgrid",
       "files": ["src/email/sender.ts"],
-      "description": "SendGrid email service via HTTP API"
+      "description": "SendGrid email service via HTTP API",
+      "mocked": false
     }
   ]
 }
@@ -190,5 +200,6 @@ Rules:
 - "config" should list files that contain configuration for external services (env vars, API keys, etc.)
 - "files" should include both the integration file AND any existing mock files if found
 - "description" should briefly explain what the integration does
+- "mocked" should be true if you found an existing mock/stub/fake implementation, false otherwise
 - Only include EXTERNAL integrations, not internal API calls
 `;
