@@ -51,6 +51,7 @@ impl Stack for TypeScript {
                     (named_imports
                         (import_specifier
                             name:(identifier) @{IMPORTS_NAME}
+                            alias: (identifier)? @{IMPORTS_ALIAS}
                         )
                     )?
 
@@ -176,7 +177,7 @@ impl Stack for TypeScript {
         vec![format!(
             r#"(call_expression
                 function: (member_expression
-                    object: (identifier)
+                    object: (identifier) @{ENDPOINT_OBJECT}
                     property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
                 )
                 arguments: (arguments
@@ -186,6 +187,21 @@ impl Stack for TypeScript {
                 ) @{ROUTE}
             "#
         )]
+    }
+
+    fn endpoint_group_find(&self) -> Option<String> {
+        Some(format!(
+            r#"(call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^use$")
+                )
+                arguments: (arguments
+                    (string) @{ENDPOINT}
+                    (identifier) @{ENDPOINT_GROUP}
+                )
+            ) @{ROUTE}"#
+        ))
     }
 
     fn handler_method_query(&self) -> Option<String> {

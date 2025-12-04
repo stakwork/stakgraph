@@ -1,4 +1,5 @@
 use super::{neo4j_utils::*, *};
+use super::graph::resolve_router_import_source_async;
 use crate::lang::asg::TestRecord;
 use crate::utils::sync_fn;
 use crate::{lang::Function, lang::Node, Lang};
@@ -1105,47 +1106,56 @@ impl Neo4jGraph {
         eg: Vec<NodeData>,
         lang: &Lang,
     ) -> Result<()> {
-        let mut groups_with_endpoints = Vec::new();
+        if eg.is_empty() {
+            return Ok(());
+        }
+
+        let connection = self.ensure_connected().await?;
+        let mut txn_manager = TransactionManager::new(&connection);
 
         for group in &eg {
-            if let Some(group_function_name) = group.meta.get("group") {
-                let group_functions = self
-                    .find_nodes_by_name_async(NodeType::Function, group_function_name)
-                    .await;
+            if let Some(router_var_name) = group.meta.get("group") {
+                let prefix = &group.name;
+                let group_file = &group.file;
 
-                if let Some(group_function) = group_functions.first() {
-                    let mut all_endpoints = Vec::new();
+                let same_file_query = endpoint_group_same_file_query();
+                let mut same_file_params = BoltMap::new();
+                boltmap_insert_str(&mut same_file_params, "file", group_file);
+                boltmap_insert_str(&mut same_file_params, "prefix", prefix);
+                boltmap_insert_str(&mut same_file_params, "object", router_var_name);
 
-                    for finder_query in lang.lang().endpoint_finders() {
-                        if let Ok(endpoints) = lang.get_query_opt::<Self>(
-                            Some(finder_query),
-                            &group_function.body,
-                            &group_function.file,
-                            NodeType::Endpoint,
-                        ) {
-                            all_endpoints.extend(endpoints);
+                txn_manager.add_query((same_file_query, same_file_params));
+
+                let check_local_query = endpoint_group_check_local_query();
+                let check_query_obj = query(&check_local_query)
+                    .param("file", group_file.clone())
+                    .param("object", router_var_name.clone());
+
+                let is_local = match connection.execute(check_query_obj).await {
+                    Ok(mut result) => {
+                        if let Ok(Some(row)) = result.next().await {
+                            row.get::<bool>("is_local").unwrap_or(false)
+                        } else {
+                            false
                         }
                     }
+                    Err(_) => false,
+                };
 
-                    if !all_endpoints.is_empty() {
-                        groups_with_endpoints.push((group.clone(), all_endpoints));
+                if !is_local {
+                    if let Some(resolved_source) = resolve_router_import_source_async(router_var_name, group_file, lang, self).await {
+                        let cross_file_query = endpoint_group_cross_file_query();
+                        let mut cross_file_params = BoltMap::new();
+                        boltmap_insert_str(&mut cross_file_params, "resolved_source", &resolved_source);
+                        boltmap_insert_str(&mut cross_file_params, "prefix", prefix);
+
+                        txn_manager.add_query((cross_file_query, cross_file_params));
                     }
                 }
             }
         }
 
-        if !groups_with_endpoints.is_empty() {
-            let connection = self.ensure_connected().await?;
-            let mut txn_manager = TransactionManager::new(&connection);
-
-            let queries = process_endpoint_groups_queries(&groups_with_endpoints);
-            for query in queries {
-                txn_manager.add_query(query);
-            }
-
-            txn_manager.execute().await?;
-        }
-
+        txn_manager.execute().await?;
         Ok(())
     }
 

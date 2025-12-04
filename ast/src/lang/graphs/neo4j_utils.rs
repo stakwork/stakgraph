@@ -1720,3 +1720,28 @@ pub fn restore_dynamic_edge_query(
 
     (query, params)
 }
+
+pub fn endpoint_group_same_file_query() -> String {
+    "MATCH (e:Endpoint) 
+     WHERE e.file = $file 
+       AND NOT e.name STARTS WITH $prefix
+       AND NOT e.name CONTAINS '/:' 
+       AND e.object = $object
+     SET e.name = $prefix + e.name
+     RETURN e.name as updated_name".to_string()
+}
+
+pub fn endpoint_group_check_local_query() -> String {
+    "MATCH (e:Endpoint)
+     WHERE e.file = $file AND e.object = $object
+     RETURN count(e) > 0 as is_local".to_string()
+}
+
+pub fn endpoint_group_cross_file_query() -> String {
+    "MATCH (e:Endpoint)
+     WHERE e.file CONTAINS $resolved_source
+       AND NOT e.name STARTS WITH $prefix
+     SET e.name = $prefix + e.name
+     RETURN e.name as updated_name".to_string()
+}
+

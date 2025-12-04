@@ -1,4 +1,4 @@
-use super::{graph::Graph, *};
+use super::{graph::Graph, graph::resolve_router_import_source, *};
 use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
@@ -177,39 +177,63 @@ impl Graph for ArrayGraph {
             self.add_node(node_type, node_data);
         };
     }
-    // NOTE does this need to be per lang on the trait?
     fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
-        // the group "name" needs to be added to the beginning of the names of the endpoints in the group
         for group in eg {
-            // group name (like TribesHandlers)
-            if let Some(g) = group.meta.get("group") {
-                // function (handler) for the group
-                if let Some(gf) = self.find_nodes_by_name(NodeType::Function, &g).first() {
-                    // each individual endpoint in the group code
-                    for q in lang.lang().endpoint_finders() {
-                        let endpoints_in_group = lang.get_query_opt::<Self>(
-                            Some(q),
-                            &gf.body,
-                            &gf.file,
-                            NodeType::Endpoint,
-                        )?;
-                        // find the endpoint in the graph
-                        for end in endpoints_in_group {
-                            if let Some(idx) =
-                                self.find_index_by_name(NodeType::Endpoint, &end.name)
-                            {
-                                let end_node = self.nodes.get_mut(idx).unwrap();
-                                if end_node.node_type == NodeType::Endpoint {
-                                    let new_endpoint =
-                                        format!("{}{}", group.name, end_node.node_data.name);
-                                    end_node.node_data.name = new_endpoint.clone();
-                                    if let Some(ei) =
-                                        self.find_edge_index_by_src(&end.name, &end.file)
-                                    {
-                                        let edge = self.edges.get_mut(ei).unwrap();
-                                        edge.source.node_data.name = new_endpoint;
-                                    } else {
-                                        println!("missing edge for endpoint: {:?}", end);
+            if let Some(router_var_name) = group.meta.get("group") {
+                let prefix = group.name.clone();
+                let group_file = group.file.clone();
+
+                for node in self.nodes.iter_mut() {
+                    if node.node_type == NodeType::Endpoint {
+                        let endpoint_name = node.node_data.name.clone();
+                        let endpoint_file = node.node_data.file.clone();
+
+                        if endpoint_file == group_file
+                            && !endpoint_name.starts_with(&prefix)
+                            && !endpoint_name.contains("/:")
+                            && node.node_data.meta.get("object") == Some(router_var_name)
+                        {
+                            let full_path = format!("{}{}", prefix, endpoint_name);
+                            node.node_data.name = full_path.clone();
+
+                            for edge in self.edges.iter_mut() {
+                                if edge.source.node_type == NodeType::Endpoint
+                                    && edge.source.node_data.name == endpoint_name
+                                    && edge.source.node_data.file == endpoint_file
+                                {
+                                    edge.source.node_data.name = full_path.clone();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let is_defined_locally = self.nodes.iter().any(|node| {
+                    node.node_type == NodeType::Endpoint 
+                        && node.node_data.file == group_file
+                        && node.node_data.meta.get("object") == Some(router_var_name)
+                });
+
+                if !is_defined_locally {
+                    if let Some(resolved_source) = resolve_router_import_source(router_var_name, &group_file, lang, self) {
+                        for node in self.nodes.iter_mut() {
+                            if node.node_type == NodeType::Endpoint {
+                                let endpoint_name = node.node_data.name.clone();
+                                let endpoint_file = node.node_data.file.clone();
+
+                                if endpoint_file.contains(&resolved_source)
+                                    && !endpoint_name.starts_with(&prefix)
+                                {
+                                    let full_path = format!("{}{}", prefix, endpoint_name);
+                                    node.node_data.name = full_path.clone();
+
+                                    for edge in self.edges.iter_mut() {
+                                        if edge.source.node_type == NodeType::Endpoint
+                                            && edge.source.node_data.name == endpoint_name
+                                            && edge.source.node_data.file == endpoint_file
+                                        {
+                                            edge.source.node_data.name = full_path.clone();
+                                        }
                                     }
                                 }
                             }
