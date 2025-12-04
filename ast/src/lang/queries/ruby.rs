@@ -430,6 +430,7 @@ impl Stack for Ruby {
             }
         } else if handler_string.contains("#") {
             // put 'request_center/:id', to: 'request_center#update'
+            // OR root to: 'home#index'
             let arr = handler_string.split("#").collect::<Vec<&str>>();
             if arr.len() != 2 {
                 return Vec::new();
@@ -441,7 +442,12 @@ impl Stack for Ruby {
                 name,
                 format!("{}{}", &controller, &CONTROLLER_FILE_SUFFIX).as_str(),
             ) {
-                inter.push((endpoint, nd));
+                let mut endp_ = endpoint.clone();
+                // Add verb for root routes (they typically respond to GET)
+                if controller == "home" && params.parents.is_empty() && endp_.meta.get("verb").is_none() {
+                    endp_.add_verb("GET");
+                }
+                inter.push((endp_, nd));
                 explicit_path = true;
             }
         } else {
@@ -475,12 +481,19 @@ impl Stack for Ruby {
                 }
                 None => ror_actions,
             };
-            // resources :request_center
+            // resources :request_center OR resource :dashboard (singular)
+            // For singular resources, Rails conventions use plural controller names
+            let controller_name = if endpoint.meta.get("is_singular").is_some() {
+                inflection::pluralize(&handler_string)
+            } else {
+                handler_string.clone()
+            };
             let controllers =
-                find_fns_in(format!("{}{}", &handler_string, CONTROLLER_FILE_SUFFIX).as_str());
+                find_fns_in(format!("{}{}", &controller_name, CONTROLLER_FILE_SUFFIX).as_str());
             debug!(
-                "ror endpoint controllers for {}: {:?}",
+                "ror endpoint controllers for {} (controller: {}): {:?}",
                 handler_string,
+                controller_name,
                 controllers.len()
             );
             for nd in controllers {
@@ -501,10 +514,11 @@ impl Stack for Ruby {
             .iter()
             .map(|(src, target)| {
                 let mut src = src.clone();
-                if !explicit_path {
-                    if let Some(pathy) = rails_routes::generate_endpoint_path(&src, &params) {
-                        src.name = pathy;
-                    }
+                // Always try to generate path (root route needs this even if explicit_path is true)
+                if let Some(pathy) = rails_routes::generate_endpoint_path(&src, &params) {
+                    src.name = pathy;
+                } else if !explicit_path {
+                    // Fallback: keep original name if path generation fails and not explicit
                 }
                 let edge = Edge::handler(&src, &target);
                 (src.clone(), Some(edge))
@@ -526,24 +540,30 @@ impl Stack for Ruby {
         while parent.is_some() {
             let parent_node = parent.unwrap();
             if parent_node.kind().to_string() == "call" {
-                // Check if this is a namespace or resources call
+                // Check if this is a namespace, scope, or resources call
                 if let Some(method_node) = parent_node.child_by_field_name("method") {
                     if method_node.kind().to_string() == "identifier" {
                         let method_name = method_node.utf8_text(code.as_bytes()).unwrap_or("");
-                        if method_name == "namespace" || method_name == "resources" {
+                        if method_name == "namespace" || method_name == "scope" || method_name == "resources" {
                             // Get the first argument which should be the route name
                             if let Some(args_node) = parent_node.child_by_field_name("arguments") {
                                 if let Some(first_arg) = args_node.named_child(0) {
                                     let route_name =
                                         first_arg.utf8_text(code.as_bytes()).unwrap_or("");
-                                    let item_type = if method_name == "namespace" {
+                                    let item_type = if method_name == "namespace" || method_name == "scope" {
                                         HandlerItemType::Namespace
                                     } else {
                                         HandlerItemType::ResourceMember
                                     };
                                     // Create HandlerItem for this parent route
+                                    // For scope, trim the leading slash if present
+                                    let cleaned_name = if method_name == "scope" {
+                                        trim_quotes(route_name).trim_start_matches('/').to_string()
+                                    } else {
+                                        trim_quotes(route_name).to_string()
+                                    };
                                     parents.push(HandlerItem {
-                                        name: trim_quotes(route_name).to_string(),
+                                        name: cleaned_name,
                                         item_type,
                                     });
                                 }

@@ -1744,4 +1744,3 @@ pub fn endpoint_group_cross_file_query() -> String {
      SET e.name = $prefix + e.name
      RETURN e.name as updated_name".to_string()
 }
-

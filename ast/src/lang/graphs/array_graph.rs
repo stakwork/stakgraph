@@ -1,4 +1,4 @@
-use super::{graph::Graph, graph::resolve_router_import_source, *};
+use super::{graph::Graph, *};
 use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::{Function, FunctionCall, Lang};
@@ -178,70 +178,51 @@ impl Graph for ArrayGraph {
         };
     }
     fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
-        for group in eg {
-            if let Some(router_var_name) = group.meta.get("group") {
-                let prefix = group.name.clone();
-                let group_file = group.file.clone();
 
-                for node in self.nodes.iter_mut() {
-                    if node.node_type == NodeType::Endpoint {
-                        let endpoint_name = node.node_data.name.clone();
-                        let endpoint_file = node.node_data.file.clone();
+        let endpoints: Vec<NodeData> = self
+            .nodes
+            .iter()
+            .filter(|node| node.node_type == NodeType::Endpoint)
+            .map(|node| node.node_data.clone())
+            .collect();
 
-                        if endpoint_file == group_file
-                            && !endpoint_name.starts_with(&prefix)
-                            && !endpoint_name.contains("/:")
-                            && node.node_data.meta.get("object") == Some(router_var_name)
-                        {
-                            let full_path = format!("{}{}", prefix, endpoint_name);
-                            node.node_data.name = full_path.clone();
 
-                            for edge in self.edges.iter_mut() {
-                                if edge.source.node_type == NodeType::Endpoint
-                                    && edge.source.node_data.name == endpoint_name
-                                    && edge.source.node_data.file == endpoint_file
-                                {
-                                    edge.source.node_data.name = full_path.clone();
-                                }
-                            }
-                        }
-                    }
+        let find_import_node = |file: &str| -> Option<NodeData> {
+            self.nodes
+                .iter()
+                .find(|node| node.node_type == NodeType::Import && node.node_data.file == file)
+                .map(|node| node.node_data.clone())
+        };
+
+        let matches = lang.lang().match_endpoint_groups(&eg, &endpoints, &find_import_node);
+
+
+        for (endpoint, prefix) in matches {
+            let endpoint_name = endpoint.name.clone();
+            let endpoint_file = endpoint.file.clone();
+            let full_path = format!("{}{}", prefix, endpoint_name);
+
+            for node in self.nodes.iter_mut() {
+                if node.node_type == NodeType::Endpoint
+                    && node.node_data.name == endpoint_name
+                    && node.node_data.file == endpoint_file
+                {
+                    node.node_data.name = full_path.clone();
+                    break;
                 }
+            }
 
-                let is_defined_locally = self.nodes.iter().any(|node| {
-                    node.node_type == NodeType::Endpoint 
-                        && node.node_data.file == group_file
-                        && node.node_data.meta.get("object") == Some(router_var_name)
-                });
 
-                if !is_defined_locally {
-                    if let Some(resolved_source) = resolve_router_import_source(router_var_name, &group_file, lang, self) {
-                        for node in self.nodes.iter_mut() {
-                            if node.node_type == NodeType::Endpoint {
-                                let endpoint_name = node.node_data.name.clone();
-                                let endpoint_file = node.node_data.file.clone();
-
-                                if endpoint_file.contains(&resolved_source)
-                                    && !endpoint_name.starts_with(&prefix)
-                                {
-                                    let full_path = format!("{}{}", prefix, endpoint_name);
-                                    node.node_data.name = full_path.clone();
-
-                                    for edge in self.edges.iter_mut() {
-                                        if edge.source.node_type == NodeType::Endpoint
-                                            && edge.source.node_data.name == endpoint_name
-                                            && edge.source.node_data.file == endpoint_file
-                                        {
-                                            edge.source.node_data.name = full_path.clone();
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+            for edge in self.edges.iter_mut() {
+                if edge.source.node_type == NodeType::Endpoint
+                    && edge.source.node_data.name == endpoint_name
+                    && edge.source.node_data.file == endpoint_file
+                {
+                    edge.source.node_data.name = full_path.clone();
                 }
             }
         }
+
         Ok(())
     }
     fn class_inherits(&mut self) {

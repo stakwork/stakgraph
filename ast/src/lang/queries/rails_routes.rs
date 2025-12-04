@@ -2,6 +2,18 @@ use super::consts::*;
 use inflection_rs::inflection;
 
 pub fn ruby_endpoint_finders_func() -> Vec<String> {
+    // root to: 'home#index'
+    let root_finder = format!(
+        r#"(call
+            method: (identifier) @root (#eq? @root "root")
+            arguments: (argument_list
+                (pair
+                    key: (hash_key_symbol) @to (#eq? @to "to")
+                    value: (string) @{HANDLER}
+                )
+            )
+        ) @{ROUTE}"#
+    );
     // put 'request_center/:id', to: 'request_center#update'
     let verb_finder = format!(
         r#"(call
@@ -20,6 +32,19 @@ pub fn ruby_endpoint_finders_func() -> Vec<String> {
                     key: (hash_key_symbol) @action (#eq? @action "action")
                     value: (simple_symbol) @{ENDPOINT_ACTION}
                 )?
+            )
+        ) @{ROUTE}"#
+    );
+    // resource :dashboard, only: [:show, :update] (singular)
+    let resource_finder = format!(
+        r#"(call
+            method: (identifier) @resource (#eq? @resource "resource")
+                arguments: (argument_list
+                    (simple_symbol) @{SINGULAR_RESOURCE}
+                (pair
+                    key: (hash_key_symbol) @only (#eq? @only "only")
+                    value: (array) @{HANDLER_ACTIONS_ARRAY}
+                )? 
             )
         ) @{ROUTE}"#
     );
@@ -112,7 +137,9 @@ pub fn ruby_endpoint_finders_func() -> Vec<String> {
         ) @{ROUTE}"#
     );
     vec![
+        root_finder,
         verb_finder,
+        resource_finder,
         resources_finder,
         collection_finder,
         member_finder,
@@ -127,6 +154,35 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
         return None;
     }
     let handler = endpoint.meta.get("handler").unwrap();
+    
+    // Check if this is a root route (handler contains #index or similar but no resource prefix)
+    if handler.contains("#") {
+        let parts: Vec<&str> = handler.split("#").collect();
+        if parts.len() == 2 && parts[0] == "home" && params.parents.is_empty() {
+            return Some("/".to_string());
+        }
+        
+        // For explicit routes with to: (e.g., get 'status', to: 'health#status')
+        // Use the endpoint.name (the route path) not the handler controller name
+        if !endpoint.name.is_empty() && endpoint.name != *handler {
+            // This is an explicit route - use endpoint.name as the resource
+            let mut path_parts = Vec::new();
+            
+            // Add parent namespaces/scopes
+            for parent in &params.parents {
+                match parent.item_type {
+                    HandlerItemType::Namespace => {
+                        path_parts.push(parent.name.clone());
+                    }
+                    _ => (),
+                }
+            }
+            
+            path_parts.push(endpoint.name.clone());
+            return Some(format!("/{}", path_parts.join("/")));
+        }
+    }
+    
     let mut path_parts = Vec::new();
 
     // Get the base resource name from handler
@@ -135,6 +191,9 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
     } else {
         handler.to_string()
     };
+    
+    // Check if this is a singular resource (no :id in paths)
+    let is_singular = endpoint.meta.get("is_singular").is_some();
 
     // For collection/member routes, exclude the last parent if it matches our resource
     let parents_to_use = if let Some(item) = &params.item {
@@ -201,13 +260,27 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
             "index" => (), // just the base resource path
             "new" => path_parts.push("new".to_string()),
             "create" => (), // just the base resource path
-            "show" => path_parts.push(":id".to_string()),
+            "show" => {
+                if !is_singular {
+                    path_parts.push(":id".to_string());
+                }
+            }
             "edit" => {
-                path_parts.push(":id".to_string());
+                if !is_singular {
+                    path_parts.push(":id".to_string());
+                }
                 path_parts.push("edit".to_string());
             }
-            "update" => path_parts.push(":id".to_string()),
-            "destroy" => path_parts.push(":id".to_string()),
+            "update" => {
+                if !is_singular {
+                    path_parts.push(":id".to_string());
+                }
+            }
+            "destroy" => {
+                if !is_singular {
+                    path_parts.push(":id".to_string());
+                }
+            }
             _ => (),
         },
         None => {
@@ -215,14 +288,18 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
                 match verb.as_str() {
                     "GET" => {
                         if endpoint.name == "show" || endpoint.name == "edit" {
-                            path_parts.push(":id".to_string());
+                            if !is_singular {
+                                path_parts.push(":id".to_string());
+                            }
                             if endpoint.name == "edit" {
                                 path_parts.push("edit".to_string());
                             }
                         }
                     }
                     "PUT" | "PATCH" | "DELETE" => {
-                        path_parts.push(":id".to_string());
+                        if !is_singular {
+                            path_parts.push(":id".to_string());
+                        }
                     }
                     _ => (),
                 }
