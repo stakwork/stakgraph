@@ -9,22 +9,12 @@ function getTimestamp(): string {
 }
 
 interface GitSeeRepository {
-  id: number;
+  id: string;
   name?: string;
-  full_name?: string;
-  owner?: {
-    login: string;
-    id: number;
-    avatar_url: string;
-  };
-  description?: string;
+  html_url?: string;
   stargazers_count?: number;
   forks_count?: number;
-  language?: string;
-  created_at?: string;
-  updated_at?: string;
-  clone_url?: string;
-  html_url?: string;
+  icon?: string;
 }
 
 interface GitSeeContributor {
@@ -37,26 +27,19 @@ interface GitSeeContributor {
   type?: string;
 }
 
-interface GitSeeRepoStats {
-  stars: number;
-  totalIssues: number;
-  totalCommits: number;
-  ageInYears: number;
-}
-
 export function prepareGitHubRepoNode(repo: GitSeeRepository): {
   node_type: NodeType;
   node_data: NodeData;
 } {
-  const fullName = repo.full_name || "unknown/unknown";
-  const ownerName = repo.owner?.login || fullName.split("/")[0] || "unknown";
+  console.log("===> prepareGitHubRepoNode", JSON.stringify(repo, null, 2));
+  const fullName = repo.name || "unknown/unknown";
 
   return {
     node_type: "GitHubRepo",
     node_data: {
       name: fullName,
-      file: repo.html_url || "",
-      body: repo.description || "",
+      file: repo.name || "",
+      body: repo.html_url || "",
       start: 0,
       end: 0,
       ref_id: uuidv4(),
@@ -65,13 +48,9 @@ export function prepareGitHubRepoNode(repo: GitSeeRepository): {
       last_synced: new Date().toISOString(),
       sync_source: "gitsee",
       github_id: repo.id,
-      owner: ownerName,
       stars: repo.stargazers_count || 0,
       forks: repo.forks_count || 0,
-      language: repo.language || "Unknown",
-      created_at: repo.created_at || "",
-      updated_at: repo.updated_at || "",
-      clone_url: repo.clone_url || "",
+      icon: repo.icon,
     },
   };
 }

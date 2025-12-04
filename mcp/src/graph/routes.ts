@@ -651,8 +651,20 @@ const gitSeeHandler = new GitSeeHandler({
   token: process.env.GITHUB_TOKEN,
 });
 
-// rm -rf node_modules/gitsee && yarn add file:../../../evanf/gitsee
+/*
+curl -X POST -H "Content-Type: application/json" -d '{"owner": "stakwork", "repo": "hive", "data": ["contributors", "icon", "repo_info", "stats"]}' "http://localhost:3355/gitsee"
 
+interface GitSeeRequest {
+  owner: string;
+  repo: string;
+  data: ("contributors" | "icon" | "repo_info" | "commits" | "branches" | "files" | "stats" | "file_content" | "exploration")[];
+  filePath?: string;
+  explorationMode?: "features" | "first_pass";
+  explorationPrompt?: string;
+  cloneOptions?: CloneOptions;
+  useCache?: boolean;
+}
+*/
 export async function gitsee(req: Request, res: Response) {
   console.log("===> gitsee API request", req.url, req.method);
   if (req.method !== "POST") {
@@ -675,14 +687,15 @@ export async function gitsee(req: Request, res: Response) {
       if (chunk) {
         try {
           responseData = typeof chunk === "string" ? JSON.parse(chunk) : chunk;
+          console.log(
+            "===> responseData",
+            JSON.stringify(responseData, null, 2)
+          );
           if (
             responseData.repo ||
             responseData.contributors ||
             responseData.stats
           ) {
-            if (!responseData.owner && req.body?.owner) {
-              responseData.owner = req.body.owner;
-            }
             ingestGitSeeData(responseData)
               .catch((err) => console.error("Background ingestion error:", err))
               .finally(() => {
@@ -705,6 +718,7 @@ export async function gitsee(req: Request, res: Response) {
       return originalEnd(chunk);
     };
 
+    req.body.useCache = false;
     await gitSeeHandler.handleJson(req.body, res);
   } catch (error) {
     console.error("gitsee API error:", error);
@@ -717,38 +731,26 @@ export async function gitsee(req: Request, res: Response) {
   }
 }
 
+// curl -X POST -H "Content-Type: application/json" -d '' "http://localhost:3355/gitsee"
 async function ingestGitSeeData(data: any): Promise<void> {
+  // console.log("===> ingestGitSeeData", JSON.stringify(data, null, 2));
   try {
     let repoRefId: string | undefined;
 
-    const repoData =
-      data.exploration?.basic_info?.repository ||
-      data.repo_info ||
-      data.repository;
-
-    if (repoData && typeof repoData === "object") {
-      const repoNode = prepareGitHubRepoNode(repoData);
+    console.log("===> data.repo", JSON.stringify(data.repo, null, 2));
+    if (data.repo) {
+      const fullName = data.repo.full_name;
+      const minimalRepo = {
+        id: fullName,
+        name: fullName,
+        html_url: data.repo.html_url,
+        stargazers_count: data.stats?.stars || 0,
+        forks_count: 0,
+        icon: data.icon,
+      };
+      const repoNode = prepareGitHubRepoNode(minimalRepo);
       repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
-      console.log(
-        `✓ Added GitHubRepo: ${
-          repoData.full_name || repoData.name || "unknown"
-        }`
-      );
-    } else {
-      if (data.repo && data.owner) {
-        const fullName = `${data.owner}/${data.repo}`;
-        const minimalRepo = {
-          id: Date.now(),
-          full_name: fullName,
-          name: data.repo,
-          html_url: `https://github.com/${fullName}`,
-          stargazers_count: data.stats?.stars || 0,
-          forks_count: 0,
-        };
-        const repoNode = prepareGitHubRepoNode(minimalRepo);
-        repoRefId = await db.add_node(repoNode.node_type, repoNode.node_data);
-        console.log(`✓ Added GitHubRepo: ${fullName}`);
-      }
+      console.log(`✓ Added GitHubRepo: ${fullName}`);
     }
 
     if (data.contributors && repoRefId) {
@@ -766,10 +768,7 @@ async function ingestGitSeeData(data: any): Promise<void> {
 
     if (data.stats && repoRefId) {
       // Get repo full name from the actual repo data
-      const repoFullName =
-        repoData?.full_name ||
-        repoData?.name ||
-        `${data.owner || "unknown"}/${data.repo || "unknown"}`;
+      const repoFullName = data.repo.full_name;
 
       // Create Stars node
       const starsNode = prepareStarsNode(data.stats.stars, repoFullName);
