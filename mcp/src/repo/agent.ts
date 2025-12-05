@@ -21,7 +21,7 @@ import { LanguageModel } from "ai";
 
 const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
-CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line.
+CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
 
 Example format:
 Your complete answer here with all details, explanations, and code examples if needed.
@@ -42,7 +42,7 @@ Call ask_clarifying_questions when:
  - You can provide a better answer by first gathering more information from the user
  - Your technical exploration has revealed multiple possible approaches, and you want the user's input on which to choose
 
-Otherwise, provide your answer directly followed by [END_OF_ANSWER].`;
+Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`;
 
 async function structureFinalAnswer(
   finalPrompt: string | ModelMessage[],

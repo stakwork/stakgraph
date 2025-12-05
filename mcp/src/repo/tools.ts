@@ -42,7 +42,7 @@ Example usage:
 final_answer({ 
   "answer": "Based on my exploration of the codebase, here's how authentication works:\n\n1. Users authenticate via...\n2. The auth flow is handled by...\n3. Key files include..."
 })`,
-  ask_clarifying_questions: `Ask clarifying questions to the user, if you need more clarification from the user about specific design or implementation choices. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION. The output is a list of 1 - 4 questions, in the following JSON format: [{"question": "question", "type": "multiple_choice", "options": ["option1", "option2"]}] OR [{"question": "question", "type": "text"}]`,
+  ask_clarifying_questions: `Ask clarifying questions to the user, if you need more clarification from the user about specific design or implementation choices. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION. The output is a list of 1 - 4 questions. They can either be single_choice (the user picks one options from a list) or multiple_choice (the user picks one or more options from a list). Return them in the following JSON format: [{"question": "question", "type": "multiple_choice", "options": ["option1", "option2"]}] OR [{"question": "question", "type": "single_choice", "options": ["option1", "option2"]}]`,
 };
 
 export function get_tools(
@@ -210,12 +210,14 @@ export function get_tools(
               z.object({
                 question: z.string().describe("The question to ask the user"),
                 type: z
-                  .enum(["text", "multiple_choice"])
+                  .enum(["single_choice", "multiple_choice"])
                   .describe("The type of question"),
                 options: z
                   .array(z.string())
                   .optional()
-                  .describe("Available options for multiple_choice questions"),
+                  .describe(
+                    "Available options for single_choice or multiple_choice questions"
+                  ),
               })
             )
             .describe("The questions to ask the user (MAXIMUM 4 QUESTIONS)"),
