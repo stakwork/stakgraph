@@ -408,7 +408,10 @@ export async function create_pull_request(req: Request, res: Response) {
 }
 
 export async function create_learning(req: Request, res: Response) {
-  const { question, answer, context, featureIds } = req.body;
+  const { question, answer, context, featureIds, conceptIds } = req.body;
+
+  // Accept either featureIds or conceptIds (used interchangeably on frontend)
+  const ids = conceptIds || featureIds;
 
   // Validate required fields
   if (!question || !answer) {
@@ -418,10 +421,10 @@ export async function create_learning(req: Request, res: Response) {
     return;
   }
 
-  // Validate either/or requirement: featureIds OR context
-  if (featureIds === undefined && !context) {
+  // Validate either/or requirement: featureIds/conceptIds OR context
+  if (ids === undefined && !context) {
     res.status(400).json({
-      error: "Either featureIds or context must be provided",
+      error: "Either featureIds/conceptIds or context must be provided",
     });
     return;
   }
@@ -439,12 +442,12 @@ export async function create_learning(req: Request, res: Response) {
       context
     );
 
-    // Create ABOUT edges to Feature nodes if featureIds provided
+    // Create ABOUT edges to Feature nodes if ids provided
     let linkedFeatures: string[] = [];
-    if (featureIds && Array.isArray(featureIds) && featureIds.length > 0) {
+    if (ids && Array.isArray(ids) && ids.length > 0) {
       const edgeResult = await db.create_learning_about_edges(
         result.ref_id,
-        featureIds
+        ids
       );
       linkedFeatures = edgeResult.linked_features;
     }
