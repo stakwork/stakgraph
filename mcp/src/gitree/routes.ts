@@ -6,7 +6,13 @@ import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { Octokit } from "@octokit/rest";
-import { getApiKeyForProvider } from "../aieo/src/provider.js";
+import {
+  getApiKeyForProvider,
+  getModel,
+  Provider,
+} from "../aieo/src/provider.js";
+import { generateObject, jsonSchema } from "ai";
+import { formatFeatureWithDetails } from "./utils.js";
 import {
   toReturnNode,
   parseNodeTypes,
@@ -236,36 +242,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
       return;
     }
 
-    const prs = await storage.getPRsForFeature(featureId);
-    const commits = await storage.getCommitsForFeature(featureId);
-
-    const response: any = {
-      feature: {
-        id: feature.id,
-        name: feature.name,
-        description: feature.description,
-        prNumbers: feature.prNumbers,
-        commitShas: feature.commitShas || [],
-        createdAt: feature.createdAt.toISOString(),
-        lastUpdated: feature.lastUpdated.toISOString(),
-        documentation: feature.documentation,
-      },
-      prs: prs.map((pr) => ({
-        number: pr.number,
-        title: pr.title,
-        summary: pr.summary,
-        mergedAt: pr.mergedAt.toISOString(),
-        url: pr.url,
-      })),
-      commits: commits.map((commit) => ({
-        sha: commit.sha,
-        message: commit.message.split("\n")[0],
-        summary: commit.summary,
-        author: commit.author,
-        committedAt: commit.committedAt.toISOString(),
-        url: commit.url,
-      })),
-    };
+    const response: any = await formatFeatureWithDetails(feature, storage);
 
     // Include files if requested
     if (include === "files") {
@@ -743,6 +720,97 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     console.error("Error getting all features graph:", error);
     res.status(500).json({
       error: error.message || "Failed to get all features graph",
+    });
+  }
+}
+
+/**
+ * Get relevant features for a given prompt using AI
+ * POST /gitree/relevant-features
+ * Body: { prompt: "user's question or description" }
+ */
+export async function gitree_relevant_features(req: Request, res: Response) {
+  try {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      res.status(400).json({ error: "Missing prompt in request body" });
+      return;
+    }
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Get all features without documentation for the initial AI call
+    const allFeatures = await storage.getAllFeatures();
+    const featuresWithoutDocs = allFeatures.map((f) => ({
+      id: f.id,
+      name: f.name,
+      description: f.description,
+      prCount: f.prNumbers.length,
+      commitCount: (f.commitShas || []).length,
+    }));
+
+    // Use AI to determine relevant features
+    const provider = process.env.LLM_PROVIDER || "anthropic";
+    const apiKey = getApiKeyForProvider(provider);
+    const model = await getModel(provider as Provider, apiKey as string);
+
+    const aiPrompt = `<prompt>${prompt}</prompt>
+<features>${JSON.stringify(featuresWithoutDocs, null, 2)}</features>
+
+Please analyze the user's prompt and the list of available features. Return an array of feature IDs that are relevant to the user's prompt. Only include features that are directly related to what the user is asking about.`;
+
+    const schema = {
+      type: "object" as const,
+      properties: {
+        relevantFeatureIds: {
+          type: "array" as const,
+          items: { type: "string" as const },
+          description:
+            "Array of feature IDs that are relevant to the user's prompt",
+        },
+      },
+      required: ["relevantFeatureIds"],
+      additionalProperties: false,
+    };
+
+    const result = await generateObject({
+      model,
+      prompt: aiPrompt,
+      schema: jsonSchema(schema),
+    });
+
+    const relevantFeatureIds = (result.object as any).relevantFeatureIds || [];
+
+    // Fetch full features WITH documentation
+    const relevantFeatures = await Promise.all(
+      relevantFeatureIds.map(async (featureId: string) => {
+        const feature = await storage.getFeature(featureId);
+        if (!feature) return null;
+        return formatFeatureWithDetails(feature, storage);
+      })
+    );
+
+    // Filter out any null values (features that weren't found)
+    const validFeatures = relevantFeatures.filter((f) => f !== null);
+
+    // Concatenate all documentation fields
+    const concatenatedDocumentation = validFeatures
+      .map((f) => f.feature.documentation)
+      .filter((doc) => doc) // Filter out undefined/empty docs
+      .join("\n\n---\n\n");
+
+    res.json({
+      features: validFeatures,
+      total: validFeatures.length,
+      prompt,
+      documentation: concatenatedDocumentation,
+    });
+  } catch (error: any) {
+    console.error("Error getting relevant features:", error);
+    res.status(500).json({
+      error: error.message || "Failed to get relevant features",
     });
   }
 }
