@@ -371,7 +371,7 @@ pub async fn ingest(
         }
     }
 
-    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref()).await;
+    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), false).await;
 
     Ok(Json(ProcessResponse { nodes, edges }))
 }
@@ -726,6 +726,10 @@ pub async fn sync_async(
                     }),
                 };
                 map.insert(request_id_for_work.clone(), entry);
+                
+                // Call mocks discovery in sync mode after process completes
+                call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
+                
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {
                         let payload = WebhookPayload {
@@ -872,7 +876,7 @@ fn env_not_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
-async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<&str>) {
+async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<&str>, sync: bool) {
     // MCP_URL default: http://repo2graph.sphinx:3355 (production swarm)
     // For local dev: http://localhost:3355
     let mcp_url = std::env::var("MCP_URL")
@@ -886,7 +890,10 @@ async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<&str
     if let Some(p) = pat {
         url.push_str(&format!("&pat={}", urlencoding::encode(p)));
     }
-    info!("[mcp_mocks] Calling MCP to discover mocks: {}", url);
+    if sync {
+        url.push_str("&sync=true");
+    }
+    info!("[mcp_mocks] Calling MCP to discover mocks (sync={}): {}", sync, url);
 
     let client = Client::new();
     match client
