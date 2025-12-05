@@ -10,6 +10,6 @@
     "declaration": true,
     "outDir": "./dist"
   },
-  "include": ["./**/*.ts", "test-contributor.ts", "../github/test-commits.ts"],
+  "include": ["./**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -101,6 +101,7 @@ app.post("/repo/agent", rr.repo_agent);
 app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/reattach", r.reconnect_orphaned_hints);
 app.post("/pull_request", r.create_pull_request);
+app.post("/learning", r.create_learning);
 
 // Gitree routes
 app.post("/gitree/process", gitree.gitree_process);

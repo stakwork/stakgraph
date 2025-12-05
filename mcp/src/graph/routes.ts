@@ -407,6 +407,63 @@ export async function create_pull_request(req: Request, res: Response) {
   }
 }
 
+export async function create_learning(req: Request, res: Response) {
+  const { question, answer, context, featureIds, conceptIds } = req.body;
+
+  // Accept either featureIds or conceptIds (used interchangeably on frontend)
+  const ids = conceptIds || featureIds;
+
+  // Validate required fields
+  if (!question || !answer) {
+    res.status(400).json({
+      error: "Missing required fields: question and answer are required",
+    });
+    return;
+  }
+
+  // Validate either/or requirement: featureIds/conceptIds OR context
+  if (ids === undefined && !context) {
+    res.status(400).json({
+      error: "Either featureIds/conceptIds or context must be provided",
+    });
+    return;
+  }
+
+  try {
+    // Embed the question only
+    const { vectorizeQuery } = await import("../vector/index.js");
+    const embeddings = await vectorizeQuery(question);
+
+    // Create the Learning node
+    const result = await db.create_learning(
+      question,
+      answer,
+      embeddings,
+      context
+    );
+
+    // Create ABOUT edges to Feature nodes if ids provided
+    let linkedFeatures: string[] = [];
+    if (ids && Array.isArray(ids) && ids.length > 0) {
+      const edgeResult = await db.create_learning_about_edges(
+        result.ref_id,
+        ids
+      );
+      linkedFeatures = edgeResult.linked_features;
+    }
+
+    res.json({
+      success: true,
+      ref_id: result.ref_id,
+      node_key: result.node_key,
+      linked_features: linkedFeatures,
+    });
+  } catch (error) {
+    console.error("Create Learning Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
 export async function seed_stories(req: Request, res: Response) {
   const default_prompt =
     "How does this repository work? Please provide a summary of the codebase, a few key files, and 50 core user stories.";

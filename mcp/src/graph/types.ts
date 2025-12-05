@@ -66,7 +66,8 @@ export type NodeType =
   | "Episode"
   | "Topic"
   | "Feature"
-  | "Mock";
+  | "Mock"
+  | "Learning";
 
 export type EdgeType =
   | "CALLS"
@@ -83,7 +84,10 @@ export type EdgeType =
   | "HAS_AGE"
   | "HAS_ISSUES"
   | "METADATA_FOR"
-  | "MOCKS";
+  | "MOCKS"
+  | "ABOUT"
+  | "TOUCHES"
+  | "MODIFIES";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
@@ -180,6 +184,7 @@ export function all_node_types(): NodeType[] {
     "Topic",
     "Feature",
     "Mock",
+    "Learning",
   ];
 }
 
@@ -258,6 +263,7 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Feature:
       "A specific capability or functionality within the application or codebase.",
     Mock: "A 3rd party integration mock representing external HTTP services or SDK methods that need to be mocked for testing or development.",
+    Learning: "A manually-created question-answer pair capturing knowledge about the codebase, optionally linked to specific features.",
   };
 }
 
