@@ -106,14 +106,17 @@ app.post("/pull_request", r.create_pull_request);
 app.post("/gitree/process", gitree.gitree_process);
 app.get("/gitree/features", gitree.gitree_list_features);
 app.get("/gitree/features/:id", gitree.gitree_get_feature);
+app.delete("/gitree/features/:id", gitree.gitree_delete_feature);
 app.get("/gitree/features/:id/files", gitree.gitree_get_feature_files);
 app.get("/gitree/prs/:number", gitree.gitree_get_pr);
+app.get("/gitree/commits/:sha", gitree.gitree_get_commit);
 app.get("/gitree/stats", gitree.gitree_stats);
 app.get("/gitree/all-features-graph", gitree.gitree_all_features_graph);
 app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);
 app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);
 app.post("/gitree/relevant-features", gitree.gitree_relevant_features);
+app.post("/gitree/create-feature", gitree.gitree_create_feature);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {

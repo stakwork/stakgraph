@@ -3,7 +3,7 @@ import { Storage } from "./store/index.js";
 
 /**
  * Format a feature with its PRs and commits for API response
- * Limits PRs to first + last 20 if there are more than 21
+ * Limits PRs and commits to first + last 20 if there are more than 21
  */
 export async function formatFeatureWithDetails(
   feature: Feature,
@@ -18,6 +18,14 @@ export async function formatFeatureWithDetails(
     const firstPR = prs[0];
     const last20PRs = prs.slice(-20);
     limitedPrs = [firstPR, ...last20PRs];
+  }
+
+  // Limit commits: if > 21, include first commit and last 20 commits
+  let limitedCommits = commits;
+  if (commits.length > 21) {
+    const firstCommit = commits[0];
+    const last20Commits = commits.slice(-20);
+    limitedCommits = [firstCommit, ...last20Commits];
   }
 
   return {
@@ -38,7 +46,7 @@ export async function formatFeatureWithDetails(
       mergedAt: pr.mergedAt.toISOString(),
       url: pr.url,
     })),
-    commits: commits.map((commit) => ({
+    commits: limitedCommits.map((commit) => ({
       sha: commit.sha,
       message: commit.message.split("\n")[0],
       summary: commit.summary,
