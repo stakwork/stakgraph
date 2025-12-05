@@ -371,8 +371,6 @@ pub async fn ingest(
         }
     }
 
-    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref()).await;
-
     Ok(Json(ProcessResponse { nodes, edges }))
 }
 
@@ -870,42 +868,6 @@ pub async fn vector_search_handler(
 
 fn env_not_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
-}
-
-async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<&str>) {
-    // MCP_URL default: http://repo2graph.sphinx:3355 (production swarm)
-    // For local dev: http://localhost:3355
-    let mcp_url = std::env::var("MCP_URL")
-        .unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
-
-    let encoded_url = urlencoding::encode(repo_url);
-    let mut url = format!("{}/mocks?repo_url={}", mcp_url, encoded_url);
-    if let Some(u) = username {
-        url.push_str(&format!("&username={}", urlencoding::encode(u)));
-    }
-    if let Some(p) = pat {
-        url.push_str(&format!("&pat={}", urlencoding::encode(p)));
-    }
-    info!("[mcp_mocks] Calling MCP to discover mocks: {}", url);
-
-    let client = Client::new();
-    match client
-        .get(&url)
-        .timeout(Duration::from_secs(300))
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                info!("[mcp_mocks] MCP mocks call succeeded");
-            } else {
-                info!("[mcp_mocks] MCP mocks call returned status: {}", resp.status());
-            }
-        }
-        Err(e) => {
-            info!("[mcp_mocks] MCP mocks call failed (non-fatal): {}", e);
-        }
-    }
 }
 
 fn resolve_repo(

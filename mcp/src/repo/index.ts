@@ -6,9 +6,8 @@ import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { setBusy } from "../busy.js";
 import { services_agent } from "./services.js";
-import { mocks_agent } from "./mocks.js";
 
-export { services_agent, mocks_agent };
+export { services_agent };
 
 export async function repo_agent(req: Request, res: Response) {
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
