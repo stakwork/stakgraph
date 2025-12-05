@@ -111,6 +111,25 @@ export async function get_services() {
   return generate_services_config(pkgFiles, allFiles, envVarNodes);
 }
 
+export async function get_mocks_inventory(
+  search?: string,
+  limit: number = 50,
+  offset: number = 0
+) {
+  let items = await db.get_mocks_inventory();
+  if (search) {
+    const s = search.toLowerCase();
+    items = items.filter((m) => m.name.toLowerCase().includes(s));
+  }
+  const total_count = items.length;
+  const paginated = items.slice(offset, offset + limit);
+  return {
+    items: paginated,
+    total_count,
+    total_returned: paginated.length,
+  };
+}
+
 export function toNodes(
   result: Neo4jNode[],
   concise: boolean,

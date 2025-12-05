@@ -985,6 +985,20 @@ export async function get_services(req: Request, res: Response) {
   }
 }
 
+export async function mocks_inventory(req: Request, res: Response) {
+  try {
+    const search = req.query.search as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = parseInt(req.query.offset as string) || 0;
+
+    const result = await G.get_mocks_inventory(search, limit, offset);
+    res.json(result);
+  } catch (error) {
+    console.error("Error getting mocks inventory:", error);
+    res.status(500).json({ error: "Failed to get mocks inventory" });
+  }
+}
+
 export function toNode(node: Neo4jNode, concise: boolean): any {
   return concise ? nameFileOnly(node) : toReturnNode(node);
 }
