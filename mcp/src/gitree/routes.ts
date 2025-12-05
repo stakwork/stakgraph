@@ -841,6 +841,8 @@ Please analyze the user's prompt and the list of available features. Return an a
       total: validFeatures.length,
       prompt,
       documentation: concatenatedDocumentation,
+      featureIds: relevantFeatureIds,
+      conceptIds: relevantFeatureIds,
     });
   } catch (error: any) {
     console.error("Error getting relevant features:", error);

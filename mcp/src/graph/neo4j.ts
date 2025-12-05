@@ -906,6 +906,64 @@ class Db {
     }
   }
 
+  async create_learning(
+    question: string,
+    answer: string,
+    embeddings: number[],
+    context?: string
+  ) {
+    const session = this.driver.session();
+    const name = question.slice(0, 80);
+    const node_key = create_node_key({
+      node_type: "Learning",
+      node_data: {
+        name,
+        file: "learning://generated",
+        start: 0,
+      },
+    } as Node);
+    try {
+      await session.run(Q.CREATE_LEARNING_QUERY, {
+        node_key,
+        name,
+        file: "learning://generated",
+        body: answer,
+        question,
+        context: context || null,
+        embeddings,
+        ts: Date.now() / 1000,
+      });
+      const r = await session.run(Q.GET_LEARNING_QUERY, { node_key });
+      const record = r.records[0];
+      const n = record.get("n");
+      return { ref_id: n.properties.ref_id, node_key };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async create_learning_about_edges(
+    learning_ref_id: string,
+    feature_ids: string[]
+  ): Promise<{ linked_features: string[] }> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.CREATE_LEARNING_ABOUT_FEATURES_QUERY, {
+        learning_ref_id,
+        feature_ids,
+      });
+
+      if (result.records.length > 0) {
+        const linkedFeatures = result.records[0].get("linked_features") || [];
+        return { linked_features: linkedFeatures };
+      }
+
+      return { linked_features: [] };
+    } finally {
+      await session.close();
+    }
+  }
+
   async createEdgesDirectly(
     hint_ref_id: string,
     weightedRefIds: { ref_id: string; relevancy: number }[]
