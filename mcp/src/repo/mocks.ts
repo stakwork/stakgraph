@@ -73,10 +73,11 @@ export async function mocks_agent(req: Request, res: Response) {
           MOCKS_SYSTEM,
           schema
         );
-        return result.content;
+        // When schema is provided, result.content is already the structured object
+        return result.content as MocksResult;
       })
-      .then(async (result) => {
-        const mocks = parseMocksResult(result);
+      .then(async (mocks: MocksResult) => {
+        console.log(`[mocks_agent] Parsed result:`, JSON.stringify(mocks, null, 2));
         for (const mock of mocks.mocks) {
           console.log(
             `[mocks_agent] Discovered mock: ${
@@ -161,20 +162,6 @@ EXISTING MOCKS:
 ${JSON.stringify(existingMocks, null, 2)}
 ${syncInstructions}
 `;
-}
-
-function parseMocksResult(content: string): MocksResult {
-  try {
-    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
-    if (jsonMatch) {
-      return JSON.parse(jsonMatch[1]);
-    }
-    const parsed = JSON.parse(content);
-    return parsed;
-  } catch (e) {
-    console.error("[mocks_agent] Failed to parse mocks result:", e);
-    return { config: [], mocks: [] };
-  }
 }
 
 const MOCKS_SYSTEM = `
