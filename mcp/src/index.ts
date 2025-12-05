@@ -112,6 +112,7 @@ app.post("/gitree/summarize/:id", gitree.gitree_summarize_feature);
 app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);
 app.post("/gitree/relevant-features", gitree.gitree_relevant_features);
+app.post("/gitree/create-feature", gitree.gitree_create_feature);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {

@@ -22,6 +22,9 @@ import {
   IS_TEST,
 } from "../graph/utils.js";
 import { NodeType, Neo4jNode } from "../graph/types.js";
+import { get_context } from "../repo/agent.js";
+import { cloneOrUpdateRepo } from "../repo/clone.js";
+import { Feature } from "./types.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -759,7 +762,7 @@ export async function gitree_relevant_features(req: Request, res: Response) {
     const aiPrompt = `<prompt>${prompt}</prompt>
 <features>${JSON.stringify(featuresWithoutDocs, null, 2)}</features>
 
-Please analyze the user's prompt and the list of available features. Return an array of feature IDs that are relevant to the user's prompt. Only include features that are directly related to what the user is asking about.`;
+Please analyze the user's prompt and the list of available features. Return an array of feature IDs that are relevant to the user's prompt. Only include features that are directly related to what the user is asking about. Usually 1 feature id is enough, but you can include up to 3.`;
 
     const schema = {
       type: "object" as const,
@@ -781,7 +784,8 @@ Please analyze the user's prompt and the list of available features. Return an a
       schema: jsonSchema(schema),
     });
 
-    const relevantFeatureIds = (result.object as any).relevantFeatureIds || [];
+    const relevantFeatureIds =
+      (result.object as any).relevantFeatureIds?.slice(0, 3) || [];
 
     // Fetch full features WITH documentation
     const relevantFeatures = await Promise.all(
@@ -812,5 +816,101 @@ Please analyze the user's prompt and the list of available features. Return an a
     res.status(500).json({
       error: error.message || "Failed to get relevant features",
     });
+  }
+}
+
+/**
+ * Create a new feature with documentation from get_context
+ * POST /gitree/create-feature
+ * Body: { prompt: string, name: string, owner: string, repo: string, pat?: string }
+ * GET /progress?request_id=xxx
+ curl -X POST http://localhost:3355/gitree/create-feature \
+    -H "Content-Type: application/json" \
+    -d '{
+      "prompt": "How does authentication work in this repo?",
+      "name": "Authentication System",
+      "owner": "stakwork",
+      "repo": "hive"
+    }'
+ */
+export async function gitree_create_feature(req: Request, res: Response) {
+  console.log("===> gitree_create_feature", req.url, req.method);
+  const request_id = asyncReqs.startReq();
+  try {
+    const { prompt, name, owner, repo, pat } = req.body;
+
+    if (!prompt || !name || !owner || !repo) {
+      asyncReqs.failReq(
+        request_id,
+        new Error("Missing required fields: prompt, name, owner, repo")
+      );
+      res.status(400).json({
+        error: "Missing required fields: prompt, name, owner, repo",
+      });
+      return;
+    }
+
+    // Process in background
+    (async () => {
+      try {
+        // Clone or update the repository
+        const repoDir = await cloneOrUpdateRepo(
+          `https://github.com/${owner}/${repo}`,
+          undefined,
+          pat
+        );
+        console.log(`===> Repository cloned/updated at ${repoDir}`);
+
+        // Call get_context to generate documentation
+        const contextResult = await get_context(prompt, repoDir, pat);
+        const documentation = contextResult.content;
+
+        // Generate feature ID from name (same logic as builder.ts)
+        const featureId = name
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "");
+
+        // Create the feature object
+        const feature: Feature = {
+          id: featureId,
+          name: name,
+          description: prompt,
+          prNumbers: [],
+          commitShas: [],
+          createdAt: new Date(),
+          lastUpdated: new Date(),
+          documentation: documentation,
+        };
+
+        // Save to storage
+        const storage = new GraphStorage();
+        await storage.initialize();
+        await storage.saveFeature(feature);
+        await storage.saveDocumentation(featureId, documentation);
+
+        console.log(`✅ Feature created: ${featureId}`);
+
+        asyncReqs.finishReq(request_id, {
+          status: "success",
+          message: `Created feature ${featureId}`,
+          feature: {
+            id: feature.id,
+            name: feature.name,
+            description: feature.description,
+            documentation: feature.documentation,
+          },
+          usage: contextResult.usage,
+        });
+      } catch (error) {
+        asyncReqs.failReq(request_id, error);
+      }
+    })();
+
+    res.json({ request_id, status: "pending" });
+  } catch (error) {
+    console.log("===> error", error);
+    asyncReqs.failReq(request_id, error);
+    res.status(500).json({ error: "Failed to create feature" });
   }
 }
