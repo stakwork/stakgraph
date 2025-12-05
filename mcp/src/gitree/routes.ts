@@ -261,6 +261,37 @@ export async function gitree_get_feature(req: Request, res: Response) {
 }
 
 /**
+ * Delete a specific feature
+ * DELETE /gitree/features/:id
+ */
+export async function gitree_delete_feature(req: Request, res: Response) {
+  try {
+    const featureId = req.params.id;
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const feature = await storage.getFeature(featureId);
+
+    if (!feature) {
+      res.status(404).json({ error: "Feature not found" });
+      return;
+    }
+
+    await storage.deleteFeature(featureId);
+
+    res.json({
+      status: "success",
+      message: `Feature ${featureId} deleted`,
+    });
+  } catch (error: any) {
+    console.error("Error deleting feature:", error);
+    res
+      .status(500)
+      .json({ error: error.message || "Failed to delete feature" });
+  }
+}
+
+/**
  * Get a specific PR
  * GET /gitree/prs/:number
  */
