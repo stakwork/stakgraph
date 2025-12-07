@@ -2,7 +2,7 @@ import { getApiKeyForProvider, Provider } from "../../aieo/src/provider.js";
 import { callGenerateObject, ModelMessage } from "../../aieo/src/index.js";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
-import { get_context } from "../explore/tool.js";
+import { get_context_explore } from "../explore/tool.js";
 import { vectorizeQuery } from "../../vector/index.js";
 import { create_hint_edges_llm } from "./seed.js";
 import * as G from "../../graph/graph.js";
@@ -77,10 +77,7 @@ export interface Answer {
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }
 
-function cached_answer(
-  question: string,
-  e: Neo4jNode
-): Answer {
+function cached_answer(question: string, e: Neo4jNode): Answer {
   return {
     question,
     answer: e.properties.body,
@@ -98,7 +95,11 @@ export const QUESTION_HIGHLY_RELEVANT_THRESHOLD = 0.94;
 interface FilterByRelevanceFromCacheResult {
   cachedAnswer?: Answer;
   reexplore: boolean;
-  filterUsage?: { inputTokens: number; outputTokens: number; totalTokens: number };
+  filterUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 async function filter_by_relevance_from_cache(
@@ -206,7 +207,7 @@ export async function ask_question(
     reexplore = true;
   }
   console.log(">> NEW question:", question);
-  const ctx = await get_context(q, reexplore, false, provider);
+  const ctx = await get_context_explore(q, reexplore, false, provider);
   const answer = ctx.final;
   const embeddings = await vectorizeQuery(question);
   const created = await db.create_hint(question, answer, embeddings, "PM");

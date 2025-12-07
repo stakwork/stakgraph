@@ -6,7 +6,12 @@ import {
   ToolSet,
   jsonSchema,
 } from "ai";
-import { getModel, getApiKeyForProvider, Provider } from "../aieo/src/index.js";
+import {
+  getModel,
+  getApiKeyForProvider,
+  Provider,
+  ModelName,
+} from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -81,18 +86,27 @@ async function structureFinalAnswer(
   return structured.object;
 }
 
+export interface GetContextOptions {
+  modelName?: ModelName;
+  pat?: string | undefined;
+  toolsConfig?: ToolsConfig;
+  systemOverride?: string;
+  schema?: { [key: string]: any };
+}
+
 export async function get_context(
   prompt: string | ModelMessage[],
   repoPath: string,
-  pat: string | undefined,
-  toolsConfig?: ToolsConfig,
-  systemOverride?: string,
-  schema?: { [key: string]: any }
+  opts: GetContextOptions
 ): Promise<ContextResult> {
+  const { modelName, pat, toolsConfig, systemOverride, schema } = opts;
   const startTime = Date.now();
   const provider = process.env.LLM_PROVIDER || "anthropic";
   const apiKey = getApiKeyForProvider(provider);
-  const model = await getModel(provider as Provider, apiKey as string);
+  const model = await getModel(provider as Provider, {
+    modelName,
+    apiKey,
+  });
   console.log("===> model", model);
 
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);

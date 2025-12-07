@@ -7,6 +7,7 @@ import * as asyncReqs from "../graph/reqs.js";
 import { setBusy } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
+import { ModelName } from "../aieo/src/index.js";
 
 export { services_agent, mocks_agent };
 
@@ -24,6 +25,7 @@ export async function repo_agent(req: Request, res: Response) {
     const prompt = req.body.prompt as any;
     const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
     const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
+    const modelName = req.body.model as ModelName | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
       return;
@@ -35,14 +37,12 @@ export async function repo_agent(req: Request, res: Response) {
     cloneOrUpdateRepo(repoUrl, username, pat, commit)
       .then((repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(
-          prompt,
-          repoDir,
+        return get_context(prompt, repoDir, {
           pat,
           toolsConfig,
-          undefined,
-          schema
-        );
+          schema,
+          modelName,
+        });
       })
       .then((result) => {
         asyncReqs.finishReq(request_id, {

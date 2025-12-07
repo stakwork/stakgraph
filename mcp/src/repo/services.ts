@@ -26,13 +26,10 @@ export async function services_agent(req: Request, res: Response) {
         const prompt =
           "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend." +
           fad;
-        const text_of_files = await get_context(
-          prompt,
-          repoDir,
+        const text_of_files = await get_context(prompt, repoDir, {
           pat,
-          undefined,
-          SERVICES_SYSTEM
-        );
+          systemOverride: SERVICES_SYSTEM,
+        });
         return text_of_files.content;
       })
       .then((result) => {

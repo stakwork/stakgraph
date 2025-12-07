@@ -5,6 +5,7 @@ import {
 } from "@ai-sdk/google";
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { LanguageModel } from "ai";
+import { Logger } from "./logger.js";
 
 export type Provider = "anthropic" | "google" | "openai" | "claude_code";
 
@@ -15,36 +16,38 @@ export const PROVIDERS: Provider[] = [
   "claude_code",
 ];
 
-const SOTA = {
-  anthropic: "claude-sonnet-4-5",
-  google: "gemini-2.5-pro-preview-05-06",
-  openai: "gpt-5",
-  claude_code: "sonnet",
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt";
+
+type ModelId = string;
+
+const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
+  anthropic: {
+    sonnet: "claude-sonnet-4-5",
+    opus: "claude-opus-4-5",
+    haiku: "claude-haiku-4-5",
+  },
+  google: {
+    gemini: "gemini-3-pro-preview",
+  },
+  openai: {
+    gpt: "gpt-5",
+  },
+  claude_code: {
+    sonnet: "sonnet",
+  },
+};
+
+const DEFAULT_MODELS: Record<Provider, string> = {
+  anthropic: MODELS.anthropic.sonnet!,
+  google: MODELS.google.gemini!,
+  openai: MODELS.openai.gpt!,
+  claude_code: MODELS.claude_code.sonnet!,
 };
 
 export interface TokenPricing {
   inputTokenPrice: number;
   outputTokenPrice: number;
 }
-
-const TOKEN_PRICING: Record<Provider, TokenPricing> = {
-  anthropic: {
-    inputTokenPrice: 3.0,
-    outputTokenPrice: 15.0,
-  },
-  google: {
-    inputTokenPrice: 1.25,
-    outputTokenPrice: 5.0,
-  },
-  openai: {
-    inputTokenPrice: 2.5,
-    outputTokenPrice: 10.0,
-  },
-  claude_code: {
-    inputTokenPrice: 3.0,
-    outputTokenPrice: 15.0,
-  },
-};
 
 export function getApiKeyForProvider(provider: Provider | string): string {
   let apiKey: string | undefined;
@@ -68,28 +71,58 @@ export function getApiKeyForProvider(provider: Provider | string): string {
   return apiKey;
 }
 
-export async function getModel(
+export interface GetModelOptions {
+  apiKey?: string;
+  modelName?: ModelName;
+  cwd?: string;
+  executablePath?: string;
+  logger?: Logger;
+}
+
+function getModelForProvider(provider: Provider, modelName: ModelName): string {
+  const model = MODELS[provider][modelName];
+  if (!model) {
+    throw new Error(
+      `Model "${modelName}" is not available for provider "${provider}". ` +
+        `Available models: ${Object.keys(MODELS[provider]).join(", ")}`
+    );
+  }
+  return model;
+}
+
+export function getModel(
   provider: Provider,
-  apiKey: string,
-  cwd?: string,
-  executablePath?: string
-): Promise<LanguageModel> {
+  opts?: string | GetModelOptions
+): LanguageModel {
+  if (typeof opts === "string") {
+    opts = { apiKey: opts };
+  }
+  const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
+  const modelId = opts?.modelName
+    ? getModelForProvider(provider, opts.modelName)
+    : DEFAULT_MODELS[provider];
+
+  if (opts?.logger) {
+    opts.logger.info(
+      `Getting model for provider: ${provider}, model: ${modelId}`
+    );
+  }
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({
         apiKey,
       });
-      return anthropic(SOTA[provider]);
+      return anthropic(modelId);
     case "google":
       const google = createGoogleGenerativeAI({
         apiKey,
       });
-      return google(SOTA[provider]);
+      return google(modelId);
     case "openai":
       const openai = createOpenAI({
         apiKey,
       });
-      return openai(SOTA[provider]);
+      return openai(modelId);
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -115,6 +148,25 @@ export async function getModel(
       throw new Error(`Unsupported provider: ${provider}`);
   }
 }
+
+const TOKEN_PRICING: Record<Provider, TokenPricing> = {
+  anthropic: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+  },
+  google: {
+    inputTokenPrice: 1.25,
+    outputTokenPrice: 5.0,
+  },
+  openai: {
+    inputTokenPrice: 2.5,
+    outputTokenPrice: 10.0,
+  },
+  claude_code: {
+    inputTokenPrice: 3.0,
+    outputTokenPrice: 15.0,
+  },
+};
 
 export function getTokenPricing(provider: Provider): TokenPricing {
   return TOKEN_PRICING[provider];

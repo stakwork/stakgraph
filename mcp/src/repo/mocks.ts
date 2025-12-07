@@ -65,19 +65,19 @@ export async function mocks_agent(req: Request, res: Response) {
         }
         prompt += MOCKS_FINAL_ANSWER;
         const schema = z.toJSONSchema(MocksResultSchema);
-        const result = await get_context(
-          prompt,
-          repoDir,
+        const result = await get_context(prompt, repoDir, {
           pat,
-          undefined,
-          MOCKS_SYSTEM,
-          schema
-        );
+          systemOverride: MOCKS_SYSTEM,
+          schema,
+        });
         // When schema is provided, result.content is already the structured object
         return result.content as MocksResult;
       })
       .then(async (mocks: MocksResult) => {
-        console.log(`[mocks_agent] Parsed result:`, JSON.stringify(mocks, null, 2));
+        console.log(
+          `[mocks_agent] Parsed result:`,
+          JSON.stringify(mocks, null, 2)
+        );
         for (const mock of mocks.mocks) {
           console.log(
             `[mocks_agent] Discovered mock: ${
@@ -136,7 +136,10 @@ async function persistMocksToGraph(mocksResult: MocksResult) {
   }
 }
 
-function buildIncrementalPrompt(existingMocks: ExistingMockInfo[], sync: boolean = false): string {
+function buildIncrementalPrompt(
+  existingMocks: ExistingMockInfo[],
+  sync: boolean = false
+): string {
   const syncInstructions = sync
     ? `
 IMPORTANT - SYNC MODE:

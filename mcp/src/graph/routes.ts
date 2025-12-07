@@ -27,7 +27,10 @@ import * as G from "./graph.js";
 import { db } from "./neo4j.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
-import { get_context, GeneralContextResult } from "../tools/explore/tool.js";
+import {
+  get_context_explore,
+  GeneralContextResult,
+} from "../tools/explore/tool.js";
 import { create_hint_edges_llm } from "../tools/intelligence/seed.js";
 import {
   ask_question,
@@ -122,7 +125,7 @@ export async function explore(req: Request, res: Response) {
     return;
   }
   try {
-    const result = await get_context(prompt);
+    const result = await get_context_explore(prompt);
     res.json({ result: result.final, usage: result.usage });
   } catch (error) {
     console.error("Explore Error:", error);
@@ -484,7 +487,7 @@ export async function seed_stories(req: Request, res: Response) {
       console.log(`Budget limit enabled: $${budgetDollars}`);
     }
 
-    const gres = await get_context(prompt, false, true);
+    const gres = await get_context_explore(prompt, false, true);
 
     budgetTracker = addUsage(
       budgetTracker,
