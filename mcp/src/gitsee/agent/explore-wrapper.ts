@@ -1,5 +1,5 @@
 import {
-  get_context,
+  gitsee_context,
   RepoContextMode,
   FeaturesContextResult,
   FirstPassContextResult,
@@ -20,7 +20,7 @@ export async function explore(
 
   try {
     // Get raw JSON string from get_context
-    const jsonString = await get_context(prompt, repoPath, mode);
+    const jsonString = await gitsee_context(prompt, repoPath, mode);
     console.log(
       `📋 Raw exploration result:`,
       jsonString.substring(0, 200) + "..."
@@ -79,7 +79,9 @@ export async function explore(
     const duration = endTime - startTime;
     console.log(`✅ ${mode} exploration completed in ${duration}ms`);
     console.log(
-      `📊 Result: ${result.key_files.length} key files, summary: ${result.summary.substring(0, 100)}...`
+      `📊 Result: ${
+        result.key_files.length
+      } key files, summary: ${result.summary.substring(0, 100)}...`
     );
 
     return result;
@@ -89,7 +91,9 @@ export async function explore(
     // Return error result with proper structure
     if (mode === "first_pass") {
       return {
-        summary: `Exploration failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        summary: `Exploration failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
         key_files: [],
         infrastructure: [],
         dependencies: [],
@@ -98,7 +102,9 @@ export async function explore(
       } as FirstPassContextResult;
     } else {
       return {
-        summary: `Exploration failed: ${error instanceof Error ? error.message : "Unknown error"}`,
+        summary: `Exploration failed: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
         key_files: [],
         features: [],
       } as FeaturesContextResult;

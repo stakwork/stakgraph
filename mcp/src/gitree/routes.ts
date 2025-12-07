@@ -895,7 +895,9 @@ export async function gitree_create_feature(req: Request, res: Response) {
         console.log(`===> Repository cloned/updated at ${repoDir}`);
 
         // Call get_context to generate documentation
-        const contextResult = await get_context(prompt, repoDir, pat);
+        const contextResult = await get_context(prompt, repoDir, {
+          pat,
+        });
         const documentation = contextResult.content;
 
         // Generate feature ID from name (same logic as builder.ts)

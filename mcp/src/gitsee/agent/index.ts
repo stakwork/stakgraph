@@ -1,6 +1,6 @@
 export { RepoCloner } from "./repo-cloner.js";
 export type { CloneResult, CloneOptions } from "./repo-cloner.js";
-export { get_context } from "./explore.js";
+export { gitsee_context } from "./explore.js";
 export type {
   FeaturesContextResult,
   FirstPassContextResult,
@@ -12,7 +12,7 @@ export { parse_files_contents } from "./utils.js";
 
 import { parse_files_contents } from "./utils.js";
 import { RepoCloner, CloneOptions } from "./repo-cloner.js";
-import { get_context, RepoContextMode, Overrides } from "./explore.js";
+import { gitsee_context, RepoContextMode, Overrides } from "./explore.js";
 
 export async function clone_and_explore(
   owner: string,
@@ -29,7 +29,7 @@ export async function clone_and_explore(
     throw new Error("Failed to clone repo");
   }
   const localPath = cloneResult.localPath;
-  const result = await get_context(prompt, localPath, mode, overrides);
+  const result = await gitsee_context(prompt, localPath, mode, overrides);
   return result;
 }
 

@@ -51,7 +51,7 @@ interface ToolConfig {
   tokenLimit?: number;
 }
 
-export async function get_context(
+export async function get_context_explore(
   prompt: string | ModelMessage[],
   re_explore: boolean = false,
   general_explore: boolean = false,
@@ -220,7 +220,7 @@ export async function get_context(
 setTimeout(async () => {
   return;
   console.log("calling GENERAL get_context");
-  const gres = await get_context(
+  const gres = await get_context_explore(
     "How does this repository work? Please provide a summary of the codebase, a few key files, and 50 core user stories.",
     false,
     true

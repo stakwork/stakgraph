@@ -10,6 +10,7 @@ import {
   getModel,
   getProviderOptions,
   ThinkingSpeed,
+  ModelName,
 } from "./provider.js";
 
 interface CallModelOptions {
@@ -21,6 +22,7 @@ interface CallModelOptions {
   thinkingSpeed?: ThinkingSpeed;
   cwd?: string;
   executablePath?: string;
+  modelName?: ModelName;
 }
 
 export async function callModel(opts: CallModelOptions): Promise<{
@@ -36,8 +38,14 @@ export async function callModel(opts: CallModelOptions): Promise<{
     thinkingSpeed,
     cwd,
     executablePath,
+    modelName,
   } = opts;
-  const model = await getModel(provider, apiKey, cwd, executablePath);
+  const model = await getModel(provider, {
+    apiKey,
+    cwd,
+    executablePath,
+    modelName,
+  });
   const providerOptions = getProviderOptions(provider, thinkingSpeed);
   console.log(`Calling ${provider} with options:`, providerOptions);
   const result = streamText({

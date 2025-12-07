@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { Tool } from "../types.js";
 import { parseSchema } from "../utils.js";
-import { get_context } from "../explore/tool.js";
+import { get_context_explore } from "../explore/tool.js";
 
 export const ExploreSchema = z.object({
   prompt: z
@@ -18,7 +18,7 @@ export const ExploreTool: Tool = {
 
 export async function explore(args: z.infer<typeof ExploreSchema>) {
   console.log("=> Running explore tool with args:", args);
-  const result = await get_context(args.prompt);
+  const result = await get_context_explore(args.prompt);
   return {
     content: [
       {

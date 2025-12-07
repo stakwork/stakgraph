@@ -70,7 +70,7 @@ export interface Overrides {
   final_answer_description?: string;
 }
 
-export async function get_context(
+export async function gitsee_context(
   prompt: string | ModelMessage[],
   repoPath: string,
   mode: RepoContextMode = "features",
