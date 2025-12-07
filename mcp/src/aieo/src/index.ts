@@ -7,4 +7,4 @@ export * from "./tools.js";
 export type { ModelMessage } from "ai";
 export type { Tool, ToolSet } from "ai";
 
-export { Logger, consoleLogger } from "./logger.js";
+export { type Logger, consoleLogger } from "./logger.js";
