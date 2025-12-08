@@ -75,7 +75,6 @@ pub struct AsyncRequestStatus {
 }
 
 pub type AsyncStatusMap = Arc<Mutex<HashMap<String, AsyncRequestStatus>>>;
-pub type CodecovStatusMap = Arc<Mutex<HashMap<String, CodecovRequestStatus>>>;
 
 #[derive(Deserialize)]
 pub struct EmbedCodeParams {
@@ -207,24 +206,6 @@ pub struct HasParams {
 pub struct HasResponse {
     pub covered: bool,
 }
-
-#[derive(Deserialize)]
-pub struct CodecovBody {
-    pub repo_url: String,
-    pub username: Option<String>,
-    pub pat: Option<String>,
-    pub commit: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CodecovRequestStatus {
-    pub status: AsyncStatus,
-    pub result: Option<Report>,
-    pub error: Option<String>,
-}
-
-#[allow(unused_imports)]
-pub use shared::codecov::{LanguageReport, Metric, Report};
 
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {

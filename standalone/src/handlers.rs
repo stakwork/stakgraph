@@ -1,5 +1,5 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, CodecovBody, CodecovRequestStatus, Coverage, CoverageParams,
+    AsyncRequestStatus, AsyncStatus, Coverage, CoverageParams,
     CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node,
     NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams,
     QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
@@ -1174,69 +1174,6 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
 }
 
 #[axum::debug_handler]
-pub async fn codecov_handler(
-    State(state): State<Arc<AppState>>,
-    Json(body): Json<CodecovBody>,
-) -> impl IntoResponse {
-    let request_id = uuid::Uuid::new_v4().to_string();
-    let codecov_status_map = state.codecov_status.clone();
-
-    {
-        let mut map = codecov_status_map.lock().await;
-        map.insert(
-            request_id.clone(),
-            CodecovRequestStatus {
-                status: AsyncStatus::InProgress,
-                result: None,
-                error: None,
-            },
-        );
-    }
-
-    let request_id_clone = request_id.clone();
-    let codecov_status_map_clone = codecov_status_map.clone();
-
-    tokio::spawn(async move {
-        match crate::codecov::run(body).await {
-            Ok(report) => {
-                let mut map = codecov_status_map_clone.lock().await;
-                if let Some(status) = map.get_mut(&request_id_clone) {
-                    status.status = AsyncStatus::Complete;
-                    status.result = Some(report);
-                }
-            }
-            Err(e) => {
-                let mut map = codecov_status_map_clone.lock().await;
-                if let Some(status) = map.get_mut(&request_id_clone) {
-                    status.status = AsyncStatus::Failed;
-                    status.error = Some(e.to_string());
-                }
-            }
-        }
-    });
-
-    Json(serde_json::json!({ "request_id": request_id })).into_response()
-}
-
-#[axum::debug_handler]
-pub async fn codecov_status_handler(
-    State(state): State<Arc<AppState>>,
-    Path(request_id): Path<String>,
-) -> impl IntoResponse {
-    let codecov_status_map = state.codecov_status.clone();
-    let map = codecov_status_map.lock().await;
-
-    if let Some(status) = map.get(&request_id) {
-        Json(status).into_response()
-    } else {
-        (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "Request ID not found" })),
-        )
-            .into_response()
-    }
-}
-
 pub async fn busy_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     use std::sync::atomic::Ordering;
     let busy = state.busy.load(Ordering::SeqCst);

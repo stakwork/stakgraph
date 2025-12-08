@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-shared = { path = "../shared", features = ["codecov"] }
+shared = { path = "../shared" }
 ast = { path = "../ast" , features = []}
 lsp = { path = "../lsp" }
 
@@ -30,4 +30,3 @@ hex = "0.4"
 [features]
 neo4j = ["ast/neo4j"]
 fulltest = ["ast/fulltest"]
-codecov = []

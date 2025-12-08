@@ -1,6 +1,5 @@
 mod auth;
 mod busy;
-mod codecov;
 #[cfg(feature = "neo4j")]
 mod handlers;
 mod types;
@@ -9,7 +8,7 @@ mod webhook;
 
 use ast::repo::StatusUpdate;
 use axum::extract::Request;
-use axum::middleware::{self};
+use axum::middleware;
 use axum::{routing::get, routing::post, Router};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -19,14 +18,13 @@ use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 use tracing::{debug_span, Span};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
-use types::{AsyncStatusMap, CodecovStatusMap, Result};
+use types::{AsyncStatusMap, Result};
 
 #[derive(Clone)]
 struct AppState {
     tx: broadcast::Sender<StatusUpdate>,
     api_token: Option<String>,
     async_status: AsyncStatusMap,
-    codecov_status: CodecovStatusMap,
     busy: Arc<AtomicBool>,
 }
 
@@ -71,7 +69,6 @@ async fn main() -> Result<()> {
         tx,
         api_token,
         async_status: Arc::new(Mutex::new(std::collections::HashMap::new())),
-        codecov_status: Arc::new(Mutex::new(std::collections::HashMap::new())),
         busy: Arc::new(AtomicBool::new(false)),
     });
 
@@ -107,11 +104,6 @@ async fn main() -> Result<()> {
         .route("/tests/coverage", get(handlers::coverage_handler))
         .route("/tests/nodes", get(handlers::nodes_handler))
         .route("/tests/has", get(handlers::has_handler))
-        .route("/codecov", post(handlers::codecov_handler))
-        .route(
-            "/codecov/:request_id",
-            get(handlers::codecov_status_handler),
-        )
         .merge(busy_routes)
         .merge(async_routes);
 
