@@ -210,6 +210,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
     res.json({
       features: features.map((f) => ({
         id: f.id,
+        ref_id: f.ref_id,
         name: f.name,
         description: f.description,
         prCount: f.prNumbers.length,
@@ -323,6 +324,7 @@ export async function gitree_get_pr(req: Request, res: Response) {
       features: features.map((f) => ({
         id: f.id,
         name: f.name,
+        ref_id: f.ref_id,
         description: f.description,
       })),
     });
@@ -365,6 +367,7 @@ export async function gitree_get_commit(req: Request, res: Response) {
       features: features.map((f) => ({
         id: f.id,
         name: f.name,
+        ref_id: f.ref_id,
         description: f.description,
       })),
     });
@@ -477,6 +480,7 @@ export async function gitree_stats(_req: Request, res: Response) {
         ? {
             id: mostActive.id,
             name: mostActive.name,
+            ref_id: mostActive.ref_id,
             prCount: mostActive.prNumbers.length,
           }
         : null,
