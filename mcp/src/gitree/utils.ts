@@ -31,6 +31,7 @@ export async function formatFeatureWithDetails(
   return {
     feature: {
       id: feature.id,
+      ref_id: feature.ref_id,
       name: feature.name,
       description: feature.description,
       documentation: feature.documentation,

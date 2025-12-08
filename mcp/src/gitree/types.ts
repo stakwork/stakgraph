@@ -23,6 +23,7 @@ export interface LinkResult {
 
 export interface Feature {
   id: string; // Slug from name (e.g., "auth-system")
+  ref_id?: string; // Reference ID from the repository (e.g., "1234567890")
   name: string; // Human-readable (e.g., "Authentication System")
   description: string; // What this feature is about
   prNumbers: number[]; // All PRs that touched this feature

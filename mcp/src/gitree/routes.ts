@@ -843,6 +843,7 @@ Please analyze the user's prompt and the list of available features. Return an a
       documentation: concatenatedDocumentation,
       featureIds: relevantFeatureIds,
       conceptIds: relevantFeatureIds,
+      refIds: relevantFeatures.map((f) => f.feature.ref_id),
     });
   } catch (error: any) {
     console.error("Error getting relevant features:", error);
