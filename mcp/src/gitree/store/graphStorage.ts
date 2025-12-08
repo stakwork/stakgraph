@@ -1,7 +1,13 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
-import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import {
+  Feature,
+  PRRecord,
+  CommitRecord,
+  LinkResult,
+  ChronologicalCheckpoint,
+} from "../types.js";
 import { formatPRMarkdown, formatCommitMarkdown } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
@@ -385,7 +391,12 @@ export class GraphStorage extends Storage {
       }
 
       const value = result.records[0].get("lastProcessedPR");
-      const lastPR = typeof value === 'number' ? value : (value?.toNumber ? value.toNumber() : 0);
+      const lastPR =
+        typeof value === "number"
+          ? value
+          : value?.toNumber
+          ? value.toNumber()
+          : 0;
       console.log(`   Resuming from PR #${lastPR}`);
       return lastPR;
     } catch (error) {
@@ -504,7 +515,9 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void> {
+  async setChronologicalCheckpoint(
+    checkpoint: ChronologicalCheckpoint
+  ): Promise<void> {
     const session = this.driver.session();
     try {
       const now = Math.floor(Date.now() / 1000);
@@ -636,6 +649,7 @@ export class GraphStorage extends Storage {
     const props = node.properties;
     return {
       id: props.id,
+      ref_id: props.ref_id,
       name: props.name,
       description: props.description,
       prNumbers: props.prNumbers || [],
@@ -715,7 +729,9 @@ export class GraphStorage extends Storage {
     try {
       // Get features to process
       const features = featureId
-        ? [await this.getFeature(featureId)].filter((f): f is Feature => f !== null)
+        ? [await this.getFeature(featureId)].filter(
+            (f): f is Feature => f !== null
+          )
         : await this.getAllFeatures();
 
       if (features.length === 0) {
@@ -761,7 +777,8 @@ export class GraphStorage extends Storage {
         );
 
         // Get total PR + commit count for this feature
-        const totalChanges = feature.prNumbers.length + (feature.commitShas || []).length;
+        const totalChanges =
+          feature.prNumbers.length + (feature.commitShas || []).length;
 
         if (filePathsResult.records.length === 0) {
           result.featureFileLinks.push({
@@ -781,7 +798,9 @@ export class GraphStorage extends Storage {
         for (const record of filePathsResult.records) {
           const filePath = record.get("file");
           const changeCountRaw = record.get("changeCount");
-          const changeCount = changeCountRaw?.toNumber ? changeCountRaw.toNumber() : changeCountRaw || 0;
+          const changeCount = changeCountRaw?.toNumber
+            ? changeCountRaw.toNumber()
+            : changeCountRaw || 0;
 
           // Calculate frequency score (0-1)
           const frequency = totalChanges > 0 ? changeCount / totalChanges : 0;
@@ -791,9 +810,7 @@ export class GraphStorage extends Storage {
 
           // Calculate importance using two-tier system
           // Files in docs: 0.5-1.0, Files not in docs: 0.0-0.49
-          const importance = inDocs
-            ? 0.5 + frequency * 0.5
-            : frequency * 0.49;
+          const importance = inDocs ? 0.5 + frequency * 0.5 : frequency * 0.49;
 
           // Track statistics
           if (inDocs) {
@@ -820,7 +837,9 @@ export class GraphStorage extends Storage {
           );
 
           const linkedCount = linkResult.records[0]?.get("linkedCount");
-          const count = linkedCount?.toNumber ? linkedCount.toNumber() : linkedCount || 0;
+          const count = linkedCount?.toNumber
+            ? linkedCount.toNumber()
+            : linkedCount || 0;
           linksCreatedForFeature += count;
         }
 
@@ -1055,7 +1074,13 @@ export class GraphStorage extends Storage {
           }
 
           // Add CONTAINS edge
-          if (rel && source && target && source.properties && target.properties) {
+          if (
+            rel &&
+            source &&
+            target &&
+            source.properties &&
+            target.properties
+          ) {
             const sourceRefId = source.properties.ref_id || "";
             const targetRefId = target.properties.ref_id || "";
             const edgeKey = `${sourceRefId}:${targetRefId}`;
@@ -1085,5 +1110,4 @@ export class GraphStorage extends Storage {
       await session.close();
     }
   }
-
 }

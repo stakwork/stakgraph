@@ -762,6 +762,11 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
  * Get relevant features for a given prompt using AI
  * POST /gitree/relevant-features
  * Body: { prompt: "user's question or description" }
+ curl -X POST http://localhost:3355/gitree/relevant-features \
+    -H "Content-Type: application/json" \
+    -d '{
+      "prompt": "How does authentication work in this repo?"
+    }'
  */
 export async function gitree_relevant_features(req: Request, res: Response) {
   try {
@@ -843,6 +848,7 @@ Please analyze the user's prompt and the list of available features. Return an a
       documentation: concatenatedDocumentation,
       featureIds: relevantFeatureIds,
       conceptIds: relevantFeatureIds,
+      refIds: relevantFeatures.map((f) => f.feature.ref_id),
     });
   } catch (error: any) {
     console.error("Error getting relevant features:", error);
