@@ -138,8 +138,9 @@ RETURN collect(distinct f.id) as linked_features
 
 export const CREATE_MOCK_QUERY = `
 MERGE (n:Mock:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default'
-SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.description = $description, n.mocked = $mocked, n.namespace = 'default'
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
+  n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.description = $description, n.mocked = $mocked
+ON MATCH SET n.name = $name, n.file = $file, n.body = $body, n.description = $description, n.mocked = $mocked
 RETURN n
 `;
 
@@ -166,6 +167,12 @@ WITH m, collect(f.file) as linked_files
 RETURN m.name as name, m.ref_id as ref_id, m.description as description,
        m.mocked as mocked, linked_files, size(linked_files) as file_count
 ORDER BY file_count DESC
+`;
+
+export const UPDATE_MOCK_STATUS_QUERY = `
+MATCH (n:Mock {name: $name})
+SET n.mocked = $mocked, n.body = $body
+RETURN n
 `;
 
 export const DELETE_NODE_BY_REF_ID_QUERY = `

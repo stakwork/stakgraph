@@ -583,7 +583,7 @@ class Db {
       node_type: "Mock",
       node_data: {
         name,
-        file: files[0] || "mock://generated",
+        file: `mock://${name}`,
         start: 0,
       },
     } as Node);
@@ -591,7 +591,7 @@ class Db {
       await session.run(Q.CREATE_MOCK_QUERY, {
         node_key,
         name,
-        file: files[0] || "mock://generated",
+        file: `mock://${name}`,
         body: JSON.stringify(files),
         description,
         mocked,
@@ -612,6 +612,23 @@ class Db {
       await session.run(Q.LINK_MOCK_TO_FILE_QUERY, {
         mock_ref_id,
         file_path,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async update_mock_status(
+    name: string,
+    mocked: boolean,
+    files: string[]
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.UPDATE_MOCK_STATUS_QUERY, {
+        name,
+        mocked,
+        body: JSON.stringify(files),
       });
     } finally {
       await session.close();
