@@ -981,6 +981,8 @@ pub fn add_calls_query(
     tests: &[(Calls, Option<NodeData>, Option<NodeData>)],
     int_tests: &[Edge],
     extras: &[Edge],
+    lang: &crate::lang::Lang,
+    graph: &impl Graph,
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
@@ -1013,12 +1015,12 @@ pub fn add_calls_query(
             let edge = Edge::uses(test_call.source.clone(), ext_nd);
             queries.push(add_edge_query(&edge));
         } else {
-            let edge = Edge::from_test_call(test_call);
+            let edge = Edge::from_test_call(test_call, lang, graph);
             queries.push(add_edge_query(&edge));
         }
 
         if let Some(class_nd) = class_call {
-            let edge = Edge::from_test_class_call(test_call, class_nd);
+            let edge = Edge::from_test_class_call(test_call, class_nd, lang, graph);
             queries.push(add_edge_query(&edge));
 
             queries.push(add_node_query(&NodeType::Class, class_nd));

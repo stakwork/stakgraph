@@ -378,6 +378,7 @@ impl Graph for ArrayGraph {
             Vec<Edge>,
             Vec<Edge>,
         ),
+        lang: &Lang,
     ) {
         // Diagnostic flag: when DISABLE_TEST_CLASS_CALLS is set, we intentionally skip
         // creating test -> class CALLS edges to mirror the currently observed Neo4j
@@ -451,7 +452,7 @@ impl Graph for ArrayGraph {
                     if !unique_edges.contains(&class_edge_key) {
                         unique_edges.insert(class_edge_key);
 
-                        let edge = Edge::from_test_class_call(&tc, &class_nd);
+                        let edge = Edge::from_test_class_call(&tc, &class_nd, lang, self);
                         self.add_edge(edge);
                         if self
                             .find_node_by_name_in_file(
@@ -504,7 +505,7 @@ impl Graph for ArrayGraph {
 
                 if !unique_edges.contains(&edge_key) {
                     unique_edges.insert(edge_key);
-                    let edge = Edge::from_test_call(&tc);
+                    let edge = Edge::from_test_call(&tc, lang, self);
                     self.add_edge(edge);
                 }
             }

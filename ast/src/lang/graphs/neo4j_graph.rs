@@ -997,6 +997,7 @@ impl Neo4jGraph {
             Vec<Edge>,
             Vec<Edge>,
         ),
+        lang: &Lang,
     ) -> Result<()> {
         let (funcs, tests, int_tests, extras) = calls;
         let connection = self.ensure_connected().await?;
@@ -1030,7 +1031,7 @@ impl Neo4jGraph {
 
             if let Some(class_nd) = class_call {
                 txn_manager.add_node(&NodeType::Class, class_nd);
-                let edge = Edge::from_test_class_call(test_call, class_nd);
+                let edge = Edge::from_test_class_call(test_call, class_nd, lang, self);
 
                 txn_manager.add_edge(&edge);
             }
@@ -1042,7 +1043,7 @@ impl Neo4jGraph {
             } else if target_empty && !has_class {
                 continue;
             } else if !target_empty {
-                let edge = Edge::from_test_call(test_call);
+                let edge = Edge::from_test_call(test_call, lang, self);
                 txn_manager.add_edge(&edge);
             }
         }
@@ -1542,8 +1543,9 @@ impl Graph for Neo4jGraph {
             Vec<Edge>,
             Vec<Edge>,
         ),
+        lang: &Lang,
     ) {
-        sync_fn(|| async { self.add_calls_async(calls).await.unwrap_or_default() });
+        sync_fn(|| async { self.add_calls_async(calls, lang).await.unwrap_or_default() });
     }
     fn filter_out_nodes_without_children(
         &mut self,

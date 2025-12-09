@@ -360,7 +360,7 @@ impl Graph for BTreeMapGraph {
         }
     }
     // Add calls only between function definitions not between function calls
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)) {
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>), lang: &Lang) {
         let (funcs, tests, int_tests, extras) = calls;
         // Diagnostic flag (see array_graph.rs for rationale)
         let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
@@ -438,7 +438,7 @@ impl Graph for BTreeMapGraph {
                     if !unique_edges.contains(&class_edge_key) {
                         unique_edges.insert(class_edge_key);
 
-                        let edge = Edge::from_test_class_call(&tc, &class_nd);
+                        let edge = Edge::from_test_class_call(&tc, &class_nd, lang, self);
                         self.add_edge(edge);
 
                         // Ensure class node exists in graph
@@ -485,7 +485,7 @@ impl Graph for BTreeMapGraph {
 
                 if !unique_edges.contains(&edge_key) {
                     unique_edges.insert(edge_key);
-                    self.add_edge(Edge::from_test_call(&tc));
+                    self.add_edge(Edge::from_test_call(&tc, lang, self));
                 }
             }
         }
