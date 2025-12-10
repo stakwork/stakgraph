@@ -86,7 +86,7 @@ pub trait Graph: Default + Debug {
             }
         }
     }
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>));
+    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>), lang: &Lang);
     fn filter_out_nodes_without_children(
         &mut self,
         parent_type: NodeType,
@@ -128,6 +128,15 @@ pub trait Graph: Default + Debug {
         self.find_nodes_by_name(node_type, name)
             .into_iter()
             .find(|node| node.file == file)
+    }
+
+    fn find_test_node(&self, name: &str, file: &str) -> Option<NodeData> {
+        for test_type in [NodeType::UnitTest, NodeType::IntegrationTest, NodeType::E2eTest] {
+            if let Some(node) = self.find_node_by_name_in_file(test_type, name, file) {
+                return Some(node);
+            }
+        }
+        None
     }
 
     fn find_nodes_by_file_ends_with(&self, node_type: NodeType, file: &str) -> Vec<NodeData> {

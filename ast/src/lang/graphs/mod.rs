@@ -23,6 +23,7 @@ pub use neo4j_graph::*;
 use shared::Error;
 
 use crate::lang::asg::*;
+use crate::lang::Lang;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -125,8 +126,12 @@ impl Edge {
             ref_id: Uuid::new_v4().to_string(),
         }
     }
-    pub fn from_test_call(call: &Calls) -> Edge {
-        let tt = utils::classify_test_type(&call.source.name, &call.source.file);
+    pub fn from_test_call(call: &Calls, lang: &Lang, graph: &impl Graph) -> Edge {
+        // Look up test node to get body for language-specific classification
+        let test_node = graph.find_test_node(&call.source.name, &call.source.file);
+        let body = test_node.as_ref().map(|n| n.body.as_str()).unwrap_or("");
+        let tt = lang.lang().classify_test(&call.source.name, &call.source.file, body);
+        
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;
         let mut tgt_nd = NodeData::name_file(&call.target.name, &call.target.file);
@@ -134,8 +139,12 @@ impl Edge {
         Edge::test_calls(tt, &src_nd, NodeType::Function, &tgt_nd)
     }
 
-    pub fn from_test_class_call(call: &Calls, class_target: &NodeData) -> Edge {
-        let test_type = utils::classify_test_type(&call.source.name, &call.source.file);
+    pub fn from_test_class_call(call: &Calls, class_target: &NodeData, lang: &Lang, graph: &impl Graph) -> Edge {
+        // Look up test node to get body for language-specific classification
+        let test_node = graph.find_test_node(&call.source.name, &call.source.file);
+        let body = test_node.as_ref().map(|n| n.body.as_str()).unwrap_or("");
+        let test_type = lang.lang().classify_test(&call.source.name, &call.source.file, body);
+        
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;
         Edge::test_calls(test_type, &src_nd, NodeType::Class, class_target)

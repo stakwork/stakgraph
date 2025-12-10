@@ -1126,7 +1126,7 @@ impl Repo {
                     .await?;
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();
-                graph.add_calls(all_calls);
+                graph.add_calls(all_calls, &self.lang);
             }
             stats.insert("function_calls".to_string(), function_call_count);
             info!("=> got {} function calls", _i);
