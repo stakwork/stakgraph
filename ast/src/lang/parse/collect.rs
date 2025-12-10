@@ -369,7 +369,7 @@ impl Lang {
 
             Self::loop_captures_multi(q, &m, code, |body, _node, o| {
                 if o == IMPORTS_NAME {
-                    import_names.push(body.clone());
+                    import_names.push(body);
                 } else if o == IMPORTS_FROM {
                     import_source = Some(trim_quotes(&body).to_string());
                 }
@@ -435,7 +435,7 @@ impl Lang {
         while let Some(m) = matches.next() {
             Self::loop_captures(&query, &m, code, |body, node, _o| {
                 let p = node.start_position();
-                identifiers.push((body.clone(), p.row as u32, p.column as u32));
+                identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())
             })?;
         }
@@ -565,7 +565,7 @@ impl Lang {
         while let Some(m) = matches.next() {
             Self::loop_captures(&query, &m, code, |body, node, _o| {
                 let p = node.start_position();
-                identifiers.push((body.clone(), p.row as u32, p.column as u32));
+                identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())
             })
             .ok();
