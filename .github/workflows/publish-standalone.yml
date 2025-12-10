@@ -6,24 +6,18 @@ on:
 
 jobs:
   build-and-push:
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 120
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
     permissions:
       contents: read
       packages: write
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            platform: linux/amd64
-            arch: amd64
-          - runner: ubuntu-24.04-arm64
-            platform: linux/arm64
-            arch: arm64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -40,37 +34,12 @@ jobs:
         with:
           context: .
           file: Dockerfile.standalone
-          platforms: ${{ matrix.platform }}
+          platforms: linux/amd64,linux/arm64
           push: true
-          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache-${{ matrix.arch }}
-          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache-${{ matrix.arch }},mode=max
+          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache
+          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache,mode=max
           provenance: false
           sbom: false
           tags: |
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-${{ matrix.arch }}
-            ghcr.io/stakwork/stakgraph-standalone:latest-${{ matrix.arch }}
-
-  create-manifest:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create and push multi-arch manifest
-        run: |
-          docker buildx imagetools create -t ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }} \
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-amd64 \
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-arm64
-          
-          docker buildx imagetools create -t ghcr.io/stakwork/stakgraph-standalone:latest \
-            ghcr.io/stakwork/stakgraph-standalone:latest-amd64 \
-            ghcr.io/stakwork/stakgraph-standalone:latest-arm64
+            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}
+            ghcr.io/stakwork/stakgraph-standalone:latest
