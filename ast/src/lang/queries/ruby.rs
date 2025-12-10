@@ -324,45 +324,50 @@ impl Stack for Ruby {
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         let f = file.replace('\\', "/").to_lowercase();
 
-        if f.contains("/spec/system/")
-            || f.contains("/spec/features/")
-            || f.contains("/spec/feature/")
-            || f.contains("/spec/acceptance/")
+        // Strictest E2E paths only
+        if f.contains("/spec/e2e/")
+            || f.contains("/test/e2e/")
+            || f.contains("/spec/system/")
             || f.contains("/test/system/")
         {
             return NodeType::E2eTest;
         }
 
-        if f.contains("/spec/requests/")
-            || f.contains("/spec/controllers/")
-            || f.contains("/spec/integration/")
-            || f.contains("/spec/api/")
+        // Explicit unit paths
+        if f.contains("/spec/unit/") || f.contains("/test/unit/") {
+            return NodeType::UnitTest;
+        }
+
+        // Integration paths
+        if f.contains("/spec/integration/")
             || f.contains("/test/integration/")
+            || f.contains("/spec/requests/")
+            || f.contains("/test/requests/")
+            || f.contains("/spec/controllers/")
+            || f.contains("/test/controllers/")
+            || f.contains("/spec/api/")
+            || f.contains("/test/api/")
         {
             return NodeType::IntegrationTest;
         }
 
+        // Model/service paths are unit tests
         if f.contains("/spec/models/")
-            || f.contains("/spec/services/")
-            || f.contains("/spec/lib/")
             || f.contains("/test/models/")
+            || f.contains("/spec/services/")
+            || f.contains("/test/services/")
+            || f.contains("/spec/lib/")
+            || f.contains("/test/lib/")
+            || f.contains("/spec/helpers/")
             || f.contains("/test/helpers/")
         {
             return NodeType::UnitTest;
         }
 
-        let lname = name.to_lowercase();
-
-        if lname.contains("e2e") || lname.contains("system") || lname.contains("feature ") {
-            return NodeType::E2eTest;
-        }
-
-        if lname.contains("integration") || lname.contains("request ") || lname.contains("api ") {
-            return NodeType::IntegrationTest;
-        }
-
+        // For ambiguous paths (/spec/features/, /spec/mixed/, etc), use body
         let b = body.to_lowercase();
 
+        // E2E body markers checked FIRST (stronger signal for user interaction)
         let e2e_markers = [
             "visit(",
             "click_",
@@ -381,6 +386,7 @@ impl Stack for Ruby {
             return NodeType::E2eTest;
         }
 
+        // Then check integration markers
         let integration_markers = [
             "get ",
             "post ",
@@ -397,6 +403,16 @@ impl Stack for Ruby {
             return NodeType::IntegrationTest;
         }
 
+        // Name-based classification as fallback
+        let lname = name.to_lowercase();
+        if lname.contains("e2e") || lname.contains("system") {
+            return NodeType::E2eTest;
+        }
+        if lname.contains("integration") || lname.contains("api") {
+            return NodeType::IntegrationTest;
+        }
+
+        // Default to unit test
         NodeType::UnitTest
     }
 
