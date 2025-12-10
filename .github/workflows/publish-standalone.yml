@@ -7,7 +7,7 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -15,9 +15,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -34,7 +31,7 @@ jobs:
         with:
           context: .
           file: Dockerfile.standalone
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache
           cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache,mode=max
