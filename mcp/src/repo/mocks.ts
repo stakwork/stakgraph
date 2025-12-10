@@ -17,6 +17,7 @@ export interface ExistingMockInfo {
   name: string;
   description: string;
   mocked: boolean;
+  files: string[];
 }
 
 export interface MocksResult {
@@ -52,15 +53,26 @@ export async function mocks_agent(req: Request, res: Response) {
       .then(async (repoDir) => {
         console.log(`===> GET /mocks ${repoDir} (sync=${sync})`);
         const existingMocksNodes = await db.get_all_mocks();
+
+        console.log(
+          `[mocks_agent] Existing mocks in database: ${existingMocksNodes.length}`
+        );
+
         let prompt = MOCKS_PROMPT;
+        let minimalMocks: ExistingMockInfo[] = [];
+
         if (existingMocksNodes.length > 0) {
-          const minimalMocks: ExistingMockInfo[] = existingMocksNodes.map(
-            (m) => ({
+          minimalMocks = existingMocksNodes.map((m) => {
+            const bodyFiles = m.properties.body
+              ? JSON.parse(m.properties.body as string)
+              : [];
+            return {
               name: m.properties.name || "",
               description: m.properties.description || "",
               mocked: m.properties.mocked ?? false,
-            })
-          );
+              files: Array.isArray(bodyFiles) ? bodyFiles : [],
+            };
+          });
           prompt = buildIncrementalPrompt(minimalMocks, sync);
         }
         prompt += MOCKS_FINAL_ANSWER;
@@ -71,22 +83,44 @@ export async function mocks_agent(req: Request, res: Response) {
           schema,
         });
         // When schema is provided, result.content is already the structured object
-        return result.content as MocksResult;
+        return { mocksResult: result.content as MocksResult, minimalMocks };
       })
-      .then(async (mocks: MocksResult) => {
+      .then(async ({ mocksResult, minimalMocks }) => {
         console.log(
-          `[mocks_agent] Parsed result:`,
-          JSON.stringify(mocks, null, 2)
+          `[mocks_agent] Agent returned ${mocksResult.mocks.length} mocks`
         );
-        for (const mock of mocks.mocks) {
+
+        if (sync && minimalMocks.length > 0) {
+          const delta = computeMockDelta(mocksResult.mocks, minimalMocks);
           console.log(
-            `[mocks_agent] Discovered mock: ${
-              mock.name
-            } with files: ${mock.files.join(", ")}`
+            `[mocks_agent] Delta breakdown: ${delta.new.length} new, ${delta.changed.length} changed, ${delta.unchanged.length} unchanged`
           );
+
+          if (delta.new.length > 0) {
+            console.log(
+              `[mocks_agent] New mocks: ${delta.new
+                .map((m) => m.name)
+                .join(", ")}`
+            );
+          }
+          if (delta.changed.length > 0) {
+            console.log(
+              `[mocks_agent] Changed mocks: ${delta.changed
+                .map((m) => m.name)
+                .join(", ")}`
+            );
+          }
+          if (delta.unchanged.length > 0) {
+            console.log(
+              `[mocks_agent] Unchanged mocks (will be skipped): ${delta.unchanged
+                .map((m) => m.name)
+                .join(", ")}`
+            );
+          }
         }
-        await persistMocksToGraph(mocks);
-        asyncReqs.finishReq(request_id, mocks);
+
+        await persistMocksToGraph(mocksResult, minimalMocks, sync);
+        asyncReqs.finishReq(request_id, mocksResult);
         setBusy(false);
         console.log("[mocks_agent] Background work completed, set busy=false");
       })
@@ -109,29 +143,128 @@ export async function mocks_agent(req: Request, res: Response) {
   }
 }
 
-async function persistMocksToGraph(mocksResult: MocksResult) {
-  for (const mock of mocksResult.mocks) {
-    try {
-      const { ref_id } = await db.create_mock(
-        mock.name,
-        mock.description,
-        mock.files,
-        mock.mocked
-      );
-      for (const filePath of mock.files) {
-        await db.link_mock_to_file(ref_id, filePath);
+interface MockDelta {
+  new: MockInfo[];
+  changed: MockInfo[];
+  unchanged: MockInfo[];
+}
+// Categorize returned mocks into new, changed, and unchanged compared to existing mocks
+function computeMockDelta(
+  returnedMocks: MockInfo[],
+  existingMocks: ExistingMockInfo[]
+): MockDelta {
+  const delta: MockDelta = {
+    new: [],
+    changed: [],
+    unchanged: [],
+  };
+
+  for (const returned of returnedMocks) {
+    const existing = existingMocks.find((e) => e.name === returned.name);
+
+    if (!existing) {
+      delta.new.push(returned);
+    } else {
+      const mockedChanged = existing.mocked !== returned.mocked;
+      const filesChanged = !arraysEqual(existing.files, returned.files);
+
+      if (mockedChanged || filesChanged) {
+        delta.changed.push(returned);
+      } else {
+        delta.unchanged.push(returned);
       }
-      for (const configPath of mocksResult.config) {
-        await db.link_mock_to_file(ref_id, configPath);
+    }
+  }
+
+  return delta;
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((val, idx) => val === sortedB[idx]);
+}
+
+async function persistMocksToGraph(
+  mocksResult: MocksResult,
+  existingMocks: ExistingMockInfo[] = [],
+  isSync: boolean = false
+) {
+  if (isSync && existingMocks.length > 0) {
+    const delta = computeMockDelta(mocksResult.mocks, existingMocks);
+
+    console.log(
+      `[mocks_agent] Sync mode delta: ${delta.new.length} new, ${delta.changed.length} changed, ${delta.unchanged.length} unchanged`
+    );
+
+    for (const mock of delta.new) {
+      try {
+        const { ref_id } = await db.create_mock(
+          mock.name,
+          mock.description,
+          mock.files,
+          mock.mocked
+        );
+        for (const filePath of mock.files) {
+          await db.link_mock_to_file(ref_id, filePath);
+        }
+        for (const configPath of mocksResult.config) {
+          await db.link_mock_to_file(ref_id, configPath);
+        }
+        console.log(
+          `[mocks_agent] Created NEW mock: ${mock.name} with ${mock.files.length} files`
+        );
+      } catch (e) {
+        console.error(
+          `[mocks_agent] Failed to create new mock ${mock.name}:`,
+          e
+        );
       }
+    }
+
+    for (const mock of delta.changed) {
+      try {
+        await db.update_mock_status(mock.name, mock.mocked, mock.files);
+        console.log(
+          `[mocks_agent] Updated CHANGED mock: ${mock.name} (mocked=${mock.mocked})`
+        );
+      } catch (e) {
+        console.error(`[mocks_agent] Failed to update mock ${mock.name}:`, e);
+      }
+    }
+
+    if (delta.unchanged.length > 0) {
       console.log(
-        `[mocks_agent] Created Mock node: ${mock.name} with ${mock.files.length} files`
+        `[mocks_agent] Skipped ${
+          delta.unchanged.length
+        } unchanged mocks: ${delta.unchanged.map((m) => m.name).join(", ")}`
       );
-    } catch (e) {
-      console.error(
-        `[mocks_agent] Failed to create Mock node for ${mock.name}:`,
-        e
-      );
+    }
+  } else {
+    for (const mock of mocksResult.mocks) {
+      try {
+        const { ref_id } = await db.create_mock(
+          mock.name,
+          mock.description,
+          mock.files,
+          mock.mocked
+        );
+        for (const filePath of mock.files) {
+          await db.link_mock_to_file(ref_id, filePath);
+        }
+        for (const configPath of mocksResult.config) {
+          await db.link_mock_to_file(ref_id, configPath);
+        }
+        console.log(
+          `[mocks_agent] Created Mock node: ${mock.name} with ${mock.files.length} files`
+        );
+      } catch (e) {
+        console.error(
+          `[mocks_agent] Failed to create Mock node for ${mock.name}:`,
+          e
+        );
+      }
     }
   }
 }
@@ -142,15 +275,52 @@ function buildIncrementalPrompt(
 ): string {
   const syncInstructions = sync
     ? `
-IMPORTANT - SYNC MODE:
-This is an incremental sync. Focus on:
-1. NEW services that weren't in the existing mocks list
-2. CHANGED mock status - verify if any services now have mock implementations (or lost them)
-   - If a service was "mocked": false but now has mock files, return it with "mocked": true
-   - If a service was "mocked": true but mock files are gone, return it with "mocked": false
-3. Only return mocks that are NEW or have CHANGED status
 
-Do NOT return services that already exist with the same mock status.
+SYNC MODE - CRITICAL INSTRUCTIONS
+
+This is an incremental sync. Only return services that have ACTUALLY CHANGED.
+
+IMPORTANT: If a service exists in the list below with the same mock status and files, DO NOT return it.
+Returning unchanged services will cause them to disappear from the database.
+
+What to return:
+
+1. NEW SERVICES - Services not in the existing list below
+   - Completely new 3rd party integrations discovered since last sync
+   - Do NOT "rediscover" services that already exist
+
+2. MOCK STATUS CHANGES - Services where the "mocked" field changed
+   - Was "mocked": false, now has mock implementation files -> return with "mocked": true
+   - Was "mocked": true, mock files were deleted -> return with "mocked": false
+   - Do NOT return if mock status is unchanged
+
+3. FILE CHANGES - Services where the files array changed
+   - New mock files were added to existing service
+   - Mock files were removed from existing service
+   - Do NOT return if files array is unchanged
+
+What NOT to return:
+
+- Services that exist with the same mock status and files
+- Services you're unsure about (verify first by checking the code)
+- Services you "think might have changed" (check, don't guess)
+- Services you want to "refresh" (they're already correct)
+
+Before returning ANY service, verify:
+
+- Is this truly NEW? (not in existing list)
+- Did the mock status ACTUALLY change? (verified by checking for mock files)
+- Did the files array ACTUALLY change? (verified by comparing file paths)
+- Am I 100% certain this is a real change?
+
+If you can't answer YES to at least one with certainty, exclude it.
+
+Expected results:
+- Most syncs: 0-2 services (most things don't change between syncs)
+- After implementing a mock: typically 1 service with status change
+- Empty array is perfectly valid if nothing changed
+
+When in doubt, exclude it. Returning unchanged services causes data loss.
 `
     : `
 Please search for any additional:
