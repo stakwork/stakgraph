@@ -274,17 +274,20 @@ impl Repo {
             };
             let source_files = walk_files(&root.into(), &conf)
                 .map_err(|e| Error::Custom(format!("Failed to walk files at {}: {}", root, e)))?;
-            let has_pkg_file = source_files.iter().any(|f| {
-                let fname = f.display().to_string();
-                if l.pkg_files().is_empty() {
-                    return true;
-                }
-                let found_pkg_file = l
-                    .pkg_files()
-                    .iter()
-                    .any(|pkg_file| fname.ends_with(pkg_file));
-                found_pkg_file
-            });
+            let has_pkg_file = if l.pkg_files().is_empty() {
+                !source_files.is_empty()
+            } else {
+                source_files.iter().any(|f| {
+                    l.pkg_files()
+                        .iter()
+                        .any(|pkg_file| {
+                            f.file_name()
+                                .and_then(|name| name.to_str())
+                                .map(|name| name == *pkg_file)
+                                .unwrap_or(false)
+                        })
+                })
+            };
             if has_pkg_file {
                 // Don't add duplicate languages
                 if !detected_langs.iter().any(|lang| lang == &l) {

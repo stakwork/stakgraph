@@ -38,9 +38,9 @@ impl Lang {
             } else if o == INCLUDED_MODULES {
                 cls.add_includes(&body);
             } else if o == ASSOCIATION_TYPE {
-                association_type = Some(body.clone());
+                association_type = Some(body);
             } else if o == ASSOCIATION_TARGET {
-                assocition_target = Some(body.clone());
+                assocition_target = Some(body);
             }
 
             if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
@@ -710,10 +710,10 @@ impl Lang {
                     }
                 }
             } else if o == ARGUMENTS {
-                raw_args = Some(body.clone());
+                raw_args = Some(body);
                 args_end_byte = Some(node.end_byte());
             } else if o == RETURN_TYPES {
-                raw_return = Some(body.clone());
+                raw_return = Some(body);
                 return_end_byte = Some(node.end_byte());
                 if let Some(lsp) = lsp_tx {
                     for (name, pos) in self.find_type_identifiers(node, code, file)? {

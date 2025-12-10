@@ -95,9 +95,9 @@ pub fn get_imports_for_file<G: Graph>(
 
         if Lang::loop_captures_multi(&q, &m, code, |body, _node, o| {
             if o == IMPORTS_NAME {
-                import_names.push(body.clone());
+                import_names.push(body);
             } else if o == IMPORTS_ALIAS {
-                import_aliases.push(body.clone());
+                import_aliases.push(body);
             } else if o == IMPORTS_FROM {
                 import_source = Some(trim_quotes(&body).to_string());
             }
@@ -141,7 +141,7 @@ fn find_function_by_import<G: Graph>(
     graph: &G,
 ) -> Option<NodeData> {
     for (resolved_path, names) in import_names {
-        if !names.contains(&func_name.to_string()) {
+        if !names.iter().any(|n| n.as_str() == func_name) {
             continue;
         }
 
