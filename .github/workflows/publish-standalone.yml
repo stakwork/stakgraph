@@ -16,8 +16,10 @@ jobs:
         include:
           - runner: ubuntu-latest
             platform: linux/amd64
+            arch: amd64
           - runner: ubuntu-24.04-arm64
             platform: linux/arm64
+            arch: arm64
 
     steps:
       - name: Checkout code
@@ -40,13 +42,13 @@ jobs:
           file: Dockerfile.standalone
           platforms: ${{ matrix.platform }}
           push: true
-          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache-${{ matrix.platform }}
-          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache-${{ matrix.platform }},mode=max
+          cache-from: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=ghcr.io/stakwork/stakgraph-standalone:buildcache-${{ matrix.arch }},mode=max
           provenance: false
           sbom: false
           tags: |
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-${{ matrix.platform }}
-            ghcr.io/stakwork/stakgraph-standalone:latest-${{ matrix.platform }}
+            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-${{ matrix.arch }}
+            ghcr.io/stakwork/stakgraph-standalone:latest-${{ matrix.arch }}
 
   create-manifest:
     needs: build-and-push
@@ -66,9 +68,9 @@ jobs:
       - name: Create and push multi-arch manifest
         run: |
           docker buildx imagetools create -t ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }} \
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-linux/amd64 \
-            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-linux/arm64
+            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-amd64 \
+            ghcr.io/stakwork/stakgraph-standalone:${{ github.ref_name }}-arm64
           
           docker buildx imagetools create -t ghcr.io/stakwork/stakgraph-standalone:latest \
-            ghcr.io/stakwork/stakgraph-standalone:latest-linux/amd64 \
-            ghcr.io/stakwork/stakgraph-standalone:latest-linux/arm64
+            ghcr.io/stakwork/stakgraph-standalone:latest-amd64 \
+            ghcr.io/stakwork/stakgraph-standalone:latest-arm64
