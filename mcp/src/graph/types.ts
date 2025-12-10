@@ -67,7 +67,8 @@ export type NodeType =
   | "Topic"
   | "Feature"
   | "Mock"
-  | "Learning";
+  | "Learning"
+  | "UserObjective";
 
 export type EdgeType =
   | "CALLS"
@@ -146,6 +147,7 @@ export function relevant_node_types(): NodeType[] {
     "Episode",
     "Topic",
     "Feature",
+    "UserObjective",
   ];
 }
 
@@ -185,6 +187,7 @@ export function all_node_types(): NodeType[] {
     "Feature",
     "Mock",
     "Learning",
+    "UserObjective",
   ];
 }
 
@@ -264,6 +267,7 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "A specific capability or functionality within the application or codebase.",
     Mock: "A 3rd party integration mock representing external HTTP services or SDK methods that need to be mocked for testing or development.",
     Learning: "A manually-created question-answer pair capturing knowledge about the codebase, optionally linked to specific features.",
+    UserObjective: "A specific goal or objective that a user wants to achieve within the application.",
   };
 }
 
