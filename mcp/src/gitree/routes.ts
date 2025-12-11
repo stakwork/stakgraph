@@ -1022,11 +1022,12 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
 
           // Auto-link after single feature analysis
           if (autoLink && result.clues.length > 0) {
-            console.log(`\n🔗 Auto-linking clues to relevant features...\n`);
+            console.log(`\n🔗 Auto-linking new clues to relevant features...\n`);
             try {
               const { ClueLinker } = await import("./clueLinker.js");
-              const linker = new ClueLinker(storage, repoPath);
-              const linkUsage = await linker.linkAllClues(false);
+              const linker = new ClueLinker(storage);
+              const newClueIds = result.clues.map((c: any) => c.id);
+              const linkUsage = await linker.linkClues(newClueIds);
 
               // Combine usage stats
               result.usage.inputTokens += linkUsage.inputTokens;
@@ -1152,14 +1153,11 @@ export async function gitree_link_clues(req: Request, res: Response) {
       return res.status(400).json({ error: "owner and repo are required" });
     }
 
-    // Get repo path
-    const repoPath = `/tmp/repos/${owner}/${repo}`; // TODO: Make configurable
-
     const storage = new GraphStorage();
     await storage.initialize();
 
     const { ClueLinker } = await import("./clueLinker.js");
-    const linker = new ClueLinker(storage, repoPath);
+    const linker = new ClueLinker(storage);
 
     // Start async processing
     const request_id = asyncReqs.startReq();

@@ -241,7 +241,7 @@ export class ClueAnalyzer {
       console.log(`\n🔗 Automatically linking clues to relevant features...\n`);
       try {
         const { ClueLinker } = await import("./clueLinker.js");
-        const linker = new ClueLinker(this.storage, this.repoPath);
+        const linker = new ClueLinker(this.storage);
         const linkUsage = await linker.linkAllClues(false);
 
         totalUsage.inputTokens += linkUsage.inputTokens;

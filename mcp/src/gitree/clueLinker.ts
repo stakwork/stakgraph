@@ -1,15 +1,41 @@
 import { Storage } from "./store/index.js";
 import { Clue, Usage } from "./types.js";
-import { get_context } from "../repo/agent.js";
+import { generateObject, jsonSchema } from "ai";
+import { getApiKeyForProvider, getModel, Provider } from "../aieo/src/provider.js";
 
 /**
  * Links clues to relevant features based on semantic similarity and context
  */
 export class ClueLinker {
-  constructor(
-    private storage: Storage,
-    private repoPath: string
-  ) {}
+  constructor(private storage: Storage) {}
+
+  /**
+   * Link specific clues to relevant features
+   */
+  async linkClues(clueIds: string[]): Promise<Usage> {
+    if (clueIds.length === 0) {
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+
+    const features = await this.storage.getAllFeatures();
+    const allClues = await this.storage.getAllClues();
+    const cluesToLink = allClues.filter((c) => clueIds.includes(c.id));
+
+    console.log(
+      `\n🔗 Linking ${cluesToLink.length} new clue(s) to ${features.length} features...\n`
+    );
+
+    const result = await this.linkClueBatch(cluesToLink, features, false);
+
+    console.log(
+      `\n✅ Linked ${cluesToLink.length} clue(s)!`
+    );
+    console.log(
+      `   Token usage: ${result.usage.totalTokens.toLocaleString()}\n`
+    );
+
+    return result.usage;
+  }
 
   /**
    * Link all clues to relevant features
@@ -76,12 +102,19 @@ export class ClueLinker {
 
     console.log(`   🤖 Analyzing ${cluesToLink.length} clues for relevance...`);
 
-    const result = await get_context(prompt, this.repoPath, {
-      schema,
-      systemOverride: this.buildSystemPrompt(),
+    // Use generateObject instead of get_context (no codebase reading needed)
+    const provider = process.env.LLM_PROVIDER || "anthropic";
+    const apiKey = getApiKeyForProvider(provider);
+    const model = getModel(provider as Provider, apiKey as string);
+
+    const result = await generateObject({
+      model,
+      system: this.buildSystemPrompt(),
+      prompt,
+      schema: jsonSchema(schema),
     });
 
-    const decision = result.content as any;
+    const decision = result.object as any;
 
     // Update clues with new links
     for (const link of decision.links || []) {
@@ -104,7 +137,13 @@ export class ClueLinker {
       );
     }
 
-    return { usage: result.usage };
+    return {
+      usage: {
+        inputTokens: result.usage?.inputTokens || 0,
+        outputTokens: result.usage?.outputTokens || 0,
+        totalTokens: result.usage?.totalTokens || 0,
+      },
+    };
   }
 
   /**
@@ -173,33 +212,35 @@ Return your analysis.`;
     const featureIds = features.map((f) => f.id);
 
     return {
-      type: "object",
+      type: "object" as const,
       properties: {
         links: {
-          type: "array",
+          type: "array" as const,
           items: {
-            type: "object",
+            type: "object" as const,
             properties: {
               clueId: {
-                type: "string",
+                type: "string" as const,
                 enum: clueIds,
               },
               featureIds: {
-                type: "array",
+                type: "array" as const,
                 items: {
-                  type: "string",
+                  type: "string" as const,
                   enum: featureIds,
                 },
               },
               reasoning: {
-                type: "string",
+                type: "string" as const,
               },
             },
             required: ["clueId", "featureIds", "reasoning"],
+            additionalProperties: false,
           },
         },
       },
       required: ["links"],
+      additionalProperties: false,
     };
   }
 

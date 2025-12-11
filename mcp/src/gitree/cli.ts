@@ -423,10 +423,11 @@ program
 
         // Auto-link after single feature analysis
         if (autoLink && result.clues.length > 0) {
-          console.log(`\n🔗 Auto-linking clues to relevant features...\n`);
+          console.log(`\n🔗 Auto-linking new clues to relevant features...\n`);
           const { ClueLinker } = await import("./clueLinker.js");
-          const linker = new ClueLinker(storage, options.repoPath);
-          await linker.linkAllClues(false);
+          const linker = new ClueLinker(storage);
+          const newClueIds = result.clues.map((c) => c.id);
+          await linker.linkClues(newClueIds);
         }
       } else {
         // Analyze all features (with auto-linking by default)
@@ -562,12 +563,11 @@ program
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-f, --force", "Force re-linking even if clues already have links")
-  .option("-r, --repo-path <path>", "Path to repository", process.cwd())
   .action(async (options) => {
     try {
       const storage = await createStorage(options);
       const { ClueLinker } = await import("./clueLinker.js");
-      const linker = new ClueLinker(storage, options.repoPath);
+      const linker = new ClueLinker(storage);
 
       await linker.linkAllClues(options.force);
 
