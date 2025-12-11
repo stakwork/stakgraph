@@ -305,6 +305,7 @@ impl ToString for NodeType {
             NodeType::UnitTest => "UnitTest".to_string(),
             NodeType::IntegrationTest => "IntegrationTest".to_string(),
             NodeType::E2eTest => "E2etest".to_string(),
+            NodeType::Mock => "Mock".to_string(),
         }
     }
 }
