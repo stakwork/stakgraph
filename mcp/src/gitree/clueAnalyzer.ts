@@ -146,6 +146,7 @@ export class ClueAnalyzer {
         keywords: clueData.keywords || [],
         centrality: clueData.centrality,
         usageFrequency: clueData.usageFrequency,
+        relatedFeatures: [featureId], // Initially link to discovering feature only
         relatedClues: clueData.relatedClues || [],
         dependsOn: clueData.dependsOn || [],
         embedding,
@@ -185,7 +186,10 @@ export class ClueAnalyzer {
   /**
    * Analyze all features that need clue analysis
    */
-  async analyzeAllFeatures(force: boolean = false): Promise<Usage> {
+  async analyzeAllFeatures(
+    force: boolean = false,
+    autoLink: boolean = true
+  ): Promise<Usage> {
     const features = await this.storage.getAllFeatures();
     console.log(`\n📚 Analyzing clues for ${features.length} features...\n`);
 
@@ -232,6 +236,30 @@ export class ClueAnalyzer {
       `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
     );
 
+    // Automatically link clues to features after discovery
+    if (autoLink) {
+      console.log(`\n🔗 Automatically linking clues to relevant features...\n`);
+      try {
+        const { ClueLinker } = await import("./clueLinker.js");
+        const linker = new ClueLinker(this.storage, this.repoPath);
+        const linkUsage = await linker.linkAllClues(false);
+
+        totalUsage.inputTokens += linkUsage.inputTokens;
+        totalUsage.outputTokens += linkUsage.outputTokens;
+        totalUsage.totalTokens += linkUsage.totalTokens;
+
+        console.log(
+          `\n✅ Total usage (analysis + linking): ${totalUsage.totalTokens.toLocaleString()}\n`
+        );
+      } catch (error) {
+        console.error(
+          `\n⚠️  Auto-linking failed:`,
+          error instanceof Error ? error.message : error
+        );
+        console.log(`   Clues were created but not linked. Run link-clues manually.\n`);
+      }
+    }
+
     return totalUsage;
   }
 
@@ -255,7 +283,7 @@ export class ClueAnalyzer {
 
 **Feature**: ${feature.name}
 **Description**: ${feature.description}
-
+${feature.documentation ? `\n**Documentation**:\n${feature.documentation}\n` : ""}
 **Existing Clues** (${existingClues.length}/40):
 ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 

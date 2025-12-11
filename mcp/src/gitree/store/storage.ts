@@ -99,6 +99,7 @@ export abstract class Storage {
 
   async getCluesForFeature(featureId: string): Promise<Clue[]> {
     const allClues = await this.getAllClues();
-    return allClues.filter((c) => c.featureId === featureId);
+    // Get clues that are RELEVANT to this feature (not just discovered in it)
+    return allClues.filter((c) => c.relatedFeatures.includes(featureId));
   }
 }

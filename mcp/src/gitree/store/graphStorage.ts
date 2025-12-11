@@ -407,6 +407,7 @@ export class GraphStorage extends Storage {
             c.keywords = $keywords,
             c.centrality = $centrality,
             c.usageFrequency = $usageFrequency,
+            c.relatedFeatures = $relatedFeatures,
             c.relatedClues = $relatedClues,
             c.dependsOn = $dependsOn,
             c.embeddings = $embeddings,
@@ -418,8 +419,15 @@ export class GraphStorage extends Storage {
             c.date_added_to_graph = COALESCE(c.date_added_to_graph, $dateAddedToGraph)
 
         WITH c
-        MATCH (f:Feature {id: $featureId})
-        MERGE (c)-[:BELONGS_TO]->(f)
+        // Delete old RELEVANT_TO edges
+        OPTIONAL MATCH (c)-[r:RELEVANT_TO]->()
+        DELETE r
+
+        WITH c
+        // Create RELEVANT_TO edges for all related features
+        UNWIND $relatedFeatures AS featureId
+        MATCH (f:Feature {id: featureId})
+        MERGE (c)-[:RELEVANT_TO]->(f)
         `,
         {
           id: clue.id,
@@ -432,6 +440,7 @@ export class GraphStorage extends Storage {
           keywords: clue.keywords,
           centrality: clue.centrality || null,
           usageFrequency: clue.usageFrequency || null,
+          relatedFeatures: clue.relatedFeatures || [],
           relatedClues: clue.relatedClues,
           dependsOn: clue.dependsOn,
           embeddings: clue.embedding || null,
@@ -479,6 +488,27 @@ export class GraphStorage extends Storage {
         RETURN c
         ORDER BY c.createdAt DESC
         `
+      );
+
+      return result.records.map((record) => this.nodeToClue(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Get clues relevant to a specific feature (via RELEVANT_TO edges)
+   */
+  async getCluesForFeature(featureId: string): Promise<Clue[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Clue)-[:RELEVANT_TO]->(f:Feature {id: $featureId})
+        RETURN c
+        ORDER BY c.createdAt DESC
+        `,
+        { featureId }
       );
 
       return result.records.map((record) => this.nodeToClue(record.get("c")));
@@ -929,6 +959,7 @@ export class GraphStorage extends Storage {
       centrality: props.centrality || undefined,
       usageFrequency: props.usageFrequency || undefined,
       embedding: props.embeddings || undefined,
+      relatedFeatures: props.relatedFeatures || [],
       relatedClues: props.relatedClues || [],
       dependsOn: props.dependsOn || [],
       createdAt: new Date(props.createdAt * 1000),

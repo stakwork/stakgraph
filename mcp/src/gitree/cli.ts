@@ -403,23 +403,34 @@ program
  */
 program
   .command("analyze-clues")
-  .description("Analyze feature(s) for architectural clues")
+  .description("Analyze feature(s) for architectural clues (auto-links by default)")
   .argument("[featureId]", "Feature ID to analyze (optional, analyzes all if omitted)")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-f, --force", "Force re-analysis even if feature already has clues")
   .option("-r, --repo-path <path>", "Path to repository", process.cwd())
+  .option("--no-link", "Skip automatic linking after analysis")
   .action(async (featureId: string | undefined, options) => {
     try {
       const storage = await createStorage(options);
       const analyzer = new ClueAnalyzer(storage, options.repoPath);
 
+      const autoLink = options.link !== false; // Commander sets to false with --no-link
+
       if (featureId) {
         // Analyze single feature
-        await analyzer.analyzeFeature(featureId);
+        const result = await analyzer.analyzeFeature(featureId);
+
+        // Auto-link after single feature analysis
+        if (autoLink && result.clues.length > 0) {
+          console.log(`\n🔗 Auto-linking clues to relevant features...\n`);
+          const { ClueLinker } = await import("./clueLinker.js");
+          const linker = new ClueLinker(storage, options.repoPath);
+          await linker.linkAllClues(false);
+        }
       } else {
-        // Analyze all features
-        await analyzer.analyzeAllFeatures(options.force);
+        // Analyze all features (with auto-linking by default)
+        await analyzer.analyzeAllFeatures(options.force, autoLink);
       }
 
       console.log("\n✅ Done!\n");
@@ -539,6 +550,28 @@ program
 
       console.log(`Created: ${clue.createdAt.toISOString()}`);
       console.log(`Updated: ${clue.updatedAt.toISOString()}\n`);
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("link-clues")
+  .description("Link clues to relevant features (Step 2 after analyze-clues)")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
+  .option("-f, --force", "Force re-linking even if clues already have links")
+  .option("-r, --repo-path <path>", "Path to repository", process.cwd())
+  .action(async (options) => {
+    try {
+      const storage = await createStorage(options);
+      const { ClueLinker } = await import("./clueLinker.js");
+      const linker = new ClueLinker(storage, options.repoPath);
+
+      await linker.linkAllClues(options.force);
+
+      console.log("\n✅ Done!\n");
     } catch (error) {
       console.error("\n❌ Error:", error);
       process.exit(1);

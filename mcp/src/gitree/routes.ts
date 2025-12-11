@@ -994,6 +994,7 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
     const repo = req.query.repo as string;
     const featureId = req.query.feature_id as string | undefined;
     const force = req.query.force === "true";
+    const autoLink = req.query.auto_link !== "false"; // Default true
     const pat = req.query.token as string | undefined;
 
     if (!owner || !repo) {
@@ -1018,9 +1019,26 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
         let result;
         if (featureId) {
           result = await analyzer.analyzeFeature(featureId);
+
+          // Auto-link after single feature analysis
+          if (autoLink && result.clues.length > 0) {
+            console.log(`\n🔗 Auto-linking clues to relevant features...\n`);
+            try {
+              const { ClueLinker } = await import("./clueLinker.js");
+              const linker = new ClueLinker(storage, repoPath);
+              const linkUsage = await linker.linkAllClues(false);
+
+              // Combine usage stats
+              result.usage.inputTokens += linkUsage.inputTokens;
+              result.usage.outputTokens += linkUsage.outputTokens;
+              result.usage.totalTokens += linkUsage.totalTokens;
+            } catch (error) {
+              console.error(`\n⚠️  Auto-linking failed:`, error instanceof Error ? error.message : error);
+            }
+          }
         } else {
-          const usage = await analyzer.analyzeAllFeatures(force);
-          result = { usage, message: "Analyzed all features" };
+          const usage = await analyzer.analyzeAllFeatures(force, autoLink);
+          result = { usage, message: "Analyzed all features" + (autoLink ? " and linked clues" : "") };
         }
 
         asyncReqs.finishReq(request_id, result);
@@ -1114,6 +1132,54 @@ export async function gitree_delete_clue(req: Request, res: Response) {
     res.json({ message: "Clue deleted successfully" });
   } catch (error) {
     console.error("Error in gitree_delete_clue:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
+ * POST /gitree/link-clues
+ * Link clues to relevant features (Step 2 of clue analysis)
+ */
+export async function gitree_link_clues(req: Request, res: Response) {
+  try {
+    const owner = req.query.owner as string;
+    const repo = req.query.repo as string;
+    const force = req.query.force === "true";
+
+    if (!owner || !repo) {
+      return res.status(400).json({ error: "owner and repo are required" });
+    }
+
+    // Get repo path
+    const repoPath = `/tmp/repos/${owner}/${repo}`; // TODO: Make configurable
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const { ClueLinker } = await import("./clueLinker.js");
+    const linker = new ClueLinker(storage, repoPath);
+
+    // Start async processing
+    const request_id = asyncReqs.startReq();
+
+    (async () => {
+      try {
+        const usage = await linker.linkAllClues(force);
+        asyncReqs.finishReq(request_id, { usage, message: "Linked all clues" });
+      } catch (error) {
+        asyncReqs.failReq(request_id, error);
+      }
+    })();
+
+    res.json({
+      request_id,
+      status: "pending",
+      message: "Linking clues to relevant features...",
+    });
+  } catch (error) {
+    console.error("Error in gitree_link_clues:", error);
     res.status(500).json({
       error: error instanceof Error ? error.message : "Unknown error",
     });

@@ -164,7 +164,7 @@ export interface ClueEntities {
  */
 export interface Clue {
   id: string; // Slug from title (e.g., "auth-jwt-utils")
-  featureId: string; // Parent feature
+  featureId: string; // Feature where this clue was discovered (provenance)
   type: ClueType;
   title: string; // e.g., "JWT Token Management Utilities"
   content: string; // Markdown explanation (WHY, WHEN, CONTEXT)
@@ -182,6 +182,7 @@ export interface Clue {
   embedding?: number[]; // Vector embedding of title for semantic search
 
   // Relationships
+  relatedFeatures: string[]; // Feature IDs this clue is relevant to (for RELEVANT_TO edges)
   relatedClues: string[]; // Other clue IDs
   dependsOn: string[]; // Clues to understand first
 
