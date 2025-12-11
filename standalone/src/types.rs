@@ -114,15 +114,24 @@ pub struct CoverageStat {
     pub line_percent: f64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MockStat {
+    pub total: usize,
+    pub mocked: usize,
+    pub percent: f64,
+}
+
 /// Coverage report per test category.
 /// unit_tests: unit test nodes that call at least one function.
 /// integration_tests: integration test nodes that call any function/resource.
 /// e2e_tests: e2e/system tests that exercise endpoints/pages/requests.
+/// mocks: 3rd party mock coverage (mocked=true / total).
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Coverage {
     pub unit_tests: Option<CoverageStat>,
     pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
+    pub mocks: Option<MockStat>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

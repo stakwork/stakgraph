@@ -1,8 +1,8 @@
 use crate::types::{
-    AsyncRequestStatus, AsyncStatus, Coverage, CoverageParams,
-    CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node,
-    NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams,
-    QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
+    AsyncRequestStatus, AsyncStatus, Coverage, CoverageParams, CoverageStat, EmbedCodeParams,
+    FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, MockStat, Node, NodeConcise,
+    NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams, QueryNodesResponse, Result,
+    VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
 };
 use crate::utils::parse_node_types;
 use crate::webhook::{send_with_retries, validate_callback_url_async};
@@ -1005,6 +1005,11 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
             total_lines: s.total_lines,
             covered_lines: s.covered_lines,
             line_percent: s.line_percent,
+        }),
+        mocks: totals.mocks.map(|s| MockStat {
+            total: s.total,
+            mocked: s.mocked,
+            percent: s.percent,
         }),
     }))
 }

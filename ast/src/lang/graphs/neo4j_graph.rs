@@ -583,6 +583,30 @@ impl Neo4jGraph {
         }
     }
 
+    pub(super) async fn get_mock_stats_async(&self) -> (usize, usize) {
+        let Ok(connection) = self.ensure_connected().await else {
+            warn!("Failed to connect to Neo4j in get_mock_stats_async");
+            return (0, 0);
+        };
+
+        let query_str = "MATCH (m:Mock) RETURN count(m) as total, sum(CASE WHEN m.mocked = true THEN 1 ELSE 0 END) as mocked";
+        match connection.execute(query(query_str)).await {
+            Ok(mut result) => {
+                if let Ok(Some(row)) = result.next().await {
+                    let total = row.get::<i64>("total").unwrap_or(0) as usize;
+                    let mocked = row.get::<i64>("mocked").unwrap_or(0) as usize;
+                    (total, mocked)
+                } else {
+                    (0, 0)
+                }
+            }
+            Err(e) => {
+                debug!("Error getting mock stats: {}", e);
+                (0, 0)
+            }
+        }
+    }
+
     pub(super) async fn find_nodes_by_type_async(&self, node_type: NodeType) -> Vec<NodeData> {
         let Ok(connection) = self.ensure_connected().await else {
             warn!("Failed to connect to Neo4j in find_nodes_by_type_async");

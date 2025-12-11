@@ -32,10 +32,18 @@ pub struct CoverageStat {
 }
 
 #[derive(Debug, Clone)]
+pub struct MockStat {
+    pub total: usize,
+    pub mocked: usize,
+    pub percent: f64,
+}
+
+#[derive(Debug, Clone)]
 pub struct GraphCoverage {
     pub unit_tests: Option<CoverageStat>,
     pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
+    pub mocks: Option<MockStat>,
 }
 
 impl GraphOps {
@@ -470,6 +478,18 @@ impl GraphOps {
             })
         };
 
+        let (mock_total, mock_mocked) = self.graph.get_mock_stats_async().await;
+        let mocks = if mock_total > 0 {
+            let percent = (mock_mocked as f64 / mock_total as f64) * 100.0;
+            Some(MockStat {
+                total: mock_total,
+                mocked: mock_mocked,
+                percent: (percent * 100.0).round() / 100.0,
+            })
+        } else {
+            None
+        };
+
         Ok(GraphCoverage {
             unit_tests: build_stat(
                 &unit_functions_in_scope,
@@ -482,6 +502,7 @@ impl GraphOps {
                 &integration_target_endpoints,
             ),
             e2e_tests: build_stat(&e2e_pages_in_scope, &e2e_tests_in_scope, &e2e_target_pages),
+            mocks,
         })
     }
 
