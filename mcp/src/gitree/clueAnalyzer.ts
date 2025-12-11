@@ -1,0 +1,342 @@
+import { Storage } from "./store/index.js";
+import { Clue, ClueAnalysisResult, Usage } from "./types.js";
+import { get_context } from "../repo/agent.js";
+
+/**
+ * Analyzes feature codebases to extract architectural clues
+ */
+export class ClueAnalyzer {
+  constructor(
+    private storage: Storage,
+    private repoPath: string
+  ) {}
+
+  /**
+   * Analyze a single feature for clues (iterative)
+   */
+  async analyzeFeature(featureId: string): Promise<ClueAnalysisResult> {
+    const feature = await this.storage.getFeature(featureId);
+    if (!feature) {
+      throw new Error(`Feature ${featureId} not found`);
+    }
+
+    console.log(`\n💡 Analyzing feature for clues: ${feature.name}`);
+
+    // Get existing clues
+    const existingClues = await this.storage.getCluesForFeature(featureId);
+    console.log(`   Found ${existingClues.length} existing clues`);
+
+    // Check if we've hit the limit
+    if (existingClues.length >= 40) {
+      console.log(`   ⚠️  Feature already has 40 clues (limit reached)`);
+      return {
+        clues: [],
+        complete: true,
+        reasoning: "Maximum clue limit (40) reached",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      };
+    }
+
+    // Get files associated with this feature
+    const prs = await this.storage.getPRsForFeature(featureId);
+    const commits = await this.storage.getCommitsForFeature(featureId);
+    const allFiles = new Set<string>();
+    prs.forEach((pr) => pr.files.forEach((f) => allFiles.add(f)));
+    commits.forEach((c) => c.files.forEach((f) => allFiles.add(f)));
+
+    if (allFiles.size === 0) {
+      console.log(`   ⚠️  No files found for this feature`);
+      return {
+        clues: [],
+        complete: true,
+        reasoning: "No files associated with this feature",
+        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      };
+    }
+
+    console.log(`   Analyzing ${allFiles.size} files...`);
+
+    // Build prompt for get_context
+    const prompt = this.buildAnalysisPrompt(
+      feature,
+      existingClues,
+      Array.from(allFiles)
+    );
+
+    // Define schema for structured output
+    const schema = {
+      type: "object",
+      properties: {
+        clues: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              type: {
+                type: "string",
+                enum: [
+                  "utility",
+                  "pattern",
+                  "abstraction",
+                  "integration",
+                  "convention",
+                  "gotcha",
+                  "data-flow",
+                  "state-pattern",
+                ],
+              },
+              content: { type: "string" },
+              entities: {
+                type: "object",
+                properties: {
+                  functions: { type: "array", items: { type: "string" } },
+                  classes: { type: "array", items: { type: "string" } },
+                  types: { type: "array", items: { type: "string" } },
+                  interfaces: { type: "array", items: { type: "string" } },
+                  components: { type: "array", items: { type: "string" } },
+                  endpoints: { type: "array", items: { type: "string" } },
+                  tables: { type: "array", items: { type: "string" } },
+                  constants: { type: "array", items: { type: "string" } },
+                  hooks: { type: "array", items: { type: "string" } },
+                },
+              },
+              primaryFiles: { type: "array", items: { type: "string" } },
+              relatedFiles: { type: "array", items: { type: "string" } },
+              keywords: { type: "array", items: { type: "string" } },
+              centrality: { type: "number" },
+              usageFrequency: { type: "number" },
+              relatedClues: { type: "array", items: { type: "string" } },
+              dependsOn: { type: "array", items: { type: "string" } },
+            },
+            required: ["title", "type", "content", "entities", "primaryFiles", "keywords"],
+          },
+        },
+        complete: { type: "boolean" },
+        reasoning: { type: "string" },
+      },
+      required: ["clues", "complete", "reasoning"],
+    };
+
+    // Call get_context with schema
+    console.log(`   🤖 Calling codebase analysis agent...`);
+    const result = await get_context(prompt, this.repoPath, {
+      schema,
+      systemOverride: this.buildSystemPrompt(),
+    });
+
+    const decision = result.content as any;
+
+    // Create and save clues
+    const now = new Date();
+    const savedClues: Clue[] = [];
+
+    for (const clueData of decision.clues || []) {
+      const clue: Clue = {
+        id: this.generateClueId(clueData.title),
+        featureId,
+        type: clueData.type,
+        title: clueData.title,
+        content: clueData.content,
+        entities: clueData.entities || {},
+        primaryFiles: clueData.primaryFiles || [],
+        relatedFiles: clueData.relatedFiles || [],
+        keywords: clueData.keywords || [],
+        centrality: clueData.centrality,
+        usageFrequency: clueData.usageFrequency,
+        relatedClues: clueData.relatedClues || [],
+        dependsOn: clueData.dependsOn || [],
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await this.storage.saveClue(clue);
+      savedClues.push(clue);
+      console.log(`   ✨ Created clue: ${clue.title} [${clue.type}]`);
+    }
+
+    // Update feature metadata
+    feature.cluesCount = existingClues.length + savedClues.length;
+    feature.cluesLastAnalyzedAt = now;
+    await this.storage.saveFeature(feature);
+
+    console.log(
+      `   📊 Created ${savedClues.length} new clues (total: ${feature.cluesCount})`
+    );
+    console.log(
+      `   ${
+        decision.complete
+          ? "✅ Analysis complete"
+          : "🔄 Can run again for more clues"
+      }`
+    );
+
+    return {
+      clues: savedClues,
+      complete: decision.complete,
+      reasoning: decision.reasoning,
+      usage: result.usage,
+    };
+  }
+
+  /**
+   * Analyze all features that need clue analysis
+   */
+  async analyzeAllFeatures(force: boolean = false): Promise<Usage> {
+    const features = await this.storage.getAllFeatures();
+    console.log(`\n📚 Analyzing clues for ${features.length} features...\n`);
+
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i];
+      const progress = `[${i + 1}/${features.length}]`;
+
+      // Skip if already analyzed (unless force)
+      if (
+        !force &&
+        feature.cluesLastAnalyzedAt &&
+        (feature.cluesCount || 0) >= 5
+      ) {
+        console.log(
+          `${progress} Skipping ${feature.name} (already has ${feature.cluesCount} clues)`
+        );
+        continue;
+      }
+
+      console.log(`${progress} Processing: ${feature.name} (${feature.id})`);
+
+      try {
+        const result = await this.analyzeFeature(feature.id);
+        totalUsage.inputTokens += result.usage.inputTokens;
+        totalUsage.outputTokens += result.usage.outputTokens;
+        totalUsage.totalTokens += result.usage.totalTokens;
+      } catch (error) {
+        console.error(
+          `   ❌ Error:`,
+          error instanceof Error ? error.message : error
+        );
+        console.log(`   ⏭️  Skipping and continuing...`);
+      }
+    }
+
+    console.log(`\n✅ Done analyzing all features!`);
+    console.log(
+      `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
+    );
+
+    return totalUsage;
+  }
+
+  /**
+   * Build the analysis prompt for get_context
+   */
+  private buildAnalysisPrompt(
+    feature: any,
+    existingClues: Clue[],
+    files: string[]
+  ): string {
+    const existingCluesList = existingClues
+      .map((c) => `  - ${c.title} (${c.id}) [${c.type}]`)
+      .join("\n");
+
+    const filesList = files.slice(0, 50).join("\n  ");
+    const filesNote =
+      files.length > 50 ? `\n  ... and ${files.length - 50} more files` : "";
+
+    return `Analyze the codebase for the feature "${feature.name}" and identify architectural patterns, utilities, and key abstractions.
+
+**Feature**: ${feature.name}
+**Description**: ${feature.description}
+
+**Existing Clues** (${existingClues.length}/40):
+${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
+
+**Files to Analyze** (${files.length} total):
+  ${filesList}${filesNote}
+
+**Your Task**:
+1. Read and analyze the codebase files for this feature
+2. Identify NEW clues that don't overlap with existing ones
+3. Focus on the most important patterns and utilities (5-10 clues)
+4. For each clue, extract:
+   - Title (concise, descriptive)
+   - Type (utility, pattern, abstraction, integration, convention, gotcha, data-flow, state-pattern)
+   - Content (WHY this matters, WHEN to use it, high-level CONTEXT)
+   - Entities (actual function/class/type/endpoint names from the code)
+   - Files (where these entities are defined)
+   - Keywords (for searchability)
+
+5. Set "complete: true" if you believe this feature is comprehensively covered (or if creating fewer than 2 new clues)
+
+**IMPORTANT**:
+- DO NOT create code snippets - only reference entity names
+- Focus on patterns that help developers understand how to work with this feature
+- Avoid duplicating existing clues
+- Prioritize reusable utilities and common patterns
+- Target 5-10 high-value clues per analysis
+
+Analyze the codebase and return your structured response.`;
+  }
+
+  /**
+   * Build the system prompt for the agent
+   */
+  private buildSystemPrompt(): string {
+    return `You are a codebase analyzer that extracts architectural patterns and development insights.
+
+Your goal is to identify "Clues" - knowledge nuggets that help developers understand:
+- Reusable utilities and helpers
+- Architectural patterns and conventions
+- Key abstractions (interfaces, base classes)
+- Integration patterns
+- Common gotchas and edge cases
+- Data flow patterns
+- State management approaches
+
+**Clue Types:**
+- **utility**: Reusable functions/classes used across the feature
+- **pattern**: Architectural pattern or coding idiom consistently applied
+- **abstraction**: Interface/type/base class meant to be extended
+- **integration**: How to integrate with external systems/features
+- **convention**: Coding style or naming convention
+- **gotcha**: Common mistake or edge case to avoid
+- **data-flow**: How data transforms through the system
+- **state-pattern**: State management approach
+
+**Entity Types to Extract:**
+- functions: Function names (e.g., "generateToken", "validateUser")
+- classes: Class names (e.g., "JWTManager", "AuthService")
+- types: Type/Interface names (e.g., "TokenPayload", "AuthConfig")
+- interfaces: Interface names
+- components: Component names (React/Vue)
+- endpoints: API endpoint paths (e.g., "POST /auth/login")
+- tables: Database table names
+- constants: Constant names
+- hooks: React/Vue hook names
+
+**Guidelines:**
+1. Extract entity names exactly as they appear in code
+2. Focus on patterns that are reused 3+ times or are architecturally significant
+3. Keep content concise (2-3 sentences explaining WHY and WHEN)
+4. Don't include code snippets - only entity names and file paths
+5. Prioritize high-impact clues over completeness
+6. Set complete=true if fewer than 2 new clues found
+
+Analyze the provided files and extract valuable clues.`;
+  }
+
+  /**
+   * Generate slug-style clue ID from title
+   */
+  private generateClueId(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "");
+  }
+}

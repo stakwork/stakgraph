@@ -7,6 +7,7 @@ import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
+import { ClueAnalyzer } from "./clueAnalyzer.js";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
 
 const program = new Command();
@@ -391,6 +392,155 @@ program
       }
 
       console.log("\n✅ Done!\n");
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * Analyze feature(s) for architectural clues
+ */
+program
+  .command("analyze-clues")
+  .description("Analyze feature(s) for architectural clues")
+  .argument("[featureId]", "Feature ID to analyze (optional, analyzes all if omitted)")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
+  .option("-f, --force", "Force re-analysis even if feature already has clues")
+  .option("-r, --repo-path <path>", "Path to repository", process.cwd())
+  .action(async (featureId: string | undefined, options) => {
+    try {
+      const storage = await createStorage(options);
+      const analyzer = new ClueAnalyzer(storage, options.repoPath);
+
+      if (featureId) {
+        // Analyze single feature
+        await analyzer.analyzeFeature(featureId);
+      } else {
+        // Analyze all features
+        await analyzer.analyzeAllFeatures(options.force);
+      }
+
+      console.log("\n✅ Done!\n");
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * List all clues or clues for a specific feature
+ */
+program
+  .command("list-clues")
+  .description("List all clues or clues for a specific feature")
+  .argument("[featureId]", "Feature ID to list clues for (optional)")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage")
+  .action(async (featureId: string | undefined, options) => {
+    try {
+      const storage = await createStorage(options);
+
+      const clues = featureId
+        ? await storage.getCluesForFeature(featureId)
+        : await storage.getAllClues();
+
+      if (clues.length === 0) {
+        console.log("\n📭 No clues found.\n");
+        return;
+      }
+
+      console.log(`\n💡 Clues (${clues.length} total):\n`);
+
+      // Group by feature if listing all
+      if (!featureId) {
+        const byFeature = new Map<string, typeof clues>();
+        for (const clue of clues) {
+          if (!byFeature.has(clue.featureId)) {
+            byFeature.set(clue.featureId, []);
+          }
+          byFeature.get(clue.featureId)!.push(clue);
+        }
+
+        for (const [fid, fclues] of byFeature.entries()) {
+          const feature = await storage.getFeature(fid);
+          console.log(`\n🔹 ${feature?.name || fid} (${fclues.length} clues)`);
+          for (const clue of fclues) {
+            console.log(`   - ${clue.title} [${clue.type}]`);
+          }
+        }
+      } else {
+        for (const clue of clues) {
+          console.log(`🔹 ${clue.title} (${clue.id})`);
+          console.log(`   Type: ${clue.type}`);
+          console.log(`   Content: ${clue.content.substring(0, 100)}...`);
+          console.log(`   Keywords: ${clue.keywords.join(", ")}`);
+          console.log();
+        }
+      }
+
+      console.log();
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
+ * Show details of a specific clue
+ */
+program
+  .command("show-clue")
+  .description("Show details of a specific clue")
+  .argument("<clueId>", "Clue ID to show")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage")
+  .action(async (clueId: string, options) => {
+    try {
+      const storage = await createStorage(options);
+      const clue = await storage.getClue(clueId);
+
+      if (!clue) {
+        console.error(`\n❌ Clue not found: ${clueId}\n`);
+        process.exit(1);
+      }
+
+      console.log(`\n💡 ${clue.title}`);
+      console.log(`${"=".repeat(clue.title.length + 3)}\n`);
+      console.log(`ID: ${clue.id}`);
+      console.log(`Type: ${clue.type}`);
+      console.log(`Feature: ${clue.featureId}\n`);
+      console.log(`Content:\n${clue.content}\n`);
+
+      if (Object.keys(clue.entities).length > 0) {
+        console.log("Entities:");
+        for (const [key, values] of Object.entries(clue.entities)) {
+          if (values && values.length > 0) {
+            console.log(`  ${key}: ${values.join(", ")}`);
+          }
+        }
+        console.log();
+      }
+
+      console.log(`Primary Files:\n  ${clue.primaryFiles.join("\n  ")}\n`);
+
+      if (clue.relatedFiles.length > 0) {
+        console.log(`Related Files:\n  ${clue.relatedFiles.join("\n  ")}\n`);
+      }
+
+      console.log(`Keywords: ${clue.keywords.join(", ")}\n`);
+
+      if (clue.relatedClues.length > 0) {
+        console.log(`Related Clues: ${clue.relatedClues.join(", ")}\n`);
+      }
+
+      if (clue.dependsOn.length > 0) {
+        console.log(`Depends On: ${clue.dependsOn.join(", ")}\n`);
+      }
+
+      console.log(`Created: ${clue.createdAt.toISOString()}`);
+      console.log(`Updated: ${clue.updatedAt.toISOString()}\n`);
     } catch (error) {
       console.error("\n❌ Error:", error);
       process.exit(1);

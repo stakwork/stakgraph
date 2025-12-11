@@ -5,6 +5,7 @@ import { LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
+import { ClueAnalyzer } from "./clueAnalyzer.js";
 import { Octokit } from "@octokit/rest";
 import {
   getApiKeyForProvider,
@@ -86,7 +87,7 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * GET /progress?request_id=xxx
  */
 
-// curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true&link=true"
+// curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true&link=true&analyze_clues=true"
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.url, req.method);
   const request_id = asyncReqs.startReq();
@@ -97,6 +98,7 @@ export async function gitree_process(req: Request, res: Response) {
     const githubTokenQuery = req.query.token as string;
     const shouldSummarize = req.query.summarize === "true";
     const shouldLink = req.query.link === "true";
+    const shouldAnalyzeClues = req.query.analyze_clues === "true";
     const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
     // Parse repo_url if provided
@@ -139,6 +141,7 @@ export async function gitree_process(req: Request, res: Response) {
 
         let summarizeUsage = null;
         let linkResult = null;
+        let clueUsage = null;
 
         // If summarize flag is set, run summarization after processing
         if (shouldSummarize) {
@@ -154,18 +157,37 @@ export async function gitree_process(req: Request, res: Response) {
           linkResult = await linker.linkAllFeatures();
         }
 
+        // If analyze_clues flag is set, analyze features for clues
+        if (shouldAnalyzeClues) {
+          console.log("===> Starting clue analysis...");
+          const repoPath = await cloneOrUpdateRepo(
+            `https://github.com/${owner}/${repo}`,
+            undefined,
+            githubToken
+          );
+          const analyzer = new ClueAnalyzer(storage, repoPath);
+          clueUsage = await analyzer.analyzeAllFeatures();
+        }
+
         // Build response message and usage
         const messageParts = [`Processed ${owner}/${repo}`];
         if (shouldSummarize) messageParts.push("summarized");
         if (shouldLink) messageParts.push("linked files");
+        if (shouldAnalyzeClues) messageParts.push("analyzed clues");
 
         const totalUsage = {
           inputTokens:
-            processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
+            processUsage.inputTokens +
+            (summarizeUsage?.inputTokens || 0) +
+            (clueUsage?.inputTokens || 0),
           outputTokens:
-            processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
+            processUsage.outputTokens +
+            (summarizeUsage?.outputTokens || 0) +
+            (clueUsage?.outputTokens || 0),
           totalTokens:
-            processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
+            processUsage.totalTokens +
+            (summarizeUsage?.totalTokens || 0) +
+            (clueUsage?.totalTokens || 0),
         };
 
         const result: any = {
@@ -957,5 +979,143 @@ export async function gitree_create_feature(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to create feature" });
+  }
+}
+
+/**
+ * POST /gitree/analyze-clues
+ * Analyze a specific feature or all features for clues
+ */
+export async function gitree_analyze_clues(req: Request, res: Response) {
+  const request_id = asyncReqs.startReq();
+
+  try {
+    const owner = req.query.owner as string;
+    const repo = req.query.repo as string;
+    const featureId = req.query.feature_id as string | undefined;
+    const force = req.query.force === "true";
+    const pat = req.query.token as string | undefined;
+
+    if (!owner || !repo) {
+      asyncReqs.failReq(request_id, new Error("owner and repo are required"));
+      return res.status(400).json({ error: "owner and repo are required" });
+    }
+
+    (async () => {
+      try {
+        // Clone or update repository
+        const repoPath = await cloneOrUpdateRepo(
+          `https://github.com/${owner}/${repo}`,
+          undefined,
+          pat
+        );
+
+        const storage = new GraphStorage();
+        await storage.initialize();
+
+        const analyzer = new ClueAnalyzer(storage, repoPath);
+
+        let result;
+        if (featureId) {
+          result = await analyzer.analyzeFeature(featureId);
+        } else {
+          const usage = await analyzer.analyzeAllFeatures(force);
+          result = { usage, message: "Analyzed all features" };
+        }
+
+        asyncReqs.finishReq(request_id, result);
+      } catch (error) {
+        asyncReqs.failReq(request_id, error);
+      }
+    })();
+
+    res.json({
+      request_id,
+      status: "pending",
+      message: featureId
+        ? `Analyzing feature ${featureId} for clues...`
+        : "Analyzing all features for clues...",
+    });
+  } catch (error) {
+    console.error("Error in gitree_analyze_clues:", error);
+    asyncReqs.failReq(request_id, error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
+ * GET /gitree/clues
+ * List all clues or clues for a specific feature
+ */
+export async function gitree_list_clues(req: Request, res: Response) {
+  try {
+    const featureId = req.query.feature_id as string | undefined;
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const clues = featureId
+      ? await storage.getCluesForFeature(featureId)
+      : await storage.getAllClues();
+
+    res.json({
+      clues,
+      count: clues.length,
+    });
+  } catch (error) {
+    console.error("Error in gitree_list_clues:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
+ * GET /gitree/clues/:id
+ * Get a specific clue by ID
+ */
+export async function gitree_get_clue(req: Request, res: Response) {
+  try {
+    const clueId = req.params.id;
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const clue = await storage.getClue(clueId);
+
+    if (!clue) {
+      return res.status(404).json({ error: "Clue not found" });
+    }
+
+    res.json({ clue });
+  } catch (error) {
+    console.error("Error in gitree_get_clue:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
+ * DELETE /gitree/clues/:id
+ * Delete a specific clue
+ */
+export async function gitree_delete_clue(req: Request, res: Response) {
+  try {
+    const clueId = req.params.id;
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    await storage.deleteClue(clueId);
+
+    res.json({ message: "Clue deleted successfully" });
+  } catch (error) {
+    console.error("Error in gitree_delete_clue:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
   }
 }

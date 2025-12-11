@@ -1,4 +1,4 @@
-import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint } from "../types.js";
 
 /**
  * Abstract storage interface for features, PRs, and commits
@@ -22,6 +22,12 @@ export abstract class Storage {
   abstract saveCommit(commit: CommitRecord): Promise<void>;
   abstract getCommit(sha: string): Promise<CommitRecord | null>;
   abstract getAllCommits(): Promise<CommitRecord[]>;
+
+  // Clues
+  abstract saveClue(clue: Clue): Promise<void>;
+  abstract getClue(id: string): Promise<Clue | null>;
+  abstract getAllClues(): Promise<Clue[]>;
+  abstract deleteClue(id: string): Promise<void>;
 
   // Metadata (legacy - kept for backwards compatibility)
   abstract getLastProcessedPR(): Promise<number>;
@@ -82,5 +88,10 @@ export abstract class Storage {
     const allFeatures = await this.getAllFeatures();
     // Handle legacy features without commitShas
     return allFeatures.filter((f) => (f.commitShas || []).includes(sha));
+  }
+
+  async getCluesForFeature(featureId: string): Promise<Clue[]> {
+    const allClues = await this.getAllClues();
+    return allClues.filter((c) => c.featureId === featureId);
   }
 }

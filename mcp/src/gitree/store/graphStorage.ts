@@ -5,6 +5,7 @@ import {
   Feature,
   PRRecord,
   CommitRecord,
+  Clue,
   LinkResult,
   ChronologicalCheckpoint,
 } from "../types.js";
@@ -43,6 +44,12 @@ export class GraphStorage extends Storage {
       await session.run(
         "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
       );
+      await session.run(
+        "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
+      );
+      await session.run(
+        "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
+      );
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
     } finally {
@@ -64,6 +71,9 @@ export class GraphStorage extends Storage {
     try {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(feature.lastUpdated.getTime() / 1000);
+      const cluesLastAnalyzedAtTimestamp = feature.cluesLastAnalyzedAt
+        ? Math.floor(feature.cluesLastAnalyzedAt.getTime() / 1000)
+        : null;
 
       await session.run(
         `
@@ -74,6 +84,8 @@ export class GraphStorage extends Storage {
             f.commitShas = $commitShas,
             f.date = $date,
             f.docs = $docs,
+            f.cluesCount = $cluesCount,
+            f.cluesLastAnalyzedAt = $cluesLastAnalyzedAt,
             f.namespace = $namespace,
             f.Data_Bank = $dataBankName,
             f.ref_id = COALESCE(f.ref_id, $refId),
@@ -88,6 +100,8 @@ export class GraphStorage extends Storage {
           commitShas: feature.commitShas,
           date: dateTimestamp,
           docs: feature.documentation || "",
+          cluesCount: feature.cluesCount || null,
+          cluesLastAnalyzedAt: cluesLastAnalyzedAtTimestamp,
           namespace: "default",
           dataBankName: feature.id,
           refId: uuidv4(),
@@ -367,6 +381,122 @@ export class GraphStorage extends Storage {
       );
 
       return result.records.map((record) => this.nodeToCommit(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  // Clues
+
+  async saveClue(clue: Clue): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const createdAtTimestamp = Math.floor(clue.createdAt.getTime() / 1000);
+      const updatedAtTimestamp = Math.floor(clue.updatedAt.getTime() / 1000);
+
+      await session.run(
+        `
+        MERGE (c:${Data_Bank}:Clue {id: $id})
+        SET c.featureId = $featureId,
+            c.type = $type,
+            c.title = $title,
+            c.content = $content,
+            c.entities = $entities,
+            c.primaryFiles = $primaryFiles,
+            c.relatedFiles = $relatedFiles,
+            c.keywords = $keywords,
+            c.centrality = $centrality,
+            c.usageFrequency = $usageFrequency,
+            c.relatedClues = $relatedClues,
+            c.dependsOn = $dependsOn,
+            c.createdAt = $createdAt,
+            c.updatedAt = $updatedAt,
+            c.namespace = $namespace,
+            c.Data_Bank = $dataBankName,
+            c.ref_id = COALESCE(c.ref_id, $refId),
+            c.date_added_to_graph = COALESCE(c.date_added_to_graph, $dateAddedToGraph)
+
+        WITH c
+        MATCH (f:Feature {id: $featureId})
+        MERGE (c)-[:BELONGS_TO]->(f)
+        `,
+        {
+          id: clue.id,
+          featureId: clue.featureId,
+          type: clue.type,
+          title: clue.title,
+          content: clue.content,
+          entities: JSON.stringify(clue.entities),
+          primaryFiles: clue.primaryFiles,
+          relatedFiles: clue.relatedFiles,
+          keywords: clue.keywords,
+          centrality: clue.centrality || null,
+          usageFrequency: clue.usageFrequency || null,
+          relatedClues: clue.relatedClues,
+          dependsOn: clue.dependsOn,
+          createdAt: createdAtTimestamp,
+          updatedAt: updatedAtTimestamp,
+          namespace: "default",
+          dataBankName: clue.id,
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getClue(id: string): Promise<Clue | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Clue {id: $id})
+        RETURN c
+        `,
+        { id }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const node = result.records[0].get("c");
+      return this.nodeToClue(node);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllClues(): Promise<Clue[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Clue)
+        RETURN c
+        ORDER BY c.createdAt DESC
+        `
+      );
+
+      return result.records.map((record) => this.nodeToClue(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async deleteClue(id: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `
+        MATCH (c:Clue {id: $id})
+        DETACH DELETE c
+        `,
+        { id }
+      );
     } finally {
       await session.close();
     }
@@ -657,6 +787,10 @@ export class GraphStorage extends Storage {
       createdAt: new Date(props.date * 1000),
       lastUpdated: new Date(props.date * 1000),
       documentation: props.docs || undefined,
+      cluesCount: props.cluesCount || undefined,
+      cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
+        ? new Date(props.cluesLastAnalyzedAt * 1000)
+        : undefined,
     };
   }
 
@@ -688,6 +822,27 @@ export class GraphStorage extends Storage {
       newDeclarations: props.newDeclarations
         ? JSON.parse(props.newDeclarations)
         : undefined,
+    };
+  }
+
+  private nodeToClue(node: any): Clue {
+    const props = node.properties;
+    return {
+      id: props.id,
+      featureId: props.featureId,
+      type: props.type,
+      title: props.title,
+      content: props.content,
+      entities: props.entities ? JSON.parse(props.entities) : {},
+      primaryFiles: props.primaryFiles || [],
+      relatedFiles: props.relatedFiles || [],
+      keywords: props.keywords || [],
+      centrality: props.centrality || undefined,
+      usageFrequency: props.usageFrequency || undefined,
+      relatedClues: props.relatedClues || [],
+      dependsOn: props.dependsOn || [],
+      createdAt: new Date(props.createdAt * 1000),
+      updatedAt: new Date(props.updatedAt * 1000),
     };
   }
 

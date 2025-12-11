@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
 
@@ -28,6 +28,7 @@ export class FileSystemStore extends Storage {
   private featuresDir: string;
   private prsDir: string;
   private commitsDir: string;
+  private cluesDir: string;
   private docsDir: string;
   private metadataPath: string;
 
@@ -37,6 +38,7 @@ export class FileSystemStore extends Storage {
     this.featuresDir = path.join(baseDir, "features");
     this.prsDir = path.join(baseDir, "prs");
     this.commitsDir = path.join(baseDir, "commits");
+    this.cluesDir = path.join(baseDir, "clues");
     this.docsDir = path.join(baseDir, "docs");
     this.metadataPath = path.join(baseDir, "metadata.json");
   }
@@ -48,6 +50,7 @@ export class FileSystemStore extends Storage {
     await fs.mkdir(this.featuresDir, { recursive: true });
     await fs.mkdir(this.prsDir, { recursive: true });
     await fs.mkdir(this.commitsDir, { recursive: true });
+    await fs.mkdir(this.cluesDir, { recursive: true });
     await fs.mkdir(this.docsDir, { recursive: true });
 
     try {
@@ -72,6 +75,7 @@ export class FileSystemStore extends Storage {
       ...feature,
       createdAt: feature.createdAt.toISOString(),
       lastUpdated: feature.lastUpdated.toISOString(),
+      cluesLastAnalyzedAt: feature.cluesLastAnalyzedAt?.toISOString(),
     };
     await fs.writeFile(filePath, JSON.stringify(serialized, null, 2));
   }
@@ -85,6 +89,9 @@ export class FileSystemStore extends Storage {
         ...parsed,
         createdAt: new Date(parsed.createdAt),
         lastUpdated: new Date(parsed.lastUpdated),
+        cluesLastAnalyzedAt: parsed.cluesLastAnalyzedAt
+          ? new Date(parsed.cluesLastAnalyzedAt)
+          : undefined,
       };
     } catch {
       return null;
@@ -107,6 +114,9 @@ export class FileSystemStore extends Storage {
             ...parsed,
             createdAt: new Date(parsed.createdAt),
             lastUpdated: new Date(parsed.lastUpdated),
+            cluesLastAnalyzedAt: parsed.cluesLastAnalyzedAt
+              ? new Date(parsed.cluesLastAnalyzedAt)
+              : undefined,
           });
         }
       }
@@ -192,6 +202,56 @@ export class FileSystemStore extends Storage {
     } catch {
       return [];
     }
+  }
+
+  // Clues
+  async saveClue(clue: Clue): Promise<void> {
+    const filePath = path.join(this.cluesDir, `${clue.id}.json`);
+    const serialized = {
+      ...clue,
+      createdAt: clue.createdAt.toISOString(),
+      updatedAt: clue.updatedAt.toISOString(),
+    };
+    await fs.writeFile(filePath, JSON.stringify(serialized, null, 2));
+  }
+
+  async getClue(id: string): Promise<Clue | null> {
+    const filePath = path.join(this.cluesDir, `${id}.json`);
+    try {
+      const content = await fs.readFile(filePath, "utf-8");
+      const parsed = JSON.parse(content);
+      return {
+        ...parsed,
+        createdAt: new Date(parsed.createdAt),
+        updatedAt: new Date(parsed.updatedAt),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  async getAllClues(): Promise<Clue[]> {
+    try {
+      const files = await fs.readdir(this.cluesDir);
+      const clues: Clue[] = [];
+
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          const id = file.replace(".json", "");
+          const clue = await this.getClue(id);
+          if (clue) clues.push(clue);
+        }
+      }
+
+      return clues;
+    } catch {
+      return [];
+    }
+  }
+
+  async deleteClue(id: string): Promise<void> {
+    const filePath = path.join(this.cluesDir, `${id}.json`);
+    await fs.unlink(filePath);
   }
 
   // Metadata
