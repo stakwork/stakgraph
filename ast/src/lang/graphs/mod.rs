@@ -50,6 +50,7 @@ pub enum NodeType {
     IntegrationTest,
     #[serde(rename = "E2etest")]
     E2eTest,
+    Mock,
 }
 
 // pub enum TestType {
