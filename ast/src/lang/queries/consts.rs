@@ -76,6 +76,7 @@ pub const TEMPLATE_VALUE: &str = "value";
 
 pub const IMPLEMENTS: &str = "implements";
 pub const ATTRIBUTES: &str = "attributes";
+pub const MACRO: &str = "macro";
 
 pub const ARRAY_METHODS: [&str; 30] = [
     "push",

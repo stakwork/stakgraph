@@ -268,13 +268,14 @@ impl Stack for Rust {
     }
     fn trait_query(&self) -> Option<String> {
         Some(
-            r#"
+            format!(
+                r#"
             (trait_item
-                name: (type_identifier) @trait-name
+                name: (type_identifier) @{TRAIT_NAME}
                 body: (declaration_list)
-            ) @trait
+            ) @{TRAIT}
             "#
-            .to_string(),
+            )
         )
     }
 
@@ -283,26 +284,27 @@ impl Stack for Rust {
             r#"
            [
                 (struct_item
-                    name: (type_identifier) @class-name
+                    name: (type_identifier) @{CLASS_NAME}
                 )
                 (enum_item
-                    name: (type_identifier) @class-name
+                    name: (type_identifier) @{CLASS_NAME}
                 )
-            ]@class-definition
+            ]@{CLASS_DEFINITION}
             "#
         )
     }
 
     fn implements_query(&self) -> Option<String> {
         Some(
-            r#"
+            format!(
+                r#"
         (impl_item
-            trait: (type_identifier)? @trait-name
-            type: (type_identifier) @class-name
+            trait: (type_identifier)? @{TRAIT_NAME}
+            type: (type_identifier) @{CLASS_NAME}
             body: (declaration_list)?
-        ) @implements
+        ) @{IMPLEMENTS}
         "#
-            .to_string(),
+            )
         )
     }
 
@@ -327,6 +329,11 @@ impl Stack for Rust {
                 parameters: (parameters) @{ARGUMENTS}
                 return_type: (_)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
             )
+            
+            (macro_definition
+              name: (identifier) @{FUNCTION_NAME}
+              (token_tree)?
+            ) @{MACRO} @{FUNCTION_DEFINITION}
             
             (impl_item
               type: (_) @{PARENT_TYPE}
@@ -382,15 +389,15 @@ impl Stack for Rust {
                 r#"
                 (call_expression
                     (arguments
-                        (string_literal) @endpoint
+                        (string_literal) @{ENDPOINT}
                         (call_expression
-                            function: (identifier) @verb (#match? @verb "^get$|^post$|^put$|^delete$")
+                            function: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$")
                             arguments: (arguments
-                                (identifier) @handler
+                                (identifier) @{HANDLER}
                             )
                         )
                     )
-                ) @route
+                ) @{ROUTE}
                 "#
             ),
             // Method-specific routes (.get("/path", handler))
@@ -401,10 +408,10 @@ impl Stack for Rust {
                         field: (field_identifier) @http_method (#match? @http_method "^get$|^post$|^put$|^delete$")
                     )
                     arguments: (arguments
-                        (string_literal) @endpoint
-                        (identifier) @handler
+                        (string_literal) @{ENDPOINT}
+                        (identifier) @{HANDLER}
                     )
-                ) @direct_method_route
+                ) @{ROUTE}
         "#
             ),
             // Nested routes (.nest("/base", Router...))
@@ -418,7 +425,7 @@ impl Stack for Rust {
                         (string_literal) @base_path
                         (_) @nested_router
                     )
-                ) @nested_route
+                ) @{ROUTE}
                 "#
             ),
             // Actix/Rocket endpoint finder (#[get("/path")] or #[post("/path", data = "...")])
@@ -429,15 +436,15 @@ impl Stack for Rust {
                         (attribute
                         (identifier) @http_method (#match? @http_method "^get$|^post$|^put$|^delete$")
                         arguments: (token_tree
-                            (string_literal) @endpoint (#match? @endpoint "^\"\/")
+                            (string_literal) @{ENDPOINT} (#match? @{ENDPOINT} "^\"\/")
                         )
                         )
                     )
                     .
                     (function_item
-                        name: (identifier) @handler
+                        name: (identifier) @{HANDLER}
                     )
-                ) @route_with_handler
+                ) @{ROUTE}
             "#,
             ),
         ]
@@ -510,16 +517,30 @@ impl Stack for Rust {
                         (attribute_item)* @{ATTRIBUTES}
                         .
                         (struct_item
-                            name: (type_identifier) @struct-name
-                        ) @struct
+                            name: (type_identifier) @{STRUCT_NAME}
+                        ) @{STRUCT}
+                    )
+                    (
+                        (struct_item
+                            name: (type_identifier) @{STRUCT_NAME}
+                        ) @{STRUCT}
                     )
                     (
                         (attribute_item)* @{ATTRIBUTES}
                         .
                         (enum_item
-                            name: (type_identifier) @struct-name
-                        ) @struct
+                            name: (type_identifier) @{STRUCT_NAME}
+                        ) @{STRUCT}
                     )
+                    (
+                        (enum_item
+                            name: (type_identifier) @{STRUCT_NAME}
+                        ) @{STRUCT}
+                    )
+                    (type_item
+                        name: (type_identifier)@{STRUCT_NAME}
+                        type :(_)
+                    )@{STRUCT}
                 ]
             "#
         ))
@@ -527,7 +548,7 @@ impl Stack for Rust {
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
             r#"
-                (type_identifier) @struct-name
+                (type_identifier) @{STRUCT_NAME}
             "#,
         ))
     }
@@ -841,7 +862,7 @@ impl Stack for Rust {
             ) @nest_call
         "#;
         
-        let nest_query = match tree_sitter::Query::new(&self.0, nest_query_str) {
+        let nest_query = match tree_sitter::Query::new(&self.0, &nest_query_str) {
             Ok(q) => q,
             Err(_) => {
                 return matches;

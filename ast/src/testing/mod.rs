@@ -1,4 +1,4 @@
-use crate::lang::{ArrayGraph, Lang};
+use crate::lang::{ArrayGraph, NodeData, Lang};
 use lsp::Language;
 use std::env;
 use std::str::FromStr;
@@ -25,7 +25,7 @@ pub mod typescript;
 
 #[cfg(test)]
 fn pre_test() {
-    env::set_var("LSP_SKIP_POST_CLONE", "true");
+    unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -60,4 +60,8 @@ async fn run_client_tests() {
             .unwrap();
         tester.test_frontend().unwrap();
     }
+}
+
+pub fn print_nodes(nodes: Vec<NodeData>){
+    println!("{:#?}", nodes.iter().map(|n| (n.name.clone(), n.file.clone())).collect::<Vec<(String, String)>>());
 }
