@@ -211,6 +211,10 @@ impl NodeData {
         self.meta
             .insert("test_helper".to_string(), helper.to_string());
     }
+    pub fn add_macro(&mut self) {
+        self.meta
+            .insert("macro".to_string(), "true".to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

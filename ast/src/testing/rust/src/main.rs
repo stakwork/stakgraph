@@ -1,6 +1,8 @@
 mod db;
 mod routes;
 mod traits;
+mod types;
+mod macros;
 
 use crate::db::init_db;
 use crate::routes::{

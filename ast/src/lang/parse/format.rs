@@ -561,6 +561,7 @@ impl Lang {
         let mut args_end_byte: Option<usize> = None;
         let mut return_end_byte: Option<usize> = None;
         let mut attributes_start_byte: Option<usize> = None;
+        let mut is_macro = false;
 
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == PARENT_TYPE {
@@ -570,6 +571,8 @@ impl Lang {
                 let p = node.start_position();
                 let pos = Position::new(file, p.row as u32, p.column as u32)?;
                 name_pos = Some(pos);
+            } else if o == MACRO {
+                is_macro = true;
             } else if o == FUNCTION_DEFINITION {
                 func.body = body;
                 func.start = node.start_position().row;
@@ -814,6 +817,11 @@ impl Lang {
                 lsp_tx,
             )?;
         }
+        
+        if is_macro {
+            func.add_macro();
+        }
+        
         log_cmd(format!("found function {} in file {}", func.name, file));
         Ok(Some((
             func,

@@ -155,3 +155,29 @@ mod tests {
         assert!(true);
     }
 }
+
+pub unsafe fn raw_pointer_access(ptr: *const i32) -> i32 {
+    *ptr
+}
+
+pub const fn buffer_size() -> usize {
+    1024
+}
+
+pub const fn max_connections() -> usize {
+    100
+}
+
+pub struct Wrapper<T: Clone> {
+    pub value: T,
+}
+
+impl<T: Clone> Wrapper<T> {
+    pub fn new(value: T) -> Self {
+        Self { value }
+    }
+    
+    pub fn get(&self) -> T {
+        self.value.clone()
+    }
+}

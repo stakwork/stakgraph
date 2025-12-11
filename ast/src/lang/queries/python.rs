@@ -322,7 +322,7 @@ impl Stack for Python {
         ))
     }
 
-    fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
+    fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
         func_name.starts_with("test_")
     }
     fn handler_finder(

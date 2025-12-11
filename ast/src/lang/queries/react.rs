@@ -989,7 +989,7 @@ impl Stack for ReactTs {
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
 
-    fn is_test(&self, _func_name: &str, func_file: &str) -> bool {
+    fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
         if self.is_test_file(func_file) {
             true
         } else {
