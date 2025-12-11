@@ -479,6 +479,7 @@ impl GraphOps {
         };
 
         let mocks = self.graph.find_nodes_by_type_async(NodeType::Mock).await;
+        println!("{:#?}", mocks);
         let mocks_in_scope: Vec<NodeData> = mocks.into_iter().filter(|n| in_scope(n)).collect();
         
         let mocked_count = mocks_in_scope

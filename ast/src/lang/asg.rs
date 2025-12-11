@@ -396,6 +396,8 @@ impl TryFrom<&BoltNode> for NodeData {
             if !known_fields.contains(&k) {
                 if let Ok(val) = node.get::<String>(k) {
                     meta.insert(k.to_string(), val);
+                } else if let Ok(val) = node.get::<bool>(k) {
+                    meta.insert(k.to_string(), val.to_string());
                 }
             }
         }
