@@ -32,10 +32,18 @@ pub struct CoverageStat {
 }
 
 #[derive(Debug, Clone)]
+pub struct MockStat {
+    pub total: usize,
+    pub mocked: usize,
+    pub percent: f64,
+}
+
+#[derive(Debug, Clone)]
 pub struct GraphCoverage {
     pub unit_tests: Option<CoverageStat>,
     pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
+    pub mocks: Option<MockStat>,
 }
 
 impl GraphOps {
@@ -470,6 +478,26 @@ impl GraphOps {
             })
         };
 
+        let mocks = self.graph.find_nodes_by_type_async(NodeType::Mock).await;
+        println!("{:#?}", mocks);
+        let mocks_in_scope: Vec<NodeData> = mocks.into_iter().filter(|n| in_scope(n)).collect();
+        
+        let mocked_count = mocks_in_scope
+            .iter()
+            .filter(|n| n.meta.get("mocked").map(|v| v == "true").unwrap_or(false))
+            .count();
+        
+        let mock_stat = if mocks_in_scope.is_empty() {
+            None
+        } else {
+            let percent = (mocked_count as f64 / mocks_in_scope.len() as f64) * 100.0;
+            Some(MockStat {
+                total: mocks_in_scope.len(),
+                mocked: mocked_count,
+                percent: (percent * 100.0).round() / 100.0,
+            })
+        };
+
         Ok(GraphCoverage {
             unit_tests: build_stat(
                 &unit_functions_in_scope,
@@ -482,6 +510,7 @@ impl GraphOps {
                 &integration_target_endpoints,
             ),
             e2e_tests: build_stat(&e2e_pages_in_scope, &e2e_tests_in_scope, &e2e_target_pages),
+            mocks: mock_stat,
         })
     }
 

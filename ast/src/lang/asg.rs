@@ -309,6 +309,7 @@ impl ToString for NodeType {
             NodeType::UnitTest => "UnitTest".to_string(),
             NodeType::IntegrationTest => "IntegrationTest".to_string(),
             NodeType::E2eTest => "E2etest".to_string(),
+            NodeType::Mock => "Mock".to_string(),
         }
     }
 }
@@ -399,6 +400,8 @@ impl TryFrom<&BoltNode> for NodeData {
             if !known_fields.contains(&k) {
                 if let Ok(val) = node.get::<String>(k) {
                     meta.insert(k.to_string(), val);
+                } else if let Ok(val) = node.get::<bool>(k) {
+                    meta.insert(k.to_string(), val.to_string());
                 }
             }
         }
