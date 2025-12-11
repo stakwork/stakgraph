@@ -159,7 +159,12 @@ export function getFileSummary(
     return `Error reading file: ${error.message}`;
   }
 }
-
+/*
+rg --glob '!dist' --ignore-file .gitignore -n "validateWorkspaceAccess" | \
+  awk -F: '{file=$1; line=$2; lines[file]=lines[file] (lines[file]?", ":"") line; count[file]++}
+  END {for (f in count) print count[f] "\t" f " (lines: " lines[f] ")"}' | \
+  sort -rn
+*/
 // Fulltext search using ripgrep
 export async function fulltextSearch(
   query: string,
@@ -174,21 +179,41 @@ export async function fulltextSearch(
   }
 
   try {
+    // Escape double quotes in the query
+    const escapedQuery = query.replace(/"/g, '\\"');
+    
     const result = await execCommand(
-      `rg --glob '!dist' --ignore-file .gitignore -C 2 -n --max-count 10 --max-columns 200 "${query}"`,
+      `rg --glob '!dist' --ignore-file .gitignore -n "${escapedQuery}"`,
       repoPath,
       5000
     );
-
+    
+    // Process in JS to group by file
+    const lines = result.split('\n').filter(Boolean);
+    const fileMatches: Record<string, number[]> = {};
+    for (const line of lines) {
+      const match = line.match(/^([^:]+):(\d+):/);
+      if (match) {
+        const [, file, lineNum] = match;
+        if (!fileMatches[file]) fileMatches[file] = [];
+        fileMatches[file].push(parseInt(lineNum));
+      }
+    }
+    
+    const output = Object.entries(fileMatches)
+      .sort((a, b) => b[1].length - a[1].length)
+      .map(([file, lines]) => `${lines.length}\t${file} (lines: ${lines.join(', ')})`)
+      .join('\n');
+    
     // Limit the result to 10,000 characters to prevent overwhelming output
-    if (result.length > 10000) {
+    if (output.length > 10000) {
       return (
-        result.substring(0, 10000) +
+        output.substring(0, 10000) +
         "\n\n[... output truncated to 10,000 characters ...]"
       );
     }
 
-    return result;
+    return output;
   } catch (error: any) {
     // Ripgrep returns exit code 1 when no matches found, which is not really an error
     if (error.message.includes("code 1")) {
