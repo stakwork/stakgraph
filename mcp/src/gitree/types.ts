@@ -173,13 +173,13 @@ export interface Clue {
   entities: ClueEntities;
 
   // File organization
-  primaryFiles: string[]; // Most important files
-  relatedFiles: string[]; // Additional relevant files
+  files: string[]; // Associated files
 
   // Discovery metadata
   keywords: string[]; // For searching
   centrality?: number; // How central/important (0-1)
   usageFrequency?: number; // How often entities are used
+  embedding?: number[]; // Vector embedding of title for semantic search
 
   // Relationships
   relatedClues: string[]; // Other clue IDs

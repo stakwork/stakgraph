@@ -1,6 +1,7 @@
 import { Storage } from "./store/index.js";
 import { Clue, ClueAnalysisResult, Usage } from "./types.js";
 import { get_context } from "../repo/agent.js";
+import { vectorizeQuery } from "../vector/index.js";
 
 /**
  * Analyzes feature codebases to extract architectural clues
@@ -101,15 +102,14 @@ export class ClueAnalyzer {
                   hooks: { type: "array", items: { type: "string" } },
                 },
               },
-              primaryFiles: { type: "array", items: { type: "string" } },
-              relatedFiles: { type: "array", items: { type: "string" } },
+              files: { type: "array", items: { type: "string" } },
               keywords: { type: "array", items: { type: "string" } },
               centrality: { type: "number" },
               usageFrequency: { type: "number" },
               relatedClues: { type: "array", items: { type: "string" } },
               dependsOn: { type: "array", items: { type: "string" } },
             },
-            required: ["title", "type", "content", "entities", "primaryFiles", "keywords"],
+            required: ["title", "type", "content", "entities", "files", "keywords"],
           },
         },
         complete: { type: "boolean" },
@@ -132,6 +132,9 @@ export class ClueAnalyzer {
     const savedClues: Clue[] = [];
 
     for (const clueData of decision.clues || []) {
+      // Generate embedding from title
+      const embedding = await vectorizeQuery(clueData.title);
+
       const clue: Clue = {
         id: this.generateClueId(clueData.title),
         featureId,
@@ -139,13 +142,13 @@ export class ClueAnalyzer {
         title: clueData.title,
         content: clueData.content,
         entities: clueData.entities || {},
-        primaryFiles: clueData.primaryFiles || [],
-        relatedFiles: clueData.relatedFiles || [],
+        files: clueData.files || [],
         keywords: clueData.keywords || [],
         centrality: clueData.centrality,
         usageFrequency: clueData.usageFrequency,
         relatedClues: clueData.relatedClues || [],
         dependsOn: clueData.dependsOn || [],
+        embedding,
         createdAt: now,
         updatedAt: now,
       };
@@ -268,7 +271,7 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
    - Type (utility, pattern, abstraction, integration, convention, gotcha, data-flow, state-pattern)
    - Content (WHY this matters, WHEN to use it, high-level CONTEXT)
    - Entities (actual function/class/type/endpoint names from the code)
-   - Files (where these entities are defined)
+   - Files (list of files where these entities are defined or this pattern is used)
    - Keywords (for searchability)
 
 5. Set "complete: true" if you believe this feature is comprehensively covered (or if creating fewer than 2 new clues)

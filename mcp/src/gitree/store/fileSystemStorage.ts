@@ -24,7 +24,6 @@ import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMar
  *       └── ...
  */
 export class FileSystemStore extends Storage {
-  private baseDir: string;
   private featuresDir: string;
   private prsDir: string;
   private commitsDir: string;
@@ -34,7 +33,6 @@ export class FileSystemStore extends Storage {
 
   constructor(baseDir: string = "./knowledge-base") {
     super();
-    this.baseDir = baseDir;
     this.featuresDir = path.join(baseDir, "features");
     this.prsDir = path.join(baseDir, "prs");
     this.commitsDir = path.join(baseDir, "commits");
@@ -252,6 +250,92 @@ export class FileSystemStore extends Storage {
   async deleteClue(id: string): Promise<void> {
     const filePath = path.join(this.cluesDir, `${id}.json`);
     await fs.unlink(filePath);
+  }
+
+  /**
+   * Simple clue search for FileSystemStore (less sophisticated than GraphStorage)
+   */
+  async searchClues(
+    query: string,
+    embeddings: number[],
+    featureId?: string,
+    limit: number = 10,
+    similarityThreshold: number = 0.5
+  ): Promise<Array<Clue & { score: number; relevanceBreakdown?: any }>> {
+    const allClues = featureId
+      ? await this.getCluesForFeature(featureId)
+      : await this.getAllClues();
+
+    const queryLower = query.toLowerCase();
+
+    // Score each clue
+    const scored = allClues
+      .map((clue) => {
+        // Vector similarity (cosine)
+        const vectorScore = clue.embedding
+          ? this.cosineSimilarity(embeddings, clue.embedding)
+          : 0;
+
+        // Keyword matching
+        const keywordScore = clue.keywords.some((kw) =>
+          kw.toLowerCase().includes(queryLower)
+        )
+          ? 0.3
+          : clue.keywords.some((kw) =>
+              queryLower.includes(kw.toLowerCase())
+            )
+          ? 0.2
+          : 0;
+
+        // Title matching
+        const titleScore = clue.title.toLowerCase().includes(queryLower)
+          ? 0.2
+          : 0;
+
+        // Centrality
+        const centralityScore = clue.centrality || 0.5;
+
+        // Combined score
+        const finalScore =
+          vectorScore * 0.5 + keywordScore + titleScore + centralityScore * 0.2;
+
+        return {
+          ...clue,
+          score: finalScore,
+          relevanceBreakdown: {
+            vector: vectorScore,
+            keyword: keywordScore,
+            title: titleScore,
+            centrality: centralityScore,
+            final: finalScore,
+          },
+        };
+      })
+      .filter((result) => result.relevanceBreakdown.vector >= similarityThreshold)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+
+    return scored;
+  }
+
+  /**
+   * Calculate cosine similarity between two vectors
+   */
+  private cosineSimilarity(a: number[], b: number[]): number {
+    if (a.length !== b.length) return 0;
+
+    let dotProduct = 0;
+    let normA = 0;
+    let normB = 0;
+
+    for (let i = 0; i < a.length; i++) {
+      dotProduct += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+
+    const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+    return denominator === 0 ? 0 : dotProduct / denominator;
   }
 
   // Metadata

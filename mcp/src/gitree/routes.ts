@@ -1119,3 +1119,60 @@ export async function gitree_delete_clue(req: Request, res: Response) {
     });
   }
 }
+
+/**
+ * POST /gitree/search-clues
+ * Search clues by relevance using embeddings, keywords, and centrality
+ * Body: { query: string, featureId?: string, limit?: number, similarityThreshold?: number }
+ */
+export async function gitree_search_clues(req: Request, res: Response) {
+  try {
+    const { query, featureId, limit = 10, similarityThreshold = 0.5 } = req.body;
+
+    if (!query || typeof query !== "string") {
+      return res.status(400).json({ error: "query is required and must be a string" });
+    }
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Generate embeddings for the query
+    const { vectorizeQuery } = await import("../vector/index.js");
+    const embeddings = await vectorizeQuery(query);
+
+    // Search clues
+    const results = await storage.searchClues(
+      query,
+      embeddings,
+      featureId,
+      limit,
+      similarityThreshold
+    );
+
+    res.json({
+      query,
+      featureId: featureId || "all",
+      count: results.length,
+      results: results.map((r) => ({
+        clue: {
+          id: r.id,
+          featureId: r.featureId,
+          type: r.type,
+          title: r.title,
+          content: r.content,
+          entities: r.entities,
+          files: r.files,
+          keywords: r.keywords,
+          centrality: r.centrality,
+        },
+        score: r.score,
+        relevanceBreakdown: r.relevanceBreakdown,
+      })),
+    });
+  } catch (error) {
+    console.error("Error in gitree_search_clues:", error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}

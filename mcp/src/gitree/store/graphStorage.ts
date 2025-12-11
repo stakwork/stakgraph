@@ -1,4 +1,4 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
+import neo4j, { Driver } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
@@ -403,13 +403,13 @@ export class GraphStorage extends Storage {
             c.title = $title,
             c.content = $content,
             c.entities = $entities,
-            c.primaryFiles = $primaryFiles,
-            c.relatedFiles = $relatedFiles,
+            c.files = $files,
             c.keywords = $keywords,
             c.centrality = $centrality,
             c.usageFrequency = $usageFrequency,
             c.relatedClues = $relatedClues,
             c.dependsOn = $dependsOn,
+            c.embeddings = $embeddings,
             c.createdAt = $createdAt,
             c.updatedAt = $updatedAt,
             c.namespace = $namespace,
@@ -428,13 +428,13 @@ export class GraphStorage extends Storage {
           title: clue.title,
           content: clue.content,
           entities: JSON.stringify(clue.entities),
-          primaryFiles: clue.primaryFiles,
-          relatedFiles: clue.relatedFiles,
+          files: clue.files,
           keywords: clue.keywords,
           centrality: clue.centrality || null,
           usageFrequency: clue.usageFrequency || null,
           relatedClues: clue.relatedClues,
           dependsOn: clue.dependsOn,
+          embeddings: clue.embedding || null,
           createdAt: createdAtTimestamp,
           updatedAt: updatedAtTimestamp,
           namespace: "default",
@@ -497,6 +497,96 @@ export class GraphStorage extends Storage {
         `,
         { id }
       );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Search clues by relevance using embeddings, keywords, and centrality
+   */
+  async searchClues(
+    query: string,
+    embeddings: number[],
+    featureId?: string,
+    limit: number = 10,
+    similarityThreshold: number = 0.5
+  ): Promise<Array<Clue & { score: number; relevanceBreakdown: any }>> {
+    const session = this.driver.session();
+    try {
+      // Search query that combines:
+      // 1. Vector similarity (embedding)
+      // 2. Keyword matching
+      // 3. Centrality boost
+      const result = await session.run(
+        `
+        MATCH (c:Clue)
+        WHERE
+          CASE
+            WHEN $featureId IS NOT NULL THEN c.featureId = $featureId
+            ELSE true
+          END
+          AND c.embeddings IS NOT NULL
+        WITH c, gds.similarity.cosine(c.embeddings, $embeddings) AS vectorScore
+        WHERE vectorScore >= $similarityThreshold
+
+        // Keyword matching score
+        WITH c, vectorScore,
+          CASE
+            WHEN any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($query)) THEN 0.3
+            WHEN any(kw IN c.keywords WHERE toLower($query) CONTAINS toLower(kw)) THEN 0.2
+            ELSE 0.0
+          END AS keywordScore
+
+        // Title matching boost
+        WITH c, vectorScore, keywordScore,
+          CASE
+            WHEN toLower(c.title) CONTAINS toLower($query) THEN 0.2
+            ELSE 0.0
+          END AS titleScore
+
+        // Centrality boost (0-1 normalized)
+        WITH c, vectorScore, keywordScore, titleScore,
+          COALESCE(c.centrality, 0.5) AS centralityScore
+
+        // Combined relevance score
+        WITH c, vectorScore, keywordScore, titleScore, centralityScore,
+          (vectorScore * 0.5) + keywordScore + titleScore + (centralityScore * 0.2) AS finalScore
+
+        RETURN c, finalScore, vectorScore, keywordScore, titleScore, centralityScore
+        ORDER BY finalScore DESC
+        LIMIT toInteger($limit)
+        `,
+        {
+          query,
+          embeddings,
+          featureId: featureId || null,
+          limit,
+          similarityThreshold,
+        }
+      );
+
+      return result.records.map((record) => {
+        const node = record.get("c");
+        const clue = this.nodeToClue(node);
+        const finalScore = record.get("finalScore");
+        const vectorScore = record.get("vectorScore");
+        const keywordScore = record.get("keywordScore");
+        const titleScore = record.get("titleScore");
+        const centralityScore = record.get("centralityScore");
+
+        return {
+          ...clue,
+          score: finalScore,
+          relevanceBreakdown: {
+            vector: vectorScore,
+            keyword: keywordScore,
+            title: titleScore,
+            centrality: centralityScore,
+            final: finalScore,
+          },
+        };
+      });
     } finally {
       await session.close();
     }
@@ -834,11 +924,11 @@ export class GraphStorage extends Storage {
       title: props.title,
       content: props.content,
       entities: props.entities ? JSON.parse(props.entities) : {},
-      primaryFiles: props.primaryFiles || [],
-      relatedFiles: props.relatedFiles || [],
+      files: props.files || [],
       keywords: props.keywords || [],
       centrality: props.centrality || undefined,
       usageFrequency: props.usageFrequency || undefined,
+      embedding: props.embeddings || undefined,
       relatedClues: props.relatedClues || [],
       dependsOn: props.dependsOn || [],
       createdAt: new Date(props.createdAt * 1000),

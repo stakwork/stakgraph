@@ -28,6 +28,13 @@ export abstract class Storage {
   abstract getClue(id: string): Promise<Clue | null>;
   abstract getAllClues(): Promise<Clue[]>;
   abstract deleteClue(id: string): Promise<void>;
+  abstract searchClues(
+    query: string,
+    embeddings: number[],
+    featureId?: string,
+    limit?: number,
+    similarityThreshold?: number
+  ): Promise<Array<Clue & { score: number; relevanceBreakdown?: any }>>;
 
   // Metadata (legacy - kept for backwards compatibility)
   abstract getLastProcessedPR(): Promise<number>;

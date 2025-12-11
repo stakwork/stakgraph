@@ -523,10 +523,8 @@ program
         console.log();
       }
 
-      console.log(`Primary Files:\n  ${clue.primaryFiles.join("\n  ")}\n`);
-
-      if (clue.relatedFiles.length > 0) {
-        console.log(`Related Files:\n  ${clue.relatedFiles.join("\n  ")}\n`);
+      if (clue.files.length > 0) {
+        console.log(`Files:\n  ${clue.files.join("\n  ")}\n`);
       }
 
       console.log(`Keywords: ${clue.keywords.join(", ")}\n`);
@@ -541,6 +539,67 @@ program
 
       console.log(`Created: ${clue.createdAt.toISOString()}`);
       console.log(`Updated: ${clue.updatedAt.toISOString()}\n`);
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("search-clues")
+  .description("Search clues by relevance (embeddings + keywords + centrality)")
+  .argument("<query>", "Search query")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage")
+  .option("-f, --feature <id>", "Filter by feature ID")
+  .option("-l, --limit <number>", "Maximum number of results", "10")
+  .option("-t, --threshold <number>", "Similarity threshold (0-1)", "0.5")
+  .action(async (query: string, options) => {
+    try {
+      const storage = await createStorage(options);
+      const { vectorizeQuery } = await import("../vector/index.js");
+
+      console.log(`\n🔍 Searching for: "${query}"\n`);
+
+      // Generate embeddings
+      const embeddings = await vectorizeQuery(query);
+
+      // Search
+      const results = await storage.searchClues(
+        query,
+        embeddings,
+        options.feature,
+        parseInt(options.limit),
+        parseFloat(options.threshold)
+      );
+
+      if (results.length === 0) {
+        console.log("📭 No clues found matching your query.\n");
+        return;
+      }
+
+      console.log(`Found ${results.length} relevant clue(s):\n`);
+
+      for (const result of results) {
+        console.log(`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+        console.log(`📍 ${result.title} (${result.id})`);
+        console.log(`   Score: ${result.score.toFixed(3)} | Type: ${result.type}`);
+
+        if (result.relevanceBreakdown) {
+          console.log(
+            `   📊 Breakdown: Vector=${result.relevanceBreakdown.vector.toFixed(2)}, ` +
+              `Keyword=${result.relevanceBreakdown.keyword.toFixed(2)}, ` +
+              `Title=${result.relevanceBreakdown.title.toFixed(2)}, ` +
+              `Centrality=${result.relevanceBreakdown.centrality.toFixed(2)}`
+          );
+        }
+
+        console.log(`   ${result.content.substring(0, 150)}...`);
+        console.log(`   Keywords: ${result.keywords.slice(0, 5).join(", ")}`);
+        console.log();
+      }
+
+      console.log();
     } catch (error) {
       console.error("\n❌ Error:", error);
       process.exit(1);
