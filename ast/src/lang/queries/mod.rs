@@ -179,7 +179,7 @@ pub trait Stack {
     fn handler_method_query(&self) -> Option<String> {
         None
     }
-    fn is_test(&self, _func_name: &str, _func_file: &str) -> bool {
+    fn is_test(&self, _func_name: &str, _func_file: &str, _func_body: &str) -> bool {
         false
     }
     fn tests_are_functions(&self) -> bool {
@@ -203,7 +203,7 @@ pub trait Stack {
         let mut fs = Vec::new();
         let mut ts = Vec::new();
         for func in funcs {
-            if self.is_test(&func.0.name, &func.0.file) {
+            if self.is_test(&func.0.name, &func.0.file, &func.0.body) {
                 // for JS, tests are not function, but describe, test, it CALLS
                 if self.tests_are_functions() {
                     ts.push(func);

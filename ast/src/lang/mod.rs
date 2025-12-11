@@ -454,7 +454,7 @@ impl Lang {
             let more_tests = self.collect_tests(&qo2, code, file, graph)?;
             for (mt, edge) in more_tests {
                 let nd = mt.0.clone();
-                if !self.lang.is_test(&nd.name, &nd.file) {
+                if !self.lang.is_test(&nd.name, &nd.file, &nd.body) {
                     continue;
                 }
                 let kind = self.lang.classify_test(&nd.name, file, &nd.body);
@@ -558,9 +558,12 @@ impl Lang {
             // FIXME can we only pass in the node code here? Need to sum line nums
             trace!("add_calls_for_function");
             let mut caller_name = "".to_string();
+            let mut attributes = Vec::new();
             Self::loop_captures(&qo1, &m, code, |body, node, o| {
                 if o == FUNCTION_NAME {
                     caller_name = body;
+                } else if o == ATTRIBUTES {
+                    attributes.push(body);
                 } else if o == FUNCTION_DEFINITION {
                     let caller_start = node.start_position().row as usize;
                     // NOTE this should always be the last one
@@ -576,8 +579,13 @@ impl Lang {
                         lsp_tx,
                         graph.get_allow_unverified_calls(),
                     )?;
-                    self.add_calls_inside(&mut res, &caller_name, file, calls);
-                    if self.lang.is_test(&caller_name, file) {
+                    let full_body = if !attributes.is_empty() {
+                        format!("{} {}", attributes.join(" "), body)
+                    } else {
+                        body.to_string()
+                    };
+                    self.add_calls_inside(&mut res, &caller_name, file, &full_body, calls);
+                    if self.lang.is_test(&caller_name, file, &full_body) {
                         let int_calls = self.collect_integration_test_calls(
                             code,
                             file,
@@ -616,9 +624,12 @@ impl Lang {
 
             while let Some(tm) = test_matches.next() {
                 let mut caller_name = String::new();
+                let mut attributes = Vec::new();
                 Self::loop_captures(&q_tests, &tm, code, |body, node, o| {
                     if o == FUNCTION_NAME {
                         caller_name = body;
+                    } else if o == ATTRIBUTES {
+                        attributes.push(body);
                     } else if o == FUNCTION_DEFINITION {
                         let caller_start = node.start_position().row as usize;
                         let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
@@ -633,7 +644,13 @@ impl Lang {
                             lsp_tx,
                             graph.get_allow_unverified_calls(),
                         )?;
-                        self.add_calls_inside(&mut res, &caller_name, file, calls);
+                        // Combine attributes and body for accurate test detection
+                        let full_body = if !attributes.is_empty() {
+                            format!("{} {}", attributes.join(" "), body)
+                        } else {
+                            body.to_string()
+                        };
+                        self.add_calls_inside(&mut res, &caller_name, file, &full_body, calls);
                         // link test to endpoint: integration tests
                         if let Some(rq) = self.lang.request_finder() {
                             let rq_q = self.q(&rq, &NodeType::Request);
@@ -716,9 +733,10 @@ impl Lang {
         res: &mut (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>),
         caller_name: &str,
         caller_file: &str,
+        caller_body: &str,
         calls: Vec<FunctionCall>,
     ) {
-        if self.lang.is_test(&caller_name, caller_file) {
+        if self.lang.is_test(&caller_name, caller_file, caller_body) {
             res.1.extend_from_slice(&calls);
         } else {
             res.0.extend_from_slice(&calls);

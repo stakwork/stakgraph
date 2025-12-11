@@ -279,7 +279,7 @@ impl Stack for Go {
         );
         Some(type_finder)
     }
-    fn is_test(&self, func_name: &str, _func_file: &str) -> bool {
+    fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
         func_name.starts_with("Test")
     }
     fn is_test_file(&self, filename: &str) -> bool {

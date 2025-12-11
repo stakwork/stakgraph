@@ -249,7 +249,7 @@ impl Stack for Ruby {
         // "advisor_groups"
         models
     }
-    fn is_test(&self, _func_name: &str, func_file: &str) -> bool {
+    fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
         self.is_test_file(func_file)
     }
     fn is_test_file(&self, filename: &str) -> bool {

@@ -636,34 +636,23 @@ impl Stack for Rust {
         normalized.contains("/tests/") || normalized.contains("/benches/")
     }
 
-    fn is_test(&self, func_name: &str, func_file: &str) -> bool {
-        let Ok(code) = std::fs::read_to_string(func_file) else {
-            return false;
-        };
-
+    fn is_test(&self, _func_name: &str, _func_file: &str, func_body: &str) -> bool {
         let test_patterns = [
-            format!("#[test"),
-            format!("#[tokio::test"),
-            format!("#[actix_rt::test"),
-            format!("#[actix_web::test"),
-            format!("#[rstest"),
-            format!("#[rstest("),
-            format!("#[proptest"),
-            format!("#[quickcheck"),
-            format!("#[wasm_bindgen_test"),
-            format!("#[bench"),
+            "#[test",
+            "#[tokio::test",
+            "#[actix_rt::test",
+            "#[actix_web::test",
+            "#[rstest",
+            "#[rstest(",
+            "#[proptest",
+            "#[quickcheck",
+            "#[wasm_bindgen_test",
+            "#[bench",
         ];
 
-        let fn_pattern = format!("fn {}(", func_name);
-        if let Some(fn_pos) = code.find(&fn_pattern) {
-            // Get code before function (up to 100 chars back to catch attributes)
-            let start = fn_pos.saturating_sub(100);
-            let context = &code[start..fn_pos];
-
-            for pattern in &test_patterns {
-                if context.contains(pattern) {
-                    return true;
-                }
+        for pattern in &test_patterns {
+            if func_body.contains(pattern) {
+                return true;
             }
         }
 
