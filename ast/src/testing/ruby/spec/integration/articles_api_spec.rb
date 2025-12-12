@@ -1,63 +1,96 @@
-RSpec.describe "Articles API" do
+RSpec.describe "Articles API", type: :request do
   describe "GET /people/articles" do
-    it "returns empty array when no articles exist" do
-      controller = PeopleController.new
-      controller.articles
-      # Expected: render json: articles, status: :ok
-      expect(Article.count).to eq(0)
+    context "when no articles exist" do
+      before { get "/people/articles" }
+      
+      it "returns success status" do
+        expect(response).to have_http_status(:ok)
+      end
+      
+      it "returns empty array" do
+        expect(json_response).to eq([])
+      end
     end
 
-    it "returns all articles across all people" do
-      person1 = Person.create(name: "Author 1", email: "author1@example.com")
-      person2 = Person.create(name: "Author 2", email: "author2@example.com")
+    context "when articles exist across multiple people" do
+      let!(:person1) { create(:person, name: "Author 1") }
+      let!(:person2) { create(:person, name: "Author 2") }
+      let!(:article1) { create(:article, person: person1, title: "Article 1") }
+      let!(:article2) { create(:article, person: person2, title: "Article 2") }
+      let!(:article3) { create(:article, person: person1, title: "Article 3") }
       
-      article1 = person1.articles.create(title: "Article 1", body: "Content 1")
-      article2 = person2.articles.create(title: "Article 2", body: "Content 2")
-      article3 = person1.articles.create(title: "Article 3", body: "Content 3")
+      before { get "/people/articles" }
       
-      controller = PeopleController.new
-      controller.articles
-      # Expected: render json: articles, status: :ok
-      expect(Article.count).to eq(3)
+      it "returns success status" do
+        expect(response).to have_http_status(:ok)
+      end
+      
+      it "returns all articles" do
+        expect(json_response.size).to eq(3)
+      end
+      
+      it "includes article details" do
+        titles = json_response.map { |a| a['title'] }
+        expect(titles).to contain_exactly("Article 1", "Article 2", "Article 3")
+      end
     end
   end
 
   describe "POST /people/:id/articles" do
-    it "creates article with valid params" do
-      person = Person.create(name: "Author", email: "author@example.com")
-      article_params = { title: "Test Article", body: "Test Content" }
+    let(:person) { create(:person) }
+    
+    context "with valid params" do
+      let(:article_params) { { article: { title: "Test Article", body: "Test Content" } } }
       
-      controller = PeopleController.new
-      controller.params = { id: person.id, article: article_params }
-      controller.create_article
-      # Expected: render json: article, status: :created
+      it "creates a new article" do
+        expect {
+          post "/people/#{person.id}/articles", params: article_params
+        }.to change(Article, :count).by(1)
+      end
       
-      article = Article.find_by(title: "Test Article")
-      expect(article).not_to be_nil
-      expect(article.person).to eq(person)
-      expect(article.body).to eq("Test Content")
+      it "associates article with person" do
+        post "/people/#{person.id}/articles", params: article_params
+        expect(person.reload.articles.count).to eq(1)
+      end
+      
+      it "returns created status" do
+        post "/people/#{person.id}/articles", params: article_params
+        expect(response).to have_http_status(:created)
+      end
+      
+      it "returns article data" do
+        post "/people/#{person.id}/articles", params: article_params
+        expect(json_response['title']).to eq("Test Article")
+        expect(json_response['body']).to eq("Test Content")
+      end
     end
 
-    it "returns errors with invalid params" do
-      person = Person.create(name: "Author", email: "author@example.com")
-      article_params = { title: "", body: "" }
+    context "with invalid params" do
+      let(:invalid_params) { { article: { title: "", body: "" } } }
       
-      controller = PeopleController.new
-      controller.params = { id: person.id, article: article_params }
-      controller.create_article
-      # Expected: render json: article.errors, status: :unprocessable_entity
+      before { post "/people/#{person.id}/articles", params: invalid_params }
+      
+      it "does not create article" do
+        expect(person.reload.articles.count).to eq(0)
+      end
+      
+      it "returns unprocessable entity status" do
+        expect(response).to have_http_status(:unprocessable_entity)
+      end
+      
+      it "returns error messages" do
+        expect(json_response['errors']).to be_present
+      end
     end
-
-    it "handles association correctly" do
-      person = Person.create(name: "Author", email: "author@example.com")
-      article_params = { title: "Associated Article", body: "Associated Content" }
-      
-      controller = PeopleController.new
-      controller.params = { id: person.id, article: article_params }
-      controller.create_article
-      
-      expect(person.reload.articles.count).to eq(1)
-      expect(person.articles.first.title).to eq("Associated Article")
+    
+    context "with multiple articles" do
+      it "creates articles preserving association" do
+        create(:article, person: person, title: "First Article")
+        post "/people/#{person.id}/articles", params: { article: { title: "Second Article", body: "Content" } }
+        
+        expect(person.reload.articles.count).to eq(2)
+        expect(person.articles.pluck(:title)).to include("First Article", "Second Article")
+      end
     end
   end
 end

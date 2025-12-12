@@ -249,10 +249,19 @@ impl Stack for Ruby {
         // "advisor_groups"
         models
     }
-    fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
+    fn is_test(&self, func_name: &str, func_file: &str, _func_body: &str) -> bool {
+        let lifecycle_hooks = ["setup", "teardown", "before", "after"];
+        if lifecycle_hooks.contains(&func_name) {
+            return false;
+        }
         self.is_test_file(func_file)
     }
     fn is_test_file(&self, filename: &str) -> bool {
+        let is_support = filename.contains("/spec/support/") || filename.contains("/test/support/");
+        if is_support {
+            return false;
+        }
+        
         filename.ends_with("_spec.rb")
             || filename.ends_with("_test.rb")
             || filename.contains("/spec/")
@@ -296,11 +305,52 @@ impl Stack for Ruby {
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
+                ;; RSpec.describe / RSpec.context (top-level only)
+                (program
+                    (call
+                        receiver: (constant) @rspec (#match? @rspec "^RSpec$")
+                        method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                        arguments: (argument_list
+                            [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                        )
+                        block: (do_block)
+                    ) @{FUNCTION_DEFINITION}
+                )
+                
+                ;; describe / context (bare - most common Rails pattern, top-level only)
+                (program
+                    (call
+                        method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                        arguments: (argument_list
+                            [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                        )
+                        block: (do_block)
+                    ) @{FUNCTION_DEFINITION}
+                )
+                
+                ;; feature / scenario (E2E pattern with Capybara, top-level only)
+                (program
+                    (call
+                        method: (identifier) @feature (#match? @feature "^(feature|scenario)$")
+                        arguments: (argument_list
+                            (string) @{FUNCTION_NAME}
+                        )
+                        block: (do_block)
+                    ) @{FUNCTION_DEFINITION}
+                )
+                
+                ;; Minitest method-based: def test_something (exclude lifecycle hooks)
+                (method
+                    name: (identifier) @test_name @{FUNCTION_NAME} 
+                    (#match? @test_name "^test_")
+                    (#not-match? @test_name "^(setup|teardown)$")
+                ) @{FUNCTION_DEFINITION}
+                
+                ;; Minitest DSL: test "description" do
                 (call
-                    receiver: (constant) @rspec (#match? @rspec "^RSpec$")
-                    method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                    method: (identifier) @test (#eq? @test "test")
                     arguments: (argument_list
-                        [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                        (string) @{FUNCTION_NAME}
                     )
                     block: (do_block)
                 ) @{FUNCTION_DEFINITION}
@@ -323,14 +373,33 @@ impl Stack for Ruby {
 
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         let f = file.replace('\\', "/").to_lowercase();
+        let b = body.to_lowercase();
 
-        // Strictest E2E paths only
+        // HIGHEST PRIORITY: Explicit E2E directories always win (clearest developer intent)
         if f.contains("/spec/e2e/")
             || f.contains("/test/e2e/")
             || f.contains("/spec/system/")
             || f.contains("/test/system/")
+            || f.contains("/spec/features/") // Feature specs are E2E by convention
+            || f.contains("/test/features/")
         {
             return NodeType::E2eTest;
+        }
+
+        // SECOND PRIORITY: Check RSpec metadata for non-E2E paths
+        // type: :system, type: :feature → E2E
+        if b.contains("type: :system") || b.contains("type: :feature") {
+            return NodeType::E2eTest;
+        }
+        
+        // type: :request, type: :integration → Integration
+        if b.contains("type: :request") || b.contains("type: :integration") {
+            return NodeType::IntegrationTest;
+        }
+        
+        // type: :model, type: :service → Unit
+        if b.contains("type: :model") || b.contains("type: :service") {
+            return NodeType::UnitTest;
         }
 
         // Explicit unit paths
@@ -364,8 +433,7 @@ impl Stack for Ruby {
             return NodeType::UnitTest;
         }
 
-        // For ambiguous paths (/spec/features/, /spec/mixed/, etc), use body
-        let b = body.to_lowercase();
+        // For ambiguous paths, use body markers
 
         // E2E body markers checked FIRST (stronger signal for user interaction)
         let e2e_markers = [
