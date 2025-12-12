@@ -460,6 +460,31 @@ impl Stack for ReactTs {
                         )
                         arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                     )
+                    (program
+                        (expression_statement
+                            (call_expression
+                                function: (member_expression
+                                    object: (identifier) @test (#eq? @test "test")
+                                    property: (property_identifier) @desc3 (#eq? @desc3 "describe")
+                                )
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
+                    (program
+                        (expression_statement
+                            (call_expression
+                                function: (member_expression
+                                    object: (member_expression
+                                        object: (identifier) @test2 (#eq? @test2 "test")
+                                        property: (property_identifier) @desc4 (#eq? @desc4 "describe")
+                                    )
+                                    property: (property_identifier) @mod2 (#match? @mod2 "^(only|skip|todo)$")
+                                )
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
                 ] @{FUNCTION_DEFINITION}"#
         ))
     }
