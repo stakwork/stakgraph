@@ -131,8 +131,8 @@ export class ClueAnalyzer {
     const savedClues: Clue[] = [];
 
     for (const clueData of decision.clues || []) {
-      // Generate embedding from title
-      const embedding = await vectorizeQuery(clueData.title);
+      // Generate embedding from title + content
+      const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
 
       const clue: Clue = {
         id: this.generateClueId(clueData.title),
@@ -375,7 +375,8 @@ export class ClueAnalyzer {
     const savedClues: Clue[] = [];
 
     for (const clueData of decision.clues || []) {
-      const embedding = await vectorizeQuery(clueData.title);
+      // Generate embedding from title + content
+      const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
 
       const clue: Clue = {
         id: this.generateClueId(clueData.title),

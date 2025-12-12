@@ -1415,6 +1415,9 @@ export async function gitree_link_clues(req: Request, res: Response) {
  * POST /gitree/search-clues
  * Search clues by relevance using embeddings, keywords, and centrality
  * Body: { query: string, featureId?: string, limit?: number, similarityThreshold?: number }
+ curl -X POST http://localhost:3355/gitree/search-clues \
+    -H "Content-Type: application/json" \
+    -d '{"query": "workspace access"}'
  */
 export async function gitree_search_clues(req: Request, res: Response) {
   try {

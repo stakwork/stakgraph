@@ -123,7 +123,7 @@ export async function gitsee_context(
     }),
     fulltext_search: tool({
       description:
-        "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or pattern. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for. It will return a list of files in which the term is found, a count of occurrences, and specific line numbers where the term is found.",
+        "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or pattern. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for. It will return a list of files in which the term is found, a count of occurrences, and specific line numbers where the term is found. This is also useful for analyzing how central a function is to the codebase, by seeing how many occurences there are.",
       inputSchema: z.object({
         query: z.string().describe("The term to search for"),
       }),
