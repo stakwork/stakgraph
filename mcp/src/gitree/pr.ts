@@ -8,11 +8,21 @@ interface PullRequestInfo {
 
 interface PRContentOptions {
   maxPatchLines?: number; // Max lines per file patch before truncation
+  maxFiles?: number; // Max number of files to include
+  maxDescriptionChars?: number; // Max characters for PR description
+  maxCommentChars?: number; // Max characters per comment/review
+  maxComments?: number; // Max number of comments to include
+  maxReviews?: number; // Max number of reviews to include
   includeContext?: boolean; // Include diff context lines
 }
 
 const DEFAULT_OPTIONS: PRContentOptions = {
   maxPatchLines: 500,
+  maxFiles: 50,
+  maxDescriptionChars: 5000,
+  maxCommentChars: 500,
+  maxComments: 50,
+  maxReviews: 20,
   includeContext: true,
 };
 
@@ -141,27 +151,31 @@ function formatPRContent(
   // Header
   sections.push(formatHeader(prData));
 
-  // Description
+  // Description (truncated)
   if (prData.body && typeof prData.body === "string") {
-    sections.push(formatDescription(prData.body));
+    sections.push(formatDescription(prData.body, options.maxDescriptionChars!));
   }
 
-  // Files Changed
-  sections.push(formatFilesChanged(files, options));
+  // Files Changed (limited)
+  const limitedFiles = files.slice(0, options.maxFiles);
+  sections.push(formatFilesChanged(limitedFiles, files.length, options));
 
-  // Review Comments (line-specific)
+  // Review Comments (limited and truncated)
   if (reviewComments.length > 0) {
-    sections.push(formatReviewComments(reviewComments));
+    const limitedReviewComments = reviewComments.slice(0, options.maxComments);
+    sections.push(formatReviewComments(limitedReviewComments, reviewComments.length, options.maxCommentChars!));
   }
 
-  // Reviews (approval/changes requested)
+  // Reviews (limited and truncated)
   if (reviews.length > 0) {
-    sections.push(formatReviews(reviews));
+    const limitedReviews = reviews.slice(0, options.maxReviews);
+    sections.push(formatReviews(limitedReviews, reviews.length, options.maxCommentChars!));
   }
 
-  // General Discussion
+  // General Discussion (limited and truncated)
   if (issueComments.length > 0) {
-    sections.push(formatIssueComments(issueComments));
+    const limitedIssueComments = issueComments.slice(0, options.maxComments);
+    sections.push(formatIssueComments(limitedIssueComments, issueComments.length, options.maxCommentChars!));
   }
 
   // Commits
@@ -197,10 +211,14 @@ function formatHeader(prData: Record<string, unknown>): string {
 /**
  * Format PR description
  */
-function formatDescription(body: string): string {
+function formatDescription(body: string, maxChars: number): string {
+  const truncated = body.length > maxChars
+    ? `${body.substring(0, maxChars)}\n\n... [truncated ${body.length - maxChars} characters]`
+    : body;
+
   return `## Description
 
-${body}`;
+${truncated}`;
 }
 
 /**
@@ -208,9 +226,14 @@ ${body}`;
  */
 function formatFilesChanged(
   files: Record<string, unknown>[],
+  totalFiles: number,
   options: PRContentOptions
 ): string {
-  const sections = [`## Files Changed (${files.length} files)`];
+  const sections = [`## Files Changed (showing ${files.length} of ${totalFiles} files)`];
+
+  if (files.length < totalFiles) {
+    sections.push(`\n*Note: ${totalFiles - files.length} files omitted for brevity*\n`);
+  }
 
   for (const file of files) {
     const status = (file.status as string) || "unknown";
@@ -255,8 +278,16 @@ function truncatePatch(patch: string, maxLines: number): string {
 /**
  * Format line-specific review comments
  */
-function formatReviewComments(comments: Record<string, unknown>[]): string {
-  const sections = ["## Code Review Comments"];
+function formatReviewComments(
+  comments: Record<string, unknown>[],
+  totalComments: number,
+  maxCommentChars: number
+): string {
+  const sections = [`## Code Review Comments (showing ${comments.length} of ${totalComments})`];
+
+  if (comments.length < totalComments) {
+    sections.push(`\n*Note: ${totalComments - comments.length} comments omitted for brevity*\n`);
+  }
 
   // Group by file
   const commentsByFile: Record<string, Record<string, unknown>[]> = {};
@@ -282,13 +313,18 @@ function formatReviewComments(comments: Record<string, unknown>[]): string {
       const diffHunk = comment.diff_hunk as string | undefined;
       const body = (comment.body as string) || "";
 
+      // Truncate comment body if too long
+      const truncatedBody = body.length > maxCommentChars
+        ? `${body.substring(0, maxCommentChars)}... [truncated]`
+        : body;
+
       sections.push(`\n**@${author}** on line ${line} - ${createdAt}`);
       if (diffHunk) {
         sections.push("```diff");
         sections.push(diffHunk);
         sections.push("```");
       }
-      sections.push(`> ${body.replace(/\n/g, "\n> ")}`);
+      sections.push(`> ${truncatedBody.replace(/\n/g, "\n> ")}`);
     }
   }
 
@@ -298,8 +334,16 @@ function formatReviewComments(comments: Record<string, unknown>[]): string {
 /**
  * Format PR reviews (approved, changes requested, etc)
  */
-function formatReviews(reviews: Record<string, unknown>[]): string {
-  const sections = ["## Reviews"];
+function formatReviews(
+  reviews: Record<string, unknown>[],
+  totalReviews: number,
+  maxCommentChars: number
+): string {
+  const sections = [`## Reviews (showing ${reviews.length} of ${totalReviews})`];
+
+  if (reviews.length < totalReviews) {
+    sections.push(`\n*Note: ${totalReviews - reviews.length} reviews omitted for brevity*\n`);
+  }
 
   for (const review of reviews) {
     const body = review.body as string | undefined;
@@ -320,12 +364,17 @@ function formatReviews(reviews: Record<string, unknown>[]): string {
     };
     const emoji = stateEmoji[state] || "";
 
+    // Truncate review body if too long
+    const truncatedBody = body.length > maxCommentChars
+      ? `${body.substring(0, maxCommentChars)}... [truncated]`
+      : body;
+
     sections.push(
       `\n${emoji} **@${reviewer}** ${state
         .toLowerCase()
         .replace("_", " ")} - ${createdAt}`
     );
-    sections.push(`> ${body.replace(/\n/g, "\n> ")}`);
+    sections.push(`> ${truncatedBody.replace(/\n/g, "\n> ")}`);
   }
 
   return sections.join("\n");
@@ -334,8 +383,16 @@ function formatReviews(reviews: Record<string, unknown>[]): string {
 /**
  * Format general PR discussion comments
  */
-function formatIssueComments(comments: Record<string, unknown>[]): string {
-  const sections = ["## Discussion"];
+function formatIssueComments(
+  comments: Record<string, unknown>[],
+  totalComments: number,
+  maxCommentChars: number
+): string {
+  const sections = [`## Discussion (showing ${comments.length} of ${totalComments})`];
+
+  if (comments.length < totalComments) {
+    sections.push(`\n*Note: ${totalComments - comments.length} comments omitted for brevity*\n`);
+  }
 
   for (const comment of comments) {
     const user = comment.user as { login: string } | undefined;
@@ -345,8 +402,13 @@ function formatIssueComments(comments: Record<string, unknown>[]): string {
       : "unknown";
     const body = (comment.body as string) || "";
 
+    // Truncate comment body if too long
+    const truncatedBody = body.length > maxCommentChars
+      ? `${body.substring(0, maxCommentChars)}... [truncated]`
+      : body;
+
     sections.push(`\n**@${author}** - ${createdAt}`);
-    sections.push(`> ${body.replace(/\n/g, "\n> ")}`);
+    sections.push(`> ${truncatedBody.replace(/\n/g, "\n> ")}`);
   }
 
   return sections.join("\n");
