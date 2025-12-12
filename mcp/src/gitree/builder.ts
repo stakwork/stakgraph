@@ -31,12 +31,15 @@ export class StreamingFeatureBuilder {
   /**
    * Main entry point: process a repo (both PRs and commits chronologically)
    */
-  async processRepo(owner: string, repo: string): Promise<Usage> {
+  async processRepo(owner: string, repo: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
     const totalUsage: Usage = {
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
     };
+
+    // Track which features were modified during processing
+    const modifiedFeatureIds = new Set<string>();
 
     // Get chronological checkpoint (or migrate from old checkpoints)
     let checkpoint = await this.storage.getChronologicalCheckpoint();
@@ -54,7 +57,7 @@ export class StreamingFeatureBuilder {
       const features = await this.storage.getAllFeatures();
       console.log(`\n🎉 Repository processing complete!`);
       console.log(`   Total features: ${features.length}`);
-      return totalUsage;
+      return { usage: totalUsage, modifiedFeatureIds };
     }
 
     console.log(`   Processing ${changes.length} changes chronologically...\n`);
@@ -69,7 +72,7 @@ export class StreamingFeatureBuilder {
         console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
 
         try {
-          const usage = await this.processPR(owner, repo, pr);
+          const usage = await this.processPR(owner, repo, pr, modifiedFeatureIds);
           totalUsage.inputTokens += usage.inputTokens;
           totalUsage.outputTokens += usage.outputTokens;
           totalUsage.totalTokens += usage.totalTokens;
@@ -110,7 +113,7 @@ export class StreamingFeatureBuilder {
         );
 
         try {
-          const usage = await this.processCommit(owner, repo, commit);
+          const usage = await this.processCommit(owner, repo, commit, modifiedFeatureIds);
           totalUsage.inputTokens += usage.inputTokens;
           totalUsage.outputTokens += usage.outputTokens;
           totalUsage.totalTokens += usage.totalTokens;
@@ -147,11 +150,12 @@ export class StreamingFeatureBuilder {
     const features = await this.storage.getAllFeatures();
     console.log(`\n🎉 Repository processing complete!`);
     console.log(`   Total features: ${features.length}`);
+    console.log(`   Modified features: ${modifiedFeatureIds.size}`);
     console.log(
       `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
     );
 
-    return totalUsage;
+    return { usage: totalUsage, modifiedFeatureIds };
   }
 
   /**
@@ -335,7 +339,8 @@ export class StreamingFeatureBuilder {
   private async processPR(
     owner: string,
     repo: string,
-    pr: GitHubPR
+    pr: GitHubPR,
+    modifiedFeatureIds: Set<string>
   ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkip(pr)) {
@@ -387,7 +392,7 @@ export class StreamingFeatureBuilder {
     const { decision, usage } = await this.llm.decide(prompt);
 
     // Apply decision
-    await this.applyPrDecision(owner, repo, pr, decision);
+    await this.applyPrDecision(owner, repo, pr, decision, modifiedFeatureIds);
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
@@ -497,7 +502,8 @@ ${DECISION_GUIDELINES}`;
     owner: string,
     repo: string,
     pr: GitHubPR,
-    decision: LLMDecision
+    decision: LLMDecision,
+    modifiedFeatureIds: Set<string>
   ): Promise<void> {
     // Fetch file list for this PR
     const { data: files } = await this.octokit.pulls.listFiles({
@@ -534,7 +540,7 @@ ${DECISION_GUIDELINES}`;
         prNumbers: [pr.number],
         commitShas: [],
       }),
-    });
+    }, modifiedFeatureIds);
   }
 
   /**
@@ -549,7 +555,8 @@ ${DECISION_GUIDELINES}`;
       author: string;
       committedAt: Date;
       url: string;
-    }
+    },
+    modifiedFeatureIds: Set<string>
   ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkipCommit(commit)) {
@@ -593,7 +600,7 @@ ${DECISION_GUIDELINES}`;
     const { decision, usage } = await this.llm.decide(prompt);
 
     // Apply decision
-    await this.applyCommitDecision(owner, repo, commit, decision);
+    await this.applyCommitDecision(owner, repo, commit, decision, modifiedFeatureIds);
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
@@ -649,7 +656,8 @@ ${DECISION_GUIDELINES}`;
       committedAt: Date;
       url: string;
     },
-    decision: LLMDecision
+    decision: LLMDecision,
+    modifiedFeatureIds: Set<string>
   ): Promise<void> {
     // Fetch file list for this commit
     const { data: commitData } = await this.octokit.repos.getCommit({
@@ -692,7 +700,7 @@ ${DECISION_GUIDELINES}`;
         prNumbers: [],
         commitShas: [commit.sha],
       }),
-    });
+    }, modifiedFeatureIds);
   }
 
   /**
@@ -704,7 +712,8 @@ ${DECISION_GUIDELINES}`;
       changeDate: Date;
       addToFeature: (feature: Feature) => Promise<boolean>;
       createFeatureWith: (base: Omit<Feature, 'prNumbers' | 'commitShas'>) => Feature;
-    }
+    },
+    modifiedFeatureIds: Set<string>
   ): Promise<void> {
     console.log(`   📝 Summary: ${decision.summary}`);
     console.log(`   💭 Reasoning: ${decision.reasoning}`);
@@ -729,6 +738,7 @@ ${DECISION_GUIDELINES}`;
               if (wasAdded) {
                 feature.lastUpdated = config.changeDate;
                 await this.storage.saveFeature(feature);
+                modifiedFeatureIds.add(feature.id);
                 console.log(`   → Added to feature: ${feature.name}`);
               }
             } else {
@@ -753,6 +763,7 @@ ${DECISION_GUIDELINES}`;
             };
             const newFeature = config.createFeatureWith(baseFeature);
             await this.storage.saveFeature(newFeature);
+            modifiedFeatureIds.add(newFeature.id);
             console.log(`   ✨ Created new feature: ${newFeature.name}`);
           }
         }
@@ -767,6 +778,7 @@ ${DECISION_GUIDELINES}`;
           feature.description = update.newDescription;
           feature.lastUpdated = config.changeDate;
           await this.storage.saveFeature(feature);
+          modifiedFeatureIds.add(feature.id);
           console.log(`   🔄 Updated feature description: ${feature.name}`);
           console.log(`      ${update.reasoning}`);
         } else {
