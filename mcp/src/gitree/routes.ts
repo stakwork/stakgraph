@@ -133,15 +133,30 @@ export async function gitree_process(req: Request, res: Response) {
         const storage = new GraphStorage();
         await storage.initialize();
 
+        // Get repoPath if clue analysis is enabled
+        let repoPath: string | undefined;
+        if (shouldAnalyzeClues) {
+          repoPath = await cloneOrUpdateRepo(
+            `https://github.com/${owner}/${repo}`,
+            undefined,
+            githubToken
+          );
+        }
+
         const octokit = new Octokit({ auth: githubToken });
         const llm = new LLMClient("anthropic", anthropicKey);
-        const builder = new StreamingFeatureBuilder(storage, llm, octokit);
+        const builder = new StreamingFeatureBuilder(
+          storage,
+          llm,
+          octokit,
+          repoPath,
+          shouldAnalyzeClues
+        );
 
         const processUsage = await builder.processRepo(owner, repo);
 
         let summarizeUsage = null;
         let linkResult = null;
-        let clueUsage = null;
 
         // If summarize flag is set, run summarization after processing
         if (shouldSummarize) {
@@ -157,17 +172,8 @@ export async function gitree_process(req: Request, res: Response) {
           linkResult = await linker.linkAllFeatures();
         }
 
-        // If analyze_clues flag is set, analyze features for clues
-        if (shouldAnalyzeClues) {
-          console.log("===> Starting clue analysis...");
-          const repoPath = await cloneOrUpdateRepo(
-            `https://github.com/${owner}/${repo}`,
-            undefined,
-            githubToken
-          );
-          const analyzer = new ClueAnalyzer(storage, repoPath);
-          clueUsage = await analyzer.analyzeAllFeatures();
-        }
+        // Note: Clue analysis is now done during PR/commit processing
+        // within builder.processRepo() if shouldAnalyzeClues is true
 
         // Build response message and usage
         const messageParts = [`Processed ${owner}/${repo}`];
@@ -178,16 +184,13 @@ export async function gitree_process(req: Request, res: Response) {
         const totalUsage = {
           inputTokens:
             processUsage.inputTokens +
-            (summarizeUsage?.inputTokens || 0) +
-            (clueUsage?.inputTokens || 0),
+            (summarizeUsage?.inputTokens || 0),
           outputTokens:
             processUsage.outputTokens +
-            (summarizeUsage?.outputTokens || 0) +
-            (clueUsage?.outputTokens || 0),
+            (summarizeUsage?.outputTokens || 0),
           totalTokens:
             processUsage.totalTokens +
-            (summarizeUsage?.totalTokens || 0) +
-            (clueUsage?.totalTokens || 0),
+            (summarizeUsage?.totalTokens || 0),
         };
 
         const result: any = {
