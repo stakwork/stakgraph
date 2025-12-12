@@ -128,6 +128,8 @@ pub struct MockStat {
 /// mocks: mock nodes and their mocked status.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Coverage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
     pub unit_tests: Option<CoverageStat>,
     pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
