@@ -26,6 +26,7 @@ import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Feature } from "./types.js";
+import { setBusy } from "../busy.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -127,6 +128,8 @@ export async function gitree_process(req: Request, res: Response) {
 
     // Process repository in background
     isProcessing = true;
+    setBusy(true);
+
     (async () => {
       try {
         const anthropicKey = getApiKeyForProvider("anthropic");
@@ -205,9 +208,11 @@ export async function gitree_process(req: Request, res: Response) {
 
         asyncReqs.finishReq(request_id, result);
         isProcessing = false;
+        setBusy(false)
       } catch (error) {
         asyncReqs.failReq(request_id, error);
         isProcessing = false;
+        setBusy(false)
       }
     })();
 
@@ -216,6 +221,7 @@ export async function gitree_process(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     isProcessing = false;
+    setBusy(false)
     res.status(500).json({ error: "Failed to process repository" });
   }
 }

@@ -48,6 +48,7 @@ export async function mocks_agent(req: Request, res: Response) {
   const sync = req.query.sync === "true" || req.query.sync === "1";
 
   const request_id = asyncReqs.startReq();
+  setBusy(true);
   try {
     cloneOrUpdateRepo(repoUrl, username, pat)
       .then(async (repoDir) => {
