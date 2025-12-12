@@ -17,6 +17,7 @@ export async function services_agent(req: Request, res: Response) {
   const pat = req.query.pat as string | undefined;
 
   const request_id = asyncReqs.startReq();
+  setBusy(true);
   try {
     cloneOrUpdateRepo(`https://github.com/${owner}/${repoName}`, username, pat)
       .then(async (repoDir) => {

@@ -31,6 +31,8 @@ export interface Feature {
   createdAt: Date;
   lastUpdated: Date;
   documentation?: string; // LLM-generated comprehensive documentation of current state
+  cluesCount?: number; // Number of clues for this feature
+  cluesLastAnalyzedAt?: Date; // Last time clues were generated
 }
 
 export interface PRRecord {
@@ -127,4 +129,73 @@ export interface FetchPROptions {
 export interface ChronologicalCheckpoint {
   lastProcessedTimestamp: string; // ISO date string of last processed item
   processedAtTimestamp: string[]; // IDs (PR numbers or commit SHAs) processed at exact timestamp
+}
+
+/**
+ * Clue types for categorizing architectural insights
+ */
+export type ClueType =
+  | "utility" // Reusable functions/classes
+  | "pattern" // Architectural or code pattern
+  | "abstraction" // Interface/type/base class to extend
+  | "integration" // How to integrate with external system
+  | "convention" // Coding convention/style
+  | "gotcha" // Common mistake or edge case
+  | "data-flow" // How data moves through code
+  | "state-pattern"; // State management approach
+
+/**
+ * Clue entity types - actual code entities referenced (not code snippets!)
+ */
+export interface ClueEntities {
+  functions?: string[]; // Function names (e.g., "generateToken", "verifyToken")
+  classes?: string[]; // Class names (e.g., "JWTManager", "TokenValidator")
+  types?: string[]; // Type names (e.g., "TokenPayload", "JWTConfig")
+  interfaces?: string[]; // Interface names (e.g., "ITokenProvider")
+  components?: string[]; // Component names (e.g., "AuthProvider", "TokenRefresher")
+  endpoints?: string[]; // API endpoint paths (e.g., "POST /auth/refresh")
+  tables?: string[]; // Database table names (e.g., "users", "refresh_tokens")
+  constants?: string[]; // Constant names (e.g., "TOKEN_EXPIRY")
+  hooks?: string[]; // React/Vue hook names (e.g., "useAuth")
+}
+
+/**
+ * Clue - a knowledge node about architectural patterns and utilities
+ */
+export interface Clue {
+  id: string; // Slug from title (e.g., "auth-jwt-utils")
+  featureId: string; // Feature where this clue was discovered (provenance)
+  type: ClueType;
+  title: string; // e.g., "JWT Token Management Utilities"
+  content: string; // Markdown explanation (WHY, WHEN, CONTEXT)
+
+  // Code entity references (NOT code snippets!)
+  entities: ClueEntities;
+
+  // File organization
+  files: string[]; // Associated files
+
+  // Discovery metadata
+  keywords: string[]; // For searching
+  centrality?: number; // How central/important (0-1)
+  usageFrequency?: number; // How often entities are used
+  embedding?: number[]; // Vector embedding of title for semantic search
+
+  // Relationships
+  relatedFeatures: string[]; // Feature IDs this clue is relevant to (for RELEVANT_TO edges)
+  relatedClues: string[]; // Other clue IDs
+  dependsOn: string[]; // Clues to understand first
+
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Result from clue analysis
+ */
+export interface ClueAnalysisResult {
+  clues: Clue[];
+  complete: boolean; // Agent thinks feature is comprehensive
+  reasoning: string;
+  usage: Usage;
 }

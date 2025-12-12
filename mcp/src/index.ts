@@ -118,6 +118,13 @@ app.post("/gitree/summarize-all", gitree.gitree_summarize_all);
 app.post("/gitree/link-files", gitree.gitree_link_files);
 app.post("/gitree/relevant-features", gitree.gitree_relevant_features);
 app.post("/gitree/create-feature", gitree.gitree_create_feature);
+app.post("/gitree/analyze-clues", gitree.gitree_analyze_clues);
+app.post("/gitree/analyze-changes", gitree.gitree_analyze_changes);
+app.post("/gitree/link-clues", gitree.gitree_link_clues);
+app.get("/gitree/clues", gitree.gitree_list_clues);
+app.get("/gitree/clues/:id", gitree.gitree_get_clue);
+app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
+app.post("/gitree/search-clues", gitree.gitree_search_clues);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {

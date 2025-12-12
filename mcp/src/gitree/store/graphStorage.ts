@@ -1,10 +1,11 @@
-import neo4j, { Driver, Session } from "neo4j-driver";
+import neo4j, { Driver } from "neo4j-driver";
 import { v4 as uuidv4 } from "uuid";
 import { Storage } from "./storage.js";
 import {
   Feature,
   PRRecord,
   CommitRecord,
+  Clue,
   LinkResult,
   ChronologicalCheckpoint,
 } from "../types.js";
@@ -43,6 +44,12 @@ export class GraphStorage extends Storage {
       await session.run(
         "CREATE INDEX commit_sha_index IF NOT EXISTS FOR (c:Commit) ON (c.sha)"
       );
+      await session.run(
+        "CREATE INDEX clue_id_index IF NOT EXISTS FOR (c:Clue) ON (c.id)"
+      );
+      await session.run(
+        "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
+      );
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
     } finally {
@@ -64,6 +71,9 @@ export class GraphStorage extends Storage {
     try {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(feature.lastUpdated.getTime() / 1000);
+      const cluesLastAnalyzedAtTimestamp = feature.cluesLastAnalyzedAt
+        ? Math.floor(feature.cluesLastAnalyzedAt.getTime() / 1000)
+        : null;
 
       await session.run(
         `
@@ -74,6 +84,8 @@ export class GraphStorage extends Storage {
             f.commitShas = $commitShas,
             f.date = $date,
             f.docs = $docs,
+            f.cluesCount = $cluesCount,
+            f.cluesLastAnalyzedAt = $cluesLastAnalyzedAt,
             f.namespace = $namespace,
             f.Data_Bank = $dataBankName,
             f.ref_id = COALESCE(f.ref_id, $refId),
@@ -88,6 +100,8 @@ export class GraphStorage extends Storage {
           commitShas: feature.commitShas,
           date: dateTimestamp,
           docs: feature.documentation || "",
+          cluesCount: feature.cluesCount || null,
+          cluesLastAnalyzedAt: cluesLastAnalyzedAtTimestamp,
           namespace: "default",
           dataBankName: feature.id,
           refId: uuidv4(),
@@ -372,6 +386,243 @@ export class GraphStorage extends Storage {
     }
   }
 
+  // Clues
+
+  async saveClue(clue: Clue): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      const createdAtTimestamp = Math.floor(clue.createdAt.getTime() / 1000);
+      const updatedAtTimestamp = Math.floor(clue.updatedAt.getTime() / 1000);
+
+      await session.run(
+        `
+        MERGE (c:${Data_Bank}:Clue {id: $id})
+        SET c.featureId = $featureId,
+            c.type = $type,
+            c.title = $title,
+            c.content = $content,
+            c.entities = $entities,
+            c.files = $files,
+            c.keywords = $keywords,
+            c.centrality = $centrality,
+            c.usageFrequency = $usageFrequency,
+            c.relatedFeatures = $relatedFeatures,
+            c.relatedClues = $relatedClues,
+            c.dependsOn = $dependsOn,
+            c.embeddings = $embeddings,
+            c.createdAt = $createdAt,
+            c.updatedAt = $updatedAt,
+            c.namespace = $namespace,
+            c.Data_Bank = $dataBankName,
+            c.ref_id = COALESCE(c.ref_id, $refId),
+            c.date_added_to_graph = COALESCE(c.date_added_to_graph, $dateAddedToGraph)
+
+        WITH c
+        // Delete old RELEVANT_TO edges
+        OPTIONAL MATCH (c)-[r:RELEVANT_TO]->()
+        DELETE r
+
+        WITH c
+        // Create RELEVANT_TO edges for all related features
+        UNWIND $relatedFeatures AS featureId
+        MATCH (f:Feature {id: featureId})
+        MERGE (c)-[:RELEVANT_TO]->(f)
+        `,
+        {
+          id: clue.id,
+          featureId: clue.featureId,
+          type: clue.type,
+          title: clue.title,
+          content: clue.content,
+          entities: JSON.stringify(clue.entities),
+          files: clue.files,
+          keywords: clue.keywords,
+          centrality: clue.centrality || null,
+          usageFrequency: clue.usageFrequency || null,
+          relatedFeatures: clue.relatedFeatures || [],
+          relatedClues: clue.relatedClues,
+          dependsOn: clue.dependsOn,
+          embeddings: clue.embedding || null,
+          createdAt: createdAtTimestamp,
+          updatedAt: updatedAtTimestamp,
+          namespace: "default",
+          dataBankName: clue.id,
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getClue(id: string): Promise<Clue | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Clue {id: $id})
+        RETURN c
+        `,
+        { id }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const node = result.records[0].get("c");
+      return this.nodeToClue(node);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getAllClues(): Promise<Clue[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Clue)
+        RETURN c
+        ORDER BY c.createdAt DESC
+        `
+      );
+
+      return result.records.map((record) => this.nodeToClue(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Get clues relevant to a specific feature (via RELEVANT_TO edges)
+   */
+  async getCluesForFeature(featureId: string, limit?: number): Promise<Clue[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (c:Clue)-[:RELEVANT_TO]->(f:Feature {id: $featureId})
+        RETURN c
+        ORDER BY c.createdAt DESC
+        ${limit ? 'LIMIT $limit' : ''}
+        `,
+        { featureId, limit }
+      );
+
+      return result.records.map((record) => this.nodeToClue(record.get("c")));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async deleteClue(id: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(
+        `
+        MATCH (c:Clue {id: $id})
+        DETACH DELETE c
+        `,
+        { id }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  /**
+   * Search clues by relevance using embeddings, keywords, and centrality
+   */
+  async searchClues(
+    query: string,
+    embeddings: number[],
+    featureId?: string,
+    limit: number = 10,
+    similarityThreshold: number = 0.5
+  ): Promise<Array<Clue & { score: number; relevanceBreakdown: any }>> {
+    const session = this.driver.session();
+    try {
+      // Search query that combines:
+      // 1. Vector similarity (embedding)
+      // 2. Keyword matching
+      // 3. Centrality boost
+      const result = await session.run(
+        `
+        MATCH (c:Clue)
+        WHERE
+          CASE
+            WHEN $featureId IS NOT NULL THEN c.featureId = $featureId
+            ELSE true
+          END
+          AND c.embeddings IS NOT NULL
+        WITH c, gds.similarity.cosine(c.embeddings, $embeddings) AS vectorScore
+        WHERE vectorScore >= $similarityThreshold
+
+        // Keyword matching score
+        WITH c, vectorScore,
+          CASE
+            WHEN any(kw IN c.keywords WHERE toLower(kw) CONTAINS toLower($query)) THEN 0.3
+            WHEN any(kw IN c.keywords WHERE toLower($query) CONTAINS toLower(kw)) THEN 0.2
+            ELSE 0.0
+          END AS keywordScore
+
+        // Title matching boost
+        WITH c, vectorScore, keywordScore,
+          CASE
+            WHEN toLower(c.title) CONTAINS toLower($query) THEN 0.2
+            ELSE 0.0
+          END AS titleScore
+
+        // Centrality boost (0-1 normalized)
+        WITH c, vectorScore, keywordScore, titleScore,
+          COALESCE(c.centrality, 0.5) AS centralityScore
+
+        // Combined relevance score
+        WITH c, vectorScore, keywordScore, titleScore, centralityScore,
+          (vectorScore * 0.5) + keywordScore + titleScore + (centralityScore * 0.2) AS finalScore
+
+        RETURN c, finalScore, vectorScore, keywordScore, titleScore, centralityScore
+        ORDER BY finalScore DESC
+        LIMIT toInteger($limit)
+        `,
+        {
+          query,
+          embeddings,
+          featureId: featureId || null,
+          limit,
+          similarityThreshold,
+        }
+      );
+
+      return result.records.map((record) => {
+        const node = record.get("c");
+        const clue = this.nodeToClue(node);
+        const finalScore = record.get("finalScore");
+        const vectorScore = record.get("vectorScore");
+        const keywordScore = record.get("keywordScore");
+        const titleScore = record.get("titleScore");
+        const centralityScore = record.get("centralityScore");
+
+        return {
+          ...clue,
+          score: finalScore,
+          relevanceBreakdown: {
+            vector: vectorScore,
+            keyword: keywordScore,
+            title: titleScore,
+            centrality: centralityScore,
+            final: finalScore,
+          },
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
   // Metadata
 
   async getLastProcessedPR(): Promise<number> {
@@ -542,6 +793,62 @@ export class GraphStorage extends Storage {
     }
   }
 
+  async getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        RETURN m.clueAnalysisCheckpoint as checkpoint
+        `,
+        { namespace: "default" }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const checkpointStr = result.records[0].get("checkpoint");
+      if (!checkpointStr) {
+        return null;
+      }
+
+      return JSON.parse(checkpointStr);
+    } catch (error) {
+      console.error("Error reading clue analysis checkpoint:", error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setClueAnalysisCheckpoint(
+    checkpoint: ChronologicalCheckpoint
+  ): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        SET m.clueAnalysisCheckpoint = $checkpoint,
+            m.ref_id = COALESCE(m.ref_id, $refId),
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+        RETURN m
+        `,
+        {
+          namespace: "default",
+          checkpoint: JSON.stringify(checkpoint),
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
   // Themes
 
   async addThemes(themes: string[]): Promise<void> {
@@ -657,6 +964,10 @@ export class GraphStorage extends Storage {
       createdAt: new Date(props.date * 1000),
       lastUpdated: new Date(props.date * 1000),
       documentation: props.docs || undefined,
+      cluesCount: props.cluesCount || undefined,
+      cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
+        ? new Date(props.cluesLastAnalyzedAt * 1000)
+        : undefined,
     };
   }
 
@@ -688,6 +999,28 @@ export class GraphStorage extends Storage {
       newDeclarations: props.newDeclarations
         ? JSON.parse(props.newDeclarations)
         : undefined,
+    };
+  }
+
+  private nodeToClue(node: any): Clue {
+    const props = node.properties;
+    return {
+      id: props.id,
+      featureId: props.featureId,
+      type: props.type,
+      title: props.title,
+      content: props.content,
+      entities: props.entities ? JSON.parse(props.entities) : {},
+      files: props.files || [],
+      keywords: props.keywords || [],
+      centrality: props.centrality || undefined,
+      usageFrequency: props.usageFrequency || undefined,
+      embedding: props.embeddings || undefined,
+      relatedFeatures: props.relatedFeatures || [],
+      relatedClues: props.relatedClues || [],
+      dependsOn: props.dependsOn || [],
+      createdAt: new Date(props.createdAt * 1000),
+      updatedAt: new Date(props.updatedAt * 1000),
     };
   }
 

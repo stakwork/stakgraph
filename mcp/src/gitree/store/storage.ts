@@ -1,4 +1,4 @@
-import { Feature, PRRecord, CommitRecord, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint } from "../types.js";
 
 /**
  * Abstract storage interface for features, PRs, and commits
@@ -23,6 +23,19 @@ export abstract class Storage {
   abstract getCommit(sha: string): Promise<CommitRecord | null>;
   abstract getAllCommits(): Promise<CommitRecord[]>;
 
+  // Clues
+  abstract saveClue(clue: Clue): Promise<void>;
+  abstract getClue(id: string): Promise<Clue | null>;
+  abstract getAllClues(): Promise<Clue[]>;
+  abstract deleteClue(id: string): Promise<void>;
+  abstract searchClues(
+    query: string,
+    embeddings: number[],
+    featureId?: string,
+    limit?: number,
+    similarityThreshold?: number
+  ): Promise<Array<Clue & { score: number; relevanceBreakdown?: any }>>;
+
   // Metadata (legacy - kept for backwards compatibility)
   abstract getLastProcessedPR(): Promise<number>;
   abstract setLastProcessedPR(number: number): Promise<void>;
@@ -32,6 +45,10 @@ export abstract class Storage {
   // Chronological checkpoint (new unified approach)
   abstract getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null>;
   abstract setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void>;
+
+  // Clue analysis checkpoint (tracks which PRs/commits have been analyzed for clues)
+  abstract getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null>;
+  abstract setClueAnalysisCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void>;
 
   // Themes (sliding window of recent technical tags)
   abstract addThemes(themes: string[]): Promise<void>;
@@ -82,5 +99,13 @@ export abstract class Storage {
     const allFeatures = await this.getAllFeatures();
     // Handle legacy features without commitShas
     return allFeatures.filter((f) => (f.commitShas || []).includes(sha));
+  }
+
+  async getCluesForFeature(featureId: string, limit?: number): Promise<Clue[]> {
+    const allClues = await this.getAllClues();
+    // Get clues that are RELEVANT to this feature (not just discovered in it)
+    const filtered = allClues.filter((c) => c.relatedFeatures.includes(featureId));
+    // Apply limit if specified (most recent first, already ordered by createdAt DESC)
+    return limit ? filtered.slice(0, limit) : filtered;
   }
 }
