@@ -509,7 +509,7 @@ export class GraphStorage extends Storage {
         ORDER BY c.createdAt DESC
         ${limit ? 'LIMIT $limit' : ''}
         `,
-        { featureId, limit }
+        { featureId, limit: limit ? neo4j.int(limit) : undefined }
       );
 
       return result.records.map((record) => this.nodeToClue(record.get("c")));
