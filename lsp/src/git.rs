@@ -54,7 +54,6 @@ pub async fn validate_git_credentials(
         }
     }
 }
-
 pub async fn git_clone(
     repo: &str,
     path: &str,
@@ -64,8 +63,8 @@ pub async fn git_clone(
     branch: Option<&str>,
 ) -> Result<()> {
     let repo_url = if username.is_some() && pat.is_some() {
-        let username = username.unwrap();
-        let pat = pat.unwrap();
+        let username = username.as_ref().unwrap();
+        let pat = pat.as_ref().unwrap();
         let repo_end = &repo.to_string()[8..];
         format!("https://{}:{}@{}", username, pat, repo_end)
     } else {
@@ -79,6 +78,17 @@ pub async fn git_clone(
     } else {
         info!("Repository doesn't exist at {}, cloning it", path);
         remove_dir(path)?;
+
+        // Configure git to use HTTPS with authentication instead of SSH for GitHub submodules
+        // if let (Some(username), Some(pat)) = (username.as_ref(), pat.as_ref()) {
+        //     let insteadof_key = format!("url.https://{}:{}@github.com/.insteadOf", username, pat);
+        //     run(
+        //         "git",
+        //         &["config", "--global", &insteadof_key, "git@github.com:"],
+        //     )
+        //     .await?;
+        // }
+
         let mut clone_args = vec![
             "clone",
             &repo_url,
@@ -93,6 +103,12 @@ pub async fn git_clone(
         match output {
             Ok(_) => {
                 tracing::info!("Cloned repo to {}", path);
+                // Clean up global config with credentials
+                // if let (Some(username), Some(pat)) = (username.as_ref(), pat.as_ref()) {
+                //     let insteadof_key =
+                //         format!("url.https://{}:{}@github.com/.insteadOf", username, pat);
+                //     let _ = run("git", &["config", "--global", "--unset", &insteadof_key]).await;
+                // }
             }
             Err(e) => {
                 let error_msg = e.to_string().to_lowercase();

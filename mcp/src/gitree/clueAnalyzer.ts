@@ -78,7 +78,6 @@ export class ClueAnalyzer {
                 type: "string",
                 enum: [
                   "utility",
-                  "pattern",
                   "abstraction",
                   "integration",
                   "convention",
@@ -266,6 +265,7 @@ export class ClueAnalyzer {
   /**
    * Analyze a PR or commit for architectural clues
    * @param changeContext - Context about what changed
+   * @param featureIds - Optional list of feature IDs to scope clues to (optimization)
    * @returns Analysis result with discovered clues
    */
   async analyzeChange(changeContext: {
@@ -276,15 +276,34 @@ export class ClueAnalyzer {
     files: string[];
     comments?: string;
     reviews?: string;
-  }): Promise<ClueAnalysisResult> {
+  }, featureIds?: string[]): Promise<ClueAnalysisResult> {
     console.log(
       `\n💡 Analyzing ${changeContext.type} for clues: ${changeContext.identifier}`
     );
     console.log(`   ${changeContext.title}`);
 
     // Get existing clues to avoid duplicates
-    const existingClues = await this.storage.getAllClues();
-    console.log(`   Found ${existingClues.length} existing clues in system`);
+    // If featureIds provided, only fetch clues for those features (optimization)
+    let existingClues: Clue[];
+    if (featureIds && featureIds.length > 0) {
+      console.log(`   Fetching recent clues (max 100 per feature) for ${featureIds.length} linked feature(s)...`);
+      const cluesByFeature = await Promise.all(
+        featureIds.map((fid) => this.storage.getCluesForFeature(fid, 100))
+      );
+      // Deduplicate clues (a clue can be linked to multiple features)
+      const clueMap = new Map<string, Clue>();
+      for (const clues of cluesByFeature) {
+        for (const clue of clues) {
+          clueMap.set(clue.id, clue);
+        }
+      }
+      existingClues = Array.from(clueMap.values());
+      console.log(`   Found ${existingClues.length} existing clues for linked features`);
+    } else {
+      // Fallback: fetch all clues (less efficient but works if no features linked)
+      existingClues = await this.storage.getAllClues();
+      console.log(`   Found ${existingClues.length} existing clues in system (all features)`);
+    }
 
     // Build prompt with change context
     const prompt = this.buildChangeAnalysisPrompt(changeContext, existingClues);
@@ -303,7 +322,6 @@ export class ClueAnalyzer {
                 type: "string",
                 enum: [
                   "utility",
-                  "pattern",
                   "abstraction",
                   "integration",
                   "convention",
@@ -409,7 +427,7 @@ export class ClueAnalyzer {
     const filesNote =
       files.length > 50 ? `\n  ... and ${files.length - 50} more files` : "";
 
-    return `Analyze the codebase for the feature "${feature.name}" and identify architectural patterns, utilities, and key abstractions.
+    return `Analyze the codebase for the feature "${feature.name}" and identify architectural utilities, key abstractions, and patterns.
 
 **Feature**: ${feature.name}
 **Description**: ${feature.description}
@@ -426,7 +444,7 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 3. Focus on the most important patterns and utilities (5-10 clues)
 4. For each clue, extract:
    - Title (concise, descriptive, GENERIC - no feature name)
-   - Type (utility, pattern, abstraction, integration, convention, gotcha, data-flow, state-pattern)
+   - Type (utility, abstraction, integration, convention, gotcha, data-flow, state-pattern)
    - Content (GENERIC explanation - WHY, WHEN, HOW - written for ANY feature that uses this pattern)
    - Entities (actual function/class/type/endpoint names from the code)
    - Files (list of files where these entities are defined or this pattern is used)
@@ -437,7 +455,7 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 **CRITICAL - Content Writing Guidelines**:
 - Write GENERIC, reusable explanations that work for ANY feature using this pattern
 - DO NOT mention the specific feature name (${feature.name}) in the content
-- Focus on the pattern/utility ITSELF, not how this particular feature uses it
+- Focus on the utility/abstraction ITSELF, not how this particular feature uses it
 - Use generic examples: "Features using this pattern..." instead of "${feature.name} uses..."
 - Think: "How would I explain this to someone working on a DIFFERENT feature?"
 
@@ -458,7 +476,7 @@ Analyze the codebase and return your structured response.`;
 
 Your goal is to identify "Clues" - knowledge nuggets that help developers understand:
 - Reusable utilities and helpers
-- Architectural patterns and conventions
+- Architectural conventions
 - Key abstractions (interfaces, base classes)
 - Integration patterns
 - Common gotchas and edge cases
@@ -468,12 +486,11 @@ Your goal is to identify "Clues" - knowledge nuggets that help developers unders
 **CRITICAL: Write GENERIC content that works for ANY feature using the pattern!**
 - Think of clues as reusable documentation that will be linked to MULTIPLE features
 - DO NOT mention specific feature names in the content
-- Focus on the pattern/utility itself, not one specific usage
-- Example: "This pattern ensures workspace isolation by..." NOT "Quick Ask uses this to..."
+- Focus on the utility/abstraction itself, not one specific usage
+- Example: "This utility ensures workspace isolation by..." NOT "Quick Ask uses this to..."
 
 **Clue Types:**
 - **utility**: Reusable functions/classes used across multiple features
-- **pattern**: Architectural pattern or coding idiom consistently applied
 - **abstraction**: Interface/type/base class meant to be extended
 - **integration**: How to integrate with external systems/features
 - **convention**: Coding style or naming convention
@@ -529,7 +546,7 @@ Analyze the provided files and extract valuable, GENERIC clues.`;
         ? `\n  ... and ${changeContext.files.length - 50} more files`
         : "";
 
-    return `Analyze the codebase based on this ${changeType} and extract architectural patterns, utilities, and key abstractions.
+    return `Analyze the codebase based on this ${changeType} and extract architectural utilities, key abstractions, and patterns.
 
 **${changeType} Context** (what changed):
 ${changeType} ${changeContext.identifier}: ${changeContext.title}
@@ -545,13 +562,13 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 
 **Your Task**:
 1. Read and analyze the codebase files that changed
-2. **FOCUS on patterns/utilities relevant to what changed**
+2. **FOCUS on utilities/abstractions relevant to what changed**
 3. Extract architectural insights that would help developers working on similar changes
 4. Identify NEW clues that don't overlap with existing ones
 
 For each clue, extract:
 - Title (concise, descriptive, GENERIC)
-- Type (utility, pattern, abstraction, integration, convention, gotcha, data-flow, state-pattern)
+- Type (utility, abstraction, integration, convention, gotcha, data-flow, state-pattern)
 - Content (GENERIC explanation - WHY, WHEN, HOW - works for ANY feature)
 - Entities (actual function/class/type/endpoint names from the code)
 - Files (list of files where entities are defined)
@@ -567,7 +584,7 @@ For each clue, extract:
 **CRITICAL - Content Writing Guidelines**:
 - Write GENERIC, reusable explanations that work for ANY codebase/feature
 - DO NOT mention specific feature names or this specific change
-- Focus on the pattern/utility ITSELF as a general concept
+- Focus on the utility/abstraction ITSELF as a general concept
 - Use generic examples: "This pattern..." instead of "This PR..."
 - Think: "How would I explain this pattern to someone in a different codebase?"
 
@@ -600,13 +617,12 @@ Your goal is to identify "Clues" based on what changed in a specific PR or commi
 **CRITICAL: Write GENERIC content!**
 - Clues are standalone knowledge not tied to specific features
 - DO NOT mention feature names, PR numbers, or commit SHAs
-- Focus on the pattern/utility itself as a general concept
+- Focus on the utility/abstraction itself as a general concept
 - Example: "This pattern ensures workspace isolation by..." NOT "This PR adds..."
 - Think: Reusable documentation for ANY codebase
 
 **Clue Types:**
 - **utility**: Reusable functions/classes
-- **pattern**: Architectural pattern demonstrated
 - **abstraction**: Interface/type/base class introduced or extended
 - **integration**: How external systems are integrated
 - **convention**: Coding style visible in changes

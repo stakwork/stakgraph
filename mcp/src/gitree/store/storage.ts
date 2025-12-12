@@ -46,6 +46,10 @@ export abstract class Storage {
   abstract getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null>;
   abstract setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void>;
 
+  // Clue analysis checkpoint (tracks which PRs/commits have been analyzed for clues)
+  abstract getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null>;
+  abstract setClueAnalysisCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void>;
+
   // Themes (sliding window of recent technical tags)
   abstract addThemes(themes: string[]): Promise<void>;
   abstract getRecentThemes(): Promise<string[]>;
@@ -97,9 +101,11 @@ export abstract class Storage {
     return allFeatures.filter((f) => (f.commitShas || []).includes(sha));
   }
 
-  async getCluesForFeature(featureId: string): Promise<Clue[]> {
+  async getCluesForFeature(featureId: string, limit?: number): Promise<Clue[]> {
     const allClues = await this.getAllClues();
     // Get clues that are RELEVANT to this feature (not just discovered in it)
-    return allClues.filter((c) => c.relatedFeatures.includes(featureId));
+    const filtered = allClues.filter((c) => c.relatedFeatures.includes(featureId));
+    // Apply limit if specified (most recent first, already ordered by createdAt DESC)
+    return limit ? filtered.slice(0, limit) : filtered;
   }
 }

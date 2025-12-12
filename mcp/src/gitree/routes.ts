@@ -1068,6 +1068,230 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
 }
 
 /**
+ * POST /gitree/analyze-changes
+ * Retroactively analyze historical PRs/commits for clues
+ * curl -X POST "http://localhost:3355/gitree/analyze-changes?owner=stakwork&repo=hive&force=false"
+ */
+export async function gitree_analyze_changes(req: Request, res: Response) {
+  const request_id = asyncReqs.startReq();
+
+  try {
+    const owner = req.query.owner as string;
+    const repo = req.query.repo as string;
+    const force = req.query.force === "true";
+    const pat = req.query.token as string | undefined;
+
+    if (!owner || !repo) {
+      asyncReqs.failReq(request_id, new Error("owner and repo are required"));
+      return res.status(400).json({ error: "owner and repo are required" });
+    }
+
+    (async () => {
+      try {
+        // Clone or update repository
+        const repoPath = await cloneOrUpdateRepo(
+          `https://github.com/${owner}/${repo}`,
+          undefined,
+          pat
+        );
+
+        const storage = new GraphStorage();
+        await storage.initialize();
+
+        const analyzer = new ClueAnalyzer(storage, repoPath);
+
+        // Get checkpoint (unless force)
+        const checkpoint = force ? null : await storage.getClueAnalysisCheckpoint();
+
+        console.log(
+          checkpoint
+            ? `📌 Resuming from checkpoint: ${checkpoint.lastProcessedTimestamp}`
+            : force
+            ? "🔄 Force mode: analyzing all changes"
+            : "🆕 No checkpoint found, starting from beginning"
+        );
+
+        // Fetch all PRs and commits
+        const allPRs = await storage.getAllPRs();
+        const allCommits = await storage.getAllCommits();
+
+        // Combine and sort chronologically
+        const changes: Array<{
+          type: "pr" | "commit";
+          date: Date;
+          id: string;
+          data: any;
+        }> = [];
+
+        for (const pr of allPRs) {
+          changes.push({
+            type: "pr",
+            date: pr.mergedAt,
+            id: pr.number.toString(),
+            data: pr,
+          });
+        }
+
+        for (const commit of allCommits) {
+          changes.push({
+            type: "commit",
+            date: commit.committedAt,
+            id: commit.sha,
+            data: commit,
+          });
+        }
+
+        // Sort chronologically (oldest first)
+        changes.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        // Filter by checkpoint
+        let changesToProcess = changes;
+        if (checkpoint) {
+          changesToProcess = changes.filter((change) => {
+            const changeTime = change.date.toISOString();
+            if (changeTime > checkpoint.lastProcessedTimestamp) {
+              return true;
+            }
+            if (changeTime === checkpoint.lastProcessedTimestamp) {
+              // Skip if already processed at this exact timestamp
+              return !checkpoint.processedAtTimestamp.includes(change.id);
+            }
+            return false;
+          });
+        }
+
+        if (changesToProcess.length === 0) {
+          console.log("✅ No new changes to analyze!");
+          asyncReqs.finishReq(request_id, {
+            status: "success",
+            message: "No new changes to analyze",
+            totalClues: 0,
+            totalChanges: 0,
+            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+          });
+          return;
+        }
+
+        console.log(`📊 Analyzing ${changesToProcess.length} change(s) for clues...`);
+
+        let totalClues = 0;
+        const totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+        for (let i = 0; i < changesToProcess.length; i++) {
+          const change = changesToProcess[i];
+          const progress = `[${i + 1}/${changesToProcess.length}]`;
+
+          if (change.type === "pr") {
+            const pr = change.data;
+            console.log(`${progress} PR #${pr.number}: ${pr.title}`);
+
+            try {
+              const changeContext = {
+                type: "pr" as const,
+                identifier: `#${pr.number}`,
+                title: pr.title,
+                summary: pr.summary,
+                files: pr.files,
+              };
+
+              const result = await analyzer.analyzeChange(changeContext);
+              totalClues += result.clues.length;
+              totalUsage.inputTokens += result.usage.inputTokens;
+              totalUsage.outputTokens += result.usage.outputTokens;
+              totalUsage.totalTokens += result.usage.totalTokens;
+
+              // Link clues if any were created
+              if (result.clues.length > 0) {
+                const { ClueLinker } = await import("./clueLinker.js");
+                const linker = new ClueLinker(storage);
+                await linker.linkClues(result.clues.map((c) => c.id));
+              }
+
+              // Update checkpoint
+              await storage.setClueAnalysisCheckpoint({
+                lastProcessedTimestamp: pr.mergedAt.toISOString(),
+                processedAtTimestamp: [pr.number.toString()],
+              });
+            } catch (error) {
+              console.error(
+                `   ❌ Error:`,
+                error instanceof Error ? error.message : error
+              );
+              console.log(`   ⏭️  Skipping...`);
+            }
+          } else {
+            const commit = change.data;
+            console.log(
+              `${progress} Commit ${commit.sha.substring(0, 7)}: ${
+                commit.message.split("\n")[0]
+              }`
+            );
+
+            try {
+              const changeContext = {
+                type: "commit" as const,
+                identifier: commit.sha.substring(0, 7),
+                title: commit.message.split("\n")[0],
+                summary: commit.summary,
+                files: commit.files,
+              };
+
+              const result = await analyzer.analyzeChange(changeContext);
+              totalClues += result.clues.length;
+              totalUsage.inputTokens += result.usage.inputTokens;
+              totalUsage.outputTokens += result.usage.outputTokens;
+              totalUsage.totalTokens += result.usage.totalTokens;
+
+              // Link clues if any were created
+              if (result.clues.length > 0) {
+                const { ClueLinker } = await import("./clueLinker.js");
+                const linker = new ClueLinker(storage);
+                await linker.linkClues(result.clues.map((c) => c.id));
+              }
+
+              // Update checkpoint
+              await storage.setClueAnalysisCheckpoint({
+                lastProcessedTimestamp: commit.committedAt.toISOString(),
+                processedAtTimestamp: [commit.sha],
+              });
+            } catch (error) {
+              console.error(
+                `   ❌ Error:`,
+                error instanceof Error ? error.message : error
+              );
+              console.log(`   ⏭️  Skipping...`);
+            }
+          }
+        }
+
+        console.log("🎉 Analysis complete!");
+        console.log(`   Total clues created: ${totalClues}`);
+        console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
+
+        asyncReqs.finishReq(request_id, {
+          status: "success",
+          message: `Analyzed ${changesToProcess.length} change(s) and created ${totalClues} clue(s)`,
+          totalClues,
+          totalChanges: changesToProcess.length,
+          usage: totalUsage,
+        });
+      } catch (error) {
+        console.error("Error in gitree_analyze_changes:", error);
+        asyncReqs.failReq(request_id, error);
+      }
+    })();
+
+    res.json({ request_id, status: "pending" });
+  } catch (error) {
+    console.error("Error in gitree_analyze_changes:", error);
+    asyncReqs.failReq(request_id, error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+}
+
+/**
  * GET /gitree/clues
  * List all clues or clues for a specific feature
  */

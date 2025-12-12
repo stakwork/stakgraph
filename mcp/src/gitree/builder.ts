@@ -12,12 +12,13 @@ import {
 } from "./types.js";
 import { fetchPullRequestContent } from "./pr.js";
 import { fetchCommitContent } from "./commit.js";
+import {ClueAnalyzer} from "./clueAnalyzer.js";
 
 /**
  * Main class for building the feature knowledge base from PRs and commits
  */
 export class StreamingFeatureBuilder {
-  private clueAnalyzer?: any; // ClueAnalyzer instance (lazily initialized)
+  private clueAnalyzer?: ClueAnalyzer; // ClueAnalyzer instance (lazily initialized)
 
   constructor(
     private storage: Storage,
@@ -396,7 +397,14 @@ export class StreamingFeatureBuilder {
           pr,
           decision
         );
-        await this.analyzeChangeForClues(changeContext);
+        // Get features linked to this PR (after decision has been applied)
+        const linkedFeatures = await this.storage.getFeaturesForPR(pr.number);
+        const featureIds = linkedFeatures.map((f) => f.id);
+
+        await this.analyzeChangeForClues(changeContext, {
+          date: pr.mergedAt,
+          id: pr.number.toString(),
+        }, featureIds);
       } catch (error) {
         console.error(`   ⚠️  Clue analysis failed:`, error);
         // Continue processing
@@ -595,7 +603,14 @@ ${DECISION_GUIDELINES}`;
           commit,
           decision
         );
-        await this.analyzeChangeForClues(changeContext);
+        // Get features linked to this commit (after decision has been applied)
+        const linkedFeatures = await this.storage.getFeaturesForCommit(commit.sha);
+        const featureIds = linkedFeatures.map((f) => f.id);
+
+        await this.analyzeChangeForClues(changeContext, {
+          date: commit.committedAt,
+          id: commit.sha,
+        }, featureIds);
       } catch (error) {
         console.error(`   ⚠️  Clue analysis failed:`, error);
         // Continue processing
@@ -906,7 +921,11 @@ ${DECISION_GUIDELINES}`;
   /**
    * Analyze change (PR or commit) for clues
    */
-  private async analyzeChangeForClues(changeContext: any): Promise<void> {
+  private async analyzeChangeForClues(
+    changeContext: any,
+    checkpoint: { date: Date; id: string },
+    featureIds?: string[]
+  ): Promise<void> {
     console.log(`   💡 Analyzing for clues...`);
 
     // Initialize clue analyzer if needed
@@ -919,24 +938,56 @@ ${DECISION_GUIDELINES}`;
       this.clueAnalyzer = new ClueAnalyzer(this.storage, this.repoPath);
     }
 
-    // Analyze change
-    const result = await this.clueAnalyzer.analyzeChange(changeContext);
+    // Analyze change (pass featureIds to scope clues)
+    const result = await this.clueAnalyzer.analyzeChange(changeContext, featureIds);
 
     if (result.clues.length === 0) {
       console.log(`   ℹ️  No new clues found`);
-      return;
+    } else {
+      console.log(`   ✨ Found ${result.clues.length} clue(s)`);
+
+      // Auto-link clues to relevant features
+      const { ClueLinker } = await import("./clueLinker.js");
+      const linker = new ClueLinker(this.storage);
+      const clueIds = result.clues.map((c: any) => c.id);
+
+      console.log(
+        `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`
+      );
+      await linker.linkClues(clueIds);
     }
 
-    console.log(`   ✨ Found ${result.clues.length} clue(s)`);
+    // Save checkpoint after analyzing (regardless of whether clues were found)
+    await this.updateClueAnalysisCheckpoint(checkpoint.date, checkpoint.id);
+  }
 
-    // Auto-link clues to relevant features
-    const { ClueLinker } = await import("./clueLinker.js");
-    const linker = new ClueLinker(this.storage);
-    const clueIds = result.clues.map((c: any) => c.id);
+  /**
+   * Update clue analysis checkpoint (similar to updateCheckpoint but for clues)
+   */
+  private async updateClueAnalysisCheckpoint(
+    date: Date,
+    id: string
+  ): Promise<void> {
+    const currentCheckpoint =
+      await this.storage.getClueAnalysisCheckpoint();
+    const dateString = date.toISOString();
 
-    console.log(
-      `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`
-    );
-    await linker.linkClues(clueIds);
+    if (
+      !currentCheckpoint ||
+      currentCheckpoint.lastProcessedTimestamp < dateString
+    ) {
+      // New timestamp - create new checkpoint
+      await this.storage.setClueAnalysisCheckpoint({
+        lastProcessedTimestamp: dateString,
+        processedAtTimestamp: [id],
+      });
+    } else if (currentCheckpoint.lastProcessedTimestamp === dateString) {
+      // Same timestamp - add to processedAtTimestamp array
+      if (!currentCheckpoint.processedAtTimestamp.includes(id)) {
+        currentCheckpoint.processedAtTimestamp.push(id);
+        await this.storage.setClueAnalysisCheckpoint(currentCheckpoint);
+      }
+    }
+    // If date < checkpoint, this is an old item (shouldn't happen, but ignore)
   }
 }

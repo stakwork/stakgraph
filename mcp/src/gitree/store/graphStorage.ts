@@ -499,7 +499,7 @@ export class GraphStorage extends Storage {
   /**
    * Get clues relevant to a specific feature (via RELEVANT_TO edges)
    */
-  async getCluesForFeature(featureId: string): Promise<Clue[]> {
+  async getCluesForFeature(featureId: string, limit?: number): Promise<Clue[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
@@ -507,8 +507,9 @@ export class GraphStorage extends Storage {
         MATCH (c:Clue)-[:RELEVANT_TO]->(f:Feature {id: $featureId})
         RETURN c
         ORDER BY c.createdAt DESC
+        ${limit ? 'LIMIT $limit' : ''}
         `,
-        { featureId }
+        { featureId, limit }
       );
 
       return result.records.map((record) => this.nodeToClue(record.get("c")));
@@ -776,6 +777,62 @@ export class GraphStorage extends Storage {
         `
         MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
         SET m.chronologicalCheckpoint = $checkpoint,
+            m.ref_id = COALESCE(m.ref_id, $refId),
+            m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
+        RETURN m
+        `,
+        {
+          namespace: "default",
+          checkpoint: JSON.stringify(checkpoint),
+          refId: uuidv4(),
+          dateAddedToGraph: now,
+        }
+      );
+    } finally {
+      await session.close();
+    }
+  }
+
+  async getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        RETURN m.clueAnalysisCheckpoint as checkpoint
+        `,
+        { namespace: "default" }
+      );
+
+      if (result.records.length === 0) {
+        return null;
+      }
+
+      const checkpointStr = result.records[0].get("checkpoint");
+      if (!checkpointStr) {
+        return null;
+      }
+
+      return JSON.parse(checkpointStr);
+    } catch (error) {
+      console.error("Error reading clue analysis checkpoint:", error);
+      return null;
+    } finally {
+      await session.close();
+    }
+  }
+
+  async setClueAnalysisCheckpoint(
+    checkpoint: ChronologicalCheckpoint
+  ): Promise<void> {
+    const session = this.driver.session();
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      await session.run(
+        `
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        SET m.clueAnalysisCheckpoint = $checkpoint,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
         RETURN m

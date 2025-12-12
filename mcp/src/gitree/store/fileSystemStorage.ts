@@ -405,6 +405,28 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
+  async getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      const metadata = JSON.parse(content);
+      return metadata.clueAnalysisCheckpoint || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setClueAnalysisCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void> {
+    let metadata: any = { lastProcessedPR: 0, lastProcessedCommit: null, recentThemes: [] };
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      metadata = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet
+    }
+    metadata.clueAnalysisCheckpoint = checkpoint;
+    await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
   // Themes
   async addThemes(themes: string[]): Promise<void> {
     let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] as string[] };

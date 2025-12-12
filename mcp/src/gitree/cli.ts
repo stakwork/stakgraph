@@ -442,6 +442,197 @@ program
   });
 
 /**
+ * Retroactively analyze PRs/commits for clues
+ */
+program
+  .command("analyze-changes")
+  .description("Retroactively analyze historical PRs/commits for clues")
+  .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
+  .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
+  .option("-r, --repo-path <path>", "Path to repository", process.cwd())
+  .option("-f, --force", "Force re-analysis of all changes (ignore checkpoint)")
+  .action(async (options) => {
+    try {
+      const storage = await createStorage(options);
+      const analyzer = new ClueAnalyzer(storage, options.repoPath);
+
+      // Get checkpoint (unless force)
+      const checkpoint = options.force
+        ? null
+        : await storage.getClueAnalysisCheckpoint();
+
+      if (checkpoint) {
+        console.log(
+          `\n📌 Resuming from checkpoint: ${checkpoint.lastProcessedTimestamp}`
+        );
+      } else if (options.force) {
+        console.log(`\n🔄 Force mode: analyzing all changes\n`);
+      } else {
+        console.log(`\n🆕 No checkpoint found, starting from beginning\n`);
+      }
+
+      // Fetch all PRs and commits
+      const allPRs = await storage.getAllPRs();
+      const allCommits = await storage.getAllCommits();
+
+      // Combine and sort chronologically
+      const changes: Array<{
+        type: "pr" | "commit";
+        date: Date;
+        id: string;
+        data: any;
+      }> = [];
+
+      for (const pr of allPRs) {
+        changes.push({
+          type: "pr",
+          date: pr.mergedAt,
+          id: pr.number.toString(),
+          data: pr,
+        });
+      }
+
+      for (const commit of allCommits) {
+        changes.push({
+          type: "commit",
+          date: commit.committedAt,
+          id: commit.sha,
+          data: commit,
+        });
+      }
+
+      // Sort chronologically (oldest first)
+      changes.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+      // Filter by checkpoint
+      let changesToProcess = changes;
+      if (checkpoint) {
+        changesToProcess = changes.filter((change) => {
+          const changeTime = change.date.toISOString();
+          if (changeTime > checkpoint.lastProcessedTimestamp) {
+            return true;
+          }
+          if (changeTime === checkpoint.lastProcessedTimestamp) {
+            // Skip if already processed at this exact timestamp
+            return !checkpoint.processedAtTimestamp.includes(change.id);
+          }
+          return false;
+        });
+      }
+
+      if (changesToProcess.length === 0) {
+        console.log(`\n✅ No new changes to analyze!\n`);
+        return;
+      }
+
+      console.log(
+        `\n📊 Analyzing ${changesToProcess.length} change(s) for clues...\n`
+      );
+
+      let totalClues = 0;
+      const totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+
+      for (let i = 0; i < changesToProcess.length; i++) {
+        const change = changesToProcess[i];
+        const progress = `[${i + 1}/${changesToProcess.length}]`;
+
+        if (change.type === "pr") {
+          const pr = change.data;
+          console.log(`\n${progress} PR #${pr.number}: ${pr.title}`);
+
+          try {
+            const changeContext = {
+              type: "pr" as const,
+              identifier: `#${pr.number}`,
+              title: pr.title,
+              summary: pr.summary,
+              files: pr.files,
+              // Note: We don't have comments/reviews saved in PRRecord
+            };
+
+            const result = await analyzer.analyzeChange(changeContext);
+            totalClues += result.clues.length;
+            totalUsage.inputTokens += result.usage.inputTokens;
+            totalUsage.outputTokens += result.usage.outputTokens;
+            totalUsage.totalTokens += result.usage.totalTokens;
+
+            // Link clues if any were created
+            if (result.clues.length > 0) {
+              const { ClueLinker } = await import("./clueLinker.js");
+              const linker = new ClueLinker(storage);
+              await linker.linkClues(result.clues.map((c) => c.id));
+            }
+
+            // Update checkpoint
+            await storage.setClueAnalysisCheckpoint({
+              lastProcessedTimestamp: pr.mergedAt.toISOString(),
+              processedAtTimestamp: [pr.number.toString()],
+            });
+          } catch (error) {
+            console.error(
+              `   ❌ Error:`,
+              error instanceof Error ? error.message : error
+            );
+            console.log(`   ⏭️  Skipping...`);
+          }
+        } else {
+          const commit = change.data;
+          console.log(
+            `\n${progress} Commit ${commit.sha.substring(0, 7)}: ${
+              commit.message.split("\n")[0]
+            }`
+          );
+
+          try {
+            const changeContext = {
+              type: "commit" as const,
+              identifier: commit.sha.substring(0, 7),
+              title: commit.message.split("\n")[0],
+              summary: commit.summary,
+              files: commit.files,
+            };
+
+            const result = await analyzer.analyzeChange(changeContext);
+            totalClues += result.clues.length;
+            totalUsage.inputTokens += result.usage.inputTokens;
+            totalUsage.outputTokens += result.usage.outputTokens;
+            totalUsage.totalTokens += result.usage.totalTokens;
+
+            // Link clues if any were created
+            if (result.clues.length > 0) {
+              const { ClueLinker } = await import("./clueLinker.js");
+              const linker = new ClueLinker(storage);
+              await linker.linkClues(result.clues.map((c) => c.id));
+            }
+
+            // Update checkpoint
+            await storage.setClueAnalysisCheckpoint({
+              lastProcessedTimestamp: commit.committedAt.toISOString(),
+              processedAtTimestamp: [commit.sha],
+            });
+          } catch (error) {
+            console.error(
+              `   ❌ Error:`,
+              error instanceof Error ? error.message : error
+            );
+            console.log(`   ⏭️  Skipping...`);
+          }
+        }
+      }
+
+      console.log(`\n🎉 Analysis complete!`);
+      console.log(`   Total clues created: ${totalClues}`);
+      console.log(
+        `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
+      );
+      console.log(`\n✅ Done!\n`);
+    } catch (error) {
+      console.error("\n❌ Error:", error);
+      process.exit(1);
+    }
+  });
+
+/**
  * List all clues or clues for a specific feature
  */
 program
