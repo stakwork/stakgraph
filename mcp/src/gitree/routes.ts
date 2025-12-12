@@ -156,16 +156,16 @@ export async function gitree_process(req: Request, res: Response) {
           shouldAnalyzeClues
         );
 
-        const processUsage = await builder.processRepo(owner, repo);
+        const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo);
 
         let summarizeUsage = null;
         let linkResult = null;
 
-        // If summarize flag is set, run summarization after processing
-        if (shouldSummarize) {
-          console.log("===> Starting feature summarization...");
+        // If summarize flag is set, run summarization after processing (only for modified features)
+        if (shouldSummarize && modifiedFeatureIds.size > 0) {
+          console.log(`===> Starting feature summarization for ${modifiedFeatureIds.size} modified feature(s)...`);
           const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-          summarizeUsage = await summarizer.summarizeAllFeatures();
+          summarizeUsage = await summarizer.summarizeModifiedFeatures(Array.from(modifiedFeatureIds));
         }
 
         // If link flag is set, link files to features

@@ -85,6 +85,58 @@ export class Summarizer {
   }
 
   /**
+   * Generate documentation for specific modified features
+   */
+  async summarizeModifiedFeatures(featureIds: string[]): Promise<Usage> {
+    if (featureIds.length === 0) {
+      console.log(`\n⏭️  No features to summarize`);
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+
+    console.log(`\n📚 Summarizing ${featureIds.length} modified feature(s)...\n`);
+
+    // Accumulate usage across all features
+    const totalUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
+
+    for (let i = 0; i < featureIds.length; i++) {
+      const featureId = featureIds[i];
+      const progress = `[${i + 1}/${featureIds.length}]`;
+
+      const feature = await this.storage.getFeature(featureId);
+      if (!feature) {
+        console.log(`${progress} Feature ${featureId} not found, skipping`);
+        continue;
+      }
+
+      console.log(`${progress} Processing: ${feature.name} (${feature.id})`);
+
+      try {
+        const usage = await this.summarizeFeature(feature.id);
+        totalUsage.inputTokens += usage.inputTokens;
+        totalUsage.outputTokens += usage.outputTokens;
+        totalUsage.totalTokens += usage.totalTokens;
+        console.log(
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+        );
+      } catch (error) {
+        console.error(
+          `   ❌ Error:`,
+          error instanceof Error ? error.message : error
+        );
+        console.log(`   ⏭️  Skipping and continuing...`);
+      }
+    }
+
+    console.log(`\n✅ Done summarizing modified features!`);
+
+    return totalUsage;
+  }
+
+  /**
    * Generate documentation for all features
    */
   async summarizeAllFeatures(): Promise<Usage> {
