@@ -11,7 +11,7 @@ interface CommitContentOptions {
 }
 
 const DEFAULT_OPTIONS: CommitContentOptions = {
-  maxPatchLines: 100,
+  maxPatchLines: 200,
 };
 
 /**

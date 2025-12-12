@@ -264,7 +264,7 @@ export class ClueAnalyzer {
 
   /**
    * Analyze a PR or commit for architectural clues
-   * @param changeContext - Context about what changed
+   * @param changeContext - Context about what changed (includes full formatted content if available)
    * @param featureIds - Optional list of feature IDs to scope clues to (optimization)
    * @returns Analysis result with discovered clues
    */
@@ -274,8 +274,7 @@ export class ClueAnalyzer {
     title: string;
     summary: string;
     files: string[];
-    comments?: string;
-    reviews?: string;
+    fullContent?: string; // Full formatted PR/commit content (optional for retroactive analysis)
   }, featureIds?: string[]): Promise<ClueAnalysisResult> {
     console.log(
       `\n💡 Analyzing ${changeContext.type} for clues: ${changeContext.identifier}`
@@ -522,6 +521,29 @@ Analyze the provided files and extract valuable, GENERIC clues.`;
   }
 
   /**
+   * Build minimal content when full formatted content is not available
+   */
+  private buildMinimalContent(changeContext: {
+    type: "pr" | "commit";
+    identifier: string;
+    title: string;
+    files: string[];
+  }): string {
+    const changeType = changeContext.type === "pr" ? "Pull Request" : "Commit";
+    const filesList = changeContext.files.slice(0, 50).join("\n  ");
+    const filesNote = changeContext.files.length > 50
+      ? `\n  ... and ${changeContext.files.length - 50} more files`
+      : "";
+
+    return `# ${changeType} ${changeContext.identifier}: ${changeContext.title}
+
+**Files Changed** (${changeContext.files.length} total):
+  ${filesList}${filesNote}
+
+*Note: Full change details not available (retroactive analysis)*`;
+  }
+
+  /**
    * Build prompt for analyzing a change (PR or commit)
    */
   private buildChangeAnalysisPrompt(
@@ -531,8 +553,7 @@ Analyze the provided files and extract valuable, GENERIC clues.`;
       title: string;
       summary: string;
       files: string[];
-      comments?: string;
-      reviews?: string;
+      fullContent?: string;
     },
     existingClues: Clue[]
   ): string {
@@ -541,28 +562,25 @@ Analyze the provided files and extract valuable, GENERIC clues.`;
       .join("\n");
 
     const changeType = changeContext.type === "pr" ? "Pull Request" : "Commit";
-    const filesList = changeContext.files.slice(0, 50).join("\n  ");
-    const filesNote =
-      changeContext.files.length > 50
-        ? `\n  ... and ${changeContext.files.length - 50} more files`
-        : "";
+
+    // Use full content if available, otherwise construct minimal version
+    const contentSection = changeContext.fullContent || this.buildMinimalContent(changeContext);
 
     return `Analyze the codebase based on this ${changeType} and extract architectural utilities, key abstractions, and patterns.
 
-**${changeType} Context** (what changed):
-${changeType} ${changeContext.identifier}: ${changeContext.title}
-Summary: ${changeContext.summary}
-${changeContext.comments ? `\nCode Review Comments:\n${changeContext.comments}\n` : ""}
-${changeContext.reviews ? `\nReviews:\n${changeContext.reviews}\n` : ""}
+**${changeType} Details**:
 
-**Files Changed** (${changeContext.files.length} total):
-  ${filesList}${filesNote}
+${contentSection}
+
+---
+
+**LLM Analysis Summary**: ${changeContext.summary}
 
 **Existing Clues** (${existingClues.length} total - avoid duplicates):
 ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 
 **Your Task**:
-1. Read and analyze the codebase files that changed
+1. Read and analyze the codebase files that changed (shown above)
 2. **FOCUS on utilities/abstractions relevant to what changed**
 3. Extract architectural insights that would help developers working on similar changes
 4. Identify NEW clues that don't overlap with existing ones

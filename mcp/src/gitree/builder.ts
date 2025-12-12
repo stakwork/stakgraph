@@ -397,16 +397,26 @@ export class StreamingFeatureBuilder {
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
       try {
-        const changeContext = this.extractPRChangeContext(
-          prContent,
-          pr,
-          decision
-        );
         // Get features linked to this PR (after decision has been applied)
         const linkedFeatures = await this.storage.getFeaturesForPR(pr.number);
         const featureIds = linkedFeatures.map((f) => f.id);
 
-        await this.analyzeChangeForClues(changeContext, {
+        // Fetch file list for context
+        const { data: files } = await this.octokit.pulls.listFiles({
+          owner,
+          repo,
+          pull_number: pr.number,
+          per_page: 100,
+        });
+
+        await this.analyzeChangeForClues({
+          type: "pr" as const,
+          identifier: `#${pr.number}`,
+          title: pr.title,
+          summary: decision.summary,
+          files: files.map((f) => f.filename),
+          fullContent: prContent,
+        }, {
           date: pr.mergedAt,
           id: pr.number.toString(),
         }, featureIds);
@@ -605,16 +615,26 @@ ${DECISION_GUIDELINES}`;
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
       try {
-        const changeContext = this.extractCommitChangeContext(
-          commitContent,
-          commit,
-          decision
-        );
         // Get features linked to this commit (after decision has been applied)
         const linkedFeatures = await this.storage.getFeaturesForCommit(commit.sha);
         const featureIds = linkedFeatures.map((f) => f.id);
 
-        await this.analyzeChangeForClues(changeContext, {
+        // Fetch file list for context
+        const { data: commitData } = await this.octokit.repos.getCommit({
+          owner,
+          repo,
+          ref: commit.sha,
+        });
+        const files = commitData.files || [];
+
+        await this.analyzeChangeForClues({
+          type: "commit" as const,
+          identifier: commit.sha.substring(0, 7),
+          title: commit.message.split("\n")[0],
+          summary: decision.summary,
+          files: files.map((f: any) => f.filename),
+          fullContent: commitContent,
+        }, {
           date: commit.committedAt,
           id: commit.sha,
         }, featureIds);
@@ -883,58 +903,19 @@ ${DECISION_GUIDELINES}`;
     // If date < checkpoint, this is an old item (shouldn't happen, but ignore)
   }
 
-  /**
-   * Extract change context from PR for clue analysis
-   */
-  private extractPRChangeContext(
-    prContent: string,
-    pr: any,
-    decision: LLMDecision
-  ): any {
-    // Extract comments section from prContent
-    const commentsMatch = prContent.match(
-      /## Code Review Comments([\s\S]*?)(?=##|$)/
-    );
-    const comments = commentsMatch ? commentsMatch[1].trim() : undefined;
-
-    // Extract reviews section from prContent
-    const reviewsMatch = prContent.match(/## Reviews([\s\S]*?)(?=##|$)/);
-    const reviews = reviewsMatch ? reviewsMatch[1].trim() : undefined;
-
-    return {
-      type: "pr" as const,
-      identifier: `#${pr.number}`,
-      title: pr.title,
-      summary: decision.summary,
-      files: pr.files.map((f: any) => f.filename),
-      comments,
-      reviews,
-    };
-  }
-
-  /**
-   * Extract change context from commit for clue analysis
-   */
-  private extractCommitChangeContext(
-    commitContent: string,
-    commit: any,
-    decision: LLMDecision
-  ): any {
-    return {
-      type: "commit" as const,
-      identifier: commit.sha.substring(0, 7),
-      title: commit.message.split("\n")[0],
-      summary: decision.summary,
-      files: commit.files.map((f: any) => f.filename),
-      // Commits don't have reviews/comments
-    };
-  }
 
   /**
    * Analyze change (PR or commit) for clues
    */
   private async analyzeChangeForClues(
-    changeContext: any,
+    changeContext: {
+      type: "pr" | "commit";
+      identifier: string;
+      title: string;
+      summary: string;
+      files: string[];
+      fullContent?: string;
+    },
     checkpoint: { date: Date; id: string },
     featureIds?: string[]
   ): Promise<void> {
