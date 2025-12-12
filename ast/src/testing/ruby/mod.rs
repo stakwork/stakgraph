@@ -41,7 +41,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += files.len();
 
     if use_lsp {
-        let expected = 56;
+        let expected = 65;
         assert!(
             (expected - 1..=expected + 1).contains(&files.len()),
             "Expected ~{} file nodes with LSP, got {}",
