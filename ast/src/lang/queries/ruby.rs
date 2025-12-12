@@ -249,10 +249,19 @@ impl Stack for Ruby {
         // "advisor_groups"
         models
     }
-    fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
+    fn is_test(&self, func_name: &str, func_file: &str, _func_body: &str) -> bool {
+        let lifecycle_hooks = ["setup", "teardown", "before", "after"];
+        if lifecycle_hooks.contains(&func_name) {
+            return false;
+        }
         self.is_test_file(func_file)
     }
     fn is_test_file(&self, filename: &str) -> bool {
+        let is_support = filename.contains("/spec/support/") || filename.contains("/test/support/");
+        if is_support {
+            return false;
+        }
+        
         filename.ends_with("_spec.rb")
             || filename.ends_with("_test.rb")
             || filename.contains("/spec/")
@@ -296,11 +305,52 @@ impl Stack for Ruby {
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
+                ;; RSpec.describe / RSpec.context (top-level only)
+                (program
+                    (call
+                        receiver: (constant) @rspec (#match? @rspec "^RSpec$")
+                        method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                        arguments: (argument_list
+                            [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                        )
+                        block: (do_block)
+                    ) @{FUNCTION_DEFINITION}
+                )
+                
+                ;; describe / context (bare - most common Rails pattern, top-level only)
+                (program
+                    (call
+                        method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                        arguments: (argument_list
+                            [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                        )
+                        block: (do_block)
+                    ) @{FUNCTION_DEFINITION}
+                )
+                
+                ;; feature / scenario (E2E pattern with Capybara, top-level only)
+                (program
+                    (call
+                        method: (identifier) @feature (#match? @feature "^(feature|scenario)$")
+                        arguments: (argument_list
+                            (string) @{FUNCTION_NAME}
+                        )
+                        block: (do_block)
+                    ) @{FUNCTION_DEFINITION}
+                )
+                
+                ;; Minitest method-based: def test_something (exclude lifecycle hooks)
+                (method
+                    name: (identifier) @test_name @{FUNCTION_NAME} 
+                    (#match? @test_name "^test_")
+                    (#not-match? @test_name "^(setup|teardown)$")
+                ) @{FUNCTION_DEFINITION}
+                
+                ;; Minitest DSL: test "description" do
                 (call
-                    receiver: (constant) @rspec (#match? @rspec "^RSpec$")
-                    method: (identifier) @describe (#match? @describe "^(describe|context)$")
+                    method: (identifier) @test (#eq? @test "test")
                     arguments: (argument_list
-                        [ (string) (constant) (scope_resolution) ] @{FUNCTION_NAME}
+                        (string) @{FUNCTION_NAME}
                     )
                     block: (do_block)
                 ) @{FUNCTION_DEFINITION}

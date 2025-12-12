@@ -1,5 +1,6 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::testing::print_nodes;
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
@@ -41,7 +42,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += files.len();
 
     if use_lsp {
-        let expected = 65;
+        let expected = 71;
         assert!(
             (expected - 1..=expected + 1).contains(&files.len()),
             "Expected ~{} file nodes with LSP, got {}",
@@ -51,8 +52,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     } else {
         assert_eq!(
             files.len(),
-            65,
-            "Expected 65 file nodes, got {}",
+            71,
+            "Expected 71 file nodes, got {}",
             files.len()
         );
     }
@@ -93,8 +94,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += imports.len();
     assert_eq!(
         imports.len(),
-        23,
-        "Expected 23 import nodes, got {}",
+        29,
+        "Expected 29 import nodes, got {}",
         imports.len()
     );
 
@@ -392,9 +393,9 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-        assert_eq!(calls, 50, "Expected 50 call edges with lsp");
+        assert_eq!(calls, 65, "Expected 65 call edges with lsp");
     } else {
-        assert_eq!(calls, 47, "Expected 47 call edges without lsp");
+        assert_eq!(calls, 62, "Expected 62 call edges without lsp");
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
@@ -408,8 +409,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 230,
-        "Expected 230 Contains edges, got {}",
+        contains, 258,
+        "Expected 258 Contains edges, got {}",
         contains
     );
 
@@ -419,7 +420,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 42, "Expected 42 operand edges, got {}", operands);
+    assert_eq!(operands, 44, "Expected 44 operand edges, got {}", operands);
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
@@ -705,8 +706,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += directories.len();
     assert_eq!(
         directories.len(),
-        33,
-        "Expected 33 directories, got {}",
+        34,
+        "Expected 34 directories, got {}",
         directories.len()
     );
 
@@ -729,10 +730,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    println!("Unit Tests");
+    print_nodes(unit_tests.clone());
     assert_eq!(
         unit_tests.len(),
-        10,
-        "Expected 10 unit tests, got {}",
+        19,
+        "Expected 19 unit tests, got {}",
         unit_tests.len()
     );
     nodes_count += unit_tests.len();
@@ -773,10 +776,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    println!("Integration Tests");
+    print_nodes(integration_tests.clone());
     assert_eq!(
         integration_tests.len(),
-        11,
-        "Expected 11 integration tests, got {}",
+        8,
+        "Expected 8 integration tests, got {}",
         integration_tests.len()
     );
     nodes_count += integration_tests.len();
@@ -813,10 +818,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         "Articles API test should test endpoints"
     );
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    println!("E2E Tests");
+    print_nodes(e2e_tests.clone());
     assert_eq!(
         e2e_tests.len(),
-        9,
-        "Expected 9 e2e tests, got {}",
+        10,
+        "Expected 10 e2e tests, got {}",
         e2e_tests.len()
     );
     nodes_count += e2e_tests.len();
