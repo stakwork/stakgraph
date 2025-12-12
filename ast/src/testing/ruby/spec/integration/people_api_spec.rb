@@ -1,87 +1,166 @@
-RSpec.describe "People API" do
+RSpec.describe "People API", type: :request do
   describe "GET /person/:id" do
-    it "returns person when found" do
-      person = Person.create(name: "John Doe", email: "john@example.com")
-      # Simulating controller action
-      controller = PeopleController.new
-      controller.params = { id: person.id }
-      controller.get_person
-      # Expected: render json: person, status: :ok
-      expect(person).not_to be_nil
-      expect(person.name).to eq("John Doe")
+    let(:person) { create(:person) }
+    
+    context "when person exists" do
+      before { get "/person/#{person.id}" }
+      
+      it "returns success status" do
+        expect(response).to have_http_status(:ok)
+      end
+      
+      it "returns person data" do
+        expect(json_response['name']).to eq(person.name)
+        expect(json_response['email']).to eq(person.email)
+      end
     end
-
-    it "returns error when person not found" do
-      controller = PeopleController.new
-      controller.params = { id: 9999 }
-      controller.get_person
-      # Expected: render json: { error: "Person not found" }, status: :not_found
+    
+    context "when person not found" do
+      before { get "/person/9999" }
+      
+      it "returns not found status" do
+        expect(response).to have_http_status(:not_found)
+      end
+      
+      it "returns error message" do
+        expect(json_response['error']).to eq("Person not found")
+      end
     end
   end
 
   describe "POST /person" do
-    it "creates a new person with valid params" do
-      person_params = { name: "Jane Doe", email: "jane@example.com" }
-      controller = PeopleController.new
-      controller.params = { person: person_params }
-      controller.create_person
-      # Expected: render json: person, status: :created
-      created_person = Person.find_by(email: "jane@example.com")
-      expect(created_person).not_to be_nil
-      expect(created_person.name).to eq("Jane Doe")
+    context "with valid params" do
+      let(:valid_params) { { person: { name: "Jane Doe", email: "jane@example.com" } } }
+      
+      it "creates a new person" do
+        expect {
+          post "/person", params: valid_params
+        }.to change(Person, :count).by(1)
+      end
+      
+      it "returns created status" do
+        post "/person", params: valid_params
+        expect(response).to have_http_status(:created)
+      end
+      
+      it "returns person data" do
+        post "/person", params: valid_params
+        expect(json_response['name']).to eq("Jane Doe")
+        expect(json_response['email']).to eq("jane@example.com")
+      end
     end
-
-    it "returns errors with invalid params" do
-      person_params = { name: "", email: "" }
-      controller = PeopleController.new
-      controller.params = { person: person_params }
-      controller.create_person
-      # Expected: render json: { errors: ... }, status: :unprocessable_entity
+    
+    context "with invalid params" do
+      let(:invalid_params) { { person: { name: "", email: "" } } }
+      
+      it "does not create person" do
+        expect {
+          post "/person", params: invalid_params
+        }.not_to change(Person, :count)
+      end
+      
+      it "returns unprocessable entity status" do
+        post "/person", params: invalid_params
+        expect(response).to have_http_status(:unprocessable_entity)
+      end
+      
+      it "returns error messages" do
+        post "/person", params: invalid_params
+        expect(json_response['errors']).to be_present
+      end
     end
   end
 
   describe "DELETE /people/:id" do
-    it "deletes an existing person" do
-      person = Person.create(name: "To Delete", email: "delete@example.com")
-      controller = PeopleController.new
-      controller.params = { id: person.id }
-      controller.destroy
-      # Expected: render json: { message: 'Person deleted successfully' }, status: :ok
-      expect(Person.find_by(id: person.id)).to be_nil
+    let!(:person) { create(:person) }
+    
+    context "when person exists" do
+      it "deletes the person" do
+        expect {
+          delete "/people/#{person.id}"
+        }.to change(Person, :count).by(-1)
+      end
+      
+      it "returns success status" do
+        delete "/people/#{person.id}"
+        expect(response).to have_http_status(:ok)
+      end
+      
+      it "returns success message" do
+        delete "/people/#{person.id}"
+        expect(json_response['message']).to eq('Person deleted successfully')
+      end
     end
-
-    it "returns error when person not found" do
-      controller = PeopleController.new
-      controller.params = { id: 9999 }
-      controller.destroy
-      # Expected: render json: { error: "Person not found" }, status: :not_found
+    
+    context "when person not found" do
+      before { delete "/people/9999" }
+      
+      it "returns not found status" do
+        expect(response).to have_http_status(:not_found)
+      end
+      
+      it "returns error message" do
+        expect(json_response['error']).to eq("Person not found")
+      end
     end
   end
 
   describe "GET /people/articles" do
-    it "returns all articles" do
-      person = Person.create(name: "Author", email: "author@example.com")
-      article1 = person.articles.create(title: "Article 1", body: "Content 1")
-      article2 = person.articles.create(title: "Article 2", body: "Content 2")
+    context "when no articles exist" do
+      before { get "/people/articles" }
       
-      controller = PeopleController.new
-      controller.articles
-      # Expected: render json: articles, status: :ok
-      expect(Article.count).to eq(2)
+      it "returns success status" do
+        expect(response).to have_http_status(:ok)
+      end
+      
+      it "returns empty array" do
+        expect(json_response).to eq([])
+      end
+    end
+    
+    context "when articles exist" do
+      let(:person) { create(:person) }
+      let!(:articles) { create_list(:article, 3, person: person) }
+      
+      before { get "/people/articles" }
+      
+      it "returns all articles" do
+        expect(json_response.length).to eq(3)
+      end
     end
   end
 
   describe "POST /people/:id/articles" do
-    it "creates article for person" do
-      person = Person.create(name: "Author", email: "author@example.com")
-      article_params = { title: "New Article", body: "New Content" }
+    let(:person) { create(:person) }
+    
+    context "with valid params" do
+      let(:valid_params) { { article: { title: "New Article", body: "New Content" } } }
       
-      controller = PeopleController.new
-      controller.params = { id: person.id, article: article_params }
-      controller.create_article
-      # Expected: render json: article, status: :created
-      expect(person.articles.count).to eq(1)
-      expect(person.articles.first.title).to eq("New Article")
+      it "creates article for person" do
+        expect {
+          post "/people/#{person.id}/articles", params: valid_params
+        }.to change(person.articles, :count).by(1)
+      end
+      
+      it "returns created status" do
+        post "/people/#{person.id}/articles", params: valid_params
+        expect(response).to have_http_status(:created)
+      end
+      
+      it "returns article data" do
+        post "/people/#{person.id}/articles", params: valid_params
+        expect(json_response['title']).to eq("New Article")
+        expect(json_response['body']).to eq("New Content")
+      end
+    end
+    
+    context "with invalid params" do
+      let(:invalid_params) { { article: { title: "", body: "" } } }
+      
+      it "returns unprocessable entity status" do
+        post "/people/#{person.id}/articles", params: invalid_params
+        expect(response).to have_http_status(:unprocessable_entity)
+      end
     end
   end
 end

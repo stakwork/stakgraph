@@ -19,7 +19,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-     graph.analysis();
+    //  graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -51,8 +51,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     } else {
         assert_eq!(
             files.len(),
-            56,
-            "Expected 56 file nodes, got {}",
+            65,
+            "Expected 65 file nodes, got {}",
             files.len()
         );
     }
@@ -93,8 +93,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += imports.len();
     assert_eq!(
         imports.len(),
-        17,
-        "Expected 17 import nodes, got {}",
+        23,
+        "Expected 23 import nodes, got {}",
         imports.len()
     );
 
@@ -134,7 +134,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    println!("{:#?}", endpoints.iter().map(|e| (e.meta.get("verb"), &e.name)).collect::<Vec<_>>());
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 23, "Expected 23 endpoints");
 
@@ -364,7 +363,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     if use_lsp {
         assert_eq!(import_edges, 0, "Expected 0 import edges with lsp");
     } else {
-        assert_eq!(import_edges, 5, "Expected 5 import edges without lsp");
+        assert_eq!(import_edges, 4, "Expected 4 import edges without lsp");
     }
 
     let person_to_article_call = class_calls.iter().any(|(src, dst)| {
@@ -393,9 +392,9 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-        assert_eq!(calls, 52, "Expected 52 call edges with lsp");
+        assert_eq!(calls, 50, "Expected 50 call edges with lsp");
     } else {
-        assert_eq!(calls, 49, "Expected 49 call edges without lsp");
+        assert_eq!(calls, 47, "Expected 47 call edges without lsp");
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
@@ -409,8 +408,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 202,
-        "Expected 202 Contains edges, got {}",
+        contains, 230,
+        "Expected 230 Contains edges, got {}",
         contains
     );
 
@@ -706,8 +705,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += directories.len();
     assert_eq!(
         directories.len(),
-        28,
-        "Expected 28 directories, got {}",
+        33,
+        "Expected 33 directories, got {}",
         directories.len()
     );
 
@@ -732,8 +731,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(
         unit_tests.len(),
-        7,
-        "Expected 7 unit tests, got {}",
+        10,
+        "Expected 10 unit tests, got {}",
         unit_tests.len()
     );
     nodes_count += unit_tests.len();
@@ -776,8 +775,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(
         integration_tests.len(),
-        6,
-        "Expected 6 integration tests, got {}",
+        11,
+        "Expected 11 integration tests, got {}",
         integration_tests.len()
     );
     nodes_count += integration_tests.len();
@@ -835,7 +834,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     assert!(
         person_workflow_test
             .body
-            .contains("creates, retrieves, and deletes")
+            .contains("creates, retrieves, updates, and deletes")
             || person_workflow_test
                 .body
                 .contains("manages person through controller"),
@@ -918,7 +917,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_ruby() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-   // test_ruby_generic::<ArrayGraph>().await.unwrap();
+    test_ruby_generic::<ArrayGraph>().await.unwrap();
     test_ruby_generic::<BTreeMapGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]

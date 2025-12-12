@@ -323,14 +323,33 @@ impl Stack for Ruby {
 
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         let f = file.replace('\\', "/").to_lowercase();
+        let b = body.to_lowercase();
 
-        // Strictest E2E paths only
+        // HIGHEST PRIORITY: Explicit E2E directories always win (clearest developer intent)
         if f.contains("/spec/e2e/")
             || f.contains("/test/e2e/")
             || f.contains("/spec/system/")
             || f.contains("/test/system/")
+            || f.contains("/spec/features/") // Feature specs are E2E by convention
+            || f.contains("/test/features/")
         {
             return NodeType::E2eTest;
+        }
+
+        // SECOND PRIORITY: Check RSpec metadata for non-E2E paths
+        // type: :system, type: :feature → E2E
+        if b.contains("type: :system") || b.contains("type: :feature") {
+            return NodeType::E2eTest;
+        }
+        
+        // type: :request, type: :integration → Integration
+        if b.contains("type: :request") || b.contains("type: :integration") {
+            return NodeType::IntegrationTest;
+        }
+        
+        // type: :model, type: :service → Unit
+        if b.contains("type: :model") || b.contains("type: :service") {
+            return NodeType::UnitTest;
         }
 
         // Explicit unit paths
@@ -364,8 +383,7 @@ impl Stack for Ruby {
             return NodeType::UnitTest;
         }
 
-        // For ambiguous paths (/spec/features/, /spec/mixed/, etc), use body
-        let b = body.to_lowercase();
+        // For ambiguous paths, use body markers
 
         // E2E body markers checked FIRST (stronger signal for user interaction)
         let e2e_markers = [
