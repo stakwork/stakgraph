@@ -979,6 +979,7 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
         .await?;
 
     Ok(Json(Coverage {
+        language: totals.language,
         unit_tests: totals.unit_tests.map(|s| CoverageStat {
             total: s.total,
             total_tests: s.total_tests,

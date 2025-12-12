@@ -4,6 +4,9 @@ pub mod graph;
 pub mod utils;
 
 #[cfg(feature = "neo4j")]
+pub mod coverage;
+
+#[cfg(feature = "neo4j")]
 pub mod neo4j_graph;
 
 #[cfg(feature = "neo4j")]
