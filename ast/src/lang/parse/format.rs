@@ -946,8 +946,9 @@ impl Lang {
                         external_func = Some(t);
                     }
                 } else {
+                     let import_names = get_imports_for_file(file, self, graph);
                     if let Some(one_func) =
-                        node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, code, self)
+                        node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, import_names)
                     {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
@@ -1006,8 +1007,9 @@ impl Lang {
             fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
-            if let Some(tf) =
-                node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, code, self)
+             let import_names = get_imports_for_file(file, self, graph);
+             if let Some(tf) =
+                node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, import_names)
             {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
