@@ -232,27 +232,52 @@ export async function fulltextSearch(
       "!dist",
       "--ignore-file",
       ".gitignore",
-      "-C",
-      "2",
-      "-n",
+      "-n", // Show line numbers
+      "--no-heading", // Don't group by file (easier to parse)
       "--max-count",
-      "10",
-      "--max-columns",
-      "200",
+      "100", // Increased to get more matches per file
       query,
       "./",
     ];
 
     const result = await execRipgrepCommandDirect(args, repoPath, 5000);
 
-    if (result.length > 10000) {
+    if (result === "No matches found") {
+      return `No matches found for "${query}"`;
+    }
+
+    // Process in JS to group by file
+    const lines = result.split("\n").filter(Boolean);
+    const fileMatches: Record<string, number[]> = {};
+    
+    for (const line of lines) {
+      const match = line.match(/^([^:]+):(\d+):/);
+      if (match) {
+        const [, file, lineNum] = match;
+        if (!fileMatches[file]) {
+          fileMatches[file] = [];
+        }
+        fileMatches[file].push(parseInt(lineNum, 10));
+      }
+    }
+
+    const output = Object.entries(fileMatches)
+      .sort((a, b) => b[1].length - a[1].length) // Sort by number of matches descending
+      .map(
+        ([file, lineNums]) =>
+          `${lineNums.length}\t${file} (lines: ${lineNums.join(", ")})`
+      )
+      .join("\n");
+
+    // Limit the result to 10,000 characters to prevent overwhelming output
+    if (output.length > 10000) {
       return (
-        result.substring(0, 10000) +
+        output.substring(0, 10000) +
         "\n\n[... output truncated to 10,000 characters ...]"
       );
     }
 
-    return result;
+    return output || `No matches found for "${query}"`;
   } catch (error: any) {
     if (error.message.includes("code 1")) {
       return `No matches found for "${query}"`;
@@ -260,6 +285,13 @@ export async function fulltextSearch(
     return `Error searching: ${error.message}`;
   }
 }
+
+// async function testFulltextSearch() {
+//   const result = await fulltextSearch("'Calls", "/Users/evanfeenstra/code/sphinx2/hive");
+//   console.log(result);
+// }
+
+// testFulltextSearch();
 
 // Execute arbitrary bash command
 export async function executeBashCommand(

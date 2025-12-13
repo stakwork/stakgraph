@@ -50,6 +50,22 @@ export class GraphStorage extends Storage {
       await session.run(
         "CREATE INDEX clue_feature_index IF NOT EXISTS FOR (c:Clue) ON (c.featureId)"
       );
+      // Indexes for code nodes (for REFERENCES edges)
+      await session.run(
+        "CREATE INDEX function_name_index IF NOT EXISTS FOR (f:Function) ON (f.name)"
+      );
+      await session.run(
+        "CREATE INDEX class_name_index IF NOT EXISTS FOR (c:Class) ON (c.name)"
+      );
+      await session.run(
+        "CREATE INDEX endpoint_name_index IF NOT EXISTS FOR (e:Endpoint) ON (e.name)"
+      );
+      await session.run(
+        "CREATE INDEX datamodel_name_index IF NOT EXISTS FOR (d:Datamodel) ON (d.name)"
+      );
+      await session.run(
+        "CREATE INDEX var_name_index IF NOT EXISTS FOR (v:Var) ON (v.name)"
+      );
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
     } finally {
@@ -452,6 +468,52 @@ export class GraphStorage extends Storage {
           dateAddedToGraph: now,
         }
       );
+
+      // Create REFERENCES edges to code nodes
+      // Build array of {label, name} pairs from entities
+      const entityMappings = [
+        { label: 'Function', names: clue.entities.functions || [] },
+        { label: 'Function', names: clue.entities.hooks || [] },
+        { label: 'Function', names: clue.entities.components || [] },
+        { label: 'Class', names: clue.entities.classes || [] },
+        { label: 'Endpoint', names: clue.entities.endpoints || [] },
+        { label: 'Datamodel', names: clue.entities.tables || [] },
+        { label: 'Datamodel', names: clue.entities.types || [] },
+        { label: 'Var', names: clue.entities.constants || [] },
+      ];
+
+      const entityLinks: Array<{label: string; name: string}> = [];
+      for (const mapping of entityMappings) {
+        for (const name of mapping.names) {
+          entityLinks.push({ label: mapping.label, name });
+        }
+      }
+
+      // Only create REFERENCES if there are entities to link
+      if (entityLinks.length > 0) {
+        await session.run(
+          `
+          MATCH (c:Clue {id: $clueId})
+
+          // Delete old REFERENCES edges
+          OPTIONAL MATCH (c)-[r:REFERENCES]->()
+          DELETE r
+
+          WITH c
+          // Create new REFERENCES edges
+          UNWIND $entityLinks as entity
+          OPTIONAL MATCH (node)
+          WHERE entity.label IN labels(node) AND node.name = entity.name
+          WITH c, node
+          WHERE node IS NOT NULL
+          MERGE (c)-[:REFERENCES]->(node)
+          `,
+          {
+            clueId: clue.id,
+            entityLinks: entityLinks,
+          }
+        );
+      }
     } finally {
       await session.close();
     }

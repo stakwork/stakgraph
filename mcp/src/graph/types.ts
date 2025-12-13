@@ -88,7 +88,8 @@ export type EdgeType =
   | "MOCKS"
   | "ABOUT"
   | "TOUCHES"
-  | "MODIFIES";
+  | "MODIFIES"
+  | "REFERENCES";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
