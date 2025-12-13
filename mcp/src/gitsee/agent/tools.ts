@@ -222,3 +222,10 @@ export async function fulltextSearch(
     return `Error searching: ${error.message}`;
   }
 }
+
+// async function testFulltextSearch() {
+//   const result = await fulltextSearch("validateWorkspaceAccess", "/Users/evanfeenstra/code/sphinx2/hive");
+//   console.log(result);
+// }
+
+// testFulltextSearch();
