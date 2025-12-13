@@ -1016,6 +1016,17 @@ impl Lang {
                     called, &tf.file
                 ));
                 fc.target = tf.into();
+            } else if let Some(ref operand) = fc.operand {
+                let import_names_for_operand = get_imports_for_file(file, self, graph);
+                if let Some(base_func) =
+                    node_data_finder(operand, &None, graph, file, fc.source.start, NodeType::Function, import_names_for_operand)
+                {
+                    log_cmd(format!(
+                        "==> ? (member expr) resolved base object {:?} in {}",
+                        operand, &base_func.file
+                    ));
+                    fc.target = base_func.into();
+                }
             }
         }
 

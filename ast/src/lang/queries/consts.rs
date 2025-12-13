@@ -25,6 +25,7 @@ pub const PARENT_TYPE: &str = "parent-type";
 pub const FUNCTION_CALL: &str = "function-call";
 pub const FUNCTION_COMMENT: &str = "function-comment";
 pub const OPERAND: &str = "operand";
+pub const MEMBER_EXPRESSION: &str = "member-expression";
 pub const ASSOCIATION_TYPE: &str = "association-type";
 pub const ASSOCIATION_TARGET: &str = "association-target";
 pub const ASSOCIATION_OPTION: &str = "association-option";
