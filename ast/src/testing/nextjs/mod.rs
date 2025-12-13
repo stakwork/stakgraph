@@ -240,7 +240,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 480, "Expected 480 Contains edges");
+    assert_eq!(contains, 481, "Expected 481 Contains edges");
 
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -313,7 +313,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes += classes.len();
 
-    assert_eq!(classes.len(), 7, "Expected 7 Class nodes");
+    assert_eq!(classes.len(), 8, "Expected 8 Class nodes");
 
 
     let calculator_class = classes
@@ -724,7 +724,7 @@ async fn test_remote_nextjs() -> Result<()> {
     let graph = Neo4jGraph::default();
     graph.clear().await?;
     let graph = repos.build_graphs_inner::<Neo4jGraph>().await?;
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;

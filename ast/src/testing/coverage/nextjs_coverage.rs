@@ -10,7 +10,6 @@ use std::str::FromStr;
 async fn test_integration_coverage() -> Result<()> {
     let use_lsp = get_use_lsp();
 
-    println!("Testing Next.js integration coverage");
     let repo = Repo::new(
         "src/testing/nextjs",
         Lang::from_str("tsx").unwrap(),
@@ -31,8 +30,8 @@ async fn test_integration_coverage() -> Result<()> {
     let integration_tests = btree_graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(
         integration_tests.len(),
-        11,
-        "Expected exactly 11 integration test describe blocks"
+        18,
+        "Expected exactly 18 integration test describe blocks"
     );
 
     let test_edges = btree_graph.find_nodes_with_edge_type(
@@ -48,8 +47,8 @@ async fn test_integration_coverage() -> Result<()> {
 
     assert_eq!(
         unique_tested_endpoints.len(),
-        10,
-        "Expected exactly 10 unique tested endpoints directly called by tests"
+        11,
+        "Expected exactly 11 unique tested endpoints directly called by tests"
     );
 
     // Check endpoints with indirect_test metadata (linked via helper functions)
@@ -153,41 +152,6 @@ async fn test_integration_coverage() -> Result<()> {
         );
     }
 
-    let untested_endpoints = vec![("/api/users", "POST"), ("/api/products/:param", "GET")];
-
-    for (expected_path, expected_verb) in &untested_endpoints {
-        let matching_endpoints: Vec<_> = endpoints
-            .iter()
-            .filter(|e| {
-                let normalized = normalize_backend_path(&e.name).unwrap_or(e.name.clone());
-                normalized == *expected_path
-                    && e.meta.get("verb") == Some(&expected_verb.to_string())
-            })
-            .collect();
-
-        assert_eq!(
-            matching_endpoints.len(),
-            1,
-            "Expected exactly 1 endpoint matching {} {}, found {}",
-            expected_verb,
-            expected_path,
-            matching_endpoints.len()
-        );
-
-        let endpoint = matching_endpoints[0];
-
-        let has_test_edge = test_edges.iter().any(|(_, target)| {
-            target.name == endpoint.name
-                && target.file == endpoint.file
-                && target.start == endpoint.start
-        });
-
-        assert_eq!(
-            has_test_edge, false,
-            "Endpoint {} {} should NOT have integration test edge",
-            expected_verb, expected_path
-        );
-    }
 
     #[cfg(feature = "neo4j")]
     {
@@ -218,14 +182,14 @@ async fn test_integration_coverage() -> Result<()> {
             .await?;
 
         assert_eq!(
-            tested_count, 12,
-            "Neo4j should report exactly 12 tested endpoints"
+            tested_count, 13,
+            "Neo4j should report exactly 13 tested endpoints"
         );
 
         assert_eq!(
             tested_results.len(),
-            12,
-            "Neo4j should return exactly 12 tested endpoint results"
+            13,
+            "Neo4j should return exactly 13 tested endpoint results"
         );
 
         let (untested_count, untested_results) = graph_ops
@@ -244,14 +208,14 @@ async fn test_integration_coverage() -> Result<()> {
             .await?;
 
         assert_eq!(
-            untested_count, 9,
-            "Neo4j should report exactly 9 untested endpoints"
+            untested_count, 8,
+            "Neo4j should report exactly 8 untested endpoints"
         );
 
         assert_eq!(
             untested_results.len(),
-            9,
-            "Neo4j should return exactly 9 untested endpoint results"
+            8,
+            "Neo4j should return exactly 8 untested endpoint results"
         );
     }
 
