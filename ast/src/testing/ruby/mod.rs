@@ -392,7 +392,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
 
-    assert_eq!(calls, 62, "Expected 62 call edges without lsp");
+    assert_eq!(calls, 63, "Expected 63 call edges without lsp");
   
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
@@ -406,8 +406,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
     assert_eq!(
-        contains, 258,
-        "Expected 258 Contains edges, got {}",
+        contains, 264,
+        "Expected 264 Contains edges, got {}",
         contains
     );
 
@@ -425,8 +425,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     nodes_count += classes.len();
     assert_eq!(
         classes.len(),
-        21,
-        "Expected 21 class nodes, got {}",
+        27,
+        "Expected 27 class nodes, got {}",
         classes.len()
     );
     let person_model = classes

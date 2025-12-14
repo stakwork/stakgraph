@@ -238,11 +238,10 @@ where
                     let mut params = BoltMap::new();
                     boltmap_insert_list_of_maps(&mut params, "edges", edges_data);
 
-                    // could use MERGE instead of CREATE here...
                     let query = format!(
                         "UNWIND $edges AS edge
                          MATCH (source:Data_Bank {{node_key: edge.source}}), (target:Data_Bank {{node_key: edge.target}})
-                         CREATE (source)-[r:{}]->(target)
+                         MERGE (source)-[r:{}]->(target)
                          SET r.ref_id = edge.ref_id
                          RETURN count(r)",
                         edge_type.to_string()
@@ -817,7 +816,7 @@ pub fn filter_out_nodes_without_children_query(
     let query = format!(
         "MATCH (parent:{})
         WHERE NOT EXISTS {{
-            MATCH (parent)<-[:OPERAND]-(child:{})
+            MATCH (parent)-[:OPERAND]->(child:{})
         }}
         AND NOT EXISTS {{
             MATCH (instance:Instance)-[:OF]->(parent)

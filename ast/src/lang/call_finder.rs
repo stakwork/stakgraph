@@ -5,6 +5,7 @@ use tree_sitter::QueryCursor;
 
 pub fn node_data_finder<G: Graph>(
     func_name: &str,
+    operand: &Option<String>,
     graph: &G,
     current_file: &str,
     source_start: usize,
@@ -13,7 +14,7 @@ pub fn node_data_finder<G: Graph>(
 ) -> Option<NodeData> {
     func_target_file_finder(
         func_name,
-        &None,
+        operand,
         graph,
         current_file,
         source_start,
@@ -24,7 +25,7 @@ pub fn node_data_finder<G: Graph>(
 
 pub fn func_target_file_finder<G: Graph>(
     func_name: &str,
-    _operand: &Option<String>,
+    operand: &Option<String>,
     graph: &G,
     current_file: &str,
     source_start: usize,
@@ -62,6 +63,16 @@ pub fn func_target_file_finder<G: Graph>(
     if let Some(tf) = find_function_in_same_directory(func_name, current_file, graph, source_start)
     {
         return Some(tf);
+    }
+
+    // Fifth try: If operand exists, try operand-based resolution
+    if let Some(ref operand) = operand {
+        if let Some(target_file) = find_function_with_operand(operand, func_name, graph) {
+            if let Some(tf) = graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &target_file) {
+                println!("[OPERAND] resolved {}.{} in {}", operand, func_name, target_file);
+                return Some(tf);
+            }
+        }
     }
 
     None
@@ -197,7 +208,7 @@ fn find_only_one_function_file<G: Graph>(
     None
 }
 
-fn _find_function_with_operand<G: Graph>(
+fn find_function_with_operand<G: Graph>(
     operand: &str,
     func_name: &str,
     graph: &G,
