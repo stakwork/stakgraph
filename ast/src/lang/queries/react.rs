@@ -646,6 +646,23 @@ impl Stack for ReactTs {
                             object: (identifier) @{OPERAND}
                             property: (property_identifier) @{FUNCTION_NAME}
                         )
+                        (member_expression
+                            object: (member_expression
+                                object: (identifier) @{OPERAND}
+                                property: (property_identifier)
+                            )
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                        (member_expression
+                            object: (member_expression
+                                object: (member_expression
+                                    object: (identifier) @{OPERAND}
+                                    property: (property_identifier)
+                                )
+                                property: (property_identifier)
+                            )
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
                     ]
                 )
                 (
