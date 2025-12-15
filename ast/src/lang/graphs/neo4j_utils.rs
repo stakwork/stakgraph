@@ -881,6 +881,7 @@ pub fn add_functions_query(
     dms: &[Edge],
     trait_operand: Option<&Edge>,
     return_types: &[Edge],
+    nested_in: &[Edge],
 ) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
@@ -931,6 +932,9 @@ pub fn add_functions_query(
 
     for dm_edge in dms {
         queries.push(add_edge_query(dm_edge));
+    }
+    for ne_edge in nested_in {
+        queries.push(add_edge_query(ne_edge));
     }
     queries
 }

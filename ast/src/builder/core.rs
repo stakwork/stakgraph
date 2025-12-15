@@ -4,9 +4,8 @@ use super::utils::*;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::{
-    graphs::{Edge, EdgeType, Graph},
+    graphs::{Edge, Graph},
     linker::link_tests,
-    NodeRef,
 };
 
 use crate::lang::{
@@ -825,18 +824,9 @@ impl Repo {
                 self.lang
                     .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
-            graph.add_functions(funcs.clone());
 
-            let func_nodes: Vec<NodeData> = funcs.iter().map(|f| f.0.clone()).collect();
-            let nested_pairs = self.lang.find_nested_functions(&func_nodes);
-            for (child, parent) in nested_pairs {
-                let edge = Edge::new(
-                    EdgeType::NestedIn,
-                    NodeRef::from(child.into(), NodeType::Function),
-                    NodeRef::from(parent.into(), NodeType::Function),
-                );
-                graph.add_edge(edge);
-            }
+            graph.add_functions(funcs);
+            
             test_count += tests.len();
             graph.add_tests(tests);
         }

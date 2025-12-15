@@ -239,7 +239,7 @@ impl Graph for BTreeMapGraph {
     }
 
     fn add_functions(&mut self, functions: Vec<Function>) {
-        for (func_node_data, method_of, reqs, dms, trait_operand, return_types) in functions {
+        for (func_node_data, method_of, reqs, dms, trait_operand, return_types, nested_in) in functions {
             let func_clone = func_node_data.clone();
             self.add_node(NodeType::Function, func_node_data);
 
@@ -270,6 +270,9 @@ impl Graph for BTreeMapGraph {
             }
             for rt in return_types {
                 self.add_edge(rt);
+            }
+            for ne in nested_in {
+                self.add_edge(ne);
             }
 
             for req in reqs {

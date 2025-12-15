@@ -187,7 +187,7 @@ impl Lang {
                 None
             };
 
-            res.push(((ff, None, vec![], vec![], None, vec![]), test_edge));
+            res.push(((ff, None, vec![], vec![], None, vec![], Vec::new()), test_edge));
         }
         Ok(res)
     }
@@ -653,6 +653,35 @@ impl Lang {
                 }
             }
         }
+        nested
+    }
+
+    pub fn find_functions_nested_in_variables<'a>(
+        &self,
+        functions: &'a mut [NodeData],
+        variables: &'a [NodeData],
+    ) -> Vec<(&'a NodeData, &'a NodeData)> {
+        use std::collections::HashMap;
+        
+        let mut nested = Vec::new();
+        
+        let mut var_index: HashMap<String, Vec<&NodeData>> = HashMap::new();
+        for var in variables {
+            var_index.entry(var.file.clone()).or_insert_with(Vec::new).push(var);
+        }
+        
+        for func in functions.iter_mut() {
+            if let Some(vars_in_file) = var_index.get(&func.file) {
+                for var in vars_in_file {
+                    if func.start > var.start && func.end < var.end {
+                        func.add_nested_in(&var.name);
+                        nested.push((func as &NodeData, var as &NodeData));
+                        break;
+                    }
+                }
+            }
+        }
+        
         nested
     }
 }
