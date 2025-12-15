@@ -896,12 +896,11 @@ async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<&str
     info!("[mcp_mocks] Calling MCP to discover mocks (sync={}): {}", sync, url);
 
     let client = Client::new();
-    match client
-        .get(&url)
-        .timeout(Duration::from_secs(300))
-        .send()
-        .await
-    {
+    let mut req = client.get(&url).timeout(Duration::from_secs(300));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.header("x-api-token", token);
+    }
+    match req.send().await {
         Ok(resp) => {
             if resp.status().is_success() {
                 info!("[mcp_mocks] MCP mocks call succeeded");
