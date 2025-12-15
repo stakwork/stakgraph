@@ -139,7 +139,7 @@ impl Stack for ReactTs {
     }
 
     fn variables_query(&self) -> Option<String> {
-        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
+        let types = "(string)(template_string)(number)(array)(true)(false)(new_expression)";
         Some(format!(
             r#"(program
                     (export_statement
@@ -434,6 +434,38 @@ impl Stack for ReactTs {
                     (class_declaration
                         name: (type_identifier) @{STRUCT_NAME}
                     ) 
+                )
+                (export_statement
+                    (variable_declaration
+                        (variable_declarator
+                            name: (identifier) @{STRUCT_NAME}
+                            value: (object)
+                        )
+                    )
+                )
+                (export_statement
+                    (lexical_declaration
+                        (variable_declarator
+                            name: (identifier) @{STRUCT_NAME}
+                            value: (object)
+                        )
+                    )
+                )
+                (program
+                    (lexical_declaration
+                        (variable_declarator
+                            name: (identifier) @{STRUCT_NAME}
+                            value: (object)
+                        )
+                    )
+                )
+                (program
+                    (variable_declaration
+                        (variable_declarator
+                            name: (identifier) @{STRUCT_NAME}
+                            value: (object)
+                        )
+                    )
                 )
             ] @{STRUCT}
             "#
