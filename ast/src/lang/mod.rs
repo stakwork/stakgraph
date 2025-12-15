@@ -34,13 +34,14 @@ impl fmt::Display for Lang {
     //test
 }
 
-// function, operand, requests within, data models within, trait operand, return types
+// function, operand, requests within, data models within, trait operand, return types, nested_in edges
 pub type Function = (
     NodeData,
     Option<Operand>,
     Vec<NodeData>,
     Vec<Edge>,
     Option<Edge>,
+    Vec<Edge>,
     Vec<Edge>,
 );
 // Calls, external function (from library or std), Class calls another Class
@@ -500,6 +501,35 @@ impl Lang {
         let mut funcs1 =
             self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
         self.attach_function_comments(code, &mut funcs1)?;
+
+        let mut func_nodes: Vec<NodeData> = funcs1.iter().map(|f| f.0.clone()).collect();
+        let nested_pairs = self.find_nested_functions(&func_nodes);
+        
+        let mut nested_edges_by_child: std::collections::HashMap<NodeKeys, Vec<Edge>> = std::collections::HashMap::new();
+        for (child, parent) in nested_pairs {
+            let edge = Edge::new(
+                EdgeType::NestedIn,
+                NodeRef::from(child.into(), NodeType::Function),
+                NodeRef::from(parent.into(), NodeType::Function),
+            );
+            nested_edges_by_child.entry(child.into()).or_default().push(edge);
+        }
+        
+        let all_variables = graph.find_nodes_by_type(NodeType::Var);
+        let var_nested_pairs = self.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
+        for (func, var) in var_nested_pairs {
+            let edge = Edge::new(
+                EdgeType::NestedIn,
+                NodeRef::from(func.into(), NodeType::Function),
+                NodeRef::from(var.into(), NodeType::Var),
+            );
+            nested_edges_by_child.entry(func.into()).or_default().push(edge);
+        }
+        
+        funcs1 = funcs1.into_iter().map(|(func, op, reqs, dms, trait_op, return_types, _)| {
+            let nested_edges = nested_edges_by_child.get(&NodeKeys::from(&func)).cloned().unwrap_or_default();
+            (func, op, reqs, dms, trait_op, return_types, nested_edges)
+        }).collect();
 
         let funcs = if self.lang.tests_are_functions() {
             let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);

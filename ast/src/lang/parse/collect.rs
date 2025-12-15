@@ -187,7 +187,7 @@ impl Lang {
                 None
             };
 
-            res.push(((ff, None, vec![], vec![], None, vec![]), test_edge));
+            res.push(((ff, None, vec![], vec![], None, vec![], Vec::new()), test_edge));
         }
         Ok(res)
     }

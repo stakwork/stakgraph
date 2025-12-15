@@ -4,9 +4,8 @@ use super::utils::*;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::{
-    graphs::{Edge, EdgeType, Graph},
+    graphs::{Edge, Graph},
     linker::link_tests,
-    NodeRef,
 };
 
 use crate::lang::{
@@ -826,38 +825,7 @@ impl Repo {
                     .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
 
-
-            let mut func_nodes: Vec<NodeData> = funcs.iter().map(|f| f.0.clone()).collect();
-
-            let nested_pairs = self.lang.find_nested_functions(&func_nodes);
-            for (child, parent) in nested_pairs {
-                let edge = Edge::new(
-                    EdgeType::NestedIn,
-                    NodeRef::from(child.into(), NodeType::Function),
-                    NodeRef::from(parent.into(), NodeType::Function),
-                );
-                graph.add_edge(edge);
-            }
-            
-            let all_variables = graph.find_nodes_by_type(NodeType::Var);
-            let var_nested_pairs = self.lang.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
-            for (func, var) in var_nested_pairs {
-                let edge = Edge::new(
-                    EdgeType::NestedIn,
-                    NodeRef::from(func.into(), NodeType::Function),
-                    NodeRef::from(var.into(), NodeType::Var),
-                );
-                graph.add_edge(edge);
-            }
-            
-            let modified_funcs: Vec<crate::lang::Function> = funcs.into_iter()
-                .enumerate()
-                .map(|(i, (_, operand, reqs, dms, trait_op, return_types))| {
-                    (func_nodes[i].clone(), operand, reqs, dms, trait_op, return_types)
-                })
-                .collect();
-
-            graph.add_functions(modified_funcs);
+            graph.add_functions(funcs);
             
             test_count += tests.len();
             graph.add_tests(tests);

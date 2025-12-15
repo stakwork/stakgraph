@@ -283,7 +283,7 @@ impl Graph for ArrayGraph {
     fn add_functions(&mut self, functions: Vec<Function>) {
         for f in functions {
             // HERE return_types
-            let (node, method_of, reqs, dms, trait_operand, return_types) = f;
+            let (node, method_of, reqs, dms, trait_operand, return_types, nested_in) = f;
             if let Some(ff) = self.file_data(&node.file) {
                 let edge = Edge::contains(NodeType::File, &ff, NodeType::Function, &node);
                 self.add_edge(edge);
@@ -297,6 +297,9 @@ impl Graph for ArrayGraph {
             }
             for rt in return_types {
                 self.add_edge(rt);
+            }
+            for ne in nested_in {
+                self.add_edge(ne);
             }
             for r in reqs {
                 let edge = Edge::calls(NodeType::Function, &node, NodeType::Request, &r);

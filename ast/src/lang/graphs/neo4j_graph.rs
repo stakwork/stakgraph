@@ -906,7 +906,7 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        for (function_node, method_of, reqs, dms, trait_operand, return_types) in &functions {
+        for (function_node, method_of, reqs, dms, trait_operand, return_types, nested_in) in &functions {
             let queries = add_functions_query(
                 function_node,
                 method_of.as_ref(),
@@ -914,6 +914,7 @@ impl Neo4jGraph {
                 dms,
                 trait_operand.as_ref(),
                 return_types,
+                nested_in,
             );
             for query in queries {
                 txn_manager.add_query(query);

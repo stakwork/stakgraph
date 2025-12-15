@@ -831,6 +831,7 @@ impl Lang {
             models,
             trait_operand,
             return_types,
+            Vec::new(),
         )))
     }
     pub fn format_test(
