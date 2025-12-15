@@ -215,6 +215,10 @@ impl NodeData {
         self.meta
             .insert("macro".to_string(), "true".to_string());
     }
+    pub fn add_nested_in(&mut self, var_name: &str) {
+        self.meta
+            .insert("nested_in".to_string(), var_name.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

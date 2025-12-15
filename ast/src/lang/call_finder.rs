@@ -75,6 +75,13 @@ pub fn func_target_file_finder<G: Graph>(
         }
     }
 
+    // Sixth try: Check if function is nested in a variable (e.g., authOptions.callbacks.signIn)
+    if let Some(ref operand) = operand {
+        if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file) {
+            return Some(tf);
+        }
+    }
+
     None
 }
 
@@ -233,6 +240,33 @@ fn find_function_with_operand<G: Graph>(
         }
     }
     target_file
+}
+
+fn find_nested_function_in_variable<G: Graph>(
+    var_name: &str,
+    func_name: &str,
+    graph: &G,
+    _current_file: &str,
+) -> Option<NodeData> {
+    let var_nodes = graph.find_nodes_by_name(NodeType::Var, var_name);
+    if var_nodes.is_empty() {
+        return None;
+    }
+    
+    let func_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+    if func_nodes.is_empty() {
+        return None;
+    }
+    
+    for func in func_nodes.clone() {
+        if let Some(nested_in) = func.meta.get("nested_in") {
+            if nested_in == var_name {
+                return Some(func);
+            }
+        }
+    }
+    
+    None
 }
 
 fn find_function_in_same_file<G: Graph>(
