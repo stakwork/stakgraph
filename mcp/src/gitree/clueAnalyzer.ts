@@ -453,11 +453,10 @@ ${existingClues.length > 0 ? existingCluesList : "  (none yet)"}
 5. Set "complete: true" if you believe this feature is comprehensively covered (or if creating fewer than 2 new clues)
 
 **CRITICAL - Content Writing Guidelines**:
+- include exact function names, type names, class names, etc. But not big code snippets.
 - Write GENERIC, reusable explanations that work for ANY feature using this pattern
-- DO NOT mention the specific feature name (${feature.name}) in the content
 - Focus on the utility/abstraction ITSELF, not how this particular feature uses it
-- Use generic examples: "Features using this pattern..." instead of "${feature.name} uses..."
-- Think: "How would I explain this to someone working on a DIFFERENT feature?"
+- Think: "How would I explain this to someone working on ANY feature?"
 
 **IMPORTANT**:
 - DO NOT create code snippets - only reference entity names
@@ -638,7 +637,6 @@ Your goal is to identify "Clues" based on what changed in a specific PR or commi
 - DO NOT mention feature names, PR numbers, or commit SHAs
 - Focus on the utility/abstraction itself as a general concept
 - Example: "This pattern ensures workspace isolation by..." NOT "This PR adds..."
-- Think: Reusable documentation for ANY codebase
 
 **Clue Types:**
 - **utility**: Reusable functions/classes
