@@ -101,6 +101,7 @@ pub struct CoverageParams {
     pub repo: Option<String>,
     pub ignore_dirs: Option<String>,
     pub regex: Option<String>,
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -146,6 +147,8 @@ pub struct Node {
     pub properties: NodeData,
     pub body_length: Option<i64>,
     pub line_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -166,6 +169,8 @@ pub struct NodeConcise {
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     #[serde(default)]
     pub meta: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -192,6 +197,7 @@ pub struct QueryNodesParams {
     pub integration_regexes: Option<String>,
     pub e2e_regexes: Option<String>,
     pub search: Option<String>,
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize)]

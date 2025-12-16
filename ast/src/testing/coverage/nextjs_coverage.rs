@@ -178,8 +178,11 @@ async fn test_integration_coverage() -> Result<()> {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
+        
+        let _ = tested_results.iter().map(|(_, _, _, _, _, _, _, _)| ()).collect::<Vec<_>>();
 
         assert_eq!(
             tested_count, 13,
@@ -204,8 +207,11 @@ async fn test_integration_coverage() -> Result<()> {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
+        
+        let _ = untested_results.iter().map(|(_, _, _, _, _, _, _, _)| ()).collect::<Vec<_>>();
 
         assert_eq!(
             untested_count, 8,

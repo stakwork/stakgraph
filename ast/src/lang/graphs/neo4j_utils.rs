@@ -1414,6 +1414,7 @@ pub fn query_nodes_with_count(
     repo: Option<&str>,
     test_filters: Option<super::TestFilters>,
     search: Option<&str>,
+    is_muted: Option<bool>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -1554,6 +1555,12 @@ pub fn query_nodes_with_count(
         .map(|_| "AND toLower(n.name) CONTAINS toLower($search)".to_string())
         .unwrap_or_default();
 
+    let is_muted_filter = match is_muted {
+        Some(true) => "AND (n.is_muted = true OR n.is_muted = 'true')",
+        Some(false) => "AND (n.is_muted IS NULL OR (n.is_muted <> true AND n.is_muted <> 'true'))",
+        None => "",
+    };
+
     let function_specific_filters = if node_type == &NodeType::Function {
         unique_functions_filters().join(" AND ")
     } else {
@@ -1562,7 +1569,7 @@ pub fn query_nodes_with_count(
 
     let query = format!(
         "MATCH (n:{})
-         WHERE {} {} {} {} {}
+         WHERE {} {} {} {} {} {}
          {}
          WITH n, {} AS test_count
          {} 
@@ -1575,7 +1582,12 @@ pub fn query_nodes_with_count(
              is_covered: is_covered,
              test_count: test_count,
              body_length: size(n.body),
-             line_count: (n.end - n.start + 1)
+             line_count: (n.end - n.start + 1),
+             is_muted: CASE 
+                 WHEN n.is_muted = true OR n.is_muted = 'true' THEN true
+                 WHEN n.is_muted = false OR n.is_muted = 'false' THEN false
+                 ELSE null 
+             END
          }}) AS all_items
          RETURN 
              size(all_items) AS total_count,
@@ -1586,6 +1598,7 @@ pub fn query_nodes_with_count(
         ignore_dirs_filter,
         regex_filter,
         search_filter,
+        is_muted_filter,
         test_match_clauses,
         test_count_expr,
         coverage_where,

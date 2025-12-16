@@ -974,7 +974,7 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
     };
 
     let totals = graph_ops
-        .get_coverage(params.repo.as_deref(), Some(test_filters))
+        .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
     Ok(Json(Coverage {
@@ -1026,6 +1026,7 @@ pub async fn nodes_handler(
     let concise = params.concise.unwrap_or(true);
     let body_length = params.body_length.unwrap_or(false);
     let line_count = params.line_count.unwrap_or(false);
+    let is_muted = params.is_muted;
 
     if let Some(coverage) = coverage_filter {
         if !matches!(coverage, "tested" | "untested" | "all") {
@@ -1069,8 +1070,8 @@ pub async fn nodes_handler(
         let (count, results) = graph_ops
             .query_nodes_with_count(
                 node_type.clone(),
-                0,
-                usize::MAX,
+                offset,
+                limit,
                 sort_by_test_count,
                 coverage_filter,
                 body_length,
@@ -1078,12 +1079,13 @@ pub async fn nodes_handler(
                 params.repo.as_deref(),
                 Some(test_filters.clone()),
                 params.search.as_deref(),
+                is_muted,
             )
             .await?;
 
         combined_total_count += count;
 
-        for (node_data, usage_count, covered, test_count, ref_id, body_length, line_count) in
+        for (node_data, usage_count, covered, test_count, ref_id, body_length, line_count, is_muted) in
             results
         {
             let verb = if node_type == NodeType::Endpoint {
@@ -1107,6 +1109,7 @@ pub async fn nodes_handler(
                     start: node_data.start,
                     end: node_data.end,
                     meta: node_data.meta,
+                    is_muted,
                 })
             } else {
                 NodesResponseItem::Full(Node {
@@ -1118,6 +1121,7 @@ pub async fn nodes_handler(
                     properties: node_data,
                     body_length,
                     line_count,
+                    is_muted,
                 })
             };
             all_results.push((test_count, usage_count, item));
