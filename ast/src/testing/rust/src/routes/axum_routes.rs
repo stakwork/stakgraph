@@ -89,4 +89,36 @@ mod tests {
         assert!(!person.name.is_empty());
         assert!(person.email.contains('@'));
     }
+
+    #[test]
+    fn test_person_struct_creation() {
+        let person = Person {
+            id: Some(1),
+            name: "Test User".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        assert_eq!(person.id, Some(1));
+        assert_eq!(person.name, "Test User");
+    }
+
+    #[test]
+    fn test_person_without_id() {
+        let person = Person {
+            id: None,
+            name: "New User".to_string(),
+            email: "new@example.com".to_string(),
+        };
+        assert!(person.id.is_none());
+    }
+
+    #[test]
+    fn test_person_email_validation() {
+        let person = Person {
+            id: None,
+            name: "User".to_string(),
+            email: "valid.email+tag@example.com".to_string(),
+        };
+        assert!(person.email.contains('@'));
+        assert!(person.email.contains('.'));
+    }
 }

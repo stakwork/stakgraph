@@ -112,3 +112,146 @@ impl<T, E> ApiResult<T, E> {
         matches!(self, ApiResult::Success(_))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_with_struct() {
+        #[derive(Serialize)]
+        struct TestData {
+            name: String,
+            value: i32,
+        }
+        
+        let data = TestData {
+            name: "test".to_string(),
+            value: 42,
+        };
+        
+        let result = process(data);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("test"));
+    }
+
+    #[test]
+    fn test_process_with_string() {
+        let result = process("hello");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "\"hello\"");
+    }
+
+    #[test]
+    fn test_process_with_number() {
+        let result = process(123);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "123");
+    }
+
+    #[test]
+    fn test_longest_first_longer() {
+        let result = longest("longest", "short");
+        assert_eq!(result, "longest");
+    }
+
+    #[test]
+    fn test_longest_second_longer() {
+        let result = longest("short", "definitely longer");
+        assert_eq!(result, "definitely longer");
+    }
+
+    #[test]
+    fn test_longest_equal_length() {
+        let result = longest("same", "size");
+        assert_eq!(result, "size");
+    }
+
+    #[test]
+    fn test_compare_and_display_greater() {
+        let result = compare_and_display(10, 5);
+        assert_eq!(result, "10 is greater");
+    }
+
+    #[test]
+    fn test_compare_and_display_equal() {
+        let result = compare_and_display(5, 5);
+        assert_eq!(result, "5 is greater or equal");
+    }
+
+    #[test]
+    fn test_compare_and_display_strings() {
+        let result = compare_and_display("zebra", "apple");
+        assert!(result.contains("greater"));
+    }
+
+    #[test]
+    fn test_compute_constant() {
+        let result = compute_constant();
+        assert_eq!(result, 1024);
+    }
+
+    #[test]
+    fn test_array_size() {
+        let result = array_size();
+        assert_eq!(result, 256);
+    }
+
+    #[test]
+    fn test_cache_new() {
+        let cache: Cache<String, i32> = Cache::new();
+        assert_eq!(cache.data.len(), 0);
+    }
+
+    #[test]
+    fn test_cache_insert_and_get() {
+        let mut cache = Cache::new();
+        cache.insert("key1".to_string(), 100);
+        
+        let value = cache.get(&"key1".to_string());
+        assert!(value.is_some());
+        assert_eq!(*value.unwrap(), 100);
+    }
+
+    #[test]
+    fn test_cache_get_missing() {
+        let cache: Cache<String, i32> = Cache::new();
+        let value = cache.get(&"missing".to_string());
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn test_cache_multiple_inserts() {
+        let mut cache = Cache::new();
+        cache.insert(1, "one".to_string());
+        cache.insert(2, "two".to_string());
+        cache.insert(3, "three".to_string());
+        
+        assert_eq!(cache.get(&1), Some(&"one".to_string()));
+        assert_eq!(cache.get(&2), Some(&"two".to_string()));
+        assert_eq!(cache.get(&3), Some(&"three".to_string()));
+    }
+
+    #[test]
+    fn test_api_result_is_success() {
+        let success: ApiResult<i32, String> = ApiResult::Success(42);
+        assert!(success.is_success());
+    }
+
+    #[test]
+    fn test_api_result_is_failure() {
+        let failure: ApiResult<i32, String> = ApiResult::Failure("error".to_string());
+        assert!(!failure.is_success());
+    }
+
+    #[test]
+    fn test_api_result_is_pending() {
+        let pending: ApiResult<i32, String> = ApiResult::Pending;
+        assert!(!pending.is_success());
+    }
+
+    #[test]
+    fn test_closure_examples() {
+        closure_examples();
+    }
+}
