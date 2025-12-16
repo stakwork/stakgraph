@@ -12,6 +12,7 @@ use crate::routes::{
 use anyhow::Result;
 use std::net::SocketAddr;
 
+#[derive(Copy, Clone)]
 enum PORT {
     Axum = 5002,
     Actix = 5004,
@@ -20,10 +21,21 @@ enum PORT {
 
 //should be DM and NOT Class 'cause there is no implementation
 enum CRATES {
-    STANDALONE = "standalone",
-    AST = "ast",
-    LSP = "lsp",
-    SKILL = "skill",
+    STANDALONE,
+    AST,
+    LSP,
+    SKILL,
+}
+
+impl CRATES {
+    fn as_str(&self) -> &'static str {
+        match self {
+            CRATES::STANDALONE => "standalone",
+            CRATES::AST => "ast",
+            CRATES::LSP => "lsp",
+            CRATES::SKILL => "skill",
+        }
+    }
 }
 
 impl PORT {
@@ -109,12 +121,12 @@ async fn start_rocket_server() -> Result<()> {
 
 //should be DM and Class Because of implementation of Display
 enum LANGUAGE {
-    Rust = "rust",
-    Python = "python",
-    JavaScript = "javascript",
+    Rust,
+    Python,
+    JavaScript,
 }
 
-impl Display for LANGUAGE {
+impl std::fmt::Display for LANGUAGE {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             LANGUAGE::Rust => write!(f, "Rust"),

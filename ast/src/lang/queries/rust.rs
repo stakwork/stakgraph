@@ -327,7 +327,8 @@ impl Stack for Rust {
               (function_signature_item
                 name: (identifier) @{FUNCTION_NAME}
                 parameters: (parameters) @{ARGUMENTS}
-                return_type: (_)? @{RETURN_TYPES}) @{FUNCTION_DEFINITION}
+                return_type: (_)? @{RETURN_TYPES}
+               )@{FUNCTION_DEFINITION}
             )
             
             (macro_definition
@@ -345,7 +346,7 @@ impl Stack for Rust {
                     name: (identifier) @{FUNCTION_NAME}
                     parameters: (parameters) @{ARGUMENTS}
                     return_type: (_)? @{RETURN_TYPES}
-                    body: (block)? @method.body) @method
+                    body: (block)? @method.body) @method @{FUNCTION_DEFINITION}
                 )
               )) @impl
             "#
@@ -374,6 +375,7 @@ impl Stack for Rust {
                         )
                         ;; chained call
                         (field_expression
+                            value: (identifier)? @{OPERAND}
                             field: (field_identifier) @{FUNCTION_NAME}
                         )
                     ]
@@ -554,29 +556,7 @@ impl Stack for Rust {
     }
 
     fn test_query(&self) -> Option<String> {
-        Some(format!(
-            r#"
-            (
-                (attribute_item
-                    (attribute
-                        [
-                            (identifier) @test_attr (#match? @test_attr "^(test|bench|rstest|proptest|quickcheck|wasm_bindgen_test)$")
-                            (scoped_identifier
-                                name: (identifier) @test_method (#match? @test_method "^(test|rstest|quickcheck)$")
-                            )
-                        ]
-                    )
-                )
-                .
-                (function_item
-                    name: (identifier) @{FUNCTION_NAME}
-                    parameters: (parameters) @{ARGUMENTS}
-                    return_type: (_)? @{RETURN_TYPES}
-                    body: (block)? @function.body
-                ) @{FUNCTION_DEFINITION}
-            )
-            "#
-        ))
+        None
     }
 
     fn add_endpoint_verb(&self, endpoint: &mut NodeData, call: &Option<String>) -> Option<String> {

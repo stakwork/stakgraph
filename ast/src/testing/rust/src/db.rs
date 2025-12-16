@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use shared::{Context, Result};
+use anyhow::{Context, Result};
 use sqlx::FromRow;
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 use std::sync::OnceLock;
@@ -128,7 +128,7 @@ mod tests {
     #[tokio::test]
     async fn test_init_db() {
         let result = init_db().await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Database initialization should succeed");
     }
 
     #[tokio::test]
@@ -146,6 +146,115 @@ mod tests {
         
         let retrieved = Database::get_person_by_id(created.id.unwrap() as u32).await.unwrap();
         assert_eq!(retrieved.name, "Bob");
+        assert_eq!(retrieved.email, "bob@example.com");
+    }
+
+    #[tokio::test]
+    async fn test_new_person_with_database() {
+        let result = init_db().await;
+        if result.is_err() {
+            return;
+        }
+        
+        let person = Person {
+            id: None,
+            name: "Charlie".to_string(),
+            email: "charlie@test.com".to_string(),
+        };
+        
+        let created_result = Database::new_person(person).await;
+        if let Ok(created) = created_result {
+            assert!(created.id.is_some());
+            assert_eq!(created.name, "Charlie");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_person_validation() {
+        let person = Person {
+            id: None,
+            name: "".to_string(),
+            email: "test@example.com".to_string(),
+        };
+        
+        assert_eq!(person.name, "");
+        assert!(person.email.contains('@'));
+    }
+
+    #[tokio::test]
+    async fn test_get_person_by_id_not_found() {
+        init_db().await.unwrap();
+        
+        let result = Database::get_person_by_id(99999).await;
+        assert!(result.is_err(), "Getting non-existent person should fail");
+    }
+
+    #[tokio::test]
+    async fn test_person_data_structure() {
+        let people = vec![
+            Person { id: None, name: "User1".to_string(), email: "user1@test.com".to_string() },
+            Person { id: None, name: "User2".to_string(), email: "user2@test.com".to_string() },
+            Person { id: None, name: "User3".to_string(), email: "user3@test.com".to_string() },
+        ];
+        
+        assert_eq!(people.len(), 3);
+        assert_eq!(people[0].name, "User1");
+        assert_eq!(people[2].email, "user3@test.com");
+    }
+
+    #[test]
+    fn test_buffer_size() {
+        let size = buffer_size();
+        assert_eq!(size, 1024);
+        assert!(size > 0);
+    }
+
+    #[test]
+    fn test_max_connections() {
+        let max = max_connections();
+        assert_eq!(max, 100);
+        assert!(max > 0);
+        assert!(max < 1000);
+    }
+
+    #[test]
+    fn test_wrapper_new() {
+        let wrapper = Wrapper::new(42);
+        assert_eq!(wrapper.value, 42);
+    }
+
+    #[test]
+    fn test_wrapper_get() {
+        let wrapper = Wrapper::new("test");
+        let value = wrapper.get();
+        assert_eq!(value, "test");
+    }
+
+    #[test]
+    fn test_wrapper_with_string() {
+        let wrapper = Wrapper::new(String::from("hello"));
+        let retrieved = wrapper.get();
+        assert_eq!(retrieved, "hello");
+    }
+
+    #[test]
+    fn test_wrapper_with_vec() {
+        let data = vec![1, 2, 3];
+        let wrapper = Wrapper::new(data);
+        let retrieved = wrapper.get();
+        assert_eq!(retrieved, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn test_multi_attribute_function() {
+        let result = multi_attribute_function();
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    #[cfg(feature = "advanced")]
+    fn test_advanced_feature() {
+        advanced_feature();
     }
 
     #[test]

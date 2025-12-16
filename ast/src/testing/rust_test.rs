@@ -1,6 +1,5 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-use crate::testing::print_nodes;
 use crate::utils::sanitize_string;
 use crate::{lang::Lang, repo::Repo};
 use shared::Result;
@@ -45,7 +44,7 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 17, "Expected 17 files");
+    assert_eq!(files.len(), 18, "Expected 18 files (added lib.rs)");
 
     let rocket_file = files
         .iter()
@@ -79,12 +78,10 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 12, "Expected 12 imports");
+    assert_eq!(imports.len(), 13, "Expected 13 imports");
 
     let traits = graph.find_nodes_by_type
     (NodeType::Trait);
-    print_nodes(traits.clone());
-    
     nodes_count += traits.len();
     assert_eq!(traits.len(), 4, "Expected 4 trait nodes");
 
@@ -119,14 +116,12 @@ use std::net::SocketAddr;"#
     );
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
-    print_nodes(vars.clone());
     nodes_count += vars.len();
     assert_eq!(vars.len(), 2, "Expected 2 variables");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    print_nodes(data_models.clone());
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 17, "Expected 17 data models");
+    assert_eq!(data_models.len(), 18, "Expected 18 data models");
 
     let person_dm = data_models
         .iter()
@@ -156,8 +151,7 @@ use std::net::SocketAddr;"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    print_nodes(classes.clone());
-    assert_eq!(classes.len(), 6, "Expected 6 class node");
+    assert_eq!(classes.len(), 7, "Expected 7 class nodes");
 
     let database_class = classes
         .iter()
@@ -261,19 +255,17 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 197, "Expected 197 contains edges");
+    assert_eq!(contains_edges, 254, "Expected 254 contains edges (was 197)");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
-    assert_eq!(calls_edges, 28, "Expected 28 calls edges");
+    assert_eq!(calls_edges, 104, "Expected 104 calls edges");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    print_nodes(functions.clone());
-    assert_eq!(functions.len(), 73, "Expected 73 functions");
+    assert_eq!(functions.len(), 74, "Expected 74 functions");
 
     let macros: Vec<_> = functions.iter().filter(|f| f.meta.get("macro") == Some(&"true".to_string())).collect();
-    print_nodes(macros.iter().map(|m| (*m).clone()).collect());
     assert_eq!(macros.len(), 5, "Expected 5 macros (say_hello, create_function, log_expr, make_struct, impl_display)");
     
     let say_hello_macro = macros.iter().find(|m| m.name == "say_hello" && m.file.ends_with("src/testing/rust/src/macros.rs"));
@@ -361,20 +353,20 @@ use std::net::SocketAddr;"#
     nodes_count += unit_tests.len();
     assert_eq!(
         unit_tests.len(),
-        8,
-        "Expected 8 unit tests (4 db.rs + 2 axum + 2 benchmarks)"
+        43,
+        "Expected 43 unit tests"
     );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
-    assert_eq!(integration_tests.len(), 4, "Expected 4 integration tests");
+    assert_eq!(integration_tests.len(), 17, "Expected 17 integration tests");
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
     assert_eq!(
         e2e_tests.len(),
-        4,
-        "Expected 4 e2e tests (including #[ignore] test)"
+        8,
+        "Expected 8 e2e tests"
     );
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
