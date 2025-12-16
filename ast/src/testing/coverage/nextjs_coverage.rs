@@ -178,6 +178,7 @@ async fn test_integration_coverage() -> Result<()> {
                 None,
                 None,
                 None,
+                None,
             )
             .await?;
 
@@ -201,6 +202,7 @@ async fn test_integration_coverage() -> Result<()> {
                 Some("untested"),
                 false,
                 false,
+                None,
                 None,
                 None,
                 None,
