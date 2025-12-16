@@ -1,18 +1,15 @@
 use crate::lang::graphs::{BTreeMapGraph, EdgeType, Graph, NodeType};
 use crate::lang::Lang;
 use crate::repo::Repo;
-use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_rust_coverage() -> Result<()> {
-    let use_lsp = get_use_lsp();
-
     let repo = Repo::new(
         "src/testing/rust",
         Lang::from_str("rust").unwrap(),
-        use_lsp,
+        false,
         Vec::new(),
         Vec::new(),
     )
