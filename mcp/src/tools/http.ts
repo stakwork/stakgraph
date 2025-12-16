@@ -2,7 +2,6 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   InitializeRequestSchema,
-  JSONRPCError,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Request, Response } from "express";
 import { randomUUID } from "crypto";
@@ -134,7 +133,7 @@ export class MCPServer {
     }
   }
 
-  private createErrorResponse(message: string): JSONRPCError {
+  private createErrorResponse(message: string) {
     return {
       jsonrpc: "2.0",
       error: {
