@@ -317,6 +317,7 @@ impl GraphOps {
         &mut self,
         repo: Option<&str>,
         test_filters: Option<super::TestFilters>,
+        is_muted: Option<bool>,
     ) -> Result<GraphCoverage> {
         self.graph.ensure_connected().await?;
 
@@ -354,7 +355,12 @@ impl GraphOps {
             } else {
                 true
             };
-            repo_match && not_ignored && regex_match
+            let is_muted_match = match is_muted {
+                Some(true) => n.meta.get("is_muted").map_or(false, |v| v == "true"),
+                Some(false) => !n.meta.get("is_muted").map_or(false, |v| v == "true"),
+                None => true,
+            };
+            repo_match && not_ignored && regex_match && is_muted_match
         };
 
         coverage_lang.get_coverage(&self.graph, in_scope).await
@@ -492,6 +498,7 @@ impl GraphOps {
         repo: Option<&str>,
         test_filters: Option<super::TestFilters>,
         search: Option<&str>,
+        is_muted: Option<bool>,
     ) -> Result<(
         usize,
         Vec<(
@@ -518,6 +525,7 @@ impl GraphOps {
                 repo,
                 test_filters,
                 search,
+                is_muted,
             )
             .await)
     }

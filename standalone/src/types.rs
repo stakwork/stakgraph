@@ -101,6 +101,7 @@ pub struct CoverageParams {
     pub repo: Option<String>,
     pub ignore_dirs: Option<String>,
     pub regex: Option<String>,
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -192,6 +193,7 @@ pub struct QueryNodesParams {
     pub integration_regexes: Option<String>,
     pub e2e_regexes: Option<String>,
     pub search: Option<String>,
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize)]

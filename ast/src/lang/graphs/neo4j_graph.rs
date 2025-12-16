@@ -1311,6 +1311,7 @@ impl Neo4jGraph {
         repo: Option<&str>,
         test_filters: Option<super::TestFilters>,
         search: Option<&str>,
+        is_muted: Option<bool>,
     ) -> (
         usize,
         Vec<(
@@ -1339,6 +1340,7 @@ impl Neo4jGraph {
             repo,
             test_filters,
             search,
+            is_muted,
         );
 
         let mut query_obj = query(&query_str);

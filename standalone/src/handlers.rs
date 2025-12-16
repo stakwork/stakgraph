@@ -974,7 +974,7 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
     };
 
     let totals = graph_ops
-        .get_coverage(params.repo.as_deref(), Some(test_filters))
+        .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
     Ok(Json(Coverage {
@@ -1078,6 +1078,7 @@ pub async fn nodes_handler(
                 params.repo.as_deref(),
                 Some(test_filters.clone()),
                 params.search.as_deref(),
+                params.is_muted,
             )
             .await?;
 
