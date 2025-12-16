@@ -147,6 +147,8 @@ pub struct Node {
     pub properties: NodeData,
     pub body_length: Option<i64>,
     pub line_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -167,6 +169,8 @@ pub struct NodeConcise {
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     #[serde(default)]
     pub meta: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_muted: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

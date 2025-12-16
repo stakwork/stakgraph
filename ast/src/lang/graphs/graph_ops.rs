@@ -356,8 +356,8 @@ impl GraphOps {
                 true
             };
             let is_muted_match = match is_muted {
-                Some(true) => n.meta.get("is_muted").map_or(false, |v| v == "true"),
-                Some(false) => !n.meta.get("is_muted").map_or(false, |v| v == "true"),
+                Some(true) => n.meta.get("is_muted").map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
+                Some(false) => !n.meta.get("is_muted").map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
                 None => true,
             };
             repo_match && not_ignored && regex_match && is_muted_match
@@ -509,6 +509,7 @@ impl GraphOps {
             String,
             Option<i64>,
             Option<i64>,
+            Option<bool>,
         )>,
     )> {
         self.graph.ensure_connected().await?;

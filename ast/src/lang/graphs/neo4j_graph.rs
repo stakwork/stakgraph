@@ -1322,6 +1322,7 @@ impl Neo4jGraph {
             String,
             Option<i64>,
             Option<i64>,
+            Option<bool>,
         )>,
     ) {
         let Ok(connection) = self.ensure_connected().await else {
@@ -1363,6 +1364,7 @@ impl Neo4jGraph {
                         String,
                         Option<i64>,
                         Option<i64>,
+                        Option<bool>,
                     )> = items
                         .into_iter()
                         .filter_map(|item| {
@@ -1375,6 +1377,7 @@ impl Neo4jGraph {
                             let test_count: i64 = item.get("test_count").ok().unwrap_or(0);
                             let body_length: Option<i64> = item.get("body_length").ok();
                             let line_count: Option<i64> = item.get("line_count").ok();
+                            let is_muted: Option<bool> = item.get("is_muted").ok();
 
                             let ref_id = extract_ref_id(&node_data);
 
@@ -1386,6 +1389,7 @@ impl Neo4jGraph {
                                 ref_id,
                                 body_length,
                                 line_count,
+                                is_muted,
                             ))
                         })
                         .collect();
