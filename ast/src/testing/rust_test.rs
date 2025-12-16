@@ -1,6 +1,5 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-use crate::testing::print_nodes;
 use crate::utils::sanitize_string;
 use crate::{lang::Lang, repo::Repo};
 use shared::Result;
@@ -83,8 +82,6 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let traits = graph.find_nodes_by_type
     (NodeType::Trait);
-    print_nodes(traits.clone());
-    
     nodes_count += traits.len();
     assert_eq!(traits.len(), 4, "Expected 4 trait nodes");
 
@@ -119,12 +116,10 @@ use std::net::SocketAddr;"#
     );
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
-    print_nodes(vars.clone());
     nodes_count += vars.len();
     assert_eq!(vars.len(), 2, "Expected 2 variables");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    print_nodes(data_models.clone());
     nodes_count += data_models.len();
     assert_eq!(data_models.len(), 17, "Expected 17 data models");
 
@@ -156,7 +151,6 @@ use std::net::SocketAddr;"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    print_nodes(classes.clone());
     assert_eq!(classes.len(), 6, "Expected 6 class node");
 
     let database_class = classes
@@ -269,11 +263,9 @@ use std::net::SocketAddr;"#
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    print_nodes(functions.clone());
     assert_eq!(functions.len(), 73, "Expected 73 functions");
 
     let macros: Vec<_> = functions.iter().filter(|f| f.meta.get("macro") == Some(&"true".to_string())).collect();
-    print_nodes(macros.iter().map(|m| (*m).clone()).collect());
     assert_eq!(macros.len(), 5, "Expected 5 macros (say_hello, create_function, log_expr, make_struct, impl_display)");
     
     let say_hello_macro = macros.iter().find(|m| m.name == "say_hello" && m.file.ends_with("src/testing/rust/src/macros.rs"));
