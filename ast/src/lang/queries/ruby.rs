@@ -416,6 +416,12 @@ impl Stack for Ruby {
             || f.contains("/test/controllers/")
             || f.contains("/spec/api/")
             || f.contains("/test/api/")
+            || f.contains("/spec/mailers/")
+            || f.contains("/test/mailers/")
+            || f.contains("/spec/jobs/")
+            || f.contains("/test/jobs/")
+            || f.contains("/spec/channels/")
+            || f.contains("/test/channels/")
         {
             return NodeType::IntegrationTest;
         }
@@ -429,6 +435,10 @@ impl Stack for Ruby {
             || f.contains("/test/lib/")
             || f.contains("/spec/helpers/")
             || f.contains("/test/helpers/")
+            || f.contains("/spec/serializers/")
+            || f.contains("/test/serializers/")
+            || f.contains("/spec/policies/")
+            || f.contains("/test/policies/")
         {
             return NodeType::UnitTest;
         }
