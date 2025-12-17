@@ -1,5 +1,5 @@
 #[cfg(test)]
-pub mod nextjs_coverage;
+pub mod nextjs;
 
 #[cfg(test)]
 pub mod rust;

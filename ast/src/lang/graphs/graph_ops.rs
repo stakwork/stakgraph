@@ -488,7 +488,7 @@ impl GraphOps {
 
     pub async fn query_nodes_with_count(
         &mut self,
-        node_type: NodeType,
+        node_types: &[NodeType],
         offset: usize,
         limit: usize,
         sort_by_test_count: bool,
@@ -502,6 +502,7 @@ impl GraphOps {
     ) -> Result<(
         usize,
         Vec<(
+            NodeType,
             NodeData,
             usize,
             bool,
@@ -516,7 +517,7 @@ impl GraphOps {
         Ok(self
             .graph
             .query_nodes_with_count_async(
-                node_type,
+                node_types,
                 offset,
                 limit,
                 sort_by_test_count,

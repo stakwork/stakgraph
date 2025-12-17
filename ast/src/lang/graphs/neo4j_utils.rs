@@ -1404,7 +1404,7 @@ pub fn vector_search_query(
 }
 
 pub fn query_nodes_with_count(
-    node_type: &NodeType,
+    node_types: &[NodeType],
     offset: usize,
     limit: usize,
     sort_by_test_count: bool,
@@ -1419,6 +1419,15 @@ pub fn query_nodes_with_count(
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
     boltmap_insert_int(&mut params, "limit", limit as i64);
+
+    let node_types_list = node_types
+        .iter()
+        .map(|n| BoltType::String(n.to_string().into()))
+        .collect::<Vec<_>>();
+
+    
+
+    boltmap_insert_list(&mut params, "node_types", node_types_list);
 
     if let Some(search_term) = search {
         boltmap_insert_str(&mut params, "search", search_term);
@@ -1561,15 +1570,18 @@ pub fn query_nodes_with_count(
         None => "",
     };
 
-    let function_specific_filters = if node_type == &NodeType::Function {
-        unique_functions_filters().join(" AND ")
-    } else {
-        "(n.body IS NOT NULL AND n.body <> '')".to_string()
-    };
+    let has_function_type = node_types.iter().any(|nt| nt == &NodeType::Function);
+
+    let function_specific_filters = if has_function_type {
+       format!("AND ({})", unique_functions_filters().join(" AND "))
+   } else {
+       "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
+   };
 
     let query = format!(
-        "MATCH (n:{})
-         WHERE {} {} {} {} {} {}
+        "MATCH (n)
+         WHERE ANY(label IN labels(n) WHERE label IN $node_types)
+         {} {} {} {} {} {}
          {}
          WITH n, {} AS test_count
          {} 
@@ -1592,7 +1604,6 @@ pub fn query_nodes_with_count(
          RETURN 
              size(all_items) AS total_count,
              [item IN all_items | item][$offset..($offset + $limit)] AS items",
-        node_type.to_string(),
         function_specific_filters,
         repo_filter,
         ignore_dirs_filter,
