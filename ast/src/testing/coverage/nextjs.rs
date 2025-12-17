@@ -168,7 +168,7 @@ async fn test_integration_coverage() -> Result<()> {
         // Phase 4: Query tested endpoints using query_nodes_with_count
         let (tested_count, tested_results) = graph_ops
             .query_nodes_with_count(
-                NodeType::Endpoint,
+                &[NodeType::Endpoint],
                 0,
                 100,
                 false,
@@ -182,7 +182,7 @@ async fn test_integration_coverage() -> Result<()> {
             )
             .await?;
         
-        let _ = tested_results.iter().map(|(_, _, _, _, _, _, _, _)| ()).collect::<Vec<_>>();
+        let _ = tested_results.iter().map(|(_,_, _, _, _, _, _, _, _)| ()).collect::<Vec<_>>();
 
         assert_eq!(
             tested_count, 13,
@@ -197,7 +197,7 @@ async fn test_integration_coverage() -> Result<()> {
 
         let (untested_count, untested_results) = graph_ops
             .query_nodes_with_count(
-                NodeType::Endpoint,
+                &[NodeType::Endpoint],
                 0,
                 100,
                 false,
@@ -211,7 +211,7 @@ async fn test_integration_coverage() -> Result<()> {
             )
             .await?;
         
-        let _ = untested_results.iter().map(|(_, _, _, _, _, _, _, _)| ()).collect::<Vec<_>>();
+        let _ = untested_results.iter().map(|(_,_, _, _, _, _, _, _, _)| ()).collect::<Vec<_>>();
 
         assert_eq!(
             untested_count, 8,
