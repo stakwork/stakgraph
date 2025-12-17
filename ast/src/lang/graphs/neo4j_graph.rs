@@ -1301,7 +1301,7 @@ impl Neo4jGraph {
 
     pub(super) async fn query_nodes_with_count_async(
         &self,
-        node_type: NodeType,
+        node_types: &[NodeType],
         offset: usize,
         limit: usize,
         sort_by_test_count: bool,
@@ -1315,6 +1315,7 @@ impl Neo4jGraph {
     ) -> (
         usize,
         Vec<(
+            NodeType,
             NodeData,
             usize,
             bool,
@@ -1331,7 +1332,7 @@ impl Neo4jGraph {
         };
 
         let (query_str, params) = super::neo4j_utils::query_nodes_with_count(
-            &node_type,
+            &node_types,
             offset,
             limit,
             sort_by_test_count,
@@ -1357,6 +1358,7 @@ impl Neo4jGraph {
                     let items: Vec<BoltMap> = row.get("items").unwrap_or_default();
 
                     let nodes: Vec<(
+                        NodeType,
                         NodeData,
                         usize,
                         bool,
@@ -1369,6 +1371,7 @@ impl Neo4jGraph {
                         .into_iter()
                         .filter_map(|item| {
                             let node: neo4rs::Node = item.get("node").ok()?;
+                            let node_type = node.labels().iter().filter_map(|label| NodeType::from_str(label).ok()).next()?;
 
                             let node_data = NodeData::try_from(&node).ok()?;
 
@@ -1382,6 +1385,7 @@ impl Neo4jGraph {
                             let ref_id = extract_ref_id(&node_data);
 
                             Some((
+                                node_type,
                                 node_data,
                                 usage_count as usize,
                                 is_covered,

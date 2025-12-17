@@ -1063,38 +1063,33 @@ pub async fn nodes_handler(
             .unwrap_or_default(),
     };
 
-    let mut all_results = Vec::new();
-    let mut combined_total_count = 0;
 
-    for node_type in node_types {
-        let (count, results) = graph_ops
-            .query_nodes_with_count(
-                node_type.clone(),
-                offset,
-                limit,
-                sort_by_test_count,
-                coverage_filter,
-                body_length,
-                line_count,
-                params.repo.as_deref(),
-                Some(test_filters.clone()),
-                params.search.as_deref(),
-                is_muted,
-            )
-            .await?;
+   let (total_count, results) = graph_ops
+        .query_nodes_with_count(
+            &node_types,
+            offset,
+            limit,
+            sort_by_test_count,
+            coverage_filter,
+            body_length,
+            line_count,
+            params.repo.as_deref(),
+            Some(test_filters),
+            params.search.as_deref(),
+            is_muted,
+        )
+        .await?;
 
-        combined_total_count += count;
-
-        for (node_data, usage_count, covered, test_count, ref_id, body_length, line_count, is_muted) in
-            results
-        {
+         let items: Vec<NodesResponseItem> = results
+        .into_iter()
+        .map(|(node_type,  node_data, usage_count, covered, test_count, ref_id, body_len, line_cnt, is_muted)| {
             let verb = if node_type == NodeType::Endpoint {
                 node_data.meta.get("verb").cloned()
             } else {
                 None
             };
 
-            let item = if concise {
+            if concise {
                 NodesResponseItem::Concise(NodeConcise {
                     node_type: node_type.to_string(),
                     name: node_data.name.clone(),
@@ -1103,8 +1098,8 @@ pub async fn nodes_handler(
                     weight: usage_count,
                     test_count,
                     covered,
-                    body_length,
-                    line_count,
+                    body_length: body_len,
+                    line_count: line_cnt,
                     verb,
                     start: node_data.start,
                     end: node_data.end,
@@ -1119,38 +1114,26 @@ pub async fn nodes_handler(
                     test_count,
                     covered,
                     properties: node_data,
-                    body_length,
-                    line_count,
+                    body_length: body_len,
+                    line_count: line_cnt,
                     is_muted,
                 })
-            };
-            all_results.push((test_count, usage_count, item));
-        }
-    }
-
-    if sort_by_test_count {
-        all_results.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
-    }
-
-    let paginated_results: Vec<NodesResponseItem> = all_results
-        .into_iter()
-        .skip(offset)
-        .take(limit)
-        .map(|(_, _, item)| item)
+            }
+        })
         .collect();
 
-    let total_returned = paginated_results.len();
+    let total_returned = items.len();
     let total_pages = if limit > 0 {
-        (combined_total_count + limit - 1) / limit
+        (total_count + limit - 1) / limit
     } else {
         0
     };
     let current_page = if limit > 0 { (offset / limit) + 1 } else { 0 };
 
     Ok(Json(QueryNodesResponse {
-        items: paginated_results,
+        items,
         total_returned,
-        total_count: combined_total_count,
+        total_count,
         total_pages,
         current_page,
     }))
