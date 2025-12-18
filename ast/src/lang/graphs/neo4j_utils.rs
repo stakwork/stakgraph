@@ -1136,6 +1136,9 @@ pub fn boltmap_insert_int(map: &mut BoltMap, key: &str, value: i64) {
 fn boltmap_to_bolttype_map(bolt_map: BoltMap) -> BoltType {
     BoltType::Map(bolt_map)
 }
+pub fn boltmap_insert_bool(map: &mut BoltMap, key: &str, value: bool) {
+    map.value.insert(key.into(), neo4rs::BoltType::Boolean(neo4rs::BoltBoolean { value }));
+}
 pub fn calculate_token_count(body: &str) -> Result<i64> {
     let bpe = &TOKENIZER;
     let token_count = bpe.encode_with_special_tokens(body).len() as i64;
@@ -1783,9 +1786,11 @@ pub fn get_muted_nodes_for_files_query(files: &[String]) -> (String, BoltMap) {
     boltmap_insert_list(&mut params, "files", files_list);
 
     let query = "MATCH (n) 
-                 WHERE n.file IN $files 
+                 WHERE (n.file IN $files OR any(f IN $files WHERE n.file ENDS WITH f))
                  AND (n.is_muted = true OR n.is_muted = 'true')
-                 RETURN labels(n)[0] as node_type, n.name as name, n.file as file".to_string();
+                 WITH n, [label IN labels(n) WHERE label IN ['Function', 'Class', 'DataModel', 'Endpoint', 'Request', 'File', 'Directory', 'Repository', 'Language', 'Library', 'Import', 'Instance', 'Page', 'Var', 'UnitTest', 'IntegrationTest', 'E2eTest', 'Trait']][0] as node_type
+                 WHERE node_type IS NOT NULL
+                 RETURN node_type, n.name as name, n.file as file".to_string();
     
     (query, params)
 }
@@ -1827,7 +1832,6 @@ pub async fn execute_muted_nodes_query(
     for (key, value) in params.value.iter() {
         query_obj = query_obj.param(key.value.as_str(), value.clone());
     }
-    
     match conn.execute(query_obj).await {
         Ok(mut stream) => {
             let mut results = Vec::new();
@@ -1848,8 +1852,7 @@ pub async fn execute_muted_nodes_query(
             }
             results
         }
-        Err(e) => {
-            error!("Database query failed: {:?}", e);
+        Err(_) => {
             Vec::new()
         }
     }
@@ -1868,15 +1871,39 @@ pub async fn execute_count_query(
     match conn.execute(query_obj).await {
         Ok(mut stream) => {
             if let Ok(Some(row)) = stream.next().await {
-                row.get::<i64>("restored_count").unwrap_or(0) as usize
+                let count = row.get::<i64>("updated_count")
+                    .or_else(|_| row.get::<i64>("restored_count"))
+                    .unwrap_or(0) as usize;
+                count
             } else {
                 0
             }
         }
-        Err(e) => {
-            error!("Database query failed: {:?}", e);
+        Err(_) => {     
             0
         }
+    }
+}
+
+pub async fn execute_boolean_query(
+    conn: &Neo4jConnection,
+    query_str: String,
+    params: BoltMap,
+) -> bool {
+    let mut query_obj = query(&query_str);
+    for (key, value) in params.value.iter() {
+        query_obj = query_obj.param(key.value.as_str(), value.clone());
+    }
+    if let Ok(mut stream) = conn.execute(query_obj).await {
+            if let Ok(Some(row)) = stream.next().await {
+                let is_muted = row.get::<bool>("is_muted").unwrap_or(false);
+                is_muted
+            } else {
+                false
+            }
+        }
+    else {
+        false  
     }
 }
 
@@ -1885,13 +1912,12 @@ pub fn set_node_muted_query(node_type: &NodeType, name: &str, file: &str, is_mut
     boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
     boltmap_insert_str(&mut params, "name", name);
     boltmap_insert_str(&mut params, "file", file);
-    boltmap_insert_str(&mut params, "is_muted", if is_muted { "true" } else { "false" });
+    boltmap_insert_bool(&mut params, "is_muted", is_muted);
     
     let query = "MATCH (n {name: $name, file: $file}) 
                  WHERE $node_type IN labels(n) 
                  SET n.is_muted = $is_muted 
                  RETURN count(n) as updated_count";
-    
     (query.to_string(), params)
 }
 
@@ -1904,6 +1930,5 @@ pub fn check_node_muted_query(node_type: &NodeType, name: &str, file: &str) -> (
     let query = "MATCH (n {name: $name, file: $file}) 
                  WHERE $node_type IN labels(n) 
                  RETURN n.is_muted as is_muted";
-    
     (query.to_string(), params)
 }

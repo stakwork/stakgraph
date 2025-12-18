@@ -437,28 +437,26 @@ impl Neo4jGraph {
     pub async fn set_node_muted_async(&self, node_type: &NodeType, name: &str, file: &str, is_muted: bool) -> Result<usize> {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
-            Err(e) => {
-                warn!("Failed to connect to graph database: {:?}", e);
+            Err(_) => {
                 return Ok(0);
             }
         };
 
         let (query_str, params) = set_node_muted_query(node_type, name, file, is_muted);
-        Ok(execute_count_query(&conn, query_str, params).await)
+        let result = execute_count_query(&conn, query_str, params).await;
+        Ok(result)
     }
 
     pub async fn is_node_muted_async(&self, node_type: &NodeType, name: &str, file: &str) -> Result<bool> {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
-            Err(e) => {
-                warn!("Failed to connect to graph database: {:?}", e);
+            Err(_) => {
                 return Ok(false);
             }
         };
-
         let (query_str, params) = check_node_muted_query(node_type, name, file);
-        let count = execute_count_query(&conn, query_str, params).await;
-        Ok(count > 0)
+        let is_muted = execute_boolean_query(&conn, query_str, params).await;
+        Ok(is_muted)
     }
 }
 

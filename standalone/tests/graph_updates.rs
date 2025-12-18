@@ -189,7 +189,6 @@ async fn test_graph_update() {
 async fn test_muted_node_preservation() {
     use ast::repo::{clone_repo, Repo};
     use lsp::git::get_changed_files_between;
-    use tracing::info;
 
     let repo_url = "https://github.com/fayekelmith/graph-update";
     let repo_path = Repo::get_path_from_url(repo_url).unwrap();
@@ -215,7 +214,7 @@ async fn test_muted_node_preservation() {
         .await
         .unwrap();
 
-    info!("Initial graph built");
+    println!("Initial graph built");
 
     assert!(assert_node_exists(&mut graph_ops, "Alpha").await);
 
@@ -223,7 +222,7 @@ async fn test_muted_node_preservation() {
     assert!(set_node_muted_status(&mut graph_ops, "Alpha", alpha_file, true).await);
     
     assert!(check_node_muted_status(&mut graph_ops, "Alpha", alpha_file).await);
-    info!("Alpha function marked as muted");
+    println!("Alpha function marked as muted");
 
     let changed_files = get_changed_files_between(&repo_path, before_commit, after_commit)
         .await
@@ -253,7 +252,6 @@ async fn test_muted_node_preservation() {
 
     assert!(assert_node_exists(&mut graph_ops, "Alpha").await);
     
-
     assert!(check_node_muted_status(&mut graph_ops, "Alpha", alpha_file).await);
     println!("Alpha function preserved muted status through incremental sync");
 }
@@ -271,18 +269,22 @@ async fn assert_node_exists(graph: &mut GraphOps, node_name: &str) -> bool {
 #[cfg(feature = "neo4j")]
 async fn set_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str, is_muted: bool) -> bool {
     use ast::lang::NodeType;
-
-    match graph.set_node_muted(&NodeType::Function, node_name, file, is_muted).await {
-        Ok(count) => count > 0,
-        Err(_) => false,
+    
+    if let Ok(count) = graph.set_node_muted(&NodeType::Function, node_name, file, is_muted).await {
+        count > 0
+    } else {
+        false
     }
 }
 
 #[cfg(feature = "neo4j")]
 async fn check_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str) -> bool {
     use ast::lang::NodeType;
-    match graph.is_node_muted(&NodeType::Function, node_name, file).await {
-        Ok(is_muted) => is_muted,
-        Err(_) => false,
+    
+    if let Ok(is_muted) =  graph.is_node_muted(&NodeType::Function, node_name, file).await {
+        is_muted
+    } else {
+        false
     }
+    
 }
