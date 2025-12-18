@@ -33,6 +33,77 @@ impl Stack for TypeScript {
                 )"#
         ))
     }
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        // 1. Path based (strongest signal)
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        let is_e2e_dir =
+            f.contains("/tests/e2e/") || f.contains("/test/e2e") || f.contains("/e2e/");
+        if is_e2e_dir
+            || f.contains("/__e2e__/")
+            || f.contains(".e2e.")
+            || fname.starts_with("e2e.")
+            || fname.starts_with("e2e_")
+            || fname.starts_with("e2e-")
+            || fname.contains(".e2e.test")
+            || fname.contains(".e2e.spec")
+        {
+            return NodeType::E2eTest;
+        }
+        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") {
+            return NodeType::IntegrationTest;
+        }
+        if f.contains("/unit/") || f.contains(".unit.") {
+            return NodeType::UnitTest;
+        }
+
+        let lower_name = name.to_lowercase();
+        // 2. Explicit tokens in test name
+        if lower_name.contains("e2e") {
+            return NodeType::E2eTest;
+        }
+        if lower_name.contains("integration") {
+            return NodeType::IntegrationTest;
+        }
+
+        // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
+        let body_l = body.to_lowercase();
+        let has_playwright_import = body_l.contains("@playwright/test")
+            || body_l.contains("from '@playwright/test'")
+            || body_l.contains("from \"@playwright/test\"");
+        let has_browser_actions = body_l.contains("page.goto(")
+            || body_l.contains("page.click(")
+            || body_l.contains("page.evaluate(");
+        let has_cypress = body_l.contains("from 'cypress'")
+            || body_l.contains("from \"cypress\"")
+            || body_l.contains("require('cypress')")
+            || body_l.contains("require(\"cypress\")");
+        let has_puppeteer = body_l.contains("from 'puppeteer'")
+            || body_l.contains("from \"puppeteer\"")
+            || body_l.contains("require('puppeteer')")
+            || body_l.contains("require(\"puppeteer\")");
+        if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
+            return NodeType::E2eTest;
+        }
+
+        const NETWORK_MARKERS: [&str; 11] = [
+            "fetch(",
+            "axios.",
+            "axios(",
+            "supertest(",
+            "request(",
+            "new request(",
+            "/api/",
+            "http://",
+            "https://",
+            "globalthis.fetch",
+            "cy.request(",
+        ];
+        if NETWORK_MARKERS.iter().any(|m| body_l.contains(m)) {
+            return NodeType::IntegrationTest;
+        }
+        NodeType::UnitTest
+    }
 
     fn is_lib_file(&self, file_name: &str) -> bool {
         file_name.contains("node_modules/")
@@ -156,20 +227,34 @@ impl Stack for TypeScript {
 
     fn function_call_query(&self) -> String {
         format!(
-            r#"
-            (call_expression
-                function: (identifier) @{FUNCTION_NAME}
-                arguments: (arguments) @{ARGUMENTS}
-            )@{FUNCTION_CALL}
-
-            (call_expression
-                function: (member_expression
-                    object: (identifier) @{CLASS_NAME}
-                    property: (property_identifier) @{FUNCTION_NAME}
+            "[
+                (call_expression
+                    function: [
+                        (identifier) @{FUNCTION_NAME}
+                        (member_expression
+                            object: (identifier) @{OPERAND}
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                        (member_expression
+                            object: (member_expression
+                                object: (identifier) @{OPERAND}
+                                property: (property_identifier)
+                            )
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                        (member_expression
+                            object: (member_expression
+                                object: (member_expression
+                                    object: (identifier) @{OPERAND}
+                                    property: (property_identifier)
+                                )
+                                property: (property_identifier)
+                            )
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                    ]
                 )
-                    arguments: (arguments) @{ARGUMENTS}
-            )@{FUNCTION_CALL}
-            "#
+            ] @{FUNCTION_CALL}"
         )
     }
 
@@ -379,12 +464,23 @@ impl Stack for TypeScript {
             || f.contains("/test/e2e")
             || f.contains("/e2e/")
             || f.contains("/__e2e__/")
-            || f.contains("e2e.");
-        let has_e2e_in_name = fname.contains("e2e");
-        let has_playwright = lower_code.contains("@playwright/test");
-        let has_cypress = lower_code.contains("cy.");
-        let has_puppeteer =
-            lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+            || f.contains(".e2e.test")
+            || f.contains(".e2e.spec");
+        let has_e2e_in_name = fname.starts_with("e2e.")
+            || fname.starts_with("e2e-")
+            || fname.starts_with("e2e_")
+            || fname.contains(".e2e.");
+        let has_playwright = lower_code.contains("@playwright/test")
+            || lower_code.contains("from '@playwright/test'")
+            || lower_code.contains("from \"@playwright/test\"");
+        let has_cypress = lower_code.contains("from 'cypress'")
+            || lower_code.contains("from \"cypress\"")
+            || lower_code.contains("require('cypress')")
+            || lower_code.contains("require(\"cypress\")");
+        let has_puppeteer = lower_code.contains("from 'puppeteer'")
+            || lower_code.contains("from \"puppeteer\"")
+            || lower_code.contains("require('puppeteer')")
+            || lower_code.contains("require(\"puppeteer\")");
 
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
@@ -395,6 +491,72 @@ impl Stack for TypeScript {
         } else {
             false
         }
+    }
+
+        fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+                    (call_expression
+                        function: (identifier) @desc (#eq? @desc "describe")
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                    )
+                    (call_expression
+                        function: (member_expression
+                            object: (identifier) @desc2 (#eq? @desc2 "describe")
+                            property: (property_identifier) @mod (#match? @mod "^(only|skip|todo)$")
+                        )
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                    )
+                    (program
+                        (expression_statement
+                            (call_expression
+                                function: (member_expression
+                                    object: (identifier) @test (#eq? @test "test")
+                                    property: (property_identifier) @desc3 (#eq? @desc3 "describe")
+                                )
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
+                    (program
+                        (expression_statement
+                            (call_expression
+                                function: (member_expression
+                                    object: (member_expression
+                                        object: (identifier) @test2 (#eq? @test2 "test")
+                                        property: (property_identifier) @desc4 (#eq? @desc4 "describe")
+                                    )
+                                    property: (property_identifier) @mod2 (#match? @mod2 "^(only|skip|todo)$")
+                                )
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
+                ] @{FUNCTION_DEFINITION}"#
+        ))
+    }
+        fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (program
+                (expression_statement
+                    (call_expression
+                        function: [
+                            (identifier) @func
+                            (member_expression
+                                property: (property_identifier) @func
+                            )
+                        ]
+                        (#match? @func "^(describe|test|it)$")
+                        arguments: (arguments 
+                            [ (string) (template_string) ] @{E2E_TEST_NAME} 
+                            (arrow_function)
+                        )
+                    ) @{E2E_TEST}
+                )
+            )
+        "#
+        ))
     }
 
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
