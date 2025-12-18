@@ -185,6 +185,80 @@ async fn test_graph_update() {
 }
 
 #[cfg(feature = "neo4j")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_muted_node_preservation() {
+    use ast::repo::{clone_repo, Repo};
+    use lsp::git::get_changed_files_between;
+    use tracing::info;
+
+    let repo_url = "https://github.com/fayekelmith/graph-update";
+    let repo_path = Repo::get_path_from_url(repo_url).unwrap();
+    let before_commit = "f31f8371936097c20a4384dbf8620ae7776198c4";
+    let after_commit = "f427783e90338f55fb21eec582dd0bb0735991d8";
+    let use_lsp = Some(false);
+
+    let mut graph_ops = GraphOps::new();
+    graph_ops.connect().await.unwrap();
+    graph_ops.clear().await.unwrap();
+
+    graph_ops
+        .update_full(
+            repo_url,
+            None,
+            None,
+            before_commit,
+            Some(before_commit),
+            None,
+            use_lsp,
+            Some(false),
+        )
+        .await
+        .unwrap();
+
+    info!("Initial graph built");
+
+    assert!(assert_node_exists(&mut graph_ops, "Alpha").await);
+
+    let alpha_file = "fayekelmith/graph-update/alpha.go";
+    assert!(set_node_muted_status(&mut graph_ops, "Alpha", alpha_file, true).await);
+    
+    assert!(check_node_muted_status(&mut graph_ops, "Alpha", alpha_file).await);
+    info!("Alpha function marked as muted");
+
+    let changed_files = get_changed_files_between(&repo_path, before_commit, after_commit)
+        .await
+        .unwrap();
+    println!("Changed files: {:?}", changed_files);
+
+    clone_repo(&repo_url, &repo_path, None, None, Some(after_commit), None)
+        .await
+        .unwrap();
+
+    graph_ops
+        .update_incremental(
+            repo_url,
+            None,
+            None,
+            after_commit,
+            before_commit,
+            Some(after_commit),
+            None,
+            use_lsp,
+            None,
+        )
+        .await
+        .unwrap();
+
+    println!("Incremental update completed");
+
+    assert!(assert_node_exists(&mut graph_ops, "Alpha").await);
+    
+
+    assert!(check_node_muted_status(&mut graph_ops, "Alpha", alpha_file).await);
+    println!("Alpha function preserved muted status through incremental sync");
+}
+
+#[cfg(feature = "neo4j")]
 async fn assert_node_exists(graph: &mut GraphOps, node_name: &str) -> bool {
     use ast::lang::NodeType;
     let nodes = graph
@@ -192,4 +266,23 @@ async fn assert_node_exists(graph: &mut GraphOps, node_name: &str) -> bool {
         .find_nodes_by_name_any_language(NodeType::Function, node_name)
         .await;
     !nodes.is_empty()
+}
+
+#[cfg(feature = "neo4j")]
+async fn set_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str, is_muted: bool) -> bool {
+    use ast::lang::NodeType;
+
+    match graph.set_node_muted(&NodeType::Function, node_name, file, is_muted).await {
+        Ok(count) => count > 0,
+        Err(_) => false,
+    }
+}
+
+#[cfg(feature = "neo4j")]
+async fn check_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str) -> bool {
+    use ast::lang::NodeType;
+    match graph.is_node_muted(&NodeType::Function, node_name, file).await {
+        Ok(is_muted) => is_muted,
+        Err(_) => false,
+    }
 }
