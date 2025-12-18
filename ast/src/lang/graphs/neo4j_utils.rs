@@ -1136,6 +1136,9 @@ pub fn boltmap_insert_int(map: &mut BoltMap, key: &str, value: i64) {
 fn boltmap_to_bolttype_map(bolt_map: BoltMap) -> BoltType {
     BoltType::Map(bolt_map)
 }
+pub fn boltmap_insert_bool(map: &mut BoltMap, key: &str, value: bool) {
+    map.value.insert(key.into(), neo4rs::BoltType::Boolean(neo4rs::BoltBoolean { value }));
+}
 pub fn calculate_token_count(body: &str) -> Result<i64> {
     let bpe = &TOKENIZER;
     let token_count = bpe.encode_with_special_tokens(body).len() as i64;
@@ -1772,4 +1775,160 @@ pub fn endpoint_group_cross_file_query() -> String {
        AND NOT e.name STARTS WITH $prefix
      SET e.name = $prefix + e.name
      RETURN e.name as updated_name".to_string()
+}
+
+pub fn get_muted_nodes_for_files_query(files: &[String]) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    let files_list = files
+        .iter()
+        .map(|f| BoltType::String(f.clone().into()))
+        .collect::<Vec<_>>();
+    boltmap_insert_list(&mut params, "files", files_list);
+
+    let query = "MATCH (n) 
+                 WHERE (n.file IN $files OR any(f IN $files WHERE n.file ENDS WITH f))
+                 AND (n.is_muted = true OR n.is_muted = 'true')
+                 WITH n, [label IN labels(n) WHERE label IN ['Function', 'Class', 'DataModel', 'Endpoint', 'Request', 'File', 'Directory', 'Repository', 'Language', 'Library', 'Import', 'Instance', 'Page', 'Var', 'UnitTest', 'IntegrationTest', 'E2eTest', 'Trait']][0] as node_type
+                 WHERE node_type IS NOT NULL
+                 RETURN node_type, n.name as name, n.file as file".to_string();
+    
+    (query, params)
+}
+
+pub fn restore_muted_status_query(identifiers: &[super::graph_ops::MutedNodeIdentifier]) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    let identifier_maps: Vec<BoltType> = identifiers
+        .iter()
+        .map(|ident| {
+            let mut map = BoltMap::new();
+            boltmap_insert_str(&mut map, "node_type", &ident.node_type.to_string());
+            boltmap_insert_str(&mut map, "name", &ident.name);
+            boltmap_insert_str(&mut map, "file", &ident.file);
+            BoltType::Map(map)
+        })
+        .collect();
+    boltmap_insert_list(&mut params, "identifiers", identifier_maps);
+    
+    let query = "UNWIND $identifiers as ident
+                 MATCH (n)
+                 WHERE ident.node_type IN labels(n) 
+                 AND n.name = ident.name 
+                 AND n.file = ident.file
+                 SET n.is_muted = true
+                 RETURN count(n) as restored_count".to_string();
+    
+    (query, params)
+}
+
+pub async fn execute_muted_nodes_query(
+    conn: &Neo4jConnection,
+    query_str: String,
+    params: BoltMap,
+) -> Vec<super::graph_ops::MutedNodeIdentifier> {
+    use crate::lang::NodeType;
+    use std::str::FromStr;
+    
+    let mut query_obj = query(&query_str);
+    for (key, value) in params.value.iter() {
+        query_obj = query_obj.param(key.value.as_str(), value.clone());
+    }
+    match conn.execute(query_obj).await {
+        Ok(mut stream) => {
+            let mut results = Vec::new();
+            while let Ok(Some(row)) = stream.next().await {
+                if let (Ok(name), Ok(node_type_str), Ok(file)) = (
+                    row.get::<String>("name"),
+                    row.get::<String>("node_type"),
+                    row.get::<String>("file"),
+                ) {
+                    if let Ok(node_type) = NodeType::from_str(&node_type_str) {
+                        results.push(super::graph_ops::MutedNodeIdentifier {
+                            node_type,
+                            name,
+                            file,
+                        });
+                    }
+                }
+            }
+            results
+        }
+        Err(_) => {
+            Vec::new()
+        }
+    }
+}
+
+pub async fn execute_count_query(
+    conn: &Neo4jConnection,
+    query_str: String,
+    params: BoltMap,
+) -> usize {
+    let mut query_obj = query(&query_str);
+    for (key, value) in params.value.iter() {
+        query_obj = query_obj.param(key.value.as_str(), value.clone());
+    }
+    
+    match conn.execute(query_obj).await {
+        Ok(mut stream) => {
+            if let Ok(Some(row)) = stream.next().await {
+                let count = row.get::<i64>("updated_count")
+                    .or_else(|_| row.get::<i64>("restored_count"))
+                    .unwrap_or(0) as usize;
+                count
+            } else {
+                0
+            }
+        }
+        Err(_) => {     
+            0
+        }
+    }
+}
+
+pub async fn execute_boolean_query(
+    conn: &Neo4jConnection,
+    query_str: String,
+    params: BoltMap,
+) -> bool {
+    let mut query_obj = query(&query_str);
+    for (key, value) in params.value.iter() {
+        query_obj = query_obj.param(key.value.as_str(), value.clone());
+    }
+    if let Ok(mut stream) = conn.execute(query_obj).await {
+            if let Ok(Some(row)) = stream.next().await {
+                let is_muted = row.get::<bool>("is_muted").unwrap_or(false);
+                is_muted
+            } else {
+                false
+            }
+        }
+    else {
+        false  
+    }
+}
+
+pub fn set_node_muted_query(node_type: &NodeType, name: &str, file: &str, is_muted: bool) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
+    boltmap_insert_str(&mut params, "name", name);
+    boltmap_insert_str(&mut params, "file", file);
+    boltmap_insert_bool(&mut params, "is_muted", is_muted);
+    
+    let query = "MATCH (n {name: $name, file: $file}) 
+                 WHERE $node_type IN labels(n) 
+                 SET n.is_muted = $is_muted 
+                 RETURN count(n) as updated_count";
+    (query.to_string(), params)
+}
+
+pub fn check_node_muted_query(node_type: &NodeType, name: &str, file: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
+    boltmap_insert_str(&mut params, "name", name);
+    boltmap_insert_str(&mut params, "file", file);
+    
+    let query = "MATCH (n {name: $name, file: $file}) 
+                 WHERE $node_type IN labels(n) 
+                 RETURN n.is_muted as is_muted";
+    (query.to_string(), params)
 }
