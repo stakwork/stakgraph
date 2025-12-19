@@ -33,6 +33,77 @@ impl Stack for TypeScript {
                 )"#
         ))
     }
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        // 1. Path based (strongest signal)
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        let is_e2e_dir =
+            f.contains("/tests/e2e/") || f.contains("/test/e2e") || f.contains("/e2e/");
+        if is_e2e_dir
+            || f.contains("/__e2e__/")
+            || f.contains(".e2e.")
+            || fname.starts_with("e2e.")
+            || fname.starts_with("e2e_")
+            || fname.starts_with("e2e-")
+            || fname.contains(".e2e.test")
+            || fname.contains(".e2e.spec")
+        {
+            return NodeType::E2eTest;
+        }
+        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") {
+            return NodeType::IntegrationTest;
+        }
+        if f.contains("/unit/") || f.contains(".unit.") {
+            return NodeType::UnitTest;
+        }
+
+        let lower_name = name.to_lowercase();
+        // 2. Explicit tokens in test name
+        if lower_name.contains("e2e") {
+            return NodeType::E2eTest;
+        }
+        if lower_name.contains("integration") {
+            return NodeType::IntegrationTest;
+        }
+
+        // 3. Body heuristics (tighter): network => integration; real browser automation => e2e
+        let body_l = body.to_lowercase();
+        let has_playwright_import = body_l.contains("@playwright/test")
+            || body_l.contains("from '@playwright/test'")
+            || body_l.contains("from \"@playwright/test\"");
+        let has_browser_actions = body_l.contains("page.goto(")
+            || body_l.contains("page.click(")
+            || body_l.contains("page.evaluate(");
+        let has_cypress = body_l.contains("from 'cypress'")
+            || body_l.contains("from \"cypress\"")
+            || body_l.contains("require('cypress')")
+            || body_l.contains("require(\"cypress\")");
+        let has_puppeteer = body_l.contains("from 'puppeteer'")
+            || body_l.contains("from \"puppeteer\"")
+            || body_l.contains("require('puppeteer')")
+            || body_l.contains("require(\"puppeteer\")");
+        if (has_playwright_import && has_browser_actions) || has_cypress || has_puppeteer {
+            return NodeType::E2eTest;
+        }
+
+        const NETWORK_MARKERS: [&str; 11] = [
+            "fetch(",
+            "axios.",
+            "axios(",
+            "supertest(",
+            "request(",
+            "new request(",
+            "/api/",
+            "http://",
+            "https://",
+            "globalthis.fetch",
+            "cy.request(",
+        ];
+        if NETWORK_MARKERS.iter().any(|m| body_l.contains(m)) {
+            return NodeType::IntegrationTest;
+        }
+        NodeType::UnitTest
+    }
 
     fn is_lib_file(&self, file_name: &str) -> bool {
         file_name.contains("node_modules/")
@@ -156,37 +227,118 @@ impl Stack for TypeScript {
 
     fn function_call_query(&self) -> String {
         format!(
-            r#"
-            (call_expression
-                function: (identifier) @{FUNCTION_NAME}
-                arguments: (arguments) @{ARGUMENTS}
-            )@{FUNCTION_CALL}
-
-            (call_expression
-                function: (member_expression
-                    object: (identifier) @{CLASS_NAME}
-                    property: (property_identifier) @{FUNCTION_NAME}
+            "[
+                (call_expression
+                    function: [
+                        (identifier) @{FUNCTION_NAME}
+                        (member_expression
+                            object: (identifier) @{OPERAND}
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                        (member_expression
+                            object: (member_expression
+                                object: (identifier) @{OPERAND}
+                                property: (property_identifier)
+                            )
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                        (member_expression
+                            object: (member_expression
+                                object: (member_expression
+                                    object: (identifier) @{OPERAND}
+                                    property: (property_identifier)
+                                )
+                                property: (property_identifier)
+                            )
+                            property: (property_identifier) @{FUNCTION_NAME}
+                        )
+                    ]
                 )
-                    arguments: (arguments) @{ARGUMENTS}
-            )@{FUNCTION_CALL}
-            "#
+            ] @{FUNCTION_CALL}"
         )
     }
 
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"(call_expression
-                function: (member_expression
-                    object: (identifier) @{ENDPOINT_OBJECT}
-                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
-                )
-                arguments: (arguments
-                    (string) @{ENDPOINT}
-                    (identifier) @{HANDLER}
-                )
-                ) @{ROUTE}
-            "#
-        )]
+        vec![
+            // Pattern 1: router.method(path, identifier) - middleware or named handler
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (identifier) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (arrow_function) @{ARROW_FUNCTION_HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (_) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (call_expression
+                            function: (member_expression
+                                object: (identifier)
+                                property: (property_identifier) @base_method (#match? @base_method "route")
+                            )
+                            arguments: (arguments (string) @{ENDPOINT})
+                        )
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
+                    )
+                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (call_expression
+                            function: (member_expression
+                                object: (call_expression
+                                    function: (member_expression
+                                        object: (identifier)
+                                        property: (property_identifier) @base_method (#match? @base_method "route")
+                                    )
+                                    arguments: (arguments (string) @{ENDPOINT})
+                                )
+                                property: (property_identifier)
+                            )
+                            arguments: (arguments (arrow_function))
+                        )
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
+                    )
+                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    ) @{ROUTE}
+                "#
+            )
+        ]
     }
 
     fn endpoint_group_find(&self) -> Option<String> {
@@ -238,6 +390,27 @@ impl Stack for TypeScript {
             }
         }
         None
+    }
+
+    fn generate_arrow_handler_name(&self, method: &str, path: &str) -> Option<String> {
+        let clean_method = method.to_lowercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .replace("-", "_")
+            .replace(" ", "_")
+            .trim_start_matches('_')
+            .trim_end_matches('_')
+            .to_string();
+        
+        let handler_name = if clean_path.is_empty() || clean_path == "_" {
+            format!("{}_handler", clean_method)
+        } else {
+            format!("{}_{}_handler", clean_method, clean_path)
+        };
+        
+
+        Some(handler_name)
     }
 
     /*
@@ -365,6 +538,8 @@ impl Stack for TypeScript {
             || file_name.ends_with(".spec.tsx")
             || file_name.ends_with(".spec.js")
             || file_name.ends_with(".spec.jsx")
+            || file_name.contains("/tests/")
+            || file_name.contains("/test/")
     }
     fn tests_are_functions(&self) -> bool {
         false
@@ -379,12 +554,23 @@ impl Stack for TypeScript {
             || f.contains("/test/e2e")
             || f.contains("/e2e/")
             || f.contains("/__e2e__/")
-            || f.contains("e2e.");
-        let has_e2e_in_name = fname.contains("e2e");
-        let has_playwright = lower_code.contains("@playwright/test");
-        let has_cypress = lower_code.contains("cy.");
-        let has_puppeteer =
-            lower_code.contains("puppeteer") || lower_code.contains("browser.newpage");
+            || f.contains(".e2e.test")
+            || f.contains(".e2e.spec");
+        let has_e2e_in_name = fname.starts_with("e2e.")
+            || fname.starts_with("e2e-")
+            || fname.starts_with("e2e_")
+            || fname.contains(".e2e.");
+        let has_playwright = lower_code.contains("@playwright/test")
+            || lower_code.contains("from '@playwright/test'")
+            || lower_code.contains("from \"@playwright/test\"");
+        let has_cypress = lower_code.contains("from 'cypress'")
+            || lower_code.contains("from \"cypress\"")
+            || lower_code.contains("require('cypress')")
+            || lower_code.contains("require(\"cypress\")");
+        let has_puppeteer = lower_code.contains("from 'puppeteer'")
+            || lower_code.contains("from \"puppeteer\"")
+            || lower_code.contains("require('puppeteer')")
+            || lower_code.contains("require(\"puppeteer\")");
 
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
@@ -395,6 +581,66 @@ impl Stack for TypeScript {
         } else {
             false
         }
+    }
+
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+                    (call_expression
+                        function: (identifier) @desc (#eq? @desc "describe")
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                    )
+                    (call_expression
+                        function: (member_expression
+                            object: (identifier) @desc2 (#eq? @desc2 "describe")
+                            property: (property_identifier) @mod (#match? @mod "^(only|skip|todo)$")
+                        )
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                    )
+                     (program
+                        (expression_statement
+                            (call_expression
+                                function: (identifier) @test (#match? @test "^(describe|test|it)$")
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
+                     (program
+                        (expression_statement
+                            (call_expression
+                            function: (member_expression
+                                object: (identifier) @obj (#eq? @test "test")
+                                property: (property_identifier) @prop (#match? @prop "^(describe|skip|only|todo)$")
+                            )
+                            arguments: (arguments) @{FUNCTION_NAME}
+                            )
+                        )@{FUNCTION_DEFINITION}
+                        )
+                ] @{FUNCTION_DEFINITION}"#
+        ))
+    }
+        fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (program
+                (expression_statement
+                    (call_expression
+                        function: [
+                            (identifier) @func
+                            (member_expression
+                                property: (property_identifier) @func
+                            )
+                        ]
+                        (#match? @func "^(describe|test|it)$")
+                        arguments: (arguments 
+                            [ (string) (template_string) ] @{E2E_TEST_NAME} 
+                            (arrow_function)
+                        )
+                    ) @{E2E_TEST}
+                )
+            )
+        "#
+        ))
     }
 
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {

@@ -661,7 +661,7 @@ impl GraphOps {
             return Ok(vec![]);
         }
 
-        println!("🗋 collect_muted_nodes_for_files - input files: {:?}", files);
+        println!("collect_muted_nodes_for_files - input files: {:?}", files);
         let muted_nodes = self.graph.get_muted_nodes_for_files_async(files).await?;
         
         if muted_nodes.is_empty() {

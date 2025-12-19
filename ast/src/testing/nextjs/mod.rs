@@ -249,7 +249,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    assert_eq!(tests.len(), 23, "Expected 23 UnitTest nodes");
+    assert_eq!(tests.len(), 24, "Expected 24 UnitTest nodes");
 
     #[cfg(not(feature = "neo4j"))]
     if let Some(_currency_test) = tests.iter().find(|t| {
@@ -366,7 +366,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
 
-    assert_eq!(e2e_tests.len(), 9, "Expected 9 E2eTest nodes");
+    assert_eq!(e2e_tests.len(), 8, "Expected 8 E2eTest nodes");
 
     if let Some(test) = e2e_tests
         .iter()

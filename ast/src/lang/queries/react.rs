@@ -460,31 +460,25 @@ impl Stack for ReactTs {
                         )
                         arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                     )
-                    (program
+                     (program
                         (expression_statement
                             (call_expression
-                                function: (member_expression
-                                    object: (identifier) @test (#eq? @test "test")
-                                    property: (property_identifier) @desc3 (#eq? @desc3 "describe")
-                                )
+                                function: (identifier) @test (#match? @test "^(describe|test|it)$")
                                 arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                             ) @{FUNCTION_DEFINITION}
                         )
                     )
-                    (program
+                     (program
                         (expression_statement
                             (call_expression
-                                function: (member_expression
-                                    object: (member_expression
-                                        object: (identifier) @test2 (#eq? @test2 "test")
-                                        property: (property_identifier) @desc4 (#eq? @desc4 "describe")
-                                    )
-                                    property: (property_identifier) @mod2 (#match? @mod2 "^(only|skip|todo)$")
-                                )
-                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                            ) @{FUNCTION_DEFINITION}
+                            function: (member_expression
+                                object: (identifier) @obj (#eq? @test "test")
+                                property: (property_identifier) @prop (#match? @prop "^(describe|skip|only|todo)$")
+                            )
+                            arguments: (arguments) @{FUNCTION_NAME}
+                            )
+                        )@{FUNCTION_DEFINITION}
                         )
-                    )
                 ] @{FUNCTION_DEFINITION}"#
         ))
     }
@@ -999,6 +993,9 @@ impl Stack for ReactTs {
             || file_name.ends_with(".spec.tsx")
             || file_name.ends_with(".spec.jsx")
             || file_name.ends_with(".spec.js")
+            || file_name.contains("/__tests__/")
+            || file_name.contains("/tests/")
+            || file_name.contains("/test/")
     }
 
     fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
@@ -1033,6 +1030,7 @@ impl Stack for ReactTs {
 
     fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
         if self.is_test_file(func_file) {
+            println!("Identified test file: {}", func_file);
             true
         } else {
             false

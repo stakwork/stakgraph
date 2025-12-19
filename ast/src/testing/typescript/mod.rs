@@ -74,7 +74,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
         );
     }
     
-    assert_eq!(imports.len(), 7, "Expected 7 imports");
+    assert_eq!(imports.len(), 11, "Expected 11 imports");
 
     let model_import_body = format!(
         r#"import DataTypes, {{ Model }} from "sequelize";
@@ -98,9 +98,9 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 18, "Expected 18 functions");
+        assert_eq!(functions.len(), 34, "Expected 34 functions");
     } else {
-        assert_eq!(functions.len(), 14, "Expected 14 functions");
+        assert_eq!(functions.len(), 29, "Expected 28 functions");
     }
 
     let log_fn = functions
@@ -125,11 +125,11 @@ import {{ sequelize }} from "./config.js";"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 5, "Expected 5 classes");
+    assert_eq!(classes.len(), 7, "Expected 7 classes");
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    assert_eq!(directories.len(), 2, "Expected 2 directories");
+    assert_eq!(directories.len(), 5, "Expected 5 directories");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
@@ -147,23 +147,27 @@ import {{ sequelize }} from "./config.js";"#
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    assert_eq!(variables.len(), 4, "Expected 4 variables");
+    assert_eq!(variables.len(), 6, "Expected 6 variables");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 79, "Expected 79 contains edges");
+    assert_eq!(contains, 110, "Expected 110 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
     if use_lsp {
-        assert_eq!(import_edges_count, 15, "Expected 15 import edges");
+           assert_eq!(import_edges_count, 15, "Expected 15 import edges");
     } else {
-        assert_eq!(import_edges_count, 12, "Expected 12 import edges");
+           assert_eq!(import_edges_count, 13, "Expected 13 import edges");
     }
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 8, "Expected 8 handler edges");
+    if use_lsp {
+        assert_eq!(handlers, 8, "Expected 8 handler edges");
+    } else {
+        assert_eq!(handlers, 18, "Expected 18 handler edges");
+    }
 
     let create_person_fn = functions
         .iter()
@@ -184,11 +188,16 @@ import {{ sequelize }} from "./config.js";"#
         .expect("getPerson function not found");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    for e in &endpoints{
+        println!("{:?} {}  {}", e.meta.get("verb"), e.name, e.file);
+    }
     nodes_count += endpoints.len();
 
-    println!("{:#?}", endpoints.iter().map(|e| (&e.name, &e.file, &e.meta)).collect::<Vec<_>>());
-    
-    assert_eq!(endpoints.len(), 8, "Expected 8 endpoints");
+    if use_lsp {
+        assert_eq!(endpoints.len(), 19, "Expected 19 endpoints");
+    } else {
+        assert_eq!(endpoints.len(), 18, "Expected 18 endpoints");
+    }
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
@@ -201,6 +210,9 @@ import {{ sequelize }} from "./config.js";"#
     } else {
         //    assert_eq!(uses, 0, "Expected 0 uses edges");
     }
+
+    let neseted = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges_count += neseted;
 
     let post_person_endpoint = endpoints
         .iter()
@@ -396,7 +408,7 @@ import {{ sequelize }} from "./config.js";"#
 async fn test_typescript() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_typescript_generic::<BTreeMapGraph>().await.unwrap();
-    test_typescript_generic::<ArrayGraph>().await.unwrap();
+   test_typescript_generic::<ArrayGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
     {
