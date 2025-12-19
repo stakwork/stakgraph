@@ -259,19 +259,48 @@ impl Stack for TypeScript {
     }
 
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"(call_expression
-                function: (member_expression
-                    object: (identifier) @{ENDPOINT_OBJECT}
-                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
-                )
-                arguments: (arguments
-                    (string) @{ENDPOINT}
-                    (identifier) @{HANDLER}
-                )
-                ) @{ROUTE}
-            "#
-        )]
+        vec![
+            // Pattern 1: router.method(path, identifier) - middleware or named handler
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (identifier) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (arrow_function) @{ARROW_FUNCTION_HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (_) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            )
+        ]
     }
 
     fn endpoint_group_find(&self) -> Option<String> {
@@ -323,6 +352,27 @@ impl Stack for TypeScript {
             }
         }
         None
+    }
+
+    fn generate_arrow_handler_name(&self, method: &str, path: &str) -> Option<String> {
+        let clean_method = method.to_lowercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .replace("-", "_")
+            .replace(" ", "_")
+            .trim_start_matches('_')
+            .trim_end_matches('_')
+            .to_string();
+        
+        let handler_name = if clean_path.is_empty() || clean_path == "_" {
+            format!("{}_handler", clean_method)
+        } else {
+            format!("{}_{}_handler", clean_method, clean_path)
+        };
+        
+
+        Some(handler_name)
     }
 
     /*

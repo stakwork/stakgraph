@@ -342,6 +342,15 @@ impl Lang {
                                 .cloned()
                         })?;
                 }
+            } else if o == ARROW_FUNCTION_HANDLER {
+                let p = node.start_position();
+                handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
+
+                let method = endp.meta.get("verb").unwrap_or(&"unknown".to_string()).clone();
+                let path = endp.name.clone();
+                if let Some(generated_name) = self.lang.generate_arrow_handler_name(&method, &path) {
+                    endp.add_handler(&generated_name);
+                }
             } else if o == HANDLER_ACTIONS_ARRAY {
                 // [:destroy, :index]
                 params.actions_array = Some(body);
@@ -508,6 +517,7 @@ impl Lang {
                 }
             }
         }
+        
         Ok(vec![(endp, handler)])
     }
     pub fn format_data_model(
@@ -536,6 +546,59 @@ impl Lang {
         }
         Ok(inst)
     }
+
+    pub fn format_router_arrow_function<G: Graph>(
+        &self,
+        m: &QueryMatch,
+        code: &str,
+        file: &str,
+        q: &Query,
+        _graph: &G,
+        _lsp_tx: &Option<CmdSender>,
+    ) -> Result<Option<Function>> {
+        let mut method = String::new();
+        let mut path = String::new();
+        let mut arrow_function_body = String::new();
+        let mut func_start = 0;
+        let mut func_end = 0;
+
+        Self::loop_captures(q, &m, code, |body, node, o| {
+            if o == ENDPOINT_VERB {
+                method = body.to_uppercase();
+            } else if o == ENDPOINT {
+                path = trim_quotes(&body).to_string();
+            } else if o == ARROW_FUNCTION_HANDLER {
+                arrow_function_body = body;
+                func_start = node.start_position().row;
+                func_end = node.end_position().row;
+            }
+            Ok(())
+        })?;
+
+        if arrow_function_body.is_empty() {
+            return Ok(None);
+        }
+
+        if let Some(generated_name) = self.lang.generate_arrow_handler_name(&method, &path) {
+            let mut func = NodeData::name_file_start(&generated_name, file, func_start);
+            func.end = func_end;
+            func.body = arrow_function_body;
+            func.add_function_type("arrow");
+
+            Ok(Some((
+                func,
+                None,           // parent
+                Vec::new(),     // requests_within
+                Vec::new(),     // models
+                None,           // trait_operand
+                Vec::new(),     // return_types
+                Vec::new(),     // nested_in
+            )))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn format_function<G: Graph>(
         &self,
         m: &QueryMatch,

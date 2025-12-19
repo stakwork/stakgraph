@@ -198,6 +198,9 @@ pub trait Stack {
         None
     }
     fn update_endpoint(&self, _nd: &mut NodeData, _call: &Option<String>) {}
+    fn generate_arrow_handler_name(&self, _method: &str, _path: &str) -> Option<String> {
+        None
+    }
     // this one should be the same for all langs?
     fn filter_tests(&self, funcs: Vec<Function>) -> (Vec<Function>, Vec<Function>) {
         let mut fs = Vec::new();
