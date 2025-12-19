@@ -98,9 +98,9 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 32, "Expected 32 functions (23 + 9 arrow functions)");
+        assert_eq!(functions.len(), 34, "Expected 34 functions");
     } else {
-        assert_eq!(functions.len(), 27, "Expected 27 functions (18 + 9 arrow functions)");
+        assert_eq!(functions.len(), 29, "Expected 28 functions");
     }
 
     let log_fn = functions
@@ -151,7 +151,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 108, "Expected 108 contains edges");
+    assert_eq!(contains, 110, "Expected 110 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -166,7 +166,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(handlers, 8, "Expected 8 handler edges");
     } else {
-        assert_eq!(handlers, 16, "Expected 16 handler edges");
+        assert_eq!(handlers, 18, "Expected 18 handler edges");
     }
 
     let create_person_fn = functions
@@ -193,7 +193,11 @@ import {{ sequelize }} from "./config.js";"#
     }
     nodes_count += endpoints.len();
 
-    assert_eq!(endpoints.len(), 16, "Expected 16 endpoints");
+    if use_lsp {
+        assert_eq!(endpoints.len(), 19, "Expected 19 endpoints");
+    } else {
+        assert_eq!(endpoints.len(), 18, "Expected 18 endpoints");
+    }
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;

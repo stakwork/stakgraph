@@ -299,6 +299,44 @@ impl Stack for TypeScript {
                     )
                     ) @{ROUTE}
                 "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (call_expression
+                            function: (member_expression
+                                object: (identifier)
+                                property: (property_identifier) @base_method (#match? @base_method "route")
+                            )
+                            arguments: (arguments (string) @{ENDPOINT})
+                        )
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
+                    )
+                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (call_expression
+                            function: (member_expression
+                                object: (call_expression
+                                    function: (member_expression
+                                        object: (identifier)
+                                        property: (property_identifier) @base_method (#match? @base_method "route")
+                                    )
+                                    arguments: (arguments (string) @{ENDPOINT})
+                                )
+                                property: (property_identifier)
+                            )
+                            arguments: (arguments (arrow_function))
+                        )
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
+                    )
+                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    ) @{ROUTE}
+                "#
             )
         ]
     }
