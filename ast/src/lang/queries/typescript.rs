@@ -538,6 +538,8 @@ impl Stack for TypeScript {
             || file_name.ends_with(".spec.tsx")
             || file_name.ends_with(".spec.js")
             || file_name.ends_with(".spec.jsx")
+            || file_name.contains("/tests/")
+            || file_name.contains("/test/")
     }
     fn tests_are_functions(&self) -> bool {
         false
@@ -581,7 +583,7 @@ impl Stack for TypeScript {
         }
     }
 
-        fn test_query(&self) -> Option<String> {
+    fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
                     (call_expression
@@ -595,31 +597,25 @@ impl Stack for TypeScript {
                         )
                         arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                     )
-                    (program
+                     (program
                         (expression_statement
                             (call_expression
-                                function: (member_expression
-                                    object: (identifier) @test (#eq? @test "test")
-                                    property: (property_identifier) @desc3 (#eq? @desc3 "describe")
-                                )
+                                function: (identifier) @test (#match? @test "^(describe|test|it)$")
                                 arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                             ) @{FUNCTION_DEFINITION}
                         )
                     )
-                    (program
+                     (program
                         (expression_statement
                             (call_expression
-                                function: (member_expression
-                                    object: (member_expression
-                                        object: (identifier) @test2 (#eq? @test2 "test")
-                                        property: (property_identifier) @desc4 (#eq? @desc4 "describe")
-                                    )
-                                    property: (property_identifier) @mod2 (#match? @mod2 "^(only|skip|todo)$")
-                                )
-                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                            ) @{FUNCTION_DEFINITION}
+                            function: (member_expression
+                                object: (identifier) @obj (#eq? @test "test")
+                                property: (property_identifier) @prop (#match? @prop "^(describe|skip|only|todo)$")
+                            )
+                            arguments: (arguments) @{FUNCTION_NAME}
+                            )
+                        )@{FUNCTION_DEFINITION}
                         )
-                    )
                 ] @{FUNCTION_DEFINITION}"#
         ))
     }
