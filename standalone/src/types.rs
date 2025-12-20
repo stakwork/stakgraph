@@ -1,4 +1,5 @@
 use ast::lang::asg::NodeData;
+#[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphCoverage;
 use ast::repo::StatusUpdate;
 use axum::{
@@ -264,7 +265,7 @@ impl From<shared::Error> for WebError {
         WebError(e)
     }
 }
-
+#[cfg(feature = "neo4j")]
 impl From<GraphCoverage> for Coverage {
     fn from(graph_coverage: GraphCoverage) -> Self {
         Coverage {
