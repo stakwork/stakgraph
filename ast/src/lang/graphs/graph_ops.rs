@@ -331,12 +331,11 @@ impl GraphOps {
         repo: Option<&str>,
         test_filters: Option<super::TestFilters>,
         is_muted: Option<bool>,
-    ) -> Result<GraphCoverage> {
+    ) -> Result<Vec<GraphCoverage>> {
         self.graph.ensure_connected().await?;
 
         use super::coverage::CoverageLanguage;
-        let coverage_lang = CoverageLanguage::from_graph(&self.graph).await;
-
+        
         let ignore_dirs = test_filters
             .as_ref()
             .map(|f| f.ignore_dirs.clone())
@@ -344,6 +343,9 @@ impl GraphOps {
         let regex = test_filters
             .as_ref()
             .and_then(|f| f.target_regex.as_deref());
+        let requested_languages = test_filters
+            .as_ref()
+            .and_then(|f| f.languages.as_ref());
 
         let in_scope = |n: &NodeData| {
             let repo_match = if let Some(r) = repo {
@@ -376,7 +378,58 @@ impl GraphOps {
             repo_match && not_ignored && regex_match && is_muted_match
         };
 
-        coverage_lang.get_coverage(&self.graph, in_scope).await
+        let mut results = Vec::new();
+        
+        // If specific languages are requested, process only those
+        if let Some(languages) = requested_languages {
+            for lang_str in languages {
+                if lang_str.is_empty() {
+                    continue;
+                }
+                
+                let coverage_lang = match lang_str.to_lowercase().as_str() {
+                    "typescript" | "ts" | "javascript" | "js" | "react" | "jsx" | "tsx" | "angular" | "svelte" => CoverageLanguage::Typescript,
+                    "ruby" | "rb" => CoverageLanguage::Ruby,
+                    "rust" | "rs" => CoverageLanguage::Rust,
+                    _ => {
+                        continue;
+                    }
+                };
+                
+                if let Ok(mut coverage) = coverage_lang.get_coverage(&self.graph, &in_scope).await {
+                    coverage.language = Some(coverage_lang.language_name());
+                    results.push(coverage);
+                }
+            }
+        } else {
+            // Get all available languages from the graph
+            let language_nodes = self.graph.find_nodes_by_type_async(NodeType::Language).await;
+
+            let mut processed_languages = std::collections::HashSet::new();
+            
+            for lang_node in language_nodes {
+                let lang_name = lang_node.name.to_lowercase();
+                if processed_languages.contains(&lang_name) {
+                    continue;
+                }
+                processed_languages.insert(lang_name.clone());
+                
+                let coverage_lang = match lang_name.as_str() {
+                   "react" | "typescript" | "javascript" | "nextjs" | "angular" | "svelte" => CoverageLanguage::Typescript,
+                    "ruby" => CoverageLanguage::Ruby,
+                    "rust" => CoverageLanguage::Rust,
+                    _ => continue,
+                };
+                
+                if let Ok(mut coverage) = coverage_lang.get_coverage(&self.graph, &in_scope).await {
+                    coverage.language = Some(coverage_lang.language_name());
+                    results.push(coverage);
+                }
+            }
+            
+        }
+        
+        Ok(results)
     }
 
     pub async fn upload_btreemap_to_neo4j(
@@ -467,13 +520,6 @@ impl GraphOps {
                 let embedding = vectorize_code_document(body).await?;
                 self.graph.update_embedding(node_key, &embedding).await?;
             }
-            // let mut batch = Vec::new();
-            // for (node_key, body) in &nodes {
-            //     let embedding = vectorize_code_document(body).await?;
-            //     batch.push((node_key.clone(), embedding));
-            // }
-            // self.graph.bulk_update_embeddings(batch).await?;
-            // skip += batch_size;
         }
         Ok(())
     }
@@ -661,14 +707,7 @@ impl GraphOps {
             return Ok(vec![]);
         }
 
-        println!("collect_muted_nodes_for_files - input files: {:?}", files);
         let muted_nodes = self.graph.get_muted_nodes_for_files_async(files).await?;
-        
-        if muted_nodes.is_empty() {
-            println!("No muted nodes found in {} files", files.len());
-        } else {
-            println!("Found {} muted nodes in {} files to preserve", muted_nodes.len(), files.len());
-        }
         
         Ok(muted_nodes)
     }
@@ -679,12 +718,6 @@ impl GraphOps {
         }
 
         let restored_count = self.graph.restore_muted_nodes_async(&identifiers).await?;
-        
-        if restored_count > 0 {
-            println!("Successfully restored muted status for {} nodes after rebuild", restored_count);
-        } else {
-            println!("No nodes matched for muted status restoration ({} identifiers provided)", identifiers.len());
-        }
         
         Ok(restored_count)
     }

@@ -17,3 +17,10 @@ pub fn parse_node_types(node_types_str: &str) -> Result<Vec<NodeType>> {
         .map(|s| parse_node_type(s.trim()))
         .collect()
 }
+
+pub fn split_at_comma(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect()
+}

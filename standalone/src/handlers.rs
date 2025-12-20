@@ -1,10 +1,10 @@
 use crate::types::{
     AsyncRequestStatus, AsyncStatus, Coverage, CoverageParams,
-    CoverageStat, EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, MockStat, Node,
+    EmbedCodeParams, FetchRepoBody, FetchRepoResponse, HasParams, HasResponse, Node,
     NodeConcise, NodesResponseItem, ProcessBody, ProcessResponse, QueryNodesParams,
     QueryNodesResponse, Result, VectorSearchParams, VectorSearchResult, WebError, WebhookPayload,
 };
-use crate::utils::parse_node_types;
+use crate::utils::{parse_node_types, split_at_comma};
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 use crate::AppState;
 use ast::lang::graphs::graph_ops::GraphOps;
@@ -957,61 +957,40 @@ fn resolve_repo(
 }
 
 #[axum::debug_handler]
-pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Coverage>> {
+pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Vec<Coverage>>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
+
+    let ignore_dirs = split_at_comma(params.ignore_dirs.as_deref().unwrap_or(""));
+    let languages = if let Some(lang_param) = &params.language {
+        if lang_param.is_empty() {
+            None
+        } else {
+            Some(split_at_comma(lang_param))
+        }
+    } else {
+        None
+    };
 
     let test_filters = TestFilters {
         unit_regexes: vec![],
         integration_regexes: vec![],
         e2e_regexes: vec![],
         target_regex: params.regex.clone(),
-        ignore_dirs: params
-            .ignore_dirs
-            .as_ref()
-            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-            .unwrap_or_default(),
+        ignore_dirs,
+        languages,
     };
 
-    let totals = graph_ops
+    let graph_coverages = graph_ops
         .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
-    Ok(Json(Coverage {
-        language: totals.language,
-        unit_tests: totals.unit_tests.map(|s| CoverageStat {
-            total: s.total,
-            total_tests: s.total_tests,
-            covered: s.covered,
-            percent: s.percent,
-            total_lines: s.total_lines,
-            covered_lines: s.covered_lines,
-            line_percent: s.line_percent,
-        }),
-        integration_tests: totals.integration_tests.map(|s| CoverageStat {
-            total: s.total,
-            total_tests: s.total_tests,
-            covered: s.covered,
-            percent: s.percent,
-            total_lines: s.total_lines,
-            covered_lines: s.covered_lines,
-            line_percent: s.line_percent,
-        }),
-        e2e_tests: totals.e2e_tests.map(|s| CoverageStat {
-            total: s.total,
-            total_tests: s.total_tests,
-            covered: s.covered,
-            percent: s.percent,
-            total_lines: s.total_lines,
-            covered_lines: s.covered_lines,
-            line_percent: s.line_percent,
-        }),
-        mocks: totals.mocks.map(|s| MockStat {
-            total: s.total,
-            mocked: s.mocked,
-            percent: s.percent,
-        }),
-    }))
+    let coverages: Vec<Coverage> = graph_coverages
+        .into_iter()
+        .map(Coverage::from)
+        .collect();
+
+    Ok(Json(coverages))
 }
 
 #[axum::debug_handler]
@@ -1027,6 +1006,7 @@ pub async fn nodes_handler(
     let body_length = params.body_length.unwrap_or(false);
     let line_count = params.line_count.unwrap_or(false);
     let is_muted = params.is_muted;
+    let languages = Some(split_at_comma(params.language.as_deref().unwrap_or("")));
 
     if let Some(coverage) = coverage_filter {
         if !matches!(coverage, "tested" | "untested" | "all") {
@@ -1061,6 +1041,7 @@ pub async fn nodes_handler(
             .as_ref()
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_default(),
+        languages
     };
 
 
