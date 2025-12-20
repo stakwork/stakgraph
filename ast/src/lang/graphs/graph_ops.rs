@@ -1,18 +1,16 @@
-
-use std::time::Duration;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
+use std::time::Duration;
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, info};
 
-
 use crate::lang::embedding::{vectorize_code_document, vectorize_query};
-use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier };
-use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
+use crate::lang::graphs::neo4j::operations::coverage::GraphCoverage;
 use crate::lang::graphs::neo4j::{add_node_query, build_batch_edge_queries};
+use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier};
+use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo, StatusUpdate};
-
 
 #[derive(Debug, Clone)]
 pub struct GraphOps {
@@ -291,7 +289,120 @@ impl GraphOps {
         Ok(self.graph.get_graph_size_async().await?)
     }
 
-  
+    pub async fn get_coverage(
+        &mut self,
+        repo: Option<&str>,
+        test_filters: Option<super::TestFilters>,
+        is_muted: Option<bool>,
+    ) -> Result<Vec<GraphCoverage>> {
+        self.graph.ensure_connected().await?;
+
+        use super::coverage::CoverageLanguage;
+
+        let ignore_dirs = test_filters
+            .as_ref()
+            .map(|f| f.ignore_dirs.clone())
+            .unwrap_or_default();
+        let regex = test_filters
+            .as_ref()
+            .and_then(|f| f.target_regex.as_deref());
+        let requested_languages = test_filters.as_ref().and_then(|f| f.languages.as_ref());
+
+        let in_scope = |n: &NodeData| {
+            let repo_match = if let Some(r) = repo {
+                if r.is_empty() || r == "all" {
+                    true
+                } else if r.contains(',') {
+                    let repos: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
+                    repos.iter().any(|repo_path| n.file.starts_with(repo_path))
+                } else {
+                    n.file.starts_with(r)
+                }
+            } else {
+                true
+            };
+            let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
+            let regex_match = if let Some(pattern) = regex {
+                if let Ok(re) = regex::Regex::new(pattern) {
+                    re.is_match(&n.file)
+                } else {
+                    true
+                }
+            } else {
+                true
+            };
+            let is_muted_match = match is_muted {
+                Some(true) => n
+                    .meta
+                    .get("is_muted")
+                    .map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
+                Some(false) => !n
+                    .meta
+                    .get("is_muted")
+                    .map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
+                None => true,
+            };
+            repo_match && not_ignored && regex_match && is_muted_match
+        };
+
+        let mut results = Vec::new();
+
+        // If specific languages are requested, process only those
+        if let Some(languages) = requested_languages {
+            for lang_str in languages {
+                if lang_str.is_empty() {
+                    continue;
+                }
+
+                let coverage_lang = match lang_str.to_lowercase().as_str() {
+                    "typescript" | "ts" | "javascript" | "js" | "react" | "jsx" | "tsx"
+                    | "angular" | "svelte" => CoverageLanguage::Typescript,
+                    "ruby" | "rb" => CoverageLanguage::Ruby,
+                    "rust" | "rs" => CoverageLanguage::Rust,
+                    _ => {
+                        continue;
+                    }
+                };
+
+                if let Ok(mut coverage) = coverage_lang.get_coverage(&self.graph, &in_scope).await {
+                    coverage.language = Some(coverage_lang.language_name());
+                    results.push(coverage);
+                }
+            }
+        } else {
+            // Get all available languages from the graph
+            let language_nodes = self
+                .graph
+                .find_nodes_by_type_async(NodeType::Language)
+                .await;
+
+            let mut processed_languages = std::collections::HashSet::new();
+
+            for lang_node in language_nodes {
+                let lang_name = lang_node.name.to_lowercase();
+                if processed_languages.contains(&lang_name) {
+                    continue;
+                }
+                processed_languages.insert(lang_name.clone());
+
+                let coverage_lang = match lang_name.as_str() {
+                    "react" | "typescript" | "javascript" | "nextjs" | "angular" | "svelte" => {
+                        CoverageLanguage::Typescript
+                    }
+                    "ruby" => CoverageLanguage::Ruby,
+                    "rust" => CoverageLanguage::Rust,
+                    _ => continue,
+                };
+
+                if let Ok(mut coverage) = coverage_lang.get_coverage(&self.graph, &in_scope).await {
+                    coverage.language = Some(coverage_lang.language_name());
+                    results.push(coverage);
+                }
+            }
+        }
+
+        Ok(results)
+    }
 
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
@@ -381,13 +492,6 @@ impl GraphOps {
                 let embedding = vectorize_code_document(body).await?;
                 self.graph.update_embedding(node_key, &embedding).await?;
             }
-            // let mut batch = Vec::new();
-            // for (node_key, body) in &nodes {
-            //     let embedding = vectorize_code_document(body).await?;
-            //     batch.push((node_key.clone(), embedding));
-            // }
-            // self.graph.bulk_update_embeddings(batch).await?;
-            // skip += batch_size;
         }
         Ok(())
     }
@@ -458,44 +562,50 @@ impl GraphOps {
             )
             .await)
     }
-    pub async fn collect_muted_nodes_for_files(&self, files: &[String]) -> Result<Vec<MutedNodeIdentifier>> {
+    pub async fn collect_muted_nodes_for_files(
+        &self,
+        files: &[String],
+    ) -> Result<Vec<MutedNodeIdentifier>> {
         if files.is_empty() {
             return Ok(vec![]);
         }
 
-        println!("collect_muted_nodes_for_files - input files: {:?}", files);
         let muted_nodes = self.graph.get_muted_nodes_for_files_async(files).await?;
-        
-        if muted_nodes.is_empty() {
-            println!("No muted nodes found in {} files", files.len());
-        } else {
-            println!("Found {} muted nodes in {} files to preserve", muted_nodes.len(), files.len());
-        }
-        
+
         Ok(muted_nodes)
     }
 
-    pub async fn restore_muted_nodes(&self, identifiers: Vec<MutedNodeIdentifier>) -> Result<usize> {
+    pub async fn restore_muted_nodes(
+        &self,
+        identifiers: Vec<MutedNodeIdentifier>,
+    ) -> Result<usize> {
         if identifiers.is_empty() {
             return Ok(0);
         }
 
         let restored_count = self.graph.restore_muted_nodes_async(&identifiers).await?;
-        
-        if restored_count > 0 {
-            println!("Successfully restored muted status for {} nodes after rebuild", restored_count);
-        } else {
-            println!("No nodes matched for muted status restoration ({} identifiers provided)", identifiers.len());
-        }
-        
+
         Ok(restored_count)
     }
 
-    pub async fn set_node_muted(&self, node_type: &NodeType, name: &str, file: &str, is_muted: bool) -> Result<usize> {
-        self.graph.set_node_muted_async(node_type, name, file, is_muted).await
+    pub async fn set_node_muted(
+        &self,
+        node_type: &NodeType,
+        name: &str,
+        file: &str,
+        is_muted: bool,
+    ) -> Result<usize> {
+        self.graph
+            .set_node_muted_async(node_type, name, file, is_muted)
+            .await
     }
 
-    pub async fn is_node_muted(&self, node_type: &NodeType, name: &str, file: &str) -> Result<bool> {
+    pub async fn is_node_muted(
+        &self,
+        node_type: &NodeType,
+        name: &str,
+        file: &str,
+    ) -> Result<bool> {
         self.graph.is_node_muted_async(node_type, name, file).await
     }
 }

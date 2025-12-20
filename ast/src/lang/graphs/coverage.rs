@@ -22,7 +22,6 @@ impl CoverageLanguage {
                 return CoverageLanguage::Rust;
             }
         }
-        
         CoverageLanguage::Typescript
     }
 

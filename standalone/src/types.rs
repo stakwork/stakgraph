@@ -1,4 +1,5 @@
 use ast::lang::asg::NodeData;
+use ast::lang::graphs::graph_ops::GraphCoverage;
 use ast::repo::StatusUpdate;
 use std::sync::atomic::AtomicBool;
 use tokio::sync::broadcast;
@@ -112,6 +113,7 @@ pub struct CoverageParams {
     pub ignore_dirs: Option<String>,
     pub regex: Option<String>,
     pub is_muted: Option<bool>,
+    pub language: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -208,6 +210,7 @@ pub struct QueryNodesParams {
     pub e2e_regexes: Option<String>,
     pub search: Option<String>,
     pub is_muted: Option<bool>,
+    pub language: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -270,5 +273,45 @@ impl IntoResponse for WebError {
 impl From<shared::Error> for WebError {
     fn from(e: shared::Error) -> Self {
         WebError(e)
+    }
+}
+
+impl From<GraphCoverage> for Coverage {
+    fn from(graph_coverage: GraphCoverage) -> Self {
+        Coverage {
+            language: graph_coverage.language,
+            unit_tests: graph_coverage.unit_tests.map(|s| CoverageStat {
+                total: s.total,
+                total_tests: s.total_tests,
+                covered: s.covered,
+                percent: s.percent,
+                total_lines: s.total_lines,
+                covered_lines: s.covered_lines,
+                line_percent: s.line_percent,
+            }),
+            integration_tests: graph_coverage.integration_tests.map(|s| CoverageStat {
+                total: s.total,
+                total_tests: s.total_tests,
+                covered: s.covered,
+                percent: s.percent,
+                total_lines: s.total_lines,
+                covered_lines: s.covered_lines,
+                line_percent: s.line_percent,
+            }),
+            e2e_tests: graph_coverage.e2e_tests.map(|s| CoverageStat {
+                total: s.total,
+                total_tests: s.total_tests,
+                covered: s.covered,
+                percent: s.percent,
+                total_lines: s.total_lines,
+                covered_lines: s.covered_lines,
+                line_percent: s.line_percent,
+            }),
+            mocks: graph_coverage.mocks.map(|s| MockStat {
+                total: s.total,
+                mocked: s.mocked,
+                percent: s.percent,
+            }),
+        }
     }
 }
