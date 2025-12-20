@@ -1,8 +1,7 @@
 use ast::lang::asg::NodeData;
-use ast::lang::graphs::graph_ops::GraphCoverage;
+#[cfg(feature = "neo4j")]
+use ast::lang::graphs::neo4j::operations::coverage::GraphCoverage;
 use ast::repo::StatusUpdate;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::broadcast;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -10,7 +9,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct WebError(pub shared::Error);
@@ -275,7 +276,7 @@ impl From<shared::Error> for WebError {
         WebError(e)
     }
 }
-
+#[cfg(feature = "neo4j")]
 impl From<GraphCoverage> for Coverage {
     fn from(graph_coverage: GraphCoverage) -> Self {
         Coverage {

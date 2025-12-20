@@ -3,12 +3,11 @@ use std::collections::HashSet;
 
 use crate::lang::graphs::utils::tests_sources;
 use crate::lang::{
-    coverage::CoverageLanguage,
     executor::*,
     graph_ops::GraphOps,
     graphs::queries::*,
     helpers::{MutedNodeIdentifier, *},
-    EdgeType, Neo4jGraph, Node, NodeData, NodeType, TestFilters,
+    EdgeType, Neo4jGraph, Node, NodeData, NodeType,
 };
 use crate::utils::create_node_key;
 
