@@ -1,5 +1,7 @@
 use ast::lang::asg::NodeData;
 use ast::repo::StatusUpdate;
+use std::sync::atomic::AtomicBool;
+use tokio::sync::broadcast;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -14,6 +16,14 @@ pub struct WebError(pub shared::Error);
 
 pub type AppError = WebError;
 pub type Result<T> = std::result::Result<T, AppError>;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub tx: broadcast::Sender<StatusUpdate>,
+    pub api_token: Option<String>,
+    pub async_status: AsyncStatusMap,
+    pub busy: Arc<AtomicBool>,
+}
 
 #[derive(Serialize)]
 struct ErrorResponse {

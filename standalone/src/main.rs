@@ -1,36 +1,30 @@
-mod auth;
-mod busy;
+use standalone::types::Result;
 #[cfg(feature = "neo4j")]
-mod handlers;
-mod types;
-mod utils;
-mod webhook;
+use standalone::{
+    handlers::*,
+    service::{graph_service::*, repo_service::*}, 
+    auth, 
+    busy,
+    types::AppState,
+};
 
-use ast::repo::StatusUpdate;
-use axum::extract::Request;
+#[cfg(feature = "neo4j")]
+use tower_http::services::ServeFile;
+
+#[cfg(feature = "neo4j")]
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<()> {
+    use axum::extract::Request;
 use axum::middleware;
 use axum::{routing::get, routing::post, Router};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 use tracing::{debug_span, Span};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
-use types::{AsyncStatusMap, Result};
 
-#[derive(Clone)]
-struct AppState {
-    tx: broadcast::Sender<StatusUpdate>,
-    api_token: Option<String>,
-    async_status: AsyncStatusMap,
-    busy: Arc<AtomicBool>,
-}
-
-#[cfg(feature = "neo4j")]
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
@@ -76,15 +70,15 @@ async fn main() -> Result<()> {
     let cors_layer = CorsLayer::permissive();
 
     let mut app = Router::new()
-        .route("/events", get(handlers::sse_handler))
-        .route("/busy", get(handlers::busy_handler));
+        .route("/events", get(sse_handler))
+        .route("/busy", get(busy_handler));
 
     // Routes that use busy middleware (synchronous operations)
     let busy_routes = Router::new()
-        .route("/process", post(handlers::process))
-        .route("/sync", post(handlers::process))
-        .route("/ingest", post(handlers::ingest))
-        .route("/embed_code", post(handlers::embed_code_handler))
+        .route("/process", post(sync))
+        .route("/sync", post(sync))
+        .route("/ingest", post(ingest))
+        .route("/embed_code", post(embed_code_handler))
         .route_layer(middleware::from_fn_with_state(
             app_state.clone(),
             busy::busy_middleware,
@@ -92,18 +86,18 @@ async fn main() -> Result<()> {
 
     // Routes that manage busy flag internally (async operations with background tasks)
     let async_routes = Router::new()
-        .route("/ingest_async", post(handlers::ingest_async))
-        .route("/sync_async", post(handlers::sync_async));
+        .route("/ingest_async", post(ingest_async))
+        .route("/sync_async", post(sync_async));
 
     let mut protected_routes = Router::new()
-        .route("/clear", post(handlers::clear_graph))
-        .route("/status/:request_id", get(handlers::get_status))
-        .route("/fetch-repo", post(handlers::fetch_repo))
-        .route("/fetch-repos", get(handlers::fetch_repos))
-        .route("/search", post(handlers::vector_search_handler))
-        .route("/tests/coverage", get(handlers::coverage_handler))
-        .route("/tests/nodes", get(handlers::nodes_handler))
-        .route("/tests/has", get(handlers::has_handler))
+        .route("/clear", post(clear_graph))
+        .route("/status/:request_id", get(get_status))
+        .route("/fetch-repo", post(fetch_repo))
+        .route("/fetch-repos", get(fetch_repos))
+        .route("/search", post(vector_search_handler))
+        .route("/tests/coverage", get(coverage_handler))
+        .route("/tests/nodes", get(nodes_handler))
+        .route("/tests/has", get(has_handler))
         .merge(busy_routes)
         .merge(async_routes);
 
@@ -177,6 +171,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "neo4j")]
 fn static_file(path: &str) -> ServeFile {
     ServeFile::new(format!("standalone/static/{}", path))
 }
