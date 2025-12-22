@@ -1,29 +1,30 @@
-use axum::extract::Request;
+use standalone::types::Result;
+#[cfg(feature = "neo4j")]
+use standalone::{
+    handlers::*,
+    service::{graph_service::*, repo_service::*}, 
+    auth, 
+    busy,
+    types::AppState,
+};
+
+#[cfg(feature = "neo4j")]
+use tower_http::services::ServeFile;
+
+#[cfg(feature = "neo4j")]
+#[tokio::main(flavor = "multi_thread")]
+async fn main() -> Result<()> {
+    use axum::extract::Request;
 use axum::middleware;
 use axum::{routing::get, routing::post, Router};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 use tracing::{debug_span, Span};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
-use standalone::{
-    types::{Result, AppState},
-    auth,
-    busy,
-};
-#[cfg(feature = "neo4j")]
-use standalone::{
-    handlers::*,
-    service::{graph_service::*, repo_service::*}
-};
-
-#[cfg(feature = "neo4j")]
-#[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
         .from_env_lossy()
@@ -170,6 +171,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "neo4j")]
 fn static_file(path: &str) -> ServeFile {
     ServeFile::new(format!("standalone/static/{}", path))
 }

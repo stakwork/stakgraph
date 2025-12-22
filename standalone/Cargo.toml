@@ -28,6 +28,5 @@ chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
 
 [features]
-default = ["neo4j"]
 neo4j = ["ast/neo4j"]
 fulltest = ["ast/fulltest"]
