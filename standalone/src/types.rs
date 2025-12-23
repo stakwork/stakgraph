@@ -241,6 +241,7 @@ impl IntoResponse for WebError {
             | shared::Error::SerdeJson(_)
             | shared::Error::Env(_)
             | shared::Error::Neo4j(_)
+            | shared::Error::Neo4jDe(_)
             | shared::Error::Recv(_)
             | shared::Error::Lsp(_)
             | shared::Error::Utf8(_)
