@@ -1,5 +1,4 @@
-use super::graph_ops::{CoverageStat, GraphCoverage, MockStat};
-use super::neo4j_graph::Neo4jGraph;
+use crate::lang::graphs::{Neo4jGraph, operations::{GraphCoverage, CoverageStat, MockStat}};
 use super::{EdgeType, NodeData, NodeType};
 use shared::Result;
 use std::collections::HashSet;

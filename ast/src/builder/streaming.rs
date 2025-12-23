@@ -1,7 +1,7 @@
 #![cfg(feature = "neo4j")]
 use std::collections::BTreeSet;
 
-use crate::lang::graphs::{neo4j_utils::*, Neo4jGraph};
+use crate::lang::graphs::{neo4j::*, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use neo4rs::BoltMap;
 use shared::Result;

@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 #[cfg(feature = "neo4j")]
-use crate::lang::graphs::neo4j_utils::{boltmap_insert_int, boltmap_insert_str};
+use crate::lang::graphs::neo4j::{boltmap_insert_int, boltmap_insert_str};
 #[cfg(feature = "neo4j")]
 use neo4rs::BoltMap;
 #[cfg(feature = "neo4j")]

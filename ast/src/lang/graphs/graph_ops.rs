@@ -1,57 +1,22 @@
-use std::collections::HashSet;
-use std::time::Duration;
 
-use crate::lang::embedding::{vectorize_code_document, vectorize_query};
-use crate::lang::graphs::graph::Graph;
-use crate::lang::graphs::neo4j_graph::Neo4jGraph;
-use crate::lang::graphs::utils::tests_sources;
-use crate::lang::graphs::BTreeMapGraph;
-use crate::lang::neo4j_utils::{add_node_query, build_batch_edge_queries};
-use crate::lang::{EdgeType, Node, NodeData, NodeType};
-use crate::repo::{check_revs_files, Repo, StatusUpdate};
-use crate::utils::create_node_key;
+use std::time::Duration;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, info};
 
+
+use crate::lang::embedding::{vectorize_code_document, vectorize_query};
+use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier };
+use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
+use crate::lang::graphs::neo4j::{add_node_query, build_batch_edge_queries};
+use crate::lang::{EdgeType, NodeData, NodeType};
+use crate::repo::{check_revs_files, Repo, StatusUpdate};
+
+
 #[derive(Debug, Clone)]
 pub struct GraphOps {
     pub graph: Neo4jGraph,
-}
-
-#[derive(Debug, Clone)]
-pub struct CoverageStat {
-    pub total: usize,
-    pub total_tests: usize,
-    pub covered: usize,
-    pub percent: f64,
-    pub total_lines: usize,
-    pub covered_lines: usize,
-    pub line_percent: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct MockStat {
-    pub total: usize,
-    pub mocked: usize,
-    pub percent: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct MutedNodeIdentifier {
-    pub node_type: NodeType,
-    pub name: String,
-    pub file: String,
-}
-
-#[derive(Debug, Clone)]
-pub struct GraphCoverage {
-    pub language: Option<String>,
-    pub unit_tests: Option<CoverageStat>,
-    pub integration_tests: Option<CoverageStat>,
-    pub e2e_tests: Option<CoverageStat>,
-    pub mocks: Option<MockStat>,
 }
 
 impl GraphOps {
@@ -326,58 +291,7 @@ impl GraphOps {
         Ok(self.graph.get_graph_size_async().await?)
     }
 
-    pub async fn get_coverage(
-        &mut self,
-        repo: Option<&str>,
-        test_filters: Option<super::TestFilters>,
-        is_muted: Option<bool>,
-    ) -> Result<GraphCoverage> {
-        self.graph.ensure_connected().await?;
-
-        use super::coverage::CoverageLanguage;
-        let coverage_lang = CoverageLanguage::from_graph(&self.graph).await;
-
-        let ignore_dirs = test_filters
-            .as_ref()
-            .map(|f| f.ignore_dirs.clone())
-            .unwrap_or_default();
-        let regex = test_filters
-            .as_ref()
-            .and_then(|f| f.target_regex.as_deref());
-
-        let in_scope = |n: &NodeData| {
-            let repo_match = if let Some(r) = repo {
-                if r.is_empty() || r == "all" {
-                    true
-                } else if r.contains(',') {
-                    let repos: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
-                    repos.iter().any(|repo_path| n.file.starts_with(repo_path))
-                } else {
-                    n.file.starts_with(r)
-                }
-            } else {
-                true
-            };
-            let not_ignored = !ignore_dirs.iter().any(|dir| n.file.contains(dir.as_str()));
-            let regex_match = if let Some(pattern) = regex {
-                if let Ok(re) = regex::Regex::new(pattern) {
-                    re.is_match(&n.file)
-                } else {
-                    true
-                }
-            } else {
-                true
-            };
-            let is_muted_match = match is_muted {
-                Some(true) => n.meta.get("is_muted").map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
-                Some(false) => !n.meta.get("is_muted").map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
-                None => true,
-            };
-            repo_match && not_ignored && regex_match && is_muted_match
-        };
-
-        coverage_lang.get_coverage(&self.graph, in_scope).await
-    }
+  
 
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
@@ -544,118 +458,6 @@ impl GraphOps {
             )
             .await)
     }
-
-    pub async fn has_coverage(
-        &mut self,
-        node_type: NodeType,
-        name: &str,
-        file: &str,
-        start: Option<usize>,
-        root: Option<&str>,
-        tests_filter: Option<&str>,
-    ) -> Result<bool> {
-        self.graph.ensure_connected().await?;
-        let in_scope = |n: &NodeData| {
-            if let Some(r) = root {
-                if r.is_empty() || r == "all" {
-                    true
-                } else if r.contains(',') {
-                    let roots: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
-                    roots.iter().any(|root_path| n.file.starts_with(root_path))
-                } else {
-                    n.file.starts_with(r)
-                }
-            } else {
-                true
-            }
-        };
-
-        if node_type == NodeType::Function {
-            let target = if let Some(s) = start {
-                self.graph
-                    .find_node_by_name_in_file_async(NodeType::Function, name, file)
-                    .await
-                    .filter(|n| n.start == s)
-            } else {
-                self.graph
-                    .find_node_by_name_in_file_async(NodeType::Function, name, file)
-                    .await
-            };
-            if target.is_none() {
-                return Ok(false);
-            }
-            let t = target.unwrap();
-            if !in_scope(&t) {
-                return Ok(false);
-            }
-            let sources = tests_sources(tests_filter);
-            let mut all_pairs: Vec<(NodeData, NodeData)> = Vec::new();
-            for source_nt in sources {
-                let pairs = self
-                    .graph
-                    .find_nodes_with_edge_type_async(
-                        source_nt.clone(),
-                        NodeType::Function,
-                        EdgeType::Calls,
-                    )
-                    .await;
-                all_pairs.extend(pairs);
-            }
-            for (_, dst) in all_pairs.into_iter() {
-                if in_scope(&dst)
-                    && dst.name == t.name
-                    && dst.file == t.file
-                    && dst.start == t.start
-                {
-                    return Ok(true);
-                }
-            }
-            return Ok(false);
-        }
-
-        if node_type == NodeType::Endpoint {
-            let ep = self.graph.find_endpoint_async(name, file, "").await;
-            if let Some(endpoint) = ep {
-                if !in_scope(&endpoint) {
-                    return Ok(false);
-                }
-                let handlers = self.graph.find_handlers_for_endpoint_async(&endpoint).await;
-                if handlers.is_empty() {
-                    return Ok(false);
-                }
-                let sources = tests_sources(tests_filter);
-                let mut covered_funcs: HashSet<String> = HashSet::new();
-                for source_nt in sources {
-                    let pairs = self
-                        .graph
-                        .find_nodes_with_edge_type_async(
-                            source_nt.clone(),
-                            NodeType::Function,
-                            EdgeType::Calls,
-                        )
-                        .await;
-                    for (_s, f) in pairs.into_iter() {
-                        if in_scope(&f) {
-                            covered_funcs
-                                .insert(create_node_key(&Node::new(NodeType::Function, f)));
-                        }
-                    }
-                }
-                for h in handlers {
-                    if in_scope(&h)
-                        && covered_funcs
-                            .contains(&create_node_key(&Node::new(NodeType::Function, h)))
-                    {
-                        return Ok(true);
-                    }
-                }
-            }
-            return Ok(false);
-        }
-
-        Ok(false)
-    }
-
     pub async fn collect_muted_nodes_for_files(&self, files: &[String]) -> Result<Vec<MutedNodeIdentifier>> {
         if files.is_empty() {
             return Ok(vec![]);
