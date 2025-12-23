@@ -17,6 +17,9 @@ pub enum Error {
     #[error("Neo4j error: {0}")]
     Neo4j(#[from] neo4rs::Error),
 
+    #[error("Neo4j deserialization error: {0}")]
+    Neo4jDe(#[from] neo4rs::DeError),
+
     #[error("Tokio oneshot receive error: {0}")]
     Recv(#[from] tokio::sync::oneshot::error::RecvError),
 

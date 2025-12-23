@@ -7,13 +7,10 @@ pub mod utils;
 pub mod coverage;
 
 #[cfg(feature = "neo4j")]
-pub mod neo4j_graph;
-
-#[cfg(feature = "neo4j")]
-pub mod neo4j_utils;
-
-#[cfg(feature = "neo4j")]
 pub mod graph_ops;
+
+#[cfg(feature = "neo4j")]
+pub mod neo4j;
 
 use std::str::FromStr;
 
@@ -22,7 +19,8 @@ pub use btreemap_graph::*;
 pub use graph::*;
 
 #[cfg(feature = "neo4j")]
-pub use neo4j_graph::*;
+pub use neo4j::*;
+
 use shared::Error;
 
 use crate::lang::asg::*;
