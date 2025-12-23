@@ -9,7 +9,6 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
-use sha256::digest;
 
 pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
     let print_root = std::env::var("PRINT_ROOT").unwrap_or_else(|_| "ast/examples".to_string());
@@ -74,10 +73,11 @@ pub fn create_node_key(node: &Node) -> String {
     let meta = &node_data.meta;
 
     let mut result = String::new();
+    let sanitized_name = sanitize_string(name);
 
     result.push_str(&sanitize_string(&node_type));
     result.push('-');
-    result.push_str(&sanitize_string(name));
+    result.push_str(&sanitized_name);
     result.push('-');
     result.push_str(&sanitize_string(file));
     result.push('-');
@@ -88,8 +88,31 @@ pub fn create_node_key(node: &Node) -> String {
         result.push_str(&sanitize_string(v));
     }
 
-    if result.len() > 8000 {
-        format!("hashed_{}", digest(&result))
+    if result.len() > 5000 {
+        if sanitized_name.len() > 2000 {
+            let truncated_name = &sanitized_name[..2000];
+            let mut truncated_result = String::new();
+            truncated_result.push_str(&sanitize_string(&node_type));
+            truncated_result.push('-');
+            truncated_result.push_str(truncated_name);
+            truncated_result.push('-');
+            truncated_result.push_str(&sanitize_string(file));
+            truncated_result.push('-');
+            truncated_result.push_str(&sanitize_string(&start));
+            
+            if let Some(v) = meta.get("verb") {
+                truncated_result.push('-');
+                truncated_result.push_str(&sanitize_string(v));
+            }
+            
+            if truncated_result.len() > 5000 {
+                truncated_result.truncate(5000);
+            }
+            truncated_result
+        } else {
+            result.truncate(5000);
+            result
+        }
     } else {
         result
     }
@@ -135,10 +158,11 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
     let start = &node_ref.node_data.start.to_string();
 
     let mut result = String::new();
+    let sanitized_name = sanitize_string(name);
 
     result.push_str(&sanitize_string(&node_type));
     result.push('-');
-    result.push_str(&sanitize_string(name));
+    result.push_str(&sanitized_name);
     result.push('-');
     result.push_str(&sanitize_string(file));
     result.push('-');
@@ -149,8 +173,31 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
         result.push_str(&sanitize_string(v));
     }
 
-    if result.len() > 8000 {
-        format!("hashed_{}", digest(&result))
+    if result.len() > 5000 {
+        if sanitized_name.len() > 2000 {
+            let truncated_name = &sanitized_name[..2000];
+            let mut truncated_result = String::new();
+            truncated_result.push_str(&sanitize_string(&node_type));
+            truncated_result.push('-');
+            truncated_result.push_str(truncated_name);
+            truncated_result.push('-');
+            truncated_result.push_str(&sanitize_string(file));
+            truncated_result.push('-');
+            truncated_result.push_str(&sanitize_string(&start));
+            
+            if let Some(v) = &node_ref.node_data.verb {
+                truncated_result.push('-');
+                truncated_result.push_str(&sanitize_string(v));
+            }
+            
+            if truncated_result.len() > 5000 {
+                truncated_result.truncate(5000);
+            }
+            truncated_result
+        } else {
+            result.truncate(5000);
+            result
+        }
     } else {
         result
     }
