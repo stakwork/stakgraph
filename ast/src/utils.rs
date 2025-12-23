@@ -9,6 +9,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
+use sha256::digest;
 
 pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
     let print_root = std::env::var("PRINT_ROOT").unwrap_or_else(|_| "ast/examples".to_string());
@@ -86,7 +87,12 @@ pub fn create_node_key(node: &Node) -> String {
         result.push('-');
         result.push_str(&sanitize_string(v));
     }
-    result
+
+    if result.len() > 8000 {
+        format!("hashed_{}", digest(&result))
+    } else {
+        result
+    }
 }
 
 pub fn get_use_lsp() -> bool {
@@ -143,7 +149,11 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
         result.push_str(&sanitize_string(v));
     }
 
-    result
+    if result.len() > 8000 {
+        format!("hashed_{}", digest(&result))
+    } else {
+        result
+    }
 }
 
 pub fn sanitize_string(input: &str) -> String {
