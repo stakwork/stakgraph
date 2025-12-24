@@ -3,7 +3,7 @@ use std::time::Duration;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, instrument};
 
 
 use crate::lang::embedding::{vectorize_code_document, vectorize_query};
@@ -292,7 +292,7 @@ impl GraphOps {
     }
 
   
-
+    #[instrument(skip(self, btree_graph, status_tx))]
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
         btree_graph: &BTreeMapGraph,

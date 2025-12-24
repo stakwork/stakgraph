@@ -13,7 +13,7 @@ use shared::{Context, Error, Result};
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tokio::sync::broadcast::Sender;
-use tracing::{info, warn};
+use tracing::{info, instrument, warn};
 use walkdir::{DirEntry, WalkDir};
 
 const CONF_FILE_PATH: &str = ".ast.json";
@@ -86,6 +86,7 @@ impl Repos {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graphs_inner_impl(streaming).await
     }
+    #[instrument(skip(self))]
     async fn build_graphs_inner_impl<G: Graph>(&self, streaming: bool) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
@@ -194,6 +195,7 @@ impl Repo {
             skip_calls: false,
         })
     }
+    #[instrument(skip(username, pat, files_filter, revs, commit, branch, use_lsp))]
     pub async fn new_clone_multi_detect(
         urls: &str,
         username: Option<String>,

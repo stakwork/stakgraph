@@ -20,7 +20,7 @@ use shared::error::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::fs;
-use tracing::{debug, info, trace};
+use tracing::{debug, info, instrument, trace};
 
 #[derive(Debug, Clone)]
 pub struct ImplementsRelationship {
@@ -48,6 +48,8 @@ impl Repo {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graph_inner_with_streaming(streaming).await
     }
+
+    #[instrument(skip(self))]
     pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
@@ -799,6 +801,8 @@ impl Repo {
         info!("=> got {} data models", datamodel_count);
         Ok(())
     }
+
+    #[instrument(skip(self, graph), fields(files=filez.len()))]
     async fn process_functions_and_tests<G: Graph>(
         &self,
         graph: &mut G,
@@ -961,6 +965,8 @@ impl Repo {
 
         Ok(())
     }
+
+    #[instrument(skip(self, graph), fields(files=filez.len()))]
     fn process_endpoints<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
         self.send_status_update("process_endpoints", 11);
         let mut _i = 0;
@@ -1021,6 +1027,7 @@ impl Repo {
         Ok(())
     }
 
+    #[instrument(skip(self, graph, stats), fields(files=filez.len()))]
     async fn finalize_graph<G: Graph>(
         &self,
         graph: &mut G,

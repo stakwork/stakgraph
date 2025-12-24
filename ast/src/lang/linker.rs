@@ -5,11 +5,12 @@ use regex::Regex;
 use shared::{Context, Error, Result};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 type EdgeKey = (String, String, usize);
 type EdgeIndex = HashMap<EdgeKey, HashSet<(EdgeKey, EdgeType)>>;
 
+#[instrument(skip(edges))]
 fn build_edge_index(edges: &[Edge]) -> EdgeIndex {
     let mut index: EdgeIndex = HashMap::new();
     for edge in edges {
@@ -31,6 +32,7 @@ fn build_edge_index(edges: &[Edge]) -> EdgeIndex {
     index
 }
 
+#[instrument(skip(graph))]
 pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     if tests.is_empty() {
@@ -361,6 +363,7 @@ pub fn extract_http_verbs_from_test(body: &str) -> Vec<String> {
     verbs
 }
 
+#[instrument(skip(graph))]
 pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
     // Collect requests and endpoints in a single pass
     let mut frontend_requests = Vec::new();

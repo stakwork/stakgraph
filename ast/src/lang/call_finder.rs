@@ -1,6 +1,7 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
+use tracing::instrument;
 use tree_sitter::QueryCursor;
 
 pub fn node_data_finder<G: Graph>(
@@ -23,6 +24,7 @@ pub fn node_data_finder<G: Graph>(
     )
 }
 
+#[instrument(skip(graph),  fields(func_name, current_file))]
 pub fn func_target_file_finder<G: Graph>(
     func_name: &str,
     operand: &Option<String>,
@@ -85,6 +87,7 @@ pub fn func_target_file_finder<G: Graph>(
     None
 }
 
+#[instrument(skip(graph, lang), fields(current_file))]
 pub fn get_imports_for_file<G: Graph>(
     current_file: &str,
     lang: &Lang,
@@ -153,6 +156,7 @@ pub fn get_imports_for_file<G: Graph>(
     }
 }
 
+#[instrument(skip(graph), fields(func_name))]
 fn find_function_by_import<G: Graph>(
     func_name: &str,
     import_names: Vec<(String, Vec<String>)>,
@@ -179,6 +183,7 @@ fn find_function_by_import<G: Graph>(
     None
 }
 
+#[instrument(skip(graph), fields(func_name, current_file))]
 fn find_only_one_function_file<G: Graph>(
     func_name: &str,
     graph: &G,
@@ -215,6 +220,7 @@ fn find_only_one_function_file<G: Graph>(
     None
 }
 
+#[instrument(skip(graph), fields(operand, func_name))]
 fn find_function_with_operand<G: Graph>(
     operand: &str,
     func_name: &str,
@@ -242,6 +248,7 @@ fn find_function_with_operand<G: Graph>(
     target_file
 }
 
+#[instrument(skip(graph), fields(var_name, func_name))]
 fn find_nested_function_in_variable<G: Graph>(
     var_name: &str,
     func_name: &str,
@@ -269,6 +276,7 @@ fn find_nested_function_in_variable<G: Graph>(
     None
 }
 
+#[instrument(skip(graph), fields(func_name, current_file))]
 fn find_function_in_same_file<G: Graph>(
     func_name: &str,
     current_file: &str,
@@ -294,6 +302,7 @@ fn find_function_in_same_file<G: Graph>(
     None
 }
 
+#[instrument(skip(graph), fields(func_name, current_file))]
 fn find_function_in_same_directory<G: Graph>(
     func_name: &str,
     current_file: &str,

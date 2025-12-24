@@ -10,9 +10,10 @@ lsp = { path = "../lsp" }
 
 serde = "1.0.210"
 serde_json = "1.0.129"
-tokio = { version = "1", features = ["macros"] }
+tokio = { version = "1", features = ["macros", "tracing", "rt-multi-thread"] }
 tracing = { version = "0.1.37" }
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+console-subscriber = "0.5"
 tower-http = { version = "0.5", features = ["fs", "cors", "timeout", "trace"] }
 axum = { version = "0.7", features = ["ws", "multipart", "macros"] }
 futures = "0.3.31"

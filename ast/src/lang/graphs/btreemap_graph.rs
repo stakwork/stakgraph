@@ -4,6 +4,7 @@ use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
+use tracing::instrument;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -67,6 +68,7 @@ impl Graph for BTreeMapGraph {
         (node_keys, edge_keys)
     }
 
+    #[instrument(skip(self), fields(node_type, name))]
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         let prefix = format!(
             "{}-{}",
@@ -363,6 +365,7 @@ impl Graph for BTreeMapGraph {
         }
     }
     // Add calls only between function definitions not between function calls
+    #[instrument(skip(self, lang, calls))]
     fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>), lang: &Lang) {
         let (funcs, tests, int_tests, extras) = calls;
         // Diagnostic flag (see array_graph.rs for rationale)

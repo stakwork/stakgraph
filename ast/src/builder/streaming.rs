@@ -5,7 +5,7 @@ use crate::lang::graphs::{neo4j::*, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use neo4rs::BoltMap;
 use shared::Result;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
 pub struct GraphStreamingUploader {}
@@ -14,7 +14,7 @@ impl GraphStreamingUploader {
     pub fn new() -> Self {
         Self {}
     }
-
+#[instrument(skip(self, neo, delta_node_queries), fields(stage, node_count = delta_node_queries.len()))]
     pub async fn flush_stage(
         &mut self,
         neo: &Neo4jGraph,
