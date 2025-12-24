@@ -34,7 +34,7 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
         .with_env_filter(filter)
         .init();
 
-    console_subscriber::init();
+    // console_subscriber::init(); // Commented out due to Send safety issues
 
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {

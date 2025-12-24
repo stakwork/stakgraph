@@ -86,7 +86,6 @@ impl Repos {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graphs_inner_impl(streaming).await
     }
-    #[instrument(skip(self))]
     async fn build_graphs_inner_impl<G: Graph>(&self, streaming: bool) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));

@@ -1,7 +1,6 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
-use tracing::instrument;
 use tree_sitter::QueryCursor;
 
 pub fn node_data_finder<G: Graph>(
@@ -24,7 +23,6 @@ pub fn node_data_finder<G: Graph>(
     )
 }
 
-#[instrument(skip(graph),  fields(func_name, current_file))]
 pub fn func_target_file_finder<G: Graph>(
     func_name: &str,
     operand: &Option<String>,
@@ -34,6 +32,7 @@ pub fn func_target_file_finder<G: Graph>(
     source_node_type: NodeType,
     import_names: Option<Vec<(String, Vec<String>)>>,
 ) -> Option<NodeData> {
+    let start_time = std::time::Instant::now();
     log_cmd(format!(
         "func_target_file_finder {:?} from file {:?}",
         func_name, current_file
@@ -80,19 +79,27 @@ pub fn func_target_file_finder<G: Graph>(
     // Sixth try: Check if function is nested in a variable (e.g., authOptions.callbacks.signIn)
     if let Some(ref operand) = operand {
         if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file) {
+            let duration = start_time.elapsed();
+            if duration.as_millis() > 100 {
+                tracing::warn!("[PERF] func_target_file_finder for '{}' took {}ms (found via nested)", func_name, duration.as_millis());
+            }
             return Some(tf);
         }
     }
 
+    let duration = start_time.elapsed();
+    if duration.as_millis() > 100 {
+        tracing::warn!("[PERF] func_target_file_finder for '{}' took {}ms (not found)", func_name, duration.as_millis());
+    }
     None
 }
 
-#[instrument(skip(graph, lang), fields(current_file))]
 pub fn get_imports_for_file<G: Graph>(
     current_file: &str,
     lang: &Lang,
     graph: &G,
 ) -> Option<Vec<(String, Vec<String>)>> {
+    let start_time = std::time::Instant::now();
     let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
     let import_node = import_nodes.first()?;
     let code = import_node.body.as_str();
@@ -149,6 +156,11 @@ pub fn get_imports_for_file<G: Graph>(
         }
     }
 
+    let duration = start_time.elapsed();
+    if duration.as_millis() > 50 {
+        tracing::warn!("[PERF] get_imports_for_file for '{}' took {}ms", current_file, duration.as_millis());
+    }
+    
     if results.is_empty() {
         None
     } else {
@@ -156,7 +168,6 @@ pub fn get_imports_for_file<G: Graph>(
     }
 }
 
-#[instrument(skip(graph), fields(func_name))]
 fn find_function_by_import<G: Graph>(
     func_name: &str,
     import_names: Vec<(String, Vec<String>)>,
@@ -183,7 +194,6 @@ fn find_function_by_import<G: Graph>(
     None
 }
 
-#[instrument(skip(graph), fields(func_name, current_file))]
 fn find_only_one_function_file<G: Graph>(
     func_name: &str,
     graph: &G,
@@ -191,6 +201,7 @@ fn find_only_one_function_file<G: Graph>(
     current_file: &str,
     source_node_type: NodeType,
 ) -> Option<NodeData> {
+    let start_time = std::time::Instant::now();
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     if nodes.len() == 0 {
@@ -215,12 +226,19 @@ fn find_only_one_function_file<G: Graph>(
     target_files_starts.retain(|x| !x.file.contains("mock"));
     if target_files_starts.len() == 1 {
         log_cmd(format!("::: discluded mocks for!!! {:?}", func_name));
+        let duration = start_time.elapsed();
+        if duration.as_millis() > 50 {
+            tracing::warn!("[PERF] find_only_one_function_file for '{}' took {}ms", func_name, duration.as_millis());
+        }
         return Some(target_files_starts[0].clone());
+    }
+    let duration = start_time.elapsed();
+    if duration.as_millis() > 50 {
+        tracing::warn!("[PERF] find_only_one_function_file for '{}' took {}ms", func_name, duration.as_millis());
     }
     None
 }
 
-#[instrument(skip(graph), fields(operand, func_name))]
 fn find_function_with_operand<G: Graph>(
     operand: &str,
     func_name: &str,
@@ -248,7 +266,6 @@ fn find_function_with_operand<G: Graph>(
     target_file
 }
 
-#[instrument(skip(graph), fields(var_name, func_name))]
 fn find_nested_function_in_variable<G: Graph>(
     var_name: &str,
     func_name: &str,
@@ -276,7 +293,6 @@ fn find_nested_function_in_variable<G: Graph>(
     None
 }
 
-#[instrument(skip(graph), fields(func_name, current_file))]
 fn find_function_in_same_file<G: Graph>(
     func_name: &str,
     current_file: &str,
@@ -302,7 +318,6 @@ fn find_function_in_same_file<G: Graph>(
     None
 }
 
-#[instrument(skip(graph), fields(func_name, current_file))]
 fn find_function_in_same_directory<G: Graph>(
     func_name: &str,
     current_file: &str,

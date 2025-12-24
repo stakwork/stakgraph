@@ -68,3 +68,6 @@ out.txt
 
 #Local AI files
 .github/copilot-*
+
+# Profiling data
+cargo-flamegraph.trace

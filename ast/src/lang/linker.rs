@@ -330,6 +330,7 @@ api.get(...), api.post(...), etc. (common API client pattern)
 fetch(..., { method: "POST" }) pattern with explicit method option
 */
 
+#[instrument]
 pub fn extract_http_verbs_from_test(body: &str) -> Vec<String> {
     let mut verbs = Vec::new();
 

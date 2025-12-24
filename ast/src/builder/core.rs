@@ -49,7 +49,6 @@ impl Repo {
         self.build_graph_inner_with_streaming(streaming).await
     }
 
-    #[instrument(skip(self))]
     pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
@@ -67,6 +66,7 @@ impl Repo {
         };
 
         self.send_status_update("initialization", 1);
+        info!("Starting parse stage: initialization");
         self.add_repository_and_language_nodes(&mut graph).await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -76,9 +76,11 @@ impl Repo {
                 .flush_stage(&ctx.neo, "repository_language", &bolt_nodes)
                 .await?;
         }
+
         let files = self.collect_and_add_directories(&mut graph)?;
         stats.insert("directories".to_string(), files.len());
 
+        info!("Starting parse stage: files");
         let filez = self.process_and_add_files(&mut graph, &files).await?;
         stats.insert("files".to_string(), filez.len());
         self.send_status_with_stats(stats.clone());
@@ -103,6 +105,8 @@ impl Repo {
             .filter(|(f, _)| is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
             .cloned()
             .collect::<Vec<_>>();
+
+        info!("Starting parse stage: libraries");
         self.process_libraries(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -116,6 +120,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "libraries", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: imports");
         self.process_import_sections(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -129,6 +135,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "imports", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: variables");
         self.process_variables(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -142,6 +150,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "variables", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: classes");
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -155,6 +165,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "classes", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: instances_traits");
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -168,6 +180,7 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "instances_traits", &edges)
                 .await?;
         }
+        info!("Starting parse stage: implements");
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -181,6 +194,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "implements", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: data_models");
         self.process_data_models(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -194,6 +209,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "data_models", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: functions_tests");
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
         #[cfg(feature = "neo4j")]
@@ -208,6 +225,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "functions_tests", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: pages_templates");
         self.process_pages_and_templates(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -221,6 +240,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "pages_templates", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: endpoints");
         self.process_endpoints(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -234,6 +255,8 @@ impl Repo {
                 .flush_edges_stage(&ctx.neo, "endpoints", &edges)
                 .await?;
         }
+
+        info!("Starting parse stage: finalize");
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
         #[cfg(feature = "neo4j")]
