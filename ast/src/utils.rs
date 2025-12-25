@@ -48,7 +48,7 @@ pub struct CallFinderStats {
 pub struct ImportParseStats {
     pub total_calls: usize,
     pub total_time_ms: u128,
-    pub file_times: std::collections::HashMap<String, (usize, u128)>, // (call_count, total_ms)
+    pub file_times: std::collections::HashMap<String, (usize, u128, usize)>, // (call_count, total_ms, cache_hits)
 }
 
 thread_local! {
@@ -315,17 +315,22 @@ pub fn record_call_finder_lookup(
     });
 }
 
-pub fn record_import_parse(file: &str, elapsed_ms: u128) {
+pub fn record_import_parse(file: &str, elapsed_ms: u128, is_cache_hit: bool) {
     IMPORT_PARSE_STATS.with(|stats| {
         let mut s = stats.borrow_mut();
         s.total_calls += 1;
         s.total_time_ms += elapsed_ms;
 
-        // Extract just the filename for cleaner output
         let filename = file.rsplit('/').next().unwrap_or(file);
-        let entry = s.file_times.entry(filename.to_string()).or_insert((0, 0));
+        let entry = s
+            .file_times
+            .entry(filename.to_string())
+            .or_insert((0, 0, 0));
         entry.0 += 1;
         entry.1 += elapsed_ms;
+        if is_cache_hit {
+            entry.2 += 1;
+        }
     });
 }
 
@@ -422,10 +427,18 @@ pub fn log_and_reset_import_stats() {
         let s = stats.borrow();
         if s.total_calls > 0 {
             let unique_count = s.file_times.len();
+            let total_cache_hits: usize = s.file_times.values().map(|(_, _, hits)| hits).sum();
+            let cache_hit_pct = if s.total_calls > 0 {
+                (total_cache_hits as f64 / s.total_calls as f64 * 100.0) as u32
+            } else {
+                0
+            };
+
             tracing::info!(
-                "[perf][imports] Parsed {} files ({} unique) in {}ms",
+                "[perf][imports] Parsed {} files ({} unique, {}% cache hit) in {}ms",
                 s.total_calls,
                 unique_count,
+                cache_hit_pct,
                 s.total_time_ms
             );
 
@@ -434,17 +447,24 @@ pub fn log_and_reset_import_stats() {
             files.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
 
             // Show top 5 files
-            for (filename, (count, total_ms)) in files.iter().take(5) {
+            for (filename, (count, total_ms, cache_hits)) in files.iter().take(5) {
                 let pct = if s.total_time_ms > 0 {
                     (*total_ms as f64 / s.total_time_ms as f64 * 100.0) as u32
                 } else {
                     0
                 };
+                let hit_pct = if *count > 0 {
+                    (*cache_hits as f64 / *count as f64 * 100.0) as u32
+                } else {
+                    0
+                };
                 let marker = if pct > 30 { " ← bottleneck" } else { "" };
                 tracing::info!(
-                    "[perf][imports]   • {}: {}× calls, {}ms ({}%){}",
+                    "[perf][imports]   • {}: {}× calls ({} cached, {}% hit), {}ms ({}%{})",
                     filename,
                     count,
+                    cache_hits,
+                    hit_pct,
                     total_ms,
                     pct,
                     marker

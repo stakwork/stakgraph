@@ -1088,9 +1088,7 @@ impl Lang {
                 "[call_resolution] No LSP, allow_unverified=false, calling node_data_finder for {}",
                 called
             );
-            let import_start = std::time::Instant::now();
             let import_names = get_imports_for_file(file, self, graph);
-            crate::utils::record_import_parse(file, import_start.elapsed().as_millis());
             if let Some(tf) = node_data_finder(
                 &called,
                 &fc.operand,
@@ -1106,9 +1104,7 @@ impl Lang {
                 ));
                 fc.target = tf.into();
             } else if let Some(ref operand) = fc.operand {
-                let import_start = std::time::Instant::now();
                 let import_names_for_operand = get_imports_for_file(file, self, graph);
-                crate::utils::record_import_parse(file, import_start.elapsed().as_millis());
                 if let Some(base_func) = node_data_finder(
                     operand,
                     &None,

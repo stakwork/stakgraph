@@ -1,8 +1,13 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
-use crate::utils::{record_call_finder_lookup, CallFinderStrategy};
+use crate::utils::{record_call_finder_lookup, record_import_parse, CallFinderStrategy};
+use dashmap::DashMap;
+use std::sync::LazyLock;
 use tree_sitter::QueryCursor;
+
+static IMPORT_CACHE: LazyLock<DashMap<String, Option<Vec<(String, Vec<String>)>>>> =
+    LazyLock::new(|| DashMap::new());
 
 pub fn node_data_finder<G: Graph>(
     func_name: &str,
@@ -140,7 +145,27 @@ pub fn get_imports_for_file<G: Graph>(
     lang: &Lang,
     graph: &G,
 ) -> Option<Vec<(String, Vec<String>)>> {
-    let start_time = std::time::Instant::now();
+    let cache_start = std::time::Instant::now();
+
+    if let Some(cached) = IMPORT_CACHE.get(current_file) {
+        record_import_parse(current_file, cache_start.elapsed().as_millis(), true);
+        return cached.clone();
+    }
+
+    let result = parse_imports_for_file(current_file, lang, graph);
+    let total_time = cache_start.elapsed().as_millis();
+
+    IMPORT_CACHE.insert(current_file.to_string(), result.clone());
+    record_import_parse(current_file, total_time, false);
+
+    result
+}
+
+fn parse_imports_for_file<G: Graph>(
+    current_file: &str,
+    lang: &Lang,
+    graph: &G,
+) -> Option<Vec<(String, Vec<String>)>> {
     let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
     let import_node = import_nodes.first()?;
     let code = import_node.body.as_str();
@@ -195,15 +220,6 @@ pub fn get_imports_for_file<G: Graph>(
 
             results.push((resolved_path, import_names));
         }
-    }
-
-    let duration = start_time.elapsed();
-    if duration.as_millis() > 50 {
-        tracing::warn!(
-            "[PERF] get_imports_for_file for '{}' took {}ms",
-            current_file,
-            duration.as_millis()
-        );
     }
 
     if results.is_empty() {
