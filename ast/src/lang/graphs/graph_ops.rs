@@ -3,8 +3,7 @@ use std::time::Duration;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
 use tokio::sync::broadcast::Sender;
-use tracing::{debug, error, info};
-
+use tracing::{debug, error, info, instrument};
 
 use crate::lang::embedding::{vectorize_code_document, vectorize_query};
 use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier };
@@ -292,7 +291,7 @@ impl GraphOps {
     }
 
   
-
+    #[instrument(skip(self, btree_graph, status_tx))]
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
         btree_graph: &BTreeMapGraph,
@@ -463,13 +462,13 @@ impl GraphOps {
             return Ok(vec![]);
         }
 
-        println!("collect_muted_nodes_for_files - input files: {:?}", files);
+        debug!("collect_muted_nodes_for_files - input files: {:?}", files);
         let muted_nodes = self.graph.get_muted_nodes_for_files_async(files).await?;
         
         if muted_nodes.is_empty() {
-            println!("No muted nodes found in {} files", files.len());
+            debug!("No muted nodes found in {} files", files.len());
         } else {
-            println!("Found {} muted nodes in {} files to preserve", muted_nodes.len(), files.len());
+            debug!("Found {} muted nodes in {} files to preserve", muted_nodes.len(), files.len());
         }
         
         Ok(muted_nodes)
@@ -483,9 +482,9 @@ impl GraphOps {
         let restored_count = self.graph.restore_muted_nodes_async(&identifiers).await?;
         
         if restored_count > 0 {
-            println!("Successfully restored muted status for {} nodes after rebuild", restored_count);
+            info!("Restored muted status for {} nodes after rebuild", restored_count);
         } else {
-            println!("No nodes matched for muted status restoration ({} identifiers provided)", identifiers.len());
+            debug!("No nodes matched for muted status restoration ({} identifiers provided)", identifiers.len());
         }
         
         Ok(restored_count)

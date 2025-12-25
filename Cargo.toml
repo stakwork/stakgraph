@@ -2,3 +2,6 @@
 
 members = ["ast", "lsp", "shared", "skill", "standalone"]
 resolver = "2"
+
+[profile.release]
+debug = true
