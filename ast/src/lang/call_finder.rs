@@ -1,6 +1,7 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
+use crate::utils::{record_call_finder_lookup, CallFinderStrategy};
 use tree_sitter::QueryCursor;
 
 pub fn node_data_finder<G: Graph>(
@@ -46,16 +47,19 @@ pub fn func_target_file_finder<G: Graph>(
         current_file,
         source_node_type,
     ) {
+        record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::OnlyOne);
         return Some(tf);
     }
 
     // Second try: find in the same file
     if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
+        record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::SameFile);
         return Some(tf);
     }
 
     if let Some(import_names) = import_names {
         if let Some(tf) = find_function_by_import(func_name, import_names, graph) {
+            record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::Import);
             return Some(tf);
         }
     }
@@ -63,6 +67,7 @@ pub fn func_target_file_finder<G: Graph>(
     // Fourth try: find in the same directory
     if let Some(tf) = find_function_in_same_directory(func_name, current_file, graph, source_start)
     {
+        record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::SameDir);
         return Some(tf);
     }
 
@@ -70,7 +75,7 @@ pub fn func_target_file_finder<G: Graph>(
     if let Some(ref operand) = operand {
         if let Some(target_file) = find_function_with_operand(operand, func_name, graph) {
             if let Some(tf) = graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &target_file) {
-                println!("[OPERAND] resolved {}.{} in {}", operand, func_name, target_file);
+                record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::Operand);
                 return Some(tf);
             }
         }
@@ -79,18 +84,12 @@ pub fn func_target_file_finder<G: Graph>(
     // Sixth try: Check if function is nested in a variable (e.g., authOptions.callbacks.signIn)
     if let Some(ref operand) = operand {
         if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file) {
-            let duration = start_time.elapsed();
-            if duration.as_millis() > 100 {
-                tracing::warn!("[PERF] func_target_file_finder for '{}' took {}ms (found via nested)", func_name, duration.as_millis());
-            }
+            record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::NestedVar);
             return Some(tf);
         }
     }
 
-    let duration = start_time.elapsed();
-    if duration.as_millis() > 100 {
-        tracing::warn!("[PERF] func_target_file_finder for '{}' took {}ms (not found)", func_name, duration.as_millis());
-    }
+    record_call_finder_lookup(start_time.elapsed().as_millis(), CallFinderStrategy::NotFound);
     None
 }
 

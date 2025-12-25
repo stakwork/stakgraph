@@ -13,7 +13,7 @@ use shared::{Context, Error, Result};
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tokio::sync::broadcast::Sender;
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, warn};
 use walkdir::{DirEntry, WalkDir};
 
 const CONF_FILE_PATH: &str = ".ast.json";
@@ -141,7 +141,7 @@ impl Repos {
         }
 
         let (nodes_size, edges_size) = graph.get_graph_size();
-        println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
+        info!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
 
         Ok(graph)
     }
@@ -229,7 +229,7 @@ impl Repo {
                 Error::Custom(format!("Failed to parse Git URL for {}: {}", url, e))
             })?;
             let root = format!("/tmp/{}", gurl.fullname);
-            println!(
+            info!(
                 "Cloning repo to {:?} with branch {}...",
                 &root,
                 branch.unwrap_or("default")
@@ -341,7 +341,7 @@ impl Repo {
                 skip_calls: false,
             });
         }
-        println!("REPOS!!! {:?}", repos);
+        debug!("REPOS detected: {:?}", repos);
         Ok(Repos(repos))
     }
     pub async fn new_clone_to_tmp(
@@ -358,7 +358,7 @@ impl Repo {
 
         let gurl = GitUrl::parse(url)?;
         let root = format!("/tmp/{}", gurl.fullname);
-        println!("Cloning to {:?}... lsp: {}", &root, lsp);
+        info!("Cloning to {:?}... lsp: {}", &root, lsp);
         clone_repo(url, &root, username, pat, None, branch).await?;
         // if let Some(new_files) = check_revs(&root, revs) {
         //     files_filter = new_files;

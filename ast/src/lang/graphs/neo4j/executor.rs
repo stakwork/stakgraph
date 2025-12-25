@@ -3,6 +3,7 @@ use shared::Result;
 use crate::lang::{Edge, NodeData, NodeType, graphs::{queries::*, helpers::*}};
 use crate::lang::graphs::helpers::MutedNodeIdentifier;
 use std::str::FromStr;
+use tracing::debug;
 
 fn bind_parameters(query_str: &str, params: BoltMap) -> Query {
     let mut query_obj = query(query_str);
@@ -161,7 +162,7 @@ pub async fn execute_batch(conn: &Neo4jConnection, queries: Vec<(String, BoltMap
         .collect();
 
     for (i, chunk) in chunked_queries.into_iter().enumerate() {
-        println!("Processing chunk {}/{}", i + 1, total_chunks);
+        debug!("Processing chunk {}/{}", i + 1, total_chunks);
         
         let mut txn_manager = TransactionManager::new(conn);
         for query in chunk {
@@ -169,11 +170,11 @@ pub async fn execute_batch(conn: &Neo4jConnection, queries: Vec<(String, BoltMap
         }
 
         if let Err(e) = txn_manager.execute().await {
-            println!("Error executing batch chunk {}: {:?}", i + 1, e);
+            tracing::error!("Error executing batch chunk {}: {:?}", i + 1, e);
             return Err(e);
         }
 
-        println!("Successfully committed chunk {}/{}", i + 1, total_chunks);
+        debug!("Successfully committed chunk {}/{}", i + 1, total_chunks);
     }
     Ok(())
 }
@@ -184,13 +185,13 @@ pub async fn execute_queries_simple(
 ) -> Result<()> {
     let total_queries = queries.len();
     for (i, query) in queries.into_iter().enumerate() {
-        println!("Processing query {}/{}", i + 1, total_queries);
+        debug!("Processing query {}/{}", i + 1, total_queries);
 
         let mut txn_manager = TransactionManager::new(conn);
         txn_manager.add_query(query);
         txn_manager.execute().await?;
 
-        println!("Successfully executed query {}/{}", i + 1, total_queries);
+        debug!("Successfully executed query {}/{}", i + 1, total_queries);
     }
     Ok(())
 }
@@ -203,7 +204,7 @@ pub async fn execute_node_query(
     execute_query(conn, query_str, params, extract_node_data)
         .await
         .unwrap_or_else(|e| {
-            println!("Error executing query: {}", e);
+            debug!("Error executing query: {}", e);
             Vec::new()
         })
 }
@@ -216,7 +217,7 @@ pub async fn execute_nodes_with_coverage_query(
     execute_query(conn, query_str, params, extract_coverage_data)
         .await
         .unwrap_or_else(|e| {
-            eprintln!("Error executing nodes with coverage query: {}", e);
+            debug!("Error executing nodes with coverage query: {}", e);
             Vec::new()
         })
 }

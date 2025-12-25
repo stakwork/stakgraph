@@ -9,6 +9,37 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
+use std::cell::RefCell;
+
+#[derive(Debug, Clone, Copy)]
+pub enum CallFinderStrategy {
+    OnlyOne,
+    SameFile,
+    Import,
+    SameDir,
+    Operand,
+    NestedVar,
+    NotFound,
+}
+
+#[derive(Default, Debug)]
+pub struct CallFinderStats {
+    pub total_lookups: usize,
+    pub total_time_ms: u128,
+    pub only_one_hits: usize,
+    pub same_file_hits: usize,
+    pub import_hits: usize,
+    pub same_dir_hits: usize,
+    pub operand_hits: usize,
+    pub nested_var_hits: usize,
+    pub not_found: usize,
+}
+
+thread_local! {
+    static CALL_FINDER_STATS: RefCell<CallFinderStats> = RefCell::new(CallFinderStats::default());
+}
+
+
 
 pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
     let print_root = std::env::var("PRINT_ROOT").unwrap_or_else(|_| "ast/examples".to_string());
@@ -119,8 +150,6 @@ pub fn create_node_key(node: &Node) -> String {
 }
 
 pub fn get_use_lsp() -> bool {
-    println!("===-==> Getting use LSP");
-
     unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
     
     delete_react_testing_node_modules().ok();
@@ -227,4 +256,45 @@ where
     Fut: std::future::Future<Output = T>,
 {
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
+}
+
+pub fn record_call_finder_lookup(elapsed_ms: u128, strategy: CallFinderStrategy) {
+    CALL_FINDER_STATS.with(|stats| {
+        let mut s = stats.borrow_mut();
+        s.total_lookups += 1;
+        s.total_time_ms += elapsed_ms;
+        match strategy {
+            CallFinderStrategy::OnlyOne => s.only_one_hits += 1,
+            CallFinderStrategy::SameFile => s.same_file_hits += 1,
+            CallFinderStrategy::Import => s.import_hits += 1,
+            CallFinderStrategy::SameDir => s.same_dir_hits += 1,
+            CallFinderStrategy::Operand => s.operand_hits += 1,
+            CallFinderStrategy::NestedVar => s.nested_var_hits += 1,
+            CallFinderStrategy::NotFound => s.not_found += 1,
+        }
+    });
+}
+
+
+
+pub fn log_and_reset_call_finder_stats() {
+    CALL_FINDER_STATS.with(|stats| {
+        let s = stats.borrow();
+        if s.total_lookups > 0 {
+            tracing::info!(
+                "[perf][call_finder] lookups={} time_ms={} only_one={} same_file={} import={} same_dir={} operand={} nested={} not_found={}",
+                s.total_lookups,
+                s.total_time_ms,
+                s.only_one_hits,
+                s.same_file_hits,
+                s.import_hits,
+                s.same_dir_hits,
+                s.operand_hits,
+                s.nested_var_hits,
+                s.not_found
+            );
+        }
+        drop(s);
+        *stats.borrow_mut() = CallFinderStats::default();
+    });
 }

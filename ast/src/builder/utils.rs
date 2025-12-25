@@ -5,8 +5,25 @@ use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
 use std::collections::HashSet;
 use std::path::PathBuf;
+use tracing::info;
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
+
+// Usage: `timed_stage("classes", || self.process_classes(&mut graph, &files))?;`
+pub fn timed_stage<T, F: FnOnce() -> T>(stage_name: &str, f: F) -> T {
+    let start = std::time::Instant::now();
+    let result = f();
+    info!("[perf][stage] {} took {}ms", stage_name, start.elapsed().as_millis());
+    result
+}
+
+// Usage: `timed_stage_async("finalize", self.finalize_graph(&mut graph, &files, &mut stats)).await?;`
+pub async fn timed_stage_async<T, F: std::future::Future<Output = T>>(stage_name: &str, f: F) -> T {
+    let start = std::time::Instant::now();
+    let result = f.await;
+    info!("[perf][stage] {} took {}ms", stage_name, start.elapsed().as_millis());
+    result
+}
 
 #[cfg(feature = "openssl")]
 pub fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G, lang_kind: Language) -> G {
