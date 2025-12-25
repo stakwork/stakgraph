@@ -1030,7 +1030,6 @@ impl Stack for ReactTs {
 
     fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
         if self.is_test_file(func_file) {
-            println!("Identified test file: {}", func_file);
             true
         } else {
             false
