@@ -107,7 +107,9 @@ impl Repo {
             .collect::<Vec<_>>();
 
         info!("Starting parse stage: libraries");
-        timed_stage("libraries", || self.process_libraries(&mut graph, &allowed_files))?;
+        timed_stage("libraries", || {
+            self.process_libraries(&mut graph, &allowed_files)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -122,7 +124,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: imports");
-        timed_stage("imports", || self.process_import_sections(&mut graph, &filez))?;
+        timed_stage("imports", || {
+            self.process_import_sections(&mut graph, &filez)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -137,7 +141,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: variables");
-        timed_stage("variables", || self.process_variables(&mut graph, &allowed_files))?;
+        timed_stage("variables", || {
+            self.process_variables(&mut graph, &allowed_files)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -152,7 +158,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: classes");
-        let impl_relationships = timed_stage("classes", || self.process_classes(&mut graph, &allowed_files))?;
+        let impl_relationships = timed_stage("classes", || {
+            self.process_classes(&mut graph, &allowed_files)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -167,7 +175,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: instances_traits");
-        timed_stage("instances_traits", || self.process_instances_and_traits(&mut graph, &allowed_files))?;
+        timed_stage("instances_traits", || {
+            self.process_instances_and_traits(&mut graph, &allowed_files)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -181,7 +191,9 @@ impl Repo {
                 .await?;
         }
         info!("Starting parse stage: implements");
-        timed_stage("implements", || self.resolve_implements_edges(&mut graph, impl_relationships))?;
+        timed_stage("implements", || {
+            self.resolve_implements_edges(&mut graph, impl_relationships)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -196,7 +208,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: data_models");
-        timed_stage("data_models", || self.process_data_models(&mut graph, &allowed_files))?;
+        timed_stage("data_models", || {
+            self.process_data_models(&mut graph, &allowed_files)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -211,9 +225,11 @@ impl Repo {
         }
 
         info!("Starting parse stage: functions_tests");
-        timed_stage_async("functions_tests", 
-            self.process_functions_and_tests(&mut graph, &allowed_files)
-        ).await?;
+        timed_stage_async(
+            "functions_tests",
+            self.process_functions_and_tests(&mut graph, &allowed_files),
+        )
+        .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -228,7 +244,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: pages_templates");
-        timed_stage("pages_templates", || self.process_pages_and_templates(&mut graph, &filez))?;
+        timed_stage("pages_templates", || {
+            self.process_pages_and_templates(&mut graph, &filez)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -243,7 +261,9 @@ impl Repo {
         }
 
         info!("Starting parse stage: endpoints");
-        timed_stage("endpoints", || self.process_endpoints(&mut graph, &allowed_files))?;
+        timed_stage("endpoints", || {
+            self.process_endpoints(&mut graph, &allowed_files)
+        })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -258,9 +278,11 @@ impl Repo {
         }
 
         info!("Starting parse stage: finalize");
-        timed_stage_async("finalize",
-            self.finalize_graph(&mut graph, &allowed_files, &mut stats)
-        ).await?;
+        timed_stage_async(
+            "finalize",
+            self.finalize_graph(&mut graph, &allowed_files, &mut stats),
+        )
+        .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -289,7 +311,6 @@ impl Repo {
         stats.insert("total_nodes".to_string(), num_of_nodes as usize);
         stats.insert("total_edges".to_string(), num_of_edges as usize);
         self.send_status_with_stats(stats);
-        crate::utils::log_and_reset_call_finder_stats();
 
         Ok(graph)
     }
@@ -719,7 +740,7 @@ impl Repo {
 
         let classes = graph.find_nodes_by_type(NodeType::Class);
         let traits = graph.find_nodes_by_type(NodeType::Trait);
-        
+
         let mut classes_by_file: HashMap<&str, Vec<&NodeData>> = HashMap::new();
         for class in &classes {
             classes_by_file
@@ -756,9 +777,7 @@ impl Repo {
             let trait_node = traits_by_file
                 .get(rel.file_path.as_str())
                 .and_then(|traits| traits.iter().find(|t| t.name == rel.trait_name).copied())
-                .or_else(|| {
-                    traits.iter().find(|t| t.name == rel.trait_name)
-                });
+                .or_else(|| traits.iter().find(|t| t.name == rel.trait_name));
 
             if let (Some(class), Some(trait_)) = (class_node, trait_node) {
                 graph.add_edge(Edge::implements(class, trait_));
@@ -856,7 +875,7 @@ impl Repo {
             function_count += funcs.len();
 
             graph.add_functions(funcs);
-            
+
             test_count += tests.len();
             graph.add_tests(tests);
         }
@@ -1145,6 +1164,9 @@ impl Repo {
             .clean_graph(&mut |parent_type, child_type, child_meta_key| {
                 graph.filter_out_nodes_without_children(parent_type, child_type, child_meta_key);
             });
+
+        crate::utils::log_and_reset_call_finder_stats();
+        crate::utils::log_and_reset_import_stats();
 
         Ok(())
     }

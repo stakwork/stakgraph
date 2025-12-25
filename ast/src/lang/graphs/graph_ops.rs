@@ -5,7 +5,6 @@ use shared::error::{Error, Result};
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, info, instrument};
 
-
 use crate::lang::embedding::{vectorize_code_document, vectorize_query};
 use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier };
 use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
