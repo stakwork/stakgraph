@@ -20,7 +20,7 @@ use std::fmt;
 use std::str::FromStr;
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
-use tree_sitter::{Node as TreeNode, Query, QueryCursor};
+use tree_sitter::{Node as TreeNode, Query, QueryCursor, Tree};
 
 pub struct Lang {
     pub kind: Language,
@@ -204,67 +204,222 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
-    pub fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_libs<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Library)?)
+            // Libraries are cached with .lib suffix
+            let lib_key = format!("{}.lib", file);
+            let parsed = cache.get(&lib_key).context("Library not in cache")?;
+            Ok(self.collect::<G>(
+                &qo,
+                parsed.get_tree(),
+                parsed.get_code(),
+                file,
+                NodeType::Library,
+            )?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
-        let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
-        Ok(self.collect::<G>(&qo, code, file, NodeType::Class)?)
-    }
-    pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
-        if let Some(qo) = self.lang.trait_query() {
-            let qo = self.q(&qo, &NodeType::Trait);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Trait)?)
-        } else {
-            Ok(Vec::new())
-        }
-    }
-    pub fn get_imports<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+
+    pub fn get_imports<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.imports_query() {
             let qo = self.q(&qo, &NodeType::Import);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Import)?)
+            let parsed = cache.get(file).context("File not in cache")?;
+            Ok(self.collect::<G>(
+                &qo,
+                parsed.get_tree(),
+                parsed.get_code(),
+                file,
+                NodeType::Import,
+            )?)
         } else {
             Ok(Vec::new())
         }
     }
-    pub fn get_vars<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
+    pub fn get_vars<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<NodeData>> {
+        use tree_sitter::QueryCursor;
+
         if let Some(qo) = self.lang.variables_query() {
-            let qo = self.q(&qo, &NodeType::Var);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Var)?)
+            let parsed = cache.get(file).context("File not in cache")?;
+            let query = self.q(&qo, &NodeType::Var);
+
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(
+                &query,
+                parsed.get_tree().root_node(),
+                parsed.get_code().as_bytes(),
+            );
+            let mut res = Vec::new();
+
+            while let Some(m) = matches.next() {
+                let vars = self.format_variables(&m, parsed.get_code(), file, &query)?;
+                res.extend(vars);
+            }
+            Ok(res)
         } else {
             Ok(Vec::new())
         }
     }
+
+    pub fn collect_classes<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+        graph: &G,
+    ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        let query = self.q(&self.lang.class_definition_query(), &NodeType::Class);
+        self.collect_classes_impl(&query, parsed.get_tree(), parsed.get_code(), file, graph)
+    }
+
+    pub fn collect_implements(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<(String, String, String)>> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        let impl_query = self
+            .lang
+            .implements_query()
+            .context("No implements query")?;
+        let query = self.q(&impl_query, &NodeType::Class);
+        self.collect_implements_impl(&query, parsed.get_tree(), parsed.get_code(), file)
+    }
+
+    pub fn get_traits<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<NodeData>> {
+        use tree_sitter::QueryCursor;
+
+        if let Some(qo) = self.lang.trait_query() {
+            let parsed = cache.get(file).context("File not in cache")?;
+            let query = self.q(&qo, &NodeType::Trait);
+
+            let mut cursor = QueryCursor::new();
+            let mut matches = cursor.matches(
+                &query,
+                parsed.get_tree().root_node(),
+                parsed.get_code().as_bytes(),
+            );
+            let mut res = Vec::new();
+
+            while let Some(m) = matches.next() {
+                res.push(self.format_trait(&m, parsed.get_code(), file, &query)?);
+            }
+            Ok(res)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    pub fn get_instances<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<NodeData>> {
+        use tree_sitter::QueryCursor;
+
+        let q = self.lang.instance_definition_query();
+        if q.is_none() {
+            return Ok(Vec::new());
+        }
+
+        let parsed = cache.get(file).context("File not in cache")?;
+        let query = self.q(&q.unwrap(), &NodeType::Instance);
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(
+            &query,
+            parsed.get_tree().root_node(),
+            parsed.get_code().as_bytes(),
+        );
+        let mut res = Vec::new();
+
+        while let Some(m) = matches.next() {
+            res.push(self.format_instance(&m, parsed.get_code(), file, &query)?);
+        }
+        Ok(res)
+    }
+
+    pub fn get_data_models<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<Vec<NodeData>> {
+        use tree_sitter::QueryCursor;
+
+        let q = self.lang.data_model_query();
+        if q.is_none() {
+            return Ok(Vec::new());
+        }
+
+        let parsed = cache.get(file).context("File not in cache")?;
+        let query = self.q(&q.unwrap(), &NodeType::DataModel);
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(
+            &query,
+            parsed.get_tree().root_node(),
+            parsed.get_code().as_bytes(),
+        );
+        let mut res = Vec::new();
+
+        while let Some(m) = matches.next() {
+            res.push(self.format_data_model(&m, parsed.get_code(), file, &query)?);
+        }
+        Ok(res)
+    }
+
     pub fn get_pages<G: Graph>(
         &self,
-        code: &str,
         file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
         lsp_tx: &Option<CmdSender>,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
+        let parsed = cache.get(file).context("File not in cache")?;
         if let Some(qo) = self.lang.page_query() {
             let qo = self.q(&qo, &NodeType::Page);
-            Ok(self.collect_pages(&qo, code, file, lsp_tx, graph)?)
+            Ok(self.collect_pages(
+                &qo,
+                parsed.get_tree(),
+                parsed.get_code(),
+                file,
+                lsp_tx,
+                graph,
+            )?)
         } else {
             Ok(Vec::new())
         }
     }
+
     pub fn get_component_templates<G: Graph>(
         &self,
-        code: &str,
         file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
         _graph: &G,
     ) -> Result<Vec<Edge>> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        let code = parsed.get_code();
         if let Some(qo) = self.lang.component_template_query() {
             let qo = self.q(&qo, &NodeType::Class);
-            let tree = self.lang.parse(&code, &NodeType::Class)?;
             let mut cursor = QueryCursor::new();
-            let mut matches = cursor.matches(&qo, tree.root_node(), code.as_bytes());
+            let mut matches = cursor.matches(&qo, parsed.get_tree().root_node(), code.as_bytes());
 
             let mut template_urls = Vec::new();
             let mut style_urls = Vec::new();
@@ -273,7 +428,7 @@ impl Lang {
             let class_query = self.q(&self.lang.class_definition_query(), &NodeType::Class);
             let mut class_cursor = QueryCursor::new();
             let mut class_matches =
-                class_cursor.matches(&class_query, tree.root_node(), code.as_bytes());
+                class_cursor.matches(&class_query, parsed.get_tree().root_node(), code.as_bytes());
 
             if let Some(class_match) = class_matches.next() {
                 for o in class_query.capture_names().iter() {
@@ -438,9 +593,9 @@ impl Lang {
         tests.push(TestRecord::new(nd, kind, edge));
     }
 
-    // returns (Vec<Function>, Vec<TestRecord>)
-    pub fn get_functions_and_tests<G: Graph>(
+    fn get_functions_and_tests_impl<G: Graph>(
         &self,
+        tree: &Tree,
         code: &str,
         file: &str,
         graph: &G,
@@ -452,7 +607,7 @@ impl Lang {
 
         if let Some(tq) = self.lang.test_query() {
             let qo2 = self.q(&tq, &NodeType::UnitTest);
-            let more_tests = self.collect_tests(&qo2, code, file, graph)?;
+            let more_tests = self.collect_tests(&qo2, tree, code, file, graph)?;
             for (mt, edge) in more_tests {
                 let nd = mt.0.clone();
                 if !self.lang.is_test(&nd.name, &nd.file, &nd.body) {
@@ -470,7 +625,7 @@ impl Lang {
                 );
             }
         }
-        if let Ok(int_tests) = self.collect_integration_tests::<G>(code, file, graph) {
+        if let Ok(int_tests) = self.collect_integration_tests_impl::<G>(tree, code, file, graph) {
             for (nd, kind, edge) in int_tests {
                 self.add_test_to_collections(
                     nd,
@@ -483,7 +638,7 @@ impl Lang {
                 );
             }
         }
-        if let Ok(e2e_tests) = self.collect_e2e_tests(code, file) {
+        if let Ok(e2e_tests) = self.collect_e2e_tests(tree, code, file) {
             for nd in e2e_tests {
                 self.add_test_to_collections(
                     nd,
@@ -499,37 +654,51 @@ impl Lang {
 
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut funcs1 =
-            self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
+            self.collect_functions(&qo, tree, code, file, graph, lsp_tx, &identified_tests)?;
         self.attach_function_comments(code, &mut funcs1)?;
 
         let mut func_nodes: Vec<NodeData> = funcs1.iter().map(|f| f.0.clone()).collect();
         let nested_pairs = self.find_nested_functions(&func_nodes);
-        
-        let mut nested_edges_by_child: std::collections::HashMap<NodeKeys, Vec<Edge>> = std::collections::HashMap::new();
+
+        let mut nested_edges_by_child: std::collections::HashMap<NodeKeys, Vec<Edge>> =
+            std::collections::HashMap::new();
         for (child, parent) in nested_pairs {
             let edge = Edge::new(
                 EdgeType::NestedIn,
                 NodeRef::from(child.into(), NodeType::Function),
                 NodeRef::from(parent.into(), NodeType::Function),
             );
-            nested_edges_by_child.entry(child.into()).or_default().push(edge);
+            nested_edges_by_child
+                .entry(child.into())
+                .or_default()
+                .push(edge);
         }
-        
+
         let all_variables = graph.find_nodes_by_type(NodeType::Var);
-        let var_nested_pairs = self.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
+        let var_nested_pairs =
+            self.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
         for (func, var) in var_nested_pairs {
             let edge = Edge::new(
                 EdgeType::NestedIn,
                 NodeRef::from(func.into(), NodeType::Function),
                 NodeRef::from(var.into(), NodeType::Var),
             );
-            nested_edges_by_child.entry(func.into()).or_default().push(edge);
+            nested_edges_by_child
+                .entry(func.into())
+                .or_default()
+                .push(edge);
         }
-        
-        funcs1 = funcs1.into_iter().map(|(func, op, reqs, dms, trait_op, return_types, _)| {
-            let nested_edges = nested_edges_by_child.get(&NodeKeys::from(&func)).cloned().unwrap_or_default();
-            (func, op, reqs, dms, trait_op, return_types, nested_edges)
-        }).collect();
+
+        funcs1 = funcs1
+            .into_iter()
+            .map(|(func, op, reqs, dms, trait_op, return_types, _)| {
+                let nested_edges = nested_edges_by_child
+                    .get(&NodeKeys::from(&func))
+                    .cloned()
+                    .unwrap_or_default();
+                (func, op, reqs, dms, trait_op, return_types, nested_edges)
+            })
+            .collect();
 
         let funcs = if self.lang.tests_are_functions() {
             let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
@@ -553,22 +722,91 @@ impl Lang {
 
         Ok((funcs, tests))
     }
+
+    // returns (Vec<Function>, Vec<TestRecord>)
+    pub fn get_functions_and_tests<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+        graph: &G,
+        lsp_tx: &Option<CmdSender>,
+    ) -> Result<(Vec<Function>, Vec<TestRecord>)> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        self.get_functions_and_tests_impl(parsed.get_tree(), parsed.get_code(), file, graph, lsp_tx)
+    }
+
+    pub fn collect_endpoints<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+        graph: Option<&G>,
+        lsp_tx: &Option<CmdSender>,
+    ) -> Result<Vec<(NodeData, Option<Edge>)>> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        // Call the implementation in parse/collect.rs
+        self.collect_endpoints_impl(parsed.get_tree(), parsed.get_code(), file, graph, lsp_tx)
+    }
+
+    pub fn collect_import_edges<G: Graph>(
+        &self,
+        q: &Query,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+        graph: &G,
+        lsp_tx: &Option<CmdSender>,
+    ) -> Result<Vec<Edge>> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        // Call the implementation in parse/collect.rs
+        self.collect_import_edges_impl(q, parsed.get_tree(), parsed.get_code(), file, graph, lsp_tx)
+    }
+
+    pub fn collect_integration_tests<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+        graph: &G,
+    ) -> Result<Vec<(NodeData, NodeType, Option<Edge>)>> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        // Call the implementation in parse/collect.rs
+        self.collect_integration_tests_impl(parsed.get_tree(), parsed.get_code(), file, graph)
+    }
+
+    pub async fn get_function_calls<G: Graph>(
+        &self,
+        file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
+        graph: &G,
+        lsp_tx: &Option<CmdSender>,
+    ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
+        let parsed = cache.get(file).context("File not in cache")?;
+        // Call the implementation below
+        self.get_function_calls_impl(parsed.get_code(), file, graph, lsp_tx)
+            .await
+    }
+
     pub fn get_query_opt<G: Graph>(
         &self,
         q: Option<String>,
-        code: &str,
         file: &str,
+        cache: &crate::builder::cache::ParsedFileCache,
         fmtr: NodeType,
     ) -> Result<Vec<NodeData>> {
         if let Some(qo) = q {
-            let insts = self.collect::<G>(&self.q(&qo, &fmtr), code, file, fmtr)?;
+            let parsed = cache.get(file).context("File not in cache")?;
+            let insts = self.collect::<G>(
+                &self.q(&qo, &fmtr),
+                parsed.get_tree(),
+                parsed.get_code(),
+                file,
+                fmtr,
+            )?;
             Ok(insts)
         } else {
             Ok(Vec::new())
         }
     }
-    // returns (Vec<CallsFromFunctions>, Vec<CallsFromTests>, Vec<IntegrationTests>, Vec<ExtraCalls>)
-    pub async fn get_function_calls<G: Graph>(
+    // Internal implementation that takes code as parameter
+    async fn get_function_calls_impl<G: Graph>(
         &self,
         code: &str,
         file: &str,

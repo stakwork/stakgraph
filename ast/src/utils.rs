@@ -442,12 +442,10 @@ pub fn log_and_reset_import_stats() {
                 s.total_time_ms
             );
 
-            // Sort files by total time descending
             let mut files: Vec<_> = s.file_times.iter().collect();
             files.sort_by(|a, b| b.1 .1.cmp(&a.1 .1));
 
-            // Show top 5 files
-            for (filename, (count, total_ms, cache_hits)) in files.iter().take(5) {
+            for (filename, (count, total_ms, cache_hits)) in files.iter().take(10) {
                 let pct = if s.total_time_ms > 0 {
                     (*total_ms as f64 / s.total_time_ms as f64 * 100.0) as u32
                 } else {
@@ -460,7 +458,7 @@ pub fn log_and_reset_import_stats() {
                 };
                 let marker = if pct > 30 { " ← bottleneck" } else { "" };
                 tracing::info!(
-                    "[perf][imports]   • {}: {}× calls ({} cached, {}% hit), {}ms ({}%{})",
+                    "[perf][imports]   • {}: {}X calls ({} cached, {}% hit), {}ms ({}%{})",
                     filename,
                     count,
                     cache_hits,

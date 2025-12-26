@@ -1,3 +1,4 @@
+use super::cache::{ParsedFileCache, PreParse};
 #[cfg(feature = "neo4j")]
 use super::streaming::{nodes_to_bolt_format, StreamingUploadContext};
 use super::utils::{timed_stage, timed_stage_async, *};
@@ -106,9 +107,12 @@ impl Repo {
             .cloned()
             .collect::<Vec<_>>();
 
+        // Pre-parse ALL files (including templates) since pages/templates stage needs them
+        let parsed_cache = self.pre_parse_all_files(&filez)?;
+
         info!("Starting parse stage: libraries");
         timed_stage("libraries", || {
-            self.process_libraries(&mut graph, &allowed_files)
+            self.process_libraries(&mut graph, &allowed_files, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -125,7 +129,7 @@ impl Repo {
 
         info!("Starting parse stage: imports");
         timed_stage("imports", || {
-            self.process_import_sections(&mut graph, &filez)
+            self.process_import_sections(&mut graph, &filez, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -142,7 +146,7 @@ impl Repo {
 
         info!("Starting parse stage: variables");
         timed_stage("variables", || {
-            self.process_variables(&mut graph, &allowed_files)
+            self.process_variables(&mut graph, &allowed_files, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -159,7 +163,7 @@ impl Repo {
 
         info!("Starting parse stage: classes");
         let impl_relationships = timed_stage("classes", || {
-            self.process_classes(&mut graph, &allowed_files)
+            self.process_classes(&mut graph, &allowed_files, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -176,7 +180,7 @@ impl Repo {
 
         info!("Starting parse stage: instances_traits");
         timed_stage("instances_traits", || {
-            self.process_instances_and_traits(&mut graph, &allowed_files)
+            self.process_instances_and_traits(&mut graph, &allowed_files, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -209,7 +213,7 @@ impl Repo {
 
         info!("Starting parse stage: data_models");
         timed_stage("data_models", || {
-            self.process_data_models(&mut graph, &allowed_files)
+            self.process_data_models(&mut graph, &allowed_files, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -227,7 +231,7 @@ impl Repo {
         info!("Starting parse stage: functions_tests");
         timed_stage_async(
             "functions_tests",
-            self.process_functions_and_tests(&mut graph, &allowed_files),
+            self.process_functions_and_tests(&mut graph, &allowed_files, &parsed_cache),
         )
         .await?;
         #[cfg(feature = "neo4j")]
@@ -245,7 +249,7 @@ impl Repo {
 
         info!("Starting parse stage: pages_templates");
         timed_stage("pages_templates", || {
-            self.process_pages_and_templates(&mut graph, &filez)
+            self.process_pages_and_templates(&mut graph, &filez, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -262,7 +266,7 @@ impl Repo {
 
         info!("Starting parse stage: endpoints");
         timed_stage("endpoints", || {
-            self.process_endpoints(&mut graph, &allowed_files)
+            self.process_endpoints(&mut graph, &allowed_files, &parsed_cache)
         })?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -280,7 +284,7 @@ impl Repo {
         info!("Starting parse stage: finalize");
         timed_stage_async(
             "finalize",
-            self.finalize_graph(&mut graph, &allowed_files, &mut stats),
+            self.finalize_graph(&mut graph, &allowed_files, &parsed_cache, &mut stats),
         )
         .await?;
         #[cfg(feature = "neo4j")]
@@ -456,7 +460,13 @@ impl Repo {
         }
         Ok(())
     }
-    fn process_libraries<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+
+    fn process_libraries<G: Graph>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+        cache: &crate::builder::cache::ParsedFileCache,
+    ) -> Result<()> {
         self.send_status_update("process_libraries", 3);
         let mut i = 0;
         let mut lib_count = 0;
@@ -482,7 +492,7 @@ impl Repo {
 
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
 
-            let libs = self.lang.get_libs::<G>(&code, &pkg_file)?;
+            let libs = self.lang.get_libs::<G>(&pkg_file, cache)?;
             lib_count += libs.len();
 
             for lib in libs {
@@ -502,6 +512,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &crate::builder::cache::ParsedFileCache,
     ) -> Result<()> {
         self.send_status_update("process_imports", 4);
         let mut i = 0;
@@ -509,13 +520,13 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_imports...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 6);
             }
 
-            let imports = self.lang.get_imports::<G>(&code, &filename)?;
+            let imports = self.lang.get_imports::<G>(&filename, cache)?;
 
             let import_section = combine_import_sections(imports);
             import_count += import_section.len();
@@ -537,20 +548,25 @@ impl Repo {
         info!("=> got {} import sections", import_count);
         Ok(())
     }
-    fn process_variables<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+    fn process_variables<G: Graph>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+        cache: &ParsedFileCache,
+    ) -> Result<()> {
         self.send_status_update("process_variables", 5);
         let mut i = 0;
         let mut var_count = 0;
         let total = filez.len();
 
         info!("=> get_vars...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 7);
             }
 
-            let variables = self.lang.get_vars::<G>(&code, &filename)?;
+            let variables = self.lang.get_vars::<G>(&filename, cache)?;
 
             var_count += variables.len();
             for variable in variables {
@@ -617,6 +633,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &ParsedFileCache,
     ) -> Result<Vec<ImplementsRelationship>> {
         self.send_status_update("process_classes", 6);
         let mut i = 0;
@@ -625,7 +642,7 @@ impl Repo {
         let mut impl_relationships = Vec::new();
 
         info!("=> get_classes...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 8);
@@ -634,12 +651,7 @@ impl Repo {
             if !self.lang.kind.is_source_file(&filename) {
                 continue;
             }
-            let qo = self
-                .lang
-                .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
-            let classes = self
-                .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
+            let classes = self.lang.collect_classes::<G>(&filename, cache, &graph)?;
             class_count += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(
@@ -653,9 +665,8 @@ impl Repo {
                 }
             }
 
-            if let Some(impl_query) = self.lang.lang().implements_query() {
-                let q = self.lang.q(&impl_query, &NodeType::Class);
-                let impls = self.lang.collect_implements(&q, &code, &filename)?;
+            if let Some(_impl_query) = self.lang.lang().implements_query() {
+                let impls = self.lang.collect_implements(&filename, cache)?;
                 impl_relationships.extend(impls.into_iter().map(
                     |(class_name, trait_name, file_path)| ImplementsRelationship {
                         class_name,
@@ -680,6 +691,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &ParsedFileCache,
     ) -> Result<()> {
         self.send_status_update("process_instances_and_traits", 7);
         let mut cnt = 0;
@@ -688,7 +700,7 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_instances...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             cnt += 1;
             if cnt % 20 == 0 || cnt == total {
                 self.send_status_progress(cnt, total, 9);
@@ -697,20 +709,17 @@ impl Repo {
             if !self.lang.kind.is_source_file(&filename) {
                 continue;
             }
-            let q = self.lang.lang().instance_definition_query();
-            let instances =
-                self.lang
-                    .get_query_opt::<G>(q, &code, &filename, NodeType::Instance)?;
+            let instances = self.lang.get_instances::<G>(&filename, cache)?;
             instance_count += instances.len();
             graph.add_instances(instances);
         }
 
         info!("=> get_traits...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             if !self.lang.kind.is_source_file(&filename) {
                 continue;
             }
-            let traits = self.lang.get_traits::<G>(&code, &filename)?;
+            let traits = self.lang.get_traits::<G>(&filename, cache)?;
             trait_count += traits.len();
 
             for tr in traits {
@@ -795,6 +804,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &ParsedFileCache,
     ) -> Result<()> {
         self.send_status_update("process_data_models", 8);
         let mut i = 0;
@@ -802,7 +812,7 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_structs...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 10);
@@ -816,10 +826,7 @@ impl Repo {
                     continue;
                 }
             }
-            let q = self.lang.lang().data_model_query();
-            let structs = self
-                .lang
-                .get_query_opt::<G>(q, &code, &filename, NodeType::DataModel)?;
+            let structs = self.lang.get_data_models::<G>(&filename, cache)?;
             datamodel_count += structs.len();
 
             for st in &structs {
@@ -852,6 +859,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &ParsedFileCache,
     ) -> Result<()> {
         self.send_status_update("process_functions_and_tests", 9);
         let mut i = 0;
@@ -860,7 +868,7 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_functions_and_tests...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             i += 1;
             if i % 10 == 0 || i == total {
                 self.send_status_progress(i, total, 11);
@@ -871,7 +879,7 @@ impl Repo {
             }
             let (funcs, tests) =
                 self.lang
-                    .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
+                    .get_functions_and_tests(&filename, cache, graph, &self.lsp_tx)?;
             function_count += funcs.len();
 
             graph.add_functions(funcs);
@@ -893,6 +901,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &ParsedFileCache,
     ) -> Result<()> {
         self.send_status_update("process_pages_and_templates", 10);
         let mut i = 0;
@@ -908,7 +917,7 @@ impl Repo {
             }
 
             if self.lang.lang().is_router_file(&filename, &code) {
-                let pages = self.lang.get_pages(&code, &filename, &self.lsp_tx, graph)?;
+                let pages = self.lang.get_pages(&filename, cache, &self.lsp_tx, graph)?;
                 page_count += pages.len();
                 graph.add_pages(pages);
             }
@@ -956,7 +965,7 @@ impl Repo {
                 if filename.ends_with(ext) {
                     let template_edges = self
                         .lang
-                        .get_component_templates::<G>(&code, &filename, &graph)?;
+                        .get_component_templates::<G>(&filename, cache, &graph)?;
                     template_count += template_edges.len();
                     for edge in template_edges {
                         let mut page = NodeData::name_file(
@@ -1012,14 +1021,19 @@ impl Repo {
     }
 
     #[instrument(skip(self, graph, filez), fields(files=filez.len()))]
-    fn process_endpoints<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+    fn process_endpoints<G: Graph>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+        cache: &ParsedFileCache,
+    ) -> Result<()> {
         self.send_status_update("process_endpoints", 11);
         let mut _i = 0;
         let mut endpoint_count = 0;
         let total = filez.len();
 
         info!("=> get_endpoints...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             _i += 1;
             if _i % 10 == 0 || _i == total {
                 self.send_status_progress(_i, total, 11);
@@ -1039,7 +1053,7 @@ impl Repo {
             debug!("get_endpoints in {:?}", filename);
             let endpoints =
                 self.lang
-                    .collect_endpoints(&code, &filename, Some(graph), &self.lsp_tx)?;
+                    .collect_endpoints(&filename, cache, Some(graph), &self.lsp_tx)?;
             endpoint_count += endpoints.len();
 
             graph.add_endpoints(endpoints);
@@ -1053,14 +1067,14 @@ impl Repo {
 
         info!("=> get_endpoint_groups...");
         let mut _endpoint_group_count = 0;
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             if self.lang.lang().is_test_file(&filename) {
                 continue;
             }
             let q = self.lang.lang().endpoint_group_find();
             let endpoint_groups =
                 self.lang
-                    .get_query_opt::<G>(q, &code, &filename, NodeType::Endpoint)?;
+                    .get_query_opt::<G>(q, &filename, cache, NodeType::Endpoint)?;
             _endpoint_group_count += endpoint_groups.len();
             let _ = graph.process_endpoint_groups(endpoint_groups, &self.lang);
         }
@@ -1077,17 +1091,18 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
+        cache: &ParsedFileCache,
         stats: &mut std::collections::HashMap<String, usize>,
     ) -> Result<()> {
         let mut _i = 0;
         let mut import_edges_count = 0;
         info!("=> get_import_edges...");
-        for (filename, code) in filez {
+        for (filename, _code) in filez {
             if let Some(import_query) = self.lang.lang().imports_query() {
                 let q = self.lang.q(&import_query, &NodeType::Import);
                 let import_edges =
                     self.lang
-                        .collect_import_edges(&q, &code, &filename, graph, &self.lsp_tx)?;
+                        .collect_import_edges(&q, &filename, cache, graph, &self.lsp_tx)?;
                 for edge in import_edges {
                     graph.add_edge(edge);
                     import_edges_count += 1;
@@ -1107,7 +1122,7 @@ impl Repo {
 
         if self.lang.lang().use_integration_test_finder() {
             info!("=> get_integration_tests...");
-            for (filename, code) in filez {
+            for (filename, _code) in filez {
                 cnt += 1;
                 if cnt % 10 == 0 || cnt == total {
                     self.send_status_progress(cnt, total, 12);
@@ -1116,7 +1131,9 @@ impl Repo {
                 if !self.lang.lang().is_test_file(&filename) {
                     continue;
                 }
-                let int_tests = self.lang.collect_integration_tests(code, filename, graph)?;
+                let int_tests = self
+                    .lang
+                    .collect_integration_tests(filename, cache, graph)?;
                 integration_test_count += int_tests.len();
                 _i += int_tests.len();
                 let test_records: Vec<TestRecord> = int_tests
@@ -1139,7 +1156,7 @@ impl Repo {
             let total = filez.len();
 
             info!("=> get_function_calls...");
-            for (filename, code) in filez {
+            for (filename, _code) in filez {
                 cnt += 1;
                 if cnt % 5 == 0 || cnt == total {
                     self.send_status_progress(cnt, total, 13);
@@ -1147,7 +1164,7 @@ impl Repo {
 
                 let all_calls = self
                     .lang
-                    .get_function_calls(&code, &filename, graph, &self.lsp_tx)
+                    .get_function_calls(&filename, cache, graph, &self.lsp_tx)
                     .await?;
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();
