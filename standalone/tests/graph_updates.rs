@@ -1,12 +1,15 @@
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphOps;
 
+#[cfg(feature = "neo4j")]
 use ast::lang::linker::{normalize_backend_path, normalize_frontend_path};
 
+#[cfg(feature = "neo4j")]
 fn standardized_request_name(name: &str) -> String {
     normalize_frontend_path(name).unwrap_or_else(|| name.to_string())
 }
 
+#[cfg(feature = "neo4j")]
 fn standardized_endpoint_name(name: &str) -> String {
     normalize_backend_path(name).unwrap_or_else(|| name.to_string())
 }
@@ -220,7 +223,7 @@ async fn test_muted_node_preservation() {
 
     let alpha_file = "fayekelmith/graph-update/alpha.go";
     assert!(set_node_muted_status(&mut graph_ops, "Alpha", alpha_file, true).await);
-    
+
     assert!(check_node_muted_status(&mut graph_ops, "Alpha", alpha_file).await);
     println!("Alpha function marked as muted");
 
@@ -251,7 +254,7 @@ async fn test_muted_node_preservation() {
     println!("Incremental update completed");
 
     assert!(assert_node_exists(&mut graph_ops, "Alpha").await);
-    
+
     assert!(check_node_muted_status(&mut graph_ops, "Alpha", alpha_file).await);
     println!("Alpha function preserved muted status through incremental sync");
 }
@@ -267,10 +270,18 @@ async fn assert_node_exists(graph: &mut GraphOps, node_name: &str) -> bool {
 }
 
 #[cfg(feature = "neo4j")]
-async fn set_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str, is_muted: bool) -> bool {
+async fn set_node_muted_status(
+    graph: &mut GraphOps,
+    node_name: &str,
+    file: &str,
+    is_muted: bool,
+) -> bool {
     use ast::lang::NodeType;
-    
-    if let Ok(count) = graph.set_node_muted(&NodeType::Function, node_name, file, is_muted).await {
+
+    if let Ok(count) = graph
+        .set_node_muted(&NodeType::Function, node_name, file, is_muted)
+        .await
+    {
         count > 0
     } else {
         false
@@ -280,11 +291,13 @@ async fn set_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str
 #[cfg(feature = "neo4j")]
 async fn check_node_muted_status(graph: &mut GraphOps, node_name: &str, file: &str) -> bool {
     use ast::lang::NodeType;
-    
-    if let Ok(is_muted) =  graph.is_node_muted(&NodeType::Function, node_name, file).await {
+
+    if let Ok(is_muted) = graph
+        .is_node_muted(&NodeType::Function, node_name, file)
+        .await
+    {
         is_muted
     } else {
         false
     }
-    
 }

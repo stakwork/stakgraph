@@ -346,9 +346,14 @@ impl Lang {
                 let p = node.start_position();
                 handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
 
-                let method = endp.meta.get("verb").unwrap_or(&"unknown".to_string()).clone();
+                let method = endp
+                    .meta
+                    .get("verb")
+                    .unwrap_or(&"unknown".to_string())
+                    .clone();
                 let path = endp.name.clone();
-                if let Some(generated_name) = self.lang.generate_arrow_handler_name(&method, &path) {
+                if let Some(generated_name) = self.lang.generate_arrow_handler_name(&method, &path)
+                {
                     endp.add_handler(&generated_name);
                 }
             } else if o == HANDLER_ACTIONS_ARRAY {
@@ -370,7 +375,8 @@ impl Lang {
                 params.item = Some(HandlerItem::new_resource_member(trim_quotes(&body)));
             } else if o == SINGULAR_RESOURCE {
                 // Singular resource: mark endpoint to omit :id in paths
-                endp.meta.insert("is_singular".to_string(), "true".to_string());
+                endp.meta
+                    .insert("is_singular".to_string(), "true".to_string());
                 let handler_name = trim_quotes(&body);
                 endp.add_handler(&handler_name);
             }
@@ -517,7 +523,7 @@ impl Lang {
                 }
             }
         }
-        
+
         Ok(vec![(endp, handler)])
     }
     pub fn format_data_model(
@@ -587,12 +593,12 @@ impl Lang {
 
             Ok(Some((
                 func,
-                None,           // parent
-                Vec::new(),     // requests_within
-                Vec::new(),     // models
-                None,           // trait_operand
-                Vec::new(),     // return_types
-                Vec::new(),     // nested_in
+                None,       // parent
+                Vec::new(), // requests_within
+                Vec::new(), // models
+                None,       // trait_operand
+                Vec::new(), // return_types
+                Vec::new(), // nested_in
             )))
         } else {
             Ok(None)
@@ -881,11 +887,11 @@ impl Lang {
                 lsp_tx,
             )?;
         }
-        
+
         if is_macro {
             func.add_macro();
         }
-        
+
         log_cmd(format!("found function {} in file {}", func.name, file));
         Ok(Some((
             func,
@@ -940,7 +946,7 @@ impl Lang {
         let mut class_call = None;
         let mut call_name_and_point = None;
         let mut is_variable_call = false;
-        
+
         Self::loop_captures(q, &m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 call_name_and_point = Some((body, node.start_position()));
@@ -978,7 +984,7 @@ impl Lang {
 
         // REMOVED: is_variable_call gate that was blocking lowercase operand calls
         // Now we'll try to resolve them via operand-based resolution
-        
+
         if self.lang.should_skip_function_call(&called, &fc.operand) {
             return Ok(None);
         }
@@ -987,6 +993,7 @@ impl Lang {
             return Ok(None);
         }
 
+        let resolution_start = std::time::Instant::now();
         if let Some(lsp) = lsp_tx {
             log_cmd(format!("=> {} looking for {:?}", caller_name, called));
             let pos = Position::new(file, call_point.row as u32, call_point.column as u32)?;
@@ -1010,10 +1017,16 @@ impl Lang {
                         external_func = Some(t);
                     }
                 } else {
-                     let import_names = get_imports_for_file(file, self, graph);
-                    if let Some(one_func) =
-                        node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, import_names)
-                    {
+                    let import_names = get_imports_for_file(file, self, graph);
+                    if let Some(one_func) = node_data_finder(
+                        &called,
+                        &fc.operand,
+                        graph,
+                        file,
+                        fc.source.start,
+                        NodeType::Function,
+                        import_names,
+                    ) {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
                             called, &one_func.file
@@ -1068,13 +1081,24 @@ impl Lang {
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
         } else if allow_unverified {
+            tracing::debug!("[call_resolution] Using allow_unverified for {}", called);
             fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
         } else {
             // FALLBACK to find?
-             let import_names = get_imports_for_file(file, self, graph);
-             if let Some(tf) =
-                node_data_finder(&called, &fc.operand, graph, file, fc.source.start, NodeType::Function, import_names)
-            {
+            tracing::debug!(
+                "[call_resolution] No LSP, allow_unverified=false, calling node_data_finder for {}",
+                called
+            );
+            let import_names = get_imports_for_file(file, self, graph);
+            if let Some(tf) = node_data_finder(
+                &called,
+                &fc.operand,
+                graph,
+                file,
+                fc.source.start,
+                NodeType::Function,
+                import_names,
+            ) {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
                     called, &tf.file
@@ -1082,9 +1106,15 @@ impl Lang {
                 fc.target = tf.into();
             } else if let Some(ref operand) = fc.operand {
                 let import_names_for_operand = get_imports_for_file(file, self, graph);
-                if let Some(base_func) =
-                    node_data_finder(operand, &None, graph, file, fc.source.start, NodeType::Function, import_names_for_operand)
-                {
+                if let Some(base_func) = node_data_finder(
+                    operand,
+                    &None,
+                    graph,
+                    file,
+                    fc.source.start,
+                    NodeType::Function,
+                    import_names_for_operand,
+                ) {
                     log_cmd(format!(
                         "==> ? (member expr) resolved base object {:?} in {}",
                         operand, &base_func.file
@@ -1109,6 +1139,10 @@ impl Lang {
             // NOTE should we only do the class call if there is no direct function target?
             return Ok(None);
         }
+
+        let resolution_time = resolution_start.elapsed().as_millis();
+        crate::utils::record_linker_stat(0, 0, 0, 0, 0, resolution_time);
+
         Ok(Some((fc, external_func, class_call)))
     }
     pub fn format_extra<G: Graph>(

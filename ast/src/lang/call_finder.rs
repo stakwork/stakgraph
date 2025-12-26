@@ -1,7 +1,13 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
+use crate::utils::{record_call_finder_lookup, record_import_parse, CallFinderStrategy};
+use dashmap::DashMap;
+use std::sync::LazyLock;
 use tree_sitter::QueryCursor;
+
+static IMPORT_CACHE: LazyLock<DashMap<String, Option<Vec<(String, Vec<String>)>>>> =
+    LazyLock::new(|| DashMap::new());
 
 pub fn node_data_finder<G: Graph>(
     func_name: &str,
@@ -32,12 +38,14 @@ pub fn func_target_file_finder<G: Graph>(
     source_node_type: NodeType,
     import_names: Option<Vec<(String, Vec<String>)>>,
 ) -> Option<NodeData> {
+    let start_time = std::time::Instant::now();
     log_cmd(format!(
         "func_target_file_finder {:?} from file {:?}",
         func_name, current_file
     ));
 
     // First try: find only one function file
+    let strategy_start = std::time::Instant::now();
     if let Some(tf) = find_only_one_function_file(
         func_name,
         graph,
@@ -45,31 +53,68 @@ pub fn func_target_file_finder<G: Graph>(
         current_file,
         source_node_type,
     ) {
+        let strategy_time = strategy_start.elapsed().as_millis();
+        record_call_finder_lookup(
+            start_time.elapsed().as_millis(),
+            CallFinderStrategy::OnlyOne,
+            strategy_time,
+        );
         return Some(tf);
     }
 
     // Second try: find in the same file
+    let strategy_start = std::time::Instant::now();
     if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
+        let strategy_time = strategy_start.elapsed().as_millis();
+        record_call_finder_lookup(
+            start_time.elapsed().as_millis(),
+            CallFinderStrategy::SameFile,
+            strategy_time,
+        );
         return Some(tf);
     }
 
     if let Some(import_names) = import_names {
+        let strategy_start = std::time::Instant::now();
         if let Some(tf) = find_function_by_import(func_name, import_names, graph) {
+            let strategy_time = strategy_start.elapsed().as_millis();
+            record_call_finder_lookup(
+                start_time.elapsed().as_millis(),
+                CallFinderStrategy::Import,
+                strategy_time,
+            );
             return Some(tf);
         }
     }
 
     // Fourth try: find in the same directory
+    let strategy_start = std::time::Instant::now();
     if let Some(tf) = find_function_in_same_directory(func_name, current_file, graph, source_start)
     {
+        let strategy_time = strategy_start.elapsed().as_millis();
+        record_call_finder_lookup(
+            start_time.elapsed().as_millis(),
+            CallFinderStrategy::SameDir,
+            strategy_time,
+        );
         return Some(tf);
     }
 
     // Fifth try: If operand exists, try operand-based resolution
     if let Some(ref operand) = operand {
+        let strategy_start = std::time::Instant::now();
         if let Some(target_file) = find_function_with_operand(operand, func_name, graph) {
-            if let Some(tf) = graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &target_file) {
-                println!("[OPERAND] resolved {}.{} in {}", operand, func_name, target_file);
+            if let Some(tf) = graph.find_node_by_name_and_file_contains(
+                NodeType::Function,
+                func_name,
+                &target_file,
+            ) {
+                let strategy_time = strategy_start.elapsed().as_millis();
+                record_call_finder_lookup(
+                    start_time.elapsed().as_millis(),
+                    CallFinderStrategy::Operand,
+                    strategy_time,
+                );
                 return Some(tf);
             }
         }
@@ -77,15 +122,46 @@ pub fn func_target_file_finder<G: Graph>(
 
     // Sixth try: Check if function is nested in a variable (e.g., authOptions.callbacks.signIn)
     if let Some(ref operand) = operand {
-        if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file) {
+        let strategy_start = std::time::Instant::now();
+        if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file)
+        {
+            let strategy_time = strategy_start.elapsed().as_millis();
+            record_call_finder_lookup(
+                start_time.elapsed().as_millis(),
+                CallFinderStrategy::NestedVar,
+                strategy_time,
+            );
             return Some(tf);
         }
     }
 
+    let total_time = start_time.elapsed().as_millis();
+    record_call_finder_lookup(total_time, CallFinderStrategy::NotFound, total_time);
     None
 }
 
 pub fn get_imports_for_file<G: Graph>(
+    current_file: &str,
+    lang: &Lang,
+    graph: &G,
+) -> Option<Vec<(String, Vec<String>)>> {
+    let cache_start = std::time::Instant::now();
+
+    if let Some(cached) = IMPORT_CACHE.get(current_file) {
+        record_import_parse(current_file, cache_start.elapsed().as_millis(), true);
+        return cached.clone();
+    }
+
+    let result = parse_imports_for_file(current_file, lang, graph);
+    let total_time = cache_start.elapsed().as_millis();
+
+    IMPORT_CACHE.insert(current_file.to_string(), result.clone());
+    record_import_parse(current_file, total_time, false);
+
+    result
+}
+
+fn parse_imports_for_file<G: Graph>(
     current_file: &str,
     lang: &Lang,
     graph: &G,
@@ -186,6 +262,7 @@ fn find_only_one_function_file<G: Graph>(
     current_file: &str,
     source_node_type: NodeType,
 ) -> Option<NodeData> {
+    let start_time = std::time::Instant::now();
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     if nodes.len() == 0 {
@@ -210,7 +287,23 @@ fn find_only_one_function_file<G: Graph>(
     target_files_starts.retain(|x| !x.file.contains("mock"));
     if target_files_starts.len() == 1 {
         log_cmd(format!("::: discluded mocks for!!! {:?}", func_name));
+        let duration = start_time.elapsed();
+        if duration.as_millis() > 50 {
+            tracing::warn!(
+                "[PERF] find_only_one_function_file for '{}' took {}ms",
+                func_name,
+                duration.as_millis()
+            );
+        }
         return Some(target_files_starts[0].clone());
+    }
+    let duration = start_time.elapsed();
+    if duration.as_millis() > 50 {
+        tracing::warn!(
+            "[PERF] find_only_one_function_file for '{}' took {}ms",
+            func_name,
+            duration.as_millis()
+        );
     }
     None
 }
@@ -252,12 +345,12 @@ fn find_nested_function_in_variable<G: Graph>(
     if var_nodes.is_empty() {
         return None;
     }
-    
+
     let func_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     if func_nodes.is_empty() {
         return None;
     }
-    
+
     for func in func_nodes.clone() {
         if let Some(nested_in) = func.meta.get("nested_in") {
             if nested_in == var_name {
@@ -265,7 +358,7 @@ fn find_nested_function_in_variable<G: Graph>(
             }
         }
     }
-    
+
     None
 }
 

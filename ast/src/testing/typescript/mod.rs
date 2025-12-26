@@ -73,7 +73,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
             imp.file
         );
     }
-    
+
     assert_eq!(imports.len(), 11, "Expected 11 imports");
 
     let model_import_body = format!(
@@ -156,9 +156,9 @@ import {{ sequelize }} from "./config.js";"#
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
     if use_lsp {
-           assert_eq!(import_edges_count, 15, "Expected 15 import edges");
+        assert_eq!(import_edges_count, 15, "Expected 15 import edges");
     } else {
-           assert_eq!(import_edges_count, 13, "Expected 13 import edges");
+        assert_eq!(import_edges_count, 13, "Expected 13 import edges");
     }
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -188,9 +188,6 @@ import {{ sequelize }} from "./config.js";"#
         .expect("getPerson function not found");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    for e in &endpoints{
-        println!("{:?} {}  {}", e.meta.get("verb"), e.name, e.file);
-    }
     nodes_count += endpoints.len();
 
     if use_lsp {
@@ -273,7 +270,11 @@ import {{ sequelize }} from "./config.js";"#
         .expect("POST /people/new endpoint not found");
 
     assert!(
-        graph.has_edge(&post_people_new_endpoint, &create_new_person_fn, EdgeType::Handler),
+        graph.has_edge(
+            &post_people_new_endpoint,
+            &create_new_person_fn,
+            EdgeType::Handler
+        ),
         "Expected '/people/new' POST endpoint to be handled by createNewPerson"
     );
 
@@ -288,7 +289,11 @@ import {{ sequelize }} from "./config.js";"#
         .expect("GET /people/recent endpoint not found");
 
     assert!(
-        graph.has_edge(&get_people_recent_endpoint, &get_recent_people_fn, EdgeType::Handler),
+        graph.has_edge(
+            &get_people_recent_endpoint,
+            &get_recent_people_fn,
+            EdgeType::Handler
+        ),
         "Expected '/people/recent' GET endpoint to be handled by getRecentPeople"
     );
 
@@ -385,7 +390,11 @@ import {{ sequelize }} from "./config.js";"#
         .expect("DELETE /api/admin/users/:id endpoint not found (cross-file)");
 
     assert!(
-        graph.has_edge(&delete_api_admin_users_id, &delete_user_fn, EdgeType::Handler),
+        graph.has_edge(
+            &delete_api_admin_users_id,
+            &delete_user_fn,
+            EdgeType::Handler
+        ),
         "Expected '/api/admin/users/:id' DELETE endpoint to be handled by deleteUser (cross-file)"
     );
 
@@ -408,7 +417,7 @@ import {{ sequelize }} from "./config.js";"#
 async fn test_typescript() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_typescript_generic::<BTreeMapGraph>().await.unwrap();
-   test_typescript_generic::<ArrayGraph>().await.unwrap();
+    test_typescript_generic::<ArrayGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
     {
