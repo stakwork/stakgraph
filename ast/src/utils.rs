@@ -51,9 +51,21 @@ pub struct ImportParseStats {
     pub file_times: std::collections::HashMap<String, (usize, u128, usize)>, // (call_count, total_ms, cache_hits)
 }
 
+// Track function call linking performance
+#[derive(Default, Debug)]
+pub struct LinkerStats {
+    pub total_calls_processed: usize,
+    pub total_files_processed: usize,
+    pub get_function_calls_time_ms: u128,
+    pub query_time_ms: u128,
+    pub format_time_ms: u128,
+    pub resolution_time_ms: u128,
+}
+
 thread_local! {
     static CALL_FINDER_STATS: RefCell<CallFinderStats> = RefCell::new(CallFinderStats::default());
     static IMPORT_PARSE_STATS: RefCell<ImportParseStats> = RefCell::new(ImportParseStats::default());
+    static LINKER_STATS: RefCell<LinkerStats> = RefCell::new(LinkerStats::default());
 }
 
 pub fn print_json<G: Graph + Serialize + 'static>(graph: &G, name: &str) -> Result<()> {
@@ -334,6 +346,25 @@ pub fn record_import_parse(file: &str, elapsed_ms: u128, is_cache_hit: bool) {
     });
 }
 
+pub fn record_linker_stat(
+    file_count: usize,
+    call_count: usize,
+    total_time_ms: u128,
+    query_time_ms: u128,
+    format_time_ms: u128,
+    resolution_time_ms: u128,
+) {
+    LINKER_STATS.with(|stats| {
+        let mut s = stats.borrow_mut();
+        s.total_files_processed += file_count;
+        s.total_calls_processed += call_count;
+        s.get_function_calls_time_ms += total_time_ms;
+        s.query_time_ms += query_time_ms;
+        s.format_time_ms += format_time_ms;
+        s.resolution_time_ms += resolution_time_ms;
+    });
+}
+
 pub fn log_and_reset_call_finder_stats() {
     CALL_FINDER_STATS.with(|stats| {
         let s = stats.borrow();
@@ -471,5 +502,73 @@ pub fn log_and_reset_import_stats() {
         }
         drop(s);
         *stats.borrow_mut() = ImportParseStats::default();
+    });
+}
+
+pub fn log_and_reset_linker_stats() {
+    LINKER_STATS.with(|stats| {
+        let s = stats.borrow();
+        if s.total_calls_processed > 0 {
+            tracing::info!(
+                "[perf][linker] Processed {} function calls across {} files in {}ms",
+                s.total_calls_processed,
+                s.total_files_processed,
+                s.get_function_calls_time_ms
+            );
+
+            let pct = |ms: u128| {
+                if s.get_function_calls_time_ms > 0 {
+                    (ms as f64 / s.get_function_calls_time_ms as f64 * 100.0) as u32
+                } else {
+                    0
+                }
+            };
+
+            if s.query_time_ms > 0 {
+                let marker = if pct(s.query_time_ms) > 40 {
+                    " ← bottleneck"
+                } else {
+                    ""
+                };
+                tracing::info!(
+                    "[perf][linker]   • main loop: {}ms ({}%{})",
+                    s.query_time_ms,
+                    pct(s.query_time_ms),
+                    marker
+                );
+            }
+            if s.format_time_ms > 0 {
+                tracing::info!(
+                    "[perf][linker]     ↳ format/extract: {}ms ({}%)",
+                    s.format_time_ms,
+                    pct(s.format_time_ms)
+                );
+            }
+            if s.resolution_time_ms > 0 {
+                tracing::info!(
+                    "[perf][linker]     ↳ call resolution: {}ms ({}%)",
+                    s.resolution_time_ms,
+                    pct(s.resolution_time_ms)
+                );
+            }
+
+            let accounted = s.format_time_ms + s.resolution_time_ms;
+            if s.query_time_ms > accounted {
+                let unaccounted = s.query_time_ms - accounted;
+                let marker = if pct(unaccounted) > 40 {
+                    " ← bottleneck"
+                } else {
+                    ""
+                };
+                tracing::info!(
+                    "[perf][linker]     ↳ loop overhead: {}ms ({}%{})",
+                    unaccounted,
+                    pct(unaccounted),
+                    marker
+                );
+            }
+        }
+        drop(s);
+        *stats.borrow_mut() = LinkerStats::default();
     });
 }

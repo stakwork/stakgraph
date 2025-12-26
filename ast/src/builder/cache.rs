@@ -36,6 +36,19 @@ impl ParsedFile {
     pub fn get_code(&self) -> &str {
         &self.code
     }
+
+    pub fn memory_usage(&self) -> usize {
+        let base = std::mem::size_of::<Self>();
+        let path_bytes = self.path.capacity();
+        let code_bytes = self.code.len();
+        let tree_bytes = self.estimate_tree_memory();
+        base + path_bytes + code_bytes + tree_bytes
+    }
+
+    fn estimate_tree_memory(&self) -> usize {
+        let node_count = self.tree.root_node().descendant_count();
+        node_count * 64
+    }
 }
 
 impl std::fmt::Debug for ParsedFileCache {
@@ -65,6 +78,12 @@ impl ParsedFileCache {
 
     pub fn len(&self) -> usize {
         self.files.len()
+    }
+
+    pub fn memory_usage_mb(&self) -> f64 {
+        let bytes: usize = self.files.values().map(|f| f.memory_usage()).sum();
+        let map_overhead = self.files.capacity() * std::mem::size_of::<(String, ParsedFile)>();
+        (bytes + map_overhead) as f64 / 1_048_576.0
     }
 }
 
@@ -109,7 +128,12 @@ impl PreParse for Repo {
             }
         }
 
-        info!("Pre-parsed {} files", cache.len());
+        info!(
+            "Pre-parsed {} files, cache size: {:.2} MB ({:.2} KB/file avg)",
+            cache.len(),
+            cache.memory_usage_mb(),
+            (cache.memory_usage_mb() * 1024.0) / cache.len() as f64
+        );
         Ok(cache)
     }
 }

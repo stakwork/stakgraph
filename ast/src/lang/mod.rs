@@ -779,8 +779,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
         let parsed = cache.get(file).context("File not in cache")?;
-        // Call the implementation below
-        self.get_function_calls_impl(parsed.get_code(), file, graph, lsp_tx)
+        self.get_function_calls_impl(parsed.get_tree(), parsed.get_code(), file, graph, lsp_tx)
             .await
     }
 
@@ -808,19 +807,23 @@ impl Lang {
     // Internal implementation that takes code as parameter
     async fn get_function_calls_impl<G: Graph>(
         &self,
+        tree: &Tree,
         code: &str,
         file: &str,
         graph: &G,
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
+        let file_start = std::time::Instant::now();
         trace!("get_function_calls");
-        let tree = self.lang.parse(&code, &NodeType::Function)?;
         // get each function
         let qo1 = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&qo1, tree.root_node(), code.as_bytes());
         // calls from functions, calls from tests, integration tests
         let mut res = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+
+        let loop_start = std::time::Instant::now();
+
         // get each function call within that function
         while let Some(m) = matches.next() {
             // FIXME can we only pass in the node code here? Need to sum line nums
@@ -882,13 +885,13 @@ impl Lang {
                 Ok(())
             })?;
         }
+        let loop_time = loop_start.elapsed().as_millis();
 
         if let Some(tq) = self.lang.test_query() {
             let q_tests = self.q(&tq, &NodeType::UnitTest);
-            let tree_tests = self.lang.parse(&code, &NodeType::UnitTest)?;
             let mut cursor_tests = QueryCursor::new();
             let mut test_matches =
-                cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
+                cursor_tests.matches(&q_tests, tree.root_node(), code.as_bytes());
 
             while let Some(tm) = test_matches.next() {
                 let mut caller_name = String::new();
@@ -994,6 +997,11 @@ impl Lang {
                 })?;
             }
         }
+
+        let total_calls = res.0.len() + res.1.len();
+        let file_time = file_start.elapsed().as_millis();
+        crate::utils::record_linker_stat(1, total_calls, file_time, loop_time, 0, 0);
+
         Ok(res)
     }
     fn add_calls_inside(

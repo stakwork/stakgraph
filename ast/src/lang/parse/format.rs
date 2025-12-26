@@ -993,6 +993,7 @@ impl Lang {
             return Ok(None);
         }
 
+        let resolution_start = std::time::Instant::now();
         if let Some(lsp) = lsp_tx {
             log_cmd(format!("=> {} looking for {:?}", caller_name, called));
             let pos = Position::new(file, call_point.row as u32, call_point.column as u32)?;
@@ -1138,6 +1139,10 @@ impl Lang {
             // NOTE should we only do the class call if there is no direct function target?
             return Ok(None);
         }
+
+        let resolution_time = resolution_start.elapsed().as_millis();
+        crate::utils::record_linker_stat(0, 0, 0, 0, 0, resolution_time);
+
         Ok(Some((fc, external_func, class_call)))
     }
     pub fn format_extra<G: Graph>(

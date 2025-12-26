@@ -29,9 +29,6 @@ impl Stack for Go {
         }
         Ok(parser.parse(code, None).context("failed to parse")?)
     }
-    // fn is_lib_file(&self, file_name: &str) -> bool {
-    //     file_name.contains("/go/pkg/mod/")
-    // }
     fn lib_query(&self) -> Option<String> {
         Some(format!(
             r#"(command

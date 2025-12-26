@@ -1184,6 +1184,7 @@ impl Repo {
 
         crate::utils::log_and_reset_call_finder_stats();
         crate::utils::log_and_reset_import_stats();
+        crate::utils::log_and_reset_linker_stats();
 
         Ok(())
     }

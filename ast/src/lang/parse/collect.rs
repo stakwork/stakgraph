@@ -244,8 +244,12 @@ impl Lang {
         allow_unverified: bool,
     ) -> Result<Vec<FunctionCall>> {
         trace!("collect_calls_in_function");
+        let query_start = std::time::Instant::now();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, caller_node, code.as_bytes());
+        let query_time = query_start.elapsed().as_millis();
+
+        let format_start = std::time::Instant::now();
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             if let Some(fc) = self.format_function_call(
@@ -262,6 +266,10 @@ impl Lang {
                 res.push(fc);
             }
         }
+        let format_time = format_start.elapsed().as_millis();
+
+        crate::utils::record_linker_stat(0, 0, 0, query_time, format_time, 0);
+
         Ok(res)
     }
     pub fn collect_extras_in_function<G: Graph>(
