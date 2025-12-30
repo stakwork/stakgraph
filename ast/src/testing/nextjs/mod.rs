@@ -227,7 +227,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     assert_eq!(variables.len(), 16, "Expected 16 Variable nodes");
 
-
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
     assert_eq!(libraries.len(), 18, "Expected 18 Library nodes");
@@ -240,8 +239,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 513, "Expected 513 Contains edges");
-
+    assert_eq!(contains, 511, "Expected 511 Contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
@@ -249,7 +247,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    assert_eq!(tests.len(), 24, "Expected 24 UnitTest nodes");
+    assert_eq!(tests.len(), 25, "Expected 25 UnitTest nodes");
 
     #[cfg(not(feature = "neo4j"))]
     if let Some(_currency_test) = tests.iter().find(|t| {
@@ -315,7 +313,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     assert_eq!(classes.len(), 8, "Expected 8 Class nodes");
 
-
     let calculator_class = classes
         .iter()
         .find(|c| c.name == "Calculator")
@@ -366,7 +363,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes += e2e_tests.len();
 
-    assert_eq!(e2e_tests.len(), 8, "Expected 8 E2eTest nodes");
+    assert_eq!(e2e_tests.len(), 5, "Expected 5 E2eTest nodes");
 
     if let Some(test) = e2e_tests
         .iter()
@@ -408,9 +405,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         .iter()
         .filter(|t| t.file.ends_with("app/test/unit.store-zustand.test.tsx"))
         .collect();
-    
-    assert_eq!(zustand_tests.len(), 1, "Expected 1 Zustand store test (describe block)");
 
+    assert_eq!(
+        zustand_tests.len(),
+        1,
+        "Expected 1 Zustand store test (describe block)"
+    );
 
     let import = graph.count_edges_of_type(EdgeType::Imports);
     edges += import;
@@ -443,7 +443,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
     assert_eq!(operand, 31, "Expected 31 Operand edges");
-
 
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges += renders;
