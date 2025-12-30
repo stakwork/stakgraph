@@ -452,14 +452,14 @@ impl Stack for ReactTs {
                     (call_expression
                         function: (identifier) @desc (#eq? @desc "describe")
                         arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                    )
+                    )@{FUNCTION_DEFINITION}
                     (call_expression
                         function: (member_expression
                             object: (identifier) @desc2 (#eq? @desc2 "describe")
                             property: (property_identifier) @mod (#match? @mod "^(only|skip|todo)$")
                         )
                         arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
-                    )
+                    )@{FUNCTION_DEFINITION}
                      (program
                         (expression_statement
                             (call_expression
@@ -472,14 +472,14 @@ impl Stack for ReactTs {
                         (expression_statement
                             (call_expression
                             function: (member_expression
-                                object: (identifier) @obj (#eq? @test "test")
+                                object: (identifier) @obj (#eq? @obj "test")
                                 property: (property_identifier) @prop (#match? @prop "^(describe|skip|only|todo)$")
                             )
-                            arguments: (arguments) @{FUNCTION_NAME}
+                            arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
                             )
                         )@{FUNCTION_DEFINITION}
-                        )
-                ] @{FUNCTION_DEFINITION}"#
+                    )
+                ] "#
         ))
     }
     fn e2e_test_query(&self) -> Option<String> {
@@ -1030,7 +1030,6 @@ impl Stack for ReactTs {
 
     fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
         if self.is_test_file(func_file) {
-            println!("Identified test file: {}", func_file);
             true
         } else {
             false
