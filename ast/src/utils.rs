@@ -119,8 +119,6 @@ pub fn create_node_key(node: &Node) -> String {
 }
 
 pub fn get_use_lsp() -> bool {
-    println!("===-==> Getting use LSP");
-
     unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
 
     delete_react_testing_node_modules().ok();

@@ -44,7 +44,7 @@ pub fn untar(path: &str, dest: &str) -> Result<()> {
 
 pub async fn get_lsp_version(l: Language) -> Result<String> {
     let child = async_process::Command::new(l.lsp_exec())
-        .args(&[l.version_arg().as_str()])
+        .args([l.version_arg().as_str()])
         .stdout(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;

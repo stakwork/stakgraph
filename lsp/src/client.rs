@@ -38,8 +38,8 @@ pub type ClientLoop = MainLoop<Tracing<CatchUnwind<Concurrency<Router<ClientStat
 
 impl LspClient {
     pub fn new(
-        root_dir_abs: &PathBuf,
-        root_dir_rel: &PathBuf,
+        root_dir_abs: &Path,
+        root_dir_rel: &Path,
         lang: &Language,
     ) -> (Self, ClientLoop, oneshot::Receiver<()>) {
         info!("new LspClient: {:?} in {:?}", lang, root_dir_abs);
@@ -59,8 +59,8 @@ impl LspClient {
         if f.starts_with(&self.relative_root) {
             f = f.strip_prefix(&self.relative_root).unwrap();
         }
-        let file = root_dir.join(&f);
-        let file = Url::from_file_path(file).map_err(|_| Error::Custom(format!("bad file")))?;
+        let file = root_dir.join(f);
+        let file = Url::from_file_path(file).map_err(|_| Error::Custom("bad file".to_string()))?;
         Ok(file)
     }
     pub async fn handle(&mut self, cmd: Cmd) -> Result<Res> {
@@ -206,8 +206,8 @@ pub(crate) fn strip_root(f: &Path, root: &Path) -> PathBuf {
 
 fn start(
     indexed_tx: oneshot::Sender<()>,
-    root_dir_abs: &PathBuf,
-    root_dir_rel: &PathBuf,
+    root_dir_abs: &Path,
+    root_dir_rel: &Path,
     lang: &Language,
 ) -> (LspClient, ClientLoop) {
     info!("starting LSP client for {:?}", lang);
@@ -280,6 +280,10 @@ fn start(
             .service(router)
     });
 
-    let lsp_client = LspClient::new_from(root_dir_abs.clone(), root_dir_rel.clone(), server);
+    let lsp_client = LspClient::new_from(
+        root_dir_abs.to_path_buf(),
+        root_dir_rel.to_path_buf(),
+        server,
+    );
     (lsp_client, mainloop)
 }

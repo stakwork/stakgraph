@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 pub enum Language {
@@ -139,14 +139,10 @@ impl Language {
     pub fn default_do_lsp(&self) -> bool {
         if let Ok(use_lsp) = std::env::var("USE_LSP") {
             if use_lsp == "true" || use_lsp == "1" {
-                return match self {
-                    Self::Rust => true,
-                    Self::Go => true,
-                    Self::Typescript => true,
-                    Self::React => true,
-                    Self::Java => true,
-                    _ => false,
-                };
+                matches!(
+                    self,
+                    Self::Rust | Self::Go | Self::Typescript | Self::React | Self::Java
+                );
             }
         }
         false
@@ -208,26 +204,6 @@ impl Language {
         }
     }
 
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::Rust => "rust",
-            Self::Go => "go",
-            Self::Typescript => "typescript",
-            Self::React => "react",
-            Self::Python => "python",
-            Self::Ruby => "ruby",
-            Self::Kotlin => "kotlin",
-            Self::Swift => "swift",
-            Self::Java => "java",
-            Self::Bash => "bash",
-            Self::Toml => "toml",
-            Self::Svelte => "svelte",
-            Self::Angular => "angular",
-            Self::Cpp => "cpp",
-        }
-        .to_string()
-    }
-
     pub fn post_clone_cmd(&self, use_lsp: bool) -> Vec<&'static str> {
         if let Ok(lsp_skip) = std::env::var("LSP_SKIP_POST_CLONE") {
             if lsp_skip == "true" || lsp_skip == "1" {
@@ -284,14 +260,10 @@ impl Language {
         if !file.contains('.') {
             return true;
         }
-        if let Some(ext) = file.split('.').last() {
-            if self.exts().contains(&ext) || self.is_package_file(file) {
-                return true;
-            } else {
-                return false;
-            }
+        if let Some(ext) = file.split('.').next_back() {
+            self.exts().contains(&ext) || self.is_package_file(file)
         } else {
-            return true; //dirs, lang, repo
+            true //dirs, lang, repo
         }
     }
     pub fn is_source_file(&self, file_name: &str) -> bool {
@@ -299,14 +271,11 @@ impl Language {
             return true;
         }
 
-        if let Some(ext) = file_name.split('.').last() {
-            if self.exts().contains(&ext) {
-                return true;
-            } else {
-                return false;
-            }
+        if let Some(ext) = file_name.split('.').next_back() {
+            self.exts().contains(&ext)
+        } else {
+            false
         }
-        false
     }
     pub fn from_path(path: &str) -> Option<Self> {
         let ext = std::path::Path::new(path)
@@ -320,6 +289,28 @@ impl Language {
             }
         }
         None
+    }
+}
+
+impl Display for Language {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            Self::Rust => "rust",
+            Self::Go => "go",
+            Self::Typescript => "typescript",
+            Self::React => "react",
+            Self::Python => "python",
+            Self::Ruby => "ruby",
+            Self::Kotlin => "kotlin",
+            Self::Swift => "swift",
+            Self::Java => "java",
+            Self::Bash => "bash",
+            Self::Toml => "toml",
+            Self::Svelte => "svelte",
+            Self::Angular => "angular",
+            Self::Cpp => "cpp",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -367,7 +358,7 @@ impl FromStr for Language {
             "c++" => Ok(Language::Cpp),
             "C++" => Ok(Language::Cpp),
 
-            _ => Err(Error::Custom(format!("unsupported language"))),
+            _ => Err(Error::Custom("unsupported language".to_string())),
         }
     }
 }
