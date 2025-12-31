@@ -73,8 +73,8 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
             imp.file
         );
     }
-    
-    assert_eq!(imports.len(), 11, "Expected 11 imports");
+
+    assert_eq!(imports.len(), 12, "Expected 12 imports");
 
     let model_import_body = format!(
         r#"import DataTypes, {{ Model }} from "sequelize";
@@ -100,7 +100,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp == true {
         assert_eq!(functions.len(), 34, "Expected 34 functions");
     } else {
-        assert_eq!(functions.len(), 29, "Expected 28 functions");
+        assert_eq!(functions.len(), 32, "Expected 32 functions");
     }
 
     let log_fn = functions
@@ -151,14 +151,14 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 110, "Expected 110 contains edges");
+    assert_eq!(contains, 115, "Expected 115 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
     if use_lsp {
-           assert_eq!(import_edges_count, 15, "Expected 15 import edges");
+        assert_eq!(import_edges_count, 15, "Expected 15 import edges");
     } else {
-           assert_eq!(import_edges_count, 13, "Expected 13 import edges");
+        assert_eq!(import_edges_count, 13, "Expected 13 import edges");
     }
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -166,7 +166,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(handlers, 8, "Expected 8 handler edges");
     } else {
-        assert_eq!(handlers, 18, "Expected 18 handler edges");
+        assert_eq!(handlers, 22, "Expected 22 handler edges");
     }
 
     let create_person_fn = functions
@@ -188,7 +188,7 @@ import {{ sequelize }} from "./config.js";"#
         .expect("getPerson function not found");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    for e in &endpoints{
+    for e in &endpoints {
         println!("{:?} {}  {}", e.meta.get("verb"), e.name, e.file);
     }
     nodes_count += endpoints.len();
@@ -196,7 +196,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(endpoints.len(), 19, "Expected 19 endpoints");
     } else {
-        assert_eq!(endpoints.len(), 18, "Expected 18 endpoints");
+        assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");
     }
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
@@ -273,7 +273,11 @@ import {{ sequelize }} from "./config.js";"#
         .expect("POST /people/new endpoint not found");
 
     assert!(
-        graph.has_edge(&post_people_new_endpoint, &create_new_person_fn, EdgeType::Handler),
+        graph.has_edge(
+            &post_people_new_endpoint,
+            &create_new_person_fn,
+            EdgeType::Handler
+        ),
         "Expected '/people/new' POST endpoint to be handled by createNewPerson"
     );
 
@@ -288,7 +292,11 @@ import {{ sequelize }} from "./config.js";"#
         .expect("GET /people/recent endpoint not found");
 
     assert!(
-        graph.has_edge(&get_people_recent_endpoint, &get_recent_people_fn, EdgeType::Handler),
+        graph.has_edge(
+            &get_people_recent_endpoint,
+            &get_recent_people_fn,
+            EdgeType::Handler
+        ),
         "Expected '/people/recent' GET endpoint to be handled by getRecentPeople"
     );
 
@@ -385,7 +393,11 @@ import {{ sequelize }} from "./config.js";"#
         .expect("DELETE /api/admin/users/:id endpoint not found (cross-file)");
 
     assert!(
-        graph.has_edge(&delete_api_admin_users_id, &delete_user_fn, EdgeType::Handler),
+        graph.has_edge(
+            &delete_api_admin_users_id,
+            &delete_user_fn,
+            EdgeType::Handler
+        ),
         "Expected '/api/admin/users/:id' DELETE endpoint to be handled by deleteUser (cross-file)"
     );
 
@@ -408,7 +420,7 @@ import {{ sequelize }} from "./config.js";"#
 async fn test_typescript() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_typescript_generic::<BTreeMapGraph>().await.unwrap();
-   test_typescript_generic::<ArrayGraph>().await.unwrap();
+    test_typescript_generic::<ArrayGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
     {

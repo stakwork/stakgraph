@@ -198,7 +198,12 @@ pub trait Stack {
         None
     }
     fn update_endpoint(&self, _nd: &mut NodeData, _call: &Option<String>) {}
-    fn generate_arrow_handler_name(&self, _method: &str, _path: &str) -> Option<String> {
+    fn generate_arrow_handler_name(
+        &self,
+        _method: &str,
+        _path: &str,
+        _line: usize,
+    ) -> Option<String> {
         None
     }
     // this one should be the same for all langs?
@@ -258,13 +263,13 @@ pub trait Stack {
         find_import_node: &dyn Fn(&str) -> Option<NodeData>,
     ) -> Option<String> {
         let import_map = self.parse_imports_from_file(current_file, find_import_node)?;
-        
+
         for (resolved_path, imported_names) in import_map {
             if imported_names.contains(&imported_name.to_string()) {
                 return Some(resolved_path);
             }
         }
-        
+
         None
     }
     fn match_endpoint_groups(

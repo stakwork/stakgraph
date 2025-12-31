@@ -337,7 +337,7 @@ impl Stack for TypeScript {
                     arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
                     ) @{ROUTE}
                 "#
-            )
+            ),
         ]
     }
 
@@ -392,7 +392,7 @@ impl Stack for TypeScript {
         None
     }
 
-    fn generate_arrow_handler_name(&self, method: &str, path: &str) -> Option<String> {
+    fn generate_arrow_handler_name(&self, method: &str, path: &str, line: usize) -> Option<String> {
         let clean_method = method.to_lowercase();
         let clean_path = path
             .replace("/", "_")
@@ -402,13 +402,12 @@ impl Stack for TypeScript {
             .trim_start_matches('_')
             .trim_end_matches('_')
             .to_string();
-        
+
         let handler_name = if clean_path.is_empty() || clean_path == "_" {
-            format!("{}_handler", clean_method)
+            format!("{}_handler_L{}", clean_method, line)
         } else {
-            format!("{}_{}_handler", clean_method, clean_path)
+            format!("{}_{}_handler_L{}", clean_method, clean_path, line)
         };
-        
 
         Some(handler_name)
     }
@@ -619,7 +618,7 @@ impl Stack for TypeScript {
                 ] @{FUNCTION_DEFINITION}"#
         ))
     }
-        fn e2e_test_query(&self) -> Option<String> {
+    fn e2e_test_query(&self) -> Option<String> {
         Some(format!(
             r#"
             (program

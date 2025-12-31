@@ -150,7 +150,7 @@ impl Lang {
         identified_tests: &std::collections::HashSet<NodeKeys>,
     ) -> Result<Vec<Function>> {
         let mut functions = Vec::new();
-        
+
         // Pass 1: Regular functions (existing logic)
         let tree = self.lang.parse(&code, &NodeType::Function)?;
         let mut cursor = QueryCursor::new();
@@ -164,11 +164,11 @@ impl Lang {
                 functions.push(ff);
             }
         }
-        
+
         // Pass 2: Router arrow functions (new logic)
         let router_functions = self.collect_router_arrow_functions(code, file, graph, lsp_tx)?;
         functions.extend(router_functions);
-        
+
         Ok(functions)
     }
 
@@ -182,7 +182,7 @@ impl Lang {
         if self.lang().endpoint_finders().is_empty() {
             return Ok(Vec::new());
         }
-        
+
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
             let q = self.lang.q(&ef, &NodeType::Function);
@@ -190,7 +190,9 @@ impl Lang {
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
-                if let Some(ff) = self.format_router_arrow_function(&m, code, file, &q, graph, lsp_tx)? {
+                if let Some(ff) =
+                    self.format_router_arrow_function(&m, code, file, &q, graph, lsp_tx)?
+                {
                     res.push(ff);
                 }
             }
@@ -221,7 +223,10 @@ impl Lang {
                 None
             };
 
-            res.push(((ff, None, vec![], vec![], None, vec![], Vec::new()), test_edge));
+            res.push((
+                (ff, None, vec![], vec![], None, vec![], Vec::new()),
+                test_edge,
+            ));
         }
         Ok(res)
     }
@@ -696,14 +701,17 @@ impl Lang {
         variables: &'a [NodeData],
     ) -> Vec<(&'a NodeData, &'a NodeData)> {
         use std::collections::HashMap;
-        
+
         let mut nested = Vec::new();
-        
+
         let mut var_index: HashMap<String, Vec<&NodeData>> = HashMap::new();
         for var in variables {
-            var_index.entry(var.file.clone()).or_insert_with(Vec::new).push(var);
+            var_index
+                .entry(var.file.clone())
+                .or_insert_with(Vec::new)
+                .push(var);
         }
-        
+
         for func in functions.iter_mut() {
             if let Some(vars_in_file) = var_index.get(&func.file) {
                 for var in vars_in_file {
@@ -715,7 +723,7 @@ impl Lang {
                 }
             }
         }
-        
+
         nested
     }
 }

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::env;
 
 use crate::lang::graphs::{ArrayGraph, Node};
-use crate::lang::{BTreeMapGraph, Graph, NodeRef};
+use crate::lang::{BTreeMapGraph, Graph, NodeRef, NodeType};
 use serde::Serialize;
 use shared::Result;
 use std::fs::File;
@@ -73,7 +73,11 @@ pub fn create_node_key(node: &Node) -> String {
     let meta = &node_data.meta;
 
     let mut result = String::new();
-    let sanitized_name = sanitize_string(name);
+    let sanitized_name = if node.node_type == NodeType::Endpoint {
+        sanitize_endpoint_name(name)
+    } else {
+        sanitize_string(name)
+    };
 
     result.push_str(&sanitize_string(&node_type));
     result.push('-');
@@ -99,12 +103,12 @@ pub fn create_node_key(node: &Node) -> String {
             truncated_result.push_str(&sanitize_string(file));
             truncated_result.push('-');
             truncated_result.push_str(&sanitize_string(&start));
-            
+
             if let Some(v) = meta.get("verb") {
                 truncated_result.push('-');
                 truncated_result.push_str(&sanitize_string(v));
             }
-            
+
             if truncated_result.len() > 5000 {
                 truncated_result.truncate(5000);
             }
@@ -122,7 +126,7 @@ pub fn get_use_lsp() -> bool {
     println!("===-==> Getting use LSP");
 
     unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
-    
+
     delete_react_testing_node_modules().ok();
     let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
     if lsp == "true" || lsp == "1" {
@@ -184,12 +188,12 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
             truncated_result.push_str(&sanitize_string(file));
             truncated_result.push('-');
             truncated_result.push_str(&sanitize_string(&start));
-            
+
             if let Some(v) = &node_ref.node_data.verb {
                 truncated_result.push('-');
                 truncated_result.push_str(&sanitize_string(v));
             }
-            
+
             if truncated_result.len() > 5000 {
                 truncated_result.truncate(5000);
             }
@@ -209,6 +213,18 @@ pub fn sanitize_string(input: &str) -> String {
         .trim()
         .replace(char::is_whitespace, "")
         .replace(|c: char| !c.is_alphanumeric(), "")
+}
+
+/// Sanitize endpoint name while preserving URL path characters (/, :, -)
+pub fn sanitize_endpoint_name(input: &str) -> String {
+    input
+        .to_lowercase()
+        .trim()
+        .replace(char::is_whitespace, "")
+        .replace(
+            |c: char| !c.is_alphanumeric() && c != '/' && c != ':' && c != '-',
+            "",
+        )
 }
 
 // To print Neo4jGraph nodes and edges for testing purposes
