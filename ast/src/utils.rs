@@ -99,12 +99,12 @@ pub fn create_node_key(node: &Node) -> String {
             truncated_result.push_str(&sanitize_string(file));
             truncated_result.push('-');
             truncated_result.push_str(&sanitize_string(&start));
-            
+
             if let Some(v) = meta.get("verb") {
                 truncated_result.push('-');
                 truncated_result.push_str(&sanitize_string(v));
             }
-            
+
             if truncated_result.len() > 5000 {
                 truncated_result.truncate(5000);
             }
@@ -122,7 +122,7 @@ pub fn get_use_lsp() -> bool {
     println!("===-==> Getting use LSP");
 
     unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
-    
+
     delete_react_testing_node_modules().ok();
     let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
     if lsp == "true" || lsp == "1" {
@@ -184,12 +184,12 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
             truncated_result.push_str(&sanitize_string(file));
             truncated_result.push('-');
             truncated_result.push_str(&sanitize_string(&start));
-            
+
             if let Some(v) = &node_ref.node_data.verb {
                 truncated_result.push('-');
                 truncated_result.push_str(&sanitize_string(v));
             }
-            
+
             if truncated_result.len() > 5000 {
                 truncated_result.truncate(5000);
             }

@@ -1043,6 +1043,150 @@ impl Stack for ReactTs {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
         consts::should_skip_js_function_call(called, operand)
     }
+
+    fn endpoint_group_find(&self) -> Option<String> {
+        Some(format!(
+            r#"(call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^use$")
+                )
+                arguments: (arguments
+                    (string) @{ENDPOINT}
+                    (identifier) @{ENDPOINT_GROUP}
+                )
+            ) @{ROUTE}"#
+        ))
+    }
+
+    fn parse_imports_from_file(
+        &self,
+        file: &str,
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Option<Vec<(String, Vec<String>)>> {
+        use super::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
+        use crate::lang::parse::utils::trim_quotes;
+        use tree_sitter::QueryCursor;
+
+        let import_node = find_import_node(file)?;
+        let code = import_node.body.as_str();
+
+        let imports_query = self.imports_query()?;
+        let q = tree_sitter::Query::new(&self.0, &imports_query).unwrap();
+
+        let tree = match self.parse(code, &NodeType::Import) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+        let mut results = Vec::new();
+
+        while let Some(m) = matches.next() {
+            let mut import_names = Vec::new();
+            let mut import_source = None;
+            let mut import_aliases = Vec::new();
+
+            for capture in m.captures {
+                let capture_name = q.capture_names()[capture.index as usize];
+                let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
+
+                if capture_name == IMPORTS_NAME {
+                    import_names.push(text.to_string());
+                } else if capture_name == IMPORTS_ALIAS {
+                    import_aliases.push(text.to_string());
+                } else if capture_name == IMPORTS_FROM {
+                    import_source = Some(trim_quotes(text).to_string());
+                }
+            }
+
+            if !import_aliases.is_empty() {
+                import_names = import_aliases;
+            }
+
+            if let Some(source_path) = import_source {
+                let mut resolved_path = self.resolve_import_path(&source_path, file);
+
+                if resolved_path.starts_with("@/") {
+                    resolved_path = resolved_path[2..].to_string();
+                }
+
+                let exts = [".ts", ".tsx", ".js", ".jsx"];
+                if let Some(ext) = exts.iter().find(|&&e| resolved_path.ends_with(e)) {
+                    resolved_path = resolved_path.trim_end_matches(ext).to_string();
+                }
+
+                results.push((resolved_path, import_names));
+            }
+        }
+
+        if results.is_empty() {
+            None
+        } else {
+            Some(results)
+        }
+    }
+
+    fn match_endpoint_groups(
+        &self,
+        groups: &[NodeData],
+        endpoints: &[NodeData],
+        find_import_node: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Vec<(NodeData, String)> {
+        let mut matches = Vec::new();
+
+        for group in groups {
+            if let Some(router_var_name) = group.meta.get("group") {
+                let prefix = &group.name;
+                let group_file = &group.file;
+
+                for endpoint in endpoints {
+                    let endpoint_name = &endpoint.name;
+                    let endpoint_file = &endpoint.file;
+
+                    if endpoint_name.starts_with(prefix) {
+                        continue;
+                    }
+
+                    if endpoint_file == group_file
+                        && !endpoint_name.contains("/:")
+                        && endpoint.meta.get("object") == Some(router_var_name)
+                    {
+                        matches.push((endpoint.clone(), prefix.clone()));
+                        continue;
+                    }
+
+                    if let Some(resolved_source) =
+                        self.resolve_import_source(router_var_name, group_file, find_import_node)
+                    {
+                        if endpoint_file.contains(&resolved_source) {
+                            matches.push((endpoint.clone(), prefix.clone()));
+                        } else {
+                            let source_basename = std::path::Path::new(&resolved_source)
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            let endpoint_basename = std::path::Path::new(endpoint_file)
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            if !source_basename.is_empty()
+                                && source_basename == endpoint_basename
+                                && (resolved_source.starts_with('@')
+                                    || resolved_source.starts_with("@/"))
+                            {
+                                matches.push((endpoint.clone(), prefix.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        matches
+    }
 }
 pub fn endpoint_name_from_file(file: &str) -> String {
     let path = file.replace('\\', "/");

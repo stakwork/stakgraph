@@ -63,7 +63,18 @@ impl Graph for BTreeMapGraph {
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>) {
         let node_keys: HashSet<String> = self.nodes.keys().map(|s| s.to_lowercase()).collect();
 
-        let edge_keys: HashSet<String> = self.edges.iter().map(|(src, dst, edge_type)| format!("{}-{}-{:?}", src.to_lowercase(), dst.to_lowercase(), edge_type)).collect();
+        let edge_keys: HashSet<String> = self
+            .edges
+            .iter()
+            .map(|(src, dst, edge_type)| {
+                format!(
+                    "{}-{}-{:?}",
+                    src.to_lowercase(),
+                    dst.to_lowercase(),
+                    edge_type
+                )
+            })
+            .collect();
         (node_keys, edge_keys)
     }
 
@@ -239,7 +250,9 @@ impl Graph for BTreeMapGraph {
     }
 
     fn add_functions(&mut self, functions: Vec<Function>) {
-        for (func_node_data, method_of, reqs, dms, trait_operand, return_types, nested_in) in functions {
+        for (func_node_data, method_of, reqs, dms, trait_operand, return_types, nested_in) in
+            functions
+        {
             let func_clone = func_node_data.clone();
             self.add_node(NodeType::Function, func_node_data);
 
@@ -351,19 +364,18 @@ impl Graph for BTreeMapGraph {
     fn add_tests(&mut self, tests: Vec<TestRecord>) {
         for tr in tests {
             let file = tr.node.file.clone();
-            self.add_node_with_parent(
-                tr.kind,
-                tr.node,
-                NodeType::File,
-                &file,
-            );
+            self.add_node_with_parent(tr.kind, tr.node, NodeType::File, &file);
             for e in tr.edges.iter() {
                 self.add_edge(e.clone());
             }
         }
     }
     // Add calls only between function definitions not between function calls
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>), lang: &Lang) {
+    fn add_calls(
+        &mut self,
+        calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>),
+        lang: &Lang,
+    ) {
         let (funcs, tests, int_tests, extras) = calls;
         // Diagnostic flag (see array_graph.rs for rationale)
         let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();
@@ -519,16 +531,20 @@ impl Graph for BTreeMapGraph {
         };
 
         // Delegate matching logic to language implementation
-        let matches = lang.lang().match_endpoint_groups(&eg, &endpoints, &find_import_node);
+        let matches = lang
+            .lang()
+            .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
         // Apply prefix updates to nodes and edges
         let mut updates = Vec::new();
-        for (endpoint, prefix) in matches {
+        for (endpoint, prefix) in &matches {
             // Find the node key for this endpoint
+            // Must match name, file, AND start line to distinguish multiple endpoints with same name
             if let Some((key, node)) = self.nodes.iter().find(|(_, n)| {
-                n.node_type == NodeType::Endpoint 
-                    && n.node_data.name == endpoint.name 
+                n.node_type == NodeType::Endpoint
+                    && n.node_data.name == endpoint.name
                     && n.node_data.file == endpoint.file
+                    && n.node_data.start == endpoint.start
             }) {
                 let full_path = format!("{}{}", prefix, endpoint.name);
                 let mut updated_node = node.clone();
@@ -662,8 +678,7 @@ impl Graph for BTreeMapGraph {
 
         for key in &nodes_to_remove {
             self.nodes.remove(key);
-            self.edges
-                .retain(|(src, dst, _)| src != key && dst != key);
+            self.edges.retain(|(src, dst, _)| src != key && dst != key);
         }
     }
 
@@ -851,7 +866,6 @@ impl Graph for BTreeMapGraph {
 }
 
 impl BTreeMapGraph {
-
     pub fn find_edge_by_keys(
         &self,
         src_key: &str,

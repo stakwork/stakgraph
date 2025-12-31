@@ -178,14 +178,12 @@ impl Graph for ArrayGraph {
         };
     }
     fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
-
         let endpoints: Vec<NodeData> = self
             .nodes
             .iter()
             .filter(|node| node.node_type == NodeType::Endpoint)
             .map(|node| node.node_data.clone())
             .collect();
-
 
         let find_import_node = |file: &str| -> Option<NodeData> {
             self.nodes
@@ -194,29 +192,32 @@ impl Graph for ArrayGraph {
                 .map(|node| node.node_data.clone())
         };
 
-        let matches = lang.lang().match_endpoint_groups(&eg, &endpoints, &find_import_node);
-
+        let matches = lang
+            .lang()
+            .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
         for (endpoint, prefix) in matches {
             let endpoint_name = endpoint.name.clone();
             let endpoint_file = endpoint.file.clone();
+            let endpoint_start = endpoint.start;
             let full_path = format!("{}{}", prefix, endpoint_name);
 
             for node in self.nodes.iter_mut() {
                 if node.node_type == NodeType::Endpoint
                     && node.node_data.name == endpoint_name
                     && node.node_data.file == endpoint_file
+                    && node.node_data.start == endpoint_start
                 {
                     node.node_data.name = full_path.clone();
                     break;
                 }
             }
 
-
             for edge in self.edges.iter_mut() {
                 if edge.source.node_type == NodeType::Endpoint
                     && edge.source.node_data.name == endpoint_name
                     && edge.source.node_data.file == endpoint_file
+                    && edge.source.node_data.start == endpoint_start
                 {
                     edge.source.node_data.name = full_path.clone();
                 }
