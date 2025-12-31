@@ -643,7 +643,6 @@ impl Neo4jGraph {
         for (endpoint, prefix) in matches {
             let full_path = format!("{}{}", prefix, endpoint.name);
 
-            // Must match name, file, AND start line to distinguish multiple endpoints with same name
             let update_query = format!(
                 "MATCH (e:Endpoint) WHERE e.name = $old_name AND e.file = $file AND e.start = $start \
                  SET e.name = $new_name RETURN e.name"

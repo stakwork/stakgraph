@@ -98,7 +98,7 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 34, "Expected 34 functions");
+        assert_eq!(functions.len(), 37, "Expected 37 functions");
     } else {
         assert_eq!(functions.len(), 32, "Expected 32 functions");
     }

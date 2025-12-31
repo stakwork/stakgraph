@@ -537,7 +537,7 @@ impl Graph for BTreeMapGraph {
 
         // Apply prefix updates to nodes and edges
         let mut updates = Vec::new();
-        for (endpoint, prefix) in matches {
+        for (endpoint, prefix) in &matches {
             // Find the node key for this endpoint
             // Must match name, file, AND start line to distinguish multiple endpoints with same name
             if let Some((key, node)) = self.nodes.iter().find(|(_, n)| {

@@ -1178,10 +1178,6 @@ impl Stack for ReactTs {
                                 && (resolved_source.starts_with('@')
                                     || resolved_source.starts_with("@/"))
                             {
-                                eprintln!(
-                                    "[PATH_ALIAS] Grouped: {} -> {}{} (from {})",
-                                    resolved_source, prefix, endpoint_name, endpoint_file
-                                );
                                 matches.push((endpoint.clone(), prefix.clone()));
                             }
                         }
@@ -1189,7 +1185,6 @@ impl Stack for ReactTs {
                 }
             }
         }
-
         matches
     }
 }

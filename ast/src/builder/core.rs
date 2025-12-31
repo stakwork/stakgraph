@@ -988,7 +988,6 @@ impl Repo {
                 self.lang
                     .collect_endpoints(&code, &filename, Some(graph), &self.lsp_tx)?;
             endpoint_count += endpoints.len();
-
             graph.add_endpoints(endpoints);
         }
 
