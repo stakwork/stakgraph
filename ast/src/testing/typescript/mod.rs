@@ -190,11 +190,7 @@ import {{ sequelize }} from "./config.js";"#
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
 
-    if use_lsp {
-        assert_eq!(endpoints.len(), 19, "Expected 19 endpoints");
-    } else {
-        assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");
-    }
+    assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
