@@ -8,15 +8,13 @@ pub async fn validate_git_credentials(
     username: Option<String>,
     pat: Option<String>,
 ) -> Result<()> {
-    let repo_url = if username.is_some() && pat.is_some() {
-        let username = username.unwrap();
-        let pat = pat.unwrap();
-        let repo_end = &repo.to_string()[8..];
-        format!("https://{}:{}@{}", username, pat, repo_end)
-    } else {
-        repo.to_string()
+    let repo_url = match (username.as_ref(), pat.as_ref()) {
+        (Some(username), Some(pat)) => {
+            let repo_end = &repo.to_string()[8..];
+            format!("https://{}:{}@{}", username, pat, repo_end)
+        }
+        _ => repo.to_string(),
     };
-
     debug!("Validating git credentials for repository");
 
     match run("git", &["ls-remote", "--heads", &repo_url]).await {
@@ -36,20 +34,20 @@ pub async fn validate_git_credentials(
                 || error_msg.contains("403")
                 || error_msg.contains("401")
             {
-                return Err(Error::Custom(format!(
+                Err(Error::Custom(format!(
                     "Git authentication failed. Please check your PAT and username. Error: {}",
                     e
-                )));
+                )))
             } else if error_msg.contains("repository not found") || error_msg.contains("404") {
-                return Err(Error::Custom(format!(
+                Err(Error::Custom(format!(
                     "Repository not found or access denied. Error: {}",
                     e
-                )));
+                )))
             } else {
-                return Err(Error::Custom(format!(
+                Err(Error::Custom(format!(
                     "Failed to validate git credentials: {}",
                     e
-                )));
+                )))
             }
         }
     }
@@ -62,13 +60,12 @@ pub async fn git_clone(
     commit: Option<&str>,
     branch: Option<&str>,
 ) -> Result<()> {
-    let repo_url = if username.is_some() && pat.is_some() {
-        let username = username.as_ref().unwrap();
-        let pat = pat.as_ref().unwrap();
-        let repo_end = &repo.to_string()[8..];
-        format!("https://{}:{}@{}", username, pat, repo_end)
-    } else {
-        repo.to_string()
+    let repo_url = match (username.as_ref(), pat.as_ref()) {
+        (Some(username), Some(pat)) => {
+            let repo_end = &repo.to_string()[8..];
+            format!("https://{}:{}@{}", username, pat, repo_end)
+        }
+        _ => repo.to_string(),
     };
     let repo_path = Path::new(path);
 

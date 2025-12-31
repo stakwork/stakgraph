@@ -80,31 +80,22 @@ impl Position {
             col,
         })
     }
-    fn from_range(
-        path: &str,
-        range: lsp_types::Range,
-        root: &PathBuf,
-        relative_root: &PathBuf,
-    ) -> Self {
+    fn from_range(path: &str, range: lsp_types::Range, root: &Path, relative_root: &Path) -> Self {
         let fpath = PathBuf::from(path);
         let mut file = strip_root(&fpath, root);
         // add relative root
         file = relative_root.join(file);
         Self {
-            file: file.into(),
+            file,
             line: range.start.line,
             col: range.start.character,
         }
     }
-    fn from_def(
-        r: GotoDefinitionResponse,
-        root: &PathBuf,
-        relative_root: &PathBuf,
-    ) -> Option<Self> {
+    fn from_def(r: GotoDefinitionResponse, root: &Path, relative_root: &Path) -> Option<Self> {
         //
         match r {
             GotoDefinitionResponse::Scalar(loc) => Some(Self::from_range(
-                &loc.uri.path(),
+                loc.uri.path(),
                 loc.range,
                 root,
                 relative_root,
@@ -122,7 +113,7 @@ impl Position {
                     locs.first().unwrap()
                 };
                 Some(Self::from_range(
-                    &theloc.uri.path(),
+                    theloc.uri.path(),
                     theloc.range,
                     root,
                     relative_root,
@@ -197,14 +188,14 @@ pub fn spawn_analyzer(
 async fn spawn_inner(
     lang: &Language,
     root_dir_abs: &PathBuf,
-    root_dir_rel: &PathBuf,
+    root_dir_rel: &Path,
     mut cmd_rx: CmdReceiver,
 ) -> Result<()> {
     let executable = lang.lsp_exec();
     info!("child process starting: {}", executable);
     let mut child_config = async_process::Command::new(executable);
     child_config
-        .current_dir(&root_dir_abs)
+        .current_dir(root_dir_abs)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -220,8 +211,7 @@ async fn spawn_inner(
     let stdin = child.stdin.context("no stdin")?;
 
     info!("start {:?} LSP client", lang);
-    let (mut conn, mainloop, indexed_rx) =
-        client::LspClient::new(&root_dir_abs, &root_dir_rel, &lang);
+    let (mut conn, mainloop, indexed_rx) = client::LspClient::new(root_dir_abs, root_dir_rel, lang);
 
     let mainloop_task = tokio::spawn(async move {
         mainloop.run_buffered(stdout, stdin).await.unwrap();
