@@ -2,7 +2,7 @@ use std::any::Any;
 use std::env;
 
 use crate::lang::graphs::{ArrayGraph, Node};
-use crate::lang::{BTreeMapGraph, Graph, NodeRef, NodeType};
+use crate::lang::{BTreeMapGraph, Graph, NodeRef};
 use serde::Serialize;
 use shared::Result;
 use std::fs::File;
@@ -73,11 +73,7 @@ pub fn create_node_key(node: &Node) -> String {
     let meta = &node_data.meta;
 
     let mut result = String::new();
-    let sanitized_name = if node.node_type == NodeType::Endpoint {
-        sanitize_endpoint_name(name)
-    } else {
-        sanitize_string(name)
-    };
+    let sanitized_name = sanitize_string(name);
 
     result.push_str(&sanitize_string(&node_type));
     result.push('-');
@@ -213,18 +209,6 @@ pub fn sanitize_string(input: &str) -> String {
         .trim()
         .replace(char::is_whitespace, "")
         .replace(|c: char| !c.is_alphanumeric(), "")
-}
-
-/// Sanitize endpoint name while preserving URL path characters (/, :, -)
-pub fn sanitize_endpoint_name(input: &str) -> String {
-    input
-        .to_lowercase()
-        .trim()
-        .replace(char::is_whitespace, "")
-        .replace(
-            |c: char| !c.is_alphanumeric() && c != '/' && c != ':' && c != '-',
-            "",
-        )
 }
 
 // To print Neo4jGraph nodes and edges for testing purposes

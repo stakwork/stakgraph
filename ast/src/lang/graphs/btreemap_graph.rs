@@ -1,8 +1,6 @@
 use super::{graph::Graph, *};
 use crate::lang::{Function, FunctionCall, Lang};
-use crate::utils::{
-    create_node_key, create_node_key_from_ref, sanitize_endpoint_name, sanitize_string,
-};
+use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
@@ -331,7 +329,7 @@ impl Graph for BTreeMapGraph {
         let prefix = format!(
             "{}-{}-{}",
             &sanitize_string(&format!("{:?}", NodeType::Endpoint)),
-            sanitize_endpoint_name(&name),
+            sanitize_string(&name),
             sanitize_string(&file)
         );
         self.nodes
