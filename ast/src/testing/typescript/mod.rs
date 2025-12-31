@@ -188,9 +188,6 @@ import {{ sequelize }} from "./config.js";"#
         .expect("getPerson function not found");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    for e in &endpoints {
-        println!("{:?} {}  {}", e.meta.get("verb"), e.name, e.file);
-    }
     nodes_count += endpoints.len();
 
     if use_lsp {

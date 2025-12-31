@@ -541,10 +541,12 @@ impl Graph for BTreeMapGraph {
         let mut updates = Vec::new();
         for (endpoint, prefix) in matches {
             // Find the node key for this endpoint
+            // Must match name, file, AND start line to distinguish multiple endpoints with same name
             if let Some((key, node)) = self.nodes.iter().find(|(_, n)| {
                 n.node_type == NodeType::Endpoint
                     && n.node_data.name == endpoint.name
                     && n.node_data.file == endpoint.file
+                    && n.node_data.start == endpoint.start
             }) {
                 let full_path = format!("{}{}", prefix, endpoint.name);
                 let mut updated_node = node.clone();

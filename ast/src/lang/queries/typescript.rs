@@ -753,6 +753,24 @@ impl Stack for TypeScript {
                     {
                         if endpoint_file.contains(&resolved_source) {
                             matches.push((endpoint.clone(), prefix.clone()));
+                        } else {
+                            let source_basename = std::path::Path::new(&resolved_source)
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            let endpoint_basename = std::path::Path::new(endpoint_file)
+                                .file_stem()
+                                .map(|s| s.to_string_lossy().to_string())
+                                .unwrap_or_default();
+
+                            if !source_basename.is_empty()
+                                && source_basename == endpoint_basename
+                                && (resolved_source.starts_with('@')
+                                    || resolved_source.starts_with("@/"))
+                            {
+                                matches.push((endpoint.clone(), prefix.clone()));
+                            }
                         }
                     }
                 }
