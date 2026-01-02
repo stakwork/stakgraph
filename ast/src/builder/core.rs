@@ -17,8 +17,8 @@ use crate::repo::Repo;
 use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
-use std::collections::HashSet;
 use std::path::PathBuf;
+use std::{collections::HashSet, path::Path};
 use tokio::fs;
 use tracing::{debug, info, trace};
 
@@ -429,7 +429,7 @@ impl Repo {
             let mut file_data = self.prepare_file_data(pkg_file, code);
             file_data.meta.insert("lib".to_string(), "true".to_string());
 
-            let (parent_type, parent_file) = self.get_parent_info(&pkg_file.into());
+            let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
 
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
 

@@ -104,7 +104,7 @@ pub fn extract_methods_from_handler(handler_body: &str, lang: &Lang) -> Vec<Stri
 }
 
 impl Lang {
-    pub fn find_strings(&self, node: TreeNode, code: &str, file: &str) -> Result<Vec<String>> {
+    pub fn find_strings(&self, node: TreeNode, code: &str, _file: &str) -> Result<Vec<String>> {
         let mut results = Vec::new();
         if node.kind() == self.lang.string_node_name() {
             let sname = node.utf8_text(code.as_bytes())?;
@@ -112,7 +112,7 @@ impl Lang {
         }
         for i in 0..node.named_child_count() {
             if let Some(child) = node.named_child(i) {
-                results.extend(self.find_strings(child, code, file)?);
+                results.extend(self.find_strings(child, code, _file)?);
             }
         }
         Ok(results)

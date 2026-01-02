@@ -94,7 +94,7 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         ..Default::default()
     }]
 }
-pub fn is_allowed_file(path: &PathBuf, lang: &Language) -> bool {
+pub fn is_allowed_file(path: &Path, lang: &Language) -> bool {
     let fname = path.display().to_string();
     if lang
         .pkg_files()
@@ -124,7 +124,7 @@ impl Repo {
         file_data.hash = Some(sha256::digest(&file_data.body));
         file_data
     }
-    pub fn get_parent_info(&self, path: &PathBuf) -> (NodeType, String) {
+    pub fn get_parent_info(&self, path: &Path) -> (NodeType, String) {
         let stripped_path = strip_tmp(path).display().to_string();
 
         let root_no_tmp = strip_tmp(&self.root).display().to_string();
