@@ -582,11 +582,60 @@ import {{ sequelize }} from "./config.js";"#
         "Expected 5 endpoints in post-router.ts"
     );
 
-    // TODO: Method chaining pattern (router.route().post().delete())
-    // The post-router.ts has method chaining but endpoints may not be correctly linked
-    // let like_post_endpoint = endpoints
-    //     .iter()
-    //     .find(|e| e.name.contains("like") && e.meta.get("verb") == Some(&"POST".to_string()));
+    // Phase 2: Method chaining pattern (router.route().post().delete())
+    // Handler names follow pattern: {verb}_{path}_handler_L{line}
+    // Path params become param_ prefix, e.g. :postId becomes param_postId
+    let like_post_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name.contains("like")
+                && normalize_path(&e.file).ends_with("routers/post-router.ts")
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("POST /:postId/like endpoint not found (method chaining)");
+
+    let like_post_handler = functions
+        .iter()
+        .find(|f| {
+            f.name.contains("post_param_postId_like_handler")
+                && normalize_path(&f.file).ends_with("routers/post-router.ts")
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("POST like handler function not found");
+
+    assert!(
+        graph.has_edge(&like_post_endpoint, &like_post_handler, EdgeType::Handler),
+        "Expected POST /:postId/like endpoint to be handled by its arrow function handler"
+    );
+
+    let unlike_post_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name.contains("like")
+                && normalize_path(&e.file).ends_with("routers/post-router.ts")
+                && e.meta.get("verb") == Some(&"DELETE".to_string())
+        })
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("DELETE /:postId/like endpoint not found (method chaining)");
+
+    let unlike_post_handler = functions
+        .iter()
+        .find(|f| {
+            f.name.contains("delete_param_postId_like_handler")
+                && normalize_path(&f.file).ends_with("routers/post-router.ts")
+        })
+        .map(|n| Node::new(NodeType::Function, n.clone()))
+        .expect("DELETE like handler function not found");
+
+    assert!(
+        graph.has_edge(
+            &unlike_post_endpoint,
+            &unlike_post_handler,
+            EdgeType::Handler
+        ),
+        "Expected DELETE /:postId/like endpoint to be handled by its arrow function handler"
+    );
 
     let (nodes, edges) = graph.get_graph_size();
 
