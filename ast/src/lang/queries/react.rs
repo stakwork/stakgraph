@@ -8,6 +8,12 @@ use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
 pub struct ReactTs(Language);
 
+impl Default for ReactTs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ReactTs {
     pub fn new() -> Self {
         ReactTs(tree_sitter_typescript::LANGUAGE_TSX.into())
@@ -21,7 +27,7 @@ impl Stack for ReactTs {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
     fn lib_query(&self) -> Option<String> {
         Some(format!(
@@ -189,7 +195,7 @@ impl Stack for ReactTs {
     }
 
     fn is_component(&self, func_name: &str) -> bool {
-        if func_name.len() < 1 {
+        if func_name.is_empty() {
             return false;
         }
         func_name.chars().next().unwrap().is_uppercase()
@@ -585,8 +591,7 @@ impl Stack for ReactTs {
     }
 
     fn handler_method_query(&self) -> Option<String> {
-        Some(format!(
-            r#"
+        Some(r#"
             ;; Matches: router.get(...), app.post(...), etc.
             (call_expression
                 function: (member_expression
@@ -594,8 +599,7 @@ impl Stack for ReactTs {
                     property: (property_identifier) @method (#match? @method "^(get|post|put|delete|patch)$")
                 )
             ) @route
-            "#
-        ))
+            "#.to_string())
     }
 
     fn function_call_query(&self) -> String {
@@ -644,7 +648,7 @@ impl Stack for ReactTs {
         )
     }
     fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
-        if inst.meta.get("verb").is_none() {
+        if !inst.meta.contains_key("verb") {
             if let Some(call) = call {
                 match call.as_str() {
                     "get" => {
@@ -671,10 +675,18 @@ impl Stack for ReactTs {
                         return Some("USE".to_string());
                     }
                     "fetch" => {
-                        inst.body.find("GET").map(|_| inst.add_verb("GET"));
-                        inst.body.find("POST").map(|_| inst.add_verb("POST"));
-                        inst.body.find("PUT").map(|_| inst.add_verb("PUT"));
-                        inst.body.find("DELETE").map(|_| inst.add_verb("DELETE"));
+                        if inst.body.contains("GET") {
+                            inst.add_verb("GET")
+                        }
+                        if inst.body.contains("POST") {
+                            inst.add_verb("POST")
+                        }
+                        if inst.body.contains("PUT") {
+                            inst.add_verb("PUT")
+                        }
+                        if inst.body.contains("DELETE") {
+                            inst.add_verb("DELETE")
+                        }
                         if let Some(v) = inst.meta.get("verb") {
                             return Some(v.clone());
                         }
@@ -682,13 +694,11 @@ impl Stack for ReactTs {
                     _ => (),
                 }
             }
-        } else {
-            if let Some(v) = inst.meta.get("verb") {
-                return Some(v.clone());
-            }
+        } else if let Some(v) = inst.meta.get("verb") {
+            return Some(v.clone());
         }
 
-        if inst.meta.get("verb").is_none() {
+        if !inst.meta.contains_key("verb") {
             inst.add_verb("GET");
         }
         Some("GET".to_string())
@@ -803,11 +813,11 @@ impl Stack for ReactTs {
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while parent.is_some() {
-            if parent.unwrap().kind().to_string() == "method_definition" {
+            if parent.unwrap().kind() == "method_definition" {
                 // this is not a method, but a function defined within a method!!! skip it
                 return Ok(None);
             }
-            if parent.unwrap().kind().to_string() == "class_declaration" {
+            if parent.unwrap().kind() == "class_declaration" {
                 // found it!
                 break;
             }
@@ -816,13 +826,10 @@ impl Stack for ReactTs {
         let parent_of = match parent {
             Some(p) => {
                 let query = self.q("(type_identifier) @class_name", &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
-                        target: NodeKeys::new(func_name, file, node.start_position().row),
-                    }),
-                    None => None,
-                }
+                query_to_ident(query, p, code)?.map(|parent_name| Operand {
+                    source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                    target: NodeKeys::new(func_name, file, node.start_position().row),
+                })
             }
             None => None,
         };
@@ -830,9 +837,7 @@ impl Stack for ReactTs {
     }
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.trim().to_string();
-        if path.starts_with("./") {
-            path = path[2..].to_string();
-        } else if path.starts_with(".\\") {
+        if path.starts_with("./") || path.starts_with(".\\") {
             path = path[2..].to_string();
         } else if path.starts_with('/') {
             path = path[1..].to_string();
@@ -1029,11 +1034,7 @@ impl Stack for ReactTs {
     }
 
     fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
-        if self.is_test_file(func_file) {
-            true
-        } else {
-            false
-        }
+        self.is_test_file(func_file)
     }
 
     fn tests_are_functions(&self) -> bool {
@@ -1296,8 +1297,8 @@ fn route_from_path(path: &str) -> String {
             return "/".to_string();
         }
 
-        if file.ends_with("/index") {
-            return format!("/{}", &file[..file.len() - "/index".len()]);
+        if let Some(stripped) = file.strip_suffix("/index") {
+            return format!("/{}", stripped);
         }
 
         return format!("/{}", file);
@@ -1308,7 +1309,7 @@ fn route_from_path(path: &str) -> String {
 
 fn page_name(filename: &str) -> String {
     // App Router: use directory name
-    if let Some(_) = filename.find("/app/") {
+    if filename.contains("/app/") {
         let path = std::path::Path::new(filename);
         return path
             .parent()

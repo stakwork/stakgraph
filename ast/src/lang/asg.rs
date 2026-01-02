@@ -34,7 +34,7 @@ impl NodeKeys {
         Self {
             name: name.to_string(),
             file: file.to_string(),
-            start: start,
+            start,
             verb: None,
         }
     }
@@ -87,13 +87,13 @@ impl Serialize for NodeData {
         S: Serializer,
     {
         let mut named_fields_len = 5;
-        if let Some(_) = &self.data_type {
+        if self.data_type.is_some() {
             named_fields_len += 1;
         }
-        if let Some(_) = &self.docs {
+        if self.docs.is_some() {
             named_fields_len += 1;
         }
-        if let Some(_) = &self.hash {
+        if self.hash.is_some() {
             named_fields_len += 1;
         }
         let mut map = serializer.serialize_map(Some(self.meta.len() + named_fields_len))?;
@@ -212,8 +212,7 @@ impl NodeData {
             .insert("test_helper".to_string(), helper.to_string());
     }
     pub fn add_macro(&mut self) {
-        self.meta
-            .insert("macro".to_string(), "true".to_string());
+        self.meta.insert("macro".to_string(), "true".to_string());
     }
     pub fn add_nested_in(&mut self, var_name: &str) {
         self.meta
@@ -290,31 +289,32 @@ impl FromStr for NodeType {
         }
     }
 }
-impl ToString for NodeType {
-    fn to_string(&self) -> String {
-        match self {
-            NodeType::Repository => "Repository".to_string(),
-            NodeType::Package => "Package".to_string(),
-            NodeType::Language => "Language".to_string(),
-            NodeType::Directory => "Directory".to_string(),
-            NodeType::File => "File".to_string(),
-            NodeType::Import => "Import".to_string(),
-            NodeType::Library => "Library".to_string(),
-            NodeType::Class => "Class".to_string(),
-            NodeType::Trait => "Trait".to_string(),
-            NodeType::Instance => "Instance".to_string(),
-            NodeType::Function => "Function".to_string(),
-            NodeType::Endpoint => "Endpoint".to_string(),
-            NodeType::Request => "Request".to_string(),
-            NodeType::DataModel => "Datamodel".to_string(),
-            NodeType::Feature => "Feature".to_string(),
-            NodeType::Page => "Page".to_string(),
-            NodeType::Var => "Var".to_string(),
-            NodeType::UnitTest => "UnitTest".to_string(),
-            NodeType::IntegrationTest => "IntegrationTest".to_string(),
-            NodeType::E2eTest => "E2etest".to_string(),
-            NodeType::Mock => "Mock".to_string(),
-        }
+impl std::fmt::Display for NodeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            NodeType::Repository => "Repository",
+            NodeType::Package => "Package",
+            NodeType::Language => "Language",
+            NodeType::Directory => "Directory",
+            NodeType::File => "File",
+            NodeType::Import => "Import",
+            NodeType::Library => "Library",
+            NodeType::Class => "Class",
+            NodeType::Trait => "Trait",
+            NodeType::Instance => "Instance",
+            NodeType::Function => "Function",
+            NodeType::Endpoint => "Endpoint",
+            NodeType::Request => "Request",
+            NodeType::DataModel => "Datamodel",
+            NodeType::Feature => "Feature",
+            NodeType::Page => "Page",
+            NodeType::Var => "Var",
+            NodeType::UnitTest => "UnitTest",
+            NodeType::IntegrationTest => "IntegrationTest",
+            NodeType::E2eTest => "E2etest",
+            NodeType::Mock => "Mock",
+        };
+        write!(f, "{}", s)
     }
 }
 
@@ -336,27 +336,19 @@ impl FromStr for UniqueKey {
         })
     }
 }
-impl ToString for UniqueKey {
-    fn to_string(&self) -> String {
-        let mut s = format!(
-            "{}{}{}{}{}",
-            self.kind.to_string(),
-            SEP,
-            self.name,
-            SEP,
-            self.file
-        );
+impl std::fmt::Display for UniqueKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}{}{}{}{}", self.kind, SEP, self.name, SEP, self.file)?;
         if let Some(parent) = &self.parent {
-            s.push_str(&format!("{SEP}{parent}"));
+            write!(f, "{SEP}{parent}")?;
         }
-        s
+        Ok(())
     }
 }
 
-impl ToString for Operand {
-    fn to_string(&self) -> String {
-        let s = format!("{:?}", self.source.name);
-        s //Given that the source is a class
+impl std::fmt::Display for Operand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.source.name) // Given that the source is a class
     }
 }
 #[cfg(feature = "neo4j")]

@@ -6,6 +6,12 @@ use crate::lang::parse::utils::trim_quotes;
 use std::collections::HashMap;
 pub struct Rust(Language);
 
+impl Default for Rust {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Rust {
     pub fn new() -> Self {
         Rust(tree_sitter_rust::LANGUAGE.into())
@@ -147,7 +153,7 @@ impl Rust {
                                 
                                 if let Some(h) = handler_name {
                                     let key = (h, file.to_string());
-                                    handler_map.entry(key).or_insert_with(Vec::new).push(prefix.to_string());
+                                    handler_map.entry(key).or_default().push(prefix.to_string());
                                 }
                             }
                         }
@@ -180,7 +186,7 @@ impl Stack for Rust {
             parser.set_language(&self.0)?;
         }
 
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
 
     fn lib_query(&self) -> Option<String> {
@@ -768,7 +774,7 @@ impl Stack for Rust {
         for file in &files_to_scan {
             
             // Read the full file
-            let code = match std::fs::read_to_string(&file) {
+            let code = match std::fs::read_to_string(file) {
                 Ok(c) => c,
                 Err(_e) => {
                     continue;
@@ -803,7 +809,7 @@ impl Stack for Rust {
                     if let Some(prefix) = Self::find_scope_prefix(node, &code) {
                         // Store with file path to avoid matching across frameworks
                         let key = (h, file.clone());
-                        handler_to_prefix.entry(key).or_insert_with(Vec::new).push(prefix);
+                        handler_to_prefix.entry(key).or_default().push(prefix);
                     }
                 }
             }
@@ -831,7 +837,7 @@ impl Stack for Rust {
             ) @nest_call
         "#;
         
-        let nest_query = match tree_sitter::Query::new(&self.0, &nest_query_str) {
+        let nest_query = match tree_sitter::Query::new(&self.0, nest_query_str) {
             Ok(q) => q,
             Err(_) => {
                 return matches;
@@ -891,7 +897,7 @@ impl Stack for Rust {
                                                     if endpoint.file.contains(&resolved_source) {
                                                         if let Some(handler) = endpoint.meta.get("handler") {
                                                             let key = (handler.clone(), endpoint.file.clone());
-                                                            axum_handler_to_prefix.entry(key).or_insert_with(Vec::new).push(prefix.clone());
+                                                            axum_handler_to_prefix.entry(key).or_default().push(prefix.clone());
                                                         }
                                                     }
                                                 }
@@ -990,11 +996,10 @@ impl Stack for Rust {
                     for handler in &handlers {
                         for endpoint in endpoints {
                             if let Some(ep_handler) = endpoint.meta.get("handler") {
-                                if ep_handler == handler {                                    if endpoint.file.contains("rocket") {
+                                if ep_handler == handler                                    && endpoint.file.contains("rocket") {
                                         let key = (ep_handler.clone(), endpoint.file.clone());
-                                        rocket_handler_to_prefix.entry(key).or_insert_with(Vec::new).push(p.clone());
+                                        rocket_handler_to_prefix.entry(key).or_default().push(p.clone());
                                     }
-                                }
                             }
                         }
                     }

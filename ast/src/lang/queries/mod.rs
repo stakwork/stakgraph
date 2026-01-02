@@ -93,7 +93,7 @@ pub trait Stack {
     // this is optional if the one above captures both
     // fn method_call_query(&self) -> Option<String>;
     fn identifier_query(&self) -> String {
-        format!("(identifier) @identifier")
+        "(identifier) @identifier".to_string()
     }
     fn comment_query(&self) -> Option<String> {
         None

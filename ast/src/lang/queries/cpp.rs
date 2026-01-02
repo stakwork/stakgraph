@@ -7,6 +7,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Cpp(Language);
 
+impl Default for Cpp {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Cpp {
     pub fn new() -> Self {
         Cpp(tree_sitter_cpp::LANGUAGE.into())
@@ -285,7 +291,6 @@ impl Stack for Cpp {
             };
             if !verb.is_empty() {
                 nd.add_verb(&verb);
-                return;
             }
         } else {
             nd.add_verb("ANY");

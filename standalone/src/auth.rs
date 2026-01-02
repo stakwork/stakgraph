@@ -25,8 +25,7 @@ pub async fn bearer_auth(
         .and_then(|header| header.to_str().ok());
 
     if let Some(auth_header) = auth_header {
-        if auth_header.starts_with("Bearer ") {
-            let token = &auth_header[7..]; // Remove "Bearer " prefix
+        if let Some(token) = auth_header.strip_prefix("Bearer ") {
             if token == expected_token {
                 return Ok(next.run(request).await);
             }
@@ -63,8 +62,7 @@ pub async fn basic_auth(
         .and_then(|header| header.to_str().ok());
 
     if let Some(auth_header) = auth_header {
-        if auth_header.starts_with("Basic ") {
-            let encoded = &auth_header[6..]; // Remove "Basic " prefix
+        if let Some(encoded) = auth_header.strip_prefix("Basic ") {
             if let Ok(decoded) = BASE64_STANDARD.decode(encoded) {
                 if let Ok(credentials) = String::from_utf8(decoded) {
                     // Expected format: "username:password" or just ":token"

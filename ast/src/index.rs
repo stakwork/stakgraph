@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
         repo_urls
             .unwrap_or_else(|| repo_path.context("no REPO_PATH").unwrap())
             .split('/')
-            .last()
+            .next_back()
             .unwrap()
             .trim_end_matches(".git")
             .to_string()

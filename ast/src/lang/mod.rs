@@ -79,7 +79,7 @@ impl Lang {
         }
         Ok(out)
     }
-    fn attach_function_comments(&self, code: &str, funcs: &mut Vec<Function>) -> Result<()> {
+    fn attach_function_comments(&self, code: &str, funcs: &mut [Function]) -> Result<()> {
         if funcs.is_empty() {
             return Ok(());
         }
@@ -214,7 +214,7 @@ impl Lang {
     }
     pub fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
-        Ok(self.collect::<G>(&qo, code, file, NodeType::Class)?)
+        self.collect::<G>(&qo, code, file, NodeType::Class)
     }
     pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.trait_query() {
@@ -262,7 +262,7 @@ impl Lang {
     ) -> Result<Vec<Edge>> {
         if let Some(qo) = self.lang.component_template_query() {
             let qo = self.q(&qo, &NodeType::Class);
-            let tree = self.lang.parse(&code, &NodeType::Class)?;
+            let tree = self.lang.parse(code, &NodeType::Class)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&qo, tree.root_node(), code.as_bytes());
 
@@ -277,13 +277,13 @@ impl Lang {
 
             if let Some(class_match) = class_matches.next() {
                 for o in class_query.capture_names().iter() {
-                    if let Some(ci) = class_query.capture_index_for_name(&o) {
+                    if let Some(ci) = class_query.capture_index_for_name(o) {
                         let mut nodes = class_match.nodes_for_capture_index(ci);
                         if let Some(node) = nodes.next() {
                             if o == &CLASS_NAME {
                                 component.name = node.utf8_text(code.as_bytes())?.to_string();
                             } else if o == &CLASS_DEFINITION {
-                                component.start = node.start_position().row as usize;
+                                component.start = node.start_position().row;
                             }
                         }
                     }
@@ -299,7 +299,7 @@ impl Lang {
                 let mut value = String::new();
 
                 for o in qo.capture_names().iter() {
-                    if let Some(ci) = qo.capture_index_for_name(&o) {
+                    if let Some(ci) = qo.capture_index_for_name(o) {
                         let mut nodes = m.nodes_for_capture_index(ci);
                         if let Some(node) = nodes.next() {
                             let text = node.utf8_text(code.as_bytes())?.to_string();
@@ -316,14 +316,12 @@ impl Lang {
                     if key == "templateUrl" {
                         let template_url = parse::trim_quotes(&value);
                         template_urls.push(template_url.to_string());
-                    } else if key == "styleUrls" {
-                        if value.starts_with("[") && value.ends_with("]") {
-                            let array_content = &value[1..value.len() - 1];
-                            for style_url in array_content.split(",") {
-                                let style_url = parse::trim_quotes(style_url.trim());
-                                if !style_url.is_empty() {
-                                    style_urls.push(style_url.to_string());
-                                }
+                    } else if key == "styleUrls" && value.starts_with("[") && value.ends_with("]") {
+                        let array_content = &value[1..value.len() - 1];
+                        for style_url in array_content.split(",") {
+                            let style_url = parse::trim_quotes(style_url.trim());
+                            if !style_url.is_empty() {
+                                style_urls.push(style_url.to_string());
                             }
                         }
                     }
@@ -504,32 +502,46 @@ impl Lang {
 
         let mut func_nodes: Vec<NodeData> = funcs1.iter().map(|f| f.0.clone()).collect();
         let nested_pairs = self.find_nested_functions(&func_nodes);
-        
-        let mut nested_edges_by_child: std::collections::HashMap<NodeKeys, Vec<Edge>> = std::collections::HashMap::new();
+
+        let mut nested_edges_by_child: std::collections::HashMap<NodeKeys, Vec<Edge>> =
+            std::collections::HashMap::new();
         for (child, parent) in nested_pairs {
             let edge = Edge::new(
                 EdgeType::NestedIn,
                 NodeRef::from(child.into(), NodeType::Function),
                 NodeRef::from(parent.into(), NodeType::Function),
             );
-            nested_edges_by_child.entry(child.into()).or_default().push(edge);
+            nested_edges_by_child
+                .entry(child.into())
+                .or_default()
+                .push(edge);
         }
-        
+
         let all_variables = graph.find_nodes_by_type(NodeType::Var);
-        let var_nested_pairs = self.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
+        let var_nested_pairs =
+            self.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
         for (func, var) in var_nested_pairs {
             let edge = Edge::new(
                 EdgeType::NestedIn,
                 NodeRef::from(func.into(), NodeType::Function),
                 NodeRef::from(var.into(), NodeType::Var),
             );
-            nested_edges_by_child.entry(func.into()).or_default().push(edge);
+            nested_edges_by_child
+                .entry(func.into())
+                .or_default()
+                .push(edge);
         }
-        
-        funcs1 = funcs1.into_iter().map(|(func, op, reqs, dms, trait_op, return_types, _)| {
-            let nested_edges = nested_edges_by_child.get(&NodeKeys::from(&func)).cloned().unwrap_or_default();
-            (func, op, reqs, dms, trait_op, return_types, nested_edges)
-        }).collect();
+
+        funcs1 = funcs1
+            .into_iter()
+            .map(|(func, op, reqs, dms, trait_op, return_types, _)| {
+                let nested_edges = nested_edges_by_child
+                    .get(&NodeKeys::from(&func))
+                    .cloned()
+                    .unwrap_or_default();
+                (func, op, reqs, dms, trait_op, return_types, nested_edges)
+            })
+            .collect();
 
         let funcs = if self.lang.tests_are_functions() {
             let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
@@ -576,7 +588,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
         trace!("get_function_calls");
-        let tree = self.lang.parse(&code, &NodeType::Function)?;
+        let tree = self.lang.parse(code, &NodeType::Function)?;
         // get each function
         let qo1 = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut cursor = QueryCursor::new();
@@ -589,13 +601,13 @@ impl Lang {
             trace!("add_calls_for_function");
             let mut caller_name = "".to_string();
             let mut attributes = Vec::new();
-            Self::loop_captures(&qo1, &m, code, |body, node, o| {
+            Self::loop_captures(&qo1, m, code, |body, node, o| {
                 if o == FUNCTION_NAME {
                     caller_name = body;
                 } else if o == ATTRIBUTES {
                     attributes.push(body);
                 } else if o == FUNCTION_DEFINITION {
-                    let caller_start = node.start_position().row as usize;
+                    let caller_start = node.start_position().row;
                     // NOTE this should always be the last one
                     let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
                     let calls = self.collect_calls_in_function(
@@ -647,7 +659,7 @@ impl Lang {
 
         if let Some(tq) = self.lang.test_query() {
             let q_tests = self.q(&tq, &NodeType::UnitTest);
-            let tree_tests = self.lang.parse(&code, &NodeType::UnitTest)?;
+            let tree_tests = self.lang.parse(code, &NodeType::UnitTest)?;
             let mut cursor_tests = QueryCursor::new();
             let mut test_matches =
                 cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
@@ -655,13 +667,13 @@ impl Lang {
             while let Some(tm) = test_matches.next() {
                 let mut caller_name = String::new();
                 let mut attributes = Vec::new();
-                Self::loop_captures(&q_tests, &tm, code, |body, node, o| {
+                Self::loop_captures(&q_tests, tm, code, |body, node, o| {
                     if o == FUNCTION_NAME {
                         caller_name = body;
                     } else if o == ATTRIBUTES {
                         attributes.push(body);
                     } else if o == FUNCTION_DEFINITION {
-                        let caller_start = node.start_position().row as usize;
+                        let caller_start = node.start_position().row;
                         let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
                         let calls = self.collect_calls_in_function(
                             &q2,
@@ -688,7 +700,7 @@ impl Lang {
                             let mut matches_r = cursor_r.matches(&rq_q, node, code.as_bytes());
                             while let Some(mr) = matches_r.next() {
                                 if let Ok(reqs) =
-                                    self.format_endpoint::<G>(&mr, code, file, &rq_q, None, &None)
+                                    self.format_endpoint::<G>(mr, code, file, &rq_q, None, &None)
                                 {
                                     for (req_node, _edge_opt) in reqs {
                                         if req_node.name.is_empty() {
@@ -766,7 +778,7 @@ impl Lang {
         caller_body: &str,
         calls: Vec<FunctionCall>,
     ) {
-        if self.lang.is_test(&caller_name, caller_file, caller_body) {
+        if self.lang.is_test(caller_name, caller_file, caller_body) {
             res.1.extend_from_slice(&calls);
         } else {
             res.0.extend_from_slice(&calls);

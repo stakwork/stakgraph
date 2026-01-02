@@ -9,7 +9,7 @@ use shared::error::Result;
 use std::collections::{BTreeMap, HashSet};
 use tracing::debug;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ArrayGraph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
@@ -23,13 +23,7 @@ pub struct ArrayGraph {
 
 impl Graph for ArrayGraph {
     fn new(_root: String, _lang_kind: Language) -> Self {
-        ArrayGraph {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            errors: Vec::new(),
-            node_keys: HashSet::new(),
-            edge_keys: HashSet::new(),
-        }
+        Self::default()
     }
     fn with_capacity(_nodes: usize, _edges: usize, _root: String, _lang_kind: Language) -> Self
     where
@@ -164,7 +158,7 @@ impl Graph for ArrayGraph {
         parent_type: NodeType,
         parent_file: &str,
     ) {
-        let _edge = if let Some(parent) = self
+        if let Some(parent) = self
             .nodes
             .iter()
             .find(|n| n.node_type == parent_type && n.node_data.file == parent_file)
@@ -234,7 +228,7 @@ impl Graph for ArrayGraph {
                     if let Some(parent_node) =
                         self.find_nodes_by_name(NodeType::Class, parent).first()
                     {
-                        let edge = Edge::parent_of(&parent_node, &n.node_data);
+                        let edge = Edge::parent_of(parent_node, &n.node_data);
                         edges_to_add.push(edge);
                     }
                 }
@@ -252,7 +246,7 @@ impl Graph for ArrayGraph {
                     let modules = includes.split(",").map(|m| m.trim()).collect::<Vec<&str>>();
                     for m in modules {
                         if let Some(m_node) = self.find_nodes_by_name(NodeType::Class, m).first() {
-                            let edge = Edge::class_imports(&n.node_data, &m_node);
+                            let edge = Edge::class_imports(&n.node_data, m_node);
                             edges_to_add.push(edge);
                         }
                     }
@@ -268,14 +262,14 @@ impl Graph for ArrayGraph {
     fn add_instances(&mut self, instances: Vec<NodeData>) {
         for inst in instances {
             if let Some(of) = &inst.data_type {
-                if let Some(cl) = self.find_nodes_by_name(NodeType::Class, &of).first() {
+                if let Some(cl) = self.find_nodes_by_name(NodeType::Class, of).first() {
                     self.add_node_with_parent(
                         NodeType::Instance,
                         inst.clone(),
                         NodeType::File,
                         &inst.file,
                     );
-                    let of_edge = Edge::of(&inst, &cl);
+                    let of_edge = Edge::of(&inst, cl);
                     self.add_edge(of_edge);
                 }
             }
@@ -294,7 +288,7 @@ impl Graph for ArrayGraph {
                 self.add_edge(p.into());
             }
             if let Some(to) = trait_operand {
-                self.add_edge(to.into());
+                self.add_edge(to);
             }
             for rt in return_types {
                 self.add_edge(rt);
@@ -612,13 +606,13 @@ impl Graph for ArrayGraph {
                 node.node_type == parent_type
                     && !has_children.get(&node.node_data.name).unwrap_or(&true)
             })
-            .map(|node| create_node_key(node))
+            .map(create_node_key)
             .collect();
 
         // Remove nodes
         self.nodes.retain(|node| {
-            !(node.node_type == parent_type
-                && !has_children.get(&node.node_data.name).unwrap_or(&true))
+            node.node_type != parent_type
+                || *has_children.get(&node.node_data.name).unwrap_or(&true)
         });
 
         // Remove edges where source or target is a removed node
@@ -672,7 +666,7 @@ impl Graph for ArrayGraph {
                 let node_data = &node.node_data;
                 let normalized_path = normalize_backend_path(&node_data.name);
 
-                let path_matches = normalized_path.map_or(false, |p| p.contains(path))
+                let path_matches = normalized_path.is_some_and(|p| p.contains(path))
                     || node_data.name.contains(path);
 
                 let verb_matches = match node_data.meta.get("verb") {
@@ -839,19 +833,7 @@ impl ArrayGraph {
     fn create_edge_key(&self, edge: &Edge) -> String {
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
-        let edge_type = sanitize_string(&format!("{}", edge.edge.to_string()));
+        let edge_type = sanitize_string(&format!("{}", edge.edge));
         format!("{}-{}-{}", source_key, target_key, edge_type,)
-    }
-}
-
-impl Default for ArrayGraph {
-    fn default() -> Self {
-        ArrayGraph {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            errors: Vec::new(),
-            node_keys: HashSet::new(),
-            edge_keys: HashSet::new(),
-        }
     }
 }

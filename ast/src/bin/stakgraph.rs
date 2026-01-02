@@ -91,7 +91,7 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
     let lines = format_lines(nd.start, nd.end);
 
     // Always print: NodeType: name (lines)
-    println!("{}: {} ({})", node.node_type.to_string(), name, lines);
+    println!("{}: {} ({})", node.node_type, name, lines);
 
     // Show interface if available, otherwise show body
     if let Some(interface) = nd.meta.get("interface") {
@@ -158,10 +158,7 @@ fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> anyhow::Resul
     for edge in &graph.edges {
         if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
             let source_key = ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
-            edges_by_source
-                .entry(source_key)
-                .or_insert_with(Vec::new)
-                .push(edge);
+            edges_by_source.entry(source_key).or_default().push(edge);
         }
     }
 
@@ -254,7 +251,7 @@ async fn main() -> Result<()> {
             return Err(Error::Custom(format!("File does not exist: {}", file_path)));
         }
 
-        let language = lsp::Language::from_path(&file_path);
+        let language = lsp::Language::from_path(file_path);
         match language {
             Some(lang) => {
                 // Find or create language bucket
@@ -266,7 +263,7 @@ async fn main() -> Result<()> {
                 files_to_print.push(file_path.clone());
             }
             None => {
-                let contents = std::fs::read_to_string(&file_path)?;
+                let contents = std::fs::read_to_string(file_path)?;
                 println!("File: {}\n{}\n", file_path, first_lines(&contents, 40, 200));
             }
         }

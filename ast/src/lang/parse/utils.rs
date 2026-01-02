@@ -15,8 +15,8 @@ pub fn trim_quotes(value: &str) -> &str {
     if value.starts_with("`") && value.ends_with("`") {
         return &value[1..value.len() - 1];
     }
-    if value.starts_with(":") {
-        return &value[1..];
+    if let Some(stripped) = value.strip_prefix(':') {
+        return stripped;
     }
     value
 }
@@ -51,10 +51,10 @@ pub fn find_def<G: Graph>(
     }
     let pos = pos.unwrap();
     // unwrap is ok since we checked above
-    let res = LspCmd::GotoDefinition(pos).send(&lsp_tx)?;
+    let res = LspCmd::GotoDefinition(pos).send(lsp_tx)?;
     if let LspRes::GotoDefinition(Some(gt)) = res {
         let target_file = gt.file.display().to_string();
-        let target_row = gt.line as u32;
+        let target_row = gt.line;
         if let Some(t_node) = graph.find_node_in_range(node_type.clone(), target_row, &target_file)
         {
             log_cmd(format!(
@@ -104,7 +104,7 @@ pub fn extract_methods_from_handler(handler_body: &str, lang: &Lang) -> Vec<Stri
 }
 
 impl Lang {
-    pub fn find_strings(&self, node: TreeNode, code: &str, file: &str) -> Result<Vec<String>> {
+    pub fn find_strings(&self, node: TreeNode, code: &str, _file: &str) -> Result<Vec<String>> {
         let mut results = Vec::new();
         if node.kind() == self.lang.string_node_name() {
             let sname = node.utf8_text(code.as_bytes())?;
@@ -112,7 +112,7 @@ impl Lang {
         }
         for i in 0..node.named_child_count() {
             if let Some(child) = node.named_child(i) {
-                results.extend(self.find_strings(child, code, file)?);
+                results.extend(self.find_strings(child, code, _file)?);
             }
         }
         Ok(results)
@@ -144,7 +144,7 @@ impl Lang {
         F: FnMut(String, TreeNode, String) -> Result<()>,
     {
         for o in q.capture_names().iter() {
-            if let Some(ci) = q.capture_index_for_name(&o) {
+            if let Some(ci) = q.capture_index_for_name(o) {
                 let mut nodes = m.nodes_for_capture_index(ci);
                 if let Some(node) = nodes.next() {
                     let body = node.utf8_text(code.as_bytes())?.to_string();
@@ -161,7 +161,7 @@ impl Lang {
         F: FnMut(String, TreeNode, String) -> Result<()>,
     {
         for o in q.capture_names().iter() {
-            if let Some(ci) = q.capture_index_for_name(&o) {
+            if let Some(ci) = q.capture_index_for_name(o) {
                 let nodes = m.nodes_for_capture_index(ci);
                 for node in nodes {
                     let body = node.utf8_text(code.as_bytes())?.to_string();

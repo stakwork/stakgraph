@@ -17,8 +17,8 @@ use crate::repo::Repo;
 use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
-use std::collections::HashSet;
 use std::path::PathBuf;
+use std::{collections::HashSet, path::Path};
 use tokio::fs;
 use tracing::{debug, info, trace};
 
@@ -248,7 +248,7 @@ impl Repo {
         }
 
         let graph = filter_by_revs(
-            &self.root.to_str().unwrap(),
+            self.root.to_str().unwrap(),
             self.revs.clone(),
             graph,
             self.lang.kind.clone(),
@@ -345,7 +345,7 @@ impl Repo {
                 debug!("Skipping large file: {:?}", filename);
                 "".to_string()
             } else {
-                match std::fs::read_to_string(&filepath) {
+                match std::fs::read_to_string(filepath) {
                     Ok(content) => {
                         ret.push((file_name, content.clone()));
                         content
@@ -362,7 +362,7 @@ impl Repo {
 
             let path = filename.display().to_string();
 
-            if graph.find_nodes_by_name(NodeType::File, &path).len() > 0 {
+            if !graph.find_nodes_by_name(NodeType::File, &path).is_empty() {
                 continue;
             }
 
@@ -374,7 +374,7 @@ impl Repo {
                     .insert("pkg_file".to_string(), "true".to_string());
             }
 
-            let (parent_type, parent_file) = self.get_parent_info(&filepath);
+            let (parent_type, parent_file) = self.get_parent_info(filepath);
 
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
         }
@@ -392,7 +392,7 @@ impl Repo {
                     self.send_status_progress(i, total, 4);
                 }
 
-                if !self.lang.kind.is_source_file(&filename) {
+                if !self.lang.kind.is_source_file(filename) {
                     continue;
                 }
                 let didopen = DidOpen {
@@ -401,7 +401,7 @@ impl Repo {
                     lang: self.lang.kind.clone(),
                 };
                 trace!("didopen: {:?}", didopen);
-                let _ = LspCmd::DidOpen(didopen).send(&lsp_tx)?;
+                let _ = LspCmd::DidOpen(didopen).send(lsp_tx)?;
             }
             self.send_status_progress(100, 100, 2);
         }
@@ -426,18 +426,18 @@ impl Repo {
 
             info!("=> get_packages in... {:?}", pkg_file);
 
-            let mut file_data = self.prepare_file_data(&pkg_file, code);
+            let mut file_data = self.prepare_file_data(pkg_file, code);
             file_data.meta.insert("lib".to_string(), "true".to_string());
 
-            let (parent_type, parent_file) = self.get_parent_info(&pkg_file.into());
+            let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
 
             graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
 
-            let libs = self.lang.get_libs::<G>(&code, &pkg_file)?;
+            let libs = self.lang.get_libs::<G>(code, pkg_file)?;
             lib_count += libs.len();
 
             for lib in libs {
-                graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, &pkg_file);
+                graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, pkg_file);
             }
         }
 
@@ -466,7 +466,7 @@ impl Repo {
                 self.send_status_progress(i, total, 6);
             }
 
-            let imports = self.lang.get_imports::<G>(&code, &filename)?;
+            let imports = self.lang.get_imports::<G>(code, filename)?;
 
             let import_section = combine_import_sections(imports);
             import_count += import_section.len();
@@ -501,7 +501,7 @@ impl Repo {
                 self.send_status_progress(i, total, 7);
             }
 
-            let variables = self.lang.get_vars::<G>(&code, &filename)?;
+            let variables = self.lang.get_vars::<G>(code, filename)?;
 
             var_count += variables.len();
             for variable in variables {
@@ -524,7 +524,7 @@ impl Repo {
     }
     async fn add_repository_and_language_nodes<G: Graph>(&self, graph: &mut G) -> Result<()> {
         info!("Root: {:?}", self.root);
-        let commit_hash = get_commit_hash(&self.root.to_str().unwrap()).await?;
+        let commit_hash = get_commit_hash(self.root.to_str().unwrap()).await?;
         info!("Commit(commit_hash): {:?}", commit_hash);
 
         let (org, repo_name) = if !self.url.is_empty() {
@@ -582,15 +582,13 @@ impl Repo {
                 self.send_status_progress(i, total, 8);
             }
 
-            if !self.lang.kind.is_source_file(&filename) {
+            if !self.lang.kind.is_source_file(filename) {
                 continue;
             }
             let qo = self
                 .lang
                 .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
-            let classes = self
-                .lang
-                .collect_classes::<G>(&qo, &code, &filename, &graph)?;
+            let classes = self.lang.collect_classes::<G>(&qo, code, filename, graph)?;
             class_count += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(
@@ -606,7 +604,7 @@ impl Repo {
 
             if let Some(impl_query) = self.lang.lang().implements_query() {
                 let q = self.lang.q(&impl_query, &NodeType::Class);
-                let impls = self.lang.collect_implements(&q, &code, &filename)?;
+                let impls = self.lang.collect_implements(&q, code, filename)?;
                 impl_relationships.extend(impls.into_iter().map(
                     |(class_name, trait_name, file_path)| ImplementsRelationship {
                         class_name,
@@ -645,23 +643,23 @@ impl Repo {
                 self.send_status_progress(cnt, total, 9);
             }
 
-            if !self.lang.kind.is_source_file(&filename) {
+            if !self.lang.kind.is_source_file(filename) {
                 continue;
             }
             let q = self.lang.lang().instance_definition_query();
-            let instances =
-                self.lang
-                    .get_query_opt::<G>(q, &code, &filename, NodeType::Instance)?;
+            let instances = self
+                .lang
+                .get_query_opt::<G>(q, code, filename, NodeType::Instance)?;
             instance_count += instances.len();
             graph.add_instances(instances);
         }
 
         info!("=> get_traits...");
         for (filename, code) in filez {
-            if !self.lang.kind.is_source_file(&filename) {
+            if !self.lang.kind.is_source_file(filename) {
                 continue;
             }
-            let traits = self.lang.get_traits::<G>(&code, &filename)?;
+            let traits = self.lang.get_traits::<G>(code, filename)?;
             trait_count += traits.len();
 
             for tr in traits {
@@ -759,7 +757,7 @@ impl Repo {
                 self.send_status_progress(i, total, 10);
             }
 
-            if !self.lang.kind.is_source_file(&filename) {
+            if !self.lang.kind.is_source_file(filename) {
                 continue;
             }
             if let Some(dmf) = self.lang.lang().data_model_path_filter() {
@@ -770,7 +768,7 @@ impl Repo {
             let q = self.lang.lang().data_model_query();
             let structs = self
                 .lang
-                .get_query_opt::<G>(q, &code, &filename, NodeType::DataModel)?;
+                .get_query_opt::<G>(q, code, filename, NodeType::DataModel)?;
             datamodel_count += structs.len();
 
             for st in &structs {
@@ -815,12 +813,12 @@ impl Repo {
                 self.send_status_progress(i, total, 11);
             }
 
-            if !self.lang.kind.is_source_file(&filename) {
+            if !self.lang.kind.is_source_file(filename) {
                 continue;
             }
             let (funcs, tests) =
                 self.lang
-                    .get_functions_and_tests(&code, &filename, graph, &self.lsp_tx)?;
+                    .get_functions_and_tests(code, filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
 
             graph.add_functions(funcs);
@@ -856,8 +854,8 @@ impl Repo {
                 self.send_status_progress(i, total, 12);
             }
 
-            if self.lang.lang().is_router_file(&filename, &code) {
-                let pages = self.lang.get_pages(&code, &filename, &self.lsp_tx, graph)?;
+            if self.lang.lang().is_router_file(filename, code) {
+                let pages = self.lang.get_pages(code, filename, &self.lsp_tx, graph)?;
                 page_count += pages.len();
                 graph.add_pages(pages);
             }
@@ -905,7 +903,7 @@ impl Repo {
                 if filename.ends_with(ext) {
                     let template_edges = self
                         .lang
-                        .get_component_templates::<G>(&code, &filename, &graph)?;
+                        .get_component_templates::<G>(code, filename, graph)?;
                     template_count += template_edges.len();
                     for edge in template_edges {
                         let mut page = NodeData::name_file(
@@ -972,7 +970,7 @@ impl Repo {
                 self.send_status_progress(_i, total, 11);
             }
 
-            if !self.lang.kind.is_source_file(&filename) {
+            if !self.lang.kind.is_source_file(filename) {
                 continue;
             }
             if let Some(epf) = self.lang.lang().endpoint_path_filter() {
@@ -980,13 +978,13 @@ impl Repo {
                     continue;
                 }
             }
-            if self.lang.lang().is_test_file(&filename) {
+            if self.lang.lang().is_test_file(filename) {
                 continue;
             }
             debug!("get_endpoints in {:?}", filename);
             let endpoints =
                 self.lang
-                    .collect_endpoints(&code, &filename, Some(graph), &self.lsp_tx)?;
+                    .collect_endpoints(code, filename, Some(graph), &self.lsp_tx)?;
             endpoint_count += endpoints.len();
             graph.add_endpoints(endpoints);
         }
@@ -1000,13 +998,13 @@ impl Repo {
         info!("=> get_endpoint_groups...");
         let mut _endpoint_group_count = 0;
         for (filename, code) in filez {
-            if self.lang.lang().is_test_file(&filename) {
+            if self.lang.lang().is_test_file(filename) {
                 continue;
             }
             let q = self.lang.lang().endpoint_group_find();
             let endpoint_groups =
                 self.lang
-                    .get_query_opt::<G>(q, &code, &filename, NodeType::Endpoint)?;
+                    .get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
             _endpoint_group_count += endpoint_groups.len();
             let _ = graph.process_endpoint_groups(endpoint_groups, &self.lang);
         }
@@ -1032,7 +1030,7 @@ impl Repo {
                 let q = self.lang.q(&import_query, &NodeType::Import);
                 let import_edges =
                     self.lang
-                        .collect_import_edges(&q, &code, &filename, graph, &self.lsp_tx)?;
+                        .collect_import_edges(&q, code, filename, graph, &self.lsp_tx)?;
                 for edge in import_edges {
                     graph.add_edge(edge);
                     import_edges_count += 1;
@@ -1058,7 +1056,7 @@ impl Repo {
                     self.send_status_progress(cnt, total, 12);
                 }
 
-                if !self.lang.lang().is_test_file(&filename) {
+                if !self.lang.lang().is_test_file(filename) {
                     continue;
                 }
                 let int_tests = self.lang.collect_integration_tests(code, filename, graph)?;
@@ -1092,7 +1090,7 @@ impl Repo {
 
                 let all_calls = self
                     .lang
-                    .get_function_calls(&code, &filename, graph, &self.lsp_tx)
+                    .get_function_calls(code, filename, graph, &self.lsp_tx)
                     .await?;
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();

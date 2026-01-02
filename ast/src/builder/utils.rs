@@ -4,7 +4,7 @@ use crate::repo::Repo;
 use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
 
@@ -29,7 +29,7 @@ pub fn filter_by_revs<G: Graph>(
     graph
 }
 
-pub fn _filenamey(f: &PathBuf) -> String {
+pub fn _filenamey(f: &Path) -> String {
     let full = f.display().to_string();
     if !f.starts_with("/tmp/") {
         return full;
@@ -41,9 +41,7 @@ pub fn _filenamey(f: &PathBuf) -> String {
 
 pub fn get_page_name(path: &str) -> Option<String> {
     let parts = path.split("/").collect::<Vec<&str>>();
-    if parts.last().is_none() {
-        return None;
-    }
+    parts.last()?;
     Some(parts.last().unwrap().to_string())
 }
 
@@ -96,7 +94,7 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         ..Default::default()
     }]
 }
-pub fn is_allowed_file(path: &PathBuf, lang: &Language) -> bool {
+pub fn is_allowed_file(path: &Path, lang: &Language) -> bool {
     let fname = path.display().to_string();
     if lang
         .pkg_files()
@@ -116,7 +114,7 @@ pub fn is_allowed_file(path: &PathBuf, lang: &Language) -> bool {
 impl Repo {
     pub fn prepare_file_data(&self, path: &str, code: &str) -> NodeData {
         let mut file_data = NodeData::in_file(path);
-        let filename = path.split('/').last().unwrap_or(path);
+        let filename = path.split('/').next_back().unwrap_or(path);
         file_data.name = filename.to_string();
 
         let skip_file_content = std::env::var("DEV_SKIP_FILE_CONTENT").is_ok();
@@ -126,8 +124,8 @@ impl Repo {
         file_data.hash = Some(sha256::digest(&file_data.body));
         file_data
     }
-    pub fn get_parent_info(&self, path: &PathBuf) -> (NodeType, String) {
-        let stripped_path = strip_tmp(&path).display().to_string();
+    pub fn get_parent_info(&self, path: &Path) -> (NodeType, String) {
+        let stripped_path = strip_tmp(path).display().to_string();
 
         let root_no_tmp = strip_tmp(&self.root).display().to_string();
         let mut dir_no_root = stripped_path

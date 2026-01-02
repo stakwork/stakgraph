@@ -5,6 +5,12 @@ use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 
 pub struct Python(Language);
 
+impl Default for Python {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Python {
     pub fn new() -> Self {
         Python(tree_sitter_python::LANGUAGE.into())
@@ -26,7 +32,7 @@ impl Stack for Python {
         } else {
             parser.set_language(&self.0)?;
         }
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
 
     fn lib_query(&self) -> Option<String> {
@@ -119,19 +125,16 @@ impl Stack for Python {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() && parent.unwrap().kind().to_string() != "class_definition" {
+        while parent.is_some() && parent.unwrap().kind() != "class_definition" {
             parent = parent.unwrap().parent();
         }
         let parent_of = match parent {
             Some(p) => {
                 let query = self.q(&self.identifier_query(), &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
-                        target: NodeKeys::new(func_name, file, node.start_position().row),
-                    }),
-                    None => None,
-                }
+                query_to_ident(query, p, code)?.map(|parent_name| Operand {
+                    source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                    target: NodeKeys::new(func_name, file, node.start_position().row),
+                })
             }
             None => None,
         };
@@ -225,7 +228,7 @@ impl Stack for Python {
     }
 
     fn add_endpoint_verb(&self, nd: &mut NodeData, call: &Option<String>) -> Option<String> {
-        if nd.meta.get("verb").is_some() {
+        if nd.meta.contains_key("verb") {
             return None;
         }
 
@@ -239,7 +242,7 @@ impl Stack for Python {
 
         if let Some(handler) = nd.meta.get("handler").cloned() {
             let method_name = if handler.contains('.') {
-                handler.split('.').last().unwrap_or(&handler)
+                handler.split('.').next_back().unwrap_or(&handler)
             } else {
                 &handler
             };
@@ -339,7 +342,7 @@ impl Stack for Python {
                 let module_name = parts[0];
                 let function_name = parts[1];
 
-                let dir_path = endpoint.file.rsplitn(2, '/').nth(1).unwrap_or("");
+                let dir_path = endpoint.file.rsplit_once('/').map(|x| x.0).unwrap_or("");
 
                 let possible_module_paths = vec![
                     format!("{}/{}.py", dir_path, module_name), // standard module

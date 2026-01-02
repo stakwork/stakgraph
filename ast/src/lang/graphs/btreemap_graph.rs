@@ -6,7 +6,7 @@ use serde::Serialize;
 use shared::error::Result;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq, Default)]
 pub struct BTreeMapGraph {
     pub nodes: BTreeMap<String, Node>,
     pub edges: BTreeSet<(String, String, EdgeType)>,
@@ -30,7 +30,7 @@ impl Graph for BTreeMapGraph {
         Self::default()
     }
     fn analysis(&self) {
-        for (node_key, _node) in &self.nodes {
+        for node_key in self.nodes.keys() {
             println!("Node: {}", node_key);
         }
 
@@ -82,7 +82,7 @@ impl Graph for BTreeMapGraph {
         let prefix = format!(
             "{}-{}",
             sanitize_string(&node_type.to_string()),
-            sanitize_string(&name)
+            sanitize_string(name)
         );
 
         self.nodes
@@ -101,8 +101,8 @@ impl Graph for BTreeMapGraph {
         let prefix = format!(
             "{}-{}-{}",
             sanitize_string(&node_type.to_string()),
-            sanitize_string(&name),
-            sanitize_string(&file)
+            sanitize_string(name),
+            sanitize_string(file)
         );
 
         self.nodes
@@ -191,7 +191,7 @@ impl Graph for BTreeMapGraph {
         let prefix = format!(
             "{}-{}-",
             sanitize_string(&node_type.to_string()),
-            sanitize_string(&name)
+            sanitize_string(name)
         );
         self.nodes
             .range(prefix.clone()..)
@@ -279,7 +279,7 @@ impl Graph for BTreeMapGraph {
                 self.add_edge(p.into());
             }
             if let Some(to) = trait_operand {
-                self.add_edge(to.into());
+                self.add_edge(to);
             }
             for rt in return_types {
                 self.add_edge(rt);
@@ -329,8 +329,8 @@ impl Graph for BTreeMapGraph {
         let prefix = format!(
             "{}-{}-{}",
             &sanitize_string(&format!("{:?}", NodeType::Endpoint)),
-            sanitize_string(&name),
-            sanitize_string(&file)
+            sanitize_string(name),
+            sanitize_string(file)
         );
         self.nodes
             .range(prefix.clone()..)
@@ -341,7 +341,7 @@ impl Graph for BTreeMapGraph {
 
     fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
         for (endpoint_data, handler_edge) in endpoints {
-            if endpoint_data.meta.get("handler").is_some() {
+            if endpoint_data.meta.contains_key("handler") {
                 let default_verb = "".to_string();
                 let verb = endpoint_data.meta.get("verb").unwrap_or(&default_verb);
 
@@ -409,9 +409,7 @@ impl Graph for BTreeMapGraph {
 
                     let ext_node = Node::new(NodeType::Function, ext_nd.clone());
                     let ext_key = create_node_key(&ext_node);
-                    if !self.nodes.contains_key(&ext_key) {
-                        self.nodes.insert(ext_key, ext_node);
-                    }
+                    self.nodes.entry(ext_key).or_insert(ext_node);
 
                     // Use CALLS edge for unverified stub nodes, USES for external/library functions
                     let edge = if ext_nd.file == "<unverified>" {
@@ -459,9 +457,7 @@ impl Graph for BTreeMapGraph {
                         // Ensure class node exists in graph
                         let class_node = Node::new(NodeType::Class, class_nd.clone());
                         let class_key = create_node_key(&class_node);
-                        if !self.nodes.contains_key(&class_key) {
-                            self.nodes.insert(class_key, class_node);
-                        }
+                        self.nodes.entry(class_key).or_insert(class_node);
                     }
                 }
             }
@@ -482,9 +478,7 @@ impl Graph for BTreeMapGraph {
                     self.add_edge(edge);
                     let ext_node = Node::new(NodeType::Function, ext_nd.clone());
                     let ext_key = create_node_key(&ext_node);
-                    if !self.nodes.contains_key(&ext_key) {
-                        self.nodes.insert(ext_key, ext_node);
-                    }
+                    self.nodes.entry(ext_key).or_insert(ext_node);
                 }
             } else if tc.target.is_empty() {
                 continue;
@@ -592,7 +586,7 @@ impl Graph for BTreeMapGraph {
                     if let Some(module_node) =
                         self.find_nodes_by_name(NodeType::Class, module).first()
                     {
-                        let edge = Edge::class_imports(&node.node_data, &module_node);
+                        let edge = Edge::class_imports(&node.node_data, module_node);
                         self.add_edge(edge);
                     }
                 }
@@ -611,7 +605,7 @@ impl Graph for BTreeMapGraph {
             if let Some(parent) = node.node_data.meta.get("parent") {
                 if let Some(parent_node) = self.find_nodes_by_name(NodeType::Class, parent).first()
                 {
-                    let edge = Edge::parent_of(&parent_node, &node.node_data);
+                    let edge = Edge::parent_of(parent_node, &node.node_data);
                     self.add_edge(edge);
                 }
             }
@@ -818,11 +812,9 @@ impl Graph for BTreeMapGraph {
     fn has_edge(&self, source: &Node, target: &Node, edge_type: EdgeType) -> bool {
         let source_key = create_node_key(source);
         let target_key = create_node_key(target);
-        if let Some(_edge) = self.find_edge_by_keys(&source_key, &target_key, &edge_type) {
-            return true;
-        } else {
-            return false;
-        }
+
+        self.find_edge_by_keys(&source_key, &target_key, &edge_type)
+            .is_some()
     }
     fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)> {
         self.edges.clone()
@@ -887,15 +879,6 @@ impl BTreeMapGraph {
             ))
         } else {
             None
-        }
-    }
-}
-impl Default for BTreeMapGraph {
-    fn default() -> Self {
-        BTreeMapGraph {
-            nodes: BTreeMap::new(),
-            edges: BTreeSet::new(),
-            allow_unverified_calls: false,
         }
     }
 }

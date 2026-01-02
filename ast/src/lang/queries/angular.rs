@@ -5,6 +5,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Angular(Language);
 
+impl Default for Angular {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Angular {
     pub fn new() -> Self {
         Angular(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
@@ -18,7 +24,7 @@ impl Stack for Angular {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
     fn component_template_query(&self) -> Option<String> {
         Some(format!(
@@ -235,9 +241,7 @@ impl Stack for Angular {
     }
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.trim().to_string();
-        if path.starts_with("./") {
-            path = path[2..].to_string();
-        } else if path.starts_with(".\\") {
+        if path.starts_with("./") || path.starts_with(".\\") {
             path = path[2..].to_string();
         } else if path.starts_with('/') {
             path = path[1..].to_string();

@@ -5,6 +5,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct TypeScript(Language);
 
+impl Default for TypeScript {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeScript {
     pub fn new() -> Self {
         TypeScript(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
@@ -18,7 +24,7 @@ impl Stack for TypeScript {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
     fn lib_query(&self) -> Option<String> {
         Some(format!(
@@ -357,8 +363,7 @@ impl Stack for TypeScript {
     }
 
     fn handler_method_query(&self) -> Option<String> {
-        Some(format!(
-            r#"
+        Some(r#"
             ;; Matches: router.get(...), app.post(...), etc.
             (call_expression
                 function: (member_expression
@@ -366,8 +371,7 @@ impl Stack for TypeScript {
                     property: (property_identifier) @method (#match? @method "^(get|post|put|delete|patch)$")
                 )
             ) @route
-            "#
-        ))
+            "#.to_string())
     }
 
     fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
@@ -504,9 +508,7 @@ impl Stack for TypeScript {
     }
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.trim().to_string();
-        if path.starts_with("./") {
-            path = path[2..].to_string();
-        } else if path.starts_with(".\\") {
+        if path.starts_with("./") || path.starts_with(".\\") {
             path = path[2..].to_string();
         } else if path.starts_with('/') {
             path = path[1..].to_string();
@@ -575,11 +577,7 @@ impl Stack for TypeScript {
     }
 
     fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
-        if self.is_test_file(func_file) {
-            true
-        } else {
-            false
-        }
+        self.is_test_file(func_file)
     }
 
     fn test_query(&self) -> Option<String> {

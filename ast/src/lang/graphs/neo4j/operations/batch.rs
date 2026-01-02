@@ -1,8 +1,17 @@
-use crate::{Lang, lang::{Function, graphs::{Calls, Edge, EdgeType, Neo4jGraph, NodeData, NodeRef, NodeType, TransactionManager, queries::*}}};
+use crate::{
+    lang::{
+        graphs::{
+            queries::*, Calls, Edge, EdgeType, Neo4jGraph, NodeData, NodeRef, NodeType,
+            TransactionManager,
+        },
+        Function,
+    },
+    Lang,
+};
 use shared::Result;
 
-impl Neo4jGraph{
-        pub async fn add_instances_async(&self, nodes: Vec<NodeData>) -> Result<()> {
+impl Neo4jGraph {
+    pub async fn add_instances_async(&self, nodes: Vec<NodeData>) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
@@ -31,7 +40,9 @@ impl Neo4jGraph{
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        for (function_node, method_of, reqs, dms, trait_operand, return_types, nested_in) in &functions {
+        for (function_node, method_of, reqs, dms, trait_operand, return_types, nested_in) in
+            &functions
+        {
             let queries = add_functions_query(
                 function_node,
                 method_of.as_ref(),
@@ -82,7 +93,7 @@ impl Neo4jGraph{
         let mut seen = HashSet::new();
 
         for (endpoint_data, handler_edge) in &endpoints {
-            if endpoint_data.meta.get("handler").is_some() {
+            if endpoint_data.meta.contains_key("handler") {
                 let default_verb = "".to_string();
                 let verb = endpoint_data.meta.get("verb").unwrap_or(&default_verb);
                 let key = (

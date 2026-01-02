@@ -5,6 +5,12 @@ use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 
 pub struct Kotlin(Language);
 
+impl Default for Kotlin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Kotlin {
     pub fn new() -> Self {
         Kotlin(tree_sitter_kotlin_sg::LANGUAGE.into())
@@ -24,7 +30,7 @@ impl Stack for Kotlin {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
 
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
 
     fn lib_query(&self) -> Option<String> {
@@ -257,7 +263,7 @@ impl Stack for Kotlin {
         let import_name = import_name.to_string();
         let name = import_name
             .split('.')
-            .last()
+            .next_back()
             .unwrap_or(&import_name)
             .to_string();
         name

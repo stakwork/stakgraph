@@ -26,7 +26,7 @@ impl Lang {
         let mut assocition_target = None;
         let mut has_impl = false;
 
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == CLASS_NAME {
                 cls.name = clean_class_name(&body);
             } else if o == CLASS_DEFINITION {
@@ -45,10 +45,10 @@ impl Lang {
 
             if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
                 //ty == assocition type like belongs_to, has_many, etc.
-                let target_class_name = self.lang.convert_association_to_name(&trim_quotes(target));
+                let target_class_name = self.lang.convert_association_to_name(trim_quotes(target));
                 let target_classes = graph.find_nodes_by_name(NodeType::Class, &target_class_name);
                 if let Some(target_class) = target_classes.first() {
-                    let edge = Edge::calls(NodeType::Class, &cls, NodeType::Class, &target_class);
+                    let edge = Edge::calls(NodeType::Class, &cls, NodeType::Class, target_class);
                     associations.push(edge);
                     association_type = None;
                     assocition_target = None;
@@ -65,7 +65,7 @@ impl Lang {
                 let mut matches = cursoe.matches(&implements_q, tree.root_node(), code.as_bytes());
                 while let Some(m) = matches.next() {
                     let (class_name, trait_name) =
-                        self.format_implements(&m, code, &implements_q)?;
+                        self.format_implements(m, code, &implements_q)?;
                     if class_name == cls.name {
                         cls.add_implements(trait_name.as_str());
                         has_impl = true;
@@ -87,7 +87,7 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut cls = NodeData::in_file(file);
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == LIBRARY_NAME {
                 cls.name = trim_quotes(&body).to_string();
             } else if o == LIBRARY {
@@ -95,7 +95,7 @@ impl Lang {
                 cls.start = node.start_position().row;
                 cls.end = node.end_position().row;
             } else if o == LIBRARY_VERSION {
-                cls.add_version(&trim_quotes(&body).to_string());
+                cls.add_version(trim_quotes(&body));
             }
             Ok(())
         })?;
@@ -109,7 +109,7 @@ impl Lang {
         q: &Query,
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
-        Self::loop_captures_multi(q, &m, code, |body, node, o| {
+        Self::loop_captures_multi(q, m, code, |body, node, o| {
             let mut impy = NodeData::in_file(file);
             if o == IMPORTS {
                 impy.name = "imports".to_string();
@@ -132,7 +132,7 @@ impl Lang {
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
         let mut v = NodeData::in_file(file);
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == VARIABLE_NAME {
                 v.name = body.to_string();
             } else if o == VARIABLE_DECLARATION {
@@ -163,27 +163,19 @@ impl Lang {
         let mut components_positions_names = Vec::new();
         let mut page_renders = Vec::new();
         let mut page_names = Vec::new();
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == PAGE_PATHS {
                 // page_names.push(trim_quotes(&body).to_string());
                 page_names = self
                     .find_strings(node, code, file)?
                     .iter()
-                    .map(|s| trim_quotes(&s).to_string())
+                    .map(|s| trim_quotes(s).to_string())
                     .collect();
             } else if o == PAGE {
                 pag.body = body;
                 pag.start = node.start_position().row;
                 pag.end = node.end_position().row;
-            } else if o == PAGE_COMPONENT {
-                let p = node.start_position();
-                let pos = Position::new(file, p.row as u32, p.column as u32)?;
-                components_positions_names.push((pos, body));
-            } else if o == PAGE_CHILD {
-                let p = node.start_position();
-                let pos = Position::new(file, p.row as u32, p.column as u32)?;
-                components_positions_names.push((pos, body));
-            } else if o == PAGE_HEADER {
+            } else if o == PAGE_COMPONENT || o == PAGE_CHILD || o == PAGE_HEADER {
                 let p = node.start_position();
                 let pos = Position::new(file, p.row as u32, p.column as u32)?;
                 components_positions_names.push((pos, body));
@@ -194,7 +186,7 @@ impl Lang {
             if let Some(lsp) = lsp {
                 // use lsp to find the component
                 log_cmd(format!("=> looking for component {:?}", comp_name));
-                let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+                let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
                 if let LspRes::GotoDefinition(Some(gt)) = res {
                     let target_file = gt.file.display().to_string();
                     if let Some(target) = graph.find_node_by_name_in_file(
@@ -215,7 +207,7 @@ impl Lang {
                 .filter(|n| graph.is_frontend(&n.file))
                 .collect::<Vec<_>>();
             if let Some(node) = frontend_nodes.first() {
-                page_renders.push(Edge::renders(&pag, &node));
+                page_renders.push(Edge::renders(&pag, node));
             }
         }
         if page_names.is_empty() {
@@ -242,7 +234,7 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut tr = NodeData::in_file(file);
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == TRAIT_NAME {
                 tr.name = body;
             } else if o == TRAIT {
@@ -262,7 +254,7 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut inst = NodeData::in_file(file);
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == INSTANCE_NAME {
                 inst.name = body;
                 inst.start = node.start_position().row;
@@ -285,7 +277,7 @@ impl Lang {
     ) -> Result<(String, String)> {
         let mut class_name = String::new();
         let mut trait_name = String::new();
-        Self::loop_captures(q, &m, code, |body, _node, o| {
+        Self::loop_captures(q, m, code, |body, _node, o| {
             if o == CLASS_NAME {
                 class_name = body;
             } else if o == TRAIT_NAME {
@@ -311,16 +303,16 @@ impl Lang {
         let mut params = HandlerParams::default();
         let mut handler_position = None;
 
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == ENDPOINT {
                 let namey = trim_quotes(&body);
-                if namey.len() > 0 {
+                if !namey.is_empty() {
                     endp.name = namey.to_string();
                 }
             } else if o == ENDPOINT_ALIAS {
                 // endpoint alias overwrites
                 let namey = trim_quotes(&body);
-                if namey.len() > 0 {
+                if !namey.is_empty() {
                     endp.name = namey.to_string();
                 }
             } else if o == ROUTE {
@@ -330,7 +322,7 @@ impl Lang {
             } else if o == HANDLER {
                 // tracing::info!("found HANDLER {:?} {:?}", body, endp.name);
                 let handler_name = trim_quotes(&body);
-                endp.add_handler(&handler_name);
+                endp.add_handler(handler_name);
                 let p = node.start_position();
                 handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
                 if let Some(graph) = graph {
@@ -380,12 +372,12 @@ impl Lang {
                 endp.meta
                     .insert("is_singular".to_string(), "true".to_string());
                 let handler_name = trim_quotes(&body);
-                endp.add_handler(&handler_name);
+                endp.add_handler(handler_name);
             }
             Ok(())
         })?;
 
-        let verb_resolution = if endp.meta.get("verb").is_none() {
+        let verb_resolution = if !endp.meta.contains_key("verb") {
             self.lang.add_endpoint_verb(&mut endp, &call)
         } else {
             endp.meta.get("verb").cloned()
@@ -399,12 +391,12 @@ impl Lang {
                     if let Some(handler_name) = endp.meta.get("handler") {
                         let handler_node = if let Some(lsp) = lsp_tx {
                             if let Some(ref pos) = handler_position {
-                                let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+                                let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
                                 if let LspRes::GotoDefinition(Some(gt)) = res {
                                     let target_file = gt.file.display().to_string();
                                     graph.find_node_by_name_in_file(
                                         NodeType::Function,
-                                        &handler_name,
+                                        handler_name,
                                         &target_file,
                                     )
                                 } else {
@@ -415,7 +407,7 @@ impl Lang {
                             }
                         } else {
                             graph
-                                .find_nodes_by_name(NodeType::Function, &handler_name)
+                                .find_nodes_by_name(NodeType::Function, handler_name)
                                 .first()
                                 .cloned()
                         };
@@ -486,12 +478,12 @@ impl Lang {
                     if let Some(lsp) = lsp_tx {
                         if let Some(pos) = handler_position {
                             log_cmd(format!("=> looking for HANDLER {:?}", handler_name));
-                            let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+                            let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
                             if let LspRes::GotoDefinition(Some(gt)) = res {
                                 let target_file = gt.file.display().to_string();
                                 if let Some(target) = graph.find_node_by_name_in_file(
                                     NodeType::Function,
-                                    &handler_name,
+                                    handler_name,
                                     &target_file,
                                 ) {
                                     log_cmd(format!("HANDLER def, in graph: {:?}", handler_name));
@@ -506,17 +498,16 @@ impl Lang {
                         let import_names = get_imports_for_file(file, self, graph);
                         return Ok(self.lang().handler_finder(
                             endp.clone(),
-                            &|handler_name, _suffix| match node_data_finder(
-                                handler_name,
-                                &None,
-                                graph,
-                                file,
-                                endp.clone().start,
-                                NodeType::Endpoint,
-                                import_names.clone(),
-                            ) {
-                                Some(node_key) => Some(node_key.into()),
-                                None => None,
+                            &|handler_name, _suffix| {
+                                node_data_finder(
+                                    handler_name,
+                                    &None,
+                                    graph,
+                                    file,
+                                    endp.clone().start,
+                                    NodeType::Endpoint,
+                                    import_names.clone(),
+                                )
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                             params,
@@ -537,7 +528,7 @@ impl Lang {
     ) -> Result<NodeData> {
         let mut inst = NodeData::in_file(file);
         let mut attributes = Vec::new();
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == STRUCT_NAME {
                 inst.name = trim_quotes(&body).to_string();
             } else if o == STRUCT {
@@ -570,7 +561,7 @@ impl Lang {
         let mut func_start = 0;
         let mut func_end = 0;
 
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == ENDPOINT_VERB {
                 method = body.to_uppercase();
             } else if o == ENDPOINT {
@@ -638,7 +629,7 @@ impl Lang {
         let mut attributes_start_byte: Option<usize> = None;
         let mut is_macro = false;
 
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == PARENT_TYPE {
                 parent_type = Some(body);
             } else if o == FUNCTION_NAME {
@@ -681,7 +672,7 @@ impl Lang {
                     let mut matches = cursor.matches(&qqq, node, code.as_bytes());
                     while let Some(m) = matches.next() {
                         let reqs = self.format_endpoint::<G>(
-                            &m,
+                            m,
                             code,
                             file,
                             &self.q(&rq, &NodeType::Endpoint),
@@ -706,27 +697,24 @@ impl Lang {
                     let qqq = self.q(&dmq, &NodeType::DataModel);
                     let mut matches = cursor.matches(&qqq, node, code.as_bytes());
                     while let Some(m) = matches.next() {
-                        let dm_node = self.format_data_model(&m, code, file, &qqq)?;
+                        let dm_node = self.format_data_model(m, code, file, &qqq)?;
                         if models
                             .iter()
                             .any(|e| e.target.node_data.name == dm_node.name)
                         {
                             continue;
                         }
-                        match graph
+                        if let Some(dmr) = graph
                             .find_nodes_by_name(NodeType::DataModel, &dm_node.name)
                             .first()
                             .cloned()
                         {
-                            Some(dmr) => {
-                                models.push(Edge::contains(
-                                    NodeType::Function,
-                                    &func,
-                                    NodeType::DataModel,
-                                    &dmr,
-                                ));
-                            }
-                            None => (),
+                            models.push(Edge::contains(
+                                NodeType::Function,
+                                &func,
+                                NodeType::DataModel,
+                                &dmr,
+                            ));
                         }
                     }
                 }
@@ -737,11 +725,11 @@ impl Lang {
                     let qqq = self.q(&vuq, &NodeType::Var);
                     let mut matches = cursor.matches(&qqq, node, code.as_bytes());
                     let imports = graph.find_nodes_by_file_ends_with(NodeType::Import, file);
-                    let import_body = imports.get(0).map(|i| i.body.clone()).unwrap_or_default();
+                    let import_body = imports.first().map(|i| i.body.clone()).unwrap_or_default();
                     let mut found_vars = HashSet::new();
 
                     while let Some(m) = matches.next() {
-                        Self::loop_captures(&qqq, &m, code, |body, _node, o| {
+                        Self::loop_captures(&qqq, m, code, |body, _node, o| {
                             if o == VARIABLE_NAME || o == "identifier" {
                                 let candidate_vars = graph.find_nodes_by_name(NodeType::Var, &body);
                                 for var in candidate_vars {
@@ -796,7 +784,7 @@ impl Lang {
                 if let Some(lsp) = lsp_tx {
                     for (name, pos) in self.find_type_identifiers(node, code, file)? {
                         if is_capitalized(&name) {
-                            let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+                            let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
                             if let LspRes::GotoDefinition(Some(gt)) = res {
                                 let dfile = gt.file.display().to_string();
                                 if !self.lang.is_lib_file(&dfile) {
@@ -916,7 +904,7 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut test = NodeData::in_file(file);
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 test.name = trim_quotes(&body).to_string();
             } else if o == FUNCTION_DEFINITION {
@@ -952,7 +940,7 @@ impl Lang {
         let mut call_name_and_point = None;
         let mut is_variable_call = false;
 
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == FUNCTION_NAME {
                 call_name_and_point = Some((body, node.start_position()));
             } else if o == CLASS_NAME {
@@ -963,7 +951,7 @@ impl Lang {
                     call_name_and_point = Some((body, node.start_position()));
                 }
             } else if o == FUNCTION_CALL {
-                fc.source = NodeKeys::new(&caller_name, file, caller_start);
+                fc.source = NodeKeys::new(caller_name, file, caller_start);
             } else if o == OPERAND {
                 fc.operand = Some(body.clone());
                 if self.lang.direct_class_calls() {
@@ -982,7 +970,7 @@ impl Lang {
             Ok(())
         })?;
 
-        if let None = call_name_and_point {
+        if call_name_and_point.is_none() {
             return Ok(None);
         }
         let (called, call_point) = call_name_and_point.unwrap();
@@ -1001,7 +989,7 @@ impl Lang {
         if let Some(lsp) = lsp_tx {
             log_cmd(format!("=> {} looking for {:?}", caller_name, called));
             let pos = Position::new(file, call_point.row as u32, call_point.column as u32)?;
-            let res = LspCmd::GotoDefinition(pos.clone()).send(&lsp)?;
+            let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
             if let LspRes::GotoDefinition(None) = res {
                 log_cmd(format!("==> _ no definition found for {:?}", called));
             }
@@ -1047,11 +1035,11 @@ impl Lang {
                                 lib_func.start = gt.line as usize;
                                 lib_func.end = gt.line as usize;
                                 let pos2 = Position::new(
-                                    &file,
+                                    file,
                                     call_point.row as u32,
                                     call_point.column as u32,
                                 )?;
-                                let hover_res = LspCmd::Hover(pos2).send(&lsp)?;
+                                let hover_res = LspCmd::Hover(pos2).send(lsp)?;
                                 if let LspRes::Hover(Some(hr)) = hover_res {
                                     lib_func.docs = Some(hr);
                                 }
@@ -1060,7 +1048,7 @@ impl Lang {
                             }
                         } else {
                             // handle trait match, jump to implemenetations
-                            let res = LspCmd::GotoImplementations(pos).send(&lsp)?;
+                            let res = LspCmd::GotoImplementations(pos).send(lsp)?;
                             if let LspRes::GotoImplementations(Some(gt2)) = res {
                                 log_cmd(format!("==> ? impls {} {:?}", called, gt2));
                                 let target_file = gt2.file.display().to_string();
@@ -1085,7 +1073,7 @@ impl Lang {
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
         } else if allow_unverified {
-            fc.target = NodeKeys::new(&called, "unverified", call_point.row as usize);
+            fc.target = NodeKeys::new(&called, "unverified", call_point.row);
         } else {
             // FALLBACK to find?
             let import_names = get_imports_for_file(file, self, graph);
@@ -1157,7 +1145,7 @@ impl Lang {
         }
         let mut pos = None;
         let mut ex = NodeData::in_file(file);
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == EXTRA_NAME {
                 ex.name = trim_quotes(&body).to_string();
             } else if o == EXTRA {
@@ -1210,7 +1198,7 @@ impl Lang {
         trace!("format_integration_test");
         let mut nd = NodeData::in_file(file);
         let mut raw_name = String::new();
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == INTEGRATION_TEST || o == E2E_TEST {
                 nd.body = body.clone();
                 nd.start = node.start_position().row;
@@ -1245,7 +1233,7 @@ impl Lang {
         let mut fc = Calls::default();
         let mut handler_name = None;
         let mut call_position = None;
-        Self::loop_captures(q, &m, code, |body, node, o| {
+        Self::loop_captures(q, m, code, |body, node, o| {
             if o == HANDLER {
                 let p = node.start_position();
                 let pos = Position::new(file, p.row as u32, p.column as u32)?;
@@ -1272,7 +1260,7 @@ impl Lang {
             "=> {} looking for integration test: {:?}",
             caller_name, handler_name
         ));
-        let res = LspCmd::GotoDefinition(pos).send(&lsp_tx)?;
+        let res = LspCmd::GotoDefinition(pos).send(lsp_tx)?;
         if let LspRes::GotoDefinition(Some(gt)) = res {
             let target_file = gt.file.display().to_string();
             if let Some(t_file) =
@@ -1305,7 +1293,7 @@ impl Lang {
             return Ok(None);
         }
         let endpoint = endpoint.unwrap();
-        let source = NodeKeys::new(&caller_name, file, 0);
+        let source = NodeKeys::new(caller_name, file, 0);
         let edge = Edge::new(
             EdgeType::Calls,
             NodeRef::from(source, NodeType::IntegrationTest),
@@ -1349,20 +1337,14 @@ impl Lang {
                     stripped.trim().to_string()
                 } else if let Some(stripped) = trimmed.strip_prefix("*") {
                     stripped.trim().to_string()
-                } else if trimmed.starts_with("\"\"\"")
+                } else if (trimmed.starts_with("\"\"\"")
                     && trimmed.ends_with("\"\"\"")
-                    && trimmed.len() > 6
-                {
-                    trimmed[3..trimmed.len() - 3].trim().to_string()
-                } else if trimmed.starts_with("'''")
-                    && trimmed.ends_with("'''")
-                    && trimmed.len() > 6
+                    && trimmed.len() > 6)
+                    || (trimmed.starts_with("'''") && trimmed.ends_with("'''") && trimmed.len() > 6)
                 {
                     trimmed[3..trimmed.len() - 3].trim().to_string()
                 } else if trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
                     trimmed[3..].trim().to_string()
-                } else if trimmed.ends_with("\"\"\"") || trimmed.ends_with("'''") {
-                    trimmed[..trimmed.len() - 3].trim().to_string()
                 } else {
                     trimmed.to_string()
                 }

@@ -5,6 +5,12 @@ use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 
 pub struct Swift(Language);
 
+impl Default for Swift {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Swift {
     pub fn new() -> Self {
         Swift(tree_sitter_swift::LANGUAGE.into())
@@ -19,7 +25,7 @@ impl Stack for Swift {
         let mut parser = Parser::new();
 
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
 
     fn imports_query(&self) -> Option<String> {
@@ -96,7 +102,7 @@ impl Stack for Swift {
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while parent.is_some() {
-            if parent.unwrap().kind().to_string() == "class_declaration" {
+            if parent.unwrap().kind() == "class_declaration" {
                 // found it!
                 break;
             }
@@ -105,13 +111,10 @@ impl Stack for Swift {
         let parent_of = match parent {
             Some(p) => {
                 let query = self.q("name: (type_identifier) @class-name", &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
-                        target: NodeKeys::new(func_name, file, node.start_position().row),
-                    }),
-                    None => None,
-                }
+                query_to_ident(query, p, code)?.map(|parent_name| Operand {
+                    source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                    target: NodeKeys::new(func_name, file, node.start_position().row),
+                })
             }
             None => None,
         };
@@ -128,7 +131,7 @@ impl Stack for Swift {
         ))
     }
     fn add_endpoint_verb(&self, inst: &mut NodeData, _call: &Option<String>) -> Option<String> {
-        if inst.meta.get("verb").is_none() {
+        if !inst.meta.contains_key("verb") {
             if inst.body.contains("method: \"GET\"") || inst.body.contains("bodyParams: nil") {
                 inst.add_verb("GET");
             } else if inst.body.contains("method: \"POST\"") {
@@ -139,7 +142,7 @@ impl Stack for Swift {
                 inst.add_verb("DELETE");
             }
 
-            if inst.meta.get("verb").is_none() {
+            if !inst.meta.contains_key("verb") {
                 inst.add_verb("GET"); // Default
             }
         }

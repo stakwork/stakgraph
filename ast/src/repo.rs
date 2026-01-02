@@ -10,6 +10,7 @@ use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
 use lsp::{git::git_clone, spawn_analyzer, strip_tmp, CmdSender};
 use shared::{Context, Error, Result};
+use std::path::Path;
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tokio::sync::broadcast::Sender;
@@ -118,7 +119,7 @@ impl Repos {
             }
         }
 
-        if let Some(first_repo) = &self.0.get(0) {
+        if let Some(first_repo) = &self.0.first() {
             first_repo.send_status_update("linking_graphs", 14);
         }
         info!("linking e2e tests");
@@ -179,9 +180,9 @@ impl Repo {
         //     files_filter = new_files;
         // }
         for cmd in lang.kind.post_clone_cmd(lsp) {
-            Self::run_cmd(&cmd, &root)?;
+            Self::run_cmd(cmd, root)?;
         }
-        let lsp_tx = Self::start_lsp(&root, &lang, lsp)?;
+        let lsp_tx = Self::start_lsp(root, &lang, lsp)?;
         Ok(Self {
             url: "".into(),
             root: root.into(),
@@ -209,7 +210,7 @@ impl Repo {
             .map(|s| s.to_string())
             .collect::<Vec<String>>();
         // Validate revs count - it should be empty or a multiple of urls count
-        if !revs.is_empty() && revs.len() % urls.len() != 0 {
+        if !revs.is_empty() && !revs.len().is_multiple_of(urls.len()) {
             return Err(Error::Custom(format!(
                 "Number of revisions ({}) must be a multiple of the number of repositories ({})",
                 revs.len(),
@@ -278,14 +279,12 @@ impl Repo {
                 !source_files.is_empty()
             } else {
                 source_files.iter().any(|f| {
-                    l.pkg_files()
-                        .iter()
-                        .any(|pkg_file| {
-                            f.file_name()
-                                .and_then(|name| name.to_str())
-                                .map(|name| name == *pkg_file)
-                                .unwrap_or(false)
-                        })
+                    l.pkg_files().iter().any(|pkg_file| {
+                        f.file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|name| name == *pkg_file)
+                            .unwrap_or(false)
+                    })
                 })
             };
             if has_pkg_file {
@@ -321,15 +320,15 @@ impl Repo {
             let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
             // Run post-clone commands
             for cmd in thelang.kind.post_clone_cmd(lsp_enabled) {
-                Self::run_cmd(&cmd, &root).map_err(|e| {
+                Self::run_cmd(cmd, root).map_err(|e| {
                     Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
                 })?;
             }
-            let lsp_tx = Self::start_lsp(&root, &thelang, lsp_enabled)
+            let lsp_tx = Self::start_lsp(root, &thelang, lsp_enabled)
                 .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
             // Add to repositories
             repos.push(Repo {
-                url: url.clone().map(|u| u.into()).unwrap_or_default(),
+                url: url.clone().unwrap_or_default(),
                 root: root.into(),
                 lang: thelang,
                 lsp_tx,
@@ -363,7 +362,7 @@ impl Repo {
         //     files_filter = new_files;
         // }
         for cmd in lang.kind.post_clone_cmd(lsp) {
-            Self::run_cmd(&cmd, &root)?;
+            Self::run_cmd(cmd, &root)?;
         }
         let lsp_tx = Self::start_lsp(&root, &lang, lsp)?;
         Ok(Self {
@@ -381,7 +380,7 @@ impl Repo {
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
         info!("Running cmd: {:?}", cmd);
         let mut arr = cmd.split(" ").collect::<Vec<&str>>();
-        if arr.len() == 0 {
+        if arr.is_empty() {
             return Err(Error::Custom("empty cmd".into()));
         }
         let first = arr.remove(0);
@@ -389,7 +388,7 @@ impl Repo {
         for a in arr {
             proc.arg(a);
         }
-        let _ = proc.current_dir(&root).status().ok();
+        let _ = proc.current_dir(root).status().ok();
         info!("Finished running: {:?}!", cmd);
         Ok(())
     }
@@ -421,7 +420,7 @@ impl Repo {
                 skip_file_ends.extend(sfe);
             }
         }
-        if self.files_filter.len() > 0 {
+        if !self.files_filter.is_empty() {
             only_include_files.extend(self.files_filter.clone());
         }
         let mut exts = self.lang.kind.exts();
@@ -452,7 +451,7 @@ impl Repo {
                 Ok(c) => Some(c),
                 Err(_e) => {
                     warn!("Failed to parse config file {:?}", _e);
-                    return None;
+                    None
                 }
             },
             Err(_) => None,
@@ -475,11 +474,9 @@ impl Repo {
             .context("Failed to set sorting:")?;
 
         let mut commits = Vec::new();
-        for oid_result in revwalk.take(count) {
-            if let Ok(oid) = oid_result {
-                if let Ok(commit) = repo.find_commit(oid) {
-                    commits.push(commit.id().to_string());
-                }
+        for oid in revwalk.take(count).flatten() {
+            if let Ok(commit) = repo.find_commit(oid) {
+                commits.push(commit.id().to_string());
             }
         }
 
@@ -665,13 +662,12 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
             }
             if let Some(ext) = path.extension() {
                 if let Some(ext) = ext.to_str() {
-                    if conf.exts.contains(&ext.to_string()) || conf.exts.contains(&"*".to_string())
+                    if (conf.exts.contains(&ext.to_string())
+                        || conf.exts.contains(&"*".to_string()))
+                        && !skip_end(&fname, &conf.skip_file_ends)
+                        && only_files(path, &conf.only_include_files)
                     {
-                        if !skip_end(&fname, &conf.skip_file_ends) {
-                            if only_files(path, &conf.only_include_files) {
-                                source_files.push(path.to_path_buf());
-                            }
-                        }
+                        source_files.push(path.to_path_buf());
                     }
                 }
             }
@@ -679,7 +675,7 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
     }
     Ok(source_files)
 }
-fn skip_dir(entry: &DirEntry, skip_dirs: &Vec<String>) -> bool {
+fn skip_dir(entry: &DirEntry, skip_dirs: &[String]) -> bool {
     if is_hidden(entry) {
         return true;
     }
@@ -700,7 +696,7 @@ fn skip_dir(entry: &DirEntry, skip_dirs: &Vec<String>) -> bool {
         .map(|s| skip_dirs.contains(&s.to_string()))
         .unwrap_or(false)
 }
-fn only_files(path: &std::path::Path, only_include_files: &Vec<String>) -> bool {
+fn only_files(path: &std::path::Path, only_include_files: &[String]) -> bool {
     if only_include_files.is_empty() {
         return true;
     }
@@ -713,7 +709,7 @@ fn only_files(path: &std::path::Path, only_include_files: &Vec<String>) -> bool 
     false
 }
 
-fn skip_end(fname: &str, ends: &Vec<String>) -> bool {
+fn skip_end(fname: &str, ends: &[String]) -> bool {
     for e in ends.iter() {
         if fname.ends_with(e) {
             return true;
@@ -722,7 +718,7 @@ fn skip_end(fname: &str, ends: &Vec<String>) -> bool {
     false
 }
 
-fn _filenamey(f: &PathBuf) -> String {
+fn _filenamey(f: &Path) -> String {
     let full = f.display().to_string();
     if !f.starts_with("/tmp/") {
         return full;
@@ -749,13 +745,13 @@ impl std::fmt::Debug for Repo {
 
 #[cfg(feature = "openssl")]
 pub fn check_revs_files(repo_path: &str, mut revs: Vec<String>) -> Option<Vec<String>> {
-    if revs.len() == 0 {
+    if revs.is_empty() {
         return None;
     }
     if revs.len() == 1 {
         revs.push("HEAD".into());
     }
-    let old_rev = revs.get(0)?;
+    let old_rev = revs.first()?;
     let new_rev = revs.get(1)?;
     crate::gat::get_changed_files(repo_path, old_rev, new_rev).ok()
 }
@@ -767,7 +763,7 @@ fn walk_files_arbitrary(dir: &PathBuf, directive: impl Fn(&str) -> bool) -> Resu
         if entry.metadata()?.is_file() {
             let fname = entry.path().display().to_string();
             if directive(&fname) {
-                source_files.push(fname);
+                source_files.push(fname.to_string());
             }
         }
     }

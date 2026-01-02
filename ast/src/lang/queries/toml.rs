@@ -5,6 +5,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Toml(Language);
 
+impl Default for Toml {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Toml {
     pub fn new() -> Self {
         Toml(tree_sitter_toml_ng::LANGUAGE.into())
@@ -19,7 +25,7 @@ impl Stack for Toml {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse TOML")?)
+        parser.parse(code, None).context("failed to parse TOML")
     }
 
     fn lib_query(&self) -> Option<String> {
