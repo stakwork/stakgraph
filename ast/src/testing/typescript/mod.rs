@@ -46,7 +46,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 25, "Expected 25 File nodes");
+    assert_eq!(files.len(), 26, "Expected 26 File nodes");
 
     let pkg_files = files
         .iter()
@@ -56,7 +56,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 18, "Expected 18 imports");
+    assert_eq!(imports.len(), 19, "Expected 19 imports");
 
     let model_import_body = format!(
         r#"import DataTypes, {{ Model }} from "sequelize";
@@ -251,16 +251,13 @@ import {{ sequelize }} from "./config.js";"#
         "Puppeteer test body should contain puppeteer.launch"
     );
 
-    // TODO: Playwright test with test.describe is not being detected
-    // The playwright user-flow.e2e.test.ts uses test.describe instead of describe
-    // This may need investigation - test query may not match test.describe pattern
-    // let playwright_test = e2e_tests
-    //     .iter()
-    //     .find(|t| {
-    //         t.name == "e2e: user management flow"
-    //             && normalize_path(&t.file).ends_with("test/e2e/user-flow.e2e.test.ts")
-    //     })
-    //     .expect("e2e: user management flow test not found");
+    let _playwright_test = e2e_tests
+        .iter()
+        .find(|t| {
+            t.name == "e2e: user management flow"
+                && normalize_path(&t.file).ends_with("test/e2e/user-flow.e2e.test.ts")
+        })
+        .expect("e2e: user management flow test not found");
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
@@ -268,11 +265,11 @@ import {{ sequelize }} from "./config.js";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 10, "Expected 10 data models");
+    assert_eq!(data_models.len(), 17, "Expected 17 data models");
 
     let trait_nodes = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += trait_nodes.len();
-    assert_eq!(trait_nodes.len(), 2, "Expected 2 trait nodes");
+    assert_eq!(trait_nodes.len(), 4, "Expected 4 trait nodes");
 
     let person_service_trait = trait_nodes
         .iter()
@@ -288,7 +285,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 151, "Expected 151 contains edges");
+    assert_eq!(contains, 162, "Expected 162 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -296,7 +293,7 @@ import {{ sequelize }} from "./config.js";"#
         assert_eq!(import_edges_count, 21, "Expected 21 import edges with LSP");
     } else {
         assert_eq!(
-            import_edges_count, 13,
+            import_edges_count, 15,
             "Expected 13 import edges without LSP"
         );
     }
@@ -636,6 +633,51 @@ import {{ sequelize }} from "./config.js";"#
         ),
         "Expected DELETE /:postId/like endpoint to be handled by its arrow function handler"
     );
+
+    // Phase 6-7: Types and Imports
+    let types_file_nodes = graph
+        .find_nodes_by_type(NodeType::Import)
+        .into_iter()
+        .filter(|n| normalize_path(&n.file).ends_with("types-and-imports.ts"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        types_file_nodes.len(),
+        1,
+        "Expected 1 aggregated import node for types-and-imports.ts"
+    );
+
+    let import_body = &types_file_nodes[0].body;
+    assert!(import_body.contains("import { PersonService } from \"./service\";"));
+    assert!(import_body.contains("import type { SequelizePerson } from \"./model\";"));
+    assert!(import_body.contains("import * as models from \"./model\";"));
+    assert!(import_body.contains("as SP")); // Check aliasing
+    assert!(import_body.contains("import \"./config\";")); // Side-effect
+
+    // Check DataModels (Type Aliases & Enums & Interfaces)
+    let new_models = ["ID", "UserDTO", "UserRole", "Status", "Config"];
+    for model_name in new_models {
+        data_models
+            .iter()
+            .find(|m| {
+                m.name == model_name && normalize_path(&m.file).ends_with("types-and-imports.ts")
+            })
+            .expect(&format!("DataModel {} not found", model_name));
+    }
+
+    // Check Traits (Interfaces/Types with methods)
+    let new_traits = ["Logger", "IGreeter"];
+    for trait_name in new_traits {
+        trait_nodes
+            .iter()
+            .find(|t| {
+                t.name == trait_name && normalize_path(&t.file).ends_with("types-and-imports.ts")
+            })
+            .expect(&format!("Trait {} not found", trait_name));
+    }
+
+    // Note: Logger and IGreeter might ALSO appear in DataModels due to query overlap
+    // verified by count 17 (10 old + 5 models + 2 dual-role)
 
     let (nodes, edges) = graph.get_graph_size();
 
