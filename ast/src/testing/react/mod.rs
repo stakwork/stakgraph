@@ -81,7 +81,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<()> {
             .collect();
 
         assert!(
-            import_lines.len() > 0,
+            !import_lines.is_empty(),
             "Expected multiple import lines in {}",
             imp.file
         );
