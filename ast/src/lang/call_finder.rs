@@ -68,8 +68,15 @@ pub fn func_target_file_finder<G: Graph>(
     // Fifth try: If operand exists, try operand-based resolution
     if let Some(ref operand) = operand {
         if let Some(target_file) = find_function_with_operand(operand, func_name, graph) {
-            if let Some(tf) = graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &target_file) {
-                println!("[OPERAND] resolved {}.{} in {}", operand, func_name, target_file);
+            if let Some(tf) = graph.find_node_by_name_and_file_contains(
+                NodeType::Function,
+                func_name,
+                &target_file,
+            ) {
+                println!(
+                    "[OPERAND] resolved {}.{} in {}",
+                    operand, func_name, target_file
+                );
                 return Some(tf);
             }
         }
@@ -77,7 +84,8 @@ pub fn func_target_file_finder<G: Graph>(
 
     // Sixth try: Check if function is nested in a variable (e.g., authOptions.callbacks.signIn)
     if let Some(ref operand) = operand {
-        if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file) {
+        if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file)
+        {
             return Some(tf);
         }
     }
@@ -195,10 +203,9 @@ fn find_only_one_function_file<G: Graph>(
     for node in nodes {
         let is_same = node.start == source_start && node.file == current_file;
         // NOT empty functions (interfaces)
-        if !node.body.is_empty()
-            && (!is_same || source_node_type != NodeType::Function) {
-                target_files_starts.push(node);
-            }
+        if !node.body.is_empty() && (!is_same || source_node_type != NodeType::Function) {
+            target_files_starts.push(node);
+        }
     }
 
     if target_files_starts.len() == 1 {
@@ -223,9 +230,8 @@ fn find_function_with_operand<G: Graph>(
     let mut instance = None;
 
     let operand_nodes = graph.find_nodes_by_name(NodeType::Instance, operand);
-    for node in operand_nodes {
+    if let Some(node) = operand_nodes.into_iter().next() {
         instance = Some(node.clone());
-        break;
     }
     if let Some(i) = instance {
         if let Some(dt) = &i.data_type {
@@ -251,12 +257,12 @@ fn find_nested_function_in_variable<G: Graph>(
     if var_nodes.is_empty() {
         return None;
     }
-    
+
     let func_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     if func_nodes.is_empty() {
         return None;
     }
-    
+
     for func in func_nodes.clone() {
         if let Some(nested_in) = func.meta.get("nested_in") {
             if nested_in == var_name {
@@ -264,7 +270,7 @@ fn find_nested_function_in_variable<G: Graph>(
             }
         }
     }
-    
+
     None
 }
 
@@ -367,12 +373,6 @@ fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {
 }
 
 fn _pick_target_file_from_graph<G: Graph>(target_name: &str, graph: &G) -> Option<String> {
-    let mut target_file = None;
     let function_nodes = graph.find_nodes_by_name(NodeType::Function, target_name);
-    for node in function_nodes {
-        target_file = Some(node.file.clone());
-        break;
-    }
-
-    target_file
+    function_nodes.first().map(|node| node.file.clone())
 }

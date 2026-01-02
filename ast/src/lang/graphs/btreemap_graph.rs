@@ -812,11 +812,9 @@ impl Graph for BTreeMapGraph {
     fn has_edge(&self, source: &Node, target: &Node, edge_type: EdgeType) -> bool {
         let source_key = create_node_key(source);
         let target_key = create_node_key(target);
-        if let Some(_edge) = self.find_edge_by_keys(&source_key, &target_key, &edge_type) {
-            true
-        } else {
-            false
-        }
+
+        self.find_edge_by_keys(&source_key, &target_key, &edge_type)
+            .is_some()
     }
     fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)> {
         self.edges.clone()

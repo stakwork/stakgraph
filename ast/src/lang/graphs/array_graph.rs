@@ -9,8 +9,7 @@ use shared::error::Result;
 use std::collections::{BTreeMap, HashSet};
 use tracing::debug;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct ArrayGraph {
     pub nodes: Vec<Node>,
     pub edges: Vec<Edge>,
@@ -24,13 +23,7 @@ pub struct ArrayGraph {
 
 impl Graph for ArrayGraph {
     fn new(_root: String, _lang_kind: Language) -> Self {
-        ArrayGraph {
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            errors: Vec::new(),
-            node_keys: HashSet::new(),
-            edge_keys: HashSet::new(),
-        }
+        Self::default()
     }
     fn with_capacity(_nodes: usize, _edges: usize, _root: String, _lang_kind: Language) -> Self
     where
@@ -618,8 +611,8 @@ impl Graph for ArrayGraph {
 
         // Remove nodes
         self.nodes.retain(|node| {
-            !(node.node_type == parent_type
-                && !has_children.get(&node.node_data.name).unwrap_or(&true))
+            node.node_type != parent_type
+                || *has_children.get(&node.node_data.name).unwrap_or(&true)
         });
 
         // Remove edges where source or target is a removed node
@@ -840,8 +833,7 @@ impl ArrayGraph {
     fn create_edge_key(&self, edge: &Edge) -> String {
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
-        let edge_type = sanitize_string(&edge.edge.to_string());
+        let edge_type = sanitize_string(&format!("{}", edge.edge));
         format!("{}-{}-{}", source_key, target_key, edge_type,)
     }
 }
-

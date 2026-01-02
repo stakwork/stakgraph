@@ -175,15 +175,7 @@ impl Lang {
                 pag.body = body;
                 pag.start = node.start_position().row;
                 pag.end = node.end_position().row;
-            } else if o == PAGE_COMPONENT {
-                let p = node.start_position();
-                let pos = Position::new(file, p.row as u32, p.column as u32)?;
-                components_positions_names.push((pos, body));
-            } else if o == PAGE_CHILD {
-                let p = node.start_position();
-                let pos = Position::new(file, p.row as u32, p.column as u32)?;
-                components_positions_names.push((pos, body));
-            } else if o == PAGE_HEADER {
+            } else if o == PAGE_COMPONENT || o == PAGE_CHILD || o == PAGE_HEADER {
                 let p = node.start_position();
                 let pos = Position::new(file, p.row as u32, p.column as u32)?;
                 components_positions_names.push((pos, body));
@@ -516,7 +508,6 @@ impl Lang {
                                     NodeType::Endpoint,
                                     import_names.clone(),
                                 )
-                                .map(|node_key| node_key)
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                             params,
@@ -1346,20 +1337,14 @@ impl Lang {
                     stripped.trim().to_string()
                 } else if let Some(stripped) = trimmed.strip_prefix("*") {
                     stripped.trim().to_string()
-                } else if trimmed.starts_with("\"\"\"")
+                } else if (trimmed.starts_with("\"\"\"")
                     && trimmed.ends_with("\"\"\"")
-                    && trimmed.len() > 6
-                {
-                    trimmed[3..trimmed.len() - 3].trim().to_string()
-                } else if trimmed.starts_with("'''")
-                    && trimmed.ends_with("'''")
-                    && trimmed.len() > 6
+                    && trimmed.len() > 6)
+                    || (trimmed.starts_with("'''") && trimmed.ends_with("'''") && trimmed.len() > 6)
                 {
                     trimmed[3..trimmed.len() - 3].trim().to_string()
                 } else if trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''") {
                     trimmed[3..].trim().to_string()
-                } else if trimmed.ends_with("\"\"\"") || trimmed.ends_with("'''") {
-                    trimmed[..trimmed.len() - 3].trim().to_string()
                 } else {
                     trimmed.to_string()
                 }

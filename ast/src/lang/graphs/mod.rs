@@ -132,8 +132,10 @@ impl Edge {
         // Look up test node to get body for language-specific classification
         let test_node = graph.find_test_node(&call.source.name, &call.source.file);
         let body = test_node.as_ref().map(|n| n.body.as_str()).unwrap_or("");
-        let tt = lang.lang().classify_test(&call.source.name, &call.source.file, body);
-        
+        let tt = lang
+            .lang()
+            .classify_test(&call.source.name, &call.source.file, body);
+
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;
         let mut tgt_nd = NodeData::name_file(&call.target.name, &call.target.file);
@@ -141,12 +143,19 @@ impl Edge {
         Edge::test_calls(tt, &src_nd, NodeType::Function, &tgt_nd)
     }
 
-    pub fn from_test_class_call(call: &Calls, class_target: &NodeData, lang: &Lang, graph: &impl Graph) -> Edge {
+    pub fn from_test_class_call(
+        call: &Calls,
+        class_target: &NodeData,
+        lang: &Lang,
+        graph: &impl Graph,
+    ) -> Edge {
         // Look up test node to get body for language-specific classification
         let test_node = graph.find_test_node(&call.source.name, &call.source.file);
         let body = test_node.as_ref().map(|n| n.body.as_str()).unwrap_or("");
-        let test_type = lang.lang().classify_test(&call.source.name, &call.source.file, body);
-        
+        let test_type = lang
+            .lang()
+            .classify_test(&call.source.name, &call.source.file, body);
+
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;
         Edge::test_calls(test_type, &src_nd, NodeType::Class, class_target)
@@ -311,23 +320,24 @@ pub fn form(root: &str, nd: &mut NodeData) {
     nd.file = format!("{}/{}", root, nd.file);
 }
 
-impl ToString for EdgeType {
-    fn to_string(&self) -> String {
-        match self {
-            EdgeType::ArgOf => "ARG_OF".to_string(),
-            EdgeType::Contains => "CONTAINS".to_string(),
-            EdgeType::Handler => "HANDLER".to_string(),
-            EdgeType::Imports => "IMPORTS".to_string(),
-            EdgeType::Of => "OF".to_string(),
-            EdgeType::Operand => "OPERAND".to_string(),
-            EdgeType::ParentOf => "PARENT_OF".to_string(),
-            EdgeType::Renders => "RENDERS".to_string(),
-            EdgeType::Uses => "USES".to_string(),
-            EdgeType::Includes => "INCLUDES".to_string(),
-            EdgeType::Calls => "CALLS".to_string(),
-            EdgeType::Implements => "IMPLEMENTS".to_string(),
-            EdgeType::NestedIn => "NESTED_IN".to_string(),
-        }
+impl std::fmt::Display for EdgeType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            EdgeType::ArgOf => "ARG_OF",
+            EdgeType::Contains => "CONTAINS",
+            EdgeType::Handler => "HANDLER",
+            EdgeType::Imports => "IMPORTS",
+            EdgeType::Of => "OF",
+            EdgeType::Operand => "OPERAND",
+            EdgeType::ParentOf => "PARENT_OF",
+            EdgeType::Renders => "RENDERS",
+            EdgeType::Uses => "USES",
+            EdgeType::Includes => "INCLUDES",
+            EdgeType::Calls => "CALLS",
+            EdgeType::Implements => "IMPLEMENTS",
+            EdgeType::NestedIn => "NESTED_IN",
+        };
+        write!(f, "{}", s)
     }
 }
 

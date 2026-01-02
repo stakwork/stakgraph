@@ -10,6 +10,7 @@ use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
 use lsp::{git::git_clone, spawn_analyzer, strip_tmp, CmdSender};
 use shared::{Context, Error, Result};
+use std::path::Path;
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tokio::sync::broadcast::Sender;
@@ -278,14 +279,12 @@ impl Repo {
                 !source_files.is_empty()
             } else {
                 source_files.iter().any(|f| {
-                    l.pkg_files()
-                        .iter()
-                        .any(|pkg_file| {
-                            f.file_name()
-                                .and_then(|name| name.to_str())
-                                .map(|name| name == *pkg_file)
-                                .unwrap_or(false)
-                        })
+                    l.pkg_files().iter().any(|pkg_file| {
+                        f.file_name()
+                            .and_then(|name| name.to_str())
+                            .map(|name| name == *pkg_file)
+                            .unwrap_or(false)
+                    })
                 })
             };
             if has_pkg_file {
@@ -663,18 +662,20 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
             }
             if let Some(ext) = path.extension() {
                 if let Some(ext) = ext.to_str() {
-                    if (conf.exts.contains(&ext.to_string()) || conf.exts.contains(&"*".to_string()))
+                    if (conf.exts.contains(&ext.to_string())
+                        || conf.exts.contains(&"*".to_string()))
                         && !skip_end(&fname, &conf.skip_file_ends)
-                            && only_files(path, &conf.only_include_files) {
-                                source_files.push(path.to_path_buf());
-                            }
+                        && only_files(path, &conf.only_include_files)
+                    {
+                        source_files.push(path.to_path_buf());
+                    }
                 }
             }
         }
     }
     Ok(source_files)
 }
-fn skip_dir(entry: &DirEntry, skip_dirs: &Vec<String>) -> bool {
+fn skip_dir(entry: &DirEntry, skip_dirs: &[String]) -> bool {
     if is_hidden(entry) {
         return true;
     }
@@ -695,7 +696,7 @@ fn skip_dir(entry: &DirEntry, skip_dirs: &Vec<String>) -> bool {
         .map(|s| skip_dirs.contains(&s.to_string()))
         .unwrap_or(false)
 }
-fn only_files(path: &std::path::Path, only_include_files: &Vec<String>) -> bool {
+fn only_files(path: &std::path::Path, only_include_files: &[String]) -> bool {
     if only_include_files.is_empty() {
         return true;
     }
@@ -708,7 +709,7 @@ fn only_files(path: &std::path::Path, only_include_files: &Vec<String>) -> bool 
     false
 }
 
-fn skip_end(fname: &str, ends: &Vec<String>) -> bool {
+fn skip_end(fname: &str, ends: &[String]) -> bool {
     for e in ends.iter() {
         if fname.ends_with(e) {
             return true;
@@ -717,7 +718,7 @@ fn skip_end(fname: &str, ends: &Vec<String>) -> bool {
     false
 }
 
-fn _filenamey(f: &PathBuf) -> String {
+fn _filenamey(f: &Path) -> String {
     let full = f.display().to_string();
     if !f.starts_with("/tmp/") {
         return full;
@@ -762,7 +763,7 @@ fn walk_files_arbitrary(dir: &PathBuf, directive: impl Fn(&str) -> bool) -> Resu
         if entry.metadata()?.is_file() {
             let fname = entry.path().display().to_string();
             if directive(&fname) {
-                source_files.push(fname);
+                source_files.push(fname.to_string());
             }
         }
     }

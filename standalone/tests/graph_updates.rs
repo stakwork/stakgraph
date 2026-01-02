@@ -1,6 +1,6 @@
 #[cfg(feature = "neo4j")]
 use ast::lang::graphs::graph_ops::GraphOps;
-
+#[cfg(feature = "neo4j")]
 use ast::lang::linker::{normalize_backend_path, normalize_frontend_path};
 
 #[cfg(feature = "neo4j")]

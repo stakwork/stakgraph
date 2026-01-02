@@ -4,7 +4,7 @@ use crate::repo::Repo;
 use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
 
@@ -29,7 +29,7 @@ pub fn filter_by_revs<G: Graph>(
     graph
 }
 
-pub fn _filenamey(f: &PathBuf) -> String {
+pub fn _filenamey(f: &Path) -> String {
     let full = f.display().to_string();
     if !f.starts_with("/tmp/") {
         return full;
