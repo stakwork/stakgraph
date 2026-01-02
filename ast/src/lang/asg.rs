@@ -34,7 +34,7 @@ impl NodeKeys {
         Self {
             name: name.to_string(),
             file: file.to_string(),
-            start: start,
+            start,
             verb: None,
         }
     }
@@ -87,13 +87,13 @@ impl Serialize for NodeData {
         S: Serializer,
     {
         let mut named_fields_len = 5;
-        if let Some(_) = &self.data_type {
+        if self.data_type.is_some() {
             named_fields_len += 1;
         }
-        if let Some(_) = &self.docs {
+        if self.docs.is_some() {
             named_fields_len += 1;
         }
-        if let Some(_) = &self.hash {
+        if self.hash.is_some() {
             named_fields_len += 1;
         }
         let mut map = serializer.serialize_map(Some(self.meta.len() + named_fields_len))?;

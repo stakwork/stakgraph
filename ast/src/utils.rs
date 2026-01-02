@@ -164,7 +164,7 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
     result.push('-');
     result.push_str(&sanitize_string(file));
     result.push('-');
-    result.push_str(&sanitize_string(&start));
+    result.push_str(&sanitize_string(start));
 
     if let Some(v) = &node_ref.node_data.verb {
         result.push('-');
@@ -181,7 +181,7 @@ pub fn create_node_key_from_ref(node_ref: &NodeRef) -> String {
             truncated_result.push('-');
             truncated_result.push_str(&sanitize_string(file));
             truncated_result.push('-');
-            truncated_result.push_str(&sanitize_string(&start));
+            truncated_result.push_str(&sanitize_string(start));
 
             if let Some(v) = &node_ref.node_data.verb {
                 truncated_result.push('-');

@@ -12,24 +12,24 @@ impl Lang {
         file: &str,
         nt: NodeType,
     ) -> Result<Vec<NodeData>> {
-        let tree = self.lang.parse(&code, &nt)?;
+        let tree = self.lang.parse(code, &nt)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             let another = match nt {
-                NodeType::Library => vec![self.format_library(&m, code, file, q)?],
-                NodeType::Import => self.format_imports(&m, code, file, q)?,
-                NodeType::Instance => vec![self.format_instance(&m, code, file, q)?],
-                NodeType::Trait => vec![self.format_trait(&m, code, file, q)?],
+                NodeType::Library => vec![self.format_library(m, code, file, q)?],
+                NodeType::Import => self.format_imports(m, code, file, q)?,
+                NodeType::Instance => vec![self.format_instance(m, code, file, q)?],
+                NodeType::Trait => vec![self.format_trait(m, code, file, q)?],
                 // req and endpoint are the same format in the query templates
                 NodeType::Request | NodeType::Endpoint => self
-                    .format_endpoint::<G>(&m, code, file, q, None, &None)?
+                    .format_endpoint::<G>(m, code, file, q, None, &None)?
                     .into_iter()
                     .map(|(nd, _e)| nd)
                     .collect(),
-                NodeType::DataModel => vec![self.format_data_model(&m, code, file, q)?],
-                NodeType::Var => self.format_variables(&m, code, file, q)?,
+                NodeType::DataModel => vec![self.format_data_model(m, code, file, q)?],
+                NodeType::Var => self.format_variables(m, code, file, q)?,
                 _ => return Err(Error::Custom(format!("collect: {nt:?} not implemented"))),
             };
             res.extend(another);
@@ -44,13 +44,13 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        let tree = self.lang.parse(&code, &NodeType::Class)?;
+        let tree = self.lang.parse(code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             if let Some((cls, edges)) =
-                self.format_class_with_associations(&m, code, file, q, graph)?
+                self.format_class_with_associations(m, code, file, q, graph)?
             {
                 res.push((cls, edges));
             }
@@ -63,13 +63,13 @@ impl Lang {
         code: &str,
         file: &str,
     ) -> Result<Vec<(String, String, String)>> {
-        let tree = self.lang.parse(&code, &NodeType::Class)?;
+        let tree = self.lang.parse(code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut results = Vec::new();
 
         while let Some(m) = matches.next() {
-            let (class_name, trait_name) = self.format_implements(&m, code, q)?;
+            let (class_name, trait_name) = self.format_implements(m, code, q)?;
             results.push((class_name, trait_name, file.to_string()));
         }
 
@@ -82,13 +82,13 @@ impl Lang {
         code: &str,
         graph: &G,
     ) -> Result<Vec<Edge>> {
-        let tree = self.lang.parse(&code, &NodeType::Class)?;
+        let tree = self.lang.parse(code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut edges = Vec::new();
 
         while let Some(m) = matches.next() {
-            let (class_name, trait_name) = self.format_implements(&m, code, q)?;
+            let (class_name, trait_name) = self.format_implements(m, code, q)?;
             let class_nodes = graph.find_nodes_by_name(NodeType::Class, &class_name);
             let trait_nodes = graph.find_nodes_by_name(NodeType::Trait, &trait_name);
 
@@ -107,12 +107,12 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        let tree = self.lang.parse(&code, &NodeType::Page)?;
+        let tree = self.lang.parse(code, &NodeType::Page)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let page = self.format_page(&m, code, file, q, lsp_tx, graph)?;
+            let page = self.format_page(m, code, file, q, lsp_tx, graph)?;
             res.extend(page);
         }
         Ok(res)
@@ -130,11 +130,11 @@ impl Lang {
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
             let q = self.lang.q(&ef, &NodeType::Endpoint);
-            let tree = self.lang.parse(&code, &NodeType::Endpoint)?;
+            let tree = self.lang.parse(code, &NodeType::Endpoint)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
-                let endys = self.format_endpoint(&m, code, file, &q, graph, lsp_tx)?;
+                let endys = self.format_endpoint(m, code, file, &q, graph, lsp_tx)?;
                 res.extend(endys);
             }
         }
@@ -152,11 +152,11 @@ impl Lang {
         let mut functions = Vec::new();
 
         // Pass 1: Regular functions (existing logic)
-        let tree = self.lang.parse(&code, &NodeType::Function)?;
+        let tree = self.lang.parse(code, &NodeType::Function)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         while let Some(m) = matches.next() {
-            if let Some(ff) = self.format_function(&m, code, file, &q, graph, lsp_tx)? {
+            if let Some(ff) = self.format_function(m, code, file, q, graph, lsp_tx)? {
                 let test_key = NodeKeys::new(&ff.0.name, &ff.0.file, ff.0.start);
                 if identified_tests.contains(&test_key) {
                     continue;
@@ -186,12 +186,12 @@ impl Lang {
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
             let q = self.lang.q(&ef, &NodeType::Function);
-            let tree = self.lang.parse(&code, &NodeType::Function)?;
+            let tree = self.lang.parse(code, &NodeType::Function)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
                 if let Some(ff) =
-                    self.format_router_arrow_function(&m, code, file, &q, graph, lsp_tx)?
+                    self.format_router_arrow_function(m, code, file, &q, graph, lsp_tx)?
                 {
                     res.push(ff);
                 }
@@ -207,12 +207,12 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(Function, Option<Edge>)>> {
-        let tree = self.lang.parse(&code, &NodeType::UnitTest)?;
+        let tree = self.lang.parse(code, &NodeType::UnitTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let ff = self.format_test(&m, code, file, &q)?;
+            let ff = self.format_test(m, code, file, q)?;
 
             let test_edge = if let Some(class_nd) =
                 graph.find_nodes_by_name(NodeType::Class, &ff.name).first()
@@ -248,7 +248,7 @@ impl Lang {
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             if let Some(fc) = self.format_function_call(
-                &m,
+                m,
                 code,
                 file,
                 q,
@@ -280,7 +280,7 @@ impl Lang {
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             if let Some(fc) =
-                self.format_extra(&m, code, file, q, caller_name, caller_start, graph, lsp_tx)?
+                self.format_extra(m, code, file, q, caller_name, caller_start, graph, lsp_tx)?
             {
                 res.push(fc);
             }
@@ -313,7 +313,7 @@ impl Lang {
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
             if let Some(fc) =
-                self.format_integration_test_call(&m, code, file, &q, caller_name, graph, lsp_tx)?
+                self.format_integration_test_call(m, code, file, &q, caller_name, graph, lsp_tx)?
             {
                 res.push(fc);
             }
@@ -342,12 +342,12 @@ impl Lang {
             &self.lang.integration_test_query().unwrap(),
             &NodeType::IntegrationTest,
         );
-        let tree = self.lang.parse(&code, &NodeType::IntegrationTest)?;
+        let tree = self.lang.parse(code, &NodeType::IntegrationTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let (nd, tt) = self.format_integration_test(&m, code, file, &q)?;
+            let (nd, tt) = self.format_integration_test(m, code, file, &q)?;
             let test_edge_opt = self.lang.integration_test_edge_finder(
                 &nd,
                 &|name| {
@@ -370,12 +370,12 @@ impl Lang {
             return Ok(Vec::new());
         }
         let q = self.q(&self.lang.e2e_test_query().unwrap(), &NodeType::E2eTest);
-        let tree = self.lang.parse(&code, &NodeType::E2eTest)?;
+        let tree = self.lang.parse(code, &NodeType::E2eTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
         while let Some(m) = matches.next() {
-            let (mut nd, tt) = self.format_integration_test(&m, code, file, &q)?;
+            let (mut nd, tt) = self.format_integration_test(m, code, file, &q)?;
             if tt != NodeType::E2eTest {
                 nd.meta.insert("test_kind".into(), "e2e".into());
             }
@@ -394,7 +394,7 @@ impl Lang {
         if let Some(lsp) = lsp_tx {
             return self.collect_import_edges_with_lsp(code, file, graph, lsp);
         }
-        let tree = self.lang.parse(&code, &NodeType::Import)?;
+        let tree = self.lang.parse(code, &NodeType::Import)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut edges = Vec::new();
@@ -403,7 +403,7 @@ impl Lang {
             let mut import_names = Vec::new();
             let mut import_source = None;
 
-            Self::loop_captures_multi(q, &m, code, |body, _node, o| {
+            Self::loop_captures_multi(q, m, code, |body, _node, o| {
                 if o == IMPORTS_NAME {
                     import_names.push(body);
                 } else if o == IMPORTS_FROM {
@@ -430,9 +430,7 @@ impl Lang {
 
                         if !targets.is_empty() {
                             let target = targets
-                                .iter()
-                                .filter(|node_data| node_data.file.contains(&resolved_path))
-                                .next();
+                                .iter().find(|node_data| node_data.file.contains(&resolved_path));
 
                             let file_nodes =
                                 graph.find_nodes_by_file_ends_with(NodeType::File, file);
@@ -441,7 +439,7 @@ impl Lang {
                                 .cloned()
                                 .unwrap_or_else(|| NodeData::in_file(file));
                             if let Some(target) = target {
-                                edges.push(Edge::file_imports(&file_node, nt, &target));
+                                edges.push(Edge::file_imports(&file_node, nt, target));
                                 break;
                             }
                         }
@@ -469,7 +467,7 @@ impl Lang {
         // To guarantee a deterministic order of identifiers, we collect them and sort them before processing them.
         let mut identifiers = Vec::new();
         while let Some(m) = matches.next() {
-            Self::loop_captures(&query, &m, code, |body, node, _o| {
+            Self::loop_captures(&query, m, code, |body, node, _o| {
                 let p = node.start_position();
                 identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())
@@ -515,7 +513,7 @@ impl Lang {
                             .cloned()
                             .unwrap_or_else(|| NodeData::in_file(file));
 
-                        edges.push(Edge::file_imports(&file_node, nt.clone(), &target));
+                        edges.push(Edge::file_imports(&file_node, nt.clone(), target));
                         processed.insert(key);
                         break;
                     }
@@ -542,8 +540,7 @@ impl Lang {
         let all_vars = graph.find_nodes_by_type(NodeType::Var);
 
         let imports = graph.find_nodes_by_file_ends_with(NodeType::Import, &func.file);
-        let import_body = imports
-            .get(0)
+        let import_body = imports.first()
             .map(|imp| imp.body.clone())
             .unwrap_or_default();
 
@@ -599,7 +596,7 @@ impl Lang {
 
         let mut identifiers = Vec::new();
         while let Some(m) = matches.next() {
-            Self::loop_captures(&query, &m, code, |body, node, _o| {
+            Self::loop_captures(&query, m, code, |body, node, _o| {
                 let p = node.start_position();
                 identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())
@@ -644,7 +641,7 @@ impl Lang {
                     NodeType::Function,
                     func,
                     NodeType::Var,
-                    &var,
+                    var,
                 ));
                 processed.insert(key);
             }
@@ -708,7 +705,7 @@ impl Lang {
         for var in variables {
             var_index
                 .entry(var.file.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(var);
         }
 

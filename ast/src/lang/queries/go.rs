@@ -6,6 +6,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Go(Language);
 
+impl Default for Go {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Go {
     pub fn new() -> Self {
         Go(tree_sitter_go::LANGUAGE.into())
@@ -27,7 +33,7 @@ impl Stack for Go {
         } else {
             parser.set_language(&self.0)?;
         }
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
     // fn is_lib_file(&self, file_name: &str) -> bool {
     //     file_name.contains("/go/pkg/mod/")
@@ -233,11 +239,11 @@ impl Stack for Go {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<Option<Edge>> {
         if let Some(lsp) = lsp_tx {
-            let res = LspCmd::GotoImplementations(pos.clone()).send(&lsp)?;
+            let res = LspCmd::GotoImplementations(pos.clone()).send(lsp)?;
             if let LspRes::GotoImplementations(Some(imp)) = res {
                 let tr = find_trait(imp.line, &imp.file.display().to_string());
                 if let Some(tr) = tr {
-                    let edge = Edge::trait_operand(&tr, &nd);
+                    let edge = Edge::trait_operand(&tr, nd);
                     return Ok(Some(edge));
                 }
             }

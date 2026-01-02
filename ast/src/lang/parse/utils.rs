@@ -15,8 +15,8 @@ pub fn trim_quotes(value: &str) -> &str {
     if value.starts_with("`") && value.ends_with("`") {
         return &value[1..value.len() - 1];
     }
-    if value.starts_with(":") {
-        return &value[1..];
+    if let Some(stripped) = value.strip_prefix(':') {
+        return stripped;
     }
     value
 }
@@ -51,10 +51,10 @@ pub fn find_def<G: Graph>(
     }
     let pos = pos.unwrap();
     // unwrap is ok since we checked above
-    let res = LspCmd::GotoDefinition(pos).send(&lsp_tx)?;
+    let res = LspCmd::GotoDefinition(pos).send(lsp_tx)?;
     if let LspRes::GotoDefinition(Some(gt)) = res {
         let target_file = gt.file.display().to_string();
-        let target_row = gt.line as u32;
+        let target_row = gt.line;
         if let Some(t_node) = graph.find_node_in_range(node_type.clone(), target_row, &target_file)
         {
             log_cmd(format!(
@@ -144,7 +144,7 @@ impl Lang {
         F: FnMut(String, TreeNode, String) -> Result<()>,
     {
         for o in q.capture_names().iter() {
-            if let Some(ci) = q.capture_index_for_name(&o) {
+            if let Some(ci) = q.capture_index_for_name(o) {
                 let mut nodes = m.nodes_for_capture_index(ci);
                 if let Some(node) = nodes.next() {
                     let body = node.utf8_text(code.as_bytes())?.to_string();
@@ -161,7 +161,7 @@ impl Lang {
         F: FnMut(String, TreeNode, String) -> Result<()>,
     {
         for o in q.capture_names().iter() {
-            if let Some(ci) = q.capture_index_for_name(&o) {
+            if let Some(ci) = q.capture_index_for_name(o) {
                 let nodes = m.nodes_for_capture_index(ci);
                 for node in nodes {
                     let body = node.utf8_text(code.as_bytes())?.to_string();

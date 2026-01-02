@@ -16,6 +16,12 @@ pub struct Ruby(Language);
 const CONTROLLER_FILE_SUFFIX: &str = "_controller.rb";
 const MAILER_FILE_SUFFIX: &str = "_mailer.rb";
 
+impl Default for Ruby {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Ruby {
     pub fn new() -> Self {
         Ruby(tree_sitter_ruby::LANGUAGE.into())
@@ -29,7 +35,7 @@ impl Stack for Ruby {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
     fn lib_query(&self) -> Option<String> {
         Some(format!(
@@ -165,26 +171,23 @@ impl Stack for Ruby {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() && parent.unwrap().kind().to_string() != "class" {
+        while parent.is_some() && parent.unwrap().kind() != "class" {
             parent = parent.unwrap().parent();
         }
         let parent_of = match parent {
             Some(p) => {
                 let query = self.q(&self.identifier_query(), &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
-                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
-                        target: NodeKeys::new(func_name, file, node.start_position().row),
-                    }),
-                    None => None,
-                }
+                query_to_ident(query, p, code)?.map(|parent_name| Operand {
+                    source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                    target: NodeKeys::new(func_name, file, node.start_position().row),
+                })
             }
             None => None,
         };
         Ok(parent_of)
     }
     fn identifier_query(&self) -> String {
-        format!("name: [(constant) (scope_resolution)] @identifier")
+        "name: [(constant) (scope_resolution)] @identifier".to_string()
     }
     fn data_model_name(&self, dm_name: &str) -> String {
         inflection::pluralize(dm_name).to_lowercase()
@@ -261,7 +264,7 @@ impl Stack for Ruby {
         if is_support {
             return false;
         }
-        
+
         filename.ends_with("_spec.rb")
             || filename.ends_with("_test.rb")
             || filename.contains("/spec/")
@@ -391,12 +394,12 @@ impl Stack for Ruby {
         if b.contains("type: :system") || b.contains("type: :feature") {
             return NodeType::E2eTest;
         }
-        
+
         // type: :request, type: :integration → Integration
         if b.contains("type: :request") || b.contains("type: :integration") {
             return NodeType::IntegrationTest;
         }
-        
+
         // type: :model, type: :service → Unit
         if b.contains("type: :model") || b.contains("type: :service") {
             return NodeType::UnitTest;
@@ -504,7 +507,7 @@ impl Stack for Ruby {
         find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
-        if endpoint.meta.get("handler").is_none() {
+        if !endpoint.meta.contains_key("handler") {
             return Vec::new();
         }
 
@@ -538,7 +541,10 @@ impl Stack for Ruby {
             ) {
                 let mut endp_ = endpoint.clone();
                 // Add verb for root routes (they typically respond to GET)
-                if controller == "home" && params.parents.is_empty() && endp_.meta.get("verb").is_none() {
+                if controller == "home"
+                    && params.parents.is_empty()
+                    && !endp_.meta.contains_key("verb")
+                {
                     endp_.add_verb("GET");
                 }
                 inter.push((endp_, nd));
@@ -546,7 +552,7 @@ impl Stack for Ruby {
             }
         } else {
             // https://guides.rubyonrails.org/routing.html  section 2.2 CRUD, Verbs, and Actions
-            let ror_actions = vec![
+            let ror_actions = [
                 "index", "show", "new", "create", "edit", "update", "destroy",
             ]
             .iter()
@@ -577,8 +583,8 @@ impl Stack for Ruby {
             };
             // resources :request_center OR resource :dashboard (singular)
             // For singular resources, Rails conventions use plural controller names
-            let controller_name = if endpoint.meta.get("is_singular").is_some() {
-                inflection::pluralize(&handler_string)
+            let controller_name = if endpoint.meta.contains_key("is_singular") {
+                inflection::pluralize(handler_string)
             } else {
                 handler_string.clone()
             };
@@ -614,7 +620,7 @@ impl Stack for Ruby {
                 } else if !explicit_path {
                     // Fallback: keep original name if path generation fails and not explicit
                 }
-                let edge = Edge::handler(&src, &target);
+                let edge = Edge::handler(&src, target);
                 (src.clone(), Some(edge))
             })
             .collect::<Vec<(NodeData, Option<Edge>)>>();
@@ -633,22 +639,26 @@ impl Stack for Ruby {
 
         while parent.is_some() {
             let parent_node = parent.unwrap();
-            if parent_node.kind().to_string() == "call" {
+            if parent_node.kind() == "call" {
                 // Check if this is a namespace, scope, or resources call
                 if let Some(method_node) = parent_node.child_by_field_name("method") {
-                    if method_node.kind().to_string() == "identifier" {
+                    if method_node.kind() == "identifier" {
                         let method_name = method_node.utf8_text(code.as_bytes()).unwrap_or("");
-                        if method_name == "namespace" || method_name == "scope" || method_name == "resources" {
+                        if method_name == "namespace"
+                            || method_name == "scope"
+                            || method_name == "resources"
+                        {
                             // Get the first argument which should be the route name
                             if let Some(args_node) = parent_node.child_by_field_name("arguments") {
                                 if let Some(first_arg) = args_node.named_child(0) {
                                     let route_name =
                                         first_arg.utf8_text(code.as_bytes()).unwrap_or("");
-                                    let item_type = if method_name == "namespace" || method_name == "scope" {
-                                        HandlerItemType::Namespace
-                                    } else {
-                                        HandlerItemType::ResourceMember
-                                    };
+                                    let item_type =
+                                        if method_name == "namespace" || method_name == "scope" {
+                                            HandlerItemType::Namespace
+                                        } else {
+                                            HandlerItemType::ResourceMember
+                                        };
                                     // Create HandlerItem for this parent route
                                     // For scope, trim the leading slash if present
                                     let cleaned_name = if method_name == "scope" {
@@ -683,11 +693,7 @@ impl Stack for Ruby {
         tt: NodeType,
     ) -> Option<Edge> {
         let cla = find_class(&nd.name);
-        if let Some(cl) = cla {
-            Some(Edge::calls(tt, nd, NodeType::Class, &cl))
-        } else {
-            None
-        }
+        cla.map(|cl| Edge::calls(tt, nd, NodeType::Class, &cl))
     }
     fn use_extra_page_finder(&self) -> bool {
         true
@@ -712,9 +718,7 @@ impl Stack for Ruby {
         _find_all_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
     ) -> Option<(NodeData, Option<Edge>)> {
         let pagename = get_page_name(file_path);
-        if pagename.is_none() {
-            return None;
-        }
+        pagename.as_ref()?;
         let pagename = pagename.unwrap();
         let page = NodeData::name_file(&pagename, file_path);
         // get the handler name

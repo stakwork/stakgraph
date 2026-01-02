@@ -41,9 +41,7 @@ pub fn _filenamey(f: &PathBuf) -> String {
 
 pub fn get_page_name(path: &str) -> Option<String> {
     let parts = path.split("/").collect::<Vec<&str>>();
-    if parts.last().is_none() {
-        return None;
-    }
+    parts.last()?;
     Some(parts.last().unwrap().to_string())
 }
 
@@ -116,7 +114,7 @@ pub fn is_allowed_file(path: &PathBuf, lang: &Language) -> bool {
 impl Repo {
     pub fn prepare_file_data(&self, path: &str, code: &str) -> NodeData {
         let mut file_data = NodeData::in_file(path);
-        let filename = path.split('/').last().unwrap_or(path);
+        let filename = path.split('/').next_back().unwrap_or(path);
         file_data.name = filename.to_string();
 
         let skip_file_content = std::env::var("DEV_SKIP_FILE_CONTENT").is_ok();
@@ -127,7 +125,7 @@ impl Repo {
         file_data
     }
     pub fn get_parent_info(&self, path: &PathBuf) -> (NodeType, String) {
-        let stripped_path = strip_tmp(&path).display().to_string();
+        let stripped_path = strip_tmp(path).display().to_string();
 
         let root_no_tmp = strip_tmp(&self.root).display().to_string();
         let mut dir_no_root = stripped_path

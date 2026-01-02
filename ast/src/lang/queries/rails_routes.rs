@@ -150,39 +150,34 @@ pub fn ruby_endpoint_finders_func() -> Vec<String> {
 use crate::lang::{HandlerItemType, HandlerParams, NodeData};
 
 pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Option<String> {
-    if endpoint.meta.get("handler").is_none() {
-        return None;
-    }
+    endpoint.meta.get("handler")?;
     let handler = endpoint.meta.get("handler").unwrap();
-    
+
     // Check if this is a root route (handler contains #index or similar but no resource prefix)
     if handler.contains("#") {
         let parts: Vec<&str> = handler.split("#").collect();
         if parts.len() == 2 && parts[0] == "home" && params.parents.is_empty() {
             return Some("/".to_string());
         }
-        
+
         // For explicit routes with to: (e.g., get 'status', to: 'health#status')
         // Use the endpoint.name (the route path) not the handler controller name
         if !endpoint.name.is_empty() && endpoint.name != *handler {
             // This is an explicit route - use endpoint.name as the resource
             let mut path_parts = Vec::new();
-            
+
             // Add parent namespaces/scopes
             for parent in &params.parents {
-                match parent.item_type {
-                    HandlerItemType::Namespace => {
-                        path_parts.push(parent.name.clone());
-                    }
-                    _ => (),
+                if let HandlerItemType::Namespace = parent.item_type {
+                    path_parts.push(parent.name.clone());
                 }
             }
-            
+
             path_parts.push(endpoint.name.clone());
             return Some(format!("/{}", path_parts.join("/")));
         }
     }
-    
+
     let mut path_parts = Vec::new();
 
     // Get the base resource name from handler
@@ -191,9 +186,9 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
     } else {
         handler.to_string()
     };
-    
+
     // Check if this is a singular resource (no :id in paths)
-    let is_singular = endpoint.meta.get("is_singular").is_some();
+    let is_singular = endpoint.meta.contains_key("is_singular");
 
     // For collection/member routes, exclude the last parent if it matches our resource
     let parents_to_use = if let Some(item) = &params.item {

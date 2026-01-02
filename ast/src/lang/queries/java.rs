@@ -5,6 +5,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Java(Language);
 
+impl Default for Java {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Java {
     pub fn new() -> Self {
         Java(tree_sitter_java::LANGUAGE.into())
@@ -19,7 +25,7 @@ impl Stack for Java {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
 
     fn lib_query(&self) -> Option<String> {
@@ -231,7 +237,7 @@ impl Stack for Java {
         let import_name = import_name.to_string();
         let name = import_name
             .split('.')
-            .last()
+            .next_back()
             .unwrap_or(&import_name)
             .to_string();
         name

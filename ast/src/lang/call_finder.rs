@@ -111,7 +111,7 @@ pub fn get_imports_for_file<G: Graph>(
         let mut import_source = None;
         let mut import_aliases = Vec::new();
 
-        if Lang::loop_captures_multi(&q, &m, code, |body, _node, o| {
+        if Lang::loop_captures_multi(&q, m, code, |body, _node, o| {
             if o == IMPORTS_NAME {
                 import_names.push(body);
             } else if o == IMPORTS_ALIAS {
@@ -188,18 +188,17 @@ fn find_only_one_function_file<G: Graph>(
 ) -> Option<NodeData> {
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
-    if nodes.len() == 0 {
+    if nodes.is_empty() {
         log_cmd(format!("::: found zero {:?}", func_name));
         return None;
     }
     for node in nodes {
         let is_same = node.start == source_start && node.file == current_file;
         // NOT empty functions (interfaces)
-        if !node.body.is_empty() {
-            if !is_same || source_node_type != NodeType::Function {
+        if !node.body.is_empty()
+            && (!is_same || source_node_type != NodeType::Function) {
                 target_files_starts.push(node);
             }
-        }
     }
 
     if target_files_starts.len() == 1 {

@@ -5,6 +5,12 @@ use tree_sitter::{Language, Parser, Query, Tree};
 
 pub struct Angular(Language);
 
+impl Default for Angular {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Angular {
     pub fn new() -> Self {
         Angular(tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
@@ -18,7 +24,7 @@ impl Stack for Angular {
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         parser.set_language(&self.0)?;
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
     fn component_template_query(&self) -> Option<String> {
         Some(format!(

@@ -5,6 +5,12 @@ use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 
 pub struct Svelte(Language);
 
+impl Default for Svelte {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Svelte {
     pub fn new() -> Self {
         Svelte(tree_sitter_svelte_ng::LANGUAGE.into())
@@ -27,7 +33,7 @@ impl Stack for Svelte {
         } else {
             parser.set_language(&self.0)?;
         }
-        Ok(parser.parse(code, None).context("failed to parse")?)
+        parser.parse(code, None).context("failed to parse")
     }
 
     fn imports_query(&self) -> Option<String> {
@@ -67,13 +73,11 @@ impl Stack for Svelte {
     }
 
     fn function_call_query(&self) -> String {
-        format!(
-            r#"
+        r#"
             (expression
                 (_) @args
             ) @FUNCTION_CALL
-            "#
-        )
+            "#.to_string()
     }
 
     fn find_function_parent(
@@ -87,7 +91,7 @@ impl Stack for Svelte {
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
         while parent.is_some() {
-            if parent.unwrap().kind().to_string() == "class_declaration" {
+            if parent.unwrap().kind() == "class_declaration" {
                 // found it!
                 break;
             }
@@ -96,13 +100,10 @@ impl Stack for Svelte {
         let parent_of = match parent {
             Some(p) => {
                 let query = self.q("(type_identifier) @class_name", &NodeType::Class);
-                match query_to_ident(query, p, code)? {
-                    Some(parent_name) => Some(Operand {
+                query_to_ident(query, p, code)?.map(|parent_name| Operand {
                         source: NodeKeys::new(&parent_name, file, p.start_position().row),
                         target: NodeKeys::new(func_name, file, node.start_position().row),
-                    }),
-                    None => None,
-                }
+                    })
             }
             None => None,
         };
@@ -132,7 +133,7 @@ impl Stack for Svelte {
         ))
     }
     fn identifier_query(&self) -> String {
-        format!(r#"(tag_name) @identifier"#)
+        r#"(tag_name) @identifier"#.to_string()
     }
 
     fn data_model_within_query(&self) -> Option<String> {

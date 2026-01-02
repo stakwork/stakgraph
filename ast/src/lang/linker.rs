@@ -302,12 +302,12 @@ pub fn infer_lang(nd: &NodeData) -> Result<Language> {
 }
 
 pub fn extract_test_ids(content: &str, lang: &Language) -> Result<Vec<String>> {
-    if let None = lang.test_id_regex() {
+    if lang.test_id_regex().is_none() {
         return Ok(Vec::new());
     }
-    let re = Regex::new(&lang.test_id_regex().unwrap())?;
+    let re = Regex::new(lang.test_id_regex().unwrap())?;
     let mut test_ids = Vec::new();
-    for capture in re.captures_iter(&content) {
+    for capture in re.captures_iter(content) {
         if let Some(test_id) = capture.get(1) {
             test_ids.push(test_id.as_str().to_string());
         }
