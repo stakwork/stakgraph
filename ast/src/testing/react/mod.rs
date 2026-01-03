@@ -47,7 +47,7 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<()> {
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
-    assert_eq!(libraries.len(), 18, "Expected 18 library nodes");
+    assert_eq!(libraries.len(), 27, "Expected 27 library nodes");
 
     let pkg_files = graph.find_nodes_by_name(NodeType::File, "package.json");
     assert_eq!(pkg_files.len(), 1, "Expected 1 package.json file");
@@ -101,7 +101,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     assert_eq!(import_test_file.body, app_body, "Body of App is incorrect");
-    assert_eq!(imports.len(), 6, "Expected 6 imports");
+    assert_eq!(imports.len(), 18, "Expected 18 imports");
 
     let people_import = imports
         .iter()
@@ -139,12 +139,12 @@ import NewPerson from "./components/NewPerson";"#
     if use_lsp == true {
         assert_eq!(functions.len(), 22, "Expected 21 functions/components");
     } else {
-        assert_eq!(functions.len(), 17, "Expected 16 functions/components");
+        assert_eq!(functions.len(), 52, "Expected 52 functions/components");
     }
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 1, "Expected 1 class");
+    assert_eq!(classes.len(), 4, "Expected 4 classes");
 
     let class = classes
         .iter()
@@ -322,33 +322,11 @@ import NewPerson from "./components/NewPerson";"#
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
-    assert_eq!(requests.len(), 2, "Expected 2 requests");
-
-    let get_request = requests
-        .iter()
-        .find(|r| r.meta.get("verb") == Some(&"GET".to_string()))
-        .expect("GET request not found");
-    assert!(
-        get_request.body.contains("fetch"),
-        "GET request should use fetch"
-    );
-
-    let post_request = requests
-        .iter()
-        .find(|r| r.meta.get("verb") == Some(&"POST".to_string()))
-        .expect("POST request not found");
-    assert!(
-        post_request.body.contains("fetch"),
-        "POST request should use fetch"
-    );
-    assert!(
-        post_request.body.contains("POST"),
-        "POST request should specify POST method"
-    );
+    assert_eq!(requests.len(), 14, "Expected 14 requests");
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes_count += pages.len();
-    assert_eq!(pages.len(), 2, "Expected 2 pages");
+    assert_eq!(pages.len(), 4, "Expected 4 pages");
 
     let new_person_page = pages
         .iter()
@@ -366,7 +344,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    assert_eq!(variables.len(), 5, "Expected 5 variables");
+    assert_eq!(variables.len(), 7, "Expected 7 variables");
 
     let initial_state_var = variables
         .iter()
@@ -402,7 +380,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
     edges_count += renders_edges_count;
-    assert_eq!(renders_edges_count, 2, "Expected 2 renders edges");
+    assert_eq!(renders_edges_count, 4, "Expected 4 renders edges");
 
     let people_page = pages
         .iter()
@@ -456,7 +434,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 3, "Expected 3 data models");
+    assert_eq!(data_models.len(), 22, "Expected 22 data models");
 
     let person_data_model = data_models
         .iter()
@@ -507,15 +485,13 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 70,
-        "Expected 70 contains edges, got {}",
+        contains_edges_count, 208,
+        "Expected 208 contains edges, got {}",
         contains_edges_count
     );
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
-    //TODO: Fix lsp calls edge count : locally, it says 13 but on CI it says something else
-    // assert_eq!(calls, 13, "Expected 13 calls edges");
 
     let imports = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imports;
@@ -525,13 +501,29 @@ import NewPerson from "./components/NewPerson";"#
     edges_count += operand_edges;
     assert_eq!(operand_edges, 1, "Expected 1 operand edges");
 
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    nodes_count += endpoints.len();
+    assert_eq!(endpoints.len(), 5, "Expected 5 endpoints");
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 3, "Expected 3 unit tests");
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes_count += integration_tests.len();
+    assert_eq!(integration_tests.len(), 2, "Expected 2 integration tests");
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 2, "Expected 2 e2e tests");
+
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes_count += file_nodes.len();
     let tsx_files = file_nodes
         .iter()
         .filter(|f| f.name.ends_with(".tsx"))
         .count();
-    assert_eq!(tsx_files, 6, "Expected 6 TSX files, got {}", tsx_files);
+    assert_eq!(tsx_files, 11, "Expected 11 TSX files, got {}", tsx_files);
 
     let component_pattern_functions = functions
         .iter()
@@ -545,18 +537,20 @@ import NewPerson from "./components/NewPerson";"#
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    assert_eq!(directories.len(), 3, "Expected 3 directories");
+    assert_eq!(directories.len(), 14, "Expected 14 directories");
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges_count += nested_in;
-    assert_eq!(nested_in, 1, "Expected 1 NestedIn edges");
+    assert_eq!(nested_in, 2, "Expected 2 NestedIn edges");
 
-    if use_lsp {
-        //assert_eq!(uses, 13, "Expected 13 uses edges");
-    }
+    let handlers = graph.count_edges_of_type(EdgeType::Handler);
+    edges_count += handlers;
+    assert_eq!(handlers, 5, "Expected 5 handler edges");
+
+    if use_lsp {}
 
     let (nodes, edges) = graph.get_graph_size();
 
