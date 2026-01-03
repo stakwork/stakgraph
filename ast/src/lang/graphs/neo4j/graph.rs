@@ -4,7 +4,7 @@ use crate::lang::graphs::{
 use crate::lang::{
     asg::TestRecord, Calls, Edge, EdgeType, Graph, NodeData, NodeKeys, NodeType, TestFilters,
 };
-use crate::utils::sync_fn;
+use crate::utils::{create_node_key, sync_fn};
 use crate::{lang::Function, lang::Node, Lang};
 use lsp::Language;
 use neo4rs::{query, BoltMap, Graph as Neo4jConnection};
@@ -642,16 +642,20 @@ impl Neo4jGraph {
 
         for (endpoint, prefix) in matches {
             let full_path = format!("{}{}", prefix, endpoint.name);
+            let mut new_node_data = endpoint.clone();
+            new_node_data.name = full_path.clone();
+            let new_key = create_node_key(&Node::new(NodeType::Endpoint, new_node_data));
 
             let update_query = format!(
                 "MATCH (e:Endpoint) WHERE e.name = $old_name AND e.file = $file AND e.start = $start \
-                 SET e.name = $new_name RETURN e.name"
+                 SET e.name = $new_name, e.node_key = $new_key RETURN e.name"
             );
             let mut params = BoltMap::new();
             boltmap_insert_str(&mut params, "old_name", &endpoint.name);
             boltmap_insert_str(&mut params, "file", &endpoint.file);
             boltmap_insert_int(&mut params, "start", endpoint.start as i64);
             boltmap_insert_str(&mut params, "new_name", &full_path);
+            boltmap_insert_str(&mut params, "new_key", &new_key);
 
             txn_manager.add_query((update_query, params));
         }
