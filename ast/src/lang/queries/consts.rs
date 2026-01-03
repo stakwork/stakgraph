@@ -328,6 +328,9 @@ pub const JSX_HTML_ELEMENTS: [&str; 134] = [
 
 pub fn should_skip_js_function_call(called: &str, operand: &Option<String>) -> bool {
     if let Some(op) = operand {
+        if op == "console" {
+            return true;
+        }
         if let Some(first_char) = op.chars().next() {
             if first_char.is_lowercase()
                 && (ARRAY_METHODS.contains(&called)
@@ -335,9 +338,9 @@ pub fn should_skip_js_function_call(called: &str, operand: &Option<String>) -> b
                     || OBJECT_METHODS.contains(&called)
                     || ASYNC_METHODS.contains(&called)
                     || DOM_METHODS.contains(&called))
-                {
-                    return true;
-                }
+            {
+                return true;
+            }
         }
     }
 

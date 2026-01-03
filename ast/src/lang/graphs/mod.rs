@@ -188,7 +188,7 @@ impl Edge {
         Edge::new(
             EdgeType::Calls,
             NodeRef::from(source.into(), NodeType::IntegrationTest),
-            NodeRef::from(target.into(), NodeType::Function),
+            NodeRef::from(target.into(), NodeType::Endpoint),
         )
     }
     pub fn contains(nt1: NodeType, f: &NodeData, nt2: NodeType, c: &NodeData) -> Edge {

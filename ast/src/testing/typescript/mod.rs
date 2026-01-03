@@ -261,7 +261,8 @@ import {{ sequelize }} from "./config.js";"#
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
-    assert_eq!(calls_edges_count, 12, "Expected 12 calls edges");
+
+    assert_eq!(calls_edges_count, 10, "Expected 10 calls edges");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();

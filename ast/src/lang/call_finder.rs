@@ -40,6 +40,7 @@ pub fn func_target_file_finder<G: Graph>(
     // First try: find only one function file
     if let Some(tf) = find_only_one_function_file(
         func_name,
+        operand,
         graph,
         source_start,
         current_file,
@@ -189,13 +190,23 @@ fn find_function_by_import<G: Graph>(
 
 fn find_only_one_function_file<G: Graph>(
     func_name: &str,
+    operand: &Option<String>,
     graph: &G,
     source_start: usize,
     current_file: &str,
     source_node_type: NodeType,
 ) -> Option<NodeData> {
+    let is_js = current_file.ends_with(".ts")
+        || current_file.ends_with(".tsx")
+        || current_file.ends_with(".js")
+        || current_file.ends_with(".jsx");
+
+    if is_js && operand.is_some() {
+        return None;
+    }
     let mut target_files_starts = Vec::new();
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+
     if nodes.is_empty() {
         log_cmd(format!("::: found zero {:?}", func_name));
         return None;
@@ -208,9 +219,16 @@ fn find_only_one_function_file<G: Graph>(
         }
     }
 
+    if target_files_starts.len() > 1 {
+        // Dedup by file and start
+        target_files_starts.sort_by(|a, b| a.file.cmp(&b.file).then(a.start.cmp(&b.start)));
+        target_files_starts.dedup_by(|a, b| a.file == b.file && a.start == b.start);
+    }
+
     if target_files_starts.len() == 1 {
         return Some(target_files_starts[0].clone());
     }
+
     // TODO: disclude "mock"
     log_cmd(format!("::: found more than one {:?}", func_name));
     target_files_starts.retain(|x| !x.file.contains("mock"));
