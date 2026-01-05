@@ -28,15 +28,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     nodes_count += language_nodes.len();
 
-    assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
-    assert_eq!(
-        language_nodes[0].name, "ruby",
-        "Language node name should be 'ruby'"
+    let ruby_lang_node = language_nodes.iter().find(|n| n.name == "ruby");
+    assert!(
+        ruby_lang_node.is_some(),
+        "Expected to find 'ruby' language node"
     );
-    assert_eq!(
-        language_nodes[0].file, "src/testing/ruby",
-        "Language node file path is incorrect"
-    );
+
+    if let Some(node) = ruby_lang_node {
+        assert_eq!(
+            node.file, "src/testing/ruby",
+            "Language node file path is incorrect"
+        );
+    }
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();

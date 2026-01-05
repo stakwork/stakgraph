@@ -538,13 +538,13 @@ pub fn query_nodes_with_count(
         .unwrap_or_default();
 
     let order_clause = if body_length {
-        "ORDER BY size(n.body) DESC, n.name ASC"
+        "ORDER BY size(n.body) DESC, n.name ASC, n.file ASC"
     } else if line_count {
-        "ORDER BY (n.end - n.start) DESC, n.name ASC"
+        "ORDER BY (n.end - n.start) DESC, n.name ASC, n.file ASC"
     } else if sort_by_test_count {
-        "ORDER BY test_count DESC, n.name ASC"
+        "ORDER BY test_count DESC, n.name ASC, n.file ASC"
     } else {
-        "ORDER BY n.name ASC"
+        "ORDER BY n.name ASC, n.file ASC"
     };
 
     let (test_match_clauses, test_count_expr) = if let Some(filters) = &test_filters {
