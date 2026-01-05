@@ -18,7 +18,6 @@ fn split_at_comma(s: &str) -> Vec<String> {
         .collect()
 }
 
-/// Aggregate multiple CoverageStat values into a single combined stat.
 fn aggregate_coverage_stats(stats: &[Option<CoverageStat>]) -> Option<CoverageStat> {
     let valid: Vec<_> = stats.iter().filter_map(|s| s.as_ref()).collect();
     if valid.is_empty() {
@@ -50,7 +49,6 @@ fn aggregate_coverage_stats(stats: &[Option<CoverageStat>]) -> Option<CoverageSt
     })
 }
 
-/// Aggregate multiple MockStat values into a single combined stat.
 fn aggregate_mock_stats(stats: &[Option<MockStat>]) -> Option<MockStat> {
     let valid: Vec<_> = stats.iter().filter_map(|s| s.as_ref()).collect();
     if valid.is_empty() {
@@ -99,10 +97,8 @@ pub async fn coverage_handler(
         .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
-    // Convert to per-language Coverage structs
     let coverages: Vec<Coverage> = graph_coverages.into_iter().map(Coverage::from).collect();
 
-    // Build per-language breakdown
     let languages: Vec<LanguageCoverage> = coverages
         .iter()
         .map(|c| LanguageCoverage {
@@ -114,7 +110,6 @@ pub async fn coverage_handler(
         })
         .collect();
 
-    // Aggregate totals across all languages
     let unit_tests = aggregate_coverage_stats(
         &coverages
             .iter()

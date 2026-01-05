@@ -150,7 +150,6 @@ pub struct Coverage {
     pub mocks: Option<MockStat>,
 }
 
-/// Per-language coverage breakdown.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LanguageCoverage {
     pub name: String,
@@ -164,7 +163,6 @@ pub struct LanguageCoverage {
     pub mocks: Option<MockStat>,
 }
 
-/// Backward-compatible coverage response with aggregated totals and per-language breakdown.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CoverageResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
