@@ -467,8 +467,8 @@ async fn test_nodes_pagination_default() -> Result<()> {
         )
         .await?;
 
-    assert!(count > 10, "Should have more than limit items");
-    assert_eq!(results.len(), 10, "Should return exactly limit items");
+    assert_eq!(count, 7, "Should have exactly 7 function items");
+    assert_eq!(results.len(), 7, "Should return all function items");
 
     Ok(())
 }
@@ -496,7 +496,7 @@ async fn test_nodes_pagination_second_page() -> Result<()> {
         .await?;
 
     // Get second page
-    let (count2, results2) = graph_ops
+    let (_count2, results2) = graph_ops
         .query_nodes_with_count(
             &[NodeType::Function],
             10,
@@ -512,7 +512,11 @@ async fn test_nodes_pagination_second_page() -> Result<()> {
         )
         .await?;
 
-    assert!(count2 > 0);
+    assert_eq!(
+        results2.len(),
+        0,
+        "Second page should be empty with only 7 functions"
+    );
 
     let page1_identifiers: Vec<_> = results1
         .iter()
@@ -957,7 +961,7 @@ async fn test_nodes_search() -> Result<()> {
 
     let (count, results) = graph_ops
         .query_nodes_with_count(
-            &[NodeType::Function],
+            &[NodeType::Class],
             0,
             100,
             true,
@@ -966,16 +970,16 @@ async fn test_nodes_search() -> Result<()> {
             false,
             None,
             None,
-            Some("get_person"),
+            Some("Person"),
             None,
         )
         .await?;
 
-    assert!(count > 0, "Should find functions matching search");
+    assert_eq!(count, 6, "Should find exactly 6 classes matching search");
 
     for (_, node_data, _, _, _, _, _, _, _) in &results {
         assert!(
-            node_data.name.contains("get_person") || node_data.file.contains("person"),
+            node_data.name.contains("Person") || node_data.file.contains("person"),
             "Results should match search term"
         );
     }
@@ -1232,8 +1236,8 @@ async fn test_has_function_with_tests_filter() -> Result<()> {
 
     let unit_covered = graph_ops
         .has_coverage(
-            NodeType::Function,
-            "get_person_by_id",
+            NodeType::Class,
+            "PersonService",
             "src/testing/ruby/app/services/person_service.rb",
             None,
             None,
@@ -1243,8 +1247,8 @@ async fn test_has_function_with_tests_filter() -> Result<()> {
 
     let integration_covered = graph_ops
         .has_coverage(
-            NodeType::Function,
-            "get_person_by_id",
+            NodeType::Class,
+            "PersonService",
             "src/testing/ruby/app/services/person_service.rb",
             None,
             None,

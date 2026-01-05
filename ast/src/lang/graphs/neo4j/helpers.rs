@@ -69,7 +69,7 @@ pub fn unique_functions_filters() -> Vec<String> {
         "(n.body IS NOT NULL AND n.body <> '')".to_string(),
         "NOT (:Endpoint)-[:HANDLER]->(n)".to_string(),
         "(n.component IS NULL OR n.component <> 'true')".to_string(),
-        "(n.file ENDS WITH '.rb' OR n.operand IS NULL)".to_string(),
+        "n.operand IS NULL".to_string(),
         "EXISTS(()-[:CALLS]->(:Function))".to_string(),
     ]
 }
