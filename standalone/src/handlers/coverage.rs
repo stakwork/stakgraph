@@ -1,6 +1,7 @@
 use crate::types::{
-    Coverage, CoverageParams, HasParams, HasResponse, Node, NodeConcise, NodesResponseItem,
-    QueryNodesParams, QueryNodesResponse, Result, WebError,
+    Coverage, CoverageParams, CoverageResponse, CoverageStat, HasParams, HasResponse,
+    LanguageCoverage, MockStat, Node, NodeConcise, NodesResponseItem, QueryNodesParams,
+    QueryNodesResponse, Result, WebError,
 };
 use crate::utils::parse_node_types;
 use ast::lang::{
@@ -17,8 +18,63 @@ fn split_at_comma(s: &str) -> Vec<String> {
         .collect()
 }
 
+/// Aggregate multiple CoverageStat values into a single combined stat.
+fn aggregate_coverage_stats(stats: &[Option<CoverageStat>]) -> Option<CoverageStat> {
+    let valid: Vec<_> = stats.iter().filter_map(|s| s.as_ref()).collect();
+    if valid.is_empty() {
+        return None;
+    }
+
+    let total: usize = valid.iter().map(|s| s.total).sum();
+    let total_tests: usize = valid.iter().map(|s| s.total_tests).sum();
+    let covered: usize = valid.iter().map(|s| s.covered).sum();
+    let total_lines: usize = valid.iter().map(|s| s.total_lines).sum();
+    let covered_lines: usize = valid.iter().map(|s| s.covered_lines).sum();
+
+    Some(CoverageStat {
+        total,
+        total_tests,
+        covered,
+        percent: if total > 0 {
+            (covered as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        },
+        total_lines,
+        covered_lines,
+        line_percent: if total_lines > 0 {
+            (covered_lines as f64 / total_lines as f64) * 100.0
+        } else {
+            0.0
+        },
+    })
+}
+
+/// Aggregate multiple MockStat values into a single combined stat.
+fn aggregate_mock_stats(stats: &[Option<MockStat>]) -> Option<MockStat> {
+    let valid: Vec<_> = stats.iter().filter_map(|s| s.as_ref()).collect();
+    if valid.is_empty() {
+        return None;
+    }
+
+    let total: usize = valid.iter().map(|s| s.total).sum();
+    let mocked: usize = valid.iter().map(|s| s.mocked).sum();
+
+    Some(MockStat {
+        total,
+        mocked,
+        percent: if total > 0 {
+            (mocked as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        },
+    })
+}
+
 #[axum::debug_handler]
-pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Vec<Coverage>>> {
+pub async fn coverage_handler(
+    Query(params): Query<CoverageParams>,
+) -> Result<Json<CoverageResponse>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
@@ -43,9 +99,54 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
         .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
+    // Convert to per-language Coverage structs
     let coverages: Vec<Coverage> = graph_coverages.into_iter().map(Coverage::from).collect();
 
-    Ok(Json(coverages))
+    // Build per-language breakdown
+    let languages: Vec<LanguageCoverage> = coverages
+        .iter()
+        .map(|c| LanguageCoverage {
+            name: c.language.clone().unwrap_or_default(),
+            unit_tests: c.unit_tests.clone(),
+            integration_tests: c.integration_tests.clone(),
+            e2e_tests: c.e2e_tests.clone(),
+            mocks: c.mocks.clone(),
+        })
+        .collect();
+
+    // Aggregate totals across all languages
+    let unit_tests = aggregate_coverage_stats(
+        &coverages
+            .iter()
+            .map(|c| c.unit_tests.clone())
+            .collect::<Vec<_>>(),
+    );
+    let integration_tests = aggregate_coverage_stats(
+        &coverages
+            .iter()
+            .map(|c| c.integration_tests.clone())
+            .collect::<Vec<_>>(),
+    );
+    let e2e_tests = aggregate_coverage_stats(
+        &coverages
+            .iter()
+            .map(|c| c.e2e_tests.clone())
+            .collect::<Vec<_>>(),
+    );
+    let mocks = aggregate_mock_stats(
+        &coverages
+            .iter()
+            .map(|c| c.mocks.clone())
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(Json(CoverageResponse {
+        unit_tests,
+        integration_tests,
+        e2e_tests,
+        mocks,
+        languages,
+    }))
 }
 
 #[axum::debug_handler]
