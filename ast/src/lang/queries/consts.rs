@@ -326,9 +326,54 @@ pub const JSX_HTML_ELEMENTS: [&str; 134] = [
     "feSpotLight",
 ];
 
+pub const JS_BUILTIN_OBJECTS: [&str; 42] = [
+    "console",
+    "Math",
+    "Number",
+    "BigInt",
+    "Array",
+    "Object",
+    "Map",
+    "Set",
+    "WeakMap",
+    "WeakSet",
+    "String",
+    "JSON",
+    "Intl",
+    "RegExp",
+    "Promise",
+    "Date",
+    "ArrayBuffer",
+    "DataView",
+    "Uint8Array",
+    "Int32Array",
+    "Float32Array",
+    "Float64Array",
+    "Reflect",
+    "Proxy",
+    "Symbol",
+    "Error",
+    "process",
+    "Buffer",
+    "require",
+    "module",
+    "exports",
+    "global",
+    "window",
+    "document",
+    "navigator",
+    "localStorage",
+    "sessionStorage",
+    "fetch",
+    "history",
+    "location",
+    "screen",
+    "performance",
+];
+
 pub fn should_skip_js_function_call(called: &str, operand: &Option<String>) -> bool {
     if let Some(op) = operand {
-        if op == "console" {
+        if JS_BUILTIN_OBJECTS.contains(&op.as_str()) {
             return true;
         }
         if let Some(first_char) = op.chars().next() {
