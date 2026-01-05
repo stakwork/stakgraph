@@ -507,6 +507,7 @@ impl Lang {
                                     endp.clone().start,
                                     NodeType::Endpoint,
                                     import_names.clone(),
+                                    self,
                                 )
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
@@ -1018,6 +1019,7 @@ impl Lang {
                         fc.source.start,
                         NodeType::Function,
                         import_names,
+                        self,
                     ) {
                         log_cmd(format!(
                             "==> ? ONE target for {:?} {}",
@@ -1085,6 +1087,7 @@ impl Lang {
                 fc.source.start,
                 NodeType::Function,
                 import_names,
+                self,
             ) {
                 log_cmd(format!(
                     "==> ? (no lsp) ONE target for {:?} {}",
@@ -1101,6 +1104,7 @@ impl Lang {
                     fc.source.start,
                     NodeType::Function,
                     import_names_for_operand,
+                    self,
                 ) {
                     log_cmd(format!(
                         "==> ? (member expr) resolved base object {:?} in {}",

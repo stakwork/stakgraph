@@ -1,11 +1,13 @@
-use crate::lang::graphs::{queries::*, NodeData, NodeKeys, NodeType, NodeRef, Edge, EdgeType, executor::TransactionManager, helpers::boltmap_insert_str, Neo4jGraph};
+use crate::lang::graphs::{
+    executor::TransactionManager, helpers::boltmap_insert_str, queries::*, Edge, EdgeType,
+    Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
+};
 use neo4rs::{query, BoltMap};
 use shared::{Error, Result};
 use std::str::FromStr;
 
-
-impl Neo4jGraph{
-        pub async fn get_repository_hash(&self, repo_url: &str) -> Result<String> {
+impl Neo4jGraph {
+    pub async fn get_repository_hash(&self, repo_url: &str) -> Result<String> {
         let connection = self.ensure_connected().await?;
         let (query_str, params) = get_repository_hash_query(repo_url);
         let mut query_obj = query(&query_str);
@@ -37,7 +39,6 @@ impl Neo4jGraph{
             Ok(0)
         }
     }
-
 
     pub async fn update_repository_hash(&self, repo_name: &str, new_hash: &str) -> Result<()> {
         let connection = self.ensure_connected().await?;
@@ -110,7 +111,7 @@ impl Neo4jGraph{
         Ok(())
     }
 
-        pub async fn get_dynamic_edges_for_file(
+    pub async fn get_dynamic_edges_for_file(
         &self,
         file: &str,
     ) -> Result<Vec<(String, String, String, String, String)>> {
@@ -226,10 +227,7 @@ impl Neo4jGraph{
 
         Ok(restored_count)
     }
-
-
 }
-
 
 pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
@@ -282,14 +280,20 @@ pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String,
     (query.to_string(), params)
 }
 
-pub fn update_endpoint_name_query(old_name: &str, file: &str, new_name: &str) -> (String, BoltMap) {
+pub fn update_endpoint_name_query(
+    old_name: &str,
+    file: &str,
+    new_name: &str,
+    new_key: &str,
+) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "old_name", old_name);
     boltmap_insert_str(&mut params, "file", file);
     boltmap_insert_str(&mut params, "new_name", new_name);
+    boltmap_insert_str(&mut params, "new_key", new_key);
 
     let query = "MATCH (n:Endpoint {name: $old_name, file: $file})
-                 SET n.name = $new_name
+                 SET n.name = $new_name, n.node_key = $new_key
                  RETURN n";
 
     (query.to_string(), params)
@@ -342,4 +346,3 @@ pub fn set_default_namespace_query() -> String {
     "#
     .to_string()
 }
-
