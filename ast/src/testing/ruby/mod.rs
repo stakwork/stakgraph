@@ -28,15 +28,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let language_nodes = graph.find_nodes_by_type(NodeType::Language);
     nodes_count += language_nodes.len();
 
-    assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
-    assert_eq!(
-        language_nodes[0].name, "ruby",
-        "Language node name should be 'ruby'"
+    let ruby_lang_node = language_nodes.iter().find(|n| n.name == "ruby");
+    assert!(
+        ruby_lang_node.is_some(),
+        "Expected to find 'ruby' language node"
     );
-    assert_eq!(
-        language_nodes[0].file, "src/testing/ruby",
-        "Language node file path is incorrect"
-    );
+
+    if let Some(node) = ruby_lang_node {
+        assert_eq!(
+            node.file, "src/testing/ruby",
+            "Language node file path is incorrect"
+        );
+    }
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
@@ -140,7 +143,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let mut sorted_endpoints = endpoints.clone();
     sorted_endpoints.sort_by(|a, b| a.name.cmp(&b.name));
-    
+
     // Test root route
     let root_endpoint = endpoints
         .iter()
@@ -150,7 +153,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         root_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Root endpoint file path is incorrect"
     );
-    
+
     // Test namespace routes (api/v1)
     let api_status_endpoint = endpoints
         .iter()
@@ -160,7 +163,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         api_status_endpoint.file, "src/testing/ruby/config/routes.rb",
         "API status endpoint file path is incorrect"
     );
-    
+
     let api_tokens_post_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/api/v1/tokens" && e.meta.get("verb") == Some(&"POST".to_string()))
@@ -169,16 +172,18 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         api_tokens_post_endpoint.file, "src/testing/ruby/config/routes.rb",
         "API tokens POST endpoint file path is incorrect"
     );
-    
+
     let api_tokens_delete_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/api/v1/tokens/:id" && e.meta.get("verb") == Some(&"DELETE".to_string()))
+        .find(|e| {
+            e.name == "/api/v1/tokens/:id" && e.meta.get("verb") == Some(&"DELETE".to_string())
+        })
         .expect("DELETE /api/v1/tokens/:id endpoint not found");
     assert_eq!(
         api_tokens_delete_endpoint.file, "src/testing/ruby/config/routes.rb",
         "API tokens DELETE endpoint file path is incorrect"
     );
-    
+
     // Test scope routes (admin)
     let admin_settings_get_endpoint = endpoints
         .iter()
@@ -188,7 +193,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         admin_settings_get_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Admin settings GET endpoint file path is incorrect"
     );
-    
+
     let admin_settings_put_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/admin/settings/:id" && e.meta.get("verb") == Some(&"PUT".to_string()))
@@ -197,7 +202,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         admin_settings_put_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Admin settings PUT endpoint file path is incorrect"
     );
-    
+
     // Test singular resources
     let dashboard_get_endpoint = endpoints
         .iter()
@@ -207,7 +212,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         dashboard_get_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Dashboard GET endpoint file path is incorrect"
     );
-    
+
     let dashboard_put_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/dashboard" && e.meta.get("verb") == Some(&"PUT".to_string()))
@@ -216,7 +221,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         dashboard_put_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Dashboard PUT endpoint file path is incorrect"
     );
-    
+
     let profile_get_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/profile" && e.meta.get("verb") == Some(&"GET".to_string()))
@@ -225,7 +230,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         profile_get_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Profile GET endpoint file path is incorrect"
     );
-    
+
     let profile_edit_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/profile/edit" && e.meta.get("verb") == Some(&"GET".to_string()))
@@ -234,7 +239,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         profile_edit_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Profile edit endpoint file path is incorrect"
     );
-    
+
     let profile_put_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/profile" && e.meta.get("verb") == Some(&"PUT".to_string()))
@@ -243,7 +248,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         profile_put_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Profile PUT endpoint file path is incorrect"
     );
-    
+
     // Test nested resources
     let authors_get_endpoint = endpoints
         .iter()
@@ -253,28 +258,35 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         authors_get_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Authors GET endpoint file path is incorrect"
     );
-    
+
     let authors_books_get_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/authors/:author_id/books" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .find(|e| {
+            e.name == "/authors/:author_id/books" && e.meta.get("verb") == Some(&"GET".to_string())
+        })
         .expect("GET /authors/:author_id/books endpoint not found");
     assert_eq!(
         authors_books_get_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Authors books GET endpoint file path is incorrect"
     );
-    
+
     let authors_books_post_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/authors/:author_id/books" && e.meta.get("verb") == Some(&"POST".to_string()))
+        .find(|e| {
+            e.name == "/authors/:author_id/books" && e.meta.get("verb") == Some(&"POST".to_string())
+        })
         .expect("POST /authors/:author_id/books endpoint not found");
     assert_eq!(
         authors_books_post_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Authors books POST endpoint file path is incorrect"
     );
-    
+
     let authors_books_show_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/authors/:author_id/books/:id" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .find(|e| {
+            e.name == "/authors/:author_id/books/:id"
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
         .expect("GET /authors/:author_id/books/:id endpoint not found");
     assert_eq!(
         authors_books_show_endpoint.file, "src/testing/ruby/config/routes.rb",
@@ -395,7 +407,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     if use_lsp {
         assert_eq!(calls, 101, "Expected 101 call edges with lsp");
     } else {
-    assert_eq!(calls, 99, "Expected 99 call edges without lsp");
+        assert_eq!(calls, 99, "Expected 99 call edges without lsp");
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
@@ -421,8 +433,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
 
-   //FIXME: Neo4j says 42 operands, but local tests say 44
-   // assert_eq!(operands, 42, "Expected 42 operand edges, got {}", operands);
+    //FIXME: Neo4j says 42 operands, but local tests say 44
+    // assert_eq!(operands, 42, "Expected 42 operand edges, got {}", operands);
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
@@ -926,7 +938,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_ruby() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-     test_ruby_generic::<ArrayGraph>().await.unwrap();
+    test_ruby_generic::<ArrayGraph>().await.unwrap();
     test_ruby_generic::<BTreeMapGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]

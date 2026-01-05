@@ -1,9 +1,8 @@
-use neo4rs::{BoltMap, BoltType};
-use lazy_static::lazy_static;
-use shared::Result;
 use crate::lang::{NodeData, NodeType};
+use lazy_static::lazy_static;
+use neo4rs::{BoltMap, BoltType};
+use shared::Result;
 use tiktoken_rs::{get_bpe_from_model, CoreBPE};
-
 
 pub const DATA_BANK: &str = "Data_Bank";
 pub const BATCH_SIZE: usize = 4096;
@@ -18,8 +17,6 @@ pub struct MutedNodeIdentifier {
     pub name: String,
     pub file: String,
 }
-
-
 
 pub fn boltmap_insert_str(map: &mut BoltMap, key: &str, value: &str) {
     map.value.insert(key.into(), BoltType::String(value.into()));
@@ -54,9 +51,11 @@ pub fn boltmap_to_bolttype_map(bolt_map: BoltMap) -> BoltType {
     BoltType::Map(bolt_map)
 }
 pub fn boltmap_insert_bool(map: &mut BoltMap, key: &str, value: bool) {
-    map.value.insert(key.into(), neo4rs::BoltType::Boolean(neo4rs::BoltBoolean { value }));
+    map.value.insert(
+        key.into(),
+        neo4rs::BoltType::Boolean(neo4rs::BoltBoolean { value }),
+    );
 }
-
 
 pub fn calculate_token_count(body: &str) -> Result<i64> {
     let bpe = &TOKENIZER;
@@ -70,7 +69,7 @@ pub fn unique_functions_filters() -> Vec<String> {
         "(n.body IS NOT NULL AND n.body <> '')".to_string(),
         "NOT (:Endpoint)-[:HANDLER]->(n)".to_string(),
         "(n.component IS NULL OR n.component <> 'true')".to_string(),
-        "n.operand IS NULL".to_string(),
+        "(n.file ENDS WITH '.rb' OR n.operand IS NULL)".to_string(),
         "EXISTS(()-[:CALLS]->(:Function))".to_string(),
     ]
 }
@@ -83,14 +82,18 @@ pub fn extract_ref_id(node_data: &NodeData) -> String {
         .unwrap_or_else(|| "placeholder".to_string())
 }
 
-
-pub fn set_node_muted_query(node_type: &NodeType, name: &str, file: &str, is_muted: bool) -> (String, BoltMap) {
+pub fn set_node_muted_query(
+    node_type: &NodeType,
+    name: &str,
+    file: &str,
+    is_muted: bool,
+) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
     boltmap_insert_str(&mut params, "name", name);
     boltmap_insert_str(&mut params, "file", file);
     boltmap_insert_bool(&mut params, "is_muted", is_muted);
-    
+
     let query = "MATCH (n {name: $name, file: $file}) 
                  WHERE $node_type IN labels(n) 
                  SET n.is_muted = $is_muted 
@@ -103,7 +106,7 @@ pub fn check_node_muted_query(node_type: &NodeType, name: &str, file: &str) -> (
     boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
     boltmap_insert_str(&mut params, "name", name);
     boltmap_insert_str(&mut params, "file", file);
-    
+
     let query = "MATCH (n {name: $name, file: $file}) 
                  WHERE $node_type IN labels(n) 
                  RETURN n.is_muted as is_muted";

@@ -1,7 +1,11 @@
-use crate::lang::{Edge, Node, NodeData, NodeType, Operand, TestFilters, helpers::*, migration::{update_endpoint_name_query, update_endpoint_relationships_query},};
-use neo4rs::{BoltMap, BoltType};
 use super::edges::add_edge_query;
+use crate::lang::{
+    helpers::*,
+    migration::{update_endpoint_name_query, update_endpoint_relationships_query},
+    Edge, Node, NodeData, NodeType, Operand, TestFilters,
+};
 use crate::utils::create_node_key;
+use neo4rs::{BoltMap, BoltType};
 pub struct NodeQueryBuilder {
     node_type: NodeType,
     node_data: NodeData,
@@ -466,7 +470,7 @@ pub fn get_muted_nodes_for_files_query(files: &[String]) -> (String, BoltMap) {
                  WITH n, [label IN labels(n) WHERE label IN ['Function', 'Class', 'DataModel', 'Endpoint', 'Request', 'File', 'Directory', 'Repository', 'Language', 'Library', 'Import', 'Instance', 'Page', 'Var', 'UnitTest', 'IntegrationTest', 'E2eTest', 'Trait']][0] as node_type
                  WHERE node_type IS NOT NULL
                  RETURN node_type, n.name as name, n.file as file".to_string();
-    
+
     (query, params)
 }
 
@@ -483,15 +487,16 @@ pub fn restore_muted_status_query(identifiers: &[MutedNodeIdentifier]) -> (Strin
         })
         .collect();
     boltmap_insert_list(&mut params, "identifiers", identifier_maps);
-    
+
     let query = "UNWIND $identifiers as ident
                  MATCH (n)
                  WHERE ident.node_type IN labels(n) 
                  AND n.name = ident.name 
                  AND n.file = ident.file
                  SET n.is_muted = true
-                 RETURN count(n) as restored_count".to_string();
-    
+                 RETURN count(n) as restored_count"
+        .to_string();
+
     (query, params)
 }
 
@@ -517,8 +522,6 @@ pub fn query_nodes_with_count(
         .map(|n| BoltType::String(n.to_string().into()))
         .collect::<Vec<_>>();
 
-    
-
     boltmap_insert_list(&mut params, "node_types", node_types_list);
 
     if let Some(search_term) = search {
@@ -531,13 +534,13 @@ pub fn query_nodes_with_count(
         .unwrap_or_default();
 
     let order_clause = if body_length {
-        "ORDER BY size(n.body) DESC, n.name ASC"
+        "ORDER BY size(n.body) DESC, n.name ASC, n.file ASC"
     } else if line_count {
-        "ORDER BY (n.end - n.start) DESC, n.name ASC"
+        "ORDER BY (n.end - n.start) DESC, n.name ASC, n.file ASC"
     } else if sort_by_test_count {
-        "ORDER BY test_count DESC, n.name ASC"
+        "ORDER BY test_count DESC, n.name ASC, n.file ASC"
     } else {
-        "ORDER BY n.name ASC"
+        "ORDER BY n.name ASC, n.file ASC"
     };
 
     let (test_match_clauses, test_count_expr) = if let Some(filters) = &test_filters {
@@ -665,10 +668,10 @@ pub fn query_nodes_with_count(
     let has_function_type = node_types.iter().any(|nt| nt == &NodeType::Function);
 
     let function_specific_filters = if has_function_type {
-       format!("AND ({})", unique_functions_filters().join(" AND "))
-   } else {
-       "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
-   };
+        format!("AND ({})", unique_functions_filters().join(" AND "))
+    } else {
+        "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
+    };
 
     let query = format!(
         "MATCH (n)
