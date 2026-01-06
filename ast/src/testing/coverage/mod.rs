@@ -1,4 +1,4 @@
-#[cfg(test)]
+#[cfg(all(test, feature = "neo4j"))]
 pub mod nextjs;
 
 #[cfg(test)]
