@@ -1155,18 +1155,25 @@ export class GraphStorage extends Storage {
         const filePathsResult = await session.run(
           `
           MATCH (f:Feature {id: $featureId})
+
+          // Collect files from PRs
           OPTIONAL MATCH (pr:PullRequest)-[:TOUCHES]->(f)
           WHERE pr.files IS NOT NULL
-          UNWIND pr.files as prFile
-          WITH f, prFile, COUNT(pr) as prCount
+          WITH f, COLLECT(pr.files) as prFilesLists
+
+          // Collect files from Commits
           OPTIONAL MATCH (c:Commit)-[:TOUCHES]->(f)
           WHERE c.files IS NOT NULL
-          UNWIND c.files as commitFile
-          WITH f, prFile, prCount, commitFile, COUNT(c) as commitCount
-          WITH f,
-               COLLECT(DISTINCT {file: prFile, count: prCount}) + COLLECT(DISTINCT {file: commitFile, count: commitCount}) as allFiles
-          UNWIND allFiles as fileData
-          RETURN fileData.file as file, SUM(fileData.count) as changeCount
+          WITH f, prFilesLists, COLLECT(c.files) as commitFilesLists
+
+          // Flatten both lists
+          WITH f, prFilesLists + commitFilesLists as allFilesLists
+          UNWIND allFilesLists as filesList
+          UNWIND filesList as file
+
+          // Count occurrences per file
+          WITH file, COUNT(*) as changeCount
+          RETURN file, changeCount
           `,
           { featureId: feature.id }
         );
