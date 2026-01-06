@@ -199,3 +199,56 @@ export interface ClueAnalysisResult {
   reasoning: string;
   usage: Usage;
 }
+
+/**
+ * Request body for /gitree/provenance endpoint
+ */
+export interface ProvenanceRequest {
+  conceptIds: string[]; // Array of feature ref_ids
+}
+
+/**
+ * Code entity in provenance response
+ */
+export interface ProvenanceCodeEntity {
+  refId: string;
+  name: string;
+  nodeType:
+    | "Function"
+    | "Page"
+    | "Endpoint"
+    | "Datamodel"
+    | "UnitTest"
+    | "IntegrationTest"
+    | "E2etest";
+  file: string;
+  start: number;
+  end: number;
+}
+
+/**
+ * File with code entities in provenance response
+ */
+export interface ProvenanceFile {
+  refId: string;
+  name: string;
+  path: string;
+  codeEntities: ProvenanceCodeEntity[];
+}
+
+/**
+ * Concept with files in provenance response
+ */
+export interface ProvenanceConcept {
+  refId: string;
+  name: string;
+  description?: string;
+  files: ProvenanceFile[];
+}
+
+/**
+ * Response from /gitree/provenance endpoint
+ */
+export interface ProvenanceResponse {
+  concepts: ProvenanceConcept[];
+}

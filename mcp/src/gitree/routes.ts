@@ -1476,3 +1476,77 @@ export async function gitree_search_clues(req: Request, res: Response) {
     });
   }
 }
+
+/**
+ * Get provenance data for concepts
+ * POST /gitree/provenance
+ * Body: { conceptIds: string[] } (array of feature ref_ids)
+ *
+ * Returns hierarchical structure: Concepts → Files → Code Entities
+ * Code entities are filtered by text matching against feature documentation
+ *
+ * Example:
+ * curl -X POST http://localhost:3355/gitree/provenance \
+ *   -H "Content-Type: application/json" \
+ *   -d '{"conceptIds": ["abc-123", "def-456"]}'
+ */
+export async function gitree_provenance(req: Request, res: Response) {
+  try {
+    const { conceptIds } = req.body;
+
+    // Validate request body
+    if (!conceptIds || !Array.isArray(conceptIds)) {
+      res.status(400).json({
+        error:
+          "Missing or invalid conceptIds in request body. Expected array of strings.",
+      });
+      return;
+    }
+
+    if (conceptIds.length === 0) {
+      res.json({ concepts: [] });
+      return;
+    }
+
+    // Initialize storage
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    // Get provenance data from storage
+    const provenanceData = await storage.getProvenanceForConcepts(conceptIds);
+
+    // Transform to response format
+    const concepts = provenanceData.map((concept) => ({
+      refId: concept.conceptRefId,
+      name: concept.name,
+      description: concept.description,
+      files: concept.files.map((file) => ({
+        refId: file.refId,
+        name: file.name,
+        path: file.path,
+        codeEntities: file.entities.map((entity) => ({
+          refId: entity.refId,
+          name: entity.name,
+          nodeType: entity.nodeType as
+            | "Function"
+            | "Page"
+            | "Endpoint"
+            | "Datamodel"
+            | "UnitTest"
+            | "IntegrationTest"
+            | "E2etest",
+          file: entity.file,
+          start: entity.start,
+          end: entity.end,
+        })),
+      })),
+    }));
+
+    res.json({ concepts });
+  } catch (error: any) {
+    console.error("Error getting provenance:", error);
+    res.status(500).json({
+      error: error.message || "Failed to get provenance data",
+    });
+  }
+}
