@@ -1480,7 +1480,7 @@ export async function gitree_search_clues(req: Request, res: Response) {
 /**
  * Get provenance data for concepts
  * POST /gitree/provenance
- * Body: { conceptIds: string[] } (array of feature ref_ids)
+ * Body: { conceptIds: string[] } (array of feature IDs)
  *
  * Returns hierarchical structure: Concepts → Files → Code Entities
  * Code entities are filtered by text matching against feature documentation
@@ -1488,7 +1488,7 @@ export async function gitree_search_clues(req: Request, res: Response) {
  * Example:
  * curl -X POST http://localhost:3355/gitree/provenance \
  *   -H "Content-Type: application/json" \
- *   -d '{"conceptIds": ["abc-123", "def-456"]}'
+ *   -d '{"conceptIds": ["auth-system", "api-endpoints"]}'
  */
 export async function gitree_provenance(req: Request, res: Response) {
   try {
@@ -1517,7 +1517,7 @@ export async function gitree_provenance(req: Request, res: Response) {
 
     // Transform to response format
     const concepts = provenanceData.map((concept) => ({
-      refId: concept.conceptRefId,
+      id: concept.conceptId,
       name: concept.name,
       description: concept.description,
       files: concept.files.map((file) => ({

@@ -204,7 +204,7 @@ export interface ClueAnalysisResult {
  * Request body for /gitree/provenance endpoint
  */
 export interface ProvenanceRequest {
-  conceptIds: string[]; // Array of feature ref_ids
+  conceptIds: string[]; // Array of feature IDs (slugs)
 }
 
 /**
@@ -240,7 +240,7 @@ export interface ProvenanceFile {
  * Concept with files in provenance response
  */
 export interface ProvenanceConcept {
-  refId: string;
+  id: string; // Feature ID (slug, e.g., "auth-system")
   name: string;
   description?: string;
   files: ProvenanceFile[];

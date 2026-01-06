@@ -1514,14 +1514,14 @@ export class GraphStorage extends Storage {
   }
 
   /**
-   * Get provenance data for multiple features by their ref_ids
+   * Get provenance data for multiple features by their IDs
    * Returns concepts with their files and filtered code entities
    */
   async getProvenanceForConcepts(
-    conceptRefIds: string[]
+    conceptIds: string[]
   ): Promise<
     Array<{
-      conceptRefId: string;
+      conceptId: string;
       name: string;
       description?: string;
       documentation?: string;
@@ -1544,9 +1544,9 @@ export class GraphStorage extends Storage {
     try {
       const result = await session.run(
         `
-        // Match features by ref_id
+        // Match features by id
         MATCH (concept:Feature)
-        WHERE concept.ref_id IN $conceptRefIds
+        WHERE concept.id IN $conceptIds
 
         // Get files connected via MODIFIES (with importance for sorting)
         OPTIONAL MATCH (concept)-[m:MODIFIES]->(file:File)
@@ -1563,8 +1563,8 @@ export class GraphStorage extends Storage {
                name: entity.name,
                nodeType: [label IN labels(entity) WHERE label <> 'Data_Bank'][0],
                file: entity.file,
-               start: entity.start,
-               end: entity.end
+               start: toInteger(entity.start),
+               end: toInteger(entity.end)
              }) AS entities
 
         // Apply performance limits: Max 20 files per concept
@@ -1580,17 +1580,17 @@ export class GraphStorage extends Storage {
                entities: entities
              }) AS files
 
-        RETURN concept.ref_id AS conceptRefId,
+        RETURN concept.id AS conceptId,
                concept.name AS name,
                concept.description AS description,
                concept.docs AS documentation,
                files
         `,
-        { conceptRefIds }
+        { conceptIds }
       );
 
       const concepts: Array<{
-        conceptRefId: string;
+        conceptId: string;
         name: string;
         description?: string;
         documentation?: string;
@@ -1610,7 +1610,7 @@ export class GraphStorage extends Storage {
       }> = [];
 
       for (const record of result.records) {
-        const conceptRefId = record.get("conceptRefId");
+        const conceptId = record.get("conceptId");
         const name = record.get("name");
         const description = record.get("description");
         const documentation = record.get("documentation") || "";
@@ -1644,12 +1644,16 @@ export class GraphStorage extends Storage {
               refId: file.refId,
               name: file.name,
               path: file.path,
-              entities: entities,
+              entities: entities.map((e: any) => ({
+                ...e,
+                start: neo4j.isInt(e.start) ? e.start.toNumber() : e.start,
+                end: neo4j.isInt(e.end) ? e.end.toNumber() : e.end,
+              })),
             };
           });
 
         concepts.push({
-          conceptRefId,
+          conceptId,
           name,
           description,
           documentation,
