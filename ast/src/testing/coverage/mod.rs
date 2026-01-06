@@ -6,3 +6,6 @@ pub mod rust;
 
 #[cfg(all(test, feature = "neo4j"))]
 pub mod ruby;
+
+#[cfg(all(test, feature = "neo4j"))]
+pub mod typescript;
