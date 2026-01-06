@@ -9,3 +9,6 @@ pub mod ruby;
 
 #[cfg(all(test, feature = "neo4j"))]
 pub mod typescript;
+
+#[cfg(all(test, feature = "neo4j"))]
+pub mod react;
