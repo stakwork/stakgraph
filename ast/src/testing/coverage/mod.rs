@@ -1,7 +1,7 @@
 #[cfg(all(test, feature = "neo4j"))]
 pub mod nextjs;
 
-#[cfg(test)]
+#[cfg(all(test, feature = "neo4j"))]
 pub mod rust;
 
 #[cfg(all(test, feature = "neo4j"))]
