@@ -685,7 +685,7 @@ pub fn query_nodes_with_count(
          WITH n, {} AS test_count
          {} 
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
-         WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0) AS is_covered
+         WITH n, test_count, count(DISTINCT caller) AS usage_count, (test_count > 0 OR n.indirect_test IS NOT NULL) AS is_covered
          {}
          WITH collect({{
              node: n,
