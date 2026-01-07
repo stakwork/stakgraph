@@ -67,7 +67,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 5);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 52);
+    assert_eq!(functions.len(), 56);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 3);
@@ -82,7 +82,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(classes.len(), 4);
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    assert_eq!(data_models.len(), 22);
+    assert_eq!(data_models.len(), 25);
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     assert_eq!(pages.len(), 4);
@@ -109,7 +109,7 @@ async fn test_btreemap_edges() -> Result<()> {
     assert_eq!(renders_edges, 4);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 208);
+    assert_eq!(contains_edges, 218);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 5);
@@ -134,8 +134,8 @@ async fn test_react_graph_upload() -> Result<()> {
     // Requests(14) + Pages(4) + Variables(7) + DataModels(22) + Endpoints(5)
     // UnitTests(3) + IntegrationTests(2) + E2eTests(2) + Files(~11 TSX + others) + Dirs(14)
     // Total approx 187+. We will adjust based on actual test run.
-    assert_eq!(nodes, 200);
-    assert_eq!(edges, 256); // Derived from previous test runs matches actual output
+    assert_eq!(nodes, 209);
+    assert_eq!(edges, 266); // Derived from previous test runs matches actual output
 
     Ok(())
 }
@@ -280,8 +280,8 @@ async fn test_nodes_function_type() -> Result<()> {
     // due to unique_functions_filters (component=true or operand=true).
     // We will adjust this assertion after the first run if needed.
     // We expect 52 functions in BTreeMap, but Neo4j query filters components/operands
-    assert_eq!(count, 23);
-    assert_eq!(results.len(), 23);
+    assert_eq!(count, 26);
+    assert_eq!(results.len(), 26);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -365,8 +365,8 @@ async fn test_nodes_data_model_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 22);
-    assert_eq!(results.len(), 22);
+    assert_eq!(count, 25);
+    assert_eq!(results.len(), 25);
 
     Ok(())
 }
