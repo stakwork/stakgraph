@@ -287,12 +287,22 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
 
-    //TODO: Fix lsp calls edge count : locally, it says 74 but on CI it says something else
-    assert_eq!(calls, 233, "Expected 233 Calls edges");
+    //TODO: LSP and non-lsp
+
+    if use_lsp {
+        assert_eq!(calls, 303, "Expected 303 Calls edges");
+    } else {
+        assert_eq!(calls, 233, "Expected 233 Calls edges");
+    }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 556, "Expected 556 Contains edges");
+
+    if use_lsp {
+        assert_eq!(contains, 557, "Expected 557 Contains edges");
+    } else {
+        assert_eq!(contains, 556, "Expected 556 Contains edges");
+    }
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
