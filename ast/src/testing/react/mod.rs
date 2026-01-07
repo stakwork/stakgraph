@@ -101,7 +101,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     assert_eq!(import_test_file.body, app_body, "Body of App is incorrect");
-    assert_eq!(imports.len(), 18, "Expected 18 imports");
+    assert_eq!(imports.len(), 19, "Expected 19 imports");
 
     let people_import = imports
         .iter()
@@ -139,7 +139,7 @@ import NewPerson from "./components/NewPerson";"#
     if use_lsp == true {
         assert_eq!(functions.len(), 22, "Expected 21 functions/components");
     } else {
-        assert_eq!(functions.len(), 52, "Expected 52 functions/components");
+        assert_eq!(functions.len(), 56, "Expected 56 functions/components");
     }
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
@@ -434,7 +434,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 22, "Expected 22 data models");
+    assert_eq!(data_models.len(), 25, "Expected 25 data models");
 
     let person_data_model = data_models
         .iter()
@@ -485,8 +485,8 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 208,
-        "Expected 208 contains edges, got {}",
+        contains_edges_count, 218,
+        "Expected 218 contains edges, got {}",
         contains_edges_count
     );
 
@@ -523,7 +523,7 @@ import NewPerson from "./components/NewPerson";"#
         .iter()
         .filter(|f| f.name.ends_with(".tsx"))
         .count();
-    assert_eq!(tsx_files, 11, "Expected 11 TSX files, got {}", tsx_files);
+    assert_eq!(tsx_files, 12, "Expected 12 TSX files, got {}", tsx_files);
 
     let component_pattern_functions = functions
         .iter()
