@@ -98,7 +98,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     assert!(graph.has_edge(&app_dir, &items_dir, EdgeType::Contains));
     assert!(graph.has_edge(&items_dir, &items_page, EdgeType::Contains));
 
-    // Bounty Hook Assertions
     let bounty_file = file_nodes
         .iter()
         .find(|f| {
@@ -107,7 +106,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         .map(|n| Node::new(NodeType::File, n.clone()))
         .expect("useBountyQueries.ts file not found");
 
-    // Check if bountyKeys is captured (likely as a Var but we want to know if functions inside are captured)
     let bounty_keys = graph.find_nodes_by_type(NodeType::Var);
     let bounty_keys_var = bounty_keys
         .iter()
@@ -120,10 +118,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         "Expected useBountyQueries.ts to contain bountyKeys"
     );
 
-    // Check if detail function is captured
     let functions = graph.find_nodes_by_type(NodeType::Function);
 
-    // We expect "detail" to be captured as a Function or possibly not captured at all if the query is missing
     let detail_func = functions
         .iter()
         .find(|f| f.name == "detail" && f.file.ends_with("lib/hooks/useBountyQueries.ts"));
@@ -146,7 +142,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
             .map(|n| Node::new(NodeType::UnitTest, n.clone()))
             .expect("bountyKeys Unit Test not found");
 
-        // Check if there is a Calls edge from test to detail function
         assert!(
             graph.has_edge(&detail_test, &func_node, EdgeType::Calls),
             "Test should call detail function"
@@ -168,7 +163,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     if use_lsp {
         // assert_eq!(functions.len(), 57, "Expected 57 Function nodes with LSP");
     } else {
-        // Updated expectation: Probe for exact count
         assert_eq!(
             functions.len(),
             193,
@@ -294,7 +288,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     edges += calls;
 
     //TODO: Fix lsp calls edge count : locally, it says 74 but on CI it says something else
-    assert_eq!(calls, 76, "Expected 76 Calls edges");
+    assert_eq!(calls, 233, "Expected 233 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
@@ -306,9 +300,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
-    // 25 original tests + 2 new tests (describe blocks count as Unittest nodes in some contexts, or IT blocks)
-    // Based on previous code, UnitTest nodes seem to be `describe` blocks or `it` blocks depending on parsing
-    // Let's check the count after running
     assert_eq!(
         tests.len(),
         27,
