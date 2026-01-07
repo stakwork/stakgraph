@@ -430,7 +430,8 @@ impl Lang {
 
                         if !targets.is_empty() {
                             let target = targets
-                                .iter().find(|node_data| node_data.file.contains(&resolved_path));
+                                .iter()
+                                .find(|node_data| node_data.file.contains(&resolved_path));
 
                             let file_nodes =
                                 graph.find_nodes_by_file_ends_with(NodeType::File, file);
@@ -540,7 +541,8 @@ impl Lang {
         let all_vars = graph.find_nodes_by_type(NodeType::Var);
 
         let imports = graph.find_nodes_by_file_ends_with(NodeType::Import, &func.file);
-        let import_body = imports.first()
+        let import_body = imports
+            .first()
             .map(|imp| imp.body.clone())
             .unwrap_or_default();
 
@@ -637,12 +639,7 @@ impl Lang {
                 .iter()
                 .find(|v| target_file.ends_with(&v.file))
             {
-                edges.push(Edge::contains(
-                    NodeType::Function,
-                    func,
-                    NodeType::Var,
-                    var,
-                ));
+                edges.push(Edge::contains(NodeType::Function, func, NodeType::Var, var));
                 processed.insert(key);
             }
         }
@@ -676,16 +673,16 @@ impl Lang {
     }
     pub fn find_nested_functions<'a>(
         &self,
-        functions: &'a [NodeData],
+        functions: &'a [Function],
     ) -> Vec<(&'a NodeData, &'a NodeData)> {
         let mut nested = Vec::new();
         for child in functions {
             for parent in functions {
-                if std::ptr::eq(child, parent) {
+                if std::ptr::eq(&child.0, &parent.0) {
                     continue;
                 }
-                if child.start > parent.start && child.end < parent.end {
-                    nested.push((child, parent));
+                if child.0.start > parent.0.start && child.0.end < parent.0.end {
+                    nested.push((&child.0, &parent.0));
                 }
             }
         }
@@ -694,7 +691,7 @@ impl Lang {
 
     pub fn find_functions_nested_in_variables<'a>(
         &self,
-        functions: &'a mut [NodeData],
+        functions: &'a mut [Function],
         variables: &'a [NodeData],
     ) -> Vec<(&'a NodeData, &'a NodeData)> {
         use std::collections::HashMap;
@@ -703,18 +700,15 @@ impl Lang {
 
         let mut var_index: HashMap<String, Vec<&NodeData>> = HashMap::new();
         for var in variables {
-            var_index
-                .entry(var.file.clone())
-                .or_default()
-                .push(var);
+            var_index.entry(var.file.clone()).or_default().push(var);
         }
 
         for func in functions.iter_mut() {
-            if let Some(vars_in_file) = var_index.get(&func.file) {
+            if let Some(vars_in_file) = var_index.get(&func.0.file) {
                 for var in vars_in_file {
-                    if func.start > var.start && func.end < var.end {
-                        func.add_nested_in(&var.name);
-                        nested.push((func as &NodeData, var as &NodeData));
+                    if func.0.start > var.start && func.0.end < var.end {
+                        func.0.add_nested_in(&var.name);
+                        nested.push((&func.0 as &NodeData, var as &NodeData));
                         break;
                     }
                 }

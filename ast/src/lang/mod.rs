@@ -7,6 +7,7 @@ pub mod linker;
 pub mod parse;
 pub mod queries;
 
+use crate::lang::parse::utils::trim_quotes;
 pub use asg::NodeData;
 use asg::*;
 use consts::*;
@@ -500,8 +501,7 @@ impl Lang {
             self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
         self.attach_function_comments(code, &mut funcs1)?;
 
-        let mut func_nodes: Vec<NodeData> = funcs1.iter().map(|f| f.0.clone()).collect();
-        let nested_pairs = self.find_nested_functions(&func_nodes);
+        let nested_pairs = self.find_nested_functions(&funcs1);
 
         let mut nested_edges_by_child: std::collections::HashMap<NodeKeys, Vec<Edge>> =
             std::collections::HashMap::new();
@@ -518,8 +518,7 @@ impl Lang {
         }
 
         let all_variables = graph.find_nodes_by_type(NodeType::Var);
-        let var_nested_pairs =
-            self.find_functions_nested_in_variables(&mut func_nodes, &all_variables);
+        let var_nested_pairs = self.find_functions_nested_in_variables(&mut funcs1, &all_variables);
         for (func, var) in var_nested_pairs {
             let edge = Edge::new(
                 EdgeType::NestedIn,
@@ -669,7 +668,7 @@ impl Lang {
                 let mut attributes = Vec::new();
                 Self::loop_captures(&q_tests, tm, code, |body, node, o| {
                     if o == FUNCTION_NAME {
-                        caller_name = body;
+                        caller_name = trim_quotes(&body).to_string();
                     } else if o == ATTRIBUTES {
                         attributes.push(body);
                     } else if o == FUNCTION_DEFINITION {
@@ -686,7 +685,6 @@ impl Lang {
                             lsp_tx,
                             graph.get_allow_unverified_calls(),
                         )?;
-                        // Combine attributes and body for accurate test detection
                         let full_body = if !attributes.is_empty() {
                             format!("{} {}", attributes.join(" "), body)
                         } else {

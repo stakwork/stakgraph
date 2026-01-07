@@ -279,7 +279,9 @@ fn find_nested_function_in_variable<G: Graph>(
 
     for func in func_nodes.clone() {
         if let Some(nested_in) = func.meta.get("nested_in") {
-            if nested_in == var_name {
+            let n = crate::lang::parse::utils::trim_quotes(nested_in);
+            let v = crate::lang::parse::utils::trim_quotes(var_name);
+            if n == v {
                 return Some(func);
             }
         }
