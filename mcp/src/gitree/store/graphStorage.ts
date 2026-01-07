@@ -1512,4 +1512,158 @@ export class GraphStorage extends Storage {
       await session.close();
     }
   }
+
+  /**
+   * Get provenance data for multiple features by their IDs
+   * Returns concepts with their files and filtered code entities
+   */
+  async getProvenanceForConcepts(
+    conceptIds: string[]
+  ): Promise<
+    Array<{
+      conceptId: string;
+      name: string;
+      description?: string;
+      documentation?: string;
+      files: Array<{
+        refId: string;
+        name: string;
+        path: string;
+        entities: Array<{
+          refId: string;
+          name: string;
+          nodeType: string;
+          file: string;
+          start: number;
+          end: number;
+        }>;
+      }>;
+    }>
+  > {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `
+        // Match features by id
+        MATCH (concept:Feature)
+        WHERE concept.id IN $conceptIds
+
+        // Get files connected via MODIFIES (with importance for sorting)
+        OPTIONAL MATCH (concept)-[m:MODIFIES]->(file:File)
+
+        // Get code entities via CONTAINS path (variable-length for nested structures)
+        OPTIONAL MATCH (file)-[:CONTAINS*]->(entity)
+        WHERE entity:Function OR entity:Page OR entity:Endpoint OR
+              entity:Datamodel OR entity:UnitTest OR entity:IntegrationTest OR entity:E2etest
+
+        // Return hierarchical data
+        WITH concept, file, m.importance AS importance,
+             COLLECT(DISTINCT {
+               refId: entity.ref_id,
+               name: entity.name,
+               nodeType: [label IN labels(entity) WHERE label <> 'Data_Bank'][0],
+               file: entity.file,
+               start: toInteger(entity.start),
+               end: toInteger(entity.end)
+             }) AS entities
+
+        // Apply performance limits: Max 20 files per concept
+        WITH concept, file, importance, entities
+        ORDER BY importance DESC
+        LIMIT 20
+
+        WITH concept,
+             COLLECT({
+               refId: file.ref_id,
+               name: file.name,
+               path: file.file,
+               entities: entities
+             }) AS files
+
+        RETURN concept.id AS conceptId,
+               concept.name AS name,
+               concept.description AS description,
+               concept.docs AS documentation,
+               files
+        `,
+        { conceptIds }
+      );
+
+      const concepts: Array<{
+        conceptId: string;
+        name: string;
+        description?: string;
+        documentation?: string;
+        files: Array<{
+          refId: string;
+          name: string;
+          path: string;
+          entities: Array<{
+            refId: string;
+            name: string;
+            nodeType: string;
+            file: string;
+            start: number;
+            end: number;
+          }>;
+        }>;
+      }> = [];
+
+      for (const record of result.records) {
+        const conceptId = record.get("conceptId");
+        const name = record.get("name");
+        const description = record.get("description");
+        const documentation = record.get("documentation") || "";
+        const filesRaw = record.get("files");
+
+        // Filter files to only those that have valid refId
+        const files = filesRaw
+          .filter((f: any) => f.refId)
+          .map((file: any) => {
+            // Filter entities where refId exists (not null from COLLECT)
+            let entities = file.entities.filter((e: any) => e.refId);
+
+            // Apply text matching filter if documentation exists
+            if (documentation) {
+              const docLower = documentation.toLowerCase();
+              const matchedEntities = entities.filter((e: any) =>
+                docLower.includes(e.name.toLowerCase())
+              );
+
+              // Use matched entities if found, otherwise return empty (accuracy over completeness)
+              entities = matchedEntities;
+            } else {
+              // No documentation - return empty array
+              entities = [];
+            }
+
+            // Apply performance limit: Max 50 entities per file
+            entities = entities.slice(0, 50);
+
+            return {
+              refId: file.refId,
+              name: file.name,
+              path: file.path,
+              entities: entities.map((e: any) => ({
+                ...e,
+                start: neo4j.isInt(e.start) ? e.start.toNumber() : e.start,
+                end: neo4j.isInt(e.end) ? e.end.toNumber() : e.end,
+              })),
+            };
+          });
+
+        concepts.push({
+          conceptId,
+          name,
+          description,
+          documentation,
+          files,
+        });
+      }
+
+      return concepts;
+    } finally {
+      await session.close();
+    }
+  }
 }

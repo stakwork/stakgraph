@@ -125,6 +125,7 @@ app.get("/gitree/clues", gitree.gitree_list_clues);
 app.get("/gitree/clues/:id", gitree.gitree_get_clue);
 app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
+app.post("/gitree/provenance", gitree.gitree_provenance);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {
