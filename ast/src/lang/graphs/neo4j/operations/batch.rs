@@ -19,16 +19,17 @@ impl Neo4jGraph {
             if let Some(of) = &inst.data_type {
                 let class_nodes = self.find_nodes_by_name_async(NodeType::Class, of).await;
                 if let Some(_class_node) = class_nodes.first() {
-                    let queries = add_node_with_parent_query(
+                    let queries = add_node_with_parent_query_with_namespace(
                         &NodeType::Instance,
                         inst,
                         &NodeType::File,
                         &inst.file,
+                        &self.namespace,
                     );
                     for query in queries {
                         txn_manager.add_query(query);
                     }
-                    let of_query = add_instance_of_query(inst, of);
+                    let of_query = add_instance_of_query_with_namespace(inst, of, &self.namespace);
                     txn_manager.add_query(of_query);
                 }
             }
@@ -43,7 +44,7 @@ impl Neo4jGraph {
         for (function_node, method_of, reqs, dms, trait_operand, return_types, nested_in) in
             &functions
         {
-            let queries = add_functions_query(
+            let queries = add_functions_query_with_namespace(
                 function_node,
                 method_of.as_ref(),
                 reqs,
@@ -51,6 +52,7 @@ impl Neo4jGraph {
                 trait_operand.as_ref(),
                 return_types,
                 nested_in,
+                &self.namespace,
             );
             for query in queries {
                 txn_manager.add_query(query);
@@ -61,7 +63,7 @@ impl Neo4jGraph {
     }
     pub async fn add_page_async(&self, page: (NodeData, Option<Edge>)) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_page_query(&page.0, &page.1);
+        let queries = add_page_query_with_namespace(&page.0, &page.1, &self.namespace);
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
@@ -73,7 +75,7 @@ impl Neo4jGraph {
 
     pub async fn add_pages_async(&self, pages: Vec<(NodeData, Vec<Edge>)>) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_pages_query(&pages);
+        let queries = add_pages_query_with_namespace(&pages, &self.namespace);
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
@@ -116,11 +118,9 @@ impl Neo4jGraph {
             }
         }
 
-        for (endpoint_data, handler_edge) in &to_add {
-            txn_manager.add_node(&NodeType::Endpoint, endpoint_data);
-            if let Some(edge) = handler_edge {
-                txn_manager.add_edge(edge);
-            }
+        let queries = add_endpoints_query_with_namespace(&to_add, &self.namespace);
+        for query in queries {
+            txn_manager.add_query(query);
         }
 
         txn_manager.execute().await
@@ -142,24 +142,31 @@ impl Neo4jGraph {
 
         for (calls, ext_func, class_call) in &funcs {
             if let Some(cls_call) = class_call {
-                txn_manager.add_node(&NodeType::Class, cls_call);
+                let query =
+                    add_node_query_with_namespace(&NodeType::Class, cls_call, &self.namespace);
+                txn_manager.add_query(query);
                 let edge = Edge::new(
                     EdgeType::Calls,
                     NodeRef::from(calls.source.clone(), NodeType::Function),
                     NodeRef::from(cls_call.into(), NodeType::Class),
                 );
-                txn_manager.add_edge(&edge);
+                let query = add_edge_query_with_namespace(&edge, &self.namespace);
+                txn_manager.add_query(query);
             }
             if calls.target.is_empty() {
                 continue;
             }
             if let Some(ext_nd) = ext_func {
-                txn_manager.add_node(&NodeType::Function, ext_nd);
+                let query =
+                    add_node_query_with_namespace(&NodeType::Function, ext_nd, &self.namespace);
+                txn_manager.add_query(query);
                 let edge = Edge::uses(calls.source.clone(), ext_nd);
-                txn_manager.add_edge(&edge);
+                let query = add_edge_query_with_namespace(&edge, &self.namespace);
+                txn_manager.add_query(query);
             } else {
                 let edge: Edge = calls.clone().into();
-                txn_manager.add_edge(&edge);
+                let query = add_edge_query_with_namespace(&edge, &self.namespace);
+                txn_manager.add_query(query);
             }
         }
         for (test_call, ext_func, class_call) in &tests {
@@ -167,28 +174,36 @@ impl Neo4jGraph {
             let has_class = class_call.is_some();
 
             if let Some(class_nd) = class_call {
-                txn_manager.add_node(&NodeType::Class, class_nd);
+                let query =
+                    add_node_query_with_namespace(&NodeType::Class, class_nd, &self.namespace);
+                txn_manager.add_query(query);
                 let edge = Edge::from_test_class_call(test_call, class_nd, lang, self);
-
-                txn_manager.add_edge(&edge);
+                let query = add_edge_query_with_namespace(&edge, &self.namespace);
+                txn_manager.add_query(query);
             }
 
             if let Some(ext_nd) = ext_func {
-                txn_manager.add_node(&NodeType::Function, ext_nd);
+                let query =
+                    add_node_query_with_namespace(&NodeType::Function, ext_nd, &self.namespace);
+                txn_manager.add_query(query);
                 let edge = Edge::uses(test_call.source.clone(), ext_nd);
-                txn_manager.add_edge(&edge);
+                let query = add_edge_query_with_namespace(&edge, &self.namespace);
+                txn_manager.add_query(query);
             } else if target_empty && !has_class {
                 continue;
             } else if !target_empty {
                 let edge = Edge::from_test_call(test_call, lang, self);
-                txn_manager.add_edge(&edge);
+                let query = add_edge_query_with_namespace(&edge, &self.namespace);
+                txn_manager.add_query(query);
             }
         }
         for edge in int_tests {
-            txn_manager.add_edge(&edge);
+            let query = add_edge_query_with_namespace(&edge, &self.namespace);
+            txn_manager.add_query(query);
         }
         for edge in extras {
-            txn_manager.add_edge(&edge);
+            let query = add_edge_query_with_namespace(&edge, &self.namespace);
+            txn_manager.add_query(query);
         }
 
         txn_manager.execute().await

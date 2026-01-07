@@ -1,7 +1,10 @@
-use neo4rs::{query,Graph as Neo4jConnection, ConfigBuilder, BoltMap};
+use neo4rs::{query, BoltMap, ConfigBuilder, Graph as Neo4jConnection};
 use shared::{Error, Result};
 
-use crate::lang::graphs::{migration::clear_graph_query, executor::{execute_batch, execute_queries_simple}};
+use crate::lang::graphs::{
+    executor::{execute_batch, execute_queries_simple},
+    migration::clear_graph_query,
+};
 
 use crate::lang::Neo4jGraph;
 pub struct Neo4jConnectionManager;
@@ -32,10 +35,8 @@ impl Neo4jConnectionManager {
     }
 }
 
-
-impl Neo4jGraph{
-
-        pub async fn create_indexes(&self) -> Result<()> {
+impl Neo4jGraph {
+    pub async fn create_indexes(&self) -> Result<()> {
         let connection: Neo4jConnection = self.ensure_connected().await?;
         let queries = vec![
             "CREATE INDEX data_bank_node_key_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.node_key)",
@@ -57,8 +58,18 @@ impl Neo4jGraph{
         let connection = self.ensure_connected().await?;
         let mut txn = connection.start_txn().await?;
 
-        let clear_query = clear_graph_query();
-        let query_obj = query(&clear_query);
+        // If namespace is "default", clear entire graph (backward compatible)
+        // Otherwise, clear only nodes with this namespace (test isolation)
+        let (clear_query_str, params) = if self.namespace == "default" {
+            (clear_graph_query(), BoltMap::new())
+        } else {
+            crate::lang::graphs::migration::clear_graph_by_namespace_query(&self.namespace)
+        };
+
+        let mut query_obj = query(&clear_query_str);
+        for (key, value) in params.value.iter() {
+            query_obj = query_obj.param(key.value.as_str(), value.clone());
+        }
 
         if let Err(e) = txn.run(query_obj).await {
             eprintln!("Error clearing stakgraph nodes: {:?}", e);
@@ -75,10 +86,8 @@ impl Neo4jGraph{
         execute_batch(&connection, queries).await
     }
 
-        pub async fn execute_simple(&self, queries: Vec<(String, BoltMap)>) -> Result<()> {
+    pub async fn execute_simple(&self, queries: Vec<(String, BoltMap)>) -> Result<()> {
         let connection = self.ensure_connected().await?;
         execute_queries_simple(&connection, queries).await
     }
-
-
 }

@@ -1,15 +1,28 @@
-use crate::lang::graphs::{Graph, Edge, EdgeType, NodeRef, NodeType, NodeData, Node, Calls, queries::add_node_query};
-use crate::lang::{helpers::{boltmap_insert_str, boltmap_insert_list_of_maps},};
+use crate::lang::graphs::{
+    queries::add_node_query, Calls, Edge, EdgeType, Graph, Node, NodeData, NodeRef, NodeType,
+};
+use crate::lang::helpers::{boltmap_insert_list_of_maps, boltmap_insert_str};
+use crate::utils::create_node_key_from_ref;
 use neo4rs::BoltMap;
-use crate::utils::{create_node_key_from_ref};
 
 pub struct EdgeQueryBuilder {
     edge: Edge,
+    namespace: Option<String>,
 }
 
 impl EdgeQueryBuilder {
     pub fn new(edge: &Edge) -> Self {
-        Self { edge: edge.clone() }
+        Self {
+            edge: edge.clone(),
+            namespace: None,
+        }
+    }
+
+    pub fn with_namespace(edge: &Edge, namespace: &str) -> Self {
+        Self {
+            edge: edge.clone(),
+            namespace: Some(namespace.to_string()),
+        }
     }
 
     pub fn build(&self) -> (String, BoltMap) {
@@ -26,6 +39,14 @@ impl EdgeQueryBuilder {
         boltmap_insert_str(&mut params, "target_key", &target_key);
         boltmap_insert_str(&mut params, "ref_id", &self.edge.ref_id);
 
+        let namespace_match = match &self.namespace {
+            Some(ns) if ns != "default" => {
+                boltmap_insert_str(&mut params, "namespace", ns);
+                "AND source.namespace = $namespace AND target.namespace = $namespace"
+            }
+            _ => "AND (source.namespace IS NULL OR source.namespace = 'default') AND (target.namespace IS NULL OR target.namespace = 'default')",
+        };
+
         // println!(
         //     "[EdgeQueryBuilder] source_key: {}, target_key: {}",
         //     source_key, target_key
@@ -34,10 +55,11 @@ impl EdgeQueryBuilder {
         let query = format!(
             "MATCH (source:{} {{node_key: $source_key}}),
                  (target:{} {{node_key: $target_key}})
-            MERGE (source)-[r:{}]->(target)
-            SET r.ref_id = $ref_id
-            RETURN r",
-            source_type, target_type, rel_type
+             WHERE 1=1 {}
+             MERGE (source)-[r:{}]->(target)
+             SET r.ref_id = $ref_id
+             RETURN r",
+            source_type, target_type, namespace_match, rel_type
         );
         (query, params)
     }
@@ -56,12 +78,21 @@ impl EdgeQueryBuilder {
         boltmap_insert_str(&mut params, "target_key", &target_key);
         boltmap_insert_str(&mut params, "ref_id", &self.edge.ref_id);
 
+        let namespace_match = match &self.namespace {
+            Some(ns) if ns != "default" => {
+                boltmap_insert_str(&mut params, "namespace", ns);
+                "AND source.namespace = $namespace AND target.namespace = $namespace"
+            }
+            _ => "AND (source.namespace IS NULL OR source.namespace = 'default') AND (target.namespace IS NULL OR target.namespace = 'default')",
+        };
+
         let query = format!(
             "MATCH (source:{} {{node_key: $source_key}}),
                  (target:{} {{node_key: $target_key}})
+             WHERE 1=1 {}
             MERGE (source)-[r:{}]->(target)
             SET r.ref_id = $ref_id",
-            source_type, target_type, rel_type
+            source_type, target_type, namespace_match, rel_type
         );
         (query, params)
     }
@@ -71,8 +102,16 @@ pub fn add_edge_query(edge: &Edge) -> (String, BoltMap) {
     EdgeQueryBuilder::new(edge).build()
 }
 
+pub fn add_edge_query_with_namespace(edge: &Edge, namespace: &str) -> (String, BoltMap) {
+    EdgeQueryBuilder::with_namespace(edge, namespace).build()
+}
+
 pub fn add_edge_query_stream(edge: &Edge) -> (String, BoltMap) {
     EdgeQueryBuilder::new(edge).build_stream()
+}
+
+pub fn add_edge_query_stream_with_namespace(edge: &Edge, namespace: &str) -> (String, BoltMap) {
+    EdgeQueryBuilder::with_namespace(edge, namespace).build_stream()
 }
 
 pub fn add_calls_query(
@@ -269,18 +308,33 @@ pub fn find_nodes_with_edge_type_query(
     source_type: &NodeType,
     target_type: &NodeType,
     edge_type: &EdgeType,
+    namespace: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "source_type", &source_type.to_string());
     boltmap_insert_str(&mut params, "target_type", &target_type.to_string());
     boltmap_insert_str(&mut params, "edge_type", &edge_type.to_string());
+
+    let namespace_filter = match namespace {
+        Some(ns) if ns != "default" => {
+            boltmap_insert_str(&mut params, "namespace", ns);
+            "WHERE source.namespace = $namespace AND target.namespace = $namespace".to_string()
+        }
+        Some(_) => {
+            "WHERE (source.namespace IS NULL OR source.namespace = 'default') AND (target.namespace IS NULL OR target.namespace = 'default')".to_string()
+        }
+        None => String::new(),
+    };
+
     let query = format!(
         "MATCH (source:{})-[r:{}]->(target:{})
+         {}
          RETURN source.name as source_name, source.file as source_file, source.start as source_start, \
                 target.name as target_name, target.file as target_file, target.start as target_start",
         source_type.to_string(),
         edge_type.to_string(),
-        target_type.to_string()
+        target_type.to_string(),
+        namespace_filter
     );
 
     (query, params)

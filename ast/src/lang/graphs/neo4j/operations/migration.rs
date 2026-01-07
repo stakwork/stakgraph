@@ -320,6 +320,13 @@ pub fn clear_graph_query() -> String {
     "MATCH (n:Data_Bank) DETACH DELETE n".to_string()
 }
 
+pub fn clear_graph_by_namespace_query(namespace: &str) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "namespace", namespace);
+    let query = "MATCH (n:Data_Bank {namespace: $namespace}) DETACH DELETE n";
+    (query.to_string(), params)
+}
+
 pub fn clear_existing_graph_query(root: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "root", root);

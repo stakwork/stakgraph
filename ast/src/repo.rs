@@ -91,7 +91,18 @@ impl Repos {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }
-        let mut graph = G::new(String::new(), Language::Typescript);
+        let graph = G::new(String::new(), Language::Typescript);
+        self.build_graphs_with_instance(graph, streaming).await
+    }
+
+    pub async fn build_graphs_with_instance<G: Graph>(
+        &self,
+        mut graph: G,
+        streaming: bool,
+    ) -> Result<G> {
+        if self.0.is_empty() {
+            return Err(Error::Custom("Language is not supported".into()));
+        }
         if let Some(first_repo) = self.0.first() {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }

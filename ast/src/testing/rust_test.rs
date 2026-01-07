@@ -5,17 +5,8 @@ use crate::{lang::Lang, repo::Repo};
 use shared::Result;
 use std::str::FromStr;
 
-pub async fn test_rust_generic<G: Graph>() -> Result<()> {
-    let repo = Repo::new(
-        "src/testing/rust",
-        Lang::from_str("rust").unwrap(),
-        false,
-        Vec::new(),
-        Vec::new(),
-    )
-    .unwrap();
-
-    let graph = repo.build_graph_inner::<G>().await?;
+pub async fn verify_rust<G: Graph>(graph: &G) -> Result<()> {
+    // graph.analysis();
 
     // graph.analysis();
 
@@ -80,8 +71,7 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
     nodes_count += imports.len();
     assert_eq!(imports.len(), 13, "Expected 13 imports");
 
-    let traits = graph.find_nodes_by_type
-    (NodeType::Trait);
+    let traits = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += traits.len();
     assert_eq!(traits.len(), 4, "Expected 4 trait nodes");
 
@@ -265,16 +255,31 @@ use std::net::SocketAddr;"#
     nodes_count += functions.len();
     assert_eq!(functions.len(), 74, "Expected 74 functions");
 
-    let macros: Vec<_> = functions.iter().filter(|f| f.meta.get("macro") == Some(&"true".to_string())).collect();
-    assert_eq!(macros.len(), 5, "Expected 5 macros (say_hello, create_function, log_expr, make_struct, impl_display)");
-    
-    let say_hello_macro = macros.iter().find(|m| m.name == "say_hello" && m.file.ends_with("src/testing/rust/src/macros.rs"));
-    assert!(say_hello_macro.is_some(), "Expected say_hello! macro to be captured");
-    
-    let create_function_macro = macros.iter().find(|m| m.name == "create_function" && m.file.ends_with("src/testing/rust/src/macros.rs"));
-    assert!(create_function_macro.is_some(), "Expected create_function! macro to be captured");
+    let macros: Vec<_> = functions
+        .iter()
+        .filter(|f| f.meta.get("macro") == Some(&"true".to_string()))
+        .collect();
+    assert_eq!(
+        macros.len(),
+        5,
+        "Expected 5 macros (say_hello, create_function, log_expr, make_struct, impl_display)"
+    );
 
-    
+    let say_hello_macro = macros
+        .iter()
+        .find(|m| m.name == "say_hello" && m.file.ends_with("src/testing/rust/src/macros.rs"));
+    assert!(
+        say_hello_macro.is_some(),
+        "Expected say_hello! macro to be captured"
+    );
+
+    let create_function_macro = macros.iter().find(|m| {
+        m.name == "create_function" && m.file.ends_with("src/testing/rust/src/macros.rs")
+    });
+    assert!(
+        create_function_macro.is_some(),
+        "Expected create_function! macro to be captured"
+    );
 
     let internal_helper_fn = functions
         .iter()
@@ -351,11 +356,7 @@ use std::net::SocketAddr;"#
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(
-        unit_tests.len(),
-        43,
-        "Expected 43 unit tests"
-    );
+    assert_eq!(unit_tests.len(), 43, "Expected 43 unit tests");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
@@ -363,11 +364,7 @@ use std::net::SocketAddr;"#
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert_eq!(
-        e2e_tests.len(),
-        8,
-        "Expected 8 e2e tests"
-    );
+    assert_eq!(e2e_tests.len(), 8, "Expected 8 e2e tests");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -569,12 +566,18 @@ use std::net::SocketAddr;"#
 
     let update_profile_rocket_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/user/profile/update" && e.file.ends_with("src/routes/rocket_routes.rs"))
+        .find(|e| {
+            e.name == "/user/profile/update" && e.file.ends_with("src/routes/rocket_routes.rs")
+        })
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("POST /user/profile/update endpoint not found (Rocket same-file)");
 
     assert!(
-        graph.has_edge(&get_profile_rocket_endpoint, &get_profile_rocket_fn, EdgeType::Handler),
+        graph.has_edge(
+            &get_profile_rocket_endpoint,
+            &get_profile_rocket_fn,
+            EdgeType::Handler
+        ),
         "Expected '/user/profile' GET endpoint to be handled by get_profile (Rocket same-file)"
     );
 
@@ -608,7 +611,11 @@ use std::net::SocketAddr;"#
         .expect("DELETE /admin/users/<id> endpoint not found (Rocket cross-file)");
 
     assert!(
-        graph.has_edge(&list_users_rocket_endpoint, &list_users_rocket_fn, EdgeType::Handler),
+        graph.has_edge(
+            &list_users_rocket_endpoint,
+            &list_users_rocket_fn,
+            EdgeType::Handler
+        ),
         "Expected '/admin/users' GET endpoint to be handled by list_users (Rocket cross-file)"
     );
 
@@ -637,7 +644,9 @@ use std::net::SocketAddr;"#
 
     let update_profile_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/user/profile/update" && e.file.ends_with("src/routes/actix_routes.rs"))
+        .find(|e| {
+            e.name == "/user/profile/update" && e.file.ends_with("src/routes/actix_routes.rs")
+        })
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("PUT /user/profile/update endpoint not found");
 
@@ -647,7 +656,11 @@ use std::net::SocketAddr;"#
     );
 
     assert!(
-        graph.has_edge(&update_profile_endpoint, &update_profile_fn, EdgeType::Handler),
+        graph.has_edge(
+            &update_profile_endpoint,
+            &update_profile_fn,
+            EdgeType::Handler
+        ),
         "Expected '/user/profile/update' POST endpoint to be handled by update_profile"
     );
 
@@ -726,6 +739,20 @@ use std::net::SocketAddr;"#
     Ok(())
 }
 
+pub async fn test_rust_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/rust",
+        Lang::from_str("rust").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+    verify_rust(&graph).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_rust() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
@@ -735,8 +762,20 @@ async fn test_rust() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        let graph = Neo4jGraph::with_namespace("test_lang_rust");
         graph.clear().await.unwrap();
-        test_rust_generic::<Neo4jGraph>().await.unwrap();
+
+        let repo = Repo::new(
+            "src/testing/rust",
+            Lang::from_str("rust").unwrap(),
+            false,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
+        // Build with custom instance
+        let graph = repo.build_graph_with_instance(graph, false).await.unwrap();
+        verify_rust(&graph).await.unwrap();
     }
 }

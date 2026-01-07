@@ -20,6 +20,7 @@ pub struct Neo4jGraph {
     pub config: Neo4jConfig,
     pub root: String,
     pub lang_kind: Language,
+    pub namespace: String,
 }
 
 #[derive(Clone, Debug)]
@@ -52,6 +53,8 @@ impl Default for Neo4jGraph {
             config: Neo4jConfig::default(),
             root: String::new(),
             lang_kind: Language::Typescript,
+            namespace: std::env::var("NEO4J_TEST_NAMESPACE")
+                .unwrap_or_else(|_| "default".to_string()),
         }
     }
 }
@@ -72,6 +75,14 @@ impl Neo4jGraph {
             config,
             root,
             lang_kind,
+            namespace: "default".to_string(),
+        }
+    }
+
+    pub fn with_namespace(namespace: &str) -> Self {
+        Neo4jGraph {
+            namespace: namespace.to_string(),
+            ..Default::default()
         }
     }
 
@@ -128,7 +139,8 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        txn_manager.add_node(&node_type, &node_data);
+        let query = add_node_query_with_namespace(&node_type, &node_data, &self.namespace);
+        txn_manager.add_query(query);
 
         txn_manager.execute().await
     }
@@ -137,7 +149,8 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        txn_manager.add_edge(&edge);
+        let query = add_edge_query_with_namespace(&edge, &self.namespace);
+        txn_manager.add_query(query);
 
         txn_manager.execute().await
     }
@@ -150,7 +163,13 @@ impl Neo4jGraph {
         parent_file: &str,
     ) -> Result<()> {
         let connection = self.ensure_connected().await?;
-        let queries = add_node_with_parent_query(&node_type, &node_data, &parent_type, parent_file);
+        let queries = add_node_with_parent_query_with_namespace(
+            &node_type,
+            &node_data,
+            &parent_type,
+            parent_file,
+            &self.namespace,
+        );
 
         let mut txn_manager = TransactionManager::new(&connection);
         for query in queries {
@@ -187,7 +206,7 @@ impl Neo4jGraph {
             warn!("Failed to connect to Neo4j in find_nodes_by_type_async");
             return vec![];
         };
-        let (query, params) = find_nodes_by_type_query(&node_type);
+        let (query, params) = find_nodes_by_type_query(&node_type, Some(&self.namespace));
         execute_node_query(&connection, query, params).await
     }
     pub async fn find_nodes_by_file_ends_with_async(
@@ -219,8 +238,12 @@ impl Neo4jGraph {
             warn!("Failed to connect to Neo4j in find_nodes_with_edge_type_async");
             return vec![];
         };
-        let (query_str, params) =
-            find_nodes_with_edge_type_query(&source_type, &target_type, &edge_type);
+        let (query_str, params) = find_nodes_with_edge_type_query(
+            &source_type,
+            &target_type,
+            &edge_type,
+            Some(&self.namespace),
+        );
 
         let mut query_obj = query(&query_str);
         for (key, value) in params.value.iter() {
@@ -552,7 +575,7 @@ impl Neo4jGraph {
 
     pub async fn get_graph_size_async(&self) -> Result<(u32, u32)> {
         let connection = self.ensure_connected().await?;
-        let query_str = count_nodes_edges_query();
+        let query_str = count_nodes_edges_query(Some(&self.namespace));
         let mut result = connection.execute(query(&query_str)).await?;
         if let Some(row) = result.next().await? {
             let nodes = row.get::<u32>("nodes").unwrap_or(0);
@@ -669,7 +692,7 @@ impl Neo4jGraph {
             warn!("Failed to connect to Neo4j in find_top_level_functions_async");
             return vec![];
         };
-        let (query, params) = find_top_level_functions_query();
+        let (query, params) = find_top_level_functions_query(Some(&self.namespace));
         execute_node_query(&connection, query, params).await
     }
 
@@ -888,6 +911,7 @@ impl Neo4jGraph {
             test_filters,
             search,
             is_muted,
+            Some(&self.namespace),
         );
 
         let mut query_obj = query(&query_str);
@@ -965,22 +989,28 @@ impl Graph for Neo4jGraph {
     where
         Self: Sized,
     {
+        let namespace =
+            std::env::var("NEO4J_TEST_NAMESPACE").unwrap_or_else(|_| "default".to_string());
         Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
             config: Neo4jConfig::default(),
             root,
             lang_kind,
+            namespace,
         }
     }
     fn with_capacity(_nodes: usize, _edges: usize, root: String, lang_kind: Language) -> Self
     where
         Self: Sized,
     {
+        let namespace =
+            std::env::var("NEO4J_TEST_NAMESPACE").unwrap_or_else(|_| "default".to_string());
         Neo4jGraph {
             connection: Arc::new(Mutex::new(None)),
             config: Neo4jConfig::default(),
             root,
             lang_kind,
+            namespace,
         }
     }
     fn analysis(&self) {

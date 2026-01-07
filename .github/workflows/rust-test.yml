@@ -114,15 +114,15 @@ jobs:
           export GEM_HOME="$HOME/.gem"
           export GEM_PATH="$GEM_HOME"
           export PATH="$GEM_HOME/bin:$PATH"
-          
+
           # Save to GITHUB_ENV for subsequent steps
           echo "GEM_HOME=$GEM_HOME" >> $GITHUB_ENV
           echo "GEM_PATH=$GEM_PATH" >> $GITHUB_ENV
           echo "PATH=$GEM_HOME/bin:$PATH" >> $GITHUB_ENV
-          
+
           # Install Bundler first
           gem install --no-document bundler -v 2.6.2
-          
+
           # Install Ruby LSPs
           gem install --no-document ruby-lsp
           gem install --no-document solargraph
@@ -146,4 +146,4 @@ jobs:
 
       # -------------------- Rust full test with LSP --------------------
       - name: Run rust test with LSP
-        run: USE_LSP=true cargo test -- --test-threads=1
+        run: USE_LSP=true cargo test

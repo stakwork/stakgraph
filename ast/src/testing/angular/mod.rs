@@ -4,18 +4,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_angular_generic<G: Graph>() -> Result<()> {
-    let repo = Repo::new(
-        "src/testing/angular",
-        Lang::from_str("angular").unwrap(),
-        false,
-        Vec::new(),
-        Vec::new(),
-    )
-    .unwrap();
-
-    let graph = repo.build_graph_inner::<G>().await?;
-
+pub async fn verify_angular<G: Graph>(graph: &G) -> Result<()> {
     graph.analysis();
 
     let mut nodes = 0;
@@ -526,6 +515,20 @@ import {{ AppComponent }} from './app/app.component';"#
     Ok(())
 }
 
+pub async fn test_angular_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/angular",
+        Lang::from_str("angular").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+    verify_angular(&graph).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_angular() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
@@ -535,8 +538,19 @@ async fn test_angular() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        let graph = Neo4jGraph::with_namespace("test_lang_angular");
         graph.clear().await.unwrap();
-        test_angular_generic::<Neo4jGraph>().await.unwrap();
+
+        let repo = Repo::new(
+            "src/testing/angular",
+            Lang::from_str("angular").unwrap(),
+            false,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
+        let graph = repo.build_graph_with_instance(graph, false).await.unwrap();
+        verify_angular(&graph).await.unwrap();
     }
 }

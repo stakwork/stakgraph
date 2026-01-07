@@ -710,8 +710,10 @@ async fn test_typescript() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_lang_typescript");
+        let graph = Neo4jGraph::with_namespace("test_lang_typescript");
         graph.clear().await.unwrap();
         test_typescript_generic::<Neo4jGraph>().await.unwrap();
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
     }
 }

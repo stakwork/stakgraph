@@ -248,8 +248,10 @@ async fn test_java() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_lang_java");
+        let graph = Neo4jGraph::with_namespace("test_lang_java");
         graph.clear().await.unwrap();
         test_java_generic::<Neo4jGraph>().await.unwrap();
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
     }
 }

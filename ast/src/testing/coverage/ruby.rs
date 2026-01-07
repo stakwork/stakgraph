@@ -29,7 +29,8 @@ async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
                 .expect("Failed to build graph");
             btree_graph.analysis();
 
-            let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::new();
+            let mut graph_ops =
+                crate::lang::graphs::graph_ops::GraphOps::with_namespace("test_ruby");
             graph_ops.connect().await.expect("Failed to connect");
             graph_ops
                 .graph
@@ -43,7 +44,7 @@ async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
         })
         .await;
 
-    let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::new();
+    let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::with_namespace("test_ruby");
     graph_ops.connect().await?;
     Ok(graph_ops)
 }

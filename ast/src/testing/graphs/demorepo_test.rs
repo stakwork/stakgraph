@@ -243,8 +243,10 @@ async fn test_demorepo() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_demorepo");
+        let graph = Neo4jGraph::with_namespace("test_demorepo");
         graph.clear().await.unwrap();
         test_demorepo_generic::<Neo4jGraph>(&repos).await.unwrap();
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
     }
 }

@@ -50,7 +50,15 @@ impl Repo {
     }
     pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
-        let mut graph = G::new(graph_root, self.lang.kind.clone());
+        let graph = G::new(graph_root, self.lang.kind.clone());
+        self.build_graph_with_instance(graph, streaming).await
+    }
+
+    pub async fn build_graph_with_instance<G: Graph>(
+        &self,
+        mut graph: G,
+        streaming: bool,
+    ) -> Result<G> {
         graph.set_allow_unverified_calls(self.allow_unverified_calls);
 
         let mut stats = std::collections::HashMap::new();

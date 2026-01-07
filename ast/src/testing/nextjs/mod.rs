@@ -10,19 +10,8 @@ use core::panic;
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
+pub async fn verify_nextjs<G: Graph>(graph: &G) -> Result<()> {
     let use_lsp = get_use_lsp();
-    let repo = Repo::new(
-        "src/testing/nextjs",
-        Lang::from_str("tsx").unwrap(),
-        use_lsp,
-        Vec::new(),
-        Vec::new(),
-    )
-    .unwrap();
-
-    let repos = Repos(vec![repo]);
-    let graph = repos.build_graphs_inner::<G>().await?;
 
     graph.analysis();
 
@@ -984,6 +973,22 @@ async fn test_remote_nextjs() -> Result<()> {
     Ok(())
 }
 
+pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
+    let use_lsp = get_use_lsp();
+    let repo = Repo::new(
+        "src/testing/nextjs",
+        Lang::from_str("tsx").unwrap(),
+        use_lsp,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let repos = Repos(vec![repo]);
+    let graph = repos.build_graphs_inner::<G>().await?;
+    verify_nextjs(&graph).await
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_nextjs() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
@@ -994,11 +999,28 @@ async fn test_nextjs() {
     {
         #[cfg(feature = "fulltest")]
         test_remote_nextjs().await.unwrap();
-        // cargo test test_nextjs --features neo4j --features fulltest -- --nocapture
 
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        let graph = Neo4jGraph::with_namespace("test_lang_nextjs");
         graph.clear().await.unwrap();
-        test_nextjs_generic::<Neo4jGraph>().await.unwrap();
+
+        // Setup Repo
+        let use_lsp = get_use_lsp();
+        let repo = Repo::new(
+            "src/testing/nextjs",
+            Lang::from_str("tsx").unwrap(),
+            use_lsp,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+        let repos = Repos(vec![repo]);
+
+        // Build with custom instance
+        let graph = repos
+            .build_graphs_with_instance(graph, false)
+            .await
+            .unwrap();
+        verify_nextjs(&graph).await.unwrap();
     }
 }

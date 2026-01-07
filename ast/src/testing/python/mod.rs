@@ -763,8 +763,10 @@ async fn test_python() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_lang_python");
+        let graph = Neo4jGraph::with_namespace("test_lang_python");
         graph.clear().await.unwrap();
         test_python_generic::<Neo4jGraph>().await.unwrap();
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
     }
 }

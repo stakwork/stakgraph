@@ -29,7 +29,8 @@ async fn setup_typescript_graph() -> Result<crate::lang::graphs::graph_ops::Grap
                 .expect("Failed to build graph");
             btree_graph.analysis();
 
-            let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::new();
+            let mut graph_ops =
+                crate::lang::graphs::graph_ops::GraphOps::with_namespace("test_typescript");
             graph_ops.connect().await.expect("Failed to connect");
             graph_ops
                 .graph
@@ -43,7 +44,7 @@ async fn setup_typescript_graph() -> Result<crate::lang::graphs::graph_ops::Grap
         })
         .await;
 
-    let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::new();
+    let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::with_namespace("test_typescript");
     graph_ops.connect().await?;
     Ok(graph_ops)
 }

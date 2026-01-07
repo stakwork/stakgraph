@@ -1,4 +1,4 @@
-use super::edges::add_edge_query;
+use super::edges::{add_edge_query, add_edge_query_with_namespace};
 use crate::lang::{
     helpers::*,
     migration::{update_endpoint_name_query, update_endpoint_relationships_query},
@@ -9,6 +9,7 @@ use neo4rs::{BoltMap, BoltType};
 pub struct NodeQueryBuilder {
     node_type: NodeType,
     node_data: NodeData,
+    namespace: String,
 }
 
 impl NodeQueryBuilder {
@@ -16,6 +17,15 @@ impl NodeQueryBuilder {
         Self {
             node_type: node_type.clone(),
             node_data: node_data.clone(),
+            namespace: "default".to_string(),
+        }
+    }
+
+    pub fn with_namespace(node_type: &NodeType, node_data: &NodeData, namespace: &str) -> Self {
+        Self {
+            node_type: node_type.clone(),
+            node_data: node_data.clone(),
+            namespace: namespace.to_string(),
         }
     }
 
@@ -40,8 +50,8 @@ impl NodeQueryBuilder {
             boltmap_insert_str(&mut properties, "Data_Bank", &self.node_data.name);
         }
 
-        // Add default namespace during node creation (fixes real-time streaming)
-        boltmap_insert_str(&mut properties, "namespace", "default");
+        // Use the namespace from the builder
+        boltmap_insert_str(&mut properties, "namespace", &self.namespace);
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
@@ -78,8 +88,8 @@ impl NodeQueryBuilder {
             boltmap_insert_str(&mut properties, "Data_Bank", &self.node_data.name);
         }
 
-        // Add default namespace during node creation (fixes real-time streaming)
-        boltmap_insert_str(&mut properties, "namespace", "default");
+        // Use the namespace from the builder
+        boltmap_insert_str(&mut properties, "namespace", &self.namespace);
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
@@ -97,6 +107,14 @@ impl NodeQueryBuilder {
 
 pub fn add_node_query(node_type: &NodeType, node_data: &NodeData) -> (String, BoltMap) {
     NodeQueryBuilder::new(node_type, node_data).build()
+}
+
+pub fn add_node_query_with_namespace(
+    node_type: &NodeType,
+    node_data: &NodeData,
+    namespace: &str,
+) -> (String, BoltMap) {
+    NodeQueryBuilder::with_namespace(node_type, node_data, namespace).build()
 }
 
 pub fn add_node_query_stream(node_type: &NodeType, node_data: &NodeData) -> (String, BoltMap) {
@@ -126,6 +144,48 @@ pub fn add_node_with_parent_query(
         parent_type.to_string(),
         node_type.to_string()
     );
+
+    queries.push((query_str, params));
+    queries
+}
+
+pub fn add_node_with_parent_query_with_namespace(
+    node_type: &NodeType,
+    node_data: &NodeData,
+    parent_type: &NodeType,
+    parent_file: &str,
+    namespace: &str,
+) -> Vec<(String, BoltMap)> {
+    let mut queries = Vec::new();
+
+    queries.push(add_node_query_with_namespace(
+        node_type, node_data, namespace,
+    ));
+
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "node_name", &node_data.name);
+    boltmap_insert_str(&mut params, "node_file", &node_data.file);
+    boltmap_insert_int(&mut params, "node_start", node_data.start as i64);
+    boltmap_insert_str(&mut params, "parent_file", parent_file);
+
+    let query_str = if namespace != "default" {
+        boltmap_insert_str(&mut params, "namespace", namespace);
+        format!(
+            "MATCH (parent:{} {{file: $parent_file, namespace: $namespace}})
+             MATCH (node:{} {{name: $node_name, file: $node_file, start: $node_start, namespace: $namespace}})
+             MERGE (parent)-[:CONTAINS]->(node)",
+            parent_type.to_string(),
+            node_type.to_string()
+        )
+    } else {
+        format!(
+            "MATCH (parent:{} {{file: $parent_file}}) WHERE parent.namespace IS NULL OR parent.namespace = 'default'
+             MATCH (node:{} {{name: $node_name, file: $node_file, start: $node_start}}) WHERE node.namespace IS NULL OR node.namespace = 'default'
+             MERGE (parent)-[:CONTAINS]->(node)",
+            parent_type.to_string(),
+            node_type.to_string()
+        )
+    };
 
     queries.push((query_str, params));
     queries
@@ -195,6 +255,99 @@ pub fn add_functions_query(
     queries
 }
 
+pub fn add_functions_query_with_namespace(
+    function_node: &NodeData,
+    method_of: Option<&Operand>,
+    reqs: &[NodeData],
+    dms: &[Edge],
+    trait_operand: Option<&Edge>,
+    return_types: &[Edge],
+    nested_in: &[Edge],
+    namespace: &str,
+) -> Vec<(String, BoltMap)> {
+    let mut queries = Vec::new();
+
+    queries.push(add_node_query_with_namespace(
+        &NodeType::Function,
+        function_node,
+        namespace,
+    ));
+
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "function_name", &function_node.name);
+    boltmap_insert_str(&mut params, "function_file", &function_node.file);
+    boltmap_insert_int(&mut params, "function_start", function_node.start as i64);
+
+    let query_str = if namespace != "default" {
+        boltmap_insert_str(&mut params, "namespace", namespace);
+        format!(
+            "MATCH (function:Function {{name: $function_name, file: $function_file, start: $function_start, namespace: $namespace}}),
+                   (file:File {{file: $function_file, namespace: $namespace}})
+             MERGE (file)-[:CONTAINS]->(function)"
+        )
+    } else {
+        format!(
+            "MATCH (function:Function {{name: $function_name, file: $function_file, start: $function_start}}) WHERE function.namespace IS NULL OR function.namespace = 'default'
+             MATCH (file:File {{file: $function_file}}) WHERE file.namespace IS NULL OR file.namespace = 'default'
+             MERGE (file)-[:CONTAINS]->(function)"
+        )
+    };
+    queries.push((query_str, params));
+
+    if let Some(operand) = method_of {
+        let edge = (*operand).clone().into();
+        queries.push(add_edge_query_with_namespace(&edge, namespace));
+    }
+
+    if let Some(edge) = trait_operand {
+        queries.push(add_edge_query_with_namespace(edge, namespace));
+    }
+
+    for edge in return_types {
+        queries.push(add_edge_query_with_namespace(edge, namespace));
+    }
+
+    for req in reqs {
+        queries.push(add_node_query_with_namespace(
+            &NodeType::Request,
+            req,
+            namespace,
+        ));
+
+        let mut params = BoltMap::new();
+        boltmap_insert_str(&mut params, "function_name", &function_node.name);
+        boltmap_insert_str(&mut params, "function_file", &function_node.file);
+        boltmap_insert_int(&mut params, "function_start", function_node.start as i64);
+        boltmap_insert_str(&mut params, "req_name", &req.name);
+        boltmap_insert_str(&mut params, "req_file", &req.file);
+        boltmap_insert_int(&mut params, "req_start", req.start as i64);
+
+        let query_str = if namespace != "default" {
+            boltmap_insert_str(&mut params, "namespace", namespace);
+            format!(
+                "MATCH (function:Function {{name: $function_name, file: $function_file, start: $function_start, namespace: $namespace}}),
+                       (request:Request {{name: $req_name, file: $req_file, start: $req_start, namespace: $namespace}})
+                 MERGE (function)-[:CALLS]->(request)"
+            )
+        } else {
+            format!(
+                "MATCH (function:Function {{name: $function_name, file: $function_file, start: $function_start}}) WHERE function.namespace IS NULL OR function.namespace = 'default'
+                 MATCH (request:Request {{name: $req_name, file: $req_file, start: $req_start}}) WHERE request.namespace IS NULL OR request.namespace = 'default'
+                 MERGE (function)-[:CALLS]->(request)"
+            )
+        };
+        queries.push((query_str, params));
+    }
+
+    for dm_edge in dms {
+        queries.push(add_edge_query_with_namespace(dm_edge, namespace));
+    }
+    for ne_edge in nested_in {
+        queries.push(add_edge_query_with_namespace(ne_edge, namespace));
+    }
+    queries
+}
+
 pub fn add_page_query(page_data: &NodeData, edge_opt: &Option<Edge>) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
@@ -234,6 +387,31 @@ pub fn add_instance_of_query(instance: &NodeData, class_name: &str) -> (String, 
     (query.to_string(), params)
 }
 
+pub fn add_instance_of_query_with_namespace(
+    instance: &NodeData,
+    class_name: &str,
+    namespace: &str,
+) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "instance_name", &instance.name);
+    boltmap_insert_str(&mut params, "instance_file", &instance.file);
+    boltmap_insert_int(&mut params, "instance_start", instance.start as i64);
+    boltmap_insert_str(&mut params, "class_name", class_name);
+
+    let query = if namespace != "default" {
+        boltmap_insert_str(&mut params, "namespace", namespace);
+        "MATCH (instance:Instance {name: $instance_name, file: $instance_file, start: $instance_start, namespace: $namespace}), 
+               (class:Class {name: $class_name, namespace: $namespace}) 
+         MERGE (instance)-[:OF]->(class)"
+    } else {
+        "MATCH (instance:Instance {name: $instance_name, file: $instance_file, start: $instance_start}) WHERE instance.namespace IS NULL OR instance.namespace = 'default'
+         MATCH (class:Class {name: $class_name}) WHERE class.namespace IS NULL OR class.namespace = 'default'
+         MERGE (instance)-[:OF]->(class)"
+    };
+
+    (query.to_string(), params)
+}
+
 pub fn add_endpoints_query(endpoints: &[(NodeData, Option<Edge>)]) -> Vec<(String, BoltMap)> {
     let mut queries = Vec::new();
 
@@ -242,6 +420,68 @@ pub fn add_endpoints_query(endpoints: &[(NodeData, Option<Edge>)]) -> Vec<(Strin
 
         if let Some(edge) = handler_edge {
             queries.push(add_edge_query(edge));
+        }
+    }
+
+    queries
+}
+
+pub fn add_endpoints_query_with_namespace(
+    endpoints: &[(NodeData, Option<Edge>)],
+    namespace: &str,
+) -> Vec<(String, BoltMap)> {
+    let mut queries = Vec::new();
+
+    for (endpoint_data, handler_edge) in endpoints {
+        queries.push(add_node_query_with_namespace(
+            &NodeType::Endpoint,
+            endpoint_data,
+            namespace,
+        ));
+
+        if let Some(edge) = handler_edge {
+            queries.push(add_edge_query_with_namespace(edge, namespace));
+        }
+    }
+
+    queries
+}
+
+pub fn add_page_query_with_namespace(
+    page_data: &NodeData,
+    edge_opt: &Option<Edge>,
+    namespace: &str,
+) -> Vec<(String, BoltMap)> {
+    let mut queries = Vec::new();
+
+    queries.push(add_node_query_with_namespace(
+        &NodeType::Page,
+        page_data,
+        namespace,
+    ));
+
+    if let Some(edge) = edge_opt {
+        queries.push(add_edge_query_with_namespace(edge, namespace));
+    }
+
+    queries
+}
+
+pub fn add_pages_query_with_namespace(
+    pages: &[(NodeData, Vec<Edge>)],
+    namespace: &str,
+) -> Vec<(String, BoltMap)> {
+    let mut queries = Vec::new();
+
+    for (page_data, edges) in pages {
+        queries.push(add_node_query_with_namespace(
+            &NodeType::Page,
+            page_data,
+            namespace,
+        ));
+
+        for edge in edges {
+            queries.push(add_edge_query_with_namespace(edge, namespace));
         }
     }
 
@@ -261,14 +501,27 @@ pub fn add_instance_contains_query(instance: &NodeData) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
-pub fn find_nodes_by_type_query(node_type: &NodeType) -> (String, BoltMap) {
+pub fn find_nodes_by_type_query(
+    node_type: &NodeType,
+    namespace: Option<&str>,
+) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "node_type", &node_type.to_string());
 
+    let namespace_filter = match namespace {
+        Some(ns) if ns != "default" => {
+            boltmap_insert_str(&mut params, "namespace", ns);
+            "WHERE n.namespace = $namespace".to_string()
+        }
+        Some(_) => "WHERE n.namespace IS NULL OR n.namespace = 'default'".to_string(),
+        None => String::new(),
+    };
+
     let query = format!(
-        "MATCH (n:{}) 
+        "MATCH (n:{}) {} 
          RETURN n",
-        node_type.to_string()
+        node_type.to_string(),
+        namespace_filter
     );
 
     (query, params)
@@ -418,16 +671,28 @@ pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap)
     (query.to_string(), params)
 }
 
-pub fn find_top_level_functions_query() -> (String, BoltMap) {
+pub fn find_top_level_functions_query(namespace: Option<&str>) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+
+    let namespace_filter = match namespace {
+        Some(ns) if ns != "default" => {
+            boltmap_insert_str(&mut params, "namespace", ns);
+            "AND n.namespace = $namespace".to_string()
+        }
+        Some(_) => "AND (n.namespace IS NULL OR n.namespace = 'default')".to_string(),
+        None => String::new(),
+    };
+
     let query = format!(
         "MATCH (n:Function)
-        WHERE {}
+        WHERE {} {}
         RETURN n
     ",
-        unique_functions_filters().join(" AND ")
+        unique_functions_filters().join(" AND "),
+        namespace_filter
     )
     .to_string();
-    (query, BoltMap::new())
+    (query, params)
 }
 
 pub fn process_endpoint_groups_queries(
@@ -516,6 +781,7 @@ pub fn query_nodes_with_count(
     test_filters: Option<TestFilters>,
     search: Option<&str>,
     is_muted: Option<bool>,
+    namespace: Option<&str>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_int(&mut params, "offset", offset as i64);
@@ -677,10 +943,19 @@ pub fn query_nodes_with_count(
         "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
     };
 
+    let namespace_filter = match namespace {
+        Some(ns) if ns != "default" => {
+            boltmap_insert_str(&mut params, "namespace", ns);
+            "AND n.namespace = $namespace".to_string()
+        }
+        Some(_) => "AND (n.namespace IS NULL OR n.namespace = 'default')".to_string(),
+        None => String::new(),
+    };
+
     let query = format!(
         "MATCH (n)
          WHERE ANY(label IN labels(n) WHERE label IN $node_types)
-         {} {} {} {} {} {}
+         {} {} {} {} {} {} {}
          {}
          WITH n, {} AS test_count
          {} 
@@ -709,6 +984,7 @@ pub fn query_nodes_with_count(
         regex_filter,
         search_filter,
         is_muted_filter,
+        namespace_filter,
         test_match_clauses,
         test_count_expr,
         coverage_where,

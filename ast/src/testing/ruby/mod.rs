@@ -7,18 +7,8 @@ use shared::error::Result;
 use std::str::FromStr;
 use test_log::test;
 
-pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
+pub async fn verify_ruby<G: Graph>(graph: &G) -> Result<()> {
     let use_lsp = get_use_lsp();
-    let repo = Repo::new(
-        "src/testing/ruby",
-        Lang::from_str("ruby").unwrap(),
-        use_lsp,
-        Vec::new(),
-        Vec::new(),
-    )
-    .unwrap();
-
-    let graph = repo.build_graph_inner::<G>().await?;
 
     //  graph.analysis();
 
@@ -929,6 +919,21 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     Ok(())
 }
 
+pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
+    let use_lsp = get_use_lsp();
+    let repo = Repo::new(
+        "src/testing/ruby",
+        Lang::from_str("ruby").unwrap(),
+        use_lsp,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+    verify_ruby(&graph).await
+}
+
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_ruby() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
@@ -938,8 +943,21 @@ async fn test_ruby() {
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
+        let graph = Neo4jGraph::with_namespace("test_lang_ruby");
         graph.clear().await.unwrap();
-        test_ruby_generic::<Neo4jGraph>().await.unwrap();
+
+        // Setup Repo
+        let use_lsp = get_use_lsp();
+        let repo = Repo::new(
+            "src/testing/ruby",
+            Lang::from_str("ruby").unwrap(),
+            use_lsp,
+            Vec::new(),
+            Vec::new(),
+        )
+        .unwrap();
+
+        let graph = repo.build_graph_with_instance(graph, false).await.unwrap();
+        verify_ruby(&graph).await.unwrap();
     }
 }
