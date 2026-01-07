@@ -75,7 +75,7 @@ jobs:
       - name: Run Rust Tests behind Neo4j
         run: |
           export USE_LSP=false
-          cargo test --features neo4j
+          cargo test --features neo4j -- --test-threads=1
 
       - name: Run Graph Update Tests
         run: |

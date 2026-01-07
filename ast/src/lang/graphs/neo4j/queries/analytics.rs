@@ -41,7 +41,7 @@ pub fn count_edges_by_type_query(edge_type: &EdgeType) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "edge_type", &edge_type.to_string());
 
-    let query = "MATCH ()-[r]->() 
+    let query = "MATCH (source)-[r]->(target) 
                 WHERE type(r) = $edge_type 
                 RETURN COUNT(r) as count";
 

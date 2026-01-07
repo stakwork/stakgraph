@@ -60,11 +60,7 @@ impl Neo4jGraph {
 
         // If namespace is "default", clear entire graph (backward compatible)
         // Otherwise, clear only nodes with this namespace (test isolation)
-        let (clear_query_str, params) = if self.namespace == "default" {
-            (clear_graph_query(), BoltMap::new())
-        } else {
-            crate::lang::graphs::migration::clear_graph_by_namespace_query(&self.namespace)
-        };
+        let (clear_query_str, params) = (clear_graph_query(), BoltMap::new());
 
         let mut query_obj = query(&clear_query_str);
         for (key, value) in params.value.iter() {

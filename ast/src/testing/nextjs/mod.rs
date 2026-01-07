@@ -1016,11 +1016,15 @@ async fn test_nextjs() {
         .unwrap();
         let repos = Repos(vec![repo]);
 
-        // Build with custom instance
+        // Build with custom instance - directly uses passed graph's namespace
+        #[cfg(feature = "neo4j")]
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_lang_nextjs");
         let graph = repos
             .build_graphs_with_instance(graph, false)
             .await
             .unwrap();
+        #[cfg(feature = "neo4j")]
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
         verify_nextjs(&graph).await.unwrap();
     }
 }

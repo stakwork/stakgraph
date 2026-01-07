@@ -146,4 +146,4 @@ jobs:
 
       # -------------------- Rust full test with LSP --------------------
       - name: Run rust test with LSP
-        run: USE_LSP=true cargo test
+        run: USE_LSP=true cargo test -- --test-threads=1

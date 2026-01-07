@@ -550,7 +550,11 @@ async fn test_angular() {
         )
         .unwrap();
 
+        #[cfg(feature = "neo4j")]
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_lang_angular");
         let graph = repo.build_graph_with_instance(graph, false).await.unwrap();
+        #[cfg(feature = "neo4j")]
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
         verify_angular(&graph).await.unwrap();
     }
 }

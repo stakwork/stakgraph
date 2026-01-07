@@ -595,7 +595,11 @@ async fn test_react_typescript() {
         )
         .unwrap();
 
+        #[cfg(feature = "neo4j")]
+        std::env::set_var("NEO4J_TEST_NAMESPACE", "test_lang_react_typescript");
         let graph = repo.build_graph_with_instance(graph, false).await.unwrap();
+        #[cfg(feature = "neo4j")]
+        std::env::remove_var("NEO4J_TEST_NAMESPACE");
         verify_react_typescript(&graph).await.unwrap();
     }
 }

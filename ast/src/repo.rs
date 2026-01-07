@@ -116,8 +116,8 @@ impl Repos {
         };
         for repo in &self.0 {
             info!("building graph for {:?}", repo);
-            let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
-            graph.extend_graph(subgraph);
+            // Build directly into the passed graph, preserving its namespace
+            graph = repo.build_graph_with_instance(graph, streaming).await?;
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
                 let all_nodes = graph.get_all_nodes();
