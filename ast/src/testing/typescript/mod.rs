@@ -47,7 +47,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 26, "Expected 26 File nodes");
+    assert_eq!(files.len(), 27, "Expected 27 File nodes");
 
     let pkg_files = files
         .iter()
@@ -82,7 +82,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(functions.len(), 38, "Expected 38 functions with LSP");
     } else {
-        assert_eq!(functions.len(), 33, "Expected 33 functions without LSP");
+        assert_eq!(functions.len(), 36, "Expected 36 functions without LSP");
     }
 
     let log_fn = functions
@@ -105,7 +105,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 7, "Expected 7 classes");
+    assert_eq!(classes.len(), 9, "Expected 9 classes");
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
@@ -267,11 +267,11 @@ import {{ sequelize }} from "./config.js";"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 17, "Expected 17 data models");
+    assert_eq!(data_models.len(), 27, "Expected 27 data models");
 
     let trait_nodes = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += trait_nodes.len();
-    assert_eq!(trait_nodes.len(), 4, "Expected 4 trait nodes");
+    assert_eq!(trait_nodes.len(), 6, "Expected 6 trait nodes");
 
     let person_service_trait = trait_nodes
         .iter()
@@ -287,7 +287,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 162, "Expected 162 contains edges");
+    assert_eq!(contains, 180, "Expected 180 contains edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;

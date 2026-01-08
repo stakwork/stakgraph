@@ -74,7 +74,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 21);
 
     let integration_tests = btree_graph.find_nodes_by_type(NodeType::IntegrationTest);
-    assert_eq!(integration_tests.len(), 18);
+    assert_eq!(integration_tests.len(), 19);
 
     let test_edges = btree_graph.find_nodes_with_edge_type(
         NodeType::IntegrationTest,
@@ -213,8 +213,8 @@ async fn test_nextjs_graph_upload() -> Result<()> {
     let graph_ops = setup_nextjs_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 527);
-    assert_eq!(edges, 874);
+    assert_eq!(nodes, 564);
+    assert_eq!(edges, 962);
 
     Ok(())
 }
@@ -230,7 +230,7 @@ async fn test_coverage_default_params() -> Result<()> {
 
     if let Some(integration) = &coverage.integration_tests {
         assert_eq!(integration.total, 21);
-        assert_eq!(integration.total_tests, 18);
+        assert_eq!(integration.total_tests, 19);
     }
 
     Ok(())
@@ -388,8 +388,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 38);
-    assert_eq!(results.len(), 38);
+    assert_eq!(count, 49);
+    assert_eq!(results.len(), 49);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -446,8 +446,8 @@ async fn test_nodes_integration_test_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 18);
-    assert_eq!(results.len(), 18);
+    assert_eq!(count, 19);
+    assert_eq!(results.len(), 19);
 
     Ok(())
 }
@@ -473,8 +473,8 @@ async fn test_nodes_unit_test_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 25);
-    assert_eq!(results.len(), 25);
+    assert_eq!(count, 27);
+    assert_eq!(results.len(), 27);
 
     Ok(())
 }
@@ -527,7 +527,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 59);
+    assert_eq!(count, 70);
 
     let has_function = results
         .iter()
@@ -567,8 +567,8 @@ async fn test_nodes_all_test_types() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 48);
-    assert_eq!(results.len(), 48);
+    assert_eq!(count, 51);
+    assert_eq!(results.len(), 51);
 
     Ok(())
 }

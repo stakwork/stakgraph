@@ -67,7 +67,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 22);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 33);
+    assert_eq!(functions.len(), 36);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 9);
@@ -79,13 +79,13 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(e2e_tests.len(), 4);
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
-    assert_eq!(classes.len(), 7);
+    assert_eq!(classes.len(), 9);
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
-    assert_eq!(data_models.len(), 17);
+    assert_eq!(data_models.len(), 27);
 
     let traits = graph.find_nodes_by_type(NodeType::Trait);
-    assert_eq!(traits.len(), 4);
+    assert_eq!(traits.len(), 6);
 
     Ok(())
 }
@@ -109,7 +109,7 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     assert_eq!(calls_edges, 10);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 162);
+    assert_eq!(contains_edges, 180);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 22);
@@ -126,8 +126,8 @@ async fn test_typescript_graph_upload() -> Result<()> {
     let graph_ops = setup_typescript_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 172);
-    assert_eq!(edges, 213);
+    assert_eq!(nodes, 190);
+    assert_eq!(edges, 231);
 
     Ok(())
 }
@@ -303,8 +303,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 12);
-    assert_eq!(results.len(), 12);
+    assert_eq!(count, 15);
+    assert_eq!(results.len(), 15);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -334,8 +334,8 @@ async fn test_nodes_class_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 7);
-    assert_eq!(results.len(), 7);
+    assert_eq!(count, 9);
+    assert_eq!(results.len(), 9);
 
     Ok(())
 }
@@ -361,8 +361,8 @@ async fn test_nodes_data_model_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 17);
-    assert_eq!(results.len(), 17);
+    assert_eq!(count, 27);
+    assert_eq!(results.len(), 27);
 
     Ok(())
 }
@@ -388,8 +388,8 @@ async fn test_nodes_trait_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 4);
-    assert_eq!(results.len(), 4);
+    assert_eq!(count, 6);
+    assert_eq!(results.len(), 6);
 
     Ok(())
 }
@@ -496,7 +496,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 34);
+    assert_eq!(count, 37);
 
     let has_function = results
         .iter()
@@ -932,7 +932,7 @@ async fn test_nodes_with_repo_filter() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 12);
+    assert_eq!(count, 15);
 
     let (empty_count, _) = graph_ops
         .query_nodes_with_count(

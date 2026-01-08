@@ -812,7 +812,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let articles_api_test = integration_tests
         .iter()
-        .find(|t| t.name.contains("Articles API"))
+        .find(|t| t.name.contains("Articles API") && t.file.contains("integration"))
         .expect("Articles API integration test not found");
     assert!(
         articles_api_test
