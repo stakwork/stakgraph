@@ -87,34 +87,130 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
     nodes += endpoints.len();
     assert_eq!(endpoints.len(), 38, "Expected 38 Endpoint nodes");
 
-    let _root_endpoint = endpoints
+    let root_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/" && e.file.ends_with("web.php"))
-        .expect("Root endpoint '/' in web.php not found");
+        .find(|e| {
+            e.name == "/"
+                && e.file.ends_with("web.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET / endpoint in web.php not found");
+    assert_eq!(
+        root_endpoint.file, "src/testing/php/routes/web.php",
+        "Root endpoint file path is incorrect"
+    );
 
-    let _dashboard_endpoint = endpoints
+    let dashboard_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/dashboard" && e.file.ends_with("web.php"))
-        .expect("Dashboard endpoint in web.php not found");
+        .find(|e| {
+            e.name == "/dashboard"
+                && e.file.ends_with("web.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /dashboard endpoint in web.php not found");
+    assert_eq!(
+        dashboard_endpoint.file, "src/testing/php/routes/web.php",
+        "Dashboard endpoint file path is incorrect"
+    );
 
-    let _login_endpoint = endpoints
+    let profile_get_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/login" && e.file.ends_with("api.php"))
-        .expect("Login endpoint in api.php not found");
+        .find(|e| {
+            e.name == "/profile"
+                && e.file.ends_with("web.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /profile endpoint in web.php not found");
+    assert_eq!(
+        profile_get_endpoint.meta.get("middleware"),
+        Some(&"auth".to_string()),
+        "GET /profile endpoint should have 'auth' middleware"
+    );
 
-    let _blog_index = endpoints
+    let login_post_endpoint = endpoints
         .iter()
-        .find(|e| (e.name == "/" || e.name == "/blog") && e.file.ends_with("BlogController.php"))
-        .expect("BlogController endpoint not found");
-    let _group_index = endpoints
-        .iter()
-        .find(|e| e.name == "/users/group_index" && e.file.ends_with("web_groups.php"))
-        .expect("Group index endpoint not found");
+        .find(|e| {
+            e.name == "/login"
+                && e.file.ends_with("api.php")
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .expect("POST /login endpoint in api.php not found");
+    assert_eq!(
+        login_post_endpoint.file, "src/testing/php/routes/api.php",
+        "Login POST endpoint file path is incorrect"
+    );
 
-    let _group_store = endpoints
+    let users_get_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/users/group_store" && e.file.ends_with("web_groups.php"))
-        .expect("Group store endpoint not found");
+        .find(|e| {
+            e.name == "/users"
+                && e.file.ends_with("web.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /users endpoint not found (resource route)");
+
+    let users_post_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users"
+                && e.file.ends_with("web.php")
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .expect("POST /users endpoint not found (resource route)");
+
+    let users_show_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users/{user}"
+                && e.file.ends_with("web.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /users/{user} endpoint not found (resource route)");
+
+    let _api_users_get_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users"
+                && e.file.ends_with("api.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /users endpoint in api.php not found (apiResource)");
+
+    let _api_users_post_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users"
+                && e.file.ends_with("api.php")
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .expect("POST /users endpoint in api.php not found (apiResource)");
+
+    let _api_users_show_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users/{user}"
+                && e.file.ends_with("api.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /users/{user} endpoint in api.php not found (apiResource)");
+
+    let _group_index_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users/group_index"
+                && e.file.ends_with("web_groups.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /users/group_index endpoint not found (Route::controller group)");
+
+    let _group_store_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users/group_store"
+                && e.file.ends_with("web_groups.php")
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .expect("POST /users/group_store endpoint not found (Route::controller group)");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes += imports.len();
@@ -182,6 +278,105 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
         "UserController class should have index method (Operand edge)"
     );
 
+    let store_method = functions
+        .iter()
+        .find(|f| f.name == "store" && f.file.ends_with("UserController.php"))
+        .expect("UserController::store not found");
+
+    assert!(
+        graph.has_edge(
+            &Node::new(NodeType::Endpoint, users_post_endpoint.clone()),
+            &Node::new(NodeType::Function, store_method.clone()),
+            EdgeType::Handler
+        ),
+        "POST /users endpoint should be handled by UserController::store"
+    );
+
+    assert!(
+        graph.has_edge(
+            &Node::new(NodeType::Endpoint, users_get_endpoint.clone()),
+            &Node::new(NodeType::Function, index_method.clone()),
+            EdgeType::Handler
+        ),
+        "GET /users endpoint should be handled by UserController::index"
+    );
+
+    let show_method = functions
+        .iter()
+        .find(|f| f.name == "show" && f.file.ends_with("UserController.php"))
+        .expect("UserController::show not found");
+
+    assert!(
+        graph.has_edge(
+            &Node::new(NodeType::Endpoint, users_show_endpoint.clone()),
+            &Node::new(NodeType::Function, show_method.clone()),
+            EdgeType::Handler
+        ),
+        "GET /users/{{user}} endpoint should be handled by UserController::show"
+    );
+
+    let user_class = classes
+        .iter()
+        .find(|c| c.name == "User" && c.file.ends_with("Models/User.php"))
+        .expect("User model class not found");
+    assert!(
+        user_class.body.contains("HasApiTokens"),
+        "User model should use HasApiTokens trait"
+    );
+    assert!(
+        user_class.body.contains("HasFactory"),
+        "User model should use HasFactory trait"
+    );
+    assert!(
+        user_class.body.contains("Notifiable"),
+        "User model should use Notifiable trait"
+    );
+    assert!(
+        user_class.body.contains("$fillable"),
+        "User model should have $fillable property"
+    );
+    assert!(
+        user_class.body.contains("$hidden"),
+        "User model should have $hidden property"
+    );
+    assert!(
+        user_class.body.contains("$casts"),
+        "User model should have $casts property"
+    );
+    assert!(
+        user_class.body.contains("hasMany(Post::class)"),
+        "User model should have hasMany relationship with Post"
+    );
+
+    let post_class = classes
+        .iter()
+        .find(|c| c.name == "Post" && c.file.ends_with("Models/Post.php"))
+        .expect("Post model class not found");
+    assert!(
+        post_class.body.contains("HasFactory"),
+        "Post model should use HasFactory trait"
+    );
+    assert!(
+        post_class.body.contains("belongsTo(User::class)"),
+        "Post model should have belongsTo relationship with User"
+    );
+
+    let register_user_fn = functions
+        .iter()
+        .find(|f| f.name == "registerUser" && f.file.ends_with("UserService.php"))
+        .expect("UserService::registerUser not found");
+    assert!(
+        register_user_fn.body.contains("$this->users->create"),
+        "registerUser should call users repository create method"
+    );
+
+    assert!(
+        store_method
+            .body
+            .contains("$this->userService->registerUser"),
+        "UserController::store should call userService->registerUser"
+    );
+
     let imports_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges += imports_edges;
     assert_eq!(
@@ -189,7 +384,6 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
         "Expected 0 Imports edges (not linked yet)"
     );
 
-    // Handler edges (link endpoints to functions)
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
     assert_eq!(handlers, 8, "Expected 8 Handler edges");

@@ -84,6 +84,21 @@ impl Stack for Php {
                     (class_interface_clause
                         (name) @{INCLUDED_MODULES}
                     )?
+                    (declaration_list
+                        (use_declaration
+                            (name) @{INCLUDED_MODULES}
+                        )?
+                    )?
+                ) @{CLASS_DEFINITION}
+                
+                (class_declaration
+                    name: (name) @{CLASS_NAME}
+                    (base_clause
+                        (name) @{CLASS_PARENT}
+                    )?
+                    (class_interface_clause
+                        (name) @{INCLUDED_MODULES}
+                    )?
                 ) @{CLASS_DEFINITION}
                 
                 (interface_declaration
@@ -428,6 +443,153 @@ impl Stack for Php {
         Ok(parent_of)
     }
 
+    fn find_endpoint_parents(
+        &self,
+        node: TreeNode,
+        code: &str,
+        _file: &str,
+        _callback: &dyn Fn(&str) -> Option<NodeData>,
+    ) -> Result<Vec<HandlerItem>> {
+        let mut parents = Vec::new();
+        let mut current = node.parent();
+
+        while let Some(parent_node) = current {
+            // Walk the chain of method calls for this parent
+            let mut chain_node = Some(parent_node.clone());
+            while let Some(node) = chain_node {
+                if node.kind() == "member_call_expression" {
+                    if let Some(method) = node.child_by_field_name("name") {
+                        let method_name = method.utf8_text(code.as_bytes()).unwrap_or("");
+                        if method_name == "prefix" || method_name == "name" {
+                            if let Some(args) = node.child_by_field_name("arguments") {
+                                if let Some(first_arg) = args.named_child(0) {
+                                    let prefix = first_arg.utf8_text(code.as_bytes()).unwrap_or("");
+                                    let cleaned =
+                                        trim_quotes(prefix).trim_start_matches('/').to_string();
+                                    if !cleaned.is_empty() {
+                                        parents.push(HandlerItem {
+                                            name: cleaned,
+                                            item_type: HandlerItemType::Namespace,
+                                        });
+                                    }
+                                }
+                            }
+                        } else if method_name == "middleware" {
+                            if let Some(args) = node.child_by_field_name("arguments") {
+                                if let Some(first_arg) = args.named_child(0) {
+                                    let content =
+                                        first_arg.utf8_text(code.as_bytes()).unwrap_or("");
+                                    let cleaned = trim_quotes(content).to_string();
+                                    if !cleaned.is_empty() {
+                                        parents.push(HandlerItem {
+                                            name: cleaned,
+                                            item_type: HandlerItemType::Middleware,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    chain_node = node.child_by_field_name("object");
+                } else if node.kind() == "scoped_call_expression" {
+                    // Route::prefix(...) or Route::middleware(...)
+                    if let Some(scope) = node.child_by_field_name("scope") {
+                        let scope_name = scope.utf8_text(code.as_bytes()).unwrap_or("");
+                        if scope_name == "Route" {
+                            if let Some(method) = node.child_by_field_name("name") {
+                                let method_name = method.utf8_text(code.as_bytes()).unwrap_or("");
+                                if method_name == "prefix" {
+                                    if let Some(args) = node.child_by_field_name("arguments") {
+                                        if let Some(first_arg) = args.named_child(0) {
+                                            let prefix =
+                                                first_arg.utf8_text(code.as_bytes()).unwrap_or("");
+                                            let cleaned = trim_quotes(prefix)
+                                                .trim_start_matches('/')
+                                                .to_string();
+                                            if !cleaned.is_empty() {
+                                                parents.push(HandlerItem {
+                                                    name: cleaned,
+                                                    item_type: HandlerItemType::Namespace,
+                                                });
+                                            }
+                                        }
+                                    }
+                                } else if method_name == "middleware" {
+                                    if let Some(args) = node.child_by_field_name("arguments") {
+                                        if let Some(first_arg) = args.named_child(0) {
+                                            let mw =
+                                                first_arg.utf8_text(code.as_bytes()).unwrap_or("");
+                                            let cleaned = trim_quotes(mw).to_string();
+                                            if !cleaned.is_empty() {
+                                                parents.push(HandlerItem {
+                                                    name: cleaned,
+                                                    item_type: HandlerItemType::Middleware,
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    chain_node = None;
+                } else {
+                    chain_node = None;
+                }
+            }
+            // Check for class_declaration with #[Route('/prefix')] attribute
+            if parent_node.kind() == "class_declaration" {
+                // Look for attribute_list child
+                for child in parent_node.children(&mut parent_node.walk()) {
+                    if child.kind() == "attribute_list" {
+                        // Look for attribute_group containing Route
+                        for attr_group in child.children(&mut child.walk()) {
+                            if attr_group.kind() == "attribute_group" {
+                                for attr in attr_group.children(&mut attr_group.walk()) {
+                                    if attr.kind() == "attribute" {
+                                        // Check if this is a Route attribute
+                                        if let Some(name_node) = attr.child_by_field_name("name") {
+                                            let attr_name =
+                                                name_node.utf8_text(code.as_bytes()).unwrap_or("");
+                                            if attr_name == "Route" {
+                                                // Extract the first argument (the path)
+                                                if let Some(params) =
+                                                    attr.child_by_field_name("parameters")
+                                                {
+                                                    if let Some(first_arg) = params.named_child(0) {
+                                                        // Get the argument value (could be nested)
+                                                        let path = first_arg
+                                                            .utf8_text(code.as_bytes())
+                                                            .unwrap_or("");
+                                                        let cleaned = trim_quotes(path)
+                                                            .trim_start_matches('/')
+                                                            .to_string();
+                                                        if !cleaned.is_empty() {
+                                                            parents.push(HandlerItem {
+                                                                name: cleaned,
+                                                                item_type:
+                                                                    HandlerItemType::Namespace,
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            current = parent_node.parent();
+        }
+
+        // Reverse so outermost parents come first
+        parents.reverse();
+        Ok(parents)
+    }
+
     fn generate_arrow_handler_name(&self, method: &str, path: &str, line: usize) -> Option<String> {
         let clean_method = method.to_lowercase();
         let clean_path = path
@@ -587,6 +749,11 @@ impl Stack for Php {
         }
 
         vec![(endpoint, edge)]
+    }
+
+    fn convert_association_to_name(&self, name: &str) -> String {
+        // Handle PHP class references like "Post" from class_constant_access
+        name.to_string()
     }
 }
 

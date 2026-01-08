@@ -32,6 +32,7 @@ pub enum HandlerItemType {
     Collection,
     Member,
     ResourceMember,
+    Middleware,
     #[default]
     Namespace,
 }

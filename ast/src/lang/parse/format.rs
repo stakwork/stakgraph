@@ -334,6 +334,16 @@ impl Lang {
                                 .first()
                                 .cloned()
                         })?;
+                    // Extract middleware from parents and store in endpoint metadata
+                    let middlewares: Vec<String> = params
+                        .parents
+                        .iter()
+                        .filter(|p| matches!(p.item_type, HandlerItemType::Middleware))
+                        .map(|p| p.name.clone())
+                        .collect();
+                    if !middlewares.is_empty() {
+                        endp.add_middleware(&middlewares.join(","));
+                    }
                 }
             } else if o == ARROW_FUNCTION_HANDLER {
                 let p = node.start_position();
