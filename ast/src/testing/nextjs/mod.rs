@@ -39,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 82, "Expected 82 File nodes");
+    assert_eq!(file_nodes.len(), 83, "Expected 83 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -165,8 +165,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            193,
-            "Expected 193 Function nodes without LSP, found {}",
+            197,
+            "Expected 197 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -299,9 +299,9 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     edges += contains;
 
     if use_lsp {
-        assert_eq!(contains, 557, "Expected 557 Contains edges");
+        assert_eq!(contains, 567, "Expected 567 Contains edges");
     } else {
-        assert_eq!(contains, 556, "Expected 556 Contains edges");
+        assert_eq!(contains, 566, "Expected 566 Contains edges");
     }
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -379,7 +379,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes += classes.len();
 
-    assert_eq!(classes.len(), 8, "Expected 8 Class nodes");
+    assert_eq!(classes.len(), 9, "Expected 9 Class nodes");
 
     let calculator_class = classes
         .iter()
@@ -494,7 +494,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
-    assert_eq!(datamodels.len(), 28, "Expected 28 DataModel nodes");
+    assert_eq!(datamodels.len(), 31, "Expected 31 DataModel nodes");
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges += uses;
@@ -510,7 +510,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
-    assert_eq!(operand, 31, "Expected 31 Operand edges");
+    assert_eq!(operand, 33, "Expected 33 Operand edges");
 
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges += renders;

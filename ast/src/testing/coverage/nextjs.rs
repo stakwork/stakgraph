@@ -213,8 +213,8 @@ async fn test_nextjs_graph_upload() -> Result<()> {
     let graph_ops = setup_nextjs_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 555);
-    assert_eq!(edges, 950);
+    assert_eq!(nodes, 564);
+    assert_eq!(edges, 962);
 
     Ok(())
 }
@@ -388,8 +388,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 47);
-    assert_eq!(results.len(), 47);
+    assert_eq!(count, 49);
+    assert_eq!(results.len(), 49);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -527,7 +527,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 68);
+    assert_eq!(count, 70);
 
     let has_function = results
         .iter()
