@@ -46,8 +46,7 @@ Call ask_clarifying_questions when:
  - The user's query is too general
  - You can provide a better answer by first gathering more information from the user
  - Your technical exploration has revealed multiple possible approaches, and you want the user's input on which to choose
- - You need to confirm a visual choice (use color_swatch artifacts for color/theme selection)
- - You want to validate a proposed flow or architecture before proceeding (use mermaid questionArtifact)
+ - You want to validate a proposed flow or architecture before proceeding (use mermaid or comparison_table questionArtifact)
 
 WIDGET TYPES:
 - Basic questions: Simple string options like ["Option A", "Option B"]

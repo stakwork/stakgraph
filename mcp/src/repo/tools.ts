@@ -47,31 +47,31 @@ final_answer({
 QUESTION TYPES:
 - single_choice: User picks one option
 - multiple_choice: User picks one or more options
+- color_swatch: User picks a color
 
-BASIC QUESTIONS (simple string options):
+BASIC QUESTION EXAMPLE: (simple string options):
 [{"question": "What type of app?", "type": "single_choice", "options": ["Web", "Mobile", "Desktop"]}]
 
-COLOR PICKER (use for brand colors, themes, UI colors):
+COLOR PICKER EXAMPLE: (use for brand colors, themes, UI colors):
 [{
   "question": "Which primary color for your brand?",
-  "type": "single_choice",
-  "allowCustomColor": true,
+  "type": "color_swatch",
   "options": [
-    {"id": "blue", "label": "Sky Blue", "value": "#0EA5E9", "artifact": {"type": "color_swatch", "data": {"color": "#0EA5E9"}}},
-    {"id": "purple", "label": "Purple", "value": "#8B5CF6", "artifact": {"type": "color_swatch", "data": {"color": "#8B5CF6"}}},
-    {"id": "green", "label": "Emerald", "value": "#10B981", "artifact": {"type": "color_swatch", "data": {"color": "#10B981"}}}
+    {"label": "Sky Blue", "value": "#0EA5E9"},
+    {"label": "Purple", "value": "#8B5CF6"},
+    {"label": "Emerald", "value": "#10B981"}
   ]
 }]
 
-DIAGRAM QUESTIONS (use to confirm flows, architecture, data models):
+DIAGRAM QUESTION EXAMPLE: (use to confirm flows, architecture, data models):
 [{
   "question": "Does this authentication flow look correct?",
   "type": "single_choice",
   "options": ["Yes, proceed", "No, needs changes"],
-  "questionArtifact": {"type": "mermaid", "data": {"code": "graph TD\\n  A[Login]-->B{Valid?}\\n  B-->|Yes|C[Dashboard]\\n  B-->|No|D[Error]"}}
+  "questionArtifact": {"type": "mermaid", "data": "graph TD\\n  A[Login]-->B{Valid?}\\n  B-->|Yes|C[Dashboard]\\n  B-->|No|D[Error]"}
 }]
 
-COMPARISON TABLE (use when comparing multiple approaches/technologies):
+COMPARISON TABLE EXAMPLE: (use when comparing multiple approaches/technologies):
 [{
   "question": "Which real-time approach should we use?",
   "type": "single_choice",
@@ -80,14 +80,14 @@ COMPARISON TABLE (use when comparing multiple approaches/technologies):
     "type": "comparison_table",
     "data": {
       "columns": [
-        {"id": "sse", "label": "SSE", "description": "Server-Sent Events"},
-        {"id": "ws", "label": "WebSockets", "description": "Full duplex"},
-        {"id": "poll", "label": "Polling", "description": "HTTP requests"}
+        {"label": "SSE", "description": "Server-Sent Events"},
+        {"label": "WebSockets", "description": "Full duplex"},
+        {"label": "Polling", "description": "HTTP requests"}
       ],
       "rows": [
-        {"category": "Pros", "type": "pros", "cells": {"sse": ["Simple", "Auto-reconnect"], "ws": ["Bi-directional", "Low latency"], "poll": ["Works everywhere"]}},
-        {"category": "Cons", "type": "cons", "cells": {"sse": ["Server→Client only"], "ws": ["Complex"], "poll": ["High latency"]}},
-        {"category": "Use When", "type": "neutral", "cells": {"sse": ["Live feeds", "Notifications"], "ws": ["Chat", "Gaming"], "poll": ["Legacy systems"]}}
+        {"category": "Pros", "cells": {"SSE": ["Simple", "Auto-reconnect"], "WebSockets": ["Bi-directional", "Low latency"], "Polling": ["Works everywhere"]}},
+        {"category": "Cons", "cells": {"SSE": ["Server→Client only"], "WebSockets": ["Complex"], "Polling": ["High latency"]}},
+        {"category": "Use When", "cells": {"SSE": ["Live feeds", "Notifications"], "WebSockets": ["Chat", "Gaming"], "Polling": ["Legacy systems"]}}
       ]
     }
   }
