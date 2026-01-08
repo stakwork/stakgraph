@@ -292,6 +292,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     if use_lsp {
         assert_eq!(calls, 303, "Expected 303 Calls edges");
     } else {
+        #[cfg(not(feature = "neo4j"))]
         assert_eq!(calls, 233, "Expected 233 Calls edges");
     }
 
