@@ -42,7 +42,70 @@ Example usage:
 final_answer({ 
   "answer": "Based on my exploration of the codebase, here's how authentication works:\n\n1. Users authenticate via...\n2. The auth flow is handled by...\n3. Key files include..."
 })`,
-  ask_clarifying_questions: `Ask clarifying questions to the user, if you need more clarification from the user about specific design or implementation choices. YOU CAN CALL THIS TOOL AT THE END OF YOUR EXPLORATION. The output is a list of 1 - 4 questions. They can either be single_choice (the user picks one options from a list) or multiple_choice (the user picks one or more options from a list). Return them in the following JSON format: [{"question": "question", "type": "multiple_choice", "options": ["option1", "option2"]}] OR [{"question": "question", "type": "single_choice", "options": ["option1", "option2"]}]`,
+  ask_clarifying_questions: `Ask clarifying questions to the user when you need clarification about design or implementation choices. Call this at the end of your exploration.
+
+QUESTION TYPES:
+- single_choice: User picks one option
+- multiple_choice: User picks one or more options
+
+BASIC QUESTION EXAMPLE: (simple string options):
+[{
+  "question": "What type of app?",
+  "type": "single_choice",
+  "options": ["Web", "Mobile", "Desktop"]
+}]
+
+COLOR PICKER EXAMPLE: (use for brand colors, themes, UI colors):
+[{
+  "question": "Which primary color for your brand?",
+  "type": "single_choice",
+  "options": ["Sky Blue", "Purple", "Emerald"],
+  "questionArtifact": {
+    "type": "color_swatch",
+    "data": [
+      {"label": "Sky Blue", "value": "#0EA5E9"},
+      {"label": "Purple", "value": "#8B5CF6"},
+      {"label": "Emerald", "value": "#10B981"}
+    ]
+  }
+}]
+
+DIAGRAM QUESTION EXAMPLE: (use to confirm flows, architecture, data models):
+[{
+  "question": "Does this authentication flow look correct?",
+  "type": "single_choice",
+  "options": ["Yes, proceed", "No, needs changes"],
+  "questionArtifact": {"type": "mermaid", "data": "graph TD\\n  A[Login]-->B{Valid?}\\n  B-->|Yes|C[Dashboard]\\n  B-->|No|D[Error]"}
+}]
+
+COMPARISON TABLE EXAMPLE: (use when comparing multiple approaches/technologies):
+[{
+  "question": "Which real-time approach should we use?",
+  "type": "single_choice",
+  "options": ["SSE", "WebSockets", "Polling"],
+  "questionArtifact": {
+    "type": "comparison_table",
+    "data": {
+      "columns": [
+        {"label": "SSE", "description": "Server-Sent Events"},
+        {"label": "WebSockets", "description": "Full duplex"},
+        {"label": "Polling", "description": "HTTP requests"}
+      ],
+      "rows": [
+        {"category": "Pros", "cells": {"SSE": ["Simple", "Auto-reconnect"], "WebSockets": ["Bi-directional", "Low latency"], "Polling": ["Works everywhere"]}},
+        {"category": "Cons", "cells": {"SSE": ["Server→Client only"], "WebSockets": ["Complex"], "Polling": ["High latency"]}},
+        {"category": "Use When", "cells": {"SSE": ["Live feeds", "Notifications"], "WebSockets": ["Chat", "Gaming"], "Polling": ["Legacy systems"]}}
+      ]
+    }
+  }
+}]
+
+Rules:
+- Maximum 4 questions
+- Use mermaid questionArtifact to visualize and confirm flows before implementing
+- Use comparison_table when comparing multiple approaches with pros/cons
+- Use color_swatch when asking about colors/themes
+- Can combine: use questionArtifact to show a diagram AND rich options for choices`,
 };
 
 export function get_tools(
@@ -202,6 +265,12 @@ export function get_tools(
   } else {
     // SPECIAL TOOLS: NOT included by default, but can be enabled with toolsConfig
     if (toolsConfig.ask_clarifying_questions) {
+      // Schema for artifact objects (color swatches, diagrams, tables, etc.)
+      const artifactSchema = z.object({
+        type: z.enum(["mermaid", "comparison_table", "color_swatch"]),
+        data: z.record(z.string(), z.any()),
+      });
+
       allTools.ask_clarifying_questions = tool({
         description: defaultDescriptions.ask_clarifying_questions,
         inputSchema: z.object({
@@ -210,13 +279,18 @@ export function get_tools(
               z.object({
                 question: z.string().describe("The question to ask the user"),
                 type: z
-                  .enum(["single_choice", "multiple_choice"])
+                  .enum(["single_choice", "multiple_choice", "color_swatch"])
                   .describe("The type of question"),
                 options: z
                   .array(z.string())
                   .optional()
                   .describe(
-                    "Available options for single_choice or multiple_choice questions"
+                    "Options - either simple strings or rich objects with artifacts"
+                  ),
+                questionArtifact: artifactSchema
+                  .optional()
+                  .describe(
+                    "Artifact to display alongside the question (e.g., mermaid diagram)"
                   ),
               })
             )
