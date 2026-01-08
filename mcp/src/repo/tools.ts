@@ -47,20 +47,27 @@ final_answer({
 QUESTION TYPES:
 - single_choice: User picks one option
 - multiple_choice: User picks one or more options
-- color_swatch: User picks a color
 
 BASIC QUESTION EXAMPLE: (simple string options):
-[{"question": "What type of app?", "type": "single_choice", "options": ["Web", "Mobile", "Desktop"]}]
+[{
+  "question": "What type of app?",
+  "type": "single_choice",
+  "options": ["Web", "Mobile", "Desktop"]
+}]
 
 COLOR PICKER EXAMPLE: (use for brand colors, themes, UI colors):
 [{
   "question": "Which primary color for your brand?",
-  "type": "color_swatch",
-  "options": [
-    {"label": "Sky Blue", "value": "#0EA5E9"},
-    {"label": "Purple", "value": "#8B5CF6"},
-    {"label": "Emerald", "value": "#10B981"}
-  ]
+  "type": "single_choice",
+  "options": ["Sky Blue", "Purple", "Emerald"],
+  "questionArtifact": {
+    "type": "color_swatch",
+    "data": [
+      {"label": "Sky Blue", "value": "#0EA5E9"},
+      {"label": "Purple", "value": "#8B5CF6"},
+      {"label": "Emerald", "value": "#10B981"}
+    ]
+  }
 }]
 
 DIAGRAM QUESTION EXAMPLE: (use to confirm flows, architecture, data models):
@@ -95,9 +102,9 @@ COMPARISON TABLE EXAMPLE: (use when comparing multiple approaches/technologies):
 
 Rules:
 - Maximum 4 questions
-- Use color_swatch when asking about colors/themes
 - Use mermaid questionArtifact to visualize and confirm flows before implementing
 - Use comparison_table when comparing multiple approaches with pros/cons
+- Use color_swatch when asking about colors/themes
 - Can combine: use questionArtifact to show a diagram AND rich options for choices`,
 };
 
@@ -260,16 +267,8 @@ export function get_tools(
     if (toolsConfig.ask_clarifying_questions) {
       // Schema for artifact objects (color swatches, diagrams, tables, etc.)
       const artifactSchema = z.object({
-        type: z.enum(["color_swatch", "mermaid", "image", "code", "comparison_table"]),
+        type: z.enum(["mermaid", "comparison_table", "color_swatch"]),
         data: z.record(z.string(), z.any()),
-      });
-
-      // Rich option schema (for color pickers, etc.)
-      const richOptionSchema = z.object({
-        id: z.string(),
-        label: z.string(),
-        value: z.string(),
-        artifact: artifactSchema.optional(),
       });
 
       allTools.ask_clarifying_questions = tool({
@@ -280,19 +279,13 @@ export function get_tools(
               z.object({
                 question: z.string().describe("The question to ask the user"),
                 type: z
-                  .enum(["single_choice", "multiple_choice"])
+                  .enum(["single_choice", "multiple_choice", "color_swatch"])
                   .describe("The type of question"),
                 options: z
-                  .union([z.array(z.string()), z.array(richOptionSchema)])
+                  .array(z.string())
                   .optional()
                   .describe(
                     "Options - either simple strings or rich objects with artifacts"
-                  ),
-                allowCustomColor: z
-                  .boolean()
-                  .optional()
-                  .describe(
-                    "Allow custom color input for color picker questions"
                   ),
                 questionArtifact: artifactSchema
                   .optional()

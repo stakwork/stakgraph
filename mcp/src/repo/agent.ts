@@ -50,9 +50,9 @@ Call ask_clarifying_questions when:
 
 WIDGET TYPES:
 - Basic questions: Simple string options like ["Option A", "Option B"]
-- Color picker: Use allowCustomColor: true with rich options containing color_swatch artifacts
 - Diagram confirmation: Use questionArtifact with type "mermaid" to show a flow diagram
 - Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
+- Color picker: Use questionArtifact with type "color_swatch" to show a color picker
 
 Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`;
 
