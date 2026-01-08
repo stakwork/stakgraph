@@ -46,6 +46,14 @@ Call ask_clarifying_questions when:
  - The user's query is too general
  - You can provide a better answer by first gathering more information from the user
  - Your technical exploration has revealed multiple possible approaches, and you want the user's input on which to choose
+ - You need to confirm a visual choice (use color_swatch artifacts for color/theme selection)
+ - You want to validate a proposed flow or architecture before proceeding (use mermaid questionArtifact)
+
+WIDGET TYPES:
+- Basic questions: Simple string options like ["Option A", "Option B"]
+- Color picker: Use allowCustomColor: true with rich options containing color_swatch artifacts
+- Diagram confirmation: Use questionArtifact with type "mermaid" to show a flow diagram
+- Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
 
 Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`;
 
