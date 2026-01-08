@@ -240,7 +240,7 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
                 }
                 path_parts.push(item.name.clone());
             }
-            HandlerItemType::Namespace => (),
+            HandlerItemType::Namespace | HandlerItemType::Middleware => (),
         }
         return Some(format!("/{}", path_parts.join("/")));
     }

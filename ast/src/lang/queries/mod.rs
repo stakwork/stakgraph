@@ -7,6 +7,7 @@ pub mod go;
 pub mod haml;
 pub mod java;
 pub mod kotlin;
+pub mod php;
 pub mod python;
 mod rails_routes;
 pub mod react;
@@ -31,6 +32,7 @@ pub enum HandlerItemType {
     Collection,
     Member,
     ResourceMember,
+    Middleware,
     #[default]
     Namespace,
 }
@@ -382,7 +384,7 @@ pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {
         LspLanguage::Svelte => tree_sitter_svelte_ng::LANGUAGE.into(),
         LspLanguage::Angular => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         LspLanguage::Cpp => tree_sitter_cpp::LANGUAGE.into(),
-        // _ => tree_sitter_bash::LANGUAGE.into(),
+        LspLanguage::Php => tree_sitter_php::LANGUAGE_PHP.into(),
     }
 }
 

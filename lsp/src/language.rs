@@ -18,9 +18,10 @@ pub enum Language {
     Svelte,
     Angular,
     Cpp,
+    Php,
 }
 
-pub const PROGRAMMING_LANGUAGES: [Language; 12] = [
+pub const PROGRAMMING_LANGUAGES: [Language; 13] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
@@ -33,6 +34,7 @@ pub const PROGRAMMING_LANGUAGES: [Language; 12] = [
     Language::Svelte,
     Language::Angular,
     Language::Cpp,
+    Language::Php,
 ];
 
 impl Language {
@@ -57,6 +59,7 @@ impl Language {
             Self::Svelte => vec!["package.json"],
             Self::Angular => vec!["package.json"],
             Self::Cpp => vec!["CMakeLists.txt"],
+            Self::Php => vec!["composer.json"],
         }
     }
 
@@ -77,6 +80,7 @@ impl Language {
             Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
             Self::Angular => vec!["ts", "js", "html", "css"],
             Self::Cpp => vec!["cpp", "h"],
+            Self::Php => vec!["php"],
         }
     }
 
@@ -105,6 +109,7 @@ impl Language {
             Self::Svelte => vec![".git", " node_modules"],
             Self::Angular => vec![".git", " node_modules"],
             Self::Cpp => vec![".git", "build", "out", "CMakeFiles"],
+            Self::Php => vec![".git", "vendor"],
         }
     }
 
@@ -133,6 +138,7 @@ impl Language {
             Self::Svelte => Vec::new(),
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
+            Self::Php => Vec::new(),
         }
     }
 
@@ -163,6 +169,7 @@ impl Language {
             Self::Svelte => "svelte-language-server",
             Self::Angular => "angular-language-server",
             Self::Cpp => "",
+            Self::Php => "",
         }
         .to_string()
     }
@@ -182,6 +189,7 @@ impl Language {
             Self::Svelte => "--version",
             Self::Angular => "--version",
             Self::Cpp => "--version",
+            Self::Php => "--version",
         }
         .to_string()
     }
@@ -201,6 +209,7 @@ impl Language {
             Self::Svelte => Vec::new(),
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
+            Self::Php => Vec::new(),
         }
     }
 
@@ -238,6 +247,7 @@ impl Language {
             Self::Svelte => Vec::new(),
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
+            Self::Php => Vec::new(),
         }
     }
 
@@ -309,6 +319,7 @@ impl Display for Language {
             Self::Svelte => "svelte",
             Self::Angular => "angular",
             Self::Cpp => "cpp",
+            Self::Php => "php",
         };
         write!(f, "{}", s)
     }
@@ -357,6 +368,9 @@ impl FromStr for Language {
             "Cpp" => Ok(Language::Cpp),
             "c++" => Ok(Language::Cpp),
             "C++" => Ok(Language::Cpp),
+            "php" => Ok(Language::Php),
+            "Php" => Ok(Language::Php),
+            "PHP" => Ok(Language::Php),
 
             _ => Err(Error::Custom("unsupported language".to_string())),
         }

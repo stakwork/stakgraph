@@ -218,6 +218,10 @@ impl NodeData {
         self.meta
             .insert("nested_in".to_string(), var_name.to_string());
     }
+    pub fn add_middleware(&mut self, middleware: &str) {
+        self.meta
+            .insert("middleware".to_string(), middleware.to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
