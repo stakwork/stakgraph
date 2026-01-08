@@ -50,6 +50,7 @@ pub const HANDLER_REF: &str = "handler-ref";
 pub const NAMESPACE_NAME: &str = "namespace-name";
 pub const SCOPE_PATH: &str = "scope-path";
 pub const SINGULAR_RESOURCE: &str = "singular-resource";
+pub const CONTROLLER_CONTEXT: &str = "controller-context";
 
 pub const INTEGRATION_TEST: &str = "integration-test";
 pub const E2E_TEST: &str = "e2e-test";

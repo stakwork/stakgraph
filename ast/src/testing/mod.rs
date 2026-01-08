@@ -1,4 +1,4 @@
-use crate::lang::{ArrayGraph, NodeData, Lang};
+use crate::lang::{ArrayGraph, Lang, NodeData};
 use lsp::Language;
 use std::env;
 use std::str::FromStr;
@@ -13,6 +13,7 @@ pub mod graphs;
 pub mod java;
 pub mod kotlin;
 pub mod nextjs;
+pub mod php;
 pub mod python;
 pub mod react;
 pub mod ruby;
@@ -62,6 +63,12 @@ async fn run_client_tests() {
     }
 }
 
-pub fn print_nodes(nodes: Vec<NodeData>){
-    println!("{:#?}", nodes.iter().map(|n| (n.name.clone(), n.file.clone())).collect::<Vec<(String, String)>>());
+pub fn print_nodes(nodes: Vec<NodeData>) {
+    println!(
+        "{:#?}",
+        nodes
+            .iter()
+            .map(|n| (n.name.clone(), n.file.clone()))
+            .collect::<Vec<(String, String)>>()
+    );
 }

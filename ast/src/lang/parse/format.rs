@@ -373,6 +373,11 @@ impl Lang {
                     .insert("is_singular".to_string(), "true".to_string());
                 let handler_name = trim_quotes(&body);
                 endp.add_handler(handler_name);
+            } else if o == CONTROLLER_CONTEXT {
+                endp.meta.insert(
+                    "controller_context".to_string(),
+                    trim_quotes(&body).to_string(),
+                );
             }
             Ok(())
         })?;
