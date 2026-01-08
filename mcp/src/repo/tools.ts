@@ -86,15 +86,11 @@ COMPARISON TABLE EXAMPLE: (use when comparing multiple approaches/technologies):
   "questionArtifact": {
     "type": "comparison_table",
     "data": {
-      "columns": [
-        {"label": "SSE", "description": "Server-Sent Events"},
-        {"label": "WebSockets", "description": "Full duplex"},
-        {"label": "Polling", "description": "HTTP requests"}
-      ],
+      "columns": ["Pros", "Cons"],
       "rows": [
-        {"category": "Pros", "cells": {"SSE": ["Simple", "Auto-reconnect"], "WebSockets": ["Bi-directional", "Low latency"], "Polling": ["Works everywhere"]}},
-        {"category": "Cons", "cells": {"SSE": ["Server→Client only"], "WebSockets": ["Complex"], "Polling": ["High latency"]}},
-        {"category": "Use When", "cells": {"SSE": ["Live feeds", "Notifications"], "WebSockets": ["Chat", "Gaming"], "Polling": ["Legacy systems"]}}
+        {"label": "SSE", "description": "Server-Sent Events", "cells": {"Pros": ["Simple", "Auto-reconnect"], "Cons": ["Server→Client only"]}},
+        {"label": "WebSockets", "description": "Full duplex", "cells": {"Pros": ["Bi-directional", "Low latency"], "Cons": ["Complex"]}},
+        {"label": "Polling", "description": "HTTP requests", "cells": {"Pros": ["Works everywhere"], "Cons": ["High latency"]}}
       ]
     }
   }
