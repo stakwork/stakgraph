@@ -1,7 +1,5 @@
 use ast::lang::asg::NodeData;
 use ast::repo::StatusUpdate;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::broadcast;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -9,7 +7,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct WebError(pub shared::Error);
@@ -145,6 +145,83 @@ pub struct Coverage {
     pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
     pub mocks: Option<MockStat>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TransitiveCoverageStat {
+    pub total: usize,
+    pub total_tests: usize,
+    pub direct_covered: usize,
+    pub transitive_covered: usize,
+    pub direct_percent: f64,
+    pub transitive_percent: f64,
+    pub total_lines: usize,
+    pub covered_lines: usize,
+    pub line_percent: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TransitiveCoverage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    pub unit_tests: Option<TransitiveCoverageStat>,
+    pub integration_tests: Option<TransitiveCoverageStat>,
+    pub e2e_tests: Option<TransitiveCoverageStat>,
+    pub mocks: Option<MockStat>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TransitiveNodeConcise {
+    pub node_type: String,
+    pub name: String,
+    pub file: String,
+    pub ref_id: String,
+    pub weight: usize,
+    pub direct_test_count: usize,
+    pub direct_covered: bool,
+    pub transitive_covered: bool,
+    pub body_length: Option<i64>,
+    pub line_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verb: Option<String>,
+    pub start: usize,
+    pub end: usize,
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    #[serde(default)]
+    pub meta: std::collections::BTreeMap<String, String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_muted: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TransitiveNode {
+    pub node_type: String,
+    pub ref_id: String,
+    pub weight: usize,
+    pub direct_test_count: usize,
+    pub direct_covered: bool,
+    pub transitive_covered: bool,
+    pub properties: NodeData,
+    pub body_length: Option<i64>,
+    pub line_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_muted: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum TransitiveNodesResponseItem {
+    Full(TransitiveNode),
+    Concise(TransitiveNodeConcise),
+}
+
+#[derive(Serialize)]
+pub struct TransitiveNodesResponse {
+    pub items: Vec<TransitiveNodesResponseItem>,
+    pub total_returned: usize,
+    pub total_count: usize,
+    pub total_pages: usize,
+    pub current_page: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

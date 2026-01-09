@@ -1,10 +1,7 @@
-pub mod migration;
+pub mod batch;
 pub mod coverage;
 pub mod embedding;
-pub mod batch;
+pub mod migration;
+pub mod transitive_coverage;
 
-pub use {
-    migration::*,
-    coverage::*,
-    embedding::*,
-};
+pub use {coverage::*, embedding::*, migration::*, transitive_coverage::*};

@@ -1,9 +1,6 @@
-pub mod nodes;
-pub mod edges;
 pub mod analytics;
+pub mod edges;
+pub mod nodes;
+pub mod transitive_coverage;
 
-pub use {
-    nodes::*,
-    edges::*,
-    analytics::*,
-};
+pub use {analytics::*, edges::*, nodes::*, transitive_coverage::*};
