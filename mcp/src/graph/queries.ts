@@ -165,13 +165,19 @@ MATCH (m:Mock)
 OPTIONAL MATCH (m)-[:MOCKS]->(f:File)
 WITH m, collect(f.file) as linked_files
 RETURN m.name as name, m.ref_id as ref_id, m.description as description,
-       m.mocked as mocked, linked_files, size(linked_files) as file_count
+       m.mocked as mocked, m.deleted as deleted, linked_files, size(linked_files) as file_count
 ORDER BY file_count DESC
 `;
 
 export const UPDATE_MOCK_STATUS_QUERY = `
 MATCH (n:Mock {name: $name})
 SET n.mocked = $mocked, n.body = $body
+RETURN n
+`;
+
+export const MARK_MOCK_DELETED_QUERY = `
+MATCH (n:Mock {name: $name})
+SET n.deleted = true
 RETURN n
 `;
 
