@@ -618,11 +618,7 @@ class Db {
     }
   }
 
-  async update_mock_status(
-    name: string,
-    mocked: boolean,
-    files: string[]
-  ) {
+  async update_mock_status(name: string, mocked: boolean, files: string[]) {
     const session = this.driver.session();
     try {
       await session.run(Q.UPDATE_MOCK_STATUS_QUERY, {
@@ -630,6 +626,15 @@ class Db {
         mocked,
         body: JSON.stringify(files),
       });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async mark_mock_deleted(name: string) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.MARK_MOCK_DELETED_QUERY, { name });
     } finally {
       await session.close();
     }
@@ -645,14 +650,17 @@ class Db {
     }
   }
 
-  async get_mocks_inventory(): Promise<{
-    name: string;
-    ref_id: string;
-    description: string;
-    linked_files: string[];
-    file_count: number;
-    mocked: boolean;
-  }[]> {
+  async get_mocks_inventory(): Promise<
+    {
+      name: string;
+      ref_id: string;
+      description: string;
+      linked_files: string[];
+      file_count: number;
+      mocked: boolean;
+      deleted: boolean;
+    }[]
+  > {
     const session = this.driver.session();
     try {
       const result = await session.run(Q.GET_MOCKS_INVENTORY_QUERY);
@@ -663,8 +671,12 @@ class Db {
           ref_id: record.get("ref_id") || "",
           description: record.get("description") || "",
           linked_files,
-          file_count: record.get("file_count")?.toNumber?.() || record.get("file_count") || 0,
+          file_count:
+            record.get("file_count")?.toNumber?.() ||
+            record.get("file_count") ||
+            0,
           mocked: record.get("mocked") ?? false,
+          deleted: record.get("deleted") ?? false,
         };
       });
     } finally {

@@ -1059,6 +1059,21 @@ export async function mocks_inventory(req: Request, res: Response) {
   }
 }
 
+export async function delete_mock(req: Request, res: Response) {
+  const ref_id = req.params.ref_id;
+  if (!ref_id) {
+    res.status(400).json({ error: "Missing ref_id" });
+    return;
+  }
+  try {
+    const deleted = await db.delete_node_by_ref_id(ref_id);
+    res.json({ success: true, deleted });
+  } catch (error) {
+    console.error("Delete Mock Error:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+}
+
 export function toNode(node: Neo4jNode, concise: boolean): any {
   return concise ? nameFileOnly(node) : toReturnNode(node);
 }

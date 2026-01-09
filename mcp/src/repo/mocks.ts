@@ -11,6 +11,7 @@ export interface MockInfo {
   files: string[];
   description: string;
   mocked: boolean;
+  deleted?: boolean;
 }
 
 export interface ExistingMockInfo {
@@ -18,6 +19,7 @@ export interface ExistingMockInfo {
   description: string;
   mocked: boolean;
   files: string[];
+  deleted?: boolean;
 }
 
 export interface MocksResult {
@@ -30,6 +32,7 @@ const MockInfoSchema = z.object({
   files: z.array(z.string()),
   description: z.string(),
   mocked: z.boolean(),
+  deleted: z.boolean().optional().default(false),
 });
 
 const MocksResultSchema = z.object({
@@ -242,6 +245,19 @@ async function persistMocksToGraph(
         } unchanged mocks: ${delta.unchanged.map((m) => m.name).join(", ")}`
       );
     }
+
+    const deletedMocks = mocksResult.mocks.filter((m) => m.deleted === true);
+    for (const mock of deletedMocks) {
+      try {
+        await db.mark_mock_deleted(mock.name);
+        console.log(`[mocks_agent] Marked mock for deletion: ${mock.name}`);
+      } catch (e) {
+        console.error(
+          `[mocks_agent] Failed to mark mock ${mock.name} for deletion:`,
+          e
+        );
+      }
+    }
   } else {
     for (const mock of mocksResult.mocks) {
       try {
@@ -320,6 +336,12 @@ Expected results:
 - Most syncs: 0-2 services (most things don't change between syncs)
 - After implementing a mock: typically 1 service with status change
 - Empty array is perfectly valid if nothing changed
+
+4. DELETED SERVICES - Services that no longer exist in the codebase
+   - Integration code was completely removed
+   - Return with "deleted": true
+   - Only mark deleted if you verified the service code is gone
+   - Include name and set files to empty array
 
 When in doubt, exclude it. Returning unchanged services causes data loss.
 `
@@ -425,6 +447,13 @@ Return a JSON object with the following structure. Output ONLY the JSON in a cod
       "files": ["src/email/sender.ts"],
       "description": "SendGrid email service via HTTP API",
       "mocked": false
+    },
+    {
+      "name": "removed-service",
+      "files": [],
+      "description": "Service no longer exists in codebase",
+      "mocked": false,
+      "deleted": true
     }
   ]
 }
@@ -435,5 +464,6 @@ Rules:
 - "files" should include both the integration file AND any existing mock files if found
 - "description" should briefly explain what the integration does
 - "mocked" should be true if you found an existing mock/stub/fake implementation, false otherwise
+- "deleted" should be true ONLY for services that existed before but no longer exist in the codebase
 - Only include EXTERNAL integrations, not internal API calls
 `;
