@@ -419,12 +419,14 @@ pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap)
 }
 
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
+    let mut filters = unique_functions_filters();
+    filters.extend(test_infrastructure_filters());
     let query = format!(
         "MATCH (n:Function)
         WHERE {}
         RETURN n
     ",
-        unique_functions_filters().join(" AND ")
+        filters.join(" AND ")
     )
     .to_string();
     (query, BoltMap::new())
@@ -672,7 +674,9 @@ pub fn query_nodes_with_count(
     let has_function_type = node_types.iter().any(|nt| nt == &NodeType::Function);
 
     let function_specific_filters = if has_function_type {
-        format!("AND ({})", unique_functions_filters().join(" AND "))
+        let mut filters = unique_functions_filters();
+        filters.extend(test_infrastructure_filters());
+        format!("AND ({})", filters.join(" AND "))
     } else {
         "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
     };
