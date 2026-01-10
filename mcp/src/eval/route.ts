@@ -2,6 +2,7 @@ import express, { Express } from "express";
 import { evaluate } from "./stagehand.js";
 import { promises as dns } from "dns";
 import { getConsoleLogs } from "../tools/stagehand/core.js";
+import { sanitizePrompt } from "../utils/sanitize.js";
 
 export async function evalRoutes(app: Express) {
   app.post("/evaluate", async (req: express.Request, res: express.Response) => {
@@ -9,7 +10,7 @@ export async function evalRoutes(app: Express) {
       const sessionId = req.headers["x-session-id"] as string | undefined;
 
       const test_url = req.body.test_url || req.body.base_url;
-      const prompt = req.body.prompt || req.body.instruction;
+      const prompt = sanitizePrompt(req.body.prompt || req.body.instruction);
 
       if (!test_url) {
         res.status(400).json({ error: "Missing test_url" });

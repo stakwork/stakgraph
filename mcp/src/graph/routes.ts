@@ -25,6 +25,7 @@ import {
 import fs from "fs/promises";
 import * as G from "./graph.js";
 import { db } from "./neo4j.js";
+import { sanitizePrompt } from "../utils/sanitize.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
 import {
@@ -119,7 +120,7 @@ export function authMiddleware(
 }
 
 export async function explore(req: Request, res: Response) {
-  const prompt = req.query.prompt as string;
+  const prompt = sanitizePrompt(req.query.prompt as string);
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
     return;
@@ -470,7 +471,9 @@ export async function create_learning(req: Request, res: Response) {
 export async function seed_stories(req: Request, res: Response) {
   const default_prompt =
     "How does this repository work? Please provide a summary of the codebase, a few key files, and 50 core user stories.";
-  const prompt = (req.query.prompt as string | undefined) || default_prompt;
+  const prompt = sanitizePrompt(
+    (req.query.prompt as string | undefined) || default_prompt
+  );
   const budgetDollars = req.query.budget
     ? parseFloat(req.query.budget as string)
     : undefined;
@@ -949,7 +952,7 @@ export async function gitsee_agent(req: Request, res: Response) {
   try {
     const owner = req.query.owner as string;
     const repo = req.query.repo as string | undefined;
-    const prompt = req.query.prompt as string | undefined;
+    const prompt = sanitizePrompt(req.query.prompt as string);
     const system = req.query.system as string | undefined;
     const final_answer = req.query.final_answer as string | undefined;
     if (!repo || !owner) {

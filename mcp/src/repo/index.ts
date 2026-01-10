@@ -8,6 +8,7 @@ import { setBusy } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
+import { sanitizePrompt } from "../utils/sanitize.js";
 
 export { services_agent, mocks_agent };
 
@@ -22,7 +23,7 @@ export async function repo_agent(req: Request, res: Response) {
     const pat = req.body.pat as string | undefined;
     const commit = req.body.commit as string | undefined;
     const branch = req.body.branch as string | undefined;
-    const prompt = req.body.prompt as any;
+    const prompt = sanitizePrompt(req.body.prompt);
     const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
     const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
     const modelName = req.body.model as ModelName | undefined;

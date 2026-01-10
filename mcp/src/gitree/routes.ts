@@ -27,6 +27,7 @@ import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Feature } from "./types.js";
 import { setBusy } from "../busy.js";
+import { sanitizePrompt } from "../utils/sanitize.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -156,16 +157,21 @@ export async function gitree_process(req: Request, res: Response) {
           shouldAnalyzeClues
         );
 
-        const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo);
+        const { usage: processUsage, modifiedFeatureIds } =
+          await builder.processRepo(owner, repo);
 
         let summarizeUsage = null;
         let linkResult = null;
 
         // If summarize flag is set, run summarization after processing (only for modified features)
         if (shouldSummarize && modifiedFeatureIds.size > 0) {
-          console.log(`===> Starting feature summarization for ${modifiedFeatureIds.size} modified feature(s)...`);
+          console.log(
+            `===> Starting feature summarization for ${modifiedFeatureIds.size} modified feature(s)...`
+          );
           const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-          summarizeUsage = await summarizer.summarizeModifiedFeatures(Array.from(modifiedFeatureIds));
+          summarizeUsage = await summarizer.summarizeModifiedFeatures(
+            Array.from(modifiedFeatureIds)
+          );
         }
 
         // If link flag is set, link files to features
@@ -186,14 +192,11 @@ export async function gitree_process(req: Request, res: Response) {
 
         const totalUsage = {
           inputTokens:
-            processUsage.inputTokens +
-            (summarizeUsage?.inputTokens || 0),
+            processUsage.inputTokens + (summarizeUsage?.inputTokens || 0),
           outputTokens:
-            processUsage.outputTokens +
-            (summarizeUsage?.outputTokens || 0),
+            processUsage.outputTokens + (summarizeUsage?.outputTokens || 0),
           totalTokens:
-            processUsage.totalTokens +
-            (summarizeUsage?.totalTokens || 0),
+            processUsage.totalTokens + (summarizeUsage?.totalTokens || 0),
         };
 
         const result: any = {
@@ -208,11 +211,11 @@ export async function gitree_process(req: Request, res: Response) {
 
         asyncReqs.finishReq(request_id, result);
         isProcessing = false;
-        setBusy(false)
+        setBusy(false);
       } catch (error) {
         asyncReqs.failReq(request_id, error);
         isProcessing = false;
-        setBusy(false)
+        setBusy(false);
       }
     })();
 
@@ -221,7 +224,7 @@ export async function gitree_process(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     isProcessing = false;
-    setBusy(false)
+    setBusy(false);
     res.status(500).json({ error: "Failed to process repository" });
   }
 }
@@ -805,7 +808,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
  */
 export async function gitree_relevant_features(req: Request, res: Response) {
   try {
-    const { prompt } = req.body;
+    const prompt = sanitizePrompt(req.body.prompt);
 
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt in request body" });
@@ -911,7 +914,8 @@ export async function gitree_create_feature(req: Request, res: Response) {
   console.log("===> gitree_create_feature", req.url, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const { prompt, name, owner, repo, pat } = req.body;
+    const { name, owner, repo, pat } = req.body;
+    const prompt = sanitizePrompt(req.body.prompt);
 
     if (!prompt || !name || !owner || !repo) {
       asyncReqs.failReq(
@@ -1031,7 +1035,9 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
 
           // Auto-link after single feature analysis
           if (autoLink && result.clues.length > 0) {
-            console.log(`\n🔗 Auto-linking new clues to relevant features...\n`);
+            console.log(
+              `\n🔗 Auto-linking new clues to relevant features...\n`
+            );
             try {
               const { ClueLinker } = await import("./clueLinker.js");
               const linker = new ClueLinker(storage);
@@ -1043,12 +1049,19 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
               result.usage.outputTokens += linkUsage.outputTokens;
               result.usage.totalTokens += linkUsage.totalTokens;
             } catch (error) {
-              console.error(`\n⚠️  Auto-linking failed:`, error instanceof Error ? error.message : error);
+              console.error(
+                `\n⚠️  Auto-linking failed:`,
+                error instanceof Error ? error.message : error
+              );
             }
           }
         } else {
           const usage = await analyzer.analyzeAllFeatures(force, autoLink);
-          result = { usage, message: "Analyzed all features" + (autoLink ? " and linked clues" : "") };
+          result = {
+            usage,
+            message:
+              "Analyzed all features" + (autoLink ? " and linked clues" : ""),
+          };
         }
 
         asyncReqs.finishReq(request_id, result);
@@ -1107,7 +1120,9 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
         const analyzer = new ClueAnalyzer(storage, repoPath);
 
         // Get checkpoint (unless force)
-        const checkpoint = force ? null : await storage.getClueAnalysisCheckpoint();
+        const checkpoint = force
+          ? null
+          : await storage.getClueAnalysisCheckpoint();
 
         console.log(
           checkpoint
@@ -1178,7 +1193,9 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
           return;
         }
 
-        console.log(`📊 Analyzing ${changesToProcess.length} change(s) for clues...`);
+        console.log(
+          `📊 Analyzing ${changesToProcess.length} change(s) for clues...`
+        );
 
         let totalClues = 0;
         const totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -1272,7 +1289,9 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 
         console.log("🎉 Analysis complete!");
         console.log(`   Total clues created: ${totalClues}`);
-        console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
+        console.log(
+          `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
+        );
 
         asyncReqs.finishReq(request_id, {
           status: "success",
@@ -1427,10 +1446,17 @@ export async function gitree_link_clues(req: Request, res: Response) {
  */
 export async function gitree_search_clues(req: Request, res: Response) {
   try {
-    const { query, featureId, limit = 10, similarityThreshold = 0.5 } = req.body;
+    const {
+      query,
+      featureId,
+      limit = 10,
+      similarityThreshold = 0.5,
+    } = req.body;
 
     if (!query || typeof query !== "string") {
-      return res.status(400).json({ error: "query is required and must be a string" });
+      return res
+        .status(400)
+        .json({ error: "query is required and must be a string" });
     }
 
     const storage = new GraphStorage();
