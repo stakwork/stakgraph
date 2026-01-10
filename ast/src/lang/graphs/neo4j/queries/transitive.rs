@@ -37,7 +37,9 @@ pub fn query_transitive_coverage_stats_by_type(
     let has_function_type = target_type == NodeType::Function;
 
     let function_specific_filters = if has_function_type {
-        format!("AND ({})", unique_functions_filters().join(" AND "))
+        let mut filters = unique_functions_filters();
+        filters.extend(test_infrastructure_filters());
+        format!("AND ({})", filters.join(" AND "))
     } else {
         "".to_string() // No special filters for Endpoint/Page
     };
@@ -95,37 +97,28 @@ pub fn query_transitive_coverage_stats_by_type(
              {} {} {} {} {}
              WITH COLLECT(DISTINCT n) AS allNodes
 
-             // Find ALL functions directly called by ANY test type
              OPTIONAL MATCH (test)-[:CALLS]->(directFromTest:Function)
              WHERE (test:UnitTest OR test:IntegrationTest OR test:E2etest)
              AND directFromTest IN allNodes
              WITH allNodes, COLLECT(DISTINCT directFromTest) AS directlyCalledByTests
 
-             // Find functions that are HANDLERs of endpoints called by integration tests
              OPTIONAL MATCH (intTest:IntegrationTest)-[:CALLS]->(endpoint:Endpoint)-[:HANDLER]->(handlerFunc:Function)
              WHERE handlerFunc IN allNodes
              WITH allNodes, directlyCalledByTests, COLLECT(DISTINCT handlerFunc) AS handlerFunctions
-
-             // Combine: directly tested = called by tests + handler functions
              WITH allNodes, 
                   directlyCalledByTests + [h IN handlerFunctions WHERE NOT h IN directlyCalledByTests] AS directlyTested
 
-             // Count unit tests for the total_tests stat
              OPTIONAL MATCH (unitTest:UnitTest)-[:CALLS]->(directForCount:Function)
              WHERE directForCount IN allNodes
              WITH allNodes, directlyTested, count(DISTINCT unitTest) AS total_tests
-
-             // Traverse from all directly tested functions to find transitively covered
              UNWIND CASE WHEN size(directlyTested) = 0 THEN [null] ELSE directlyTested END AS d
              OPTIONAL MATCH (d)-[:CALLS|NESTED_IN|OPERAND|RENDERS|HANDLER*1..{max_depth}]->(transitive:Function)
              WHERE transitive IN allNodes
              WITH allNodes, directlyTested, total_tests, COLLECT(DISTINCT transitive) AS transitiveRaw
 
-             // Combine: transitive = direct + reachable
              WITH allNodes, directlyTested, total_tests,
                   directlyTested + [t IN transitiveRaw WHERE t IS NOT NULL AND NOT t IN directlyTested] AS transitivelyCovered
 
-             // Compute stats
              WITH size(allNodes) AS total,
                   total_tests,
                   size(directlyTested) AS direct_covered,

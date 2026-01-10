@@ -74,6 +74,15 @@ pub fn unique_functions_filters() -> Vec<String> {
     ]
 }
 
+/// Filters to exclude test infrastructure functions from coverage calculations.
+/// These are language-agnostic patterns for test files, mocks, fixtures, and factories.
+pub fn test_infrastructure_filters() -> Vec<String> {
+    vec![
+        "NOT n.file =~ '.*\\\\.js$'".to_string(),
+        "NOT n.file =~ '.*\\\\.(test|spec)\\\\.[tj]sx?$'".to_string(),
+    ]
+}
+
 pub fn extract_ref_id(node_data: &NodeData) -> String {
     node_data
         .meta
