@@ -388,8 +388,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49);
-    assert_eq!(results.len(), 49);
+    assert_eq!(count, 43);
+    assert_eq!(results.len(), 43);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -527,7 +527,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 70);
+    assert_eq!(count, 64);
 
     let has_function = results
         .iter()

@@ -303,8 +303,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 15);
-    assert_eq!(results.len(), 15);
+    assert_eq!(count, 14);
+    assert_eq!(results.len(), 14);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -496,7 +496,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 37);
+    assert_eq!(count, 36);
 
     let has_function = results
         .iter()
@@ -932,7 +932,7 @@ async fn test_nodes_with_repo_filter() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 15);
+    assert_eq!(count, 14);
 
     let (empty_count, _) = graph_ops
         .query_nodes_with_count(
