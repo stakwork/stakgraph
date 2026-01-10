@@ -1,7 +1,7 @@
 use shared::Result;
 
 use crate::lang::graphs::neo4j::executor::bind_parameters;
-use crate::lang::graphs::neo4j::queries::transitive_coverage::*;
+use crate::lang::graphs::neo4j::queries::transitive::*;
 use crate::lang::graphs::operations::coverage::MockStat as CoverageMockStat;
 use crate::lang::{graph_ops::GraphOps, NodeData, NodeType, TestFilters};
 
@@ -28,6 +28,66 @@ pub struct TransitiveCoverageStat {
 }
 
 impl GraphOps {
+    async fn get_transitive_stats_for_type(
+        &mut self,
+        test_type: &str,
+        repo: Option<&str>,
+        test_filters: Option<TestFilters>,
+        is_muted: Option<bool>,
+    ) -> Result<Option<TransitiveCoverageStat>> {
+        let (query_str, params) =
+            query_transitive_coverage_stats_by_type(test_type, repo, test_filters, is_muted);
+
+        let conn = self.graph.ensure_connected().await?;
+        let query_obj = bind_parameters(&query_str, params);
+        let mut result = conn.execute(query_obj).await?;
+
+        if let Some(row) = result.next().await? {
+            let total = row.get::<i64>("total").unwrap_or(0) as usize;
+            if total == 0 {
+                return Ok(None);
+            }
+
+            let total_tests = row.get::<i64>("total_tests").unwrap_or(0) as usize;
+            let direct_covered = row.get::<i64>("direct_covered").unwrap_or(0) as usize;
+            let transitive_covered = row.get::<i64>("transitive_covered").unwrap_or(0) as usize;
+            let total_lines = row.get::<i64>("total_lines").unwrap_or(0) as usize;
+            let covered_lines = row.get::<i64>("covered_lines").unwrap_or(0) as usize;
+
+            let direct_percent = if total > 0 {
+                (direct_covered as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            let transitive_percent = if total > 0 {
+                (transitive_covered as f64 / total as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            let line_percent = if total_lines > 0 {
+                (covered_lines as f64 / total_lines as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            Ok(Some(TransitiveCoverageStat {
+                total,
+                total_tests,
+                direct_covered,
+                transitive_covered,
+                direct_percent: (direct_percent * 100.0).round() / 100.0,
+                transitive_percent: (transitive_percent * 100.0).round() / 100.0,
+                total_lines,
+                covered_lines,
+                line_percent: (line_percent * 100.0).round() / 100.0,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn get_transitive_coverage(
         &mut self,
         repo: Option<&str>,
@@ -36,73 +96,24 @@ impl GraphOps {
     ) -> Result<TransitiveGraphCoverage> {
         self.graph.ensure_connected().await?;
 
-        let node_types = vec![NodeType::Function];
-        let (query_str, params) =
-            query_transitive_coverage_stats(&node_types, repo, test_filters.clone(), is_muted);
+        // Get stats for each test type
+        let unit_stat = self
+            .get_transitive_stats_for_type("unit", repo, test_filters.clone(), is_muted)
+            .await?;
 
-        let conn = self.graph.ensure_connected().await?;
-        let query_obj = bind_parameters(&query_str, params);
-        let mut result = conn.execute(query_obj).await?;
+        let integration_stat = self
+            .get_transitive_stats_for_type("integration", repo, test_filters.clone(), is_muted)
+            .await?;
 
-        let mut total = 0usize;
-        let mut direct_covered = 0usize;
-        let mut transitive_covered = 0usize;
-        let mut total_lines = 0usize;
-        let mut covered_lines = 0usize;
-
-        if let Some(row) = result.next().await? {
-            total = row.get::<i64>("total").unwrap_or(0) as usize;
-            direct_covered = row.get::<i64>("direct_covered").unwrap_or(0) as usize;
-            transitive_covered = row.get::<i64>("transitive_covered").unwrap_or(0) as usize;
-            total_lines = row.get::<i64>("total_lines").unwrap_or(0) as usize;
-            covered_lines = row.get::<i64>("covered_lines").unwrap_or(0) as usize;
-        }
-
-        let direct_percent = if total > 0 {
-            (direct_covered as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        let transitive_percent = if total > 0 {
-            (transitive_covered as f64 / total as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        let line_percent = if total_lines > 0 {
-            (covered_lines as f64 / total_lines as f64) * 100.0
-        } else {
-            0.0
-        };
-
-        let unit_tests_count = self
-            .graph
-            .find_nodes_by_type_async(NodeType::UnitTest)
-            .await
-            .len();
-
-        let unit_stat = if total > 0 {
-            Some(TransitiveCoverageStat {
-                total,
-                total_tests: unit_tests_count,
-                direct_covered,
-                transitive_covered,
-                direct_percent: (direct_percent * 100.0).round() / 100.0,
-                transitive_percent: (transitive_percent * 100.0).round() / 100.0,
-                total_lines,
-                covered_lines,
-                line_percent: (line_percent * 100.0).round() / 100.0,
-            })
-        } else {
-            None
-        };
+        let e2e_stat = self
+            .get_transitive_stats_for_type("e2e", repo, test_filters.clone(), is_muted)
+            .await?;
 
         Ok(TransitiveGraphCoverage {
             language: Some("typescript".to_string()),
             unit_tests: unit_stat,
-            integration_tests: None,
-            e2e_tests: None,
+            integration_tests: integration_stat,
+            e2e_tests: e2e_stat,
             mocks: None,
         })
     }

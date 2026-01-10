@@ -1,20 +1,31 @@
 use crate::lang::graphs::neo4j::helpers::*;
 use crate::lang::{NodeType, TestFilters};
-use neo4rs::BoltMap;
+use neo4rs::{BoltMap, BoltType};
 
 const MAX_TRAVERSAL_DEPTH: u32 = 5;
 
-pub fn query_directly_tested_nodes(
-    node_types: &[NodeType],
+/// Query transitive coverage stats for a specific test type
+/// - test_type: "unit" -> UnitTest -> Function (PLUS functions from integration-tested endpoints!)
+/// - test_type: "integration" -> IntegrationTest -> Endpoint  
+/// - test_type: "e2e" -> E2eTest -> Page
+pub fn query_transitive_coverage_stats_by_type(
+    test_type: &str,
     repo: Option<&str>,
     test_filters: Option<TestFilters>,
     is_muted: Option<bool>,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
 
+    let (test_label, target_type) = match test_type {
+        "integration" => ("IntegrationTest", NodeType::Endpoint),
+        "e2e" => ("E2etest", NodeType::Page),
+        _ => ("UnitTest", NodeType::Function), // default to unit
+    };
+
+    let node_types = vec![target_type.clone()];
     let node_types_list = node_types
         .iter()
-        .map(|n| neo4rs::BoltType::String(n.to_string().into()))
+        .map(|n| BoltType::String(n.to_string().into()))
         .collect::<Vec<_>>();
     boltmap_insert_list(&mut params, "node_types", node_types_list);
 
@@ -22,6 +33,14 @@ pub fn query_directly_tested_nodes(
         .as_ref()
         .map(|f| f.ignore_dirs.clone())
         .unwrap_or_default();
+
+    let has_function_type = target_type == NodeType::Function;
+
+    let function_specific_filters = if has_function_type {
+        format!("AND ({})", unique_functions_filters().join(" AND "))
+    } else {
+        "".to_string() // No special filters for Endpoint/Page
+    };
 
     let repo_filter = if let Some(r) = repo {
         if r.is_empty() || r == "all" {
@@ -67,117 +86,110 @@ pub fn query_directly_tested_nodes(
         None => "",
     };
 
-    let query = format!(
-        "MATCH (test)-[:CALLS]->(n)
-         WHERE (test:UnitTest OR test:IntegrationTest OR test:E2etest)
-         AND ANY(label IN labels(n) WHERE label IN $node_types)
-         {} {} {} {}
-         RETURN DISTINCT n.node_key AS node_key, n.name AS name, n.file AS file, n.start AS start, n.end AS end",
-        repo_filter, ignore_dirs_filter, regex_filter, is_muted_filter
-    );
+    // For unit tests, include functions called by ANY test type PLUS HANDLER functions from endpoints
+    let query = if test_type == "unit" {
+        format!(
+            "
+             MATCH (n:Function)
+             WHERE n.node_key IS NOT NULL
+             {} {} {} {} {}
+             WITH COLLECT(DISTINCT n) AS allNodes
+
+             // Find ALL functions directly called by ANY test type
+             OPTIONAL MATCH (test)-[:CALLS]->(directFromTest:Function)
+             WHERE (test:UnitTest OR test:IntegrationTest OR test:E2etest)
+             AND directFromTest IN allNodes
+             WITH allNodes, COLLECT(DISTINCT directFromTest) AS directlyCalledByTests
+
+             // Find functions that are HANDLERs of endpoints called by integration tests
+             OPTIONAL MATCH (intTest:IntegrationTest)-[:CALLS]->(endpoint:Endpoint)-[:HANDLER]->(handlerFunc:Function)
+             WHERE handlerFunc IN allNodes
+             WITH allNodes, directlyCalledByTests, COLLECT(DISTINCT handlerFunc) AS handlerFunctions
+
+             // Combine: directly tested = called by tests + handler functions
+             WITH allNodes, 
+                  directlyCalledByTests + [h IN handlerFunctions WHERE NOT h IN directlyCalledByTests] AS directlyTested
+
+             // Count unit tests for the total_tests stat
+             OPTIONAL MATCH (unitTest:UnitTest)-[:CALLS]->(directForCount:Function)
+             WHERE directForCount IN allNodes
+             WITH allNodes, directlyTested, count(DISTINCT unitTest) AS total_tests
+
+             // Traverse from all directly tested functions to find transitively covered
+             UNWIND CASE WHEN size(directlyTested) = 0 THEN [null] ELSE directlyTested END AS d
+             OPTIONAL MATCH (d)-[:CALLS|NESTED_IN|OPERAND|RENDERS|HANDLER*1..{max_depth}]->(transitive:Function)
+             WHERE transitive IN allNodes
+             WITH allNodes, directlyTested, total_tests, COLLECT(DISTINCT transitive) AS transitiveRaw
+
+             // Combine: transitive = direct + reachable
+             WITH allNodes, directlyTested, total_tests,
+                  directlyTested + [t IN transitiveRaw WHERE t IS NOT NULL AND NOT t IN directlyTested] AS transitivelyCovered
+
+             // Compute stats
+             WITH size(allNodes) AS total,
+                  total_tests,
+                  size(directlyTested) AS direct_covered,
+                  size(transitivelyCovered) AS transitive_covered,
+                  REDUCE(s = 0, n IN allNodes | s + COALESCE(n.end - n.start + 1, 0)) AS total_lines,
+                  REDUCE(s = 0, n IN transitivelyCovered | s + COALESCE(n.end - n.start + 1, 0)) AS covered_lines
+
+             RETURN total, total_tests, direct_covered, transitive_covered, total_lines, covered_lines",
+            function_specific_filters,
+            repo_filter, 
+            ignore_dirs_filter, 
+            regex_filter, 
+            is_muted_filter,
+            max_depth = MAX_TRAVERSAL_DEPTH
+        )
+    } else {
+        // For integration/e2e, use the original logic
+        format!(
+            "
+             MATCH (n:{target_type})
+             WHERE n.node_key IS NOT NULL
+             {} {} {} {} {}
+
+             WITH COLLECT(DISTINCT n) AS allNodes
+
+             OPTIONAL MATCH (test:{test_label})-[:CALLS]->(direct)
+             WHERE direct IN allNodes
+             WITH allNodes, COLLECT(DISTINCT direct) AS directlyTested
+
+             OPTIONAL MATCH (test:{test_label})-[:CALLS]->(directForCount)
+             WHERE directForCount IN allNodes
+             WITH allNodes, directlyTested, count(DISTINCT test) AS total_tests
+
+             UNWIND CASE WHEN size(directlyTested) = 0 THEN [null] ELSE directlyTested END AS d
+             OPTIONAL MATCH (d)-[:CALLS|NESTED_IN|HANDLER|OPERAND|RENDERS*1..{max_depth}]->(transitive)
+             WHERE transitive IN allNodes
+             WITH allNodes, directlyTested, total_tests, COLLECT(DISTINCT transitive) AS transitiveRaw
+
+             WITH allNodes, directlyTested, total_tests,
+                  directlyTested + [t IN transitiveRaw WHERE t IS NOT NULL AND NOT t IN directlyTested] AS transitivelyCovered
+
+             WITH size(allNodes) AS total,
+                  total_tests,
+                  size(directlyTested) AS direct_covered,
+                  size(transitivelyCovered) AS transitive_covered,
+                  REDUCE(s = 0, n IN allNodes | s + COALESCE(n.end - n.start + 1, 0)) AS total_lines,
+                  REDUCE(s = 0, n IN transitivelyCovered | s + COALESCE(n.end - n.start + 1, 0)) AS covered_lines
+
+             RETURN total, total_tests, direct_covered, transitive_covered, total_lines, covered_lines",
+            function_specific_filters,
+            repo_filter, 
+            ignore_dirs_filter, 
+            regex_filter, 
+            is_muted_filter,
+            target_type = target_type,
+            test_label = test_label,
+            max_depth = MAX_TRAVERSAL_DEPTH
+        )
+    };
 
     (query, params)
 }
 
-pub fn query_transitive_nodes(
-    node_types: &[NodeType],
-    repo: Option<&str>,
-    test_filters: Option<TestFilters>,
-    is_muted: Option<bool>,
-) -> (String, BoltMap) {
-    let mut params = BoltMap::new();
-
-    let node_types_list = node_types
-        .iter()
-        .map(|n| neo4rs::BoltType::String(n.to_string().into()))
-        .collect::<Vec<_>>();
-    boltmap_insert_list(&mut params, "node_types", node_types_list);
-
-    let ignore_dirs = test_filters
-        .as_ref()
-        .map(|f| f.ignore_dirs.clone())
-        .unwrap_or_default();
-
-    let repo_filter = if let Some(r) = repo {
-        if r.is_empty() || r == "all" {
-            String::new()
-        } else if r.contains(',') {
-            let repos: Vec<&str> = r.split(',').map(|s| s.trim()).collect();
-            let conditions: Vec<String> = repos
-                .iter()
-                .map(|repo_path| format!("n.file STARTS WITH '{}'", repo_path))
-                .collect();
-            format!("AND ({})", conditions.join(" OR "))
-        } else {
-            format!("AND n.file STARTS WITH '{}'", r)
-        }
-    } else {
-        String::new()
-    };
-
-    let ignore_dirs_filter = if !ignore_dirs.is_empty() {
-        let conditions: Vec<String> = ignore_dirs
-            .iter()
-            .map(|dir| {
-                format!(
-                    "(NOT n.file CONTAINS '/{dir}/' AND NOT n.file =~ '.*/{dir}$')",
-                    dir = dir
-                )
-            })
-            .collect();
-        format!("AND {}", conditions.join(" AND "))
-    } else {
-        String::new()
-    };
-
-    let regex_filter = test_filters
-        .as_ref()
-        .and_then(|f| f.target_regex.as_deref())
-        .map(|pattern| format!("AND n.file =~ '{}'", pattern))
-        .unwrap_or_default();
-
-    let is_muted_filter = match is_muted {
-        Some(true) => "AND (n.is_muted = true OR n.is_muted = 'true')",
-        Some(false) => "AND (n.is_muted IS NULL OR (n.is_muted <> true AND n.is_muted <> 'true'))",
-        None => "",
-    };
-
-    let transitive_is_muted_filter = match is_muted {
-        Some(true) => "AND (transitive.is_muted = true OR transitive.is_muted = 'true')",
-        Some(false) => "AND (transitive.is_muted IS NULL OR (transitive.is_muted <> true AND transitive.is_muted <> 'true'))",
-        None => "",
-    };
-
-    let query = format!(
-        "// Step 1: Find directly tested nodes
-         MATCH (test)-[:CALLS]->(direct)
-         WHERE (test:UnitTest OR test:IntegrationTest OR test:E2etest)
-         AND ANY(label IN labels(direct) WHERE label IN $node_types)
-         {} {} {} {}
-         WITH COLLECT(DISTINCT direct) AS directlyTested
-
-         // Step 2: Traverse outward from directly tested nodes
-         UNWIND directlyTested AS d
-         OPTIONAL MATCH (d)-[:CALLS|NESTED_IN|HANDLER|OPERAND|RENDERS*1..{}]->(transitive)
-         WHERE ANY(label IN labels(transitive) WHERE label IN $node_types)
-         {}
-         WITH directlyTested, COLLECT(DISTINCT transitive) AS transitiveNodes
-
-         // Step 3: Combine and dedupe
-         WITH directlyTested + [t IN transitiveNodes WHERE NOT t IN directlyTested] AS allCovered
-         UNWIND allCovered AS n
-         RETURN DISTINCT n.node_key AS node_key, n.name AS name, n.file AS file, n.start AS start, n.end AS end",
-        repo_filter.replace("n.", "direct."),
-        ignore_dirs_filter.replace("n.", "direct."),
-        regex_filter.replace("n.", "direct."),
-        is_muted_filter.replace("n.", "direct."),
-        MAX_TRAVERSAL_DEPTH,
-        transitive_is_muted_filter
-    );
-
-    (query, params)
-}
-
+/// Original query for backward compatibility (uses Function type with all test types)
 pub fn query_transitive_coverage_stats(
     node_types: &[NodeType],
     repo: Option<&str>,
@@ -188,7 +200,7 @@ pub fn query_transitive_coverage_stats(
 
     let node_types_list = node_types
         .iter()
-        .map(|n| neo4rs::BoltType::String(n.to_string().into()))
+        .map(|n| BoltType::String(n.to_string().into()))
         .collect::<Vec<_>>();
     boltmap_insert_list(&mut params, "node_types", node_types_list);
 
@@ -196,6 +208,14 @@ pub fn query_transitive_coverage_stats(
         .as_ref()
         .map(|f| f.ignore_dirs.clone())
         .unwrap_or_default();
+
+    let has_function_type = node_types.iter().any(|nt| nt == &NodeType::Function);
+
+    let function_specific_filters = if has_function_type {
+        format!("AND ({})", unique_functions_filters().join(" AND "))
+    } else {
+        "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
+    };
 
     let repo_filter = if let Some(r) = repo {
         if r.is_empty() || r == "all" {
@@ -242,30 +262,24 @@ pub fn query_transitive_coverage_stats(
     };
 
     let query = format!(
-        "// Step 1: Get all nodes in scope
+        "
          MATCH (n)
          WHERE ANY(label IN labels(n) WHERE label IN $node_types)
-         AND n.body IS NOT NULL AND n.body <> ''
-         {} {} {} {}
+         {} {} {} {} {}
          WITH COLLECT(DISTINCT n) AS allNodes
 
-         // Step 2: Find directly tested nodes
-         MATCH (test)-[:CALLS]->(direct)
+         OPTIONAL MATCH (test)-[:CALLS]->(direct)
          WHERE (test:UnitTest OR test:IntegrationTest OR test:E2etest)
          AND direct IN allNodes
          WITH allNodes, COLLECT(DISTINCT direct) AS directlyTested
-
-         // Step 3: Find transitively covered nodes
-         UNWIND directlyTested AS d
+         UNWIND CASE WHEN size(directlyTested) = 0 THEN [null] ELSE directlyTested END AS d
          OPTIONAL MATCH (d)-[:CALLS|NESTED_IN|HANDLER|OPERAND|RENDERS*1..{}]->(transitive)
          WHERE transitive IN allNodes
          WITH allNodes, directlyTested, COLLECT(DISTINCT transitive) AS transitiveRaw
 
-         // Step 4: Combine transitive (includes direct + transitive)
          WITH allNodes, directlyTested, 
-              directlyTested + [t IN transitiveRaw WHERE NOT t IN directlyTested] AS transitivelyCovered
+              directlyTested + [t IN transitiveRaw WHERE t IS NOT NULL AND NOT t IN directlyTested] AS transitivelyCovered
 
-         // Step 5: Compute stats
          WITH size(allNodes) AS total,
               size(directlyTested) AS direct_covered,
               size(transitivelyCovered) AS transitive_covered,
@@ -273,7 +287,11 @@ pub fn query_transitive_coverage_stats(
               REDUCE(s = 0, n IN transitivelyCovered | s + COALESCE(n.end - n.start + 1, 0)) AS covered_lines
 
          RETURN total, direct_covered, transitive_covered, total_lines, covered_lines",
-        repo_filter, ignore_dirs_filter, regex_filter, is_muted_filter,
+        function_specific_filters,
+        repo_filter, 
+        ignore_dirs_filter, 
+        regex_filter, 
+        is_muted_filter,
         MAX_TRAVERSAL_DEPTH
     );
 
@@ -299,7 +317,7 @@ pub fn query_transitive_nodes_with_count(
 
     let node_types_list = node_types
         .iter()
-        .map(|n| neo4rs::BoltType::String(n.to_string().into()))
+        .map(|n| BoltType::String(n.to_string().into()))
         .collect::<Vec<_>>();
     boltmap_insert_list(&mut params, "node_types", node_types_list);
 
@@ -312,14 +330,12 @@ pub fn query_transitive_nodes_with_count(
         .map(|f| f.ignore_dirs.clone())
         .unwrap_or_default();
 
-    let order_clause = if body_length {
-        "ORDER BY size(n.body) DESC, n.name ASC, n.file ASC"
-    } else if line_count {
-        "ORDER BY (n.end - n.start) DESC, n.name ASC, n.file ASC"
-    } else if sort_by_test_count {
-        "ORDER BY direct_test_count DESC, n.name ASC, n.file ASC"
+    let has_function_type = node_types.iter().any(|nt| nt == &NodeType::Function);
+
+    let function_specific_filters = if has_function_type {
+        format!("AND ({})", unique_functions_filters().join(" AND "))
     } else {
-        "ORDER BY n.name ASC, n.file ASC"
+        "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
     };
 
     let repo_filter = if let Some(r) = repo {
@@ -370,26 +386,29 @@ pub fn query_transitive_nodes_with_count(
         None => "",
     };
 
-    let function_specific_filters = if node_types.iter().any(|nt| nt == &NodeType::Function) {
-        format!("AND ({})", unique_functions_filters().join(" AND "))
+    let order_clause = if body_length {
+        "ORDER BY item.body_length DESC, item.node.name ASC, item.node.file ASC"
+    } else if line_count {
+        "ORDER BY item.line_count DESC, item.node.name ASC, item.node.file ASC"
+    } else if sort_by_test_count {
+        "ORDER BY item.direct_test_count DESC, item.node.name ASC, item.node.file ASC"
     } else {
-        "AND (n.body IS NOT NULL AND n.body <> '')".to_string()
+        "ORDER BY item.node.name ASC, item.node.file ASC"
     };
 
     let coverage_where = match coverage_filter {
-        Some("tested") => "WHERE is_transitive_covered = true",
-        Some("untested") => "WHERE is_transitive_covered = false",
+        Some("tested") => "WHERE item.is_transitive_covered = true",
+        Some("untested") => "WHERE item.is_transitive_covered = false",
         _ => "",
     };
 
     let query = format!(
-        "// Step 1: Get all nodes in scope
+        "
          MATCH (n)
          WHERE ANY(label IN labels(n) WHERE label IN $node_types)
          {} {} {} {} {} {}
          WITH COLLECT(DISTINCT n) AS allNodes
 
-         // Step 2: Find directly tested nodes with test counts
          OPTIONAL MATCH (test)-[:CALLS]->(direct)
          WHERE (test:UnitTest OR test:IntegrationTest OR test:E2etest)
          AND direct IN allNodes
@@ -397,32 +416,24 @@ pub fn query_transitive_nodes_with_count(
               COLLECT(DISTINCT direct) AS directlyTested,
               COLLECT({{node: direct, test: test}}) AS testPairs
 
-         // Step 3: Find transitively covered nodes
          UNWIND CASE WHEN size(directlyTested) = 0 THEN [null] ELSE directlyTested END AS d
          OPTIONAL MATCH (d)-[:CALLS|NESTED_IN|HANDLER|OPERAND|RENDERS*1..{}]->(transitive)
          WHERE transitive IN allNodes
          WITH allNodes, directlyTested, testPairs,
               COLLECT(DISTINCT transitive) AS transitiveRaw
 
-         // Step 4: Build transitive coverage set
          WITH allNodes, directlyTested, testPairs,
               directlyTested + [t IN transitiveRaw WHERE t IS NOT NULL AND NOT t IN directlyTested] AS transitivelyCovered
 
-         // Step 5: Build result set with coverage info
          UNWIND allNodes AS n
          WITH n, directlyTested, transitivelyCovered, testPairs,
               n IN transitivelyCovered AS is_transitive_covered,
               n IN directlyTested AS is_direct_covered,
               size([pair IN testPairs WHERE pair.node = n]) AS direct_test_count
 
-         // Step 6: Get caller counts
          OPTIONAL MATCH (caller)-[:CALLS]->(n)
          WITH n, is_transitive_covered, is_direct_covered, direct_test_count,
               count(DISTINCT caller) AS usage_count
-
-         {}
-         {}
-
          WITH collect({{
              node: n,
              usage_count: usage_count,
@@ -437,9 +448,17 @@ pub fn query_transitive_nodes_with_count(
                  ELSE null 
              END
          }}) AS all_items
+
+         // Step 8: Filter, sort, and paginate
+         WITH [item IN all_items {}] AS filtered_items
+         WITH filtered_items, size(filtered_items) AS total_count
+         UNWIND filtered_items AS item
+         WITH item, total_count
+         {}
+         WITH collect(item) AS sorted_items, total_count
          RETURN 
-             size(all_items) AS total_count,
-             [item IN all_items | item][$offset..($offset + $limit)] AS items",
+             total_count,
+             sorted_items[$offset..($offset + $limit)] AS items",
         function_specific_filters,
         repo_filter,
         ignore_dirs_filter,
@@ -452,13 +471,4 @@ pub fn query_transitive_nodes_with_count(
     );
 
     (query, params)
-}
-
-fn unique_functions_filters() -> Vec<String> {
-    vec![
-        "n.body IS NOT NULL".to_string(),
-        "n.body <> ''".to_string(),
-        "(n.component IS NULL OR n.component <> 'true')".to_string(),
-        "n.operand IS NULL".to_string(),
-    ]
 }
