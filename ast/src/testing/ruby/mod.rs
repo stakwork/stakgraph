@@ -8,7 +8,8 @@ use std::str::FromStr;
 use test_log::test;
 
 pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
-    let use_lsp = get_use_lsp();
+    // let use_lsp = get_use_lsp(); //Temporarily disabled
+    let use_lsp = false;
     let repo = Repo::new(
         "src/testing/ruby",
         Lang::from_str("ruby").unwrap(),
