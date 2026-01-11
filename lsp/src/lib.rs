@@ -3,13 +3,13 @@ pub mod git;
 pub mod language;
 mod utils;
 
-use client::strip_root;
 pub use client::strip_tmp;
+use client::{strip_root, LspState};
 pub use language::Language;
 pub use utils::*;
 
 use lsp_types::{GotoDefinitionResponse, Hover, Location};
-use shared::{Context, Error, Result};
+use shared::{sync_fn, Context, Error, Result};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::sync::mpsc;
@@ -46,14 +46,6 @@ impl Cmd {
         });
         result
     }
-}
-
-pub fn sync_fn<T, F, Fut>(async_fn: F) -> T
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = T>,
-{
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
 }
 
 #[derive(Debug)]
@@ -211,7 +203,8 @@ async fn spawn_inner(
     let stdin = child.stdin.context("no stdin")?;
 
     info!("start {:?} LSP client", lang);
-    let (mut conn, mainloop, indexed_rx) = client::LspClient::new(root_dir_abs, root_dir_rel, lang);
+    info!("start {:?} LSP client", lang);
+    let (mut conn, mainloop) = client::LspClient::new(root_dir_abs, root_dir_rel, lang);
 
     let mainloop_task = tokio::spawn(async move {
         mainloop.run_buffered(stdout, stdin).await.unwrap();
@@ -223,12 +216,13 @@ async fn spawn_inner(
 
     // conn.did_open(&mainrs, &main_text).await?;
 
-    info!("waiting.... {:?}", lang);
-    sleep(500).await;
-    indexed_rx
-        .await
-        .map_err(|e| Error::Custom(format!("bad indexed rx {:?}", e)))?;
-    info!("indexed!!! {:?}", lang);
+    if !matches!(lang, Language::Rust) {
+        conn.set_state(LspState::Ready);
+    }
+
+    info!("waiting for ready state... {:?}", lang);
+    conn.wait_for_ready().await?;
+    info!("LSP Ready! {:?}", lang);
 
     while let Some((cmd, res_tx)) = cmd_rx.recv().await {
         // debug!("got cmd: {:?}", cmd);
