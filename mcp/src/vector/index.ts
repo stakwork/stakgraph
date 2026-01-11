@@ -13,7 +13,7 @@ export async function vectorizeQuery(query: string): Promise<number[]> {
 }
 
 export async function vectorizeCodeDocument(
-  codeString: string
+  codeString: string,
 ): Promise<number[]> {
   const flagEmbedding = await FlagEmbedding.init({
     model: MODEL,
@@ -46,7 +46,7 @@ export async function vectorizeCodeDocument(
 
   // Normalize the final vector
   const magnitude = Math.sqrt(
-    pooledEmbedding.reduce((sum, val) => sum + val * val, 0)
+    pooledEmbedding.reduce((sum, val) => sum + val * val, 0),
   );
 
   return pooledEmbedding.map((val) => val / magnitude);

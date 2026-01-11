@@ -199,6 +199,12 @@ impl Lang {
             lang: Box::new(php::Php::new()),
         }
     }
+    pub fn new_csharp() -> Self {
+        Self {
+            kind: Language::CSharp,
+            lang: Box::new(csharp::CSharp::new()),
+        }
+    }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
@@ -803,6 +809,7 @@ impl Lang {
             Language::Angular => Lang::new_angular(),
             Language::Cpp => Lang::new_cpp(),
             Language::Php => Lang::new_php(),
+            Language::CSharp => Lang::new_csharp(),
         }
     }
 }

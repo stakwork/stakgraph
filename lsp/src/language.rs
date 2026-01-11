@@ -18,9 +18,10 @@ pub enum Language {
     Angular,
     Cpp,
     Php,
+    CSharp,
 }
 
-pub const PROGRAMMING_LANGUAGES: [Language; 12] = [
+pub const PROGRAMMING_LANGUAGES: [Language; 13] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
@@ -33,6 +34,7 @@ pub const PROGRAMMING_LANGUAGES: [Language; 12] = [
     Language::Angular,
     Language::Cpp,
     Language::Php,
+    Language::CSharp,
 ];
 
 impl Language {
@@ -60,6 +62,7 @@ impl Language {
             Self::Angular => vec!["package.json"],
             Self::Cpp => vec!["CMakeLists.txt", "Makefile", "meson.build"],
             Self::Php => vec!["composer.json"],
+            Self::CSharp => vec![".csproj", ".sln"],
         }
     }
 
@@ -79,6 +82,7 @@ impl Language {
             Self::Angular => vec!["ts", "js", "html", "css"],
             Self::Cpp => vec!["cpp", "h"],
             Self::Php => vec!["php"],
+            Self::CSharp => vec!["cs"],
         }
     }
 
@@ -115,6 +119,7 @@ impl Language {
             Self::Angular => vec![".git", "node_modules"],
             Self::Cpp => vec![".git", "build", "out", "CMakeFiles"],
             Self::Php => vec![".git", "vendor"],
+            Self::CSharp => vec![".git", "bin", "obj", "packages", ".vs"],
         }
     }
 
@@ -144,6 +149,7 @@ impl Language {
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
             Self::Php => Vec::new(),
+            Self::CSharp => Vec::new(),
         }
     }
 
@@ -172,6 +178,7 @@ impl Language {
             Self::Angular => "angular-language-server",
             Self::Cpp => "",
             Self::Php => "",
+            Self::CSharp => "",
         }
         .to_string()
     }
@@ -192,6 +199,7 @@ impl Language {
             Self::Angular => "--version",
             Self::Cpp => "--version",
             Self::Php => "--version",
+            Self::CSharp => "--version",
         }
         .to_string()
     }
@@ -212,6 +220,7 @@ impl Language {
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
             Self::Php => Vec::new(),
+            Self::CSharp => Vec::new(),
         }
     }
 
@@ -250,6 +259,7 @@ impl Language {
             Self::Angular => Vec::new(),
             Self::Cpp => Vec::new(),
             Self::Php => Vec::new(),
+            Self::CSharp => Vec::new(),
         }
     }
 
@@ -319,6 +329,7 @@ impl Display for Language {
             Self::Angular => "angular",
             Self::Cpp => "cpp",
             Self::Php => "php",
+            Self::CSharp => "csharp",
         };
         write!(f, "{}", s)
     }
@@ -370,6 +381,10 @@ impl FromStr for Language {
             "php" => Ok(Language::Php),
             "Php" => Ok(Language::Php),
             "PHP" => Ok(Language::Php),
+            "csharp" => Ok(Language::CSharp),
+            "CSharp" => Ok(Language::CSharp),
+            "c#" => Ok(Language::CSharp),
+            "C#" => Ok(Language::CSharp),
 
             _ => Err(Error::Custom("unsupported language".to_string())),
         }
