@@ -9,6 +9,7 @@ pub mod angular;
 #[cfg(test)]
 pub mod coverage;
 pub mod cpp;
+pub mod csharp;
 pub mod go;
 pub mod graphs;
 pub mod java;
