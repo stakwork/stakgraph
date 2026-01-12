@@ -224,6 +224,7 @@ async fn spawn_inner(
     // conn.did_open(&mainrs, &main_text).await?;
 
     if config.name != "Rust" {
+        sleep(5000).await;
         conn.set_state(LspState::Ready);
     }
 

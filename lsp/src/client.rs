@@ -285,10 +285,12 @@ fn start(
                 ControlFlow::Continue(())
             })
             .notification::<ShowMessage>(|_, params| {
+                println!("ShowMessage::: {:?}: {}", params.typ, params.message);
                 debug!("ShowMessage::: {:?}: {}", params.typ, params.message);
                 ControlFlow::Continue(())
             })
             .notification::<LogMessage>(|_this, params| {
+                println!("LogMessage::: {:?}: {}", params.typ, params.message);
                 debug!("LogMessage::: {:?}: {}", params.typ, params.message);
                 ControlFlow::Continue(())
             })
