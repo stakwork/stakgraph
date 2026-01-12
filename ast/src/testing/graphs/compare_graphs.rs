@@ -92,7 +92,8 @@ async fn compare_graphs_inner(lang_id: &str, repo_path: &str) -> Result<()> {
             btree_map_graph.edges.len()
         );
     }
-    //lSP differs by 2...
+
+    //FIXME: understand why lsp differs by 2...
 
     Ok(())
 }
