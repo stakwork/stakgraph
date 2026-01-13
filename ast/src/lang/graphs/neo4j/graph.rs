@@ -124,13 +124,6 @@ impl Neo4jGraph {
             .context("Neo4j Connection is not established")
     }
 
-    pub async fn clear_graph(&self) -> Result<()> {
-        let connection = self.ensure_connected().await?;
-        let query_str = "MATCH (n) DETACH DELETE n";
-        connection.run(query(query_str)).await?;
-        Ok(())
-    }
-
     pub async fn add_node_async(&self, node_type: NodeType, node_data: NodeData) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);

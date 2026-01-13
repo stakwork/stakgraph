@@ -195,13 +195,15 @@ async fn check_monorepo_graph<G: Graph + 'static>(
     expected_langs: &[&str],
     expected_files: &[&str],
 ) -> Result<()> {
+    let root = Path::new(MONOREPO_TEST_DIR).join(fixture);
+    let abs_root = std::env::current_dir()?.join(&root).canonicalize()?;
+    let abs_root_str = abs_root.to_str().unwrap();
+
     #[cfg(feature = "neo4j")]
     if std::any::TypeId::of::<G>() == std::any::TypeId::of::<crate::lang::graphs::Neo4jGraph>() {
         let neo_graph = crate::lang::graphs::Neo4jGraph::default();
-        neo_graph.clear_graph().await?;
+        neo_graph.clear_existing_graph(abs_root_str).await?;
     }
-
-    let root = Path::new(MONOREPO_TEST_DIR).join(fixture);
     let repos = Repo::new_multi_detect(
         root.to_str().unwrap(),
         None,
@@ -214,7 +216,12 @@ async fn check_monorepo_graph<G: Graph + 'static>(
     let graph = repos.build_graphs_inner::<G>().await?;
 
     // Check Languages
-    let languages = graph.find_nodes_by_type(NodeType::Language);
+    let all_languages = graph.find_nodes_by_type(NodeType::Language);
+    let languages: Vec<_> = all_languages
+        .into_iter()
+        .filter(|n| n.file.starts_with(abs_root_str))
+        .collect();
+
     assert_eq!(
         languages.len(),
         expected_langs.len(),
@@ -234,7 +241,12 @@ async fn check_monorepo_graph<G: Graph + 'static>(
     }
 
     // Check Files
-    let files = graph.find_nodes_by_type(NodeType::File);
+    let all_files = graph.find_nodes_by_type(NodeType::File);
+    let files: Vec<_> = all_files
+        .into_iter()
+        .filter(|n| n.file.starts_with(abs_root_str))
+        .collect();
+
     for file in expected_files {
         assert!(
             files.iter().any(|f| f.file.ends_with(file)),
