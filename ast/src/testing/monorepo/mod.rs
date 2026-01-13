@@ -1,5 +1,8 @@
+use crate::lang::{Graph, NodeType};
+use crate::repo::Repo;
 use crate::workspace::detect_workspaces;
 use lsp::language::Language;
+use shared::error::Result;
 use std::path::Path;
 
 const MONOREPO_TEST_DIR: &str = "src/testing/monorepo";
@@ -120,6 +123,8 @@ fn test_monorepo_simple_ts_structure() {
 
 // Detection Tests
 
+// Detection Tests
+
 #[test]
 fn test_detect_monorepo_rust() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_rust");
@@ -140,7 +145,7 @@ fn test_detect_monorepo_go() {
 fn test_detect_monorepo_npm_go() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_npm_go");
     let packages = detect_workspaces(&root).unwrap().unwrap();
-    assert!(packages.len() >= 2);
+    assert_eq!(packages.len(), 2);
     assert!(packages.iter().any(|p| p.language == Language::Go));
     assert!(packages.iter().any(|p| p.language == Language::React));
 }
@@ -149,7 +154,7 @@ fn test_detect_monorepo_npm_go() {
 fn test_detect_monorepo_turbo_ts() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_turbo_ts");
     let packages = detect_workspaces(&root).unwrap().unwrap();
-    assert!(packages.len() >= 3);
+    assert_eq!(packages.len(), 3);
 }
 
 #[test]
@@ -163,7 +168,7 @@ fn test_detect_monorepo_simple_ts() {
 fn test_detect_monorepo_turbo_python() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_turbo_python");
     let packages = detect_workspaces(&root).unwrap().unwrap();
-    assert!(packages.len() >= 2);
+    assert_eq!(packages.len(), 2);
     assert!(packages.iter().any(|p| p.language == Language::React));
 }
 
@@ -171,7 +176,7 @@ fn test_detect_monorepo_turbo_python() {
 fn test_detect_monorepo_python_rust() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_python_rust");
     let packages = detect_workspaces(&root).unwrap().unwrap();
-    assert!(packages.len() >= 2);
+    assert_eq!(packages.len(), 3);
     assert!(packages.iter().any(|p| p.language == Language::Rust));
     assert!(packages.iter().any(|p| p.language == Language::Python));
 }
@@ -180,5 +185,194 @@ fn test_detect_monorepo_python_rust() {
 fn test_detect_monorepo_nx_mixed() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_nx_mixed");
     let packages = detect_workspaces(&root).unwrap().unwrap();
-    assert!(packages.len() >= 2);
+    assert_eq!(packages.len(), 3);
+}
+
+// Graph Construction Tests
+
+async fn check_monorepo_graph<G: Graph + 'static>(
+    fixture: &str,
+    expected_langs: &[&str],
+    expected_files: &[&str],
+) -> Result<()> {
+    #[cfg(feature = "neo4j")]
+    if std::any::TypeId::of::<G>() == std::any::TypeId::of::<crate::lang::graphs::Neo4jGraph>() {
+        let neo_graph = crate::lang::graphs::Neo4jGraph::default();
+        neo_graph.clear_graph().await?;
+    }
+
+    let root = Path::new(MONOREPO_TEST_DIR).join(fixture);
+    let repos = Repo::new_multi_detect(
+        root.to_str().unwrap(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        Some(false),
+    )
+    .await?;
+
+    let graph = repos.build_graphs_inner::<G>().await?;
+
+    // Check Languages
+    let languages = graph.find_nodes_by_type(NodeType::Language);
+    assert_eq!(
+        languages.len(),
+        expected_langs.len(),
+        "Language count mismatch for {}: expected {:?}, got {:?}",
+        fixture,
+        expected_langs,
+        languages.iter().map(|l| &l.name).collect::<Vec<_>>()
+    );
+
+    for lang in expected_langs {
+        assert!(
+            languages.iter().any(|l| l.name.eq_ignore_ascii_case(lang)),
+            "Missing language '{}' in {}",
+            lang,
+            fixture
+        );
+    }
+
+    // Check Files
+    let files = graph.find_nodes_by_type(NodeType::File);
+    for file in expected_files {
+        assert!(
+            files.iter().any(|f| f.file.ends_with(file)),
+            "Missing file '{}' in {}",
+            file,
+            fixture
+        );
+    }
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_monorepo_graph_construction() -> Result<()> {
+    // 1. Mixed Go/Angular (NX)
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_nx_mixed",
+        &["Go", "Typescript", "Angular"],
+        &["apps/api/main.go", "apps/web/package.json"],
+    )
+    .await?;
+
+    // 2. Mixed Go/React (NPM)
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_npm_go",
+        &["Go", "React"],
+        &["go.mod", "apps/web/package.json"],
+    )
+    .await?;
+
+    // 3. Rust Workspace
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_rust",
+        &["Rust", "Rust"],
+        &["api/Cargo.toml", "shared/Cargo.toml"],
+    )
+    .await?;
+
+    // 4. NPM + Go
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_npm_go",
+        &["Go", "React"],
+        &["main.go", "apps/web/package.json"],
+    )
+    .await?;
+
+    // 5. Turbo (TS + React)
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_turbo_ts",
+        &["Typescript", "React", "React"],
+        &[
+            "apps/api/package.json",
+            "apps/web/package.json",
+            "packages/ui/package.json",
+        ],
+    )
+    .await?;
+
+    // 6. Python + Rust
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_python_rust",
+        &["Python", "Rust", "Python"],
+        &[
+            "services/web/app.py",
+            "services/processor/Cargo.toml",
+            "libs/common/setup.py",
+        ],
+    )
+    .await?;
+
+    // 7. Simple TS
+    check_monorepo_graph::<crate::lang::BTreeMapGraph>(
+        "monorepo_simple_ts",
+        &["React", "Typescript"],
+        &["frontend/package.json", "backend/package.json"],
+    )
+    .await?;
+
+    Ok(())
+}
+
+#[cfg(feature = "neo4j")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
+    // 1. Mixed Go/Angular (NX)
+    check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
+        "monorepo_nx_mixed",
+        &["Go", "Typescript", "Angular"],
+        &["apps/api/main.go", "apps/web/package.json"],
+    )
+    .await?;
+
+    // 3. Rust Workspace
+    check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
+        "monorepo_rust",
+        &["Rust", "Rust"],
+        &["api/Cargo.toml", "shared/Cargo.toml"],
+    )
+    .await?;
+
+    // 4. NPM + Go
+    check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
+        "monorepo_npm_go",
+        &["Go", "React"],
+        &["main.go", "apps/web/package.json"],
+    )
+    .await?;
+
+    // 5. Turbo (TS + React)
+    check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
+        "monorepo_turbo_ts",
+        &["Typescript", "React", "React"],
+        &[
+            "apps/api/package.json",
+            "apps/web/package.json",
+            "packages/ui/package.json",
+        ],
+    )
+    .await?;
+    // 6. Python + Rust
+    check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
+        "monorepo_python_rust",
+        &["Python", "Rust", "Python"],
+        &[
+            "services/web/app.py",
+            "services/processor/Cargo.toml",
+            "libs/common/setup.py",
+        ],
+    )
+    .await?;
+
+    // 7. Simple TS
+    check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
+        "monorepo_simple_ts",
+        &["React", "Typescript"],
+        &["frontend/package.json", "backend/package.json"],
+    )
+    .await?;
+
+    Ok(())
 }
