@@ -799,6 +799,40 @@ impl Stack for ReactTs {
                         )
                     ]
                 )
+                (jsx_self_closing_element
+                    name: (member_expression
+                        object: (identifier) @navigator
+                        property: (property_identifier) @screen (#eq? @screen "Screen")
+                    )
+                    attribute: (jsx_attribute
+                        (property_identifier) @name-attr (#eq? @name-attr "name")
+                        (_) @{PAGE_PATHS}
+                    )
+                    attribute: (jsx_attribute
+                        (property_identifier) @component-attr (#eq? @component-attr "component")
+                        (jsx_expression
+                            (identifier) @{PAGE_COMPONENT}
+                        )
+                    )?
+                )
+                (jsx_element
+                    open_tag: (jsx_opening_element
+                        name: (member_expression
+                            object: (identifier) @navigator
+                            property: (property_identifier) @screen (#eq? @screen "Screen")
+                        )
+                        attribute: (jsx_attribute
+                            (property_identifier) @name-attr (#eq? @name-attr "name")
+                            (_) @{PAGE_PATHS}
+                        )
+                        attribute: (jsx_attribute
+                            (property_identifier) @component-attr (#eq? @component-attr "component")
+                            (jsx_expression
+                                (identifier) @{PAGE_COMPONENT}
+                            )
+                        )?
+                    )
+                )
             ] @{PAGE}"#
         ))
     }

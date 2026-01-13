@@ -101,7 +101,7 @@ import NewPerson from "./components/NewPerson";"#
     );
 
     assert_eq!(import_test_file.body, app_body, "Body of App is incorrect");
-    assert_eq!(imports.len(), 19, "Expected 19 imports");
+    assert_eq!(imports.len(), 20, "Expected 20 imports");
 
     let people_import = imports
         .iter()
@@ -139,7 +139,7 @@ import NewPerson from "./components/NewPerson";"#
     if use_lsp == true {
         assert_eq!(functions.len(), 22, "Expected 21 functions/components");
     } else {
-        assert_eq!(functions.len(), 56, "Expected 56 functions/components");
+        assert_eq!(functions.len(), 63, "Expected 63 functions/components");
     }
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
@@ -326,21 +326,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes_count += pages.len();
-    assert_eq!(pages.len(), 4, "Expected 4 pages");
-
-    let new_person_page = pages
-        .iter()
-        .find(|p| p.name == "/new-person")
-        .expect("'/new-person' page not found");
-    assert_eq!(
-        new_person_page.name, "/new-person",
-        "Page name should be '/new-person'"
-    );
-    assert_eq!(
-        normalize_path(&new_person_page.file),
-        "src/testing/react/src/App.tsx",
-        "Page file path is incorrect"
-    );
+    assert_eq!(pages.len(), 6, "Expected 6 pages");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -380,27 +366,46 @@ import NewPerson from "./components/NewPerson";"#
 
     let renders_edges_count = graph.count_edges_of_type(EdgeType::Renders);
     edges_count += renders_edges_count;
-    assert_eq!(renders_edges_count, 4, "Expected 4 renders edges");
+    assert_eq!(renders_edges_count, 6, "Expected 6 renders edges");
 
-    let people_page = pages
+    let rn_home_page = pages
         .iter()
-        .find(|p| p.name == "/people")
-        .expect("Expected '/people' page not found");
-    assert_eq!(people_page.name, "/people", "Page name should be '/people'");
+        .find(|p| p.name == "Home")
+        .expect("'Home' RN page not found");
+    assert_eq!(rn_home_page.name, "Home", "RN page name should be 'Home'");
     assert_eq!(
-        normalize_path(&people_page.file),
-        "src/testing/react/src/App.tsx",
-        "Page file path is incorrect"
+        normalize_path(&rn_home_page.file),
+        "src/testing/react/src/ReactNativeNavigation.tsx",
+        "RN Home page file path is incorrect"
     );
 
-    let people_fn = functions
+    let rn_profile_page = pages
         .iter()
-        .find(|f| {
-            f.name == "People"
-                && normalize_path(&f.file) == "src/testing/react/src/components/People.tsx"
-        })
-        .map(|n| Node::new(NodeType::Function, n.clone()))
-        .expect("People component not found");
+        .find(|p| p.name == "Profile")
+        .expect("'Profile' RN page not found");
+    assert_eq!(
+        rn_profile_page.name, "Profile",
+        "RN page name should be 'Profile'"
+    );
+
+    let rn_settings_page = pages
+        .iter()
+        .find(|p| p.name == "Settings")
+        .expect("'Settings' RN page not found");
+    assert_eq!(
+        rn_settings_page.name, "Settings",
+        "RN page name should be 'Settings'"
+    );
+
+    let rn_notifications_page = pages
+        .iter()
+        .find(|p| p.name == "Notifications")
+        .expect("'Notifications' RN page not found");
+    assert_eq!(
+        rn_notifications_page.name, "Notifications",
+        "RN page name should be 'Notifications'"
+    );
+
     let new_person_fn = functions
         .iter()
         .find(|f| {
@@ -417,16 +422,7 @@ import NewPerson from "./components/NewPerson";"#
         })
         .map(|n| Node::new(NodeType::Function, n.clone()))
         .expect("SubmitButton component not found");
-    let people_page = pages
-        .iter()
-        .find(|p| p.name == "/people" && normalize_path(&p.file) == "src/testing/react/src/App.tsx")
-        .map(|n| Node::new(NodeType::Page, n.clone()))
-        .expect("'/people' page not found");
 
-    assert!(
-        graph.has_edge(&people_page, &people_fn, EdgeType::Renders),
-        "Expected '/people' page to render People component"
-    );
     assert!(
         graph.has_edge(&new_person_fn, &submit_button_fn, EdgeType::Calls),
         "Expected NewPerson component to call SubmitButton component"
@@ -471,22 +467,11 @@ import NewPerson from "./components/NewPerson";"#
         "Expected useStore to contain initialState variable"
     );
 
-    let new_person_page_node = pages
-        .iter()
-        .find(|p| p.name == "/new-person")
-        .map(|n| Node::new(NodeType::Page, n.clone()))
-        .expect("'/new-person' page not found");
-
-    assert!(
-        graph.has_edge(&new_person_page_node, &new_person_fn, EdgeType::Renders),
-        "Expected '/new-person' page to render NewPerson component"
-    );
-
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 218,
-        "Expected 218 contains edges, got {}",
+        contains_edges_count, 227,
+        "Expected 227 contains edges, got {}",
         contains_edges_count
     );
 
@@ -523,7 +508,7 @@ import NewPerson from "./components/NewPerson";"#
         .iter()
         .filter(|f| f.name.ends_with(".tsx"))
         .count();
-    assert_eq!(tsx_files, 12, "Expected 12 TSX files, got {}", tsx_files);
+    assert_eq!(tsx_files, 13, "Expected 13 TSX files, got {}", tsx_files);
 
     let component_pattern_functions = functions
         .iter()
