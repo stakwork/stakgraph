@@ -1,0 +1,8 @@
+{
+  "name": "monorepo-turbo-ts",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
+}
