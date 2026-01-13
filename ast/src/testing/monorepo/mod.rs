@@ -1,3 +1,5 @@
+use crate::workspace::detect_workspaces;
+use lsp::language::Language;
 use std::path::Path;
 
 const MONOREPO_TEST_DIR: &str = "src/testing/monorepo";
@@ -114,4 +116,69 @@ fn test_monorepo_simple_ts_structure() {
         base.join("backend/package.json").exists(),
         "Missing backend"
     );
+}
+
+// Detection Tests
+
+#[test]
+fn test_detect_monorepo_rust() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_rust");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert_eq!(packages.len(), 2);
+    assert!(packages.iter().all(|p| p.language == Language::Rust));
+}
+
+#[test]
+fn test_detect_monorepo_go() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_go");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert_eq!(packages.len(), 3);
+    assert!(packages.iter().all(|p| p.language == Language::Go));
+}
+
+#[test]
+fn test_detect_monorepo_npm_go() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_npm_go");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert!(packages.len() >= 2);
+    assert!(packages.iter().any(|p| p.language == Language::Go));
+    assert!(packages.iter().any(|p| p.language == Language::React));
+}
+
+#[test]
+fn test_detect_monorepo_turbo_ts() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_turbo_ts");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert!(packages.len() >= 3);
+}
+
+#[test]
+fn test_detect_monorepo_simple_ts() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_simple_ts");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert_eq!(packages.len(), 2);
+}
+
+#[test]
+fn test_detect_monorepo_turbo_python() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_turbo_python");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert!(packages.len() >= 2);
+    assert!(packages.iter().any(|p| p.language == Language::React));
+}
+
+#[test]
+fn test_detect_monorepo_python_rust() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_python_rust");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert!(packages.len() >= 2);
+    assert!(packages.iter().any(|p| p.language == Language::Rust));
+    assert!(packages.iter().any(|p| p.language == Language::Python));
+}
+
+#[test]
+fn test_detect_monorepo_nx_mixed() {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_nx_mixed");
+    let packages = detect_workspaces(&root).unwrap().unwrap();
+    assert!(packages.len() >= 2);
 }
