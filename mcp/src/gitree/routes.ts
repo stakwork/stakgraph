@@ -825,6 +825,11 @@ export async function gitree_relevant_features(req: Request, res: Response) {
       commitCount: (f.commitShas || []).length,
     }));
 
+    if (featuresWithoutDocs.length === 0) {
+      res.status(400).json({ error: "No features found" });
+      return;
+    }
+
     // Use AI to determine relevant features
     const provider = process.env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
