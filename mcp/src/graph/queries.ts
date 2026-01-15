@@ -101,6 +101,12 @@ SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.qu
 RETURN n
 `;
 
+export const UPDATE_REPO_DOCS_QUERY = `
+MATCH (r:Repository {ref_id: $ref_id})
+SET r.documentation = $documentation, r.date_added_to_graph = $ts
+RETURN r
+`;
+
 export const GET_PROMPT_QUERY = `
 MATCH (n:Prompt {node_key: $node_key}) RETURN n
 `;
@@ -745,7 +751,10 @@ WHERE
   f.file ENDS WITH '.cursorrules' OR
   f.file ENDS WITH 'CLAUDE.md' OR
   f.file ENDS WITH 'AGENTS.md' OR
-  f.file ENDS WITH '.goosehints'
+  f.file ENDS WITH '.goosehints' OR
+  f.file ENDS WITH 'README.md' OR
+  f.file ENDS WITH 'readme.md' OR
+  f.file ENDS WITH 'Readme.md'
 RETURN f
 ORDER BY f.file
 `;

@@ -1,17 +1,16 @@
+use crate::types::ProcessBody;
 use ast::lang::NodeType;
+use ast::repo::Repo;
+use reqwest::Client;
 use shared::Result;
 use std::str::FromStr;
 use std::time::Duration;
-use reqwest::Client;
-use ast::repo::Repo;
-use crate::types::ProcessBody;
-
 
 pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<&str>, sync: bool) {
     // MCP_URL default: http://repo2graph.sphinx:3355 (production swarm)
     // For local dev: http://localhost:3355
-    let mcp_url = std::env::var("MCP_URL")
-        .unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
+    let mcp_url =
+        std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
 
     let encoded_url = urlencoding::encode(repo_url);
     let mut url = format!("{}/mocks?repo_url={}", mcp_url, encoded_url);
@@ -24,7 +23,10 @@ pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<
     if sync {
         url.push_str("&sync=true");
     }
-    println!("[mcp_mocks] Calling MCP to discover mocks (sync={}): {}", sync, url);
+    println!(
+        "[mcp_mocks] Calling MCP to discover mocks (sync={}): {}",
+        sync, url
+    );
 
     let client = Client::new();
     let mut req = client.get(&url).timeout(Duration::from_secs(300));
@@ -36,11 +38,50 @@ pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<
             if resp.status().is_success() {
                 println!("[mcp_mocks] MCP mocks call succeeded");
             } else {
-                println!("[mcp_mocks] MCP mocks call returned status: {}", resp.status());
+                println!(
+                    "[mcp_mocks] MCP mocks call returned status: {}",
+                    resp.status()
+                );
             }
         }
         Err(e) => {
             println!("[mcp_mocks] MCP mocks call failed (non-fatal): {}", e);
+        }
+    }
+}
+
+pub async fn call_mcp_docs(repo_url: &str, sync: bool) {
+    let mcp_url =
+        std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
+
+    let encoded_url = urlencoding::encode(repo_url);
+    let mut url = format!("{}/learn_docs?repo_url={}", mcp_url, encoded_url);
+    if sync {
+        url.push_str("&sync=true");
+    }
+    println!(
+        "[mcp_docs] Calling MCP to learn docs (sync={}): {}",
+        sync, url
+    );
+
+    let client = Client::new();
+    let mut req = client.post(&url).timeout(Duration::from_secs(300));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.header("x-api-token", token);
+    }
+    match req.send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                println!("[mcp_docs] MCP docs call succeeded");
+            } else {
+                println!(
+                    "[mcp_docs] MCP docs call returned status: {}",
+                    resp.status()
+                );
+            }
+        }
+        Err(e) => {
+            println!("[mcp_docs] MCP docs call failed (non-fatal): {}", e);
         }
     }
 }

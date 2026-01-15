@@ -300,7 +300,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let repos = Repos(repos_vec);
+    let repos = Repos(repos_vec, None);
     let graph = repos.build_graphs_array().await?;
 
     for file_path in &files_to_print {

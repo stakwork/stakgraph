@@ -1,3 +1,4 @@
+use crate::lang::graphs::EdgeType;
 use crate::lang::{Graph, NodeType};
 use crate::repo::Repo;
 use crate::workspace::detect_workspaces;
@@ -119,6 +120,39 @@ fn test_monorepo_simple_ts_structure() {
         base.join("backend/package.json").exists(),
         "Missing backend"
     );
+}
+
+#[test]
+fn test_monorepo_rust_root_files() {
+    let base = Path::new(MONOREPO_TEST_DIR).join("monorepo_rust");
+    assert!(base.join("CLAUDE.md").exists(), "Missing CLAUDE.md");
+    assert!(base.join(".cursorrules").exists(), "Missing .cursorrules");
+    assert!(base.join("README.md").exists(), "Missing README.md");
+    assert!(base.join("Dockerfile").exists(), "Missing Dockerfile");
+    assert!(base.join(".gitignore").exists(), "Missing .gitignore");
+}
+
+#[test]
+fn test_monorepo_npm_go_root_files() {
+    let base = Path::new(MONOREPO_TEST_DIR).join("monorepo_npm_go");
+    assert!(base.join("README.md").exists(), "Missing README.md");
+    assert!(
+        base.join(".windsurfrules").exists(),
+        "Missing .windsurfrules"
+    );
+    assert!(base.join("Dockerfile").exists(), "Missing Dockerfile");
+    assert!(
+        base.join("docker-compose.yml").exists(),
+        "Missing docker-compose.yml"
+    );
+}
+
+#[test]
+fn test_monorepo_turbo_ts_root_files() {
+    let base = Path::new(MONOREPO_TEST_DIR).join("monorepo_turbo_ts");
+    assert!(base.join("AGENTS.md").exists(), "Missing AGENTS.md");
+    assert!(base.join("README.md").exists(), "Missing README.md");
+    assert!(base.join("Dockerfile").exists(), "Missing Dockerfile");
 }
 
 // Detection Tests
@@ -261,7 +295,7 @@ async fn check_monorepo_graph<G: Graph + 'static>(
 
 #[tokio::test]
 async fn test_monorepo_graph_construction() -> Result<()> {
-    // 1. Mixed Go/Angular (NX)
+    // 1. Mixed Go/Angular (NX) - unique languages: Go, Typescript, Angular
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_nx_mixed",
         &["Go", "Typescript", "Angular"],
@@ -269,7 +303,7 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 2. Mixed Go/React (NPM)
+    // 2. Mixed Go/React (NPM) - unique languages: Go, React
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_npm_go",
         &["Go", "React"],
@@ -277,7 +311,7 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 3. Rust Workspace
+    // 3. Rust Workspace - 2 packages: api, shared (root doesn't add extra Language)
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_rust",
         &["Rust", "Rust"],
@@ -285,7 +319,7 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 4. NPM + Go
+    // 4. NPM + Go (duplicate of #2, keeping for coverage)
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_npm_go",
         &["Go", "React"],
@@ -293,7 +327,7 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 5. Turbo (TS + React)
+    // 5. Turbo (TS + React) - 3 packages with Languages
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_turbo_ts",
         &["Typescript", "React", "React"],
@@ -305,7 +339,7 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 6. Python + Rust
+    // 6. Python + Rust - 3 packages with Languages
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_python_rust",
         &["Python", "Rust", "Python"],
@@ -317,7 +351,7 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 7. Simple TS
+    // 7. Simple TS - unique languages: React, Typescript
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_simple_ts",
         &["React", "Typescript"],
@@ -385,6 +419,104 @@ async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
         &["frontend/package.json", "backend/package.json"],
     )
     .await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_monorepo_root_files_in_graph() -> Result<()> {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_rust");
+    let abs_root = std::env::current_dir()?.join(&root).canonicalize()?;
+    let abs_root_str = abs_root.to_str().unwrap();
+
+    let repos = Repo::new_multi_detect(
+        root.to_str().unwrap(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        Some(false),
+    )
+    .await?;
+
+    let graph = repos
+        .build_graphs_inner::<crate::lang::BTreeMapGraph>()
+        .await?;
+
+    let all_files = graph.find_nodes_by_type(NodeType::File);
+    let root_str = root.to_str().unwrap();
+    let files: Vec<_> = all_files
+        .into_iter()
+        .filter(|n| n.file.starts_with(abs_root_str) || n.file.starts_with(root_str))
+        .collect();
+    assert!(
+        files.iter().any(|f| f.file.ends_with("CLAUDE.md")),
+        "Missing CLAUDE.md in graph"
+    );
+    assert!(
+        files.iter().any(|f| f.file.ends_with(".cursorrules")),
+        "Missing .cursorrules in graph"
+    );
+    assert!(
+        files.iter().any(|f| f.file.ends_with("Dockerfile")),
+        "Missing Dockerfile in graph"
+    );
+    assert!(
+        files.iter().any(|f| f.file.ends_with("README.md")),
+        "Missing README.md in graph"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_monorepo_repository_hierarchy() -> Result<()> {
+    let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_rust");
+    let abs_root = std::env::current_dir()?.join(&root).canonicalize()?;
+    let abs_root_str = abs_root.to_str().unwrap();
+
+    let repos = Repo::new_multi_detect(
+        root.to_str().unwrap(),
+        None,
+        Vec::new(),
+        Vec::new(),
+        Some(false),
+    )
+    .await?;
+
+    let graph = repos
+        .build_graphs_inner::<crate::lang::BTreeMapGraph>()
+        .await?;
+
+    let all_repos = graph.find_nodes_by_type(NodeType::Repository);
+    let root_str = root.to_str().unwrap();
+    let repo_nodes: Vec<_> = all_repos
+        .into_iter()
+        .filter(|n| n.file.starts_with(abs_root_str) || n.file.starts_with(root_str))
+        .collect();
+
+    assert_eq!(
+        repo_nodes.len(),
+        3,
+        "Should have root + 2 packages = 3 repositories, got {}",
+        repo_nodes.len()
+    );
+
+    let edges = graph.get_edges_vec();
+    let repo_to_repo_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.edge == EdgeType::Contains
+                && e.source.node_type == NodeType::Repository
+                && e.target.node_type == NodeType::Repository
+        })
+        .collect();
+
+    assert_eq!(
+        repo_to_repo_edges.len(),
+        2,
+        "Should have exactly 2 Repository->Repository CONTAINS edges (root->api, root->shared), got {}",
+        repo_to_repo_edges.len()
+    );
 
     Ok(())
 }

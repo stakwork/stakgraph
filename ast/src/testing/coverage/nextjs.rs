@@ -25,7 +25,7 @@ async fn setup_nextjs_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps
             )
             .unwrap();
 
-            let repos = Repos(vec![repo]);
+            let repos = Repos(vec![repo], None);
             let btree_graph = repos
                 .build_graphs_btree()
                 .await
@@ -65,7 +65,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     .unwrap();
     // ... rest of test ...
 
-    let repos = Repos(vec![repo]);
+    let repos = Repos(vec![repo], None);
     let btree_graph = repos.build_graphs_btree().await?;
 
     btree_graph.analysis();
@@ -105,7 +105,7 @@ async fn test_btreemap_indirect_test_metadata() -> Result<()> {
     )
     .unwrap();
 
-    let repos = Repos(vec![repo]);
+    let repos = Repos(vec![repo], None);
     let btree_graph = repos.build_graphs_btree().await?;
     btree_graph.analysis();
 
@@ -160,7 +160,7 @@ async fn test_btreemap_tested_endpoints() -> Result<()> {
     )
     .unwrap();
 
-    let repos = Repos(vec![repo]);
+    let repos = Repos(vec![repo], None);
     let btree_graph = repos.build_graphs_btree().await?;
     btree_graph.analysis();
 

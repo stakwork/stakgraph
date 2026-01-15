@@ -1,7 +1,8 @@
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
-use crate::lang::graphs::Graph;
+use crate::lang::asg::NodeData;
+use crate::lang::graphs::{Graph, NodeType};
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
@@ -56,7 +57,7 @@ pub struct Repo {
     pub skip_calls: bool,
 }
 
-pub struct Repos(pub Vec<Repo>);
+pub struct Repos(pub Vec<Repo>, pub Option<PathBuf>);
 
 impl Repos {
     pub async fn set_status_tx(&mut self, status_tx: Sender<StatusUpdate>) {
@@ -119,6 +120,19 @@ impl Repos {
             }
         }
 
+        if let Some(workspace_root) = &self.1 {
+            let new_nodes = self.add_workspace_root_to_graph(&mut graph, workspace_root)?;
+            #[cfg(feature = "neo4j")]
+            if let Some((neo, uploader)) = &mut streaming_ctx {
+                if !new_nodes.is_empty() {
+                    let bolt_nodes = nodes_to_bolt_format(new_nodes);
+                    let _ = uploader
+                        .flush_stage(neo, "workspace_root", &bolt_nodes)
+                        .await;
+                }
+            }
+        }
+
         if let Some(first_repo) = &self.0.first() {
             first_repo.send_status_update("linking_graphs", 14);
         }
@@ -145,6 +159,115 @@ impl Repos {
         println!("Final Graph: {} nodes and {} edges", nodes_size, edges_size);
 
         Ok(graph)
+    }
+
+    fn add_workspace_root_to_graph<G: Graph>(
+        &self,
+        graph: &mut G,
+        workspace_root: &PathBuf,
+    ) -> Result<Vec<(NodeType, NodeData)>> {
+        use crate::lang::graphs::Edge;
+        use std::fs;
+
+        let mut new_nodes: Vec<(NodeType, NodeData)> = Vec::new();
+
+        // Use strip_tmp to match how other Repository nodes store their file paths
+        let root_path = strip_tmp(workspace_root).display().to_string();
+
+        let root_name = workspace_root
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "workspace".to_string());
+        let mut root_data = NodeData::in_file(&root_path);
+        root_data.name = root_name;
+        graph.add_node(NodeType::Repository, root_data.clone());
+        new_nodes.push((NodeType::Repository, root_data.clone()));
+
+        // Detect and add Language node if root has a language
+        if let Some(lang) = self.detect_root_language(workspace_root) {
+            let mut lang_data = NodeData::in_file(&root_path);
+            lang_data.name = lang.to_string();
+            graph.add_node_with_parent(NodeType::Language, lang_data.clone(), NodeType::Repository, &root_path);
+            new_nodes.push((NodeType::Language, lang_data));
+        }
+
+        // Add root-level files (non-recursive)
+        if let Ok(entries) = fs::read_dir(workspace_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let file_path = strip_tmp(&path).display().to_string();
+                    let file_name = path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    let mut file_data = NodeData::in_file(&file_path);
+                    file_data.name = file_name;
+                    graph.add_node_with_parent(
+                        NodeType::File,
+                        file_data.clone(),
+                        NodeType::Repository,
+                        &root_path,
+                    );
+                    new_nodes.push((NodeType::File, file_data));
+                }
+            }
+        }
+
+        let all_repos = graph.find_nodes_by_type(NodeType::Repository);
+        
+        for repo in &self.0 {
+            let repo_path = strip_tmp(&repo.root).display().to_string();
+            if let Some(pkg_data) = all_repos.iter().find(|r| r.file == repo_path) {
+                let edge = Edge::contains(
+                    NodeType::Repository,
+                    &root_data,
+                    NodeType::Repository,
+                    pkg_data,
+                );
+                graph.add_edge(edge);
+            }
+        }
+
+        Ok(new_nodes)
+    }
+
+    fn detect_root_language(&self, dir: &PathBuf) -> Option<Language> {
+        if dir.join("Cargo.toml").exists() {
+            return Some(Language::Rust);
+        }
+        if dir.join("go.mod").exists() {
+            return Some(Language::Go);
+        }
+        if dir.join("package.json").exists() {
+            if dir.join("next.config.js").exists() || dir.join("next.config.mjs").exists() {
+                return Some(Language::React);
+            }
+            if dir.join("angular.json").exists() {
+                return Some(Language::Angular);
+            }
+            return Some(Language::Typescript);
+        }
+        if dir.join("requirements.txt").exists()
+            || dir.join("setup.py").exists()
+            || dir.join("pyproject.toml").exists()
+        {
+            return Some(Language::Python);
+        }
+        if dir.join("Gemfile").exists() {
+            return Some(Language::Ruby);
+        }
+        if dir.join("composer.json").exists() {
+            return Some(Language::Php);
+        }
+        if dir.join("pom.xml").exists() {
+            return Some(Language::Java);
+        }
+        if dir.join("build.gradle").exists() || dir.join("build.gradle.kts").exists() {
+            return Some(Language::Kotlin);
+        }
+        None
     }
 }
 
@@ -251,7 +374,7 @@ impl Repo {
             .await?;
             repos.extend(detected.0);
         }
-        Ok(Repos(repos))
+        Ok(Repos(repos, None))
     }
     pub async fn new_multi_detect(
         root: &str,
@@ -288,7 +411,7 @@ impl Repo {
                     skip_calls: false,
                 });
             }
-            return Ok(Repos(repos));
+            return Ok(Repos(repos, Some(root.into())));
         }
 
         // First, collect all detected languages
@@ -371,7 +494,7 @@ impl Repo {
             });
         }
         println!("REPOS!!! {:?}", repos);
-        Ok(Repos(repos))
+        Ok(Repos(repos, None))
     }
     pub async fn new_clone_to_tmp(
         url: &str,
