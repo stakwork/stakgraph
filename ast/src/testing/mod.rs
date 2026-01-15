@@ -12,6 +12,8 @@ pub mod go;
 pub mod graphs;
 pub mod java;
 pub mod kotlin;
+#[cfg(test)]
+pub mod monorepo;
 pub mod nextjs;
 pub mod php;
 pub mod python;

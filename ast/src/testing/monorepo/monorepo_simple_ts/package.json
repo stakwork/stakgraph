@@ -1,0 +1,7 @@
+{
+  "name": "monorepo-simple-ts",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

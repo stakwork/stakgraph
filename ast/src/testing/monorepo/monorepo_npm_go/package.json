@@ -1,0 +1,7 @@
+{
+  "name": "monorepo-npm-go",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ]
+}

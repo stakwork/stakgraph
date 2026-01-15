@@ -1,0 +1,7 @@
+{
+  "name": "monorepo-turbo-python",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ]
+}

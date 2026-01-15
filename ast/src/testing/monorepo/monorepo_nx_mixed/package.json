@@ -1,0 +1,8 @@
+{
+  "name": "monorepo-nx-mixed",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "libs/*"
+  ]
+}

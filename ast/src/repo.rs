@@ -260,6 +260,37 @@ impl Repo {
         revs: Vec<String>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
+        if let Some(packages) = crate::workspace::detect_workspaces(Path::new(root))? {
+            let mut repos: Vec<Repo> = Vec::new();
+            for pkg in packages {
+                let thelang = Lang::from_language(pkg.language);
+                let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
+
+                // Run post-clone commands on the package root
+                for cmd in thelang.kind.post_clone_cmd(lsp_enabled) {
+                    Self::run_cmd(cmd, pkg.path.to_str().unwrap()).map_err(|e| {
+                        Error::Custom(format!("Failed to cmd {} in {:?}: {}", cmd, pkg.path, e))
+                    })?;
+                }
+
+                let lsp_tx = Self::start_lsp(pkg.path.to_str().unwrap(), &thelang, lsp_enabled)
+                    .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
+
+                repos.push(Repo {
+                    url: url.clone().unwrap_or_default(),
+                    root: pkg.path,
+                    lang: thelang,
+                    lsp_tx,
+                    files_filter: files_filter.clone(),
+                    revs: revs.clone(),
+                    status_tx: None,
+                    allow_unverified_calls: false,
+                    skip_calls: false,
+                });
+            }
+            return Ok(Repos(repos));
+        }
+
         // First, collect all detected languages
         let mut detected_langs: Vec<Language> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
