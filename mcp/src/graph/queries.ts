@@ -746,6 +746,9 @@ WHERE
   f.file ENDS WITH 'CLAUDE.md' OR
   f.file ENDS WITH 'AGENTS.md' OR
   f.file ENDS WITH '.goosehints'
+  f.file ENDS WITH 'README.md'
+  f.file ENDS WITH 'readme.md'
+  f.file ENDS WITH 'Readme.md'
 RETURN f
 ORDER BY f.file
 `;
