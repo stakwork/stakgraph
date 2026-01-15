@@ -10,6 +10,7 @@ import { fileURLToPath } from "url";
 import cors from "cors";
 import { App as SageApp } from "./sage/src/app.js";
 import dotenv from "dotenv";
+import { learn_docs_agent, get_docs } from "./repo/docs.js";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
@@ -102,6 +103,8 @@ app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/reattach", r.reconnect_orphaned_hints);
 app.post("/pull_request", r.create_pull_request);
 app.post("/learning", r.create_learning);
+app.post("/learn_docs", learn_docs_agent);
+app.get("/docs", get_docs);
 
 // Gitree routes
 app.post("/gitree/process", gitree.gitree_process);

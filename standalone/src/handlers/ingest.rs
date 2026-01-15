@@ -1,24 +1,18 @@
+use axum::{extract::State, response::IntoResponse, Json};
+use chrono::Utc;
 use lsp::git::validate_git_credentials;
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    Json,
-};
+use reqwest::Client;
 use std::sync::Arc;
 use tracing::info;
-use chrono::Utc;
-use reqwest::Client;
 
-
-use crate::webhook::{validate_callback_url_async, send_with_retries};
-use crate::utils::{resolve_repo, call_mcp_mocks};
 use crate::types::{
-    AppState, ProcessBody, ProcessResponse,
-    AsyncRequestStatus, AsyncStatus, WebhookPayload, WebError,
+    AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebError,
+    WebhookPayload,
 };
+use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo};
+use crate::webhook::{send_with_retries, validate_callback_url_async};
 
 use crate::service::graph_service::{ingest, sync};
-
 
 #[axum::debug_handler]
 pub async fn sync_async(
@@ -160,10 +154,11 @@ pub async fn sync_async(
                     }),
                 };
                 map.insert(request_id_for_work.clone(), entry);
-                
+
                 // Call mocks discovery in sync mode after process completes
                 call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
-                
+                call_mcp_docs(&repo_url, true).await;
+
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {
                         let payload = WebhookPayload {
@@ -347,7 +342,7 @@ pub async fn ingest_async(
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
         let _guard = guard;
-        let result  = ingest(State(state_clone.clone()), body_clone).await;
+        let result = ingest(State(state_clone.clone()), body_clone).await;
 
         let mut map = status_map.lock().await;
 
