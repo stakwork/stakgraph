@@ -15,4 +15,5 @@ export interface ContextResult {
   };
   tool_use?: string;
   content: any;
+  logs?: string;
 }
