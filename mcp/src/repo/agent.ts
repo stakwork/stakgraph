@@ -99,6 +99,7 @@ export interface GetContextOptions {
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
   schema?: { [key: string]: any };
+  logs?: boolean;
 }
 
 export async function get_context(
@@ -182,6 +183,7 @@ export async function get_context(
       outputTokens: totalUsage.outputTokens || 0,
       totalTokens: totalUsage.totalTokens || 0,
     },
+    logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
   };
 }
 

@@ -26,6 +26,7 @@ export async function repo_agent(req: Request, res: Response) {
     const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
     const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
     const modelName = req.body.model as ModelName | undefined;
+    const logs = req.body.logs as boolean | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
       return;
@@ -42,6 +43,7 @@ export async function repo_agent(req: Request, res: Response) {
           toolsConfig,
           schema,
           modelName,
+          logs,
         });
       })
       .then((result) => {
@@ -51,6 +53,7 @@ export async function repo_agent(req: Request, res: Response) {
           tool_use: result.tool_use,
           content: result.content,
           usage: result.usage,
+          logs: result.logs,
         });
         setBusy(false);
         console.log("[repo_agent] Background work completed, set busy=false");
