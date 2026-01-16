@@ -596,7 +596,7 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
 
     println!("\nRoot files found:");
     for f in &root_files {
-        println!("  - {} (path: {})", f.name, f.file);
+        println!("  - {} (path: {}, body_len: {})", f.name, f.file, f.body.len());
     }
 
     assert!(
@@ -617,6 +617,22 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
     assert!(
         root_files.iter().any(|f| f.name == ".cursorrules"),
         "Should capture .cursorrules at root level"
+    );
+
+    let claude_file = root_files.iter().find(|f| f.name == "CLAUDE.md").unwrap();
+    assert!(
+        !claude_file.body.is_empty(),
+        "CLAUDE.md should have body content"
+    );
+    
+    let readme_file = root_files.iter().find(|f| f.name == "README.md").unwrap();
+    assert!(
+        !readme_file.body.is_empty(),
+        "README.md should have body content"
+    );
+    assert!(
+        claude_file.hash.is_some(),
+        "CLAUDE.md should have hash set"
     );
 
     let edges = graph.get_edges_vec();

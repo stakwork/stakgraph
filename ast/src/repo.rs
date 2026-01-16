@@ -193,10 +193,16 @@ impl Repos {
 
         // Add root-level files (non-recursive)
         if let Ok(entries) = fs::read_dir(workspace_root) {
+            let skip_file_content = std::env::var("DEV_SKIP_FILE_CONTENT").is_ok();
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
                     let file_path = strip_tmp(&path).display().to_string();
+                    
+                    if !graph.find_nodes_by_name(NodeType::File, &file_path).is_empty() {
+                        continue;
+                    }
+                    
                     let file_name = path
                         .file_name()
                         .map(|s| s.to_string_lossy().to_string())
@@ -204,6 +210,14 @@ impl Repos {
 
                     let mut file_data = NodeData::in_file(&file_path);
                     file_data.name = file_name;
+                    
+                    if !skip_file_content {
+                        if let Ok(content) = fs::read_to_string(&path) {
+                            file_data.body = content;
+                        }
+                    }
+                    file_data.hash = Some(sha256::digest(&file_data.body));
+                    
                     graph.add_node_with_parent(
                         NodeType::File,
                         file_data.clone(),
