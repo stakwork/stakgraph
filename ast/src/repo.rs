@@ -347,6 +347,7 @@ impl Repo {
             revs.len() / urls.len()
         };
         let mut repos: Vec<Repo> = Vec::new();
+        let mut workspace_root: Option<PathBuf> = None;
         for (i, url) in urls.iter().enumerate() {
             let gurl = GitUrl::parse(url).map_err(|e| {
                 Error::Custom(format!("Failed to parse Git URL for {}: {}", url, e))
@@ -373,8 +374,12 @@ impl Repo {
             )
             .await?;
             repos.extend(detected.0);
+            // Preserve workspace root from the first URL that has one
+            if workspace_root.is_none() {
+                workspace_root = detected.1;
+            }
         }
-        Ok(Repos(repos, None))
+        Ok(Repos(repos, workspace_root))
     }
     pub async fn new_multi_detect(
         root: &str,
