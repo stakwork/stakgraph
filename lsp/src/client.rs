@@ -1,4 +1,4 @@
-use crate::{Cmd, Language, Position, Res};
+use crate::{config::LanguageConfig, Cmd, Position, Res};
 
 use async_lsp::concurrency::{Concurrency, ConcurrencyLayer};
 use async_lsp::panic::{CatchUnwind, CatchUnwindLayer};
@@ -17,21 +17,37 @@ use lsp_types::*;
 use shared::{Error, Result};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use tokio::sync::oneshot;
+
 use tower::ServiceBuilder;
 use tracing::{debug, info, trace};
+
+use std::sync::{Arc, Mutex};
+use tokio::sync::watch;
+
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum LspState {
+    Initializing,
+    Ready,
+    ShuttingDown,
+    #[allow(dead_code)]
+    Failed,
+}
 
 pub struct LspClient {
     root: PathBuf,
     relative_root: PathBuf,
     server: ServerSocket,
+    state_rx: watch::Receiver<LspState>,
+    state_tx: Arc<Mutex<watch::Sender<LspState>>>,
+    config: LanguageConfig,
 }
 
 #[derive(Debug)]
 struct Stop;
 
 pub struct ClientState {
-    indexed_tx: Option<oneshot::Sender<()>>,
+    // indexed_tx: Option<oneshot::Sender<()>>, // removed in favor of state watch
+    state_tx: Arc<Mutex<watch::Sender<LspState>>>,
 }
 
 pub type ClientLoop = MainLoop<Tracing<CatchUnwind<Concurrency<Router<ClientState>>>>>;
@@ -40,20 +56,57 @@ impl LspClient {
     pub fn new(
         root_dir_abs: &Path,
         root_dir_rel: &Path,
-        lang: &Language,
-    ) -> (Self, ClientLoop, oneshot::Receiver<()>) {
-        info!("new LspClient: {:?} in {:?}", lang, root_dir_abs);
-        let (tx, rx) = oneshot::channel();
-        let (client, mainloop) = start(tx, root_dir_abs, root_dir_rel, lang);
-        (client, mainloop, rx)
+        config: LanguageConfig,
+    ) -> (Self, ClientLoop) {
+        info!("new LspClient: {} in {:?}", config.name, root_dir_abs);
+        start(root_dir_abs, root_dir_rel, config)
     }
-    pub fn new_from(root: PathBuf, relative_root: PathBuf, server: ServerSocket) -> Self {
+    pub fn new_from(
+        root: PathBuf,
+        relative_root: PathBuf,
+        server: ServerSocket,
+        state_rx: watch::Receiver<LspState>,
+        state_tx: Arc<Mutex<watch::Sender<LspState>>>,
+        config: LanguageConfig,
+    ) -> Self {
         Self {
             root,
             relative_root,
             server,
+            state_rx,
+            state_tx,
+            config,
         }
     }
+    pub async fn wait_for_ready(&mut self) -> Result<()> {
+        let mut rx = self.state_rx.clone();
+        loop {
+            // Check current state first
+            let state = *rx.borrow();
+            match state {
+                LspState::Ready => return Ok(()),
+                LspState::Failed => {
+                    return Err(Error::Custom("LSP initialization failed".to_string()))
+                }
+                LspState::ShuttingDown => {
+                    return Err(Error::Custom("LSP shutting down before ready".to_string()))
+                }
+                LspState::Initializing => {
+                    // Wait for change
+                    if rx.changed().await.is_err() {
+                        return Err(Error::Custom("LSP state channel closed".to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn set_state(&self, state: LspState) {
+        if let Ok(tx) = self.state_tx.lock() {
+            let _ = tx.send(state);
+        }
+    }
+
     fn file_path(&self, mut f: &Path) -> Result<Url> {
         let root_dir = Path::new(&self.root).canonicalize()?;
         if f.starts_with(&self.relative_root) {
@@ -68,7 +121,9 @@ impl LspClient {
         Ok(match cmd {
             Cmd::DidOpen(di) => {
                 let fp = self.file_path(&di.file)?;
-                self.did_open(&fp, &di.text, &di.lang.to_string()).await?;
+                // we use config name or just pass it through, DiOpen still has lang
+                self.did_open(&fp, &di.text, &self.config.name.to_lowercase())
+                    .await?;
                 Res::Opened(fp.to_string())
             }
             Cmd::GotoDefinition(pos) => {
@@ -209,15 +264,21 @@ pub(crate) fn strip_root(f: &Path, root: &Path) -> PathBuf {
 }
 
 fn start(
-    indexed_tx: oneshot::Sender<()>,
     root_dir_abs: &Path,
     root_dir_rel: &Path,
-    lang: &Language,
+    config: LanguageConfig,
 ) -> (LspClient, ClientLoop) {
-    info!("starting LSP client for {:?}", lang);
-    let (mainloop, server) = async_lsp::MainLoop::new_client(|_server| {
+    info!("starting LSP client for {}", config.name);
+
+    let (state_tx, state_rx) = watch::channel(LspState::Initializing);
+    let state_tx_arc = Arc::new(Mutex::new(state_tx));
+    let state_tx_for_router = state_tx_arc.clone();
+
+    let config_clone = config.clone();
+
+    let (mainloop, server) = async_lsp::MainLoop::new_client(move |_server| {
         let mut router = Router::new(ClientState {
-            indexed_tx: Some(indexed_tx),
+            state_tx: state_tx_for_router,
         });
         // https://github.com/golang/vscode-go/issues/1153
 
@@ -228,20 +289,22 @@ fn start(
                 ControlFlow::Continue(())
             })
             .notification::<ShowMessage>(|_, params| {
+                println!("ShowMessage::: {:?}: {}", params.typ, params.message);
                 debug!("ShowMessage::: {:?}: {}", params.typ, params.message);
                 ControlFlow::Continue(())
             })
-            .notification::<LogMessage>(|this, params| {
+            .notification::<LogMessage>(|_this, params| {
+                println!("LogMessage::: {:?}: {}", params.typ, params.message);
                 debug!("LogMessage::: {:?}: {}", params.typ, params.message);
-                if let Some(tx) = this.indexed_tx.take() {
-                    let _ = tx.send(());
-                }
                 ControlFlow::Continue(())
             })
             .unhandled_notification(|_, _| ControlFlow::Continue(()))
             .unhandled_event(|_, _| ControlFlow::Continue(()))
-            .event(|_, ev| {
+            .event(|this, ev| {
                 if matches!(ev, Stop) {
+                    if let Ok(tx) = this.state_tx.lock() {
+                        let _ = tx.send(LspState::ShuttingDown);
+                    }
                     ControlFlow::Break(Ok(()))
                 } else {
                     debug!("event: {:?}", ev);
@@ -249,32 +312,28 @@ fn start(
                 }
             });
         router.request::<WorkDoneProgressCreate, _>(|_, _| async { Ok(()) });
-        match lang {
-            Language::Rust => {
-                router.notification::<Progress>(|this, prog| {
-                    println!("Progress: {:?}", prog);
-                    info!("{:?} {:?}", prog.token, prog.value);
 
-                    if matches!(prog.token, NumberOrString::String(s) if s == "rustAnalyzer/Indexing") {
-                        let ProgressParamsValue::WorkDone(wd) = prog.value;
-                        if let WorkDoneProgress::Report(report) = wd {
-                            let per = report.percentage.unwrap_or(0);
-                            if let Some(msg) = report.message {
-                                println!("=> {msg} ({per}%)");
-                            }
-                            if per == 100 {
-                                if let Some(tx) = this.indexed_tx.take() {
-                                    let _ = tx.send(());
-                                }
+        if config_clone.name == "Rust" {
+            router.notification::<Progress>(|this, prog| {
+                println!("Progress: {:?}", prog);
+                info!("{:?} {:?}", prog.token, prog.value);
+
+                if matches!(prog.token, NumberOrString::String(s) if s == "rustAnalyzer/Indexing") {
+                    let ProgressParamsValue::WorkDone(wd) = prog.value;
+                    if let WorkDoneProgress::Report(report) = wd {
+                        let per = report.percentage.unwrap_or(0);
+                        if let Some(msg) = report.message {
+                            println!("=> {msg} ({per}%)");
+                        }
+                        if per == 100 {
+                            if let Ok(tx) = this.state_tx.lock() {
+                                let _ = tx.send(LspState::Ready);
                             }
                         }
                     }
-                    ControlFlow::Continue(())
-                });
-            }
-            _ => {
-                //
-            }
+                }
+                ControlFlow::Continue(())
+            });
         }
 
         ServiceBuilder::new()
@@ -288,6 +347,9 @@ fn start(
         root_dir_abs.to_path_buf(),
         root_dir_rel.to_path_buf(),
         server,
+        state_rx,
+        state_tx_arc,
+        config,
     );
     (lsp_client, mainloop)
 }

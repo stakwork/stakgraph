@@ -1,15 +1,16 @@
 mod client;
+pub mod config;
 pub mod git;
 pub mod language;
 mod utils;
 
-use client::strip_root;
 pub use client::strip_tmp;
+use client::{strip_root, LspState};
 pub use language::Language;
 pub use utils::*;
 
 use lsp_types::{GotoDefinitionResponse, Hover, Location};
-use shared::{Context, Error, Result};
+use shared::{sync_fn, Context, Error, Result};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::sync::mpsc;
@@ -46,14 +47,6 @@ impl Cmd {
         });
         result
     }
-}
-
-pub fn sync_fn<T, F, Fut>(async_fn: F) -> T
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = T>,
-{
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
 }
 
 #[derive(Debug)]
@@ -169,13 +162,20 @@ pub fn spawn_analyzer(
     lang: &Language,
     cmd_rx: mpsc::Receiver<CmdAndRes>,
 ) -> Result<()> {
-    let lang = lang.clone();
+    spawn_analyzer_config(root_dir, lang.to_config(), cmd_rx)
+}
+
+pub fn spawn_analyzer_config(
+    root_dir: &PathBuf,
+    config: config::LanguageConfig,
+    cmd_rx: mpsc::Receiver<CmdAndRes>,
+) -> Result<()> {
     let root_dir_absolute = Path::new(root_dir).canonicalize()?;
     let root_dir_relative = strip_tmp(root_dir);
-    println!("spawning analyzer for {:?} at {:?}", lang, root_dir);
+    println!("spawning analyzer for {} at {:?}", config.name, root_dir);
 
     let _task = tokio::spawn(async move {
-        if let Err(e) = spawn_inner(&lang, &root_dir_absolute, &root_dir_relative, cmd_rx).await {
+        if let Err(e) = spawn_inner(&root_dir_absolute, &root_dir_relative, config, cmd_rx).await {
             error!("spawn LSP error: {:?}, {:?}", e, &root_dir_relative);
         }
     });
@@ -186,12 +186,12 @@ pub fn spawn_analyzer(
 }
 
 async fn spawn_inner(
-    lang: &Language,
     root_dir_abs: &PathBuf,
     root_dir_rel: &Path,
+    config: config::LanguageConfig,
     mut cmd_rx: CmdReceiver,
 ) -> Result<()> {
-    let executable = lang.lsp_exec();
+    let executable = config.lsp_executable.clone();
     info!("child process starting: {}", executable);
     let mut child_config = async_process::Command::new(executable);
     child_config
@@ -200,7 +200,7 @@ async fn spawn_inner(
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true);
-    for a in lang.lsp_args() {
+    for a in config.lsp_args.iter() {
         child_config.arg(a);
     }
     let child = child_config
@@ -210,25 +210,27 @@ async fn spawn_inner(
     let stdout = child.stdout.context("no stdout")?;
     let stdin = child.stdin.context("no stdin")?;
 
-    info!("start {:?} LSP client", lang);
-    let (mut conn, mainloop, indexed_rx) = client::LspClient::new(root_dir_abs, root_dir_rel, lang);
+    info!("start {} LSP client", config.name);
+    let (mut conn, mainloop) = client::LspClient::new(root_dir_abs, root_dir_rel, config.clone());
 
     let mainloop_task = tokio::spawn(async move {
         mainloop.run_buffered(stdout, stdin).await.unwrap();
     });
 
-    info!("initializing {:?}...", lang);
+    info!("initializing {}...", config.name);
     let init_ret = conn.init().await?;
     info!("Initialized: {:?}", init_ret.server_info);
 
     // conn.did_open(&mainrs, &main_text).await?;
 
-    info!("waiting.... {:?}", lang);
-    sleep(500).await;
-    indexed_rx
-        .await
-        .map_err(|e| Error::Custom(format!("bad indexed rx {:?}", e)))?;
-    info!("indexed!!! {:?}", lang);
+    if config.name != "Rust" {
+        sleep(5000).await;
+        conn.set_state(LspState::Ready);
+    }
+
+    info!("waiting for ready state... {}", config.name);
+    conn.wait_for_ready().await?;
+    info!("LSP Ready! {}", config.name);
 
     while let Some((cmd, res_tx)) = cmd_rx.recv().await {
         // debug!("got cmd: {:?}", cmd);
@@ -254,7 +256,7 @@ async fn spawn_inner(
         error!("error in lsp mainloop: {:?}", e);
     }
 
-    info!("{:?} LSP client stopped!", lang);
+    info!("{} LSP client stopped!", config.name);
     Ok(())
 }
 

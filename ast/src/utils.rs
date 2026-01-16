@@ -219,10 +219,4 @@ pub fn print_json_vec<T: Serialize>(data: &Vec<T>, name: &str) -> Result<()> {
     }
     Ok(())
 }
-pub fn sync_fn<T, F, Fut>(async_fn: F) -> T
-where
-    F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = T>,
-{
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
-}
+pub use shared::sync_fn;

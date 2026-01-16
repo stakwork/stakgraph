@@ -1,3 +1,4 @@
+use crate::config::LanguageConfig;
 use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::{fmt::Display, str::FromStr};
@@ -37,7 +38,210 @@ pub const PROGRAMMING_LANGUAGES: [Language; 13] = [
     Language::Php,
 ];
 
+struct LanguageDefinition {
+    language: Language,
+    name: &'static str,
+    exts: &'static [&'static str],
+    pkg_files: &'static [&'static str],
+    skip_dirs: &'static [&'static str],
+    skip_file_ends: &'static [&'static str],
+    lsp_exec: &'static str,
+    lsp_args: &'static [&'static str],
+    post_clone: &'static [&'static str],
+    test_id_regex: Option<&'static str>,
+}
+
+const DEFINITIONS: &[LanguageDefinition] = &[
+    LanguageDefinition {
+        language: Language::Rust,
+        name: "rust",
+        exts: &["rs"],
+        pkg_files: &["Cargo.toml"],
+        skip_dirs: &["target", ".git"],
+        skip_file_ends: &[],
+        lsp_exec: "rust-analyzer",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Go,
+        name: "go",
+        exts: &["go"],
+        pkg_files: &["go.mod"],
+        skip_dirs: &["vendor", ".git"],
+        skip_file_ends: &[],
+        lsp_exec: "gopls",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Typescript,
+        name: "typescript",
+        exts: &["ts", "js"],
+        pkg_files: &["package.json"],
+        skip_dirs: &["node_modules", ".git"],
+        skip_file_ends: &[".min.js"],
+        lsp_exec: "typescript-language-server",
+        lsp_args: &["--stdio"],
+        post_clone: &["npm install --force"],
+        test_id_regex: Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#),
+    },
+    LanguageDefinition {
+        language: Language::React,
+        name: "react",
+        exts: &["jsx", "tsx", "mdx", "ts", "js", "html", "css"],
+        pkg_files: &["package.json"],
+        skip_dirs: &["node_modules", ".git"],
+        skip_file_ends: &[".min.js"],
+        lsp_exec: "typescript-language-server",
+        lsp_args: &["--stdio"],
+        post_clone: &["npm install --force"],
+        test_id_regex: Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#),
+    },
+    LanguageDefinition {
+        language: Language::Python,
+        name: "python",
+        exts: &["py", "ipynb"],
+        pkg_files: &["requirements.txt"],
+        skip_dirs: &["__pycache__", ".git", ".venv", "venv"],
+        skip_file_ends: &[],
+        lsp_exec: "pylsp",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: Some("get_by_test_id"),
+    },
+    LanguageDefinition {
+        language: Language::Ruby,
+        name: "ruby",
+        exts: &["rb"],
+        pkg_files: &["Gemfile"],
+        skip_dirs: &["migrate", "tmp", ".git"],
+        skip_file_ends: &[],
+        lsp_exec: "ruby-lsp",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: Some(r#"get_by_test_id\(['"]([^'"]+)['"]\)"#),
+    },
+    LanguageDefinition {
+        language: Language::Kotlin,
+        name: "kotlin",
+        exts: &["kt", "kts", "java"],
+        pkg_files: &[".gradle.kts", ".gradle", ".properties"],
+        skip_dirs: &["build", ".git"],
+        skip_file_ends: &["gradlew"],
+        lsp_exec: "kotlin-language-server",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Swift,
+        name: "swift",
+        exts: &["swift", "plist"],
+        pkg_files: &["Podfile", "Cartfile"],
+        skip_dirs: &[".git", "Pods"],
+        skip_file_ends: &[],
+        lsp_exec: "sourcekit-lsp",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Java,
+        name: "java",
+        exts: &["java", "gradle", "gradlew"],
+        pkg_files: &["pom.xml"],
+        skip_dirs: &[".idea", "build", ".git"],
+        skip_file_ends: &[],
+        lsp_exec: "jdtls",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Bash,
+        name: "bash",
+        exts: &["sh"],
+        pkg_files: &[],
+        skip_dirs: &[".git"],
+        skip_file_ends: &[],
+        lsp_exec: "",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Toml,
+        name: "toml",
+        exts: &["toml"],
+        pkg_files: &[],
+        skip_dirs: &[".git"],
+        skip_file_ends: &[],
+        lsp_exec: "",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Svelte,
+        name: "svelte",
+        exts: &["svelte", "ts", "js", "html", "css"],
+        pkg_files: &["package.json"],
+        skip_dirs: &[".git", " node_modules"],
+        skip_file_ends: &[".config.ts", ".config.ts"],
+        lsp_exec: "svelte-language-server",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Angular,
+        name: "angular",
+        exts: &["ts", "js", "html", "css"],
+        pkg_files: &["package.json"],
+        skip_dirs: &[".git", " node_modules"],
+        skip_file_ends: &["spec.ts"],
+        lsp_exec: "angular-language-server",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Cpp,
+        name: "cpp",
+        exts: &["cpp", "h"],
+        pkg_files: &["CMakeLists.txt"],
+        skip_dirs: &[".git", "build", "out", "CMakeFiles"],
+        skip_file_ends: &[],
+        lsp_exec: "",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+    LanguageDefinition {
+        language: Language::Php,
+        name: "php",
+        exts: &["php"],
+        pkg_files: &["composer.json"],
+        skip_dirs: &[".git", "vendor"],
+        skip_file_ends: &[],
+        lsp_exec: "",
+        lsp_args: &[],
+        post_clone: &[],
+        test_id_regex: None,
+    },
+];
+
 impl Language {
+    fn def(&self) -> &'static LanguageDefinition {
+        DEFINITIONS
+            .iter()
+            .find(|d| d.language == *self)
+            .expect("Language definition not found")
+    }
+
     pub fn is_frontend(&self) -> bool {
         matches!(
             self,
@@ -45,171 +249,69 @@ impl Language {
         )
     }
     pub fn pkg_files(&self) -> Vec<&'static str> {
-        match self {
-            Self::Rust => vec!["Cargo.toml"],
-            Self::Go => vec!["go.mod"],
-            Self::Typescript | Self::React => vec!["package.json"],
-            Self::Python => vec!["requirements.txt"],
-            Self::Ruby => vec!["Gemfile"],
-            Self::Kotlin => vec![".gradle.kts", ".gradle", ".properties"],
-            Self::Swift => vec!["Podfile", "Cartfile"],
-            Self::Java => vec!["pom.xml"],
-            Self::Bash => vec![],
-            Self::Toml => vec![],
-            Self::Svelte => vec!["package.json"],
-            Self::Angular => vec!["package.json"],
-            Self::Cpp => vec!["CMakeLists.txt"],
-            Self::Php => vec!["composer.json"],
-        }
+        self.def().pkg_files.to_vec()
     }
 
     pub fn exts(&self) -> Vec<&'static str> {
-        match self {
-            Self::Rust => vec!["rs"],
-            Self::Go => vec!["go"],
-            Self::Python => vec!["py", "ipynb"],
-            Self::Ruby => vec!["rb"],
-            Self::Kotlin => vec!["kt", "kts", "java"],
-            Self::Swift => vec!["swift", "plist"],
-            Self::Java => vec!["java", "gradle", "gradlew"],
-            Self::Bash => vec!["sh"],
-            Self::Toml => vec!["toml"],
-            // how to separate ts and js?
-            Self::Typescript => vec!["ts", "js"],
-            Self::React => vec!["jsx", "tsx", "mdx", "ts", "js", "html", "css"],
-            Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
-            Self::Angular => vec!["ts", "js", "html", "css"],
-            Self::Cpp => vec!["cpp", "h"],
-            Self::Php => vec!["php"],
-        }
+        self.def().exts.to_vec()
     }
 
     // React overrides Typescript if detected
     pub fn overrides(&self) -> Vec<Language> {
         match self {
             Self::React => vec![Self::Typescript, Self::Svelte, Self::Angular],
-            Self::Svelte => vec![Self::Typescript],
+            Self::Svelte => vec![Self::Typescript, Self::Angular],
             Self::Angular => vec![Self::Typescript],
             _ => Vec::new(),
         }
     }
 
     pub fn skip_dirs(&self) -> Vec<&'static str> {
-        match self {
-            Self::Rust => vec!["target", ".git"],
-            Self::Go => vec!["vendor", ".git"],
-            Self::Typescript | Self::React => vec!["node_modules", ".git"],
-            Self::Python => vec!["__pycache__", ".git", ".venv", "venv"],
-            Self::Ruby => vec!["migrate", "tmp", ".git"],
-            Self::Kotlin => vec!["build", ".git"],
-            Self::Swift => vec![".git", "Pods"],
-            Self::Java => vec![".idea", "build", ".git"],
-            Self::Bash => vec![".git"],
-            Self::Toml => vec![".git"],
-            Self::Svelte => vec![".git", " node_modules"],
-            Self::Angular => vec![".git", " node_modules"],
-            Self::Cpp => vec![".git", "build", "out", "CMakeFiles"],
-            Self::Php => vec![".git", "vendor"],
-        }
+        self.def().skip_dirs.to_vec()
     }
 
     pub fn skip_file_ends(&self) -> Vec<&'static str> {
-        match self {
-            Self::Typescript | Self::React => vec![".min.js"],
-            Self::Svelte => vec![".config.ts", ".config.ts"],
-            Self::Angular => vec!["spec.ts"],
-            Self::Kotlin => vec!["gradlew"],
-            _ => Vec::new(),
-        }
+        self.def().skip_file_ends.to_vec()
     }
 
     pub fn only_include_files(&self) -> Vec<&'static str> {
-        match self {
-            Self::Rust => Vec::new(),
-            Self::Go => Vec::new(),
-            Self::Typescript | Self::React => Vec::new(),
-            Self::Python => Vec::new(),
-            Self::Ruby => Vec::new(),
-            Self::Kotlin => Vec::new(),
-            Self::Swift => Vec::new(),
-            Self::Java => Vec::new(),
-            Self::Bash => Vec::new(),
-            Self::Toml => Vec::new(),
-            Self::Svelte => Vec::new(),
-            Self::Angular => Vec::new(),
-            Self::Cpp => Vec::new(),
-            Self::Php => Vec::new(),
-        }
+        Vec::new()
     }
 
     pub fn default_do_lsp(&self) -> bool {
         if let Ok(use_lsp) = std::env::var("USE_LSP") {
             if use_lsp == "true" || use_lsp == "1" {
-                matches!(
-                    self,
-                    Self::Rust | Self::Go | Self::Typescript | Self::React | Self::Java
-                );
+                return !self.def().lsp_exec.is_empty();
             }
         }
         false
     }
 
     pub fn lsp_exec(&self) -> String {
-        match self {
-            Self::Rust => "rust-analyzer",
-            Self::Go => "gopls",
-            Self::Typescript | Self::React => "typescript-language-server",
-            Self::Python => "pylsp",
-            Self::Ruby => "ruby-lsp",
-            Self::Kotlin => "kotlin-language-server",
-            Self::Swift => "sourcekit-lsp",
-            Self::Java => "jdtls",
-            Self::Bash => "",
-            Self::Toml => "",
-            Self::Svelte => "svelte-language-server",
-            Self::Angular => "angular-language-server",
-            Self::Cpp => "",
-            Self::Php => "",
-        }
-        .to_string()
+        self.def().lsp_exec.to_string()
     }
 
     pub fn version_arg(&self) -> String {
-        match self {
-            Self::Rust => "--version",
-            Self::Go => "version",
-            Self::Typescript | Self::React => "--version",
-            Self::Python => "--version",
-            Self::Ruby => "--version",
-            Self::Kotlin => "--version",
-            Self::Swift => "--version",
-            Self::Java => "--version",
-            Self::Bash => "",
-            Self::Toml => "",
-            Self::Svelte => "--version",
-            Self::Angular => "--version",
-            Self::Cpp => "--version",
-            Self::Php => "--version",
+        if self.lsp_exec().is_empty() {
+            "".to_string()
+        } else {
+            "--version".to_string()
         }
-        .to_string()
     }
 
     pub fn lsp_args(&self) -> Vec<String> {
-        match self {
-            Self::Rust => Vec::new(),
-            Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["--stdio".to_string()],
-            Self::Python => Vec::new(),
-            Self::Ruby => Vec::new(),
-            Self::Kotlin => Vec::new(),
-            Self::Swift => Vec::new(),
-            Self::Java => Vec::new(),
-            Self::Bash => Vec::new(),
-            Self::Toml => Vec::new(),
-            Self::Svelte => Vec::new(),
-            Self::Angular => Vec::new(),
-            Self::Cpp => Vec::new(),
-            Self::Php => Vec::new(),
+        self.def().lsp_args.iter().map(|s| s.to_string()).collect()
+    }
+
+    pub fn to_config(&self) -> LanguageConfig {
+        let def = self.def();
+        LanguageConfig {
+            name: def.name.to_string(),
+            file_extensions: def.exts.iter().map(|s| s.to_string()).collect(),
+            lsp_executable: def.lsp_exec.to_string(),
+            lsp_args: def.lsp_args.iter().map(|s| s.to_string()).collect(),
+            package_files: def.pkg_files.iter().map(|s| s.to_string()).collect(),
+            root_markers: def.skip_dirs.iter().map(|s| s.to_string()).collect(),
         }
     }
 
@@ -233,33 +335,11 @@ impl Language {
                 return Vec::new();
             }
         }
-        match self {
-            Self::Rust => Vec::new(),
-            Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["npm install --force"],
-            Self::Python => Vec::new(),
-            Self::Ruby => Vec::new(),
-            Self::Kotlin => Vec::new(),
-            Self::Swift => Vec::new(),
-            Self::Java => Vec::new(),
-            Self::Bash => Vec::new(),
-            Self::Toml => Vec::new(),
-            Self::Svelte => Vec::new(),
-            Self::Angular => Vec::new(),
-            Self::Cpp => Vec::new(),
-            Self::Php => Vec::new(),
-        }
+        self.def().post_clone.to_vec()
     }
 
     pub fn test_id_regex(&self) -> Option<&'static str> {
-        match self {
-            Self::Typescript | Self::React => {
-                Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#)
-            }
-            Self::Python => Some("get_by_test_id"),
-            Self::Ruby => Some(r#"get_by_test_id\(['"]([^'"]+)['"]\)"#),
-            _ => None,
-        }
+        self.def().test_id_regex
     }
     pub fn is_package_file(&self, file_name: &str) -> bool {
         self.pkg_files()
