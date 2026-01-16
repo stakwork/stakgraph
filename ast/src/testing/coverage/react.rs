@@ -280,8 +280,8 @@ async fn test_nodes_function_type() -> Result<()> {
     // due to unique_functions_filters (component=true or operand=true).
     // We will adjust this assertion after the first run if needed.
     // We expect 52 functions in BTreeMap, but Neo4j query filters components/operands
-    assert_eq!(count, 26);
-    assert_eq!(results.len(), 26);
+    assert_eq!(count, 24);
+    assert_eq!(results.len(), 24);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);

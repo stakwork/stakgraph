@@ -1,13 +1,8 @@
+pub mod coverage;
 pub mod ingest;
 pub mod query;
-pub mod vector;
-pub mod coverage;
 pub mod status;
+pub mod transitive;
+pub mod vector;
 
-pub use self::{
-    ingest::*,
-    query::*,
-    vector::*,
-    coverage::*,
-    status::*,
-};
+pub use self::{coverage::*, ingest::*, query::*, status::*, transitive::*, vector::*};
