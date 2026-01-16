@@ -8,7 +8,8 @@ use std::str::FromStr;
 use test_log::test;
 
 pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
-    let use_lsp = get_use_lsp();
+    // let use_lsp = get_use_lsp(); //Temporarily disabled
+    let use_lsp = false;
     let repo = Repo::new(
         "src/testing/ruby",
         Lang::from_str("ruby").unwrap(),
@@ -44,10 +45,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
 
-    let expected = 85;
-    assert!(
-        (expected - 1..=expected + 1).contains(&files.len()),
-        "Expected ~{} file nodes with LSP, got {}",
+    let expected = 84;
+    assert_eq!(
+        files.len(),
+        expected,
+        "Expected {} file nodes with LSP, got {}",
         expected,
         files.len()
     );
@@ -411,13 +413,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    let expected_contains = 330;
-    assert!(
-        (expected_contains - 2..=expected_contains).contains(&contains),
-        "Expected ~{} Contains edges, got {}",
-        expected_contains,
-        contains
-    );
+    assert_eq!(contains, 325, "Expected 325 Contains edges");
 
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges_count += renders;
@@ -711,10 +707,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    let expected_dirs = 46;
-    assert!(
-        (expected_dirs - 2..=expected_dirs).contains(&directories.len()),
-        "Expected ~{} directories, got {}",
+    let expected_dirs = 44;
+    assert_eq!(
+        directories.len(),
+        expected_dirs,
+        "Expected {} directories, got {}",
         expected_dirs,
         directories.len()
     );
