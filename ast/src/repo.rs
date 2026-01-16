@@ -3,6 +3,7 @@ pub use crate::builder::progress::StatusUpdate;
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
 use crate::lang::asg::NodeData;
 use crate::lang::graphs::{Graph, NodeType};
+use crate::builder::utils::get_repo_name_from_url;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
@@ -174,10 +175,13 @@ impl Repos {
         // Use strip_tmp to match how other Repository nodes store their file paths
         let root_path = strip_tmp(workspace_root).display().to_string();
 
-        let root_name = workspace_root
+        let folder_name = workspace_root
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "workspace".to_string());
+        let url = self.0.first().map(|r| r.url.as_str()).unwrap_or("");
+        let root_name = get_repo_name_from_url(url, &folder_name);
+
         let mut root_data = NodeData::in_file(&root_path);
         root_data.name = root_name;
         graph.add_node(NodeType::Repository, root_data.clone());
@@ -233,6 +237,10 @@ impl Repos {
         
         for repo in &self.0 {
             let repo_path = strip_tmp(&repo.root).display().to_string();
+            // Skip if this is the workspace root itself (avoid self-loop)
+            if repo_path == root_path {
+                continue;
+            }
             if let Some(pkg_data) = all_repos.iter().find(|r| r.file == repo_path) {
                 let edge = Edge::contains(
                     NodeType::Repository,

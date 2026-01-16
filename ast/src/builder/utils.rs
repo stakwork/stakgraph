@@ -2,6 +2,7 @@ use crate::lang::{asg::NodeData, graphs::NodeType};
 use crate::lang::{Graph, Node};
 use crate::repo::Repo;
 use crate::utils::create_node_key;
+use git_url_parse::GitUrl;
 use lsp::{strip_tmp, Language};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -144,5 +145,18 @@ impl Repo {
             let repo_file = strip_tmp(&self.root).display().to_string();
             (NodeType::Repository, repo_file)
         }
+    }
+}
+
+pub fn get_repo_name_from_url(url: &str, folder_name: &str) -> String {
+    if url.is_empty() {
+        return folder_name.to_string();
+    }
+    match GitUrl::parse(url) {
+        Ok(gurl) => {
+            let org = gurl.owner.unwrap_or_default();
+            format!("{}/{}", org, folder_name)
+        }
+        Err(_) => folder_name.to_string(),
     }
 }
