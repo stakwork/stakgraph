@@ -520,3 +520,142 @@ async fn test_monorepo_repository_hierarchy() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_remote_monorepo_root_detection() -> Result<()> {
+    use crate::repo::Repo;
+
+    let repo_url = "https://github.com/fayekelmith/test-monorepo";
+
+    // Clone and detect workspace
+    let repos = Repo::new_clone_multi_detect(
+        repo_url,
+        None,
+        None,
+        Vec::new(),
+        Vec::new(),
+        None,
+        None,
+        Some(false),
+    )
+    .await?;
+
+    assert!(
+        repos.1.is_some(),
+        "Workspace root should be detected for monorepo"
+    );
+
+    let workspace_root = repos.1.as_ref().unwrap();
+    println!("Workspace root: {:?}", workspace_root);
+
+  
+    assert_eq!(
+        repos.0.len(),
+        4,
+        "Should detect 4 packages (api, web, shared, e2e), got {}",
+        repos.0.len()
+    );
+
+    for repo in &repos.0 {
+        println!("Detected package: {:?} ({})", repo.root, repo.lang);
+    }
+
+    let graph = repos
+        .build_graphs_inner::<crate::lang::BTreeMapGraph>()
+        .await?;
+
+    let all_repos = graph.find_nodes_by_type(NodeType::Repository);
+    println!("\nAll Repository nodes:");
+    for r in &all_repos {
+        println!("  - {} (file: {})", r.name, r.file);
+    }
+
+    assert_eq!(
+        all_repos.len(),
+        5,
+        "Should have 5 Repository nodes (1 root + 4 packages), got {}",
+        all_repos.len()
+    );
+
+    let root_repo = all_repos.iter().find(|r| r.name == "test-monorepo");
+    assert!(
+        root_repo.is_some(),
+        "Should have root Repository node named 'test-monorepo'"
+    );
+
+    let all_files = graph.find_nodes_by_type(NodeType::File);
+    let root_files: Vec<_> = all_files
+        .iter()
+        .filter(|f| {
+            f.file.contains("test-monorepo")
+                && !f.file.contains("packages/")
+                && !f.file.contains("docs/")
+        })
+        .collect();
+
+    println!("\nRoot files found:");
+    for f in &root_files {
+        println!("  - {} (path: {}, body_len: {})", f.name, f.file, f.body.len());
+    }
+
+    assert!(
+        root_files.iter().any(|f| f.name == "CLAUDE.md"),
+        "Should capture CLAUDE.md at root level"
+    );
+
+    assert!(
+        root_files.iter().any(|f| f.name == "README.md"),
+        "Should capture README.md at root level"
+    );
+
+    assert!(
+        root_files.iter().any(|f| f.name == "Dockerfile"),
+        "Should capture Dockerfile at root level"
+    );
+
+    assert!(
+        root_files.iter().any(|f| f.name == ".cursorrules"),
+        "Should capture .cursorrules at root level"
+    );
+
+    let claude_file = root_files.iter().find(|f| f.name == "CLAUDE.md").unwrap();
+    assert!(
+        !claude_file.body.is_empty(),
+        "CLAUDE.md should have body content"
+    );
+    
+    let readme_file = root_files.iter().find(|f| f.name == "README.md").unwrap();
+    assert!(
+        !readme_file.body.is_empty(),
+        "README.md should have body content"
+    );
+    assert!(
+        claude_file.hash.is_some(),
+        "CLAUDE.md should have hash set"
+    );
+
+    let edges = graph.get_edges_vec();
+    let repo_contains_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.edge == EdgeType::Contains
+                && e.source.node_type == NodeType::Repository
+                && e.target.node_type == NodeType::Repository
+        })
+        .collect();
+
+    println!("\nRepository CONTAINS edges:");
+    for e in &repo_contains_edges {
+        println!("  {} -> {}", e.source.node_data.name, e.target.node_data.name);
+    }
+
+    assert_eq!(
+        repo_contains_edges.len(),
+        4,
+        "Should have 4 CONTAINS edges from root to packages, got {}",
+        repo_contains_edges.len()
+    );
+
+    Ok(())
+}

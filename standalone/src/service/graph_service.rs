@@ -173,8 +173,8 @@ pub async fn ingest(
         }
     }
 
-    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), false).await;
     call_mcp_docs(&repo_url, false).await;
+    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), false).await;
 
     Ok(Json(ProcessResponse { nodes, edges }))
 }

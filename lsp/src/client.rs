@@ -186,7 +186,11 @@ impl LspClient {
 }
 
 pub fn strip_tmp(f: &Path) -> PathBuf {
-    if f.starts_with("/tmp/") {
+    // Handle both /tmp/ and /private/tmp/ (macOS symlinks /tmp to /private/tmp)
+    if f.starts_with("/private/tmp/") {
+        let endpart = f.strip_prefix("/private/tmp/").unwrap();
+        endpart.into()
+    } else if f.starts_with("/tmp/") {
         let endpart = f.strip_prefix("/tmp/").unwrap();
         endpart.into()
     } else {

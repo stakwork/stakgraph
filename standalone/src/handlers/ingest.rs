@@ -156,8 +156,8 @@ pub async fn sync_async(
                 map.insert(request_id_for_work.clone(), entry);
 
                 // Call mocks discovery in sync mode after process completes
-                call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
                 call_mcp_docs(&repo_url, true).await;
+                call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
 
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {
