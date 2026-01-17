@@ -181,7 +181,7 @@ fn test_detect_monorepo_npm_go() {
     let packages = detect_workspaces(&root).unwrap().unwrap();
     assert_eq!(packages.len(), 2);
     assert!(packages.iter().any(|p| p.language == Language::Go));
-    assert!(packages.iter().any(|p| p.language == Language::React));
+    assert!(packages.iter().any(|p| p.language == Language::Typescript));
 }
 
 #[test]
@@ -203,7 +203,7 @@ fn test_detect_monorepo_turbo_python() {
     let root = Path::new(MONOREPO_TEST_DIR).join("monorepo_turbo_python");
     let packages = detect_workspaces(&root).unwrap().unwrap();
     assert_eq!(packages.len(), 2);
-    assert!(packages.iter().any(|p| p.language == Language::React));
+    assert!(packages.iter().any(|p| p.language == Language::Typescript));
 }
 
 #[test]
@@ -303,10 +303,10 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 2. Mixed Go/React (NPM) - unique languages: Go, React
+    // 2. Mixed Go/Typescript (NPM) - unique languages: Go, Typescript
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_npm_go",
-        &["Go", "React"],
+        &["Go", "Typescript"],
         &["go.mod", "apps/web/package.json"],
     )
     .await?;
@@ -322,15 +322,15 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     // 4. NPM + Go (duplicate of #2, keeping for coverage)
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_npm_go",
-        &["Go", "React"],
+        &["Go", "Typescript"],
         &["main.go", "apps/web/package.json"],
     )
     .await?;
 
-    // 5. Turbo (TS + React) - 3 packages with Languages
+    // 5. Turbo (TS) - 3 packages with Languages
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_turbo_ts",
-        &["Typescript", "React", "React"],
+        &["Typescript", "Typescript", "Typescript"],
         &[
             "apps/api/package.json",
             "apps/web/package.json",
@@ -351,10 +351,10 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 7. Simple TS - unique languages: React, Typescript
+    // 7. Simple TS - unique languages: Typescript, Typescript
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_simple_ts",
-        &["React", "Typescript"],
+        &["Typescript", "Typescript"],
         &["frontend/package.json", "backend/package.json"],
     )
     .await?;
@@ -384,15 +384,15 @@ async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
     // 4. NPM + Go
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_npm_go",
-        &["Go", "React"],
+        &["Go", "Typescript"],
         &["main.go", "apps/web/package.json"],
     )
     .await?;
 
-    // 5. Turbo (TS + React)
+    // 5. Turbo (TS)
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_turbo_ts",
-        &["Typescript", "React", "React"],
+        &["Typescript", "Typescript", "Typescript"],
         &[
             "apps/api/package.json",
             "apps/web/package.json",
@@ -415,7 +415,7 @@ async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
     // 7. Simple TS
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_simple_ts",
-        &["React", "Typescript"],
+        &["Typescript", "Typescript"],
         &["frontend/package.json", "backend/package.json"],
     )
     .await?;

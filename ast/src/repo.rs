@@ -263,9 +263,6 @@ impl Repos {
             return Some(Language::Go);
         }
         if dir.join("package.json").exists() {
-            if dir.join("next.config.js").exists() || dir.join("next.config.mjs").exists() {
-                return Some(Language::React);
-            }
             if dir.join("angular.json").exists() {
                 return Some(Language::Angular);
             }

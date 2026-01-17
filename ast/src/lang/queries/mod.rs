@@ -10,13 +10,12 @@ pub mod kotlin;
 pub mod php;
 pub mod python;
 mod rails_routes;
-pub mod react;
+pub mod react_ts;
 pub mod ruby;
 pub mod rust;
 pub mod svelte;
 pub mod swift;
 pub mod toml;
-pub mod typescript;
 
 use crate::lang::asg::Operand;
 use crate::lang::graphs::Edge;
@@ -379,8 +378,7 @@ pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {
         LspLanguage::Swift => tree_sitter_swift::LANGUAGE.into(),
         LspLanguage::Rust => tree_sitter_rust::LANGUAGE.into(),
         LspLanguage::Java => tree_sitter_java::LANGUAGE.into(),
-        LspLanguage::Typescript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-        LspLanguage::React => tree_sitter_typescript::LANGUAGE_TSX.into(),
+        LspLanguage::Typescript => tree_sitter_typescript::LANGUAGE_TSX.into(),
         LspLanguage::Svelte => tree_sitter_svelte_ng::LANGUAGE.into(),
         LspLanguage::Angular => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         LspLanguage::Cpp => tree_sitter_cpp::LANGUAGE.into(),
