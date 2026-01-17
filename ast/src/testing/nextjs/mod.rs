@@ -33,8 +33,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
-        language_nodes[0].name, "react",
-        "Language node name should be 'tsx'"
+        language_nodes[0].name, "typescript",
+        "Language node name should be 'typescript'"
     );
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);

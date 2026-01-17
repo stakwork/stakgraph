@@ -856,7 +856,7 @@ impl Lang {
             }
         }
 
-        if matches!(self.kind, Language::React) {
+        if matches!(self.kind, Language::Typescript) && file.ends_with(".tsx") {
             let titled_name = !func.name.is_empty()
                 && func
                     .name

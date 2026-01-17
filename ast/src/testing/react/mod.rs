@@ -32,8 +32,8 @@ pub async fn test_react_typescript_generic<G: Graph>() -> Result<()> {
     nodes_count += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
-        language_nodes[0].name, "react",
-        "Language node name should be 'react'"
+        language_nodes[0].name, "typescript",
+        "Language node name should be 'typescript'"
     );
     assert_eq!(
         normalize_path(&language_nodes[0].file),

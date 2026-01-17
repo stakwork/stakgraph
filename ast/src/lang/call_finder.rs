@@ -203,9 +203,9 @@ fn find_only_one_function_file<G: Graph>(
 ) -> Option<NodeData> {
     use lsp::Language;
 
-    // For strict languages (TypeScript/React), skip the "find only one" heuristic
+    // For strict languages (TypeScript), skip the "find only one" heuristic
     // when an operand exists to avoid false positives with method calls
-    if operand.is_some() && matches!(lang.kind, Language::Typescript | Language::React) {
+    if operand.is_some() && matches!(lang.kind, Language::Typescript) {
         return None;
     }
     let mut target_files_starts = Vec::new();

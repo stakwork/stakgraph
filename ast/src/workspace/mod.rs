@@ -103,7 +103,7 @@ fn is_actual_package(dir: &Path, lang: &Language) -> bool {
         Language::Rust => std::fs::read_to_string(dir.join("Cargo.toml"))
             .map(|c| c.contains("[package]"))
             .unwrap_or(false),
-        Language::Typescript | Language::React | Language::Angular | Language::Svelte => {
+        Language::Typescript | Language::Angular | Language::Svelte => {
             let has_workspaces = std::fs::read_to_string(dir.join("package.json"))
                 .ok()
                 .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
@@ -135,12 +135,6 @@ fn classify_js_package(dir: &Path) -> Language {
     if let Ok(content) = std::fs::read_to_string(dir.join("package.json")) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(deps) = json.get("dependencies") {
-                if deps.get("react").is_some()
-                    || deps.get("next").is_some()
-                    || deps.get("vue").is_some()
-                {
-                    return Language::React;
-                }
                 if deps.get("@angular/core").is_some() {
                     return Language::Angular;
                 }

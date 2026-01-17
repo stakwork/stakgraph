@@ -145,12 +145,6 @@ impl Lang {
             lang: Box::new(rust::Rust::new()),
         }
     }
-    pub fn new_react() -> Self {
-        Self {
-            kind: Language::React,
-            lang: Box::new(react_ts::TypeScriptReact::new()),
-        }
-    }
     pub fn new_typescript() -> Self {
         Self {
             kind: Language::Typescript,
@@ -797,7 +791,6 @@ impl Lang {
             Language::Python => Lang::new_python(),
             Language::Go => Lang::new_go(),
             Language::Typescript => Lang::new_typescript(),
-            Language::React => Lang::new_react(),
             Language::Ruby => Lang::new_ruby(),
             Language::Bash => unimplemented!(),
             Language::Toml => unimplemented!(),
@@ -815,7 +808,7 @@ impl FromStr for Lang {
     type Err = shared::Error;
     fn from_str(s: &str) -> Result<Self> {
         match s {
-            "tsx" | "jsx" => Ok(Lang::new_react()),
+            "tsx" | "jsx" => Ok(Lang::new_typescript()),
             _ => {
                 let ss = Language::from_str(s)?;
                 Ok(Lang::from_language(ss))
