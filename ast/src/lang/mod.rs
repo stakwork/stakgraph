@@ -148,13 +148,13 @@ impl Lang {
     pub fn new_react() -> Self {
         Self {
             kind: Language::React,
-            lang: Box::new(react::ReactTs::new()),
+            lang: Box::new(react_ts::TypeScriptReact::new()),
         }
     }
     pub fn new_typescript() -> Self {
         Self {
             kind: Language::Typescript,
-            lang: Box::new(typescript::TypeScript::new()),
+            lang: Box::new(react_ts::TypeScriptReact::new()),
         }
     }
     pub fn new_ruby() -> Self {

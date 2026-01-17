@@ -320,7 +320,6 @@ impl Lang {
                 endp.start = node.start_position().row;
                 endp.end = node.end_position().row;
             } else if o == HANDLER {
-                // tracing::info!("found HANDLER {:?} {:?}", body, endp.name);
                 let handler_name = trim_quotes(&body);
                 endp.add_handler(handler_name);
                 let p = node.start_position();

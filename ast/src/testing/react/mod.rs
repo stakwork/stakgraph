@@ -137,9 +137,9 @@ import NewPerson from "./components/NewPerson";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp == true {
-        assert_eq!(functions.len(), 22, "Expected 21 functions/components");
+        assert_eq!(functions.len(), 22, "Expected 22 functions/components");
     } else {
-        assert_eq!(functions.len(), 56, "Expected 56 functions/components");
+        assert_eq!(functions.len(), 61, "Expected 61 functions/components");
     }
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
@@ -485,8 +485,8 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 218,
-        "Expected 218 contains edges, got {}",
+        contains_edges_count, 223,
+        "Expected 223 contains edges, got {}",
         contains_edges_count
     );
 
@@ -503,7 +503,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 5, "Expected 5 endpoints");
+    assert_eq!(endpoints.len(), 9, "Expected 9 endpoints");
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
@@ -548,7 +548,9 @@ import NewPerson from "./components/NewPerson";"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 5, "Expected 5 handler edges");
+    // Was 5, now 9 - unified parser's endpoint_finders now capture @{ENDPOINT_OBJECT}
+    // for the router pattern, enabling proper endpoint group matching and handler linking
+    assert_eq!(handlers, 9, "Expected 9 handler edges");
 
     if use_lsp {}
 
