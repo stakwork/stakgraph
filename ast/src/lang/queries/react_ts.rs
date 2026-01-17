@@ -6,29 +6,38 @@ use lsp::strip_tmp;
 use shared::error::{Context, Result};
 use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
 
-pub struct ReactTs(Language);
+/// Unified TypeScript/React parser using TSX grammar
+/// Handles both .ts and .tsx files as TSX is a superset of TypeScript
+pub struct TypeScriptReact {
+    tsx: Language,
+}
 
-impl Default for ReactTs {
+impl Default for TypeScriptReact {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ReactTs {
+impl TypeScriptReact {
     pub fn new() -> Self {
-        ReactTs(tree_sitter_typescript::LANGUAGE_TSX.into())
+        TypeScriptReact {
+            tsx: tree_sitter_typescript::LANGUAGE_TSX.into(),
+        }
     }
 }
 
-impl Stack for ReactTs {
+impl Stack for TypeScriptReact {
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        Query::new(&self.tsx, q).unwrap()
     }
+
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
-        parser.set_language(&self.0)?;
+        parser.set_language(&self.tsx)?;
         parser.parse(code, None).context("failed to parse")
     }
+
+    // FROM REACT: lib_query
     fn lib_query(&self) -> Option<String> {
         Some(format!(
             r#"(pair
@@ -42,6 +51,8 @@ impl Stack for ReactTs {
                 )"#
         ))
     }
+
+    // FROM REACT (identical in both): classify_test
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         // 1. Path based (strongest signal)
         let f = file.replace('\\', "/");
@@ -113,10 +124,17 @@ impl Stack for ReactTs {
         }
         NodeType::UnitTest
     }
+
+    // MERGED: is_lib_file (TypeScript has more patterns)
     fn is_lib_file(&self, file_name: &str) -> bool {
         file_name.contains("node_modules/")
+            || file_name.contains("/lib/")
+            || file_name.ends_with(".d.ts")
+            || file_name.starts_with("/usr")
+            || file_name.contains(".nvm/")
     }
 
+    // FROM TYPESCRIPT: imports_query (has IMPORTS_ALIAS which React doesn't have)
     fn imports_query(&self) -> Option<String> {
         Some(format!(
             r#"
@@ -126,6 +144,7 @@ impl Stack for ReactTs {
                     (named_imports
                         (import_specifier
                             name:(identifier) @{IMPORTS_NAME}
+                            alias: (identifier)? @{IMPORTS_ALIAS}
                         )
                     )?
 
@@ -144,6 +163,7 @@ impl Stack for ReactTs {
         ))
     }
 
+    // FROM REACT (identical in both): variables_query
     fn variables_query(&self) -> Option<String> {
         let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
         Some(format!(
@@ -194,24 +214,45 @@ impl Stack for ReactTs {
         ))
     }
 
+    // FROM REACT: is_component
     fn is_component(&self, func_name: &str) -> bool {
         if func_name.is_empty() {
             return false;
         }
         func_name.chars().next().unwrap().is_uppercase()
     }
+
+    // MERGED: class_definition_query (TypeScript version has PARENT_NAME for implements)
     fn class_definition_query(&self) -> String {
         format!(
-            "(class_declaration
+            r#"
+            (class_declaration
                 name: (type_identifier) @{CLASS_NAME}
-            ) @{CLASS_DEFINITION}"
+                (class_heritage
+                    (implements_clause
+                    (type_identifier) @{PARENT_NAME}
+                    )?
+                )?
+            ) @{CLASS_DEFINITION}
+            "#
         )
     }
-    // FIXME "render" is always discluded to avoid jsx classes
 
+    // MERGED: function_definition_query (React has more patterns including JSX components)
     fn function_definition_query(&self) -> String {
         format!(
             r#"[
+            ;; TypeScript: decorated function declarations
+            (
+              (decorator)* @{ATTRIBUTES}
+              .
+              (function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+                parameters : (formal_parameters)? @{ARGUMENTS}
+                return_type: (type_annotation)? @{RETURN_TYPES}
+              ) @{FUNCTION_DEFINITION}
+            )
+
             ;; export function hello()
             (export_statement
                 (function_declaration
@@ -408,9 +449,13 @@ impl Stack for ReactTs {
             ]"#
         )
     }
+
+    // FROM REACT (identical in both): comment_query
     fn comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
     }
+
+    // MERGED: data_model_query (React has slightly different ordering but same patterns)
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"[
@@ -445,6 +490,8 @@ impl Stack for ReactTs {
             "#
         ))
     }
+
+    // FROM REACT (identical in both): data_model_within_query
     fn data_model_within_query(&self) -> Option<String> {
         Some(format!(
             r#"(
@@ -452,6 +499,8 @@ impl Stack for ReactTs {
             )"#
         ))
     }
+
+    // FROM REACT: test_query (React version has @{FUNCTION_DEFINITION} captures)
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
@@ -488,6 +537,8 @@ impl Stack for ReactTs {
                 ] "#
         ))
     }
+
+    // FROM REACT (identical in both): e2e_test_query
     fn e2e_test_query(&self) -> Option<String> {
         Some(format!(
             r#"
@@ -511,24 +562,28 @@ impl Stack for ReactTs {
         "#
         ))
     }
+
+    // MERGED: endpoint_finders (union of React and TypeScript patterns)
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"
+        vec![
+            // FROM REACT: Next.js style exports + basic router pattern
+            format!(
+                r#"
             (export_statement
                 (function_declaration
-                    name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
+                    name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} @{HANDLER} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
                 ) @{ROUTE}
             )
             (export_statement
                 (lexical_declaration
                         (variable_declarator
-                            name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
+                            name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} @{HANDLER} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
                         )
                 )@{ROUTE}
             )
             (call_expression
                 function: (member_expression
-                    object: (identifier)
+                    object: (identifier) @{ENDPOINT_OBJECT}
                     property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$|^patch$")
                 )
                 arguments: (arguments
@@ -537,9 +592,93 @@ impl Stack for ReactTs {
                 )
             ) @{ROUTE}
         "#
-        )]
+            ),
+            // FROM TYPESCRIPT: router.method(path, identifier) - middleware or named handler
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (identifier) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            // FROM TYPESCRIPT: arrow function handlers
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^use$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (arrow_function) @{ARROW_FUNCTION_HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            // FROM TYPESCRIPT: generic get handler
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (identifier) @{ENDPOINT_OBJECT}
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$")
+                    )
+                    arguments: (arguments
+                        (string) @{ENDPOINT}
+                        (_) @{HANDLER}
+                    )
+                    ) @{ROUTE}
+                "#
+            ),
+            // FROM TYPESCRIPT: chained route pattern router.route('/path').get()
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (call_expression
+                            function: (member_expression
+                                object: (identifier)
+                                property: (property_identifier) @base_method (#match? @base_method "route")
+                            )
+                            arguments: (arguments (string) @{ENDPOINT})
+                        )
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
+                    )
+                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    ) @{ROUTE}
+                "#
+            ),
+            // FROM TYPESCRIPT: deeply chained route pattern
+            format!(
+                r#"(call_expression
+                    function: (member_expression
+                        object: (call_expression
+                            function: (member_expression
+                                object: (call_expression
+                                    function: (member_expression
+                                        object: (identifier)
+                                        property: (property_identifier) @base_method (#match? @base_method "route")
+                                    )
+                                    arguments: (arguments (string) @{ENDPOINT})
+                                )
+                                property: (property_identifier)
+                            )
+                            arguments: (arguments (arrow_function))
+                        )
+                        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
+                    )
+                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    ) @{ROUTE}
+                "#
+            ),
+        ]
     }
 
+    // FROM REACT: request_finder (TypeScript doesn't have this)
     fn request_finder(&self) -> Option<String> {
         Some(format!(
             r#"
@@ -590,8 +729,26 @@ impl Stack for ReactTs {
         ))
     }
 
+    // FROM REACT (identical in both): endpoint_group_find
+    fn endpoint_group_find(&self) -> Option<String> {
+        Some(format!(
+            r#"(call_expression
+                function: (member_expression
+                    object: (identifier)
+                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^use$")
+                )
+                arguments: (arguments
+                    (string) @{ENDPOINT}
+                    (identifier) @{ENDPOINT_GROUP}
+                )
+            ) @{ROUTE}"#
+        ))
+    }
+
+    // FROM REACT (identical in both): handler_method_query
     fn handler_method_query(&self) -> Option<String> {
-        Some(r#"
+        Some(
+            r#"
             ;; Matches: router.get(...), app.post(...), etc.
             (call_expression
                 function: (member_expression
@@ -599,9 +756,12 @@ impl Stack for ReactTs {
                     property: (property_identifier) @method (#match? @method "^(get|post|put|delete|patch)$")
                 )
             ) @route
-            "#.to_string())
+            "#
+            .to_string(),
+        )
     }
 
+    // MERGED: function_call_query (React version has JSX patterns)
     fn function_call_query(&self) -> String {
         format!(
             "[
@@ -647,6 +807,8 @@ impl Stack for ReactTs {
             ] @{FUNCTION_CALL}"
         )
     }
+
+    // MERGED: add_endpoint_verb (React version has fetch handling)
     fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
         if !inst.meta.contains_key("verb") {
             if let Some(call) = call {
@@ -704,45 +866,116 @@ impl Stack for ReactTs {
         Some("GET".to_string())
     }
 
+    // FROM TYPESCRIPT: generate_arrow_handler_name
+    fn generate_arrow_handler_name(&self, method: &str, path: &str, line: usize) -> Option<String> {
+        let clean_method = method.to_lowercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .replace("-", "_")
+            .replace(" ", "_")
+            .trim_start_matches('_')
+            .trim_end_matches('_')
+            .to_string();
+
+        let handler_name = if clean_path.is_empty() || clean_path == "_" {
+            format!("{}_handler_L{}", clean_method, line)
+        } else {
+            format!("{}_{}_handler_L{}", clean_method, clean_path, line)
+        };
+
+        Some(handler_name)
+    }
+
+    // FROM REACT: update_endpoint (for Next.js)
     fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {
-        // for next.js
+        // for next.js - update endpoint name from file path
         if matches!(
             nd.name.as_str(),
             "GET" | "POST" | "PUT" | "DELETE" | "PATCH"
         ) {
             nd.name = endpoint_name_from_file(&nd.file);
         }
-        if let Some(verb) = nd.meta.get("verb") {
-            nd.meta.insert("handler".to_string(), verb.to_string());
-        } else {
-            nd.meta.insert("handler".to_string(), "GET".to_string());
+        // Only set handler from verb if handler is not already set (TypeScript Express style sets it from capture)
+        if nd.meta.get("handler").is_none() {
+            if let Some(verb) = nd.meta.get("verb") {
+                nd.meta.insert("handler".to_string(), verb.to_string());
+            } else {
+                nd.meta.insert("handler".to_string(), "GET".to_string());
+            }
         }
     }
+
+    // Use false to enable the fallback path that uses node_data_finder
+    // This supports imported handlers for Express-style routes
     fn use_handler_finder(&self) -> bool {
-        true
+        false
     }
+
+    // FROM REACT: handler_finder
+    // Handles both Next.js style (GET/POST as handler) and Express style (named handlers)
     fn handler_finder(
         &self,
         endpoint: NodeData,
         find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
-        _find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
+        find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
-        if let Some(verb) = endpoint.meta.get("verb") {
-            let handler_name = verb;
-            if let Some(handler_node) = find_fn(handler_name, &endpoint.file) {
-                let edge = Edge::handler(&endpoint, &handler_node);
-                return vec![(endpoint, Some(edge))];
+        let http_verbs = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+        
+        // Helper to find HTTP verb handler directly in the same file
+        // This avoids the start-position guard in node_data_finder
+        let find_http_verb_handler = |verb: &str| -> Option<NodeData> {
+            let verb_upper = verb.to_uppercase();
+            let verb_lower = verb.to_lowercase();
+            
+            // Get all functions in the endpoint's file
+            let functions_in_file = find_fns_in(&endpoint.file);
+            
+            // Find function matching the verb (case-insensitive)
+            functions_in_file.into_iter().find(|f| {
+                f.name.to_uppercase() == verb_upper || f.name.to_lowercase() == verb_lower
+            })
+        };
+        
+        // First try: look for explicit "handler" meta
+        if let Some(handler) = endpoint.meta.get("handler") {
+            let is_http_verb = http_verbs.contains(&handler.to_uppercase().as_str());
+            
+            if is_http_verb {
+                // Next.js style: handler IS the HTTP verb, use direct lookup
+                if let Some(nd) = find_http_verb_handler(handler) {
+                    let edge = Edge::handler(&endpoint, &nd);
+                    return vec![(endpoint, Some(edge))];
+                }
+            } else {
+                // Express style: named handler, use node_data_finder for import resolution
+                if let Some(nd) = find_fn(handler, &endpoint.file) {
+                    let edge = Edge::handler(&endpoint, &nd);
+                    return vec![(endpoint, Some(edge))];
+                }
             }
         }
+        
+        // Second try: for Next.js style where verb IS the handler name
+        if let Some(verb) = endpoint.meta.get("verb") {
+            if http_verbs.contains(&verb.to_uppercase().as_str()) {
+                if let Some(handler_node) = find_http_verb_handler(verb) {
+                    let edge = Edge::handler(&endpoint, &handler_node);
+                    return vec![(endpoint, Some(edge))];
+                }
+            }
+        }
+        
         vec![(endpoint, None)]
     }
+
+    // FROM REACT: is_router_file
     fn is_router_file(&self, file_name: &str, _code: &str) -> bool {
-        // next.js or react-router-dom
-        // file_name.contains("src/pages/") || code.contains("react-router-dom")
-        // !file_name.contains("__tests__") && !file_name.contains("test")
         !file_name.contains("__tests__")
     }
+
+    // FROM REACT: page_query
     fn page_query(&self) -> Option<String> {
         let component_attribute = format!(
             r#"(jsx_attribute
@@ -802,6 +1035,46 @@ impl Stack for ReactTs {
             ] @{PAGE}"#
         ))
     }
+
+    // FROM TYPESCRIPT: trait_query
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+                (interface_declaration
+                    name: (type_identifier) @{TRAIT_NAME}
+                    body: (interface_body
+                        (method_signature)+
+                    )
+                )
+                (type_alias_declaration
+                    name: (type_identifier)@{TRAIT_NAME}
+                    value: (object_type
+                            (method_signature)+
+                        )
+                )
+            ]@{TRAIT}
+            "#
+        ))
+    }
+
+    // FROM TYPESCRIPT: implements_query
+    fn implements_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (class_declaration
+                name: (type_identifier) @{CLASS_NAME}
+                (class_heritage
+                    (implements_clause
+                        (type_identifier) @{TRAIT_NAME}
+                    )
+                )
+            )@{IMPLEMENTS}
+            "#
+        ))
+    }
+
+    // FROM REACT: find_function_parent
     fn find_function_parent(
         &self,
         node: TreeNode,
@@ -835,6 +1108,8 @@ impl Stack for ReactTs {
         };
         Ok(parent_of)
     }
+
+    // MERGED: resolve_import_path (TypeScript version has .js -> .ts replacement)
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.trim().to_string();
         if path.starts_with("./") || path.starts_with(".\\") {
@@ -849,8 +1124,16 @@ impl Stack for ReactTs {
         {
             path = path[1..path.len() - 1].to_string();
         }
+
+        // FROM TYPESCRIPT: .js -> .ts replacement
+        if path.ends_with(".js") {
+            path = path.replace(".js", ".ts");
+        }
+
         path
     }
+
+    // FROM REACT: extra_calls_queries
     fn extra_calls_queries(&self) -> Vec<String> {
         let mut extra_regex = "^use.*tore".to_string();
         if let Ok(env_regex) = std::env::var("EXTRA_REGEX_REACT") {
@@ -873,9 +1156,12 @@ impl Stack for ReactTs {
         )]
     }
 
+    // FROM REACT: use_extra_page_finder
     fn use_extra_page_finder(&self) -> bool {
         true
     }
+
+    // FROM REACT: is_extra_page
     fn is_extra_page(&self, file_name: &str) -> bool {
         // Ignore false positives
         let ignore_patterns = [
@@ -950,6 +1236,7 @@ impl Stack for ReactTs {
         false
     }
 
+    // FROM REACT: extra_page_finder
     fn extra_page_finder(
         &self,
         file_path: &str,
@@ -967,7 +1254,7 @@ impl Stack for ReactTs {
 
         let code = fs::read_to_string(file_path).ok()?;
 
-        let default_export = find_default_export_name(&code, self.0.clone());
+        let default_export = find_default_export_name(&code, self.tsx.clone());
 
         let all_functions = find_fns_in(&filename);
 
@@ -985,6 +1272,7 @@ impl Stack for ReactTs {
         Some((page, Some(edge)))
     }
 
+    // MERGED: is_test_file (union of both patterns)
     fn is_test_file(&self, file_name: &str) -> bool {
         file_name.ends_with(".test.ts")
             || file_name.ends_with(".test.tsx")
@@ -1001,8 +1289,12 @@ impl Stack for ReactTs {
             || file_name.contains("/__tests__/")
             || file_name.contains("/tests/")
             || file_name.contains("/test/")
+            || file_name.contains("__tests__")
+            || file_name.contains(".test.")
+            || file_name.contains(".spec.")
     }
 
+    // FROM REACT (identical in both): is_e2e_test_file
     fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
         let f = file.replace('\\', "/");
         let lower_code = code.to_lowercase();
@@ -1033,33 +1325,22 @@ impl Stack for ReactTs {
         is_e2e_dir || has_e2e_in_name || has_playwright || has_cypress || has_puppeteer
     }
 
+    // FROM REACT (identical in both): is_test
     fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
         self.is_test_file(func_file)
     }
 
+    // FROM REACT (identical in both): tests_are_functions
     fn tests_are_functions(&self) -> bool {
         false
     }
 
+    // FROM REACT (identical in both): should_skip_function_call
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
         consts::should_skip_js_function_call(called, operand)
     }
 
-    fn endpoint_group_find(&self) -> Option<String> {
-        Some(format!(
-            r#"(call_expression
-                function: (member_expression
-                    object: (identifier)
-                    property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^use$")
-                )
-                arguments: (arguments
-                    (string) @{ENDPOINT}
-                    (identifier) @{ENDPOINT_GROUP}
-                )
-            ) @{ROUTE}"#
-        ))
-    }
-
+    // MERGED: parse_imports_from_file (using TypeScript version with IMPORTS_ALIAS)
     fn parse_imports_from_file(
         &self,
         file: &str,
@@ -1073,7 +1354,7 @@ impl Stack for ReactTs {
         let code = import_node.body.as_str();
 
         let imports_query = self.imports_query()?;
-        let q = tree_sitter::Query::new(&self.0, &imports_query).unwrap();
+        let q = tree_sitter::Query::new(&self.tsx, &imports_query).unwrap();
 
         let tree = match self.parse(code, &NodeType::Import) {
             Ok(t) => t,
@@ -1129,6 +1410,7 @@ impl Stack for ReactTs {
         }
     }
 
+    // FROM REACT (identical in both): match_endpoint_groups
     fn match_endpoint_groups(
         &self,
         groups: &[NodeData],
@@ -1189,6 +1471,9 @@ impl Stack for ReactTs {
         matches
     }
 }
+
+// Helper functions from react.rs
+
 pub fn endpoint_name_from_file(file: &str) -> String {
     let path = file.replace('\\', "/");
     let route_path = if let Some(idx) = path.find("/api/") {
