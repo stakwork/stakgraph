@@ -10,14 +10,12 @@ pub mod kotlin;
 pub mod php;
 pub mod python;
 mod rails_routes;
-pub mod react;
 pub mod react_ts;
 pub mod ruby;
 pub mod rust;
 pub mod svelte;
 pub mod swift;
 pub mod toml;
-pub mod typescript;
 
 use crate::lang::asg::Operand;
 use crate::lang::graphs::Edge;

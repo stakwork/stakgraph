@@ -64,10 +64,10 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(endpoints.len(), 5);
+    assert_eq!(endpoints.len(), 9);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 56);
+    assert_eq!(functions.len(), 61);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 3);
@@ -109,10 +109,10 @@ async fn test_btreemap_edges() -> Result<()> {
     assert_eq!(renders_edges, 4);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 218);
+    assert_eq!(contains_edges, 223);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
-    assert_eq!(handler_edges, 5);
+    assert_eq!(handler_edges, 9);
 
     let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
     assert_eq!(nested_in_edges, 2);
@@ -134,8 +134,8 @@ async fn test_react_graph_upload() -> Result<()> {
     // Requests(14) + Pages(4) + Variables(7) + DataModels(22) + Endpoints(5)
     // UnitTests(3) + IntegrationTests(2) + E2eTests(2) + Files(~11 TSX + others) + Dirs(14)
     // Total approx 187+. We will adjust based on actual test run.
-    assert_eq!(nodes, 209);
-    assert_eq!(edges, 266); // Derived from previous test runs matches actual output
+    assert_eq!(nodes, 218);
+    assert_eq!(edges, 282); // Derived from previous test runs matches actual output
 
     Ok(())
 }
@@ -154,7 +154,7 @@ async fn test_coverage_default_params() -> Result<()> {
     }
 
     if let Some(integration) = &coverage.integration_tests {
-        assert_eq!(integration.total, 5);
+        assert_eq!(integration.total, 9);
         assert_eq!(integration.total_tests, 2);
     }
 
@@ -280,8 +280,8 @@ async fn test_nodes_function_type() -> Result<()> {
     // due to unique_functions_filters (component=true or operand=true).
     // We will adjust this assertion after the first run if needed.
     // We expect 52 functions in BTreeMap, but Neo4j query filters components/operands
-    assert_eq!(count, 26);
-    assert_eq!(results.len(), 26);
+    assert_eq!(count, 27);
+    assert_eq!(results.len(), 27);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -311,8 +311,8 @@ async fn test_nodes_endpoint_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 5);
-    assert_eq!(results.len(), 5);
+    assert_eq!(count, 9);
+    assert_eq!(results.len(), 9);
 
     Ok(())
 }
