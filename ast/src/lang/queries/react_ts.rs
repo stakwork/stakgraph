@@ -571,13 +571,13 @@ impl Stack for TypeScriptReact {
                 r#"
             (export_statement
                 (function_declaration
-                    name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
+                    name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} @{HANDLER} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
                 ) @{ROUTE}
             )
             (export_statement
                 (lexical_declaration
                         (variable_declarator
-                            name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
+                            name: (identifier) @{ENDPOINT} @{ENDPOINT_VERB} @{HANDLER} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|PATCH|DELETE)$")
                         )
                 )@{ROUTE}
             )

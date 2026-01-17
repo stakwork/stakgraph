@@ -490,20 +490,19 @@ impl Lang {
                 // here find the handler using LSP!
                 if let Some(handler_name) = endp.meta.get("handler") {
                     if let Some(lsp) = lsp_tx {
-                        if let Some(pos) = handler_position {
-                            log_cmd(format!("=> looking for HANDLER {:?}", handler_name));
+                        if let Some(pos) = handler_position.clone() {
                             let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
                             if let LspRes::GotoDefinition(Some(gt)) = res {
-                                let target_file = gt.file.display().to_string();
+                                // Decode URL-encoded characters in file path (e.g., %5Bid%5D -> [id])
+                                let target_file = gt.file.display().to_string()
+                                    .replace("%5B", "[")
+                                    .replace("%5D", "]");
                                 if let Some(target) = graph.find_node_by_name_in_file(
                                     NodeType::Function,
                                     handler_name,
                                     &target_file,
                                 ) {
-                                    log_cmd(format!("HANDLER def, in graph: {:?}", handler_name));
                                     handler = Some(Edge::handler(&endp, &target));
-                                } else {
-                                    log_cmd(format!("HANDLER def, not found: {:?}", handler_name));
                                 }
                             }
                         }
