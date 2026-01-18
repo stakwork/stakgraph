@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::{fmt::Display, str::FromStr};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Language {
     Bash,
     Toml,

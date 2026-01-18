@@ -528,34 +528,50 @@ impl Repo {
         if let Some(packages) = crate::workspace::detect_workspaces(Path::new(root))? {
             let mut repos: Vec<Repo> = Vec::new();
             let mut package_infos: Vec<crate::workspace::PackageInfo> = Vec::new();
+
+            // Group packages by language
+            let mut lang_groups: std::collections::HashMap<Language, Vec<crate::workspace::WorkspacePackage>> = 
+                std::collections::HashMap::new();
             for pkg in packages {
-                let thelang = Lang::from_language(pkg.language.clone());
+                lang_groups
+                    .entry(pkg.language.clone())
+                    .or_default()
+                    .push(pkg);
+            }
+
+            // Process each language group with a shared LSP
+            for (language, pkgs) in lang_groups {
+                let thelang = Lang::from_language(language.clone());
                 let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
 
-                // Run post-clone commands on the package root
+                // Run post-clone commands at workspace root for this language
                 for cmd in thelang.kind.post_clone_cmd(lsp_enabled) {
-                    Self::run_cmd(cmd, pkg.path.to_str().unwrap()).map_err(|e| {
-                        Error::Custom(format!("Failed to cmd {} in {:?}: {}", cmd, pkg.path, e))
+                    Self::run_cmd(cmd, root).map_err(|e| {
+                        Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
                     })?;
                 }
 
-                let lsp_tx = Self::start_lsp(pkg.path.to_str().unwrap(), &thelang, lsp_enabled)
+                // Start ONE LSP for this language group at workspace root
+                let shared_lsp_tx = Self::start_lsp(root, &thelang, lsp_enabled)
                     .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
 
-                repos.push(Repo {
-                    url: url.clone().unwrap_or_default(),
-                    root: pkg.path.clone(),
-                    lang: thelang,
-                    lsp_tx,
-                    files_filter: files_filter.clone(),
-                    revs: revs.clone(),
-                    status_tx: None,
-                    allow_unverified_calls: false,
-                    skip_calls: false,
-                    is_package: true,
-                });
-                
-                package_infos.push(crate::workspace::PackageInfo::from(pkg));
+                // Create Repo for each package in this language group, sharing the LSP
+                for pkg in pkgs {
+                    repos.push(Repo {
+                        url: url.clone().unwrap_or_default(),
+                        root: pkg.path.clone(),
+                        lang: Lang::from_language(pkg.language.clone()),
+                        lsp_tx: shared_lsp_tx.clone(),
+                        files_filter: files_filter.clone(),
+                        revs: revs.clone(),
+                        status_tx: None,
+                        allow_unverified_calls: false,
+                        skip_calls: false,
+                        is_package: true,
+                    });
+
+                    package_infos.push(crate::workspace::PackageInfo::from(pkg));
+                }
             }
             info!("Detected monorepo: {} packages", repos.len());
             return Ok(Repos { repos, packages: package_infos, workspace_root: Some(root.into()) });
