@@ -249,6 +249,22 @@ async fn check_monorepo_graph<G: Graph + 'static>(
 
     let graph = repos.build_graphs_inner::<G>().await?;
 
+    let all_packages = graph.find_nodes_by_type(NodeType::Package);
+    let packages: Vec<_> = all_packages
+        .into_iter()
+        .filter(|n| n.file.starts_with(abs_root_str))
+        .collect();
+
+    assert_eq!(
+        packages.len(),
+        expected_langs.len(),
+        "Package count mismatch for {}: expected {}, got {} ({:?})",
+        fixture,
+        expected_langs.len(),
+        packages.len(),
+        packages.iter().map(|p| &p.name).collect::<Vec<_>>()
+    );
+
     // Check Languages
     let all_languages = graph.find_nodes_by_type(NodeType::Language);
     let languages: Vec<_> = all_languages
@@ -494,14 +510,46 @@ async fn test_monorepo_repository_hierarchy() -> Result<()> {
         .filter(|n| n.file.starts_with(abs_root_str) || n.file.starts_with(root_str))
         .collect();
 
+    // With is_package=true, we should have only 1 Repository (workspace root)
     assert_eq!(
         repo_nodes.len(),
-        3,
-        "Should have root + 2 packages = 3 repositories, got {}",
+        1,
+        "Should have 1 Repository (workspace root only), got {}",
         repo_nodes.len()
     );
 
+    let all_packages = graph.find_nodes_by_type(NodeType::Package);
+    let package_nodes: Vec<_> = all_packages
+        .into_iter()
+        .filter(|n| n.file.starts_with(abs_root_str) || n.file.starts_with(root_str))
+        .collect();
+
+    assert_eq!(
+        package_nodes.len(),
+        2,
+        "Should have 2 Package nodes (api, shared), got {}",
+        package_nodes.len()
+    );
+
     let edges = graph.get_edges_vec();
+    
+    let repo_to_pkg_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.edge == EdgeType::Contains
+                && e.source.node_type == NodeType::Repository
+                && e.target.node_type == NodeType::Package
+        })
+        .collect();
+
+    assert_eq!(
+        repo_to_pkg_edges.len(),
+        2,
+        "Should have 2 Repository->Package CONTAINS edges (root->api, root->shared), got {}",
+        repo_to_pkg_edges.len()
+    );
+
+    // No Repository -> Repository edges anymore
     let repo_to_repo_edges: Vec<_> = edges
         .iter()
         .filter(|e| {
@@ -513,8 +561,8 @@ async fn test_monorepo_repository_hierarchy() -> Result<()> {
 
     assert_eq!(
         repo_to_repo_edges.len(),
-        2,
-        "Should have exactly 2 Repository->Repository CONTAINS edges (root->api, root->shared), got {}",
+        0,
+        "Should have 0 Repository->Repository edges, got {}",
         repo_to_repo_edges.len()
     );
 
@@ -522,7 +570,6 @@ async fn test_monorepo_repository_hierarchy() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_remote_monorepo_root_detection() -> Result<()> {
     use crate::repo::Repo;
 
@@ -542,11 +589,11 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
     .await?;
 
     assert!(
-        repos.1.is_some(),
+        repos.2.is_some(),
         "Workspace root should be detected for monorepo"
     );
 
-    let workspace_root = repos.1.as_ref().unwrap();
+    let workspace_root = repos.2.as_ref().unwrap();
     println!("Workspace root: {:?}", workspace_root);
 
   
@@ -566,23 +613,43 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         .await?;
 
     let all_repos = graph.find_nodes_by_type(NodeType::Repository);
-    println!("\nAll Repository nodes:");
+    println!("\n=== REPOSITORY NODES ({}) ===", all_repos.len());
     for r in &all_repos {
-        println!("  - {} (file: {})", r.name, r.file);
+        println!("  - name='{}' file='{}'", r.name, r.file);
     }
 
     assert_eq!(
         all_repos.len(),
-        5,
-        "Should have 5 Repository nodes (1 root + 4 packages), got {}",
+        1,
+        "Should have 1 Repository node (workspace root only), got {}",
         all_repos.len()
     );
 
-    let root_repo = all_repos.iter().find(|r| r.name == "test-monorepo");
+    let root_repo = all_repos.iter().find(|r| r.name.contains("test-monorepo"));
     assert!(
         root_repo.is_some(),
-        "Should have root Repository node named 'test-monorepo'"
+        "Should have root Repository node containing 'test-monorepo', got: {:?}",
+        all_repos.iter().map(|r| &r.name).collect::<Vec<_>>()
     );
+
+    let all_packages = graph.find_nodes_by_type(NodeType::Package);
+    println!("\n=== PACKAGE NODES ({}) ===", all_packages.len());
+    for p in &all_packages {
+        println!("  - name='{}' file='{}' meta={:?}", p.name, p.file, p.meta);
+    }
+
+    assert_eq!(
+        all_packages.len(),
+        4,
+        "Should have 4 Package nodes (api, web, shared, e2e), got {}",
+        all_packages.len()
+    );
+
+    let all_langs = graph.find_nodes_by_type(NodeType::Language);
+    println!("\n=== LANGUAGE NODES ({}) ===", all_langs.len());
+    for l in &all_langs {
+        println!("  - name='{}' file='{}'", l.name, l.file);
+    }
 
     let all_files = graph.find_nodes_by_type(NodeType::File);
     let root_files: Vec<_> = all_files
@@ -594,9 +661,9 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         })
         .collect();
 
-    println!("\nRoot files found:");
+    println!("\n=== ROOT FILES ({}) ===", root_files.len());
     for f in &root_files {
-        println!("  - {} (path: {}, body_len: {})", f.name, f.file, f.body.len());
+        println!("  - name='{}' path='{}' body_len={}", f.name, f.file, f.body.len());
     }
 
     assert!(
@@ -635,8 +702,55 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         "CLAUDE.md should have hash set"
     );
 
+    // === EDGE ANALYSIS ===
     let edges = graph.get_edges_vec();
-    let repo_contains_edges: Vec<_> = edges
+    
+    // Repository -> Package CONTAINS edges (should have 4: root -> each package)
+    let repo_to_pkg_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.edge == EdgeType::Contains
+                && e.source.node_type == NodeType::Repository
+                && e.target.node_type == NodeType::Package
+        })
+        .collect();
+
+    println!("\n=== Repository->Package CONTAINS edges ({}) ===", repo_to_pkg_edges.len());
+    for e in &repo_to_pkg_edges {
+        println!("  {} -> {}", e.source.node_data.name, e.target.node_data.name);
+    }
+
+    assert_eq!(
+        repo_to_pkg_edges.len(),
+        4,
+        "Should have 4 CONTAINS edges from Repository to Packages, got {}",
+        repo_to_pkg_edges.len()
+    );
+
+    // Package -> Language CONTAINS edges (should have 4: each package -> its language)
+    let pkg_to_lang_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.edge == EdgeType::Contains
+                && e.source.node_type == NodeType::Package
+                && e.target.node_type == NodeType::Language
+        })
+        .collect();
+
+    println!("\n=== Package->Language CONTAINS edges ({}) ===", pkg_to_lang_edges.len());
+    for e in &pkg_to_lang_edges {
+        println!("  {} -> {}", e.source.node_data.name, e.target.node_data.name);
+    }
+
+    assert_eq!(
+        pkg_to_lang_edges.len(),
+        4,
+        "Should have 4 CONTAINS edges from Packages to Languages, got {}",
+        pkg_to_lang_edges.len()
+    );
+
+    // No Repository -> Repository edges anymore (packages are Package nodes now)
+    let repo_to_repo_edges: Vec<_> = edges
         .iter()
         .filter(|e| {
             e.edge == EdgeType::Contains
@@ -645,16 +759,16 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         })
         .collect();
 
-    println!("\nRepository CONTAINS edges:");
-    for e in &repo_contains_edges {
+    println!("\n=== Repository->Repository CONTAINS edges ({}) ===", repo_to_repo_edges.len());
+    for e in &repo_to_repo_edges {
         println!("  {} -> {}", e.source.node_data.name, e.target.node_data.name);
     }
 
     assert_eq!(
-        repo_contains_edges.len(),
-        4,
-        "Should have 4 CONTAINS edges from root to packages, got {}",
-        repo_contains_edges.len()
+        repo_to_repo_edges.len(),
+        0,
+        "Should have 0 Repository->Repository edges (packages are Package nodes), got {}",
+        repo_to_repo_edges.len()
     );
 
     Ok(())

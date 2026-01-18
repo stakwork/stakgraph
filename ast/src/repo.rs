@@ -2,7 +2,7 @@ pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
 use crate::lang::asg::NodeData;
-use crate::lang::graphs::{Graph, NodeType};
+use crate::lang::graphs::{Graph, NodeType, Edge};
 use crate::builder::utils::get_repo_name_from_url;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
@@ -56,9 +56,10 @@ pub struct Repo {
     pub status_tx: Option<Sender<StatusUpdate>>,
     pub allow_unverified_calls: bool,
     pub skip_calls: bool,
+    pub is_package: bool,
 }
 
-pub struct Repos(pub Vec<Repo>, pub Option<PathBuf>);
+pub struct Repos(pub Vec<Repo>, pub Vec<crate::workspace::PackageInfo>, pub Option<PathBuf>);
 
 impl Repos {
     pub async fn set_status_tx(&mut self, status_tx: Sender<StatusUpdate>) {
@@ -93,6 +94,14 @@ impl Repos {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }
+        
+        println!("=== BUILD_GRAPHS_INNER_IMPL ===");
+        println!("Total Repos to process: {}", self.0.len());
+        println!("Workspace root: {:?}", self.2);
+        for (i, repo) in self.0.iter().enumerate() {
+            println!("  Repo[{}]: root={:?}, is_package={}", i, repo.root, repo.is_package);
+        }
+        
         let mut graph = G::new(String::new(), Language::Typescript);
         if let Some(first_repo) = self.0.first() {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
@@ -106,7 +115,7 @@ impl Repos {
             None
         };
         for repo in &self.0 {
-            info!("building graph for {:?}", repo);
+            println!("Building graph for: {:?} (is_package={})", repo.root, repo.is_package);
             let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
@@ -121,7 +130,8 @@ impl Repos {
             }
         }
 
-        if let Some(workspace_root) = &self.1 {
+        if let Some(workspace_root) = &self.2 {
+            println!("Adding workspace root to graph: {:?}", workspace_root);
             let new_nodes = self.add_workspace_root_to_graph(&mut graph, workspace_root)?;
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
@@ -129,6 +139,17 @@ impl Repos {
                     let bolt_nodes = nodes_to_bolt_format(new_nodes);
                     let _ = uploader
                         .flush_stage(neo, "workspace_root", &bolt_nodes)
+                        .await;
+                }
+            }
+
+            let pkg_nodes = self.add_package_nodes_to_graph(&mut graph, workspace_root)?;
+            #[cfg(feature = "neo4j")]
+            if let Some((neo, uploader)) = &mut streaming_ctx {
+                if !pkg_nodes.is_empty() {
+                    let bolt_nodes = nodes_to_bolt_format(pkg_nodes);
+                    let _ = uploader
+                        .flush_stage(neo, "package_nodes", &bolt_nodes)
                         .await;
                 }
             }
@@ -288,6 +309,79 @@ impl Repos {
         }
         None
     }
+
+    fn add_package_nodes_to_graph<G: Graph>(
+        &self,
+        graph: &mut G,
+        workspace_root: &PathBuf,
+    ) -> Result<Vec<(NodeType, NodeData)>> {
+
+
+        let mut new_nodes: Vec<(NodeType, NodeData)> = Vec::new();
+
+        if self.1.is_empty() {
+            return Ok(new_nodes);
+        }
+
+        let root_path = strip_tmp(workspace_root).display().to_string();
+        println!("=== ADD PACKAGE NODES TO GRAPH ===");
+        println!("Adding {} Package nodes, root_path={}", self.1.len(), root_path);
+
+        let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
+        let root_repo_data = repo_nodes
+            .iter()
+            .find(|n| n.file == root_path)
+            .cloned()
+            .unwrap_or_else(|| {
+                let folder_name = workspace_root
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "workspace".to_string());
+                let url = self.0.first().map(|r| r.url.as_str()).unwrap_or("");
+                let root_name = get_repo_name_from_url(url, &folder_name);
+                let mut data = NodeData::in_file(&root_path);
+                data.name = root_name;
+                data
+            });
+        println!("  Root Repository: name='{}', file='{}'", root_repo_data.name, root_repo_data.file);
+
+        for pkg_info in &self.1 {
+            let pkg_path = strip_tmp(&pkg_info.path).display().to_string();
+            
+            let mut pkg_data = NodeData::in_file(&pkg_path);
+            pkg_data.name = pkg_info.name.clone();
+            
+            if let Some(framework) = &pkg_info.framework {
+                pkg_data.meta.insert("framework".to_string(), framework.clone());
+            }
+            pkg_data.meta.insert("language".to_string(), pkg_info.language.to_string());
+            
+            println!("  Creating Package node: name={}, path={}, lang={}", pkg_info.name, pkg_path, pkg_info.language);
+            graph.add_node(NodeType::Package, pkg_data.clone());
+            new_nodes.push((NodeType::Package, pkg_data.clone()));
+            
+            println!("    Linking Package to Repository: '{}' -> '{}'", root_repo_data.name, pkg_data.name);
+            graph.add_edge(Edge::contains(
+                NodeType::Repository,
+                &root_repo_data,
+                NodeType::Package,
+                &pkg_data,
+            ));
+            
+            let mut lang_data = NodeData::in_file(&pkg_path);
+            lang_data.name = pkg_info.language.to_string();
+            println!("    Linking Package to Language: {} -> {}", pkg_path, pkg_info.language);
+            graph.add_edge(Edge::contains(
+                NodeType::Package,
+                &pkg_data,
+                NodeType::Language,
+                &lang_data,
+            ));
+        }
+
+        println!("=== END ADD PACKAGE NODES TO GRAPH ({} packages added) ===", new_nodes.len());
+        Ok(new_nodes)
+    }
 }
 
 // from the .ast.json file
@@ -335,6 +429,7 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls: false,
             skip_calls: false,
+            is_package: false,
         })
     }
     pub async fn new_clone_multi_detect(
@@ -366,6 +461,7 @@ impl Repo {
             revs.len() / urls.len()
         };
         let mut repos: Vec<Repo> = Vec::new();
+        let mut all_packages: Vec<crate::workspace::PackageInfo> = Vec::new();
         let mut workspace_root: Option<PathBuf> = None;
         for (i, url) in urls.iter().enumerate() {
             let gurl = GitUrl::parse(url).map_err(|e| {
@@ -393,12 +489,13 @@ impl Repo {
             )
             .await?;
             repos.extend(detected.0);
+            all_packages.extend(detected.1);
             // Preserve workspace root from the first URL that has one
             if workspace_root.is_none() {
-                workspace_root = detected.1;
+                workspace_root = detected.2;
             }
         }
-        Ok(Repos(repos, workspace_root))
+        Ok(Repos(repos, all_packages, workspace_root))
     }
     pub async fn new_multi_detect(
         root: &str,
@@ -409,8 +506,9 @@ impl Repo {
     ) -> Result<Repos> {
         if let Some(packages) = crate::workspace::detect_workspaces(Path::new(root))? {
             let mut repos: Vec<Repo> = Vec::new();
+            let mut package_infos: Vec<crate::workspace::PackageInfo> = Vec::new();
             for pkg in packages {
-                let thelang = Lang::from_language(pkg.language);
+                let thelang = Lang::from_language(pkg.language.clone());
                 let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
 
                 // Run post-clone commands on the package root
@@ -423,9 +521,10 @@ impl Repo {
                 let lsp_tx = Self::start_lsp(pkg.path.to_str().unwrap(), &thelang, lsp_enabled)
                     .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
 
+                println!("Creating package Repo for: {:?} (is_package=true)", pkg.path);
                 repos.push(Repo {
                     url: url.clone().unwrap_or_default(),
-                    root: pkg.path,
+                    root: pkg.path.clone(),
                     lang: thelang,
                     lsp_tx,
                     files_filter: files_filter.clone(),
@@ -433,9 +532,13 @@ impl Repo {
                     status_tx: None,
                     allow_unverified_calls: false,
                     skip_calls: false,
+                    is_package: true,
                 });
+                
+                package_infos.push(crate::workspace::PackageInfo::from(pkg));
             }
-            return Ok(Repos(repos, Some(root.into())));
+            println!("Detected monorepo with {} packages, workspace_root={}", repos.len(), root);
+            return Ok(Repos(repos, package_infos, Some(root.into())));
         }
 
         // First, collect all detected languages
@@ -505,6 +608,7 @@ impl Repo {
             let lsp_tx = Self::start_lsp(root, &thelang, lsp_enabled)
                 .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
             // Add to repositories
+            println!("Creating non-monorepo Repo for: {} (is_package=false)", root);
             repos.push(Repo {
                 url: url.clone().unwrap_or_default(),
                 root: root.into(),
@@ -515,10 +619,11 @@ impl Repo {
                 status_tx: None,
                 allow_unverified_calls: false,
                 skip_calls: false,
+                is_package: false,
             });
         }
-        println!("REPOS!!! {:?}", repos);
-        Ok(Repos(repos, None))
+        println!("Non-monorepo detected with {} language(s)", repos.len());
+        Ok(Repos(repos, Vec::new(), None))
     }
     pub async fn new_clone_to_tmp(
         url: &str,
@@ -553,6 +658,7 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls: false,
             skip_calls: false,
+            is_package: false,
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
@@ -768,6 +874,7 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls,
             skip_calls,
+            is_package: false,
         })
     }
     pub fn from_single_file(
@@ -791,6 +898,7 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls,
             skip_calls,
+            is_package: false,
         })
     }
 }

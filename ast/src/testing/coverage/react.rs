@@ -22,7 +22,7 @@ async fn setup_react_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps>
             )
             .unwrap();
 
-            let repos = Repos(vec![repo], None);
+            let repos = Repos(vec![repo], Vec::new(), None);
             let btree_graph = repos
                 .build_graphs_btree()
                 .await
