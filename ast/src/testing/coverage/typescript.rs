@@ -22,7 +22,7 @@ async fn setup_typescript_graph() -> Result<crate::lang::graphs::graph_ops::Grap
             )
             .unwrap();
 
-            let repos = Repos(vec![repo], Vec::new(), None);
+            let repos = Repos { repos: vec![repo], packages: Vec::new(), workspace_root: None };
             let btree_graph = repos
                 .build_graphs_btree()
                 .await

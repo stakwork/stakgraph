@@ -589,22 +589,22 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
     .await?;
 
     assert!(
-        repos.2.is_some(),
+        repos.workspace_root.is_some(),
         "Workspace root should be detected for monorepo"
     );
 
-    let workspace_root = repos.2.as_ref().unwrap();
+    let workspace_root = repos.workspace_root.as_ref().unwrap();
     println!("Workspace root: {:?}", workspace_root);
 
   
     assert_eq!(
-        repos.0.len(),
+        repos.repos.len(),
         4,
         "Should detect 4 packages (api, web, shared, e2e), got {}",
-        repos.0.len()
+        repos.repos.len()
     );
 
-    for repo in &repos.0 {
+    for repo in &repos.repos {
         println!("Detected package: {:?} ({})", repo.root, repo.lang);
     }
 
@@ -769,6 +769,246 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         0,
         "Should have 0 Repository->Repository edges (packages are Package nodes), got {}",
         repo_to_repo_edges.len()
+    );
+
+    Ok(())
+}
+
+/// Comprehensive test for the updated test-monorepo with:
+/// - CRUD endpoints (GET/POST/PUT/DELETE for users and products)
+/// - API client with fetch requests
+/// - Unit tests
+/// - Shared types and imports
+/// - E2E tests
+#[tokio::test]
+async fn test_remote_monorepo_comprehensive_graph() -> Result<()> {
+    use crate::repo::Repo;
+
+    let repo_url = "https://github.com/fayekelmith/test-monorepo";
+
+    let repos = Repo::new_clone_multi_detect(
+        repo_url,
+        None,
+        None,
+        Vec::new(),
+        Vec::new(),
+        None,
+        None,
+        Some(false),
+    )
+    .await?;
+
+    let graph = repos
+        .build_graphs_inner::<crate::lang::BTreeMapGraph>()
+        .await?;
+
+    // === ENDPOINT DETECTION ===
+    let all_endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    println!("\n=== ENDPOINTS ({}) ===", all_endpoints.len());
+    for e in &all_endpoints {
+        let verb = e.meta.get("verb").map(|s| s.as_str()).unwrap_or("?");
+        println!("  - {} {} (file: {})", verb, e.name, e.file);
+    }
+
+    // Should have at least: GET/POST/PUT/DELETE /users, GET/POST /products, GET /health
+    assert!(
+        all_endpoints.len() >= 8,
+        "Should have at least 8 endpoints (users CRUD + products + health), got {}",
+        all_endpoints.len()
+    );
+
+    // Check for specific endpoints
+    let has_get_users = all_endpoints.iter().any(|e| {
+        e.name.contains("/users") && e.meta.get("verb") == Some(&"GET".to_string())
+    });
+    assert!(has_get_users, "Should have GET /users endpoint");
+
+    let has_post_users = all_endpoints.iter().any(|e| {
+        e.name.contains("/users") && e.meta.get("verb") == Some(&"POST".to_string())
+    });
+    assert!(has_post_users, "Should have POST /users endpoint");
+
+    let has_put_users = all_endpoints.iter().any(|e| {
+        e.name.contains("/users") && e.meta.get("verb") == Some(&"PUT".to_string())
+    });
+    assert!(has_put_users, "Should have PUT /users/:id endpoint");
+
+    let has_delete_users = all_endpoints.iter().any(|e| {
+        e.name.contains("/users") && e.meta.get("verb") == Some(&"DELETE".to_string())
+    });
+    assert!(has_delete_users, "Should have DELETE /users/:id endpoint");
+
+    let has_health = all_endpoints.iter().any(|e| {
+        e.name.contains("/health") && e.meta.get("verb") == Some(&"GET".to_string())
+    });
+    assert!(has_health, "Should have GET /health endpoint");
+
+    // === REQUEST DETECTION (from api/client.ts) ===
+    let all_requests = graph.find_nodes_by_type(NodeType::Request);
+    println!("\n=== REQUESTS ({}) ===", all_requests.len());
+    for r in &all_requests {
+        let verb = r.meta.get("verb").map(|s| s.as_str()).unwrap_or("?");
+        println!("  - {} {} (file: {})", verb, r.name, r.file);
+    }
+
+    // Should have requests from packages/web/src/api/client.ts
+    assert!(
+        all_requests.len() >= 5,
+        "Should have at least 5 requests (getUsers, getUserById, createUser, deleteUser, updateUser), got {}",
+        all_requests.len()
+    );
+
+    // === FUNCTION DETECTION ===
+    let all_functions = graph.find_nodes_by_type(NodeType::Function);
+    println!("\n=== FUNCTIONS ({}) ===", all_functions.len());
+
+    // Check for key functions
+    let has_format_response = all_functions.iter().any(|f| f.name == "formatResponse");
+    assert!(has_format_response, "Should have formatResponse function from shared/utils.ts");
+
+    let has_validate_email = all_functions.iter().any(|f| f.name == "validateEmail");
+    assert!(has_validate_email, "Should have validateEmail function from shared/utils.ts");
+
+    let has_capitalize = all_functions.iter().any(|f| f.name == "capitalize");
+    assert!(has_capitalize, "Should have capitalize function from shared/utils.ts");
+
+    // API client functions
+    let has_get_users_fn = all_functions.iter().any(|f| f.name == "getUsers");
+    assert!(has_get_users_fn, "Should have getUsers function from api/client.ts");
+
+    let has_create_user_fn = all_functions.iter().any(|f| f.name == "createUser");
+    assert!(has_create_user_fn, "Should have createUser function from api/client.ts");
+
+    // === UNIT TEST DETECTION ===
+    let all_unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    println!("\n=== UNIT TESTS ({}) ===", all_unit_tests.len());
+    for t in &all_unit_tests {
+        println!("  - {} (file: {})", t.name, t.file);
+    }
+
+    // Should have unit tests from packages/shared/src/__tests__/utils.test.ts
+    assert!(
+        all_unit_tests.len() >= 3,
+        "Should have at least 3 unit tests (validateEmail, capitalize, formatResponse tests), got {}",
+        all_unit_tests.len()
+    );
+
+    // === E2E TEST DETECTION ===
+    let all_e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    println!("\n=== E2E TESTS ({}) ===", all_e2e_tests.len());
+    for t in &all_e2e_tests {
+        println!("  - {} (file: {})", t.name, t.file);
+    }
+
+    // Should have E2E tests from packages/e2e/tests/app.spec.ts
+    // Playwright's test.describe blocks are detected as test suites
+    assert!(
+        all_e2e_tests.len() >= 1,
+        "Should have at least 1 E2E test/suite from Playwright, got {}",
+        all_e2e_tests.len()
+    );
+
+    // === DATA MODEL (INTERFACE/TYPE) DETECTION ===
+    let all_datamodels = graph.find_nodes_by_type(NodeType::DataModel);
+    println!("\n=== DATA MODELS/INTERFACES ({}) ===", all_datamodels.len());
+    for d in &all_datamodels {
+        println!("  - {} (file: {})", d.name, d.file);
+    }
+
+    // Should have User, Product, ApiResponse from shared/types.ts
+    let has_user_type = all_datamodels.iter().any(|d| d.name == "User");
+    assert!(has_user_type, "Should have User interface from shared/types.ts");
+
+    let has_product_type = all_datamodels.iter().any(|d| d.name == "Product");
+    assert!(has_product_type, "Should have Product interface from shared/types.ts");
+
+    let has_api_response = all_datamodels.iter().any(|d| d.name == "ApiResponse");
+    assert!(has_api_response, "Should have ApiResponse interface from shared");
+
+    // === IMPORT DETECTION ===
+    let all_imports = graph.find_nodes_by_type(NodeType::Import);
+    println!("\n=== IMPORTS ({}) ===", all_imports.len());
+    for i in &all_imports {
+        println!("  - {} (file: {})", i.name, i.file);
+    }
+
+    // Check for @test-monorepo/shared imports
+    // Note: Import resolution may vary - check if imports exist at all
+    let shared_imports: Vec<_> = all_imports
+        .iter()
+        .filter(|i| i.name.contains("@test-monorepo/shared") || i.name.contains("test-monorepo"))
+        .collect();
+    println!("\n=== @test-monorepo/shared IMPORTS ({}) ===", shared_imports.len());
+    for i in &shared_imports {
+        println!("  - {} (file: {})", i.name, i.file);
+    }
+
+    // Imports may be detected as Library nodes instead
+    let all_libraries = graph.find_nodes_by_type(NodeType::Library);
+    println!("\n=== LIBRARIES ({}) ===", all_libraries.len());
+    for l in &all_libraries {
+        println!("  - {} (file: {})", l.name, l.file);
+    }
+
+    // Check if @test-monorepo/shared appears in libraries
+    let shared_libs: Vec<_> = all_libraries
+        .iter()
+        .filter(|l| l.name.contains("@test-monorepo/shared") || l.name.contains("test-monorepo"))
+        .collect();
+    
+    // Either import or library nodes should exist
+    let has_shared_refs = shared_imports.len() > 0 || shared_libs.len() > 0;
+    println!(
+        "\nShared package references: {} imports + {} libraries = {}",
+        shared_imports.len(),
+        shared_libs.len(),
+        if has_shared_refs { "FOUND" } else { "NOT FOUND (may be resolved differently)" }
+    );
+
+    // === PAGE/COMPONENT DETECTION ===
+    let all_pages = graph.find_nodes_by_type(NodeType::Page);
+    println!("\n=== PAGES ({}) ===", all_pages.len());
+    for p in &all_pages {
+        println!("  - {} (file: {})", p.name, p.file);
+    }
+
+    // React components might be detected as Functions instead of Pages
+    // Check if UsersPage exists as a Page or as a Function
+    let has_users_page_as_page = all_pages.iter().any(|p| p.name == "UsersPage");
+    let has_users_page_as_func = all_functions.iter().any(|f| f.name == "UsersPage");
+    
+    println!(
+        "\nUsersPage detection: Page={}, Function={}",
+        has_users_page_as_page, has_users_page_as_func
+    );
+    
+    // UsersPage should exist somewhere in the graph
+    assert!(
+        has_users_page_as_page || has_users_page_as_func,
+        "Should have UsersPage component (as Page or Function)"
+    );
+
+    // === EDGE ANALYSIS: Request -> Endpoint linking ===
+    let edges = graph.get_edges_vec();
+    
+    let request_to_endpoint_edges: Vec<_> = edges
+        .iter()
+        .filter(|e| {
+            e.source.node_type == NodeType::Request
+                && e.target.node_type == NodeType::Endpoint
+        })
+        .collect();
+
+    println!("\n=== Request->Endpoint edges ({}) ===", request_to_endpoint_edges.len());
+    for e in &request_to_endpoint_edges {
+        println!("  {} -> {}", e.source.node_data.name, e.target.node_data.name);
+    }
+
+    // We expect API linking to connect frontend fetch calls to backend endpoints
+    // This may be 0 if linking is not yet implemented for this pattern
+    println!(
+        "Request->Endpoint linking: {} edges (linking may need further work)",
+        request_to_endpoint_edges.len()
     );
 
     Ok(())

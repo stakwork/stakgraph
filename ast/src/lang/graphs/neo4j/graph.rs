@@ -541,8 +541,18 @@ impl Neo4jGraph {
 
         if let Ok(mut result) = connection.execute(query(&edge_query)).await {
             while let Ok(Some(row)) = result.next().await {
-                if let Ok(edge_type) = row.get::<String>("edge_type") {
-                    edge_keys.insert(edge_type);
+                if let (Ok(source_key), Ok(target_key), Ok(edge_type)) = (
+                    row.get::<String>("source_key"),
+                    row.get::<String>("target_key"),
+                    row.get::<String>("edge_type"),
+                ) {
+                    let edge_key = format!(
+                        "{}-{}-{}",
+                        source_key.to_lowercase(),
+                        target_key.to_lowercase(),
+                        edge_type
+                    );
+                    edge_keys.insert(edge_key);
                 }
             }
         }

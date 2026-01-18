@@ -29,8 +29,8 @@ async fn main() -> Result<()> {
     )?;
     println!("building graph...");
 
-    let repos = Repos(vec![repo1, repo2], Vec::new(), None);
-    // let repos = Repos(vec![repo2], Vec::new(), None);
+    let repos = Repos { repos: vec![repo1, repo2], packages: Vec::new(), workspace_root: None };
+    // let repos = Repos { repos: vec![repo2], packages: Vec::new(), workspace_root: None };
     let graph = repos.build_graphs().await?;;
     print_json(&graph, "stak")?;
     Ok(())

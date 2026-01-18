@@ -300,7 +300,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    let repos = Repos(repos_vec, Vec::new(), None);
+    let repos = Repos { repos: repos_vec, packages: Vec::new(), workspace_root: None };
     let graph = repos.build_graphs_array().await?;
 
     for file_path in &files_to_print {
