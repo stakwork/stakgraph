@@ -1006,13 +1006,13 @@ async fn test_simple_api_non_monorepo() -> Result<()> {
     let all_packages = graph.find_nodes_by_type(NodeType::Package);
     assert_eq!(all_packages.len(), 0, "Non-monorepo should have 0 Package nodes");
 
-    // Endpoints: 0 (Express endpoints require specific parsing)
+    // Endpoints: 9 Express endpoints detected
     let all_endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(all_endpoints.len(), 0, "Express endpoints not detected without LSP");
+    assert_eq!(all_endpoints.len(), 9, "Should have 9 Express endpoints");
 
-    // Functions: 17
+    // Functions: 18
     let all_functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(all_functions.len(), 17, "Should have 17 functions");
+    assert_eq!(all_functions.len(), 18, "Should have 18 functions");
 
     // Controller functions: 8 specific ones
     let controller_fns = ["getUsers", "getUserById", "createUser", "updateUser", "deleteUser", 
@@ -1025,13 +1025,13 @@ async fn test_simple_api_non_monorepo() -> Result<()> {
     // Validator function
     assert!(all_functions.iter().any(|f| f.name == "validateEmail"), "Should have validateEmail");
 
-    // Unit tests: 0 (vitest tests not detected as UnitTest nodes)
+    // Unit tests: 6 (vitest tests detected as UnitTest nodes)
     let all_unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
-    assert_eq!(all_unit_tests.len(), 0, "UnitTest nodes not detected");
+    assert_eq!(all_unit_tests.len(), 6, "Should have 6 UnitTest nodes");
 
-    // Data models: 47 (includes all TS interfaces/types)
+    // Data models: 4 (User, Product, ApiResponse, PaginationParams)
     let all_datamodels = graph.find_nodes_by_type(NodeType::DataModel);
-    assert_eq!(all_datamodels.len(), 47, "Should have 47 data models");
+    assert_eq!(all_datamodels.len(), 4, "Should have 4 data models");
 
     // Specific model checks
     assert!(all_datamodels.iter().any(|d| d.name == "User"), "Should have User type");

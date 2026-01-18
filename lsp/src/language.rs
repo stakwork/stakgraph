@@ -88,6 +88,15 @@ impl Language {
         }
     }
 
+    // Used to distinguish between similar languages (e.g., Angular vs plain TypeScript).
+    pub fn required_indicator_files(&self) -> Vec<&'static str> {
+        match self {
+            Self::Svelte => vec!["svelte.config.js", "svelte.config.ts"],
+            Self::Angular => vec!["angular.json"],
+            _ => vec![],
+        }
+    }
+
     pub fn skip_dirs(&self) -> Vec<&'static str> {
         match self {
             Self::Rust => vec!["target", ".git"],

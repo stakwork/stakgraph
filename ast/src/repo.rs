@@ -588,7 +588,12 @@ impl Repo {
                     })
                 })
             };
-            if has_pkg_file {
+            let required_indicators = l.required_indicator_files();
+            let has_required_indicators = required_indicators.is_empty()
+                || required_indicators
+                    .iter()
+                    .any(|indicator| Path::new(root).join(indicator).exists());
+            if has_pkg_file && has_required_indicators {
                 // Don't add duplicate languages
                 if !detected_langs.iter().any(|lang| lang == &l) {
                     detected_langs.push(l);
