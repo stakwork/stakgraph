@@ -1,11 +1,11 @@
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
-use crate::lang::asg::NodeData;
-use crate::lang::graphs::{Graph, NodeType, Edge};
 use crate::builder::utils::get_repo_name_from_url;
+use crate::lang::asg::NodeData;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
+use crate::lang::graphs::{Edge, Graph, NodeType};
 use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
 use git_url_parse::GitUrl;
 use ignore::WalkBuilder;
@@ -112,7 +112,10 @@ impl Repos {
             None
         };
         for repo in &self.repos {
-            let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
+            let pkg_info = self.packages.iter().find(|p| p.path == repo.root);
+            let subgraph = repo
+                .build_graph_inner_with_streaming(streaming, pkg_info)
+                .await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
@@ -129,7 +132,7 @@ impl Repos {
         if let Some(workspace_root) = &self.workspace_root {
             let new_nodes = self.add_workspace_root_to_graph(&mut graph, workspace_root)?;
             self.link_toplevel_directories_to_repository(&mut graph, workspace_root)?;
-            
+
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
                 if !new_nodes.is_empty() {
@@ -219,7 +222,12 @@ impl Repos {
         if let Some(lang) = self.detect_root_language(workspace_root) {
             let mut lang_data = NodeData::in_file(&root_path);
             lang_data.name = lang.to_string();
-            graph.add_node_with_parent(NodeType::Language, lang_data.clone(), NodeType::Repository, &root_path);
+            graph.add_node_with_parent(
+                NodeType::Language,
+                lang_data.clone(),
+                NodeType::Repository,
+                &root_path,
+            );
             new_nodes.push((NodeType::Language, lang_data));
         }
 
@@ -230,11 +238,14 @@ impl Repos {
                 let path = entry.path();
                 if path.is_file() {
                     let file_path = strip_tmp(&path).display().to_string();
-                    
-                    if !graph.find_nodes_by_name(NodeType::File, &file_path).is_empty() {
+
+                    if !graph
+                        .find_nodes_by_name(NodeType::File, &file_path)
+                        .is_empty()
+                    {
                         continue;
                     }
-                    
+
                     let file_name = path
                         .file_name()
                         .map(|s| s.to_string_lossy().to_string())
@@ -242,14 +253,14 @@ impl Repos {
 
                     let mut file_data = NodeData::in_file(&file_path);
                     file_data.name = file_name;
-                    
+
                     if !skip_file_content {
                         if let Ok(content) = fs::read_to_string(&path) {
                             file_data.body = content;
                         }
                     }
                     file_data.hash = Some(sha256::digest(&file_data.body));
-                    
+
                     graph.add_node_with_parent(
                         NodeType::File,
                         file_data.clone(),
@@ -262,7 +273,7 @@ impl Repos {
         }
 
         let all_repos = graph.find_nodes_by_type(NodeType::Repository);
-        
+
         for repo in &self.repos {
             let repo_path = strip_tmp(&repo.root).display().to_string();
             if repo_path == root_path {
@@ -333,7 +344,9 @@ impl Repos {
             unique_languages.insert(pkg_info.language.clone());
         }
 
-        let canonical_root = workspace_root.canonicalize().unwrap_or_else(|_| workspace_root.clone());
+        let canonical_root = workspace_root
+            .canonicalize()
+            .unwrap_or_else(|_| workspace_root.clone());
         let root_path = strip_tmp(&canonical_root).display().to_string();
         for lang in unique_languages {
             let mut lang_data = NodeData::in_file(&root_path);
@@ -377,14 +390,18 @@ impl Repos {
 
         for pkg_info in &self.packages {
             let pkg_path = strip_tmp(&pkg_info.path).display().to_string();
-            
+
             let mut pkg_data = NodeData::in_file(&pkg_path);
             pkg_data.name = pkg_info.name.clone();
-            
+
             if let Some(framework) = &pkg_info.framework {
-                pkg_data.meta.insert("framework".to_string(), framework.clone());
+                pkg_data
+                    .meta
+                    .insert("framework".to_string(), framework.clone());
             }
-            pkg_data.meta.insert("language".to_string(), pkg_info.language.to_string());
+            pkg_data
+                .meta
+                .insert("language".to_string(), pkg_info.language.to_string());
 
             graph.add_node(NodeType::Package, pkg_data.clone());
             new_nodes.push((NodeType::Package, pkg_data.clone()));
@@ -395,9 +412,12 @@ impl Repos {
                 NodeType::Package,
                 &pkg_data,
             ));
-            
+
             let lang_nodes = graph.find_nodes_by_type(NodeType::Language);
-            if let Some(lang_node) = lang_nodes.iter().find(|n| n.name == pkg_info.language.to_string()) {
+            if let Some(lang_node) = lang_nodes
+                .iter()
+                .find(|n| n.name == pkg_info.language.to_string())
+            {
                 graph.add_edge(Edge::of_typed(
                     NodeType::Package,
                     &pkg_data,
@@ -557,7 +577,11 @@ impl Repo {
                 workspace_root = detected.workspace_root;
             }
         }
-        Ok(Repos { repos, packages: all_packages, workspace_root })
+        Ok(Repos {
+            repos,
+            packages: all_packages,
+            workspace_root,
+        })
     }
     pub async fn new_multi_detect(
         root: &str,
@@ -571,8 +595,10 @@ impl Repo {
             let mut package_infos: Vec<crate::workspace::PackageInfo> = Vec::new();
 
             // Group packages by language
-            let mut lang_groups: std::collections::HashMap<Language, Vec<crate::workspace::WorkspacePackage>> = 
-                std::collections::HashMap::new();
+            let mut lang_groups: std::collections::HashMap<
+                Language,
+                Vec<crate::workspace::WorkspacePackage>,
+            > = std::collections::HashMap::new();
             for pkg in packages {
                 lang_groups
                     .entry(pkg.language.clone())
@@ -615,7 +641,11 @@ impl Repo {
                 }
             }
             info!("Detected monorepo: {} packages", repos.len());
-            return Ok(Repos { repos, packages: package_infos, workspace_root: Some(root.into()) });
+            return Ok(Repos {
+                repos,
+                packages: package_infos,
+                workspace_root: Some(root.into()),
+            });
         }
 
         // First, collect all detected languages
@@ -702,7 +732,11 @@ impl Repo {
                 is_package: false,
             });
         }
-        Ok(Repos { repos, packages: Vec::new(), workspace_root: None })
+        Ok(Repos {
+            repos,
+            packages: Vec::new(),
+            workspace_root: None,
+        })
     }
     pub async fn new_clone_to_tmp(
         url: &str,
@@ -1123,6 +1157,9 @@ pub fn check_revs_files(repo_path: &str, mut revs: Vec<String>) -> Option<Vec<St
 
 fn walk_files_arbitrary(dir: &PathBuf, directive: impl Fn(&str) -> bool) -> Result<Vec<String>> {
     let mut source_files: Vec<String> = Vec::new();
+    if !dir.exists() {
+        return Ok(source_files);
+    }
     for entry in WalkDir::new(dir).min_depth(1).into_iter() {
         let entry = entry?;
         if entry.metadata()?.is_file() {

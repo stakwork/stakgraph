@@ -139,9 +139,9 @@ async fn test_graph_accuracy() {
         let (btree_node_keys, btree_edge_keys) = new_btree_graph.get_graph_keys();
         let (neo4j_node_keys, neo4j_edge_keys) = graph_ops.graph.get_graph_keys();
 
-        let btree_nodes_only : Vec<_> = btree_node_keys.difference(&neo4j_node_keys).collect();
-        let neo4j_nodes_only : Vec<_> = neo4j_node_keys.difference(&btree_node_keys).collect();
-        
+        let btree_nodes_only: Vec<_> = btree_node_keys.difference(&neo4j_node_keys).collect();
+        let neo4j_nodes_only: Vec<_> = neo4j_node_keys.difference(&btree_node_keys).collect();
+
         let btree_only: Vec<_> = btree_edge_keys.difference(&neo4j_edge_keys).collect();
         let neo4j_only: Vec<_> = neo4j_edge_keys.difference(&btree_edge_keys).collect();
 
