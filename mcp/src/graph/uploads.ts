@@ -60,7 +60,7 @@ export async function upload_files(req: Request, res: Response) {
 
 export async function check_status(req: Request, res: Response) {
   const { requestId } = req.params;
-  const status = jobStatus.get(requestId);
+  const status = jobStatus.get(requestId as string);
   if (!status) {
     res.status(404).json({ error: "Request ID not found" });
     return;

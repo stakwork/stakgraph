@@ -265,7 +265,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
  */
 export async function gitree_get_feature(req: Request, res: Response) {
   try {
-    const featureId = req.params.id;
+    const featureId = req.params.id as string;
     const include = req.query.include as string | undefined;
     const storage = new GraphStorage();
     await storage.initialize();
@@ -298,7 +298,7 @@ export async function gitree_get_feature(req: Request, res: Response) {
  */
 export async function gitree_delete_feature(req: Request, res: Response) {
   try {
-    const featureId = req.params.id;
+    const featureId = req.params.id as string;
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -329,7 +329,7 @@ export async function gitree_delete_feature(req: Request, res: Response) {
  */
 export async function gitree_get_pr(req: Request, res: Response) {
   try {
-    const prNumber = parseInt(req.params.number);
+    const prNumber = parseInt(req.params.number as string);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -371,7 +371,7 @@ export async function gitree_get_pr(req: Request, res: Response) {
  */
 export async function gitree_get_commit(req: Request, res: Response) {
   try {
-    const sha = req.params.sha;
+    const sha = req.params.sha as string;
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -414,7 +414,7 @@ export async function gitree_get_commit(req: Request, res: Response) {
  */
 export async function gitree_get_feature_files(req: Request, res: Response) {
   try {
-    const featureId = req.params.id;
+    const featureId = req.params.id as string;
     const expandParam = req.query.expand as string | undefined;
     const outputFormat = req.query.output as string | undefined;
     const storage = new GraphStorage();
@@ -531,7 +531,7 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
   console.log("===> gitree_summarize_feature", req.url, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const featureId = req.params.id;
+    const featureId = req.params.id as string;
 
     // Summarize in background
     (async () => {
@@ -1335,7 +1335,7 @@ export async function gitree_list_clues(req: Request, res: Response) {
  */
 export async function gitree_get_clue(req: Request, res: Response) {
   try {
-    const clueId = req.params.id;
+    const clueId = req.params.id as string;
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1361,7 +1361,7 @@ export async function gitree_get_clue(req: Request, res: Response) {
  */
 export async function gitree_delete_clue(req: Request, res: Response) {
   try {
-    const clueId = req.params.id;
+    const clueId = req.params.id as string;
 
     const storage = new GraphStorage();
     await storage.initialize();

@@ -19,7 +19,6 @@ coverage/
 *.lcov
 src/env/
 package-lock.json
-yarn.lock
 .neo4j
 uploads
 docs/*.txt

@@ -891,8 +891,8 @@ export async function gitseeEvents(req: Request, res: Response) {
     return await gitSeeHandler.handleEvents(
       req as any,
       res as any,
-      owner,
-      repo
+      owner as string,
+      repo as string,
     );
   } catch (error) {
     console.error("gitsee SSE error:", error);
