@@ -1,10 +1,9 @@
 use standalone::types::Result;
 #[cfg(feature = "neo4j")]
 use standalone::{
+    auth, busy,
     handlers::*,
-    service::{graph_service::*, repo_service::*}, 
-    auth, 
-    busy,
+    service::{graph_service::*, repo_service::*},
     types::AppState,
 };
 
@@ -15,15 +14,15 @@ use tower_http::services::ServeFile;
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
     use axum::extract::Request;
-use axum::middleware;
-use axum::{routing::get, routing::post, Router};
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
-use tracing::{debug_span, Span};
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+    use axum::middleware;
+    use axum::{routing::get, routing::post, Router};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use tokio::sync::{broadcast, Mutex};
+    use tower_http::cors::CorsLayer;
+    use tower_http::trace::TraceLayer;
+    use tracing::{debug_span, Span};
+    use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
     let filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
@@ -96,6 +95,8 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
         .route("/fetch-repos", get(fetch_repos))
         .route("/search", post(vector_search_handler))
         .route("/tests/coverage", get(coverage_handler))
+        .route("/tests/coverage/stats", get(transitive_stats_handler))
+        .route("/tests/coverage/nodes", get(transitive_nodes_handler))
         .route("/tests/nodes", get(nodes_handler))
         .route("/tests/has", get(has_handler))
         .merge(busy_routes)
