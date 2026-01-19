@@ -35,6 +35,7 @@ RUN npx -y playwright install
 
 # Copy package.json and package-lock.json (if available)
 COPY ./package.json ./package.json
+COPY ./yarn.lock ./yarn.lock
 
 # Install dependencies
 RUN yarn
