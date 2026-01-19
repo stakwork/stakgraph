@@ -19,11 +19,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
     )
     .unwrap();
 
-    let repos = Repos {
-        repos: vec![repo],
-        packages: Vec::new(),
-        workspace_root: None,
-    };
+    let repos = Repos(vec![repo]);
     let graph = repos.build_graphs_inner::<G>().await?;
 
     graph.analysis();

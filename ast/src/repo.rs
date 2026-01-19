@@ -1,11 +1,9 @@
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
-use crate::builder::utils::get_repo_name_from_url;
-use crate::lang::asg::NodeData;
+use crate::lang::graphs::Graph;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
-use crate::lang::graphs::{Edge, Graph, NodeType};
 use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
 use git_url_parse::GitUrl;
 use ignore::WalkBuilder;
@@ -56,18 +54,13 @@ pub struct Repo {
     pub status_tx: Option<Sender<StatusUpdate>>,
     pub allow_unverified_calls: bool,
     pub skip_calls: bool,
-    pub is_package: bool,
 }
 
-pub struct Repos {
-    pub repos: Vec<Repo>,
-    pub packages: Vec<crate::workspace::PackageInfo>,
-    pub workspace_root: Option<PathBuf>,
-}
+pub struct Repos(pub Vec<Repo>);
 
 impl Repos {
     pub async fn set_status_tx(&mut self, status_tx: Sender<StatusUpdate>) {
-        for repo in &mut self.repos {
+        for repo in &mut self.0 {
             repo.status_tx = Some(status_tx.clone());
         }
     }
@@ -95,12 +88,12 @@ impl Repos {
         self.build_graphs_inner_impl(streaming).await
     }
     async fn build_graphs_inner_impl<G: Graph>(&self, streaming: bool) -> Result<G> {
-        if self.repos.is_empty() {
+        if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }
 
         let mut graph = G::new(String::new(), Language::Typescript);
-        if let Some(first_repo) = self.repos.first() {
+        if let Some(first_repo) = self.0.first() {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }
         #[cfg(feature = "neo4j")]
@@ -111,11 +104,8 @@ impl Repos {
         } else {
             None
         };
-        for repo in &self.repos {
-            let pkg_info = self.packages.iter().find(|p| p.path == repo.root);
-            let subgraph = repo
-                .build_graph_inner_with_streaming(streaming, pkg_info)
-                .await?;
+        for repo in &self.0 {
+            let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
@@ -129,44 +119,7 @@ impl Repos {
             }
         }
 
-        if let Some(workspace_root) = &self.workspace_root {
-            let new_nodes = self.add_workspace_root_to_graph(&mut graph, workspace_root)?;
-            self.link_toplevel_directories_to_repository(&mut graph, workspace_root)?;
-
-            #[cfg(feature = "neo4j")]
-            if let Some((neo, uploader)) = &mut streaming_ctx {
-                if !new_nodes.is_empty() {
-                    let bolt_nodes = nodes_to_bolt_format(new_nodes);
-                    let _ = uploader
-                        .flush_stage(neo, "workspace_root", &bolt_nodes)
-                        .await;
-                }
-            }
-
-            let lang_nodes = self.create_deduplicated_language_nodes(&mut graph, workspace_root)?;
-            #[cfg(feature = "neo4j")]
-            if let Some((neo, uploader)) = &mut streaming_ctx {
-                if !lang_nodes.is_empty() {
-                    let bolt_nodes = nodes_to_bolt_format(lang_nodes);
-                    let _ = uploader
-                        .flush_stage(neo, "language_nodes", &bolt_nodes)
-                        .await;
-                }
-            }
-
-            let pkg_nodes = self.add_package_nodes_to_graph(&mut graph, workspace_root)?;
-            #[cfg(feature = "neo4j")]
-            if let Some((neo, uploader)) = &mut streaming_ctx {
-                if !pkg_nodes.is_empty() {
-                    let bolt_nodes = nodes_to_bolt_format(pkg_nodes);
-                    let _ = uploader
-                        .flush_stage(neo, "package_nodes", &bolt_nodes)
-                        .await;
-                }
-            }
-        }
-
-        if let Some(first_repo) = &self.repos.first() {
+        if let Some(first_repo) = &self.0.first() {
             first_repo.send_status_update("linking_graphs", 14);
         }
         info!("linking e2e tests");
@@ -192,278 +145,6 @@ impl Repos {
         info!("Graph complete: {} nodes, {} edges", nodes_size, edges_size);
 
         Ok(graph)
-    }
-
-    fn add_workspace_root_to_graph<G: Graph>(
-        &self,
-        graph: &mut G,
-        workspace_root: &PathBuf,
-    ) -> Result<Vec<(NodeType, NodeData)>> {
-        use std::fs;
-
-        let mut new_nodes: Vec<(NodeType, NodeData)> = Vec::new();
-
-        // Use strip_tmp to match how other Repository nodes store their file paths
-        let root_path = strip_tmp(workspace_root).display().to_string();
-
-        let folder_name = workspace_root
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "workspace".to_string());
-        let url = self.repos.first().map(|r| r.url.as_str()).unwrap_or("");
-        let root_name = get_repo_name_from_url(url, &folder_name);
-
-        let mut root_data = NodeData::in_file(&root_path);
-        root_data.name = root_name;
-        graph.add_node(NodeType::Repository, root_data.clone());
-        new_nodes.push((NodeType::Repository, root_data.clone()));
-
-        // Detect and add Language node if root has a language
-        if let Some(lang) = self.detect_root_language(workspace_root) {
-            let mut lang_data = NodeData::in_file(&root_path);
-            lang_data.name = lang.to_string();
-            graph.add_node_with_parent(
-                NodeType::Language,
-                lang_data.clone(),
-                NodeType::Repository,
-                &root_path,
-            );
-            new_nodes.push((NodeType::Language, lang_data));
-        }
-
-        // Add root-level files (non-recursive)
-        if let Ok(entries) = fs::read_dir(workspace_root) {
-            let skip_file_content = std::env::var("DEV_SKIP_FILE_CONTENT").is_ok();
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    let file_path = strip_tmp(&path).display().to_string();
-
-                    if !graph
-                        .find_nodes_by_name(NodeType::File, &file_path)
-                        .is_empty()
-                    {
-                        continue;
-                    }
-
-                    let file_name = path
-                        .file_name()
-                        .map(|s| s.to_string_lossy().to_string())
-                        .unwrap_or_default();
-
-                    let mut file_data = NodeData::in_file(&file_path);
-                    file_data.name = file_name;
-
-                    if !skip_file_content {
-                        if let Ok(content) = fs::read_to_string(&path) {
-                            file_data.body = content;
-                        }
-                    }
-                    file_data.hash = Some(sha256::digest(&file_data.body));
-
-                    graph.add_node_with_parent(
-                        NodeType::File,
-                        file_data.clone(),
-                        NodeType::Repository,
-                        &root_path,
-                    );
-                    new_nodes.push((NodeType::File, file_data));
-                }
-            }
-        }
-
-        let all_repos = graph.find_nodes_by_type(NodeType::Repository);
-
-        for repo in &self.repos {
-            let repo_path = strip_tmp(&repo.root).display().to_string();
-            if repo_path == root_path {
-                continue;
-            }
-            if let Some(pkg_data) = all_repos.iter().find(|r| r.file == repo_path) {
-                let edge = Edge::contains(
-                    NodeType::Repository,
-                    &root_data,
-                    NodeType::Repository,
-                    pkg_data,
-                );
-                graph.add_edge(edge);
-            }
-        }
-
-        Ok(new_nodes)
-    }
-
-    fn detect_root_language(&self, dir: &PathBuf) -> Option<Language> {
-        if dir.join("Cargo.toml").exists() {
-            return Some(Language::Rust);
-        }
-        if dir.join("go.mod").exists() {
-            return Some(Language::Go);
-        }
-        if dir.join("package.json").exists() {
-            if dir.join("angular.json").exists() {
-                return Some(Language::Angular);
-            }
-            return Some(Language::Typescript);
-        }
-        if dir.join("requirements.txt").exists()
-            || dir.join("setup.py").exists()
-            || dir.join("pyproject.toml").exists()
-        {
-            return Some(Language::Python);
-        }
-        if dir.join("Gemfile").exists() {
-            return Some(Language::Ruby);
-        }
-        if dir.join("composer.json").exists() {
-            return Some(Language::Php);
-        }
-        if dir.join("pom.xml").exists() {
-            return Some(Language::Java);
-        }
-        if dir.join("build.gradle").exists() || dir.join("build.gradle.kts").exists() {
-            return Some(Language::Kotlin);
-        }
-        None
-    }
-
-    fn create_deduplicated_language_nodes<G: Graph>(
-        &self,
-        graph: &mut G,
-        workspace_root: &PathBuf,
-    ) -> Result<Vec<(NodeType, NodeData)>> {
-        use std::collections::HashSet;
-        let mut new_nodes: Vec<(NodeType, NodeData)> = Vec::new();
-        let mut unique_languages: HashSet<Language> = HashSet::new();
-
-        if let Some(root_lang) = self.detect_root_language(workspace_root) {
-            unique_languages.insert(root_lang);
-        }
-
-        for pkg_info in &self.packages {
-            unique_languages.insert(pkg_info.language.clone());
-        }
-
-        let canonical_root = workspace_root
-            .canonicalize()
-            .unwrap_or_else(|_| workspace_root.clone());
-        let root_path = strip_tmp(&canonical_root).display().to_string();
-        for lang in unique_languages {
-            let mut lang_data = NodeData::in_file(&root_path);
-            lang_data.name = lang.to_string();
-            graph.add_node(NodeType::Language, lang_data.clone());
-            new_nodes.push((NodeType::Language, lang_data));
-        }
-
-        Ok(new_nodes)
-    }
-
-    fn add_package_nodes_to_graph<G: Graph>(
-        &self,
-        graph: &mut G,
-        workspace_root: &PathBuf,
-    ) -> Result<Vec<(NodeType, NodeData)>> {
-        let mut new_nodes: Vec<(NodeType, NodeData)> = Vec::new();
-
-        if self.packages.is_empty() {
-            return Ok(new_nodes);
-        }
-
-        let root_path = strip_tmp(workspace_root).display().to_string();
-
-        let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
-        let root_repo_data = repo_nodes
-            .iter()
-            .find(|n| n.file == root_path)
-            .cloned()
-            .unwrap_or_else(|| {
-                let folder_name = workspace_root
-                    .file_name()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "workspace".to_string());
-                let url = self.repos.first().map(|r| r.url.as_str()).unwrap_or("");
-                let root_name = get_repo_name_from_url(url, &folder_name);
-                let mut data = NodeData::in_file(&root_path);
-                data.name = root_name;
-                data
-            });
-
-        for pkg_info in &self.packages {
-            let pkg_path = strip_tmp(&pkg_info.path).display().to_string();
-
-            let mut pkg_data = NodeData::in_file(&pkg_path);
-            pkg_data.name = pkg_info.name.clone();
-
-            if let Some(framework) = &pkg_info.framework {
-                pkg_data
-                    .meta
-                    .insert("framework".to_string(), framework.clone());
-            }
-            pkg_data
-                .meta
-                .insert("language".to_string(), pkg_info.language.to_string());
-
-            graph.add_node(NodeType::Package, pkg_data.clone());
-            new_nodes.push((NodeType::Package, pkg_data.clone()));
-
-            graph.add_edge(Edge::contains(
-                NodeType::Repository,
-                &root_repo_data,
-                NodeType::Package,
-                &pkg_data,
-            ));
-
-            let lang_nodes = graph.find_nodes_by_type(NodeType::Language);
-            if let Some(lang_node) = lang_nodes
-                .iter()
-                .find(|n| n.name == pkg_info.language.to_string())
-            {
-                graph.add_edge(Edge::of_typed(
-                    NodeType::Package,
-                    &pkg_data,
-                    NodeType::Language,
-                    lang_node,
-                ));
-            }
-        }
-
-        Ok(new_nodes)
-    }
-
-    fn link_toplevel_directories_to_repository<G: Graph>(
-        &self,
-        graph: &mut G,
-        workspace_root: &PathBuf,
-    ) -> Result<()> {
-        let root_path = strip_tmp(workspace_root).display().to_string();
-
-        let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
-        let repo_data = match repo_nodes.iter().find(|n| n.file == root_path) {
-            Some(data) => data.clone(),
-            None => {
-                warn!("Repository node not found for {}", root_path);
-                return Ok(());
-            }
-        };
-
-        let dir_nodes = graph.find_nodes_by_type(NodeType::Directory);
-
-        for dir_data in &dir_nodes {
-            let dir_path = &dir_data.file;
-            if let Some(stripped) = dir_path.strip_prefix(&root_path) {
-                let stripped = stripped.trim_start_matches('/');
-                if !stripped.is_empty() && !stripped.contains('/') {
-                    graph.add_edge(Edge::contains(
-                        NodeType::Repository,
-                        &repo_data,
-                        NodeType::Directory,
-                        dir_data,
-                    ));
-                }
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -512,7 +193,6 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls: false,
             skip_calls: false,
-            is_package: false,
         })
     }
     pub async fn new_clone_multi_detect(
@@ -544,8 +224,6 @@ impl Repo {
             revs.len() / urls.len()
         };
         let mut repos: Vec<Repo> = Vec::new();
-        let mut all_packages: Vec<crate::workspace::PackageInfo> = Vec::new();
-        let mut workspace_root: Option<PathBuf> = None;
         for (i, url) in urls.iter().enumerate() {
             let gurl = GitUrl::parse(url).map_err(|e| {
                 Error::Custom(format!("Failed to parse Git URL for {}: {}", url, e))
@@ -571,17 +249,9 @@ impl Repo {
                 use_lsp,
             )
             .await?;
-            repos.extend(detected.repos);
-            all_packages.extend(detected.packages);
-            if workspace_root.is_none() {
-                workspace_root = detected.workspace_root;
-            }
+            repos.extend(detected.0);
         }
-        Ok(Repos {
-            repos,
-            packages: all_packages,
-            workspace_root,
-        })
+        Ok(Repos(repos))
     }
     pub async fn new_multi_detect(
         root: &str,
@@ -590,65 +260,6 @@ impl Repo {
         revs: Vec<String>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
-        if let Some(packages) = crate::workspace::detect_workspaces(Path::new(root))? {
-            let mut repos: Vec<Repo> = Vec::new();
-            let mut package_infos: Vec<crate::workspace::PackageInfo> = Vec::new();
-
-            // Group packages by language
-            let mut lang_groups: std::collections::HashMap<
-                Language,
-                Vec<crate::workspace::WorkspacePackage>,
-            > = std::collections::HashMap::new();
-            for pkg in packages {
-                lang_groups
-                    .entry(pkg.language.clone())
-                    .or_default()
-                    .push(pkg);
-            }
-
-            // Process each language group with a shared LSP
-            for (language, pkgs) in lang_groups {
-                let thelang = Lang::from_language(language.clone());
-                let lsp_enabled = use_lsp.unwrap_or_else(|| thelang.kind.default_do_lsp());
-
-                // Run post-clone commands at workspace root for this language
-                for cmd in thelang.kind.post_clone_cmd(lsp_enabled) {
-                    Self::run_cmd(cmd, root).map_err(|e| {
-                        Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
-                    })?;
-                }
-
-                // Start ONE LSP for this language group at workspace root
-                let shared_lsp_tx = Self::start_lsp(root, &thelang, lsp_enabled)
-                    .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
-
-                // Create Repo for each package in this language group, sharing the LSP
-                for pkg in pkgs {
-                    repos.push(Repo {
-                        url: url.clone().unwrap_or_default(),
-                        root: pkg.path.clone(),
-                        lang: Lang::from_language(pkg.language.clone()),
-                        lsp_tx: shared_lsp_tx.clone(),
-                        files_filter: files_filter.clone(),
-                        revs: revs.clone(),
-                        status_tx: None,
-                        allow_unverified_calls: false,
-                        skip_calls: false,
-                        is_package: true,
-                    });
-
-                    package_infos.push(crate::workspace::PackageInfo::from(pkg));
-                }
-            }
-            info!("Detected monorepo: {} packages", repos.len());
-            return Ok(Repos {
-                repos,
-                packages: package_infos,
-                workspace_root: Some(root.into()),
-            });
-        }
-
-        // First, collect all detected languages
         let mut detected_langs: Vec<Language> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
             if let Ok(only_lang) = std::env::var("ONLY_LANG") {
@@ -729,14 +340,9 @@ impl Repo {
                 status_tx: None,
                 allow_unverified_calls: false,
                 skip_calls: false,
-                is_package: false,
             });
         }
-        Ok(Repos {
-            repos,
-            packages: Vec::new(),
-            workspace_root: None,
-        })
+        Ok(Repos(repos))
     }
     pub async fn new_clone_to_tmp(
         url: &str,
@@ -771,7 +377,6 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls: false,
             skip_calls: false,
-            is_package: false,
         })
     }
     fn run_cmd(cmd: &str, root: &str) -> Result<()> {
@@ -987,7 +592,6 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls,
             skip_calls,
-            is_package: false,
         })
     }
     pub fn from_single_file(
@@ -1011,7 +615,6 @@ impl Repo {
             status_tx: None,
             allow_unverified_calls,
             skip_calls,
-            is_package: false,
         })
     }
 }

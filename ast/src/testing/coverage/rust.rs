@@ -1,3 +1,4 @@
+use crate::lang::graphs::graph_ops::GraphOps;
 use crate::lang::graphs::{BTreeMapGraph, EdgeType, Graph, NodeType, TestFilters};
 use crate::lang::Lang;
 use crate::repo::{Repo, Repos};
@@ -21,14 +22,14 @@ async fn setup_rust_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
             )
             .unwrap();
 
-            let repos = Repos { repos: vec![repo], packages: Vec::new(), workspace_root: None };
+            let repos = Repos(vec![repo]);
             let btree_graph = repos
                 .build_graphs_btree()
                 .await
                 .expect("Failed to build graph");
             btree_graph.analysis();
 
-            let mut graph_ops = crate::lang::graphs::graph_ops::GraphOps::new();
+            let mut graph_ops = GraphOps::new();
             graph_ops.connect().await.expect("Failed to connect");
             graph_ops
                 .graph
