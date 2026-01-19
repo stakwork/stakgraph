@@ -140,6 +140,17 @@ impl Repos {
                 }
             }
 
+            let lang_nodes = self.create_deduplicated_language_nodes(&mut graph, workspace_root)?;
+            #[cfg(feature = "neo4j")]
+            if let Some((neo, uploader)) = &mut streaming_ctx {
+                if !lang_nodes.is_empty() {
+                    let bolt_nodes = nodes_to_bolt_format(lang_nodes);
+                    let _ = uploader
+                        .flush_stage(neo, "language_nodes", &bolt_nodes)
+                        .await;
+                }
+            }
+
             let pkg_nodes = self.add_package_nodes_to_graph(&mut graph, workspace_root)?;
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
@@ -305,6 +316,35 @@ impl Repos {
         None
     }
 
+    fn create_deduplicated_language_nodes<G: Graph>(
+        &self,
+        graph: &mut G,
+        workspace_root: &PathBuf,
+    ) -> Result<Vec<(NodeType, NodeData)>> {
+        use std::collections::HashSet;
+        let mut new_nodes: Vec<(NodeType, NodeData)> = Vec::new();
+        let mut unique_languages: HashSet<Language> = HashSet::new();
+
+        if let Some(root_lang) = self.detect_root_language(workspace_root) {
+            unique_languages.insert(root_lang);
+        }
+
+        for pkg_info in &self.packages {
+            unique_languages.insert(pkg_info.language.clone());
+        }
+
+        let canonical_root = workspace_root.canonicalize().unwrap_or_else(|_| workspace_root.clone());
+        let root_path = strip_tmp(&canonical_root).display().to_string();
+        for lang in unique_languages {
+            let mut lang_data = NodeData::in_file(&root_path);
+            lang_data.name = lang.to_string();
+            graph.add_node(NodeType::Language, lang_data.clone());
+            new_nodes.push((NodeType::Language, lang_data));
+        }
+
+        Ok(new_nodes)
+    }
+
     fn add_package_nodes_to_graph<G: Graph>(
         &self,
         graph: &mut G,
@@ -356,14 +396,15 @@ impl Repos {
                 &pkg_data,
             ));
             
-            let mut lang_data = NodeData::in_file(&pkg_path);
-            lang_data.name = pkg_info.language.to_string();
-            graph.add_edge(Edge::contains(
-                NodeType::Package,
-                &pkg_data,
-                NodeType::Language,
-                &lang_data,
-            ));
+            let lang_nodes = graph.find_nodes_by_type(NodeType::Language);
+            if let Some(lang_node) = lang_nodes.iter().find(|n| n.name == pkg_info.language.to_string()) {
+                graph.add_edge(Edge::of_typed(
+                    NodeType::Package,
+                    &pkg_data,
+                    NodeType::Language,
+                    lang_node,
+                ));
+            }
         }
 
         Ok(new_nodes)

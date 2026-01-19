@@ -311,7 +311,11 @@ impl Repo {
                 (NodeType::Directory, parent)
             } else {
                 let repo_file = strip_tmp(&self.root).display().to_string();
-                (NodeType::Repository, repo_file)
+                if self.is_package {
+                    (NodeType::Package, repo_file)
+                } else {
+                    (NodeType::Repository, repo_file)
+                }
             };
 
             let dir_name = dir_no_tmp.rsplit('/').next().unwrap().to_string();
@@ -551,22 +555,21 @@ impl Repo {
             graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
         }
 
-        debug!("add language for: {}", repo_file);
-        let lang_data = NodeData {
-            name: self.lang.kind.to_string(),
-            file: strip_tmp(&self.root).display().to_string(),
-            ..Default::default()
-        };
         if !self.is_package {
-            graph.add_node_with_parent(
-                NodeType::Language,
-                lang_data,
-                NodeType::Repository,
-                &repo_file,
-            );
-        } else {
-            info!("Adding Language node for package (will be linked to Package node): {}", self.lang.kind);
-            graph.add_node(NodeType::Language, lang_data);
+            debug!("add language for: {}", repo_file);
+            let mut lang_data = NodeData::in_file(&repo_file);
+            lang_data.name = self.lang.kind.to_string();
+            graph.add_node(NodeType::Language, lang_data.clone());
+            
+            let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
+            if let Some(repo_node) = repo_nodes.iter().find(|n| n.file == repo_file) {
+                graph.add_edge(Edge::of_typed(
+                    NodeType::Repository,
+                    repo_node,
+                    NodeType::Language,
+                    &lang_data,
+                ));
+            }
         }
 
         let mut stats = std::collections::HashMap::new();

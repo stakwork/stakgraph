@@ -254,10 +254,10 @@ async fn check_monorepo_graph<G: Graph + 'static>(
 
     assert_eq!(
         packages.len(),
-        expected_langs.len(),
+        expected_files.len(),
         "Package count mismatch for {}: \n  Expected: {} packages\n  Actual: {} packages\n  Detected Packages: {}\n  Details: {}",
         fixture,
-        expected_langs.len(),
+        expected_files.len(),
         packages.len(),
         packages.len(),
         packages
@@ -323,15 +323,15 @@ async fn check_monorepo_graph<G: Graph + 'static>(
 
 #[tokio::test]
 async fn test_monorepo_graph_construction() -> Result<()> {
-    // 1. Mixed Go/Angular (NX) - unique languages: Go, Typescript, Angular
+    // 1. Mixed Go/Angular (NX) - 3 packages, 3 unique languages: Go, Typescript, Angular
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_nx_mixed",
         &["Go", "Typescript", "Angular"],
-        &["apps/api/main.go", "apps/web/package.json"],
+        &["apps/api/main.go", "libs/shared/package.json", "apps/web/package.json"],
     )
     .await?;
 
-    // 2. Mixed Go/Typescript (NPM) - unique languages: Go, Typescript
+    // 2. Mixed Go/Typescript (NPM) - 2 packages, 2 unique languages: Go, Typescript
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_npm_go",
         &["Go", "Typescript"],
@@ -339,10 +339,10 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 3. Rust Workspace - 2 packages: api, shared (root doesn't add extra Language)
+    // 3. Rust Workspace - 2 packages, 1 unique language: Rust
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_rust",
-        &["Rust", "Rust"],
+        &["Rust"],
         &["api/Cargo.toml", "shared/Cargo.toml"],
     )
     .await?;
@@ -355,10 +355,10 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 5. Turbo (TS) - 3 packages with Languages
+    // 5. Turbo (TS) - 3 packages, 1 unique language: Typescript
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_turbo_ts",
-        &["Typescript", "Typescript", "Typescript"],
+        &["Typescript"],
         &[
             "apps/api/package.json",
             "apps/web/package.json",
@@ -367,10 +367,10 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 6. Python + Rust - 3 packages with Languages
+    // 6. Python + Rust - 3 packages, 2 unique languages: Python, Rust
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_python_rust",
-        &["Python", "Rust", "Python"],
+        &["Python", "Rust"],
         &[
             "services/web/app.py",
             "services/processor/Cargo.toml",
@@ -379,10 +379,10 @@ async fn test_monorepo_graph_construction() -> Result<()> {
     )
     .await?;
 
-    // 7. Simple TS - unique languages: Typescript, Typescript
+    // 7. Simple TS - 2 packages, 1 unique language: Typescript
     check_monorepo_graph::<crate::lang::BTreeMapGraph>(
         "monorepo_simple_ts",
-        &["Typescript", "Typescript"],
+        &["Typescript"],
         &["frontend/package.json", "backend/package.json"],
     )
     .await?;
@@ -393,23 +393,23 @@ async fn test_monorepo_graph_construction() -> Result<()> {
 #[cfg(feature = "neo4j")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
-    // 1. Mixed Go/Angular (NX)
+    // 1. Mixed Go/Angular (NX) - 3 packages, 3 unique languages
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_nx_mixed",
         &["Go", "Typescript", "Angular"],
-        &["apps/api/main.go", "apps/web/package.json"],
+        &["apps/api/main.go", "libs/shared/package.json", "apps/web/package.json"],
     )
     .await?;
 
-    // 3. Rust Workspace
+    // 3. Rust Workspace - 2 packages, 1 unique language
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_rust",
-        &["Rust", "Rust"],
+        &["Rust"],
         &["api/Cargo.toml", "shared/Cargo.toml"],
     )
     .await?;
 
-    // 4. NPM + Go
+    // 4. NPM + Go - 2 packages, 2 unique languages
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_npm_go",
         &["Go", "Typescript"],
@@ -417,10 +417,10 @@ async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
     )
     .await?;
 
-    // 5. Turbo (TS)
+    // 5. Turbo (TS) - 3 packages, 1 unique language
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_turbo_ts",
-        &["Typescript", "Typescript", "Typescript"],
+        &["Typescript"],
         &[
             "apps/api/package.json",
             "apps/web/package.json",
@@ -428,10 +428,10 @@ async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
         ],
     )
     .await?;
-    // 6. Python + Rust
+    // 6. Python + Rust - 3 packages, 2 unique languages
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_python_rust",
-        &["Python", "Rust", "Python"],
+        &["Python", "Rust"],
         &[
             "services/web/app.py",
             "services/processor/Cargo.toml",
@@ -440,10 +440,10 @@ async fn test_monorepo_graph_construction_neo4j() -> Result<()> {
     )
     .await?;
 
-    // 7. Simple TS
+    // 7. Simple TS - 2 packages, 1 unique language
     check_monorepo_graph::<crate::lang::graphs::Neo4jGraph>(
         "monorepo_simple_ts",
-        &["Typescript", "Typescript"],
+        &["Typescript"],
         &["frontend/package.json", "backend/package.json"],
     )
     .await?;
@@ -707,11 +707,11 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
         repo_to_pkg_edges.len()
     );
 
-    // Package -> Language CONTAINS edges (should have 4: each package -> its language)
+    // Package -> Language OF edges (should have 4: each package -> its language)
     let pkg_to_lang_edges: Vec<_> = edges
         .iter()
         .filter(|e| {
-            e.edge == EdgeType::Contains
+            e.edge == EdgeType::Of
                 && e.source.node_type == NodeType::Package
                 && e.target.node_type == NodeType::Language
         })
@@ -720,7 +720,7 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
     assert_eq!(
         pkg_to_lang_edges.len(),
         4,
-        "Should have 4 CONTAINS edges from Packages to Languages, got {}",
+        "Should have 4 OF edges from Packages to Languages, got {}",
         pkg_to_lang_edges.len()
     );
 
