@@ -1,0 +1,598 @@
+[
+  {
+    "category": "Endpoints",
+    "query": "POST /api/gitsee",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/gitsee/route.ts",
+        "name": "POST",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "GET /api/workspaces",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/workspaces/route.ts",
+        "name": "GET",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "janitor webhook handler",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/janitors/webhook/route.ts",
+        "name": "POST",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "auth middleware",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/middleware.ts",
+        "name": "middleware",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "upload endpoint",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/upload/route.ts",
+        "name": "POST",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "chat api",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/chat/route.ts",
+        "name": "POST",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "check url endpoint",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/check-url/route.ts",
+        "name": "POST",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "stakwork webhook",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/webhook/stakwork/response/route.ts",
+        "name": "POST",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "github auth route",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/auth/[...nextauth]/route.ts",
+        "name": "GET",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "swarm status endpoint",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/swarm/route.ts",
+        "name": "GET",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Endpoints",
+    "query": "learning endpoint",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/app/api/learnings/route.ts",
+        "name": "GET",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Janitor service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/janitor.ts",
+        "name": "JanitorService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Pool Manager service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/pool-manager/pool-manager.ts",
+        "name": "PoolManager",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Stakwork Run service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/stakwork-run.ts",
+        "name": "StakworkRunService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Swarm Infrastructure",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/swarm/SwarmService.ts",
+        "name": "SwarmService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Pod Repair",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/pod-repair-cron.ts",
+        "name": "PodRepairCron",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Workspace Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/workspace.ts",
+        "name": "WorkspaceService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "S3 Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/s3.ts",
+        "name": "S3Service",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Diagram Storage",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/diagram-storage.ts",
+        "name": "DiagramStorageService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Gemini Image Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/gemini-image.ts",
+        "name": "GeminiImageService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Stakgraph Webhook Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/swarm/StakgraphWebhookService.ts",
+        "name": "StakgraphWebhookService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Wizard Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/wizard/WizardService.ts",
+        "name": "WizardService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Workspace Logo Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/workspace-logo.ts",
+        "name": "WorkspaceLogoService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Concepts",
+    "query": "Task Coordinator Service",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/services/task-coordinator.ts",
+        "name": "TaskCoordinatorService",
+        "node_type": "Class"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "Workspace model",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "Workspace",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "Swarm model",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "Swarm",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "JanitorConfig",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "JanitorConfig",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "Common Tasks",
+    "query": "seed database script",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/helpers/seed-database.ts",
+        "name": "main",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "JanitorRecommendation",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "JanitorRecommendation",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "Task model",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "Task",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "ChatMessage",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "ChatMessage",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "Artifact model",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "Artifact",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "SourceControlOrg",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "SourceControlOrg",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "SourceControlToken",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "SourceControlToken",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "UserRole",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "UserRole",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "TaskStatus",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "TaskStatus",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Entities",
+    "query": "SharedConversation",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "name": "SharedConversation",
+        "node_type": "DataModel"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "rotate encryption keys",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/rotate-encryption-key.ts",
+        "name": "rotateKeys",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "validate e2e migration",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/validate-e2e-migration.ts",
+        "name": "validateMigration",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "setup env script",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/setup-env.js",
+        "node_type": "File"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "setup test db",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/setup-test-db.js",
+        "node_type": "File"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "cleanup test db",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/cleanup-test-db.js",
+        "node_type": "File"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "decrypt json file",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/decrypt-json-file.ts",
+        "name": "main",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "verify shared conversation",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/verify-shared-conversation.js",
+        "name": "main",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "sync done tasks",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/sync-done-tasks-workflow-status.ts",
+        "name": "main",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "migrate e2e to tasks",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/migrate-e2e-to-tasks.ts",
+        "name": "migrateE2EToTasks",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "test encryption",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "scripts/test-encryption.ts",
+        "name": "testEncryption",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "prisma schema",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "prisma/schema.prisma",
+        "node_type": "File"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "error handling middleware",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/middleware.ts",
+        "name": "middleware",
+        "node_type": "Function"
+      }
+    ]
+  },
+  {
+    "category": "Common Tasks",
+    "query": "websocket types",
+    "k": 10,
+    "expected": [
+      {
+        "file_endswith": "src/types/stakwork/websocket.ts",
+        "node_type": "File"
+      }
+    ]
+  }
+]
