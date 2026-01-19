@@ -27,7 +27,7 @@ impl FrontendArtefact<'_> {
             request: vec![("GET", "/people"), ("POST", "/person")],
             pages: vec!["/new-person", "/people"],
             data_model: "Person",
-            contains_pages_and_components: vec![&LspLanguage::React],
+            contains_pages_and_components: vec![&LspLanguage::Typescript],
         }
     }
 }

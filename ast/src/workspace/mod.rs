@@ -1,5 +1,6 @@
 use lsp::language::Language;
 use shared::error::Result;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -7,6 +8,87 @@ pub struct WorkspacePackage {
     pub path: PathBuf,
     pub name: String,
     pub language: Language,
+}
+
+#[derive(Debug, Clone)]
+pub struct PackageInfo {
+    pub path: PathBuf,
+    pub name: String,
+    pub language: Language,
+    pub framework: Option<String>,
+}
+
+impl From<WorkspacePackage> for PackageInfo {
+    fn from(pkg: WorkspacePackage) -> Self {
+        let framework = detect_framework(&pkg.path, &pkg.language);
+        PackageInfo {
+            path: pkg.path,
+            name: pkg.name,
+            language: pkg.language,
+            framework,
+        }
+    }
+}
+
+fn detect_framework(path: &Path, lang: &Language) -> Option<String> {
+    match lang {
+        Language::Typescript => {
+            if let Ok(content) = std::fs::read_to_string(path.join("package.json")) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(deps) = json.get("dependencies") {
+                        if deps.get("next").is_some() {
+                            return Some("next".into());
+                        }
+                        if deps.get("react").is_some() {
+                            return Some("react".into());
+                        }
+                        if deps.get("express").is_some() {
+                            return Some("express".into());
+                        }
+                        if deps.get("fastify").is_some() {
+                            return Some("fastify".into());
+                        }
+                    }
+                }
+            }
+            None
+        }
+        Language::Rust => {
+            if let Ok(content) = std::fs::read_to_string(path.join("Cargo.toml")) {
+                if content.contains("axum") {
+                    return Some("axum".into());
+                }
+                if content.contains("actix") {
+                    return Some("actix".into());
+                }
+            }
+            None
+        }
+        Language::Go => {
+            if let Ok(content) = std::fs::read_to_string(path.join("go.mod")) {
+                if content.contains("gin-gonic") {
+                    return Some("gin".into());
+                }
+                if content.contains("gorilla/mux") {
+                    return Some("gorilla".into());
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+pub fn group_packages_by_language(
+    packages: Vec<WorkspacePackage>,
+) -> HashMap<String, Vec<PackageInfo>> {
+    let mut groups: HashMap<String, Vec<PackageInfo>> = HashMap::new();
+    for pkg in packages {
+        let lang_key = pkg.language.to_string();
+        let info = PackageInfo::from(pkg);
+        groups.entry(lang_key).or_default().push(info);
+    }
+    groups
 }
 
 pub fn detect_workspaces(root: &Path) -> Result<Option<Vec<WorkspacePackage>>> {
@@ -103,7 +185,7 @@ fn is_actual_package(dir: &Path, lang: &Language) -> bool {
         Language::Rust => std::fs::read_to_string(dir.join("Cargo.toml"))
             .map(|c| c.contains("[package]"))
             .unwrap_or(false),
-        Language::Typescript | Language::React | Language::Angular | Language::Svelte => {
+        Language::Typescript | Language::Angular | Language::Svelte => {
             let has_workspaces = std::fs::read_to_string(dir.join("package.json"))
                 .ok()
                 .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
@@ -135,12 +217,6 @@ fn classify_js_package(dir: &Path) -> Language {
     if let Ok(content) = std::fs::read_to_string(dir.join("package.json")) {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
             if let Some(deps) = json.get("dependencies") {
-                if deps.get("react").is_some()
-                    || deps.get("next").is_some()
-                    || deps.get("vue").is_some()
-                {
-                    return Language::React;
-                }
                 if deps.get("@angular/core").is_some() {
                     return Language::Angular;
                 }

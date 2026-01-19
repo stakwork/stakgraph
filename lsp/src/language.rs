@@ -2,12 +2,11 @@ use serde::{Deserialize, Serialize};
 use shared::error::{Error, Result};
 use std::{fmt::Display, str::FromStr};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Language {
     Bash,
     Toml,
     Rust,
-    React,
     Go,
     Typescript,
     Python,
@@ -21,11 +20,10 @@ pub enum Language {
     Php,
 }
 
-pub const PROGRAMMING_LANGUAGES: [Language; 13] = [
+pub const PROGRAMMING_LANGUAGES: [Language; 12] = [
     Language::Rust,
     Language::Go,
     Language::Typescript,
-    Language::React,
     Language::Python,
     Language::Ruby,
     Language::Kotlin,
@@ -41,14 +39,14 @@ impl Language {
     pub fn is_frontend(&self) -> bool {
         matches!(
             self,
-            Self::Typescript | Self::React | Self::Kotlin | Self::Swift
+            Self::Typescript | Self::Kotlin | Self::Swift
         )
     }
     pub fn pkg_files(&self) -> Vec<&'static str> {
         match self {
             Self::Rust => vec!["Cargo.toml"],
             Self::Go => vec!["go.mod"],
-            Self::Typescript | Self::React => vec!["package.json"],
+            Self::Typescript => vec!["package.json"],
             Self::Python => vec!["requirements.txt"],
             Self::Ruby => vec!["Gemfile"],
             Self::Kotlin => vec![".gradle.kts", ".gradle", ".properties"],
@@ -74,9 +72,7 @@ impl Language {
             Self::Java => vec!["java", "gradle", "gradlew"],
             Self::Bash => vec!["sh"],
             Self::Toml => vec!["toml"],
-            // how to separate ts and js?
-            Self::Typescript => vec!["ts", "js"],
-            Self::React => vec!["jsx", "tsx", "mdx", "ts", "js", "html", "css"],
+            Self::Typescript => vec!["ts", "js", "jsx", "tsx", "mdx", "html", "css"],
             Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
             Self::Angular => vec!["ts", "js", "html", "css"],
             Self::Cpp => vec!["cpp", "h"],
@@ -84,13 +80,20 @@ impl Language {
         }
     }
 
-    // React overrides Typescript if detected
     pub fn overrides(&self) -> Vec<Language> {
         match self {
-            Self::React => vec![Self::Typescript, Self::Svelte, Self::Angular],
             Self::Svelte => vec![Self::Typescript],
             Self::Angular => vec![Self::Typescript],
             _ => Vec::new(),
+        }
+    }
+
+    // Used to distinguish between similar languages (e.g., Angular vs plain TypeScript).
+    pub fn required_indicator_files(&self) -> Vec<&'static str> {
+        match self {
+            Self::Svelte => vec!["svelte.config.js", "svelte.config.ts"],
+            Self::Angular => vec!["angular.json"],
+            _ => vec![],
         }
     }
 
@@ -98,7 +101,7 @@ impl Language {
         match self {
             Self::Rust => vec!["target", ".git"],
             Self::Go => vec!["vendor", ".git"],
-            Self::Typescript | Self::React => vec!["node_modules", ".git"],
+            Self::Typescript => vec!["node_modules", ".git"],
             Self::Python => vec!["__pycache__", ".git", ".venv", "venv"],
             Self::Ruby => vec!["migrate", "tmp", ".git"],
             Self::Kotlin => vec!["build", ".git"],
@@ -115,7 +118,7 @@ impl Language {
 
     pub fn skip_file_ends(&self) -> Vec<&'static str> {
         match self {
-            Self::Typescript | Self::React => vec![".min.js"],
+            Self::Typescript => vec![".min.js"],
             Self::Svelte => vec![".config.ts", ".config.ts"],
             Self::Angular => vec!["spec.ts"],
             Self::Kotlin => vec!["gradlew"],
@@ -127,7 +130,7 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => Vec::new(),
+            Self::Typescript => Vec::new(),
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -147,7 +150,7 @@ impl Language {
             if use_lsp == "true" || use_lsp == "1" {
                 matches!(
                     self,
-                    Self::Rust | Self::Go | Self::Typescript | Self::React | Self::Java
+                    Self::Rust | Self::Go | Self::Typescript | Self::Java
                 );
             }
         }
@@ -158,7 +161,7 @@ impl Language {
         match self {
             Self::Rust => "rust-analyzer",
             Self::Go => "gopls",
-            Self::Typescript | Self::React => "typescript-language-server",
+            Self::Typescript => "typescript-language-server",
             Self::Python => "pylsp",
             Self::Ruby => "ruby-lsp",
             Self::Kotlin => "kotlin-language-server",
@@ -178,7 +181,7 @@ impl Language {
         match self {
             Self::Rust => "--version",
             Self::Go => "version",
-            Self::Typescript | Self::React => "--version",
+            Self::Typescript => "--version",
             Self::Python => "--version",
             Self::Ruby => "--version",
             Self::Kotlin => "--version",
@@ -198,7 +201,7 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["--stdio".to_string()],
+            Self::Typescript => vec!["--stdio".to_string()],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -236,7 +239,7 @@ impl Language {
         match self {
             Self::Rust => Vec::new(),
             Self::Go => Vec::new(),
-            Self::Typescript | Self::React => vec!["npm install --force"],
+            Self::Typescript => vec!["npm install --force"],
             Self::Python => Vec::new(),
             Self::Ruby => Vec::new(),
             Self::Kotlin => Vec::new(),
@@ -253,7 +256,7 @@ impl Language {
 
     pub fn test_id_regex(&self) -> Option<&'static str> {
         match self {
-            Self::Typescript | Self::React => {
+            Self::Typescript => {
                 Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#)
             }
             Self::Python => Some("get_by_test_id"),
@@ -308,7 +311,6 @@ impl Display for Language {
             Self::Rust => "rust",
             Self::Go => "go",
             Self::Typescript => "typescript",
-            Self::React => "react",
             Self::Python => "python",
             Self::Ruby => "ruby",
             Self::Kotlin => "kotlin",
@@ -335,10 +337,10 @@ impl FromStr for Language {
             "Go" => Ok(Language::Go),
             "golang" => Ok(Language::Go),
             "Golang" => Ok(Language::Go),
-            "react" => Ok(Language::React),
-            "React" => Ok(Language::React),
-            "tsx" => Ok(Language::React),
-            "jsx" => Ok(Language::React),
+            "react" => Ok(Language::Typescript),
+            "React" => Ok(Language::Typescript),
+            "tsx" => Ok(Language::Typescript),
+            "jsx" => Ok(Language::Typescript),
             "ts" => Ok(Language::Typescript),
             "js" => Ok(Language::Typescript),
             "typescript" => Ok(Language::Typescript),

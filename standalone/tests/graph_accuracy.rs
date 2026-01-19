@@ -136,14 +136,35 @@ async fn test_graph_accuracy() {
         let (btree_nodes, btree_edges) = new_btree_graph.get_graph_size();
         let (neo4j_nodes, neo4j_edges) = graph_ops.graph.get_graph_size();
 
+        let (btree_node_keys, btree_edge_keys) = new_btree_graph.get_graph_keys();
+        let (neo4j_node_keys, neo4j_edge_keys) = graph_ops.graph.get_graph_keys();
+
+        let btree_nodes_only: Vec<_> = btree_node_keys.difference(&neo4j_node_keys).collect();
+        let neo4j_nodes_only: Vec<_> = neo4j_node_keys.difference(&btree_node_keys).collect();
+
+        let btree_only: Vec<_> = btree_edge_keys.difference(&neo4j_edge_keys).collect();
+        let neo4j_only: Vec<_> = neo4j_edge_keys.difference(&btree_edge_keys).collect();
+
+        assert!(
+            btree_only.is_empty() && neo4j_only.is_empty(),
+            "Edge key mismatch between BTreeMapGraph and Neo4jGraph"
+        );
+
+        assert!(
+            btree_nodes_only.is_empty() && neo4j_nodes_only.is_empty(),
+            "Node key mismatch between BTreeMapGraph and Neo4jGraph"
+        );
+
         assert_eq!(
             btree_nodes, neo4j_nodes,
-            "BTreeMapGraph and Neo4jGraph node count mismatch"
+            "BTreeMapGraph and Neo4jGraph node count mismatch. BTreeMap only: {:?}, Neo4j only: {:?}",
+            btree_nodes_only, neo4j_nodes_only
         );
 
         assert_eq!(
             btree_edges, neo4j_edges,
-            "BTreeMapGraph and Neo4jGraph edge count mismatch"
+            "BTreeMapGraph and Neo4jGraph edge count mismatch. BTreeMap only: {:?}, Neo4j only: {:?}",
+            btree_only, neo4j_only
         );
     }
 }

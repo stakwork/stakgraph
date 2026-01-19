@@ -129,11 +129,11 @@ import java.util.Optional;"#
 
     let instance_edges_count = graph.count_edges_of_type(EdgeType::Of);
     edges_count += instance_edges_count;
-    assert_eq!(instance_edges_count, 2, "Expected at 2 instance edges");
+    assert_eq!(instance_edges_count, 3, "Expected at 3 instance edges");
 
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
-    assert_eq!(contains_edges_count, 50, "Expected 50 contains edges");
+    assert_eq!(contains_edges_count, 49, "Expected 49 contains edges");
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;

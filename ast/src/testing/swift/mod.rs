@@ -276,7 +276,11 @@ end
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 89, "Expected 89 contains edges");
+    assert_eq!(contains, 88, "Expected 88 contains edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 Of edges");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;

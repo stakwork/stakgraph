@@ -268,11 +268,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let of = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of;
-    assert_eq!(of, 1, "Expected 1 of edges");
+    assert_eq!(of, 2, "Expected 2 of edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 50, "Expected 50 contains edges");
+    assert_eq!(contains, 49, "Expected 49 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();

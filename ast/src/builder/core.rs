@@ -14,6 +14,7 @@ use crate::lang::{
 };
 use crate::lang::{ArrayGraph, BTreeMapGraph};
 use crate::repo::Repo;
+use crate::workspace::PackageInfo;
 use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
@@ -46,9 +47,13 @@ impl Repo {
 
     pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
-        self.build_graph_inner_with_streaming(streaming).await
+        self.build_graph_inner_with_streaming(streaming, None).await
     }
-    pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
+    pub async fn build_graph_inner_with_streaming<G: Graph>(
+        &self,
+        streaming: bool,
+        package_info: Option<&PackageInfo>,
+    ) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         graph.set_allow_unverified_calls(self.allow_unverified_calls);
@@ -66,6 +71,30 @@ impl Repo {
 
         self.send_status_update("initialization", 1);
         self.add_repository_and_language_nodes(&mut graph).await?;
+
+        if self.is_package {
+            if let Some(pkg_info) = package_info {
+                info!(
+                    "Creating Package node loclly for subgraph: {}",
+                    pkg_info.name
+                );
+                let pkg_path = strip_tmp(&pkg_info.path).display().to_string();
+                let mut pkg_data = NodeData::in_file(&pkg_path);
+                pkg_data.name = pkg_info.name.clone();
+
+                if let Some(framework) = &pkg_info.framework {
+                    pkg_data
+                        .meta
+                        .insert("framework".to_string(), framework.clone());
+                }
+                pkg_data
+                    .meta
+                    .insert("language".to_string(), pkg_info.language.to_string());
+
+                graph.add_node(NodeType::Package, pkg_data);
+            }
+        }
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
@@ -311,7 +340,11 @@ impl Repo {
                 (NodeType::Directory, parent)
             } else {
                 let repo_file = strip_tmp(&self.root).display().to_string();
-                (NodeType::Repository, repo_file)
+                if self.is_package {
+                    (NodeType::Package, repo_file)
+                } else {
+                    (NodeType::Repository, repo_file)
+                }
             };
 
             let dir_name = dir_no_tmp.rsplit('/').next().unwrap().to_string();
@@ -523,7 +556,7 @@ impl Repo {
         Ok(())
     }
     async fn add_repository_and_language_nodes<G: Graph>(&self, graph: &mut G) -> Result<()> {
-        info!("Root: {:?}", self.root);
+        info!("Root: {:?}, is_package: {}", self.root, self.is_package);
         let commit_hash = get_commit_hash(self.root.to_str().unwrap()).await?;
         info!("Commit(commit_hash): {:?}", commit_hash);
 
@@ -533,32 +566,51 @@ impl Repo {
         } else {
             ("".to_string(), format!("{:?}", self.lang.kind))
         };
-        info!("add repository... {}", self.root.display());
-        let repo_file = strip_tmp(&self.root).display().to_string();
-        let mut repo_data = NodeData {
-            name: format!("{}/{}", org, repo_name),
-            file: repo_file.clone(),
-            hash: Some(commit_hash.to_string()),
-            ..Default::default()
-        };
-        repo_data.add_source_link(&self.url);
-        graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
 
-        debug!("add language...");
-        let lang_data = NodeData {
-            name: self.lang.kind.to_string(),
-            file: strip_tmp(&self.root).display().to_string(),
-            ..Default::default()
-        };
-        graph.add_node_with_parent(
-            NodeType::Language,
-            lang_data,
-            NodeType::Repository,
-            &repo_file,
-        );
+        let repo_file = strip_tmp(&self.root).display().to_string();
+
+        // SKIP Repository node creation for packages - Package nodes are created separately
+        if self.is_package {
+            info!(
+                "SKIPPING Repository node for package: {} (will be created as Package node)",
+                repo_file
+            );
+        } else {
+            info!(
+                "Creating Repository node: {} (name: {}/{})",
+                repo_file, org, repo_name
+            );
+            let mut repo_data = NodeData {
+                name: format!("{}/{}", org, repo_name),
+                file: repo_file.clone(),
+                hash: Some(commit_hash.to_string()),
+                ..Default::default()
+            };
+            repo_data.add_source_link(&self.url);
+            graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
+        }
+
+        if !self.is_package {
+            debug!("add language for: {}", repo_file);
+            let mut lang_data = NodeData::in_file(&repo_file);
+            lang_data.name = self.lang.kind.to_string();
+            graph.add_node(NodeType::Language, lang_data.clone());
+
+            let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
+            if let Some(repo_node) = repo_nodes.iter().find(|n| n.file == repo_file) {
+                graph.add_edge(Edge::of_typed(
+                    NodeType::Repository,
+                    repo_node,
+                    NodeType::Language,
+                    &lang_data,
+                ));
+            }
+        }
 
         let mut stats = std::collections::HashMap::new();
-        stats.insert("repository".to_string(), 1);
+        if !self.is_package {
+            stats.insert("repository".to_string(), 1);
+        }
         stats.insert("language".to_string(), 1);
         self.send_status_with_stats(stats);
 

@@ -82,7 +82,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(functions.len(), 38, "Expected 38 functions with LSP");
     } else {
-        assert_eq!(functions.len(), 36, "Expected 36 functions without LSP");
+        assert_eq!(functions.len(), 60, "Expected 60 functions without LSP");
     }
 
     let log_fn = functions
@@ -156,7 +156,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 9, "Expected 9 UnitTest nodes");
+    assert_eq!(unit_tests.len(), 8, "Expected 8 UnitTest nodes");
 
     let person_service_test = unit_tests
         .iter()
@@ -226,7 +226,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 4, "Expected 4 E2eTest nodes");
+    assert_eq!(e2e_tests.len(), 3, "Expected 3 E2eTest nodes");
 
     let cypress_test = e2e_tests
         .iter()
@@ -263,7 +263,7 @@ import {{ sequelize }} from "./config.js";"#
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
 
-    assert_eq!(calls_edges_count, 10, "Expected 10 calls edges");
+    assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -285,9 +285,21 @@ import {{ sequelize }} from "./config.js";"#
     nodes_count += variables.len();
     assert_eq!(variables.len(), 6, "Expected 6 variables");
 
+    // Count any Page nodes (unified parser may create these from React patterns)
+    let pages = graph.find_nodes_by_type(NodeType::Page);
+    nodes_count += pages.len();
+
+    // Count any Instance nodes
+    let instances = graph.find_nodes_by_type(NodeType::Instance);
+    nodes_count += instances.len();
+
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 180, "Expected 180 contains edges");
+    assert_eq!(contains, 214, "Expected 214 contains edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 of edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -329,6 +341,15 @@ import {{ sequelize }} from "./config.js";"#
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");
+
+    // Request nodes from unified parser's request_finder (finds fetch/axios calls)
+    let requests = graph.find_nodes_by_type(NodeType::Request);
+    nodes_count += requests.len();
+    assert_eq!(
+        requests.len(),
+        3,
+        "Expected 3 Request nodes from unified parser"
+    );
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
@@ -374,6 +395,11 @@ import {{ sequelize }} from "./config.js";"#
 
     let nested = graph.count_edges_of_type(EdgeType::NestedIn);
     edges_count += nested;
+
+    // Operand edges from unified parser's function_call_query
+    let operand = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operand;
+    assert_eq!(operand, 23, "Expected 23 Operand edges from unified parser");
 
     let post_person_endpoint = endpoints
         .iter()

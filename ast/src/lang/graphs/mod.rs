@@ -198,6 +198,13 @@ impl Edge {
             NodeRef::from(c.into(), nt2),
         )
     }
+    pub fn of_typed(nt1: NodeType, f: &NodeData, nt2: NodeType, c: &NodeData) -> Edge {
+        Edge::new(
+            EdgeType::Of,
+            NodeRef::from(f.into(), nt1),
+            NodeRef::from(c.into(), nt2),
+        )
+    }
     pub fn calls(nt1: NodeType, f: &NodeData, nt2: NodeType, c: &NodeData) -> Edge {
         Edge::new(
             EdgeType::Calls,

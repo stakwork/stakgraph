@@ -21,7 +21,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     )
     .unwrap();
 
-    let repos = Repos(vec![repo], None);
+    let repos = Repos {
+        repos: vec![repo],
+        packages: Vec::new(),
+        workspace_root: None,
+    };
     let graph = repos.build_graphs_inner::<G>().await?;
 
     graph.analysis();
@@ -33,8 +37,8 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     nodes += language_nodes.len();
     assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
     assert_eq!(
-        language_nodes[0].name, "react",
-        "Language node name should be 'tsx'"
+        language_nodes[0].name, "typescript",
+        "Language node name should be 'typescript'"
     );
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
@@ -287,8 +291,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
 
-    //TODO: LSP and non-lsp
-
     if use_lsp {
         assert_eq!(calls, 303, "Expected 303 Calls edges");
     } else {
@@ -298,15 +300,15 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
+    assert_eq!(contains, 565, "Expected 565 Contains edges");
 
-    if use_lsp {
-        assert_eq!(contains, 567, "Expected 567 Contains edges");
-    } else {
-        assert_eq!(contains, 566, "Expected 566 Contains edges");
-    }
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 Of edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
+
     assert_eq!(handlers, 21, "Expected 21 Handler edges");
 
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
@@ -663,6 +665,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         graph.has_edge(&post_items_request, &post_items_endpoint, EdgeType::Calls),
         "Expected POST request to call the POST /api/items endpoint"
     );
+
     assert!(
         graph.has_edge(
             &get_person_endpoint,

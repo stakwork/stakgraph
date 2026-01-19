@@ -98,7 +98,7 @@ pub fn find_functions_called_by_query(function: &NodeData) -> (String, BoltMap) 
 
 pub fn all_nodes_and_edges_query() -> (String, String) {
     let node_query = "MATCH (n) WHERE n.node_key IS NOT NULL RETURN DISTINCT n.node_key as key";
-    let edge_query = "MATCH ()-[r]->() RETURN DISTINCT type(r) as edge_type";
+    let edge_query = "MATCH (s)-[r]->(t) WHERE s.node_key IS NOT NULL AND t.node_key IS NOT NULL RETURN DISTINCT s.node_key as source_key, t.node_key as target_key, type(r) as edge_type";
 
     (node_query.to_string(), edge_query.to_string())
 }

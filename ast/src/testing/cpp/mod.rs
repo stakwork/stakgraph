@@ -114,11 +114,11 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 21, "Expected 21 contains edges");
+    assert_eq!(contains, 20, "Expected 20 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
-    assert_eq!(of_edges, 1, "Expected 1 of edge");
+    assert_eq!(of_edges, 2, "Expected 2 of edge");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();

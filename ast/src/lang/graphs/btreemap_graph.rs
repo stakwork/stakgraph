@@ -68,7 +68,7 @@ impl Graph for BTreeMapGraph {
             .iter()
             .map(|(src, dst, edge_type)| {
                 format!(
-                    "{}-{}-{:?}",
+                    "{}-{}-{}",
                     src.to_lowercase(),
                     dst.to_lowercase(),
                     edge_type
