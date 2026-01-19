@@ -21,7 +21,11 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     )
     .unwrap();
 
-    let repos = Repos { repos: vec![repo], packages: Vec::new(), workspace_root: None };
+    let repos = Repos {
+        repos: vec![repo],
+        packages: Vec::new(),
+        workspace_root: None,
+    };
     let graph = repos.build_graphs_inner::<G>().await?;
 
     graph.analysis();
@@ -296,13 +300,17 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 566, "Expected 566 Contains edges");
+    assert_eq!(contains, 565, "Expected 565 Contains edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 Of edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
-    
+
     assert_eq!(handlers, 21, "Expected 21 Handler edges");
-    
+
     let tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += tests.len();
     assert_eq!(
@@ -622,7 +630,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         })
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("DELETE /api/person/[id] endpoint not found");
-   
+
     assert!(
         graph.has_edge(
             &get_items_endpoint,
@@ -639,7 +647,6 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         ),
         "Expected POST /api/items endpoint to be handled by POST function"
     );
-    
 
     assert!(
         graph.has_edge(&items_page_func, &get_items_request, EdgeType::Calls),
@@ -658,7 +665,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         graph.has_edge(&post_items_request, &post_items_endpoint, EdgeType::Calls),
         "Expected POST request to call the POST /api/items endpoint"
     );
- 
+
     assert!(
         graph.has_edge(
             &get_person_endpoint,
@@ -675,7 +682,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         ),
         "Expected DELETE dynamic endpoint to be handled by its DELETE function"
     );
-     
+
     assert!(
         graph.has_edge(&person_page_func, &get_person_request, EdgeType::Calls),
         "Expected Person to call the dynamic GET person request"

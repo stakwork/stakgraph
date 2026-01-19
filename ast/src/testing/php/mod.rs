@@ -19,7 +19,11 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
     )
     .unwrap();
 
-    let repos = Repos { repos: vec![repo], packages: Vec::new(), workspace_root: None };
+    let repos = Repos {
+        repos: vec![repo],
+        packages: Vec::new(),
+        workspace_root: None,
+    };
     let graph = repos.build_graphs_inner::<G>().await?;
 
     graph.analysis();
@@ -254,7 +258,11 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 92, "Expected 92 Contains edges");
+    assert_eq!(contains, 91, "Expected 91 Contains edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 Of edges");
 
     let parent_of = graph.count_edges_of_type(EdgeType::ParentOf);
     edges += parent_of;

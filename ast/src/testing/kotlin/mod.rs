@@ -198,13 +198,17 @@ import com.kotlintestapp.db.PersonDatabase"#
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
     if use_lsp {
-        assert_eq!(contains_edges, 178, "Expected 178 contains edges with LSP");
+        assert_eq!(contains_edges, 177, "Expected 177 contains edges with LSP");
     } else {
         assert_eq!(
-            contains_edges, 178,
-            "Expected 178 contains edges without LSP"
+            contains_edges, 177,
+            "Expected 177 contains edges without LSP"
         );
     }
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 of edges");
 
     let handler = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler;

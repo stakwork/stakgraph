@@ -22,7 +22,11 @@ async fn setup_typescript_graph() -> Result<crate::lang::graphs::graph_ops::Grap
             )
             .unwrap();
 
-            let repos = Repos { repos: vec![repo], packages: Vec::new(), workspace_root: None };
+            let repos = Repos {
+                repos: vec![repo],
+                packages: Vec::new(),
+                workspace_root: None,
+            };
             let btree_graph = repos
                 .build_graphs_btree()
                 .await
@@ -109,7 +113,7 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     assert_eq!(calls_edges, 14);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 215);
+    assert_eq!(contains_edges, 214);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 22);

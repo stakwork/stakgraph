@@ -295,7 +295,11 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 215, "Expected 215 contains edges");
+    assert_eq!(contains, 214, "Expected 214 contains edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 of edges");
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
@@ -341,7 +345,11 @@ import {{ sequelize }} from "./config.js";"#
     // Request nodes from unified parser's request_finder (finds fetch/axios calls)
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
-    assert_eq!(requests.len(), 3, "Expected 3 Request nodes from unified parser");
+    assert_eq!(
+        requests.len(),
+        3,
+        "Expected 3 Request nodes from unified parser"
+    );
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;

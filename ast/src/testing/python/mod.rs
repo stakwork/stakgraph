@@ -58,7 +58,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 106, "Expected 106 contains edges");
+    assert_eq!(contains, 105, "Expected 105 contains edges");
     edges_count += contains;
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -72,7 +72,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
-    assert_eq!(of_edges, 0, "Expected 0 of edges");
+    assert_eq!(of_edges, 1, "Expected 1 of edges");
 
     let parent_of = graph.count_edges_of_type(EdgeType::ParentOf);
     edges_count += parent_of;

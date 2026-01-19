@@ -411,7 +411,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    let expected_contains = 330;
+    let expected_contains = 329;
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 Of edges");
     assert!(
         (expected_contains - 2..=expected_contains).contains(&contains),
         "Expected ~{} Contains edges, got {}",

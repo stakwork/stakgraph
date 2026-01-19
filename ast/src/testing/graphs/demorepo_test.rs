@@ -208,8 +208,8 @@ async fn test_demorepo_generic<G: Graph>(repos: &Repos) -> Result<()> {
     );
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     assert_eq!(
-        contains, 107,
-        "Expected 107 edges of type Contains, found {}",
+        contains, 106,
+        "Expected 106 edges of type Contains, found {}",
         contains
     );
 

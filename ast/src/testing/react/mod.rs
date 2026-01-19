@@ -485,10 +485,14 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 223,
-        "Expected 223 contains edges, got {}",
+        contains_edges_count, 222,
+        "Expected 222 contains edges, got {}",
         contains_edges_count
     );
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 of edges");
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
