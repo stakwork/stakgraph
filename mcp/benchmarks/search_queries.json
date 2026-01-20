@@ -1,0 +1,215 @@
+[
+  {
+    "id": "workspace-switcher-baseline",
+    "query": "WorkspaceSwitcher",
+    "category": "Components",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceSwitcher",
+          "type": "Function",
+          "file": "src/components/WorkspaceSwitcher.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "workspace-switcher-function",
+    "query": "WorkspaceSwitcher",
+    "category": "Components",
+    "k": 10,
+    "node_types": ["Function"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceSwitcher",
+          "type": "Function",
+          "file": "src/components/WorkspaceSwitcher.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "workspace-switcher-file",
+    "query": "WorkspaceSwitcher",
+    "category": "Components",
+    "k": 10,
+    "node_types": ["File"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceSwitcher.tsx",
+          "type": "File",
+          "file": "src/components/WorkspaceSwitcher.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "use-workspace-baseline",
+    "query": "useWorkspace",
+    "category": "Hooks",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "useWorkspace",
+          "type": "Function",
+          "file": "src/hooks/useWorkspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "use-workspace-function",
+    "query": "useWorkspace",
+    "category": "Hooks",
+    "k": 10,
+    "node_types": ["Function"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "useWorkspace",
+          "type": "Function",
+          "file": "src/hooks/useWorkspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "workspace-response-baseline",
+    "query": "WorkspaceResponse",
+    "category": "Types",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceResponse",
+          "type": "Datamodel",
+          "file": "src/types/workspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "workspace-response-datamodel",
+    "query": "WorkspaceResponse",
+    "category": "Types",
+    "k": 10,
+    "node_types": ["Datamodel"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceResponse",
+          "type": "Datamodel",
+          "file": "src/types/workspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "swarm-baseline",
+    "query": "swarm",
+    "category": "Keyword",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "Swarm",
+          "type": "Datamodel",
+          "file": "src/types/swarm.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "swarm-datamodel",
+    "query": "swarm",
+    "category": "Keyword",
+    "k": 10,
+    "node_types": ["Datamodel"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "Swarm",
+          "type": "Datamodel",
+          "file": "src/types/swarm.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "swarm-function",
+    "query": "swarm",
+    "category": "Keyword",
+    "k": 10,
+    "node_types": ["Function"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "getJarvisUrl",
+          "type": "Function",
+          "file": "src/lib/utils/swarm.ts"
+        },
+        {
+          "name": "transformSwarmUrlToRepo2Graph",
+          "type": "Function",
+          "file": "src/lib/utils/swarm.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "swarm-file",
+    "query": "swarm",
+    "category": "Keyword",
+    "k": 10,
+    "node_types": ["File"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "swarm.ts",
+          "type": "File",
+          "file": "src/types/swarm.ts"
+        },
+        {
+          "name": "swarm.ts",
+          "type": "File",
+          "file": "src/lib/utils/swarm.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "api-workspaces-baseline",
+    "query": "GET /api/workspaces",
+    "category": "API Endpoints",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "GET",
+          "type": "Endpoint",
+          "file": "src/app/api/workspaces/route.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "api-workspaces-endpoint",
+    "query": "GET /api/workspaces",
+    "category": "API Endpoints",
+    "k": 10,
+    "node_types": ["Endpoint"],
+    "expected": {
+      "nodes": [
+        {
+          "name": "GET",
+          "type": "Endpoint",
+          "file": "src/app/api/workspaces/route.ts"
+        }
+      ]
+    }
+  }
+]
