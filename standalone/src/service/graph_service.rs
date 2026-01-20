@@ -66,7 +66,7 @@ pub async fn ingest(
     if streaming {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect().await?;
-        for repo in &repos.repos {
+        for repo in &repos.0 {
             let stripped_root = strip_tmp(&repo.root).display().to_string();
             info!("[Stream] Pre-clearing old data for {}...", stripped_root);
             graph_ops.clear_existing_graph(&stripped_root).await?;
@@ -94,7 +94,7 @@ pub async fn ingest(
     graph_ops.connect().await?;
 
     if !streaming {
-        for repo in &repos.repos {
+        for repo in &repos.0 {
             let stripped_root = strip_tmp(&repo.root).display().to_string();
             info!("Clearing old data for {}...", stripped_root);
             graph_ops.clear_existing_graph(&stripped_root).await?;

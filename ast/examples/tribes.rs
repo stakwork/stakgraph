@@ -24,8 +24,8 @@ async fn main() -> Result<()> {
         Vec::new(),
     )?;
     println!("building graph...");
-    let repos = Repos { repos: vec![repo1, repo2], packages: Vec::new(), workspace_root: None };
-    let graph = repos.build_graphs().await?;;
+    let repos = Repos(vec![repo1, repo2]);
+    let graph = repos.build_graphs().await?;
     print_json(&graph, "tribes")?;
     Ok(())
 }
