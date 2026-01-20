@@ -109,31 +109,27 @@ export async function learn_docs_agent(req: Request, res: Response) {
 
 export async function get_docs(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
-  if (!repoUrl) {
-    res.status(400).json({ error: "Missing repo_url" });
-    return;
-  }
   try {
     const repos = await db.get_repositories();
     const docs: Array<Record<string, { documentation: string }>> = [];
 
-    const repoName = repoUrl.split("/").pop()?.replace(".git", "") || "";
+    let reposToQuery = repos;
+    if (repoUrl) {
+      const repoName = repoUrl.split("/").pop()?.replace(".git", "") || "";
+      reposToQuery = repos.filter((repo) => {
+        const matchesSourceLink = repo.properties.source_link === repoUrl;
+        const matchesName = repo.properties.name === repoName;
+        return matchesSourceLink || matchesName;
+      });
+    }
 
-    for (const repo of repos) {
-      const matchesSourceLink = repo.properties.source_link === repoUrl;
-      const matchesName = repo.properties.name === repoName;
-
-      if (matchesSourceLink || matchesName) {
-        if (repo.properties.documentation) {
-          console.log(
-            `repoName: ${repo.properties.name} repoFile: ${repo.properties.file}`,
-          );
-          docs.push({
-            [repo.properties.name]: {
-              documentation: repo.properties.documentation,
-            },
-          });
-        }
+    for (const repo of reposToQuery) {
+      if (repo.properties.documentation) {
+        docs.push({
+          [repo.properties.name]: {
+            documentation: repo.properties.documentation,
+          },
+        });
       }
     }
     res.json(docs);
