@@ -1,4 +1,4 @@
-use crate::lang::{BTreeMapGraph, Graph, NodeType};
+use crate::lang::{BTreeMapGraph, EdgeType, Graph, NodeType};
 use crate::repo::Repo;
 
 use shared::error::Result;
@@ -549,7 +549,6 @@ async fn test_remote_monorepo_comprehensive_graph() -> Result<()> {
 
     Ok(())
 }
-
 #[tokio::test]
 async fn test_polyglot_monorepo() -> Result<()> {
     use crate::repo::Repo;
@@ -586,6 +585,33 @@ async fn test_polyglot_monorepo() -> Result<()> {
     let graph = repos
         .build_graphs_inner::<crate::lang::BTreeMapGraph>()
         .await?;
+
+    let all_repos = graph.find_nodes_by_type(NodeType::Repository);
+    assert_eq!(
+        all_repos.len(),
+        1,
+        "Polyglot monorepo should have exactly 1 Repository node, got {} (one per language detected: {:?})",
+        all_repos.len(),
+        all_repos.iter().map(|r| &r.name).collect::<Vec<_>>()
+    );
+
+    let all_languages = graph.find_nodes_by_type(NodeType::Language);
+    assert_eq!(
+        all_languages.len(),
+        2,
+        "Polyglot monorepo should have 2 Language nodes (Go + TypeScript), got {:?}",
+        all_languages.iter().map(|l| &l.name).collect::<Vec<_>>()
+    );
+
+    let repo_to_lang_edges =
+        graph.find_nodes_with_edge_type(NodeType::Repository, NodeType::Language, EdgeType::Of);
+    assert_eq!(
+        repo_to_lang_edges.len(),
+        2,
+        "Repository should have Of edges to BOTH Language nodes (Go + TypeScript), got {} edges: {:?}",
+        repo_to_lang_edges.len(),
+        repo_to_lang_edges.iter().map(|(r, l)| format!("{} -> {}", r.name, l.name)).collect::<Vec<_>>()
+    );
 
     let all_endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     assert_eq!(all_endpoints.len(), 0, "Go endpoints require LSP");
