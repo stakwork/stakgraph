@@ -37,17 +37,14 @@ pub const PROGRAMMING_LANGUAGES: [Language; 12] = [
 
 impl Language {
     pub fn is_frontend(&self) -> bool {
-        matches!(
-            self,
-            Self::Typescript | Self::Kotlin | Self::Swift
-        )
+        matches!(self, Self::Typescript | Self::Kotlin | Self::Swift)
     }
     pub fn pkg_files(&self) -> Vec<&'static str> {
         match self {
             Self::Rust => vec!["Cargo.toml"],
             Self::Go => vec!["go.mod"],
             Self::Typescript => vec!["package.json"],
-            Self::Python => vec!["requirements.txt"],
+            Self::Python => vec!["requirements.txt", "pyproject.toml"],
             Self::Ruby => vec!["Gemfile"],
             Self::Kotlin => vec![".gradle.kts", ".gradle", ".properties"],
             Self::Swift => vec!["Podfile", "Cartfile"],
@@ -148,10 +145,7 @@ impl Language {
     pub fn default_do_lsp(&self) -> bool {
         if let Ok(use_lsp) = std::env::var("USE_LSP") {
             if use_lsp == "true" || use_lsp == "1" {
-                matches!(
-                    self,
-                    Self::Rust | Self::Go | Self::Typescript | Self::Java
-                );
+                matches!(self, Self::Rust | Self::Go | Self::Typescript | Self::Java);
             }
         }
         false
@@ -256,9 +250,7 @@ impl Language {
 
     pub fn test_id_regex(&self) -> Option<&'static str> {
         match self {
-            Self::Typescript => {
-                Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#)
-            }
+            Self::Typescript => Some(r#"data-testid=(?:["']([^"']+)["']|\{['"`]([^'"`]+)['"`]\})"#),
             Self::Python => Some("get_by_test_id"),
             Self::Ruby => Some(r#"get_by_test_id\(['"]([^'"]+)['"]\)"#),
             _ => None,
