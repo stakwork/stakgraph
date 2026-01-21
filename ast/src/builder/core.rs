@@ -537,37 +537,53 @@ impl Repo {
         };
 
         let repo_file = strip_tmp(&self.root).display().to_string();
+        let full_name = format!("{}/{}", org, repo_name);
 
-        info!(
-            "Creating Repository node: {} (name: {}/{})",
-            repo_file, org, repo_name
-        );
-        let mut repo_data = NodeData {
-            name: format!("{}/{}", org, repo_name),
-            file: repo_file.clone(),
-            hash: Some(commit_hash.to_string()),
-            ..Default::default()
+        let existing_repos = graph.find_nodes_by_name(NodeType::Repository, &full_name);
+        let repo_data = if existing_repos.is_empty() {
+            info!(
+                "Creating Repository node: {} (name: {})",
+                repo_file, full_name
+            );
+            let mut repo_data = NodeData {
+                name: full_name,
+                file: repo_file.clone(),
+                hash: Some(commit_hash.to_string()),
+                ..Default::default()
+            };
+            repo_data.add_source_link(&self.url);
+            graph.add_node_with_parent(
+                NodeType::Repository,
+                repo_data.clone(),
+                NodeType::Repository,
+                "",
+            );
+            repo_data
+        } else {
+            info!(
+                "Repository node already exists for: {} (adding language: {})",
+                repo_file, self.lang.kind
+            );
+            existing_repos.first().unwrap().clone()
         };
-        repo_data.add_source_link(&self.url);
-        graph.add_node_with_parent(NodeType::Repository, repo_data, NodeType::Repository, "");
 
         debug!("add language for: {}", repo_file);
         let mut lang_data = NodeData::in_file(&repo_file);
         lang_data.name = self.lang.kind.to_string();
         graph.add_node(NodeType::Language, lang_data.clone());
 
-        let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
-        if let Some(repo_node) = repo_nodes.iter().find(|n| n.file == repo_file) {
-            graph.add_edge(Edge::of_typed(
-                NodeType::Repository,
-                repo_node,
-                NodeType::Language,
-                &lang_data,
-            ));
-        }
+        graph.add_edge(Edge::of_typed(
+            NodeType::Repository,
+            &repo_data,
+            NodeType::Language,
+            &lang_data,
+        ));
 
         let mut stats = std::collections::HashMap::new();
-        stats.insert("repository".to_string(), 1);
+        stats.insert(
+            "repository".to_string(),
+            if existing_repos.is_empty() { 1 } else { 0 },
+        );
         stats.insert("language".to_string(), 1);
         self.send_status_with_stats(stats);
 
