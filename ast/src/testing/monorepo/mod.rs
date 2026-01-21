@@ -613,6 +613,40 @@ async fn test_polyglot_monorepo() -> Result<()> {
         repo_to_lang_edges.iter().map(|(r, l)| format!("{} -> {}", r.name, l.name)).collect::<Vec<_>>()
     );
 
+    let all_packages = graph.find_nodes_by_type(NodeType::Package);
+    assert!(
+        all_packages.len() >= 2,
+        "Should have at least 2 Package nodes for polyglot monorepo, got {}",
+        all_packages.len()
+    );
+
+    let repo_to_pkg_edges = graph.find_nodes_with_edge_type(
+        NodeType::Repository,
+        NodeType::Package,
+        EdgeType::Contains,
+    );
+    assert_eq!(
+        repo_to_pkg_edges.len(),
+        all_packages.len(),
+        "Each Package should have a CONTAINS edge from Repository"
+    );
+
+    let pkg_to_lang_edges =
+        graph.find_nodes_with_edge_type(NodeType::Package, NodeType::Language, EdgeType::Of);
+    assert_eq!(
+        pkg_to_lang_edges.len(),
+        all_packages.len(),
+        "Each Package should have an OF edge to its Language"
+    );
+
+    let web_pkg = all_packages.iter().find(|p| p.name == "web");
+    if let Some(pkg) = web_pkg {
+        assert!(
+            pkg.meta.contains_key("framework"),
+            "web package should have framework metadata"
+        );
+    }
+
     let all_endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     assert_eq!(all_endpoints.len(), 0, "Go endpoints require LSP");
 
