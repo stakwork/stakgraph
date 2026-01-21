@@ -42,18 +42,23 @@ impl Language {
     pub fn pkg_files(&self) -> Vec<&'static str> {
         match self {
             Self::Rust => vec!["Cargo.toml"],
-            Self::Go => vec!["go.mod"],
+            Self::Go => vec!["go.mod", "go.work"],
             Self::Typescript => vec!["package.json"],
             Self::Python => vec!["requirements.txt", "pyproject.toml"],
             Self::Ruby => vec!["Gemfile"],
-            Self::Kotlin => vec![".gradle.kts", ".gradle", ".properties"],
-            Self::Swift => vec!["Podfile", "Cartfile"],
-            Self::Java => vec!["pom.xml"],
+            Self::Kotlin => vec![
+                "build.gradle.kts",
+                "build.gradle",
+                "settings.gradle.kts",
+                ".properties",
+            ],
+            Self::Swift => vec!["Package.swift", "Podfile", "Cartfile"],
+            Self::Java => vec!["pom.xml", "build.gradle", "build.gradle.kts"],
             Self::Bash => vec![],
             Self::Toml => vec![],
             Self::Svelte => vec!["package.json"],
             Self::Angular => vec!["package.json"],
-            Self::Cpp => vec!["CMakeLists.txt"],
+            Self::Cpp => vec!["CMakeLists.txt", "Makefile", "meson.build"],
             Self::Php => vec!["composer.json"],
         }
     }
@@ -106,8 +111,8 @@ impl Language {
             Self::Java => vec![".idea", "build", ".git"],
             Self::Bash => vec![".git"],
             Self::Toml => vec![".git"],
-            Self::Svelte => vec![".git", " node_modules"],
-            Self::Angular => vec![".git", " node_modules"],
+            Self::Svelte => vec![".git", "node_modules"],
+            Self::Angular => vec![".git", "node_modules"],
             Self::Cpp => vec![".git", "build", "out", "CMakeFiles"],
             Self::Php => vec![".git", "vendor"],
         }
