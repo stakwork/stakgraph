@@ -1,6 +1,6 @@
 [
   {
-    "id": "workspace-switcher-baseline",
+    "id": "component-exact-match",
     "query": "WorkspaceSwitcher",
     "category": "Components",
     "k": 10,
@@ -15,39 +15,7 @@
     }
   },
   {
-    "id": "workspace-switcher-function",
-    "query": "WorkspaceSwitcher",
-    "category": "Components",
-    "k": 10,
-    "node_types": ["Function"],
-    "expected": {
-      "nodes": [
-        {
-          "name": "WorkspaceSwitcher",
-          "type": "Function",
-          "file": "src/components/WorkspaceSwitcher.tsx"
-        }
-      ]
-    }
-  },
-  {
-    "id": "workspace-switcher-file",
-    "query": "WorkspaceSwitcher",
-    "category": "Components",
-    "k": 10,
-    "node_types": ["File"],
-    "expected": {
-      "nodes": [
-        {
-          "name": "WorkspaceSwitcher.tsx",
-          "type": "File",
-          "file": "src/components/WorkspaceSwitcher.tsx"
-        }
-      ]
-    }
-  },
-  {
-    "id": "use-workspace-baseline",
+    "id": "hook-exact-match",
     "query": "useWorkspace",
     "category": "Hooks",
     "k": 10,
@@ -62,38 +30,7 @@
     }
   },
   {
-    "id": "use-workspace-function",
-    "query": "useWorkspace",
-    "category": "Hooks",
-    "k": 10,
-    "node_types": ["Function"],
-    "expected": {
-      "nodes": [
-        {
-          "name": "useWorkspace",
-          "type": "Function",
-          "file": "src/hooks/useWorkspace.ts"
-        }
-      ]
-    }
-  },
-  {
-    "id": "workspace-response-baseline",
-    "query": "WorkspaceResponse",
-    "category": "Types",
-    "k": 10,
-    "expected": {
-      "nodes": [
-        {
-          "name": "WorkspaceResponse",
-          "type": "Datamodel",
-          "file": "src/types/workspace.ts"
-        }
-      ]
-    }
-  },
-  {
-    "id": "workspace-response-datamodel",
+    "id": "type-exact-match",
     "query": "WorkspaceResponse",
     "category": "Types",
     "k": 10,
@@ -109,7 +46,7 @@
     }
   },
   {
-    "id": "swarm-baseline",
+    "id": "keyword-swarm",
     "query": "swarm",
     "category": "Keyword",
     "k": 10,
@@ -124,65 +61,22 @@
     }
   },
   {
-    "id": "swarm-datamodel",
-    "query": "swarm",
-    "category": "Keyword",
+    "id": "camelcase-validate-slug",
+    "query": "validateWorkspaceSlug",
+    "category": "CamelCase",
     "k": 10,
-    "node_types": ["Datamodel"],
     "expected": {
       "nodes": [
         {
-          "name": "Swarm",
-          "type": "Datamodel",
-          "file": "src/types/swarm.ts"
-        }
-      ]
-    }
-  },
-  {
-    "id": "swarm-function",
-    "query": "swarm",
-    "category": "Keyword",
-    "k": 10,
-    "node_types": ["Function"],
-    "expected": {
-      "nodes": [
-        {
-          "name": "getJarvisUrl",
+          "name": "validateWorkspaceSlug",
           "type": "Function",
-          "file": "src/lib/utils/swarm.ts"
-        },
-        {
-          "name": "transformSwarmUrlToRepo2Graph",
-          "type": "Function",
-          "file": "src/lib/utils/swarm.ts"
+          "file": "src/services/workspace.ts"
         }
       ]
     }
   },
   {
-    "id": "swarm-file",
-    "query": "swarm",
-    "category": "Keyword",
-    "k": 10,
-    "node_types": ["File"],
-    "expected": {
-      "nodes": [
-        {
-          "name": "swarm.ts",
-          "type": "File",
-          "file": "src/types/swarm.ts"
-        },
-        {
-          "name": "swarm.ts",
-          "type": "File",
-          "file": "src/lib/utils/swarm.ts"
-        }
-      ]
-    }
-  },
-  {
-    "id": "api-workspaces-baseline",
+    "id": "api-endpoint-workspaces",
     "query": "GET /api/workspaces",
     "category": "API Endpoints",
     "k": 10,
@@ -197,17 +91,241 @@
     }
   },
   {
-    "id": "api-workspaces-endpoint",
-    "query": "GET /api/workspaces",
-    "category": "API Endpoints",
+    "id": "multiword-create-workspace",
+    "query": "create workspace",
+    "category": "Multi-word",
     "k": 10,
-    "node_types": ["Endpoint"],
     "expected": {
       "nodes": [
         {
-          "name": "GET",
-          "type": "Endpoint",
-          "file": "src/app/api/workspaces/route.ts"
+          "name": "createWorkspace",
+          "type": "Function",
+          "file": "src/services/workspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "multiword-github-auth",
+    "query": "github authentication",
+    "category": "Multi-word",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "authOptions",
+          "type": "Var",
+          "file": "src/lib/auth/nextauth.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "intent-upload-images",
+    "query": "how to upload images",
+    "category": "Intent",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "useImageUpload",
+          "type": "Function",
+          "file": "src/hooks/useImageUpload.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "intent-handle-errors",
+    "query": "how do I handle errors",
+    "category": "Intent",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "handleError",
+          "type": "Function",
+          "file": "src/lib/utils.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "filepath-full-path",
+    "query": "src/hooks/useWorkspace.ts",
+    "category": "FilePath",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "useWorkspace.ts",
+          "type": "File",
+          "file": "src/hooks/useWorkspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "filepath-partial-path",
+    "query": "api/workspaces",
+    "category": "FilePath",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "/api/workspaces",
+          "type": "Request",
+          "file": "src/contexts/WorkspaceContext.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "partial-usework",
+    "query": "useWork",
+    "category": "Partial",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "useWorkspace",
+          "type": "Function",
+          "file": "src/hooks/useWorkspace.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "partial-deboun",
+    "query": "useDebou",
+    "category": "Partial",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "useDebounce",
+          "type": "Function",
+          "file": "src/hooks/useDebounce.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "partial-worksp-fail",
+    "query": "worksp",
+    "category": "Partial",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceSwitcher",
+          "type": "Function",
+          "file": "src/components/WorkspaceSwitcher.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "special-api-slash",
+    "query": "/api/",
+    "category": "SpecialChars",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "api",
+          "type": "Directory",
+          "file": "src/app/api"
+        }
+      ]
+    }
+  },
+  {
+    "id": "special-at-components",
+    "query": "@/components",
+    "category": "SpecialChars",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "components",
+          "type": "Directory",
+          "file": "src/components"
+        }
+      ]
+    }
+  },
+  {
+    "id": "special-bracket-slug",
+    "query": "[slug]",
+    "category": "SpecialChars",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "[slug]",
+          "type": "Directory",
+          "file": "src/app/api/workspaces/[slug]"
+        }
+      ]
+    }
+  },
+  {
+    "id": "typo-workspce",
+    "query": "workspce",
+    "category": "Typo",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceSwitcher",
+          "type": "Function",
+          "file": "src/components/WorkspaceSwitcher.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "typo-authetication",
+    "query": "authetication",
+    "category": "Typo",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "authOptions",
+          "type": "Var",
+          "file": "src/lib/auth/nextauth.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "typo-debounec",
+    "query": "debounec",
+    "category": "Typo",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "useDebounce",
+          "type": "Function",
+          "file": "src/hooks/useDebounce.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "typo-validte",
+    "query": "validte",
+    "category": "Typo",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "validateWorkspaceSlug",
+          "type": "Function",
+          "file": "src/services/workspace.ts"
         }
       ]
     }
