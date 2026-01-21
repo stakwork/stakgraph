@@ -1,10 +1,11 @@
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
-use crate::lang::graphs::Graph;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
-use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang};
+use crate::lang::graphs::{Edge, Graph, NodeType};
+use crate::lang::{linker, ArrayGraph, BTreeMapGraph, Lang, NodeData};
+use crate::workspace::{detect_workspaces, PackageInfo};
 use git_url_parse::GitUrl;
 use ignore::WalkBuilder;
 use lsp::language::{Language, PROGRAMMING_LANGUAGES};
@@ -119,6 +120,15 @@ impl Repos {
             }
         }
 
+        if let Some(first_repo) = self.0.first() {
+            if let Ok(Some(packages)) = detect_workspaces(&first_repo.root) {
+                let package_infos: Vec<PackageInfo> =
+                    packages.into_iter().map(Into::into).collect();
+                info!("Detected {} packages in workspace", package_infos.len());
+                add_package_nodes(&mut graph, &package_infos, first_repo.url.as_str());
+            }
+        }
+
         if let Some(first_repo) = &self.0.first() {
             first_repo.send_status_update("linking_graphs", 14);
         }
@@ -148,6 +158,59 @@ impl Repos {
     }
 }
 
+fn add_package_nodes<G: Graph>(graph: &mut G, packages: &[PackageInfo], _repo_url: &str) {
+    let repo_nodes = graph.find_nodes_by_type(NodeType::Repository);
+    let repo_node = repo_nodes.first();
+
+    for pkg in packages {
+        let pkg_path = strip_tmp(&pkg.path).display().to_string();
+
+        let mut pkg_data = NodeData::in_file(&pkg_path);
+        pkg_data.name = pkg.name.clone();
+        if let Some(fw) = &pkg.framework {
+            pkg_data.meta.insert("framework".to_string(), fw.clone());
+        }
+        pkg_data
+            .meta
+            .insert("language".to_string(), pkg.language.to_string());
+
+        graph.add_node(NodeType::Package, pkg_data.clone());
+        info!(
+            "Created Package node: {} (language: {}, framework: {:?})",
+            pkg.name, pkg.language, pkg.framework
+        );
+
+        if let Some(repo) = repo_node {
+            graph.add_edge(Edge::contains(
+                NodeType::Repository,
+                repo,
+                NodeType::Package,
+                &pkg_data,
+            ));
+        }
+
+        let lang_name = pkg.language.to_string();
+        let lang_nodes = graph.find_nodes_by_name(NodeType::Language, &lang_name);
+        if let Some(lang) = lang_nodes.first() {
+            graph.add_edge(Edge::of_typed(
+                NodeType::Package,
+                &pkg_data,
+                NodeType::Language,
+                lang,
+            ));
+        }
+
+        let dir_nodes = graph.find_nodes_by_type(NodeType::Directory);
+        if let Some(dir) = dir_nodes.iter().find(|d| d.file == pkg_path) {
+            graph.add_edge(Edge::contains(
+                NodeType::Package,
+                &pkg_data,
+                NodeType::Directory,
+                dir,
+            ));
+        }
+    }
+}
 // from the .ast.json file
 #[derive(Debug, serde::Deserialize)]
 pub struct AstConfig {
