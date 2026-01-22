@@ -53,10 +53,11 @@ export function toReturnNode(node: Neo4jNode): ReturnNode {
   return ret;
 }
 
-export function nameFileOnly(node: Neo4jNode): { name: string; file: string } {
+export function nameFileOnly(node: Neo4jNode): { name: string; file: string, ref_id?: string } {
   return {
     name: node.properties.name,
     file: node.properties.file,
+    ref_id: node.ref_id || node.properties.ref_id,
   };
 }
 
