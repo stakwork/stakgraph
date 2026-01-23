@@ -62,7 +62,7 @@ class Db {
 
   async nodes_by_type(
     label: NodeType,
-    language?: string
+    language?: string,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
@@ -79,7 +79,7 @@ class Db {
 
   async nodes_by_ref_ids(
     ref_ids: string[],
-    language?: string
+    language?: string,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
@@ -98,7 +98,7 @@ class Db {
     labels: NodeType[],
     limit_per_type: number,
     since?: number,
-    language?: string
+    language?: string,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
@@ -119,7 +119,7 @@ class Db {
     labels: NodeType[],
     limit_total: number,
     since?: number,
-    language?: string
+    language?: string,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
@@ -171,13 +171,13 @@ class Db {
     include_tests: boolean,
     depth: number,
     direction: Direction,
-    trim: string[]
+    trim: string[],
   ) {
     let disclude: NodeType[] = ["File", "Directory", "Repository", "Library"];
     if (node_type === "Directory") {
       // remove file and directory from disclude
       disclude = disclude.filter(
-        (type) => type !== "File" && type !== "Directory"
+        (type) => type !== "File" && type !== "Directory",
       );
     }
     if (include_tests === false) {
@@ -227,17 +227,17 @@ class Db {
     name: string,
     ref_id: string,
     node_type: NodeType = "Repository",
-    include_functions_and_classes: boolean = false
+    include_functions_and_classes: boolean = false,
   ) {
     // include if functions and classes should be included
     let disclude: NodeType[] = all_node_types().filter(
       (type: NodeType) =>
-        type !== "File" && type !== "Directory" && type !== "Repository"
+        type !== "File" && type !== "Directory" && type !== "Repository",
     );
     if (include_functions_and_classes) {
       console.log("including functions and classes");
       disclude = disclude.filter(
-        (type) => type !== "Function" && type !== "Class"
+        (type) => type !== "Function" && type !== "Class",
       );
     }
     const session = this.driver.session();
@@ -319,7 +319,7 @@ class Db {
             skip: skip,
             limit: embed_batch_size,
             do_files,
-          }
+          },
         );
         const nodes = result.records.map((record) => ({
           node_key: record.get("node_key"),
@@ -351,7 +351,7 @@ class Db {
           } catch (error) {
             console.error(
               `Batch #${batchIndex + 1}: Error updating embeddings:`,
-              error
+              error,
             );
           } finally {
             await updateSession.close();
@@ -362,7 +362,7 @@ class Db {
         batchIndex++;
         const duration = (Date.now() - startTime) / 1000;
         console.log(
-          `Batch #${batchIndex} completed in ${duration.toFixed(2)} seconds`
+          `Batch #${batchIndex} completed in ${duration.toFixed(2)} seconds`,
         );
       } catch (error) {
         console.error(`Batch #${batchIndex + 1}: Error fetching nodes:`, error);
@@ -372,7 +372,7 @@ class Db {
       }
     }
     console.log(
-      `Embedding process completed. Processed ${batchIndex} batches (${skip} nodes).`
+      `Embedding process completed. Processed ${batchIndex} batches (${skip} nodes).`,
     );
   }
 
@@ -384,7 +384,7 @@ class Db {
         Q.DATA_BANK_BODIES_QUERY_NO_TOKEN_COUNT,
         {
           do_files: true,
-        }
+        },
       );
       const data_bank = result.records.map((record) => ({
         node_key: record.get("node_key"),
@@ -412,11 +412,11 @@ class Db {
     try {
       console.log("Processing nodes...", node_file);
       await process_file(session, node_file, (data) =>
-        construct_merge_node_query(data)
+        construct_merge_node_query(data),
       );
       console.log("Processing edges...", edge_file);
       await process_file(session, edge_file, (data) =>
-        construct_merge_edge_query(data)
+        construct_merge_edge_query(data),
       );
       console.log("Added nodes to graph!");
     } catch (error) {
@@ -432,7 +432,7 @@ class Db {
     node_types: NodeType[],
     skip_node_types: NodeType[],
     maxTokens: number, // Optional parameter for token limit
-    language?: string
+    language?: string,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
 
@@ -490,7 +490,7 @@ class Db {
     limit: number,
     node_types: NodeType[],
     similarityThreshold: number = 0.7,
-    language?: string
+    language?: string,
   ): Promise<Neo4jNode[]> {
     let session: Session | null = null;
     try {
@@ -528,7 +528,7 @@ class Db {
     question: string,
     answer: string,
     embeddings: number[],
-    persona: string = "PM"
+    persona: string = "PM",
   ) {
     const session = this.driver.session();
     const name = question.slice(0, 80);
@@ -576,7 +576,7 @@ class Db {
     name: string,
     description: string,
     files: string[],
-    mocked: boolean
+    mocked: boolean,
   ) {
     const session = this.driver.session();
     const node_key = create_node_key({
@@ -714,7 +714,7 @@ class Db {
 
   async get_workflow_published_version_subgraph(
     ref_id: string,
-    concise: boolean = false
+    concise: boolean = false,
   ) {
     const session = this.driver.session();
     try {
@@ -722,7 +722,7 @@ class Db {
         Q.GET_WORKFLOW_PUBLISHED_VERSION_SUBGRAPH_QUERY,
         {
           ref_id,
-        }
+        },
       );
 
       if (result.records.length === 0) {
@@ -801,7 +801,7 @@ class Db {
   async add_edge(
     edge_type: EdgeType,
     source_ref_id: string,
-    target_ref_id: string
+    target_ref_id: string,
   ): Promise<void> {
     const session = this.driver.session();
     try {
@@ -826,7 +826,7 @@ class Db {
 
   async create_sibling_edge(
     source_ref_id: string,
-    target_ref_id: string
+    target_ref_id: string,
   ): Promise<void> {
     const session = this.driver.session();
     try {
@@ -892,7 +892,7 @@ class Db {
     name: string,
     docs: string,
     embeddings: number[],
-    number: string
+    number: string,
   ) {
     const session = this.driver.session();
     const short_name = name.slice(0, 80);
@@ -928,7 +928,7 @@ class Db {
     question: string,
     answer: string,
     embeddings: number[],
-    context?: string
+    context?: string,
   ) {
     const session = this.driver.session();
     const name = question.slice(0, 80);
@@ -962,7 +962,7 @@ class Db {
 
   async create_learning_about_edges(
     learning_ref_id: string,
-    feature_ids: string[]
+    feature_ids: string[],
   ): Promise<{ linked_features: string[] }> {
     const session = this.driver.session();
     try {
@@ -984,7 +984,7 @@ class Db {
 
   async createEdgesDirectly(
     hint_ref_id: string,
-    weightedRefIds: { ref_id: string; relevancy: number }[]
+    weightedRefIds: { ref_id: string; relevancy: number }[],
   ): Promise<{ edges_added: number; linked_ref_ids: string[] }> {
     const session = this.driver.session();
     try {
@@ -1078,7 +1078,7 @@ class Db {
   async edges_by_type(
     edge_type?: EdgeType,
     language?: string,
-    limit: number = 1000
+    limit: number = 1000,
   ): Promise<Neo4jEdge[]> {
     const session = this.driver.session();
     try {
@@ -1098,7 +1098,7 @@ class Db {
   async edges_by_ref_ids(
     ref_ids: string[],
     language?: string,
-    limit: number = 1000
+    limit: number = 1000,
   ): Promise<Neo4jEdge[]> {
     const session = this.driver.session();
     try {
@@ -1116,7 +1116,7 @@ class Db {
 
   async all_edges(
     language?: string,
-    limit: number = 1000
+    limit: number = 1000,
   ): Promise<Neo4jEdge[]> {
     const session = this.driver.session();
     try {
@@ -1221,7 +1221,7 @@ const BATCH_SIZE = 256;
 async function process_file(
   session: Session,
   file_path: string,
-  process_fn: (data: any) => any
+  process_fn: (data: any) => any,
 ) {
   const file_interface = readline.createInterface({
     input: fs.createReadStream(file_path),
@@ -1271,7 +1271,14 @@ async function execute_batch(session: Session, batch: MergeQuery[]) {
  * Prepares a fulltext search query for Neo4j by properly handling special characters
  */
 export function prepareFulltextSearchQuery(searchTerm: string): string {
-  // console.log("===> prepareFulltextSearchQuery", searchTerm);
+  // Preprocess API endpoint queries (e.g., "GET /api/workspaces" -> "/api/workspaces")
+  // Only strip the verb if there's actually a path after it
+  const apiPattern = /^(GET|POST|PUT|DELETE|PATCH)\s+(\/\S+)/i;
+  const apiMatch = searchTerm.match(apiPattern);
+  if (apiMatch && apiMatch[2]) {
+    searchTerm = apiMatch[2];
+  }
+
   // Escape the raw search term first
   const escapedTerm = escapeSearchTerm(searchTerm);
 
@@ -1297,38 +1304,27 @@ function escapeSearchTerm(term: string): string {
     const escapedTerm = term.replace(/"/g, '\\"');
     return `"${escapedTerm}"`;
   }
-
-  // For single terms, escape special characters
-  const charsToEscape = [
-    "+",
-    "-",
-    "&",
-    "|",
-    "!",
-    "(",
-    ")",
-    "{",
-    "}",
-    "[",
-    "]",
-    "^",
-    '"',
-    "~",
-    "?",
-    ":",
-    "\\",
-    "/",
-    "*",
-  ];
-
   let result = term;
-  for (const char of charsToEscape) {
-    const regex = new RegExp(
-      char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), // Removed the extra \\
-      "g"
-    );
-    result = result.replace(regex, `\\${char}`);
-  }
+
+  result = result.replace(/\\/g, "\\\\");
+  result = result.replace(/\+/g, "\\+");
+  result = result.replace(/-/g, "\\-");
+  result = result.replace(/&/g, "\\&");
+  result = result.replace(/\|/g, "\\|");
+  result = result.replace(/!/g, "\\!");
+  result = result.replace(/\(/g, "\\(");
+  result = result.replace(/\)/g, "\\)");
+  result = result.replace(/\{/g, "\\{");
+  result = result.replace(/\}/g, "\\}");
+  result = result.replace(/\[/g, "\\[");
+  result = result.replace(/\]/g, "\\]");
+  result = result.replace(/\^/g, "\\^");
+  result = result.replace(/"/g, '\\"');
+  result = result.replace(/~/g, "\\~");
+  result = result.replace(/\?/g, "\\?");
+  result = result.replace(/:/g, "\\:");
+  result = result.replace(/\//g, "\\/");
+  result = result.replace(/\*/g, "\\*");
 
   return result;
 }

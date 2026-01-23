@@ -83,7 +83,7 @@
     "expected": {
       "nodes": [
         {
-          "name": "GET",
+          "name": "/api/workspaces",
           "type": "Endpoint",
           "file": "src/app/api/workspaces/route.ts"
         }

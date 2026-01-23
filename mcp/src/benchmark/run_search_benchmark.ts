@@ -6,7 +6,6 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Configuration
 const BASE_URL = "http://localhost:3355";
 const BENCHMARK_FILE = path.join(
   __dirname,
@@ -60,20 +59,15 @@ interface BenchmarkResult {
   found_names: string;
 }
 
-type SearchMethod = "fulltext" | "vector";
-
-async function runQueriesWithMethod(
+async function runFulltextBenchmark(
   queries: QueryTestCase[],
-  method: SearchMethod,
 ): Promise<BenchmarkResult[]> {
   const results: BenchmarkResult[] = [];
 
-  console.log(`\n=== Running ${method.toUpperCase()} search ===\n`);
+  console.log(`\n=== Running FULLTEXT search benchmark ===\n`);
 
   for (const testCase of queries) {
-    console.log(
-      `[${method}] Running query: "${testCase.query}" (ID: ${testCase.id})`,
-    );
+    console.log(`Running query: "${testCase.query}" (ID: ${testCase.id})`);
 
     const start = Date.now();
     let responseData: any = null;
@@ -83,7 +77,7 @@ async function runQueriesWithMethod(
         query: testCase.query,
         limit: testCase.k,
         output: "json",
-        method: method,
+        method: "fulltext",
       };
 
       if (testCase.node_types && testCase.node_types.length > 0) {
@@ -93,10 +87,7 @@ async function runQueriesWithMethod(
       const response = await axios.get(`${BASE_URL}/search`, { params });
       responseData = response.data;
     } catch (error: any) {
-      console.error(
-        `  Error executing query "${testCase.query}":`,
-        error.message,
-      );
+      console.error(`  Error: ${error.message}`);
       continue;
     }
 
@@ -105,7 +96,6 @@ async function runQueriesWithMethod(
       ? responseData
       : responseData.nodes || [];
 
-    // Evaluate results
     const ranks: number[] = [];
     let hits = 0;
 
@@ -161,28 +151,22 @@ async function runQueriesWithMethod(
 
     results.push(result);
 
+    const status = recall === 1 ? "✓" : "✗";
     console.log(
-      `  Hits: ${hits}/${testCase.expected.nodes.length}, Latency: ${latency}ms, Ranks: [${ranks.join(", ")}]`,
+      `  ${status} Hits: ${hits}/${testCase.expected.nodes.length}, Latency: ${latency}ms`,
     );
   }
 
   return results;
 }
 
-function writeResultsToCSV(
-  fulltextResults: BenchmarkResult[],
-  vectorResults: BenchmarkResult[],
-) {
+function writeResultsToCSV(results: BenchmarkResult[]) {
   const csvHeader =
     "query_id,category,query,node_types,k,expected_count,found_count,ranks,latency_ms,recall_at_k,top_result_name,top_result_type,top_result_file,found_names";
 
   const lines: string[] = [csvHeader];
 
-  for (const result of fulltextResults) {
-    lines.push(formatResultLine(result));
-  }
-  lines.push("");
-  for (const result of vectorResults) {
+  for (const result of results) {
     lines.push(formatResultLine(result));
   }
 
@@ -223,32 +207,35 @@ async function runBenchmark() {
 
   console.log(`Loaded ${queries.length} queries`);
 
-  const fulltextResults = await runQueriesWithMethod(queries, "fulltext");
-  const vectorResults = await runQueriesWithMethod(queries, "vector");
+  const results = await runFulltextBenchmark(queries);
 
-  writeResultsToCSV(fulltextResults, vectorResults);
+  writeResultsToCSV(results);
 
   console.log("\n=== SUMMARY ===");
 
-  const ftRecall =
-    fulltextResults.reduce((sum, r) => sum + r.recall_at_k, 0) /
-    fulltextResults.length;
-  const vecRecall =
-    vectorResults.reduce((sum, r) => sum + r.recall_at_k, 0) /
-    vectorResults.length;
+  const avgRecall =
+    results.reduce((sum, r) => sum + r.recall_at_k, 0) / results.length;
+  const perfectCount = results.filter((r) => r.recall_at_k === 1).length;
+  const failedCount = results.filter((r) => r.recall_at_k === 0).length;
 
-  console.log(
-    `Fulltext: ${(ftRecall * 100).toFixed(1)}% average recall (${fulltextResults.filter((r) => r.recall_at_k === 1).length}/${fulltextResults.length} perfect)`,
-  );
-  console.log(
-    `Vector:   ${(vecRecall * 100).toFixed(1)}% average recall (${vectorResults.filter((r) => r.recall_at_k === 1).length}/${vectorResults.length} perfect)`,
-  );
+  console.log(`Average Recall: ${(avgRecall * 100).toFixed(1)}%`);
+  console.log(`Perfect Matches: ${perfectCount}/${results.length}`);
+  console.log(`Failed: ${failedCount}/${results.length}`);
 
-  console.log("\n--- Fulltext Results ---");
-  console.table(fulltextResults);
+  console.log("\n--- Results by Category ---");
+  const categories = [...new Set(results.map((r) => r.category))];
+  for (const cat of categories) {
+    const catResults = results.filter((r) => r.category === cat);
+    const catRecall =
+      catResults.reduce((sum, r) => sum + r.recall_at_k, 0) / catResults.length;
+    const catPerfect = catResults.filter((r) => r.recall_at_k === 1).length;
+    console.log(
+      `  ${cat}: ${(catRecall * 100).toFixed(0)}% (${catPerfect}/${catResults.length})`,
+    );
+  }
 
-  console.log("\n--- Vector Results ---");
-  console.table(vectorResults);
+  console.log("\n--- All Results ---");
+  console.table(results);
 }
 
 runBenchmark().catch(console.error);
