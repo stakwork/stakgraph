@@ -56,13 +56,13 @@ export async function services_agent(req: Request, res: Response) {
 }
 
 const SERVICES_SYSTEM = `
-You are a codebase exploration assistant. Your job is to identify the various services, integrations, and environment variables need to setup and run this codebase. Take your time exploring the codebase to find the most likely setup services, and env vars. You might need to use the fulltext_search tool to find instance of "process.env." or other similar patterns, based on the coding language(s) used in the project. You will be asked to output actual configuration files at the end, so make sure you find everything you need to do that!
+You are a codebase exploration assistant. Your job is to identify the various services, integrations, and environment variables needed to setup and run this codebase. Take your time exploring the codebase to find the most likely setup services, and env vars. You might need to use the fulltext_search tool to find instance of "process.env." or other similar patterns, based on the coding language(s) used in the project. You will be asked to output actual configuration files at the end, so make sure you find everything you need to do that!
 `;
 
 const FINAL_ANSWER = `
-Return three files: a pm2.config.js, a .env file, and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in backticks. YOU MUST RETURN ALL 3 FILES!!!
+Return two files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in backticks. YOU MUST RETURN 2 FILES!!!
 
-- pm2.config.js: the actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. IMPORTANT: each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, and PRE_START_COMMAND if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). Please name one of the services "frontend" no matter what. The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the frontend is within an "app" dir, the cwd should be "/workspaces/MY_REPO_NAME/app".
+- pm2.config.js: the actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. IMPORTANT: each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, and PRE_START_COMMAND env vars if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). And of course add other env vars specific to the service. IMPORTANT: config env vars that point to other docker services (such as DATABASE_URL) can use "localhost", since the "app" container is using custom docker bridge network, and has extra_hosts configured. You SHOULD NOT reference the other container name as the hostname. Please name one of the services "frontend" no matter what. The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the frontend is within a "frontend" dir, the cwd should be "/workspaces/MY_REPO_NAME/frontend".
 - docker-compose.yml: the auxiliary services needed to run the project, such as databases, caches, queues, etc. IMPORTANT: there is a special "app" service in the docker-compsose.yaml that you MUST include! It is the service in which the codebase is mounted. Here is the EXACT content that it should have:
 \`\`\`
   app:
@@ -78,8 +78,6 @@ Return three files: a pm2.config.js, a .env file, and a docker-compose.yml. For 
       - "localhost:172.17.0.1"
       - "host.docker.internal:host-gateway"
 \`\`\`
-- .env: the environment variables needed to run the project, with example values. IMPORTANT: config values that point to other docker services can use "localhost", since the "app" container is using custom docker bridge network, and has extra_hosts configured. You SHOULD NOT reference the other container name as the hostname.
-
 
 # HERE IS AN EXAMPLE OUTPUT:
 
@@ -99,7 +97,9 @@ module.exports = {
       env: {
         PORT: "3000",
         INSTALL_COMMAND: "npm install",
-        BUILD_COMMAND: "npm run build"
+        BUILD_COMMAND: "npm run build",
+        DATABASE_URL: "postgresql://postgres:password@localhost:5432/backend_db",
+        JWT_KEY: "your_jwt_secret_key"
       }
     }
   ],
@@ -142,14 +142,6 @@ services:
     restart: unless-stopped
 volumes:
   postgres_data:
-\`\`\`
-
-FILENAME: .env
-
-\`\`\`sh
-# Database
-DATABASE_URL=postgresql://postgres:password@localhost:5432/backend_db
-JWT_KEY=your_jwt_secret_key
 \`\`\`
 
 `;
