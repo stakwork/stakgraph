@@ -3,7 +3,6 @@ use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
 use dashmap::DashMap;
 use std::sync::LazyLock;
-use std::time::Instant;
 use tree_sitter::QueryCursor;
 
 type ImportCache = DashMap<String, Option<Vec<(String, Vec<String>)>>>;
@@ -105,28 +104,13 @@ pub fn get_imports_for_file<G: Graph>(
     lang: &Lang,
     graph: &G,
 ) -> Option<Vec<(String, Vec<String>)>> {
-    let start = Instant::now();
-
-    // Check cache first
     if let Some(cached) = IMPORT_CACHE.get(current_file) {
         return cached.clone();
     }
 
-    // Parse imports
     let result = parse_imports_for_file(current_file, lang, graph);
 
-    // Store in cache
     IMPORT_CACHE.insert(current_file.to_string(), result.clone());
-
-    let elapsed = start.elapsed();
-    if elapsed.as_millis() > 5 {
-        println!(
-            "[CACHE MISS] get_imports_for_file({}) parsed in {:?}, found {} imports",
-            current_file.split('/').last().unwrap_or(current_file),
-            elapsed,
-            result.as_ref().map(|r| r.len()).unwrap_or(0)
-        );
-    }
 
     result
 }

@@ -24,7 +24,7 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let repos = Repos(vec![repo]);
     let graph = repos.build_graphs_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
