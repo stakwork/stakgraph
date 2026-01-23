@@ -98,19 +98,25 @@ impl<G: Graph> FrontendTester<G> {
 
     fn test_package_file(&self) -> Result<()> {
         let package_file_names = self.lang.kind.pkg_files();
-        let package_file_name = package_file_names.first().unwrap();
 
-        let pkg_file_nodes = self
-            .graph
-            .find_nodes_by_name_contains(NodeType::File, &package_file_name);
+        let mut found_pkg_file = None;
+        for pkg_file_name in &package_file_names {
+            let pkg_file_nodes = self
+                .graph
+                .find_nodes_by_name_contains(NodeType::File, pkg_file_name);
+            if !pkg_file_nodes.is_empty() {
+                found_pkg_file = Some(pkg_file_name.to_string());
+                break;
+            }
+        }
 
         assert!(
-            pkg_file_nodes.len() >= 1,
-            "No package file found matching {}",
-            package_file_name
+            found_pkg_file.is_some(),
+            "No package file found matching any of {:?}",
+            package_file_names
         );
 
-        info!("✓ Found package file {}", package_file_name);
+        info!("✓ Found package file {}", found_pkg_file.unwrap());
 
         Ok(())
     }

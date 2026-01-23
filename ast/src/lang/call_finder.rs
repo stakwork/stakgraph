@@ -1,7 +1,17 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
+use dashmap::DashMap;
+use std::sync::LazyLock;
+use std::time::Instant;
 use tree_sitter::QueryCursor;
+
+type ImportCache = DashMap<String, Option<Vec<(String, Vec<String>)>>>;
+static IMPORT_CACHE: LazyLock<ImportCache> = LazyLock::new(DashMap::new);
+
+pub fn clear_import_cache() {
+    IMPORT_CACHE.clear();
+}
 
 pub fn node_data_finder<G: Graph>(
     func_name: &str,
@@ -35,12 +45,7 @@ pub fn func_target_file_finder<G: Graph>(
     import_names: Option<Vec<(String, Vec<String>)>>,
     lang: &Lang,
 ) -> Option<NodeData> {
-    log_cmd(format!(
-        "func_target_file_finder {:?} from file {:?}",
-        func_name, current_file
-    ));
-
-    // First try: find only one function file
+    // Attempt 1: find only one function file
     if let Some(tf) = find_only_one_function_file(
         func_name,
         graph,
@@ -53,24 +58,25 @@ pub fn func_target_file_finder<G: Graph>(
         return Some(tf);
     }
 
-    // Second try: find in the same file
+    // Attempt 2: find in the same file
     if let Some(tf) = find_function_in_same_file(func_name, current_file, graph, source_start) {
         return Some(tf);
     }
 
+    // Attempt 3: find by import
     if let Some(import_names) = import_names {
         if let Some(tf) = find_function_by_import(func_name, import_names, graph) {
             return Some(tf);
         }
     }
 
-    // Fourth try: find in the same directory
+    // Attempt 4: find in the same directory
     if let Some(tf) = find_function_in_same_directory(func_name, current_file, graph, source_start)
     {
         return Some(tf);
     }
 
-    // Fifth try: If operand exists, try operand-based resolution
+    // Attempt 5: operand-based resolution
     if let Some(ref operand) = operand {
         if let Some(target_file) = find_function_with_operand(operand, func_name, graph) {
             if let Some(tf) = graph.find_node_by_name_and_file_contains(
@@ -78,16 +84,12 @@ pub fn func_target_file_finder<G: Graph>(
                 func_name,
                 &target_file,
             ) {
-                println!(
-                    "[OPERAND] resolved {}.{} in {}",
-                    operand, func_name, target_file
-                );
                 return Some(tf);
             }
         }
     }
 
-    // Sixth try: Check if function is nested in a variable (e.g., authOptions.callbacks.signIn)
+    // Attempt 6: nested in variable
     if let Some(ref operand) = operand {
         if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file)
         {
@@ -99,6 +101,37 @@ pub fn func_target_file_finder<G: Graph>(
 }
 
 pub fn get_imports_for_file<G: Graph>(
+    current_file: &str,
+    lang: &Lang,
+    graph: &G,
+) -> Option<Vec<(String, Vec<String>)>> {
+    let start = Instant::now();
+
+    // Check cache first
+    if let Some(cached) = IMPORT_CACHE.get(current_file) {
+        return cached.clone();
+    }
+
+    // Parse imports
+    let result = parse_imports_for_file(current_file, lang, graph);
+
+    // Store in cache
+    IMPORT_CACHE.insert(current_file.to_string(), result.clone());
+
+    let elapsed = start.elapsed();
+    if elapsed.as_millis() > 5 {
+        println!(
+            "[CACHE MISS] get_imports_for_file({}) parsed in {:?}, found {} imports",
+            current_file.split('/').last().unwrap_or(current_file),
+            elapsed,
+            result.as_ref().map(|r| r.len()).unwrap_or(0)
+        );
+    }
+
+    result
+}
+
+fn parse_imports_for_file<G: Graph>(
     current_file: &str,
     lang: &Lang,
     graph: &G,

@@ -374,11 +374,16 @@ impl Repo {
             .collect();
 
         if filtered_langs.is_empty() {
+            let supported_pkg_files: Vec<&str> = PROGRAMMING_LANGUAGES
+                .iter()
+                .flat_map(|l| l.pkg_files())
+                .collect();
             return Err(Error::Custom(format!(
-                "Language is not supported yet: {}",
-                root
+                "No supported language detected in '{}'. Expected one of these package files: {:?}",
+                root, supported_pkg_files
             )));
         }
+        info!("Detected languages: {:?}", filtered_langs);
         // Then, set up each repository with LSP
         let mut repos: Vec<Repo> = Vec::new();
         for l in filtered_langs {
