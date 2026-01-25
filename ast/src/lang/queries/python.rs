@@ -115,6 +115,79 @@ impl Stack for Python {
     fn comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment)+ @{FUNCTION_COMMENT}"#))
     }
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+            (function_definition
+                name: (identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^test_")
+            ) @{FUNCTION_DEFINITION}
+
+            (class_definition
+                body: (block
+                    (function_definition
+                        name: (identifier) @{FUNCTION_NAME}
+                        (#match? @{FUNCTION_NAME} "^test_")
+                    ) @{FUNCTION_DEFINITION}
+                )
+            )
+            ]"#
+        ))
+    }
+
+    fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+            (function_definition
+                name: (identifier) @{FUNCTION_NAME}
+                parameters: (parameters
+                    (typed_parameter
+                        type: (type (identifier) @type (#match? @type "Page"))
+                    )
+                )
+            ) @{FUNCTION_DEFINITION}
+            ]"#
+        ))
+    }
+
+    fn classify_test(&self, _name: &str, file: &str, body: &str) -> NodeType {
+        let f = file.replace('\\', "/").to_lowercase();
+        let b = body.to_lowercase();
+
+        // 1. Path based (strongest signal)
+        if f.contains("/tests/e2e/") || f.contains("/test/e2e/") || f.contains("/e2e/") {
+            return NodeType::E2eTest;
+        }
+        if f.contains("/tests/integration/")
+            || f.contains("/test/integration/")
+            || f.contains("/integration/")
+        {
+            return NodeType::IntegrationTest;
+        }
+        if f.contains("/tests/unit/") || f.contains("/test/unit/") || f.contains("/unit/") {
+            return NodeType::UnitTest;
+        }
+
+        // 2. Content based
+        let has_playwright =
+            b.contains("playwright") || b.contains("page.goto") || b.contains("expect(page");
+        let has_selenium = b.contains("selenium") || b.contains("webdriver");
+
+        if has_playwright || has_selenium {
+            return NodeType::E2eTest;
+        }
+
+        let has_requests = b.contains("requests.")
+            || b.contains("testclient")
+            || b.contains("client.get")
+            || b.contains("client.post");
+        if has_requests {
+            return NodeType::IntegrationTest;
+        }
+
+        NodeType::UnitTest
+    }
+
     fn find_function_parent(
         &self,
         node: TreeNode,
@@ -325,8 +398,11 @@ impl Stack for Python {
         ))
     }
 
-    fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
+    fn is_test(&self, func_name: &str, file: &str, _func_body: &str) -> bool {
         func_name.starts_with("test_")
+            || file.contains("/tests/")
+            || file.contains("/test/")
+            || file.ends_with("_test.py")
     }
     fn handler_finder(
         &self,

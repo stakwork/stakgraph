@@ -39,26 +39,26 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    assert_eq!(directories.len(), 3, "Expected 3 directories");
+    assert_eq!(directories.len(), 4, "Expected 4 directories");
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 16, "Expected 16 files");
+    assert_eq!(files.len(), 19, "Expected 19 files");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 12, "Expected 12 imports");
+    assert_eq!(imports.len(), 15, "Expected 15 imports");
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
-    assert_eq!(calls, 12, "Expected 12 call edges");
+    assert_eq!(calls, 16, "Expected 16 call edges");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 105, "Expected 105 contains edges");
+    assert_eq!(contains, 127, "Expected 127 contains edges");
     edges_count += contains;
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -124,11 +124,11 @@ from flask_app.routes import flask_bp"#
     );
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 3, "Expected 3 classes");
+    assert_eq!(classes.len(), 4, "Expected 4 classes");
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
-    assert_eq!(vars.len(), 25, "Expected 25 variables");
+    assert_eq!(vars.len(), 26, "Expected 26 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -147,7 +147,7 @@ from flask_app.routes import flask_bp"#
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
     //should be 3, but some classes are picked up as datamodels
-    assert_eq!(data_models.len(), 5, "Expected 5 data models");
+    assert_eq!(data_models.len(), 8, "Expected 8 data models");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
@@ -159,7 +159,7 @@ from flask_app.routes import flask_bp"#
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imported_edges;
-    assert_eq!(imported_edges, 7, "Expected 7 import edges");
+    assert_eq!(imported_edges, 10, "Expected 10 import edges");
 
     let person_class = graph
         .find_nodes_by_name(NodeType::Class, "Person")
@@ -736,6 +736,66 @@ from flask_app.routes import flask_bp"#
     assert!(
         graph.has_edge(&django_settings_file, &debug_var, EdgeType::Contains),
         "Expected Django settings.py to contain DEBUG variable"
+    );
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 5, "Expected 5 Unit Tests");
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes_count += integration_tests.len();
+    assert_eq!(integration_tests.len(), 2, "Expected 2 Integration Tests");
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 3, "Expected 3 E2E Tests");
+
+    let puppy_test = unit_tests
+        .iter()
+        .find(|t| t.name == "test_puppy_creation")
+        .map(|n| Node::new(NodeType::UnitTest, n.clone()))
+        .expect("test_puppy_creation not found");
+
+    let api_test = integration_tests
+        .iter()
+        .find(|t| t.name == "test_create_person_api")
+        .map(|n| Node::new(NodeType::IntegrationTest, n.clone()))
+        .expect("test_create_person_api not found");
+
+    let flow_test = e2e_tests
+        .iter()
+        .find(|t| t.name == "test_create_user_flow")
+        .map(|n| Node::new(NodeType::E2eTest, n.clone()))
+        .expect("test_create_user_flow not found");
+
+    assert!(
+        graph.has_edge(&puppy_test, &create_puppy_fn, EdgeType::Calls),
+        "Expected test_puppy_creation to call create_puppy"
+    );
+
+    let unit_test_file = files
+        .iter()
+        .find(|f| f.file.starts_with("src/testing/python/tests") && f.name == "unit_test.py")
+        .expect("unit_test.py not found");
+    assert!(graph.has_edge(
+        &Node::new(NodeType::File, unit_test_file.clone()),
+        &puppy_test,
+        EdgeType::Contains
+    ));
+
+    let e2e_test_file = files
+        .iter()
+        .find(|f| f.file.starts_with("src/testing/python/tests") && f.name == "e2e_test.py")
+        .expect("e2e_test.py not found");
+    assert!(graph.has_edge(
+        &Node::new(NodeType::File, e2e_test_file.clone()),
+        &flow_test,
+        EdgeType::Contains
+    ));
+
+    assert!(
+        graph.has_edge(&api_test, &fastapi_post_endpoint, EdgeType::Calls),
+        "Expected test_create_person_api to call FastAPI POST endpoint"
     );
 
     let (nodes, edges) = graph.get_graph_size();
