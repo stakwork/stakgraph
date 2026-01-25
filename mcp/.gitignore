@@ -48,3 +48,6 @@ playwright-report/
 test-results/
 
 knowledge-base/
+
+# Session storage for agent conversations
+.sessions/

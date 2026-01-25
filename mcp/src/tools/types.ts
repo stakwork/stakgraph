@@ -16,4 +16,5 @@ export interface ContextResult {
   tool_use?: string;
   content: any;
   logs?: string;
+  sessionId?: string; // Return session ID for multi-turn conversations
 }

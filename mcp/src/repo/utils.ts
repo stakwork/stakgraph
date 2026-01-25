@@ -1,4 +1,5 @@
 import { ModelMessage, ToolSet, StepResult, StopCondition } from "ai";
+import { SessionConfig, truncateToolResult } from "./session.js";
 
 export function createHasEndMarkerCondition<
   T extends ToolSet
@@ -231,4 +232,77 @@ export function extractFinalAnswer(
   }
 
   return { answer: "" };
+}
+
+/**
+ * Convert a user message + generateText steps into ModelMessage[] for session storage.
+ * This captures the full turn: user message, assistant responses, and tool results.
+ */
+export function extractMessagesFromSteps(
+  userMessage: ModelMessage,
+  steps: StepResult<ToolSet>[],
+  sessionConfig?: SessionConfig
+): ModelMessage[] {
+  const messages: ModelMessage[] = [userMessage];
+
+  for (const step of steps) {
+    // Build assistant message content
+    const assistantContent: any[] = [];
+
+    // Extract text parts
+    for (const item of step.content) {
+      if (item.type === "text" && item.text) {
+        assistantContent.push({ type: "text", text: item.text });
+      }
+    }
+
+    // Extract tool calls
+    for (const item of step.content) {
+      if (item.type === "tool-call") {
+        assistantContent.push({
+          type: "tool-call",
+          toolCallId: item.toolCallId,
+          toolName: item.toolName,
+          args: item.input,
+        });
+      }
+    }
+
+    // Add assistant message if there's content
+    if (assistantContent.length > 0) {
+      messages.push({
+        role: "assistant",
+        content: assistantContent,
+      });
+    }
+
+    // Extract tool results into tool message
+    const toolResults: any[] = [];
+    for (const item of step.content) {
+      if (item.type === "tool-result") {
+        let result = item.output;
+
+        // Truncate if config provided
+        if (sessionConfig?.truncateToolResults && typeof result === "string") {
+          result = truncateToolResult(item.toolName, result, sessionConfig);
+        }
+
+        toolResults.push({
+          type: "tool-result",
+          toolCallId: item.toolCallId,
+          toolName: item.toolName,
+          result,
+        });
+      }
+    }
+
+    if (toolResults.length > 0) {
+      messages.push({
+        role: "tool",
+        content: toolResults,
+      });
+    }
+  }
+
+  return messages;
 }
