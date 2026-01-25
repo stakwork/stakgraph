@@ -1,6 +1,6 @@
 import {
   generateObject,
-  generateText,
+  ToolLoopAgent,
   ModelMessage,
   StopCondition,
   ToolSet,
@@ -21,8 +21,16 @@ import {
   createHasEndMarkerCondition,
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
+  extractMessagesFromSteps,
 } from "./utils.js";
 import { LanguageModel } from "ai";
+import {
+  createSession as createNewSession,
+  loadSession,
+  appendMessages,
+  sessionExists,
+  SessionConfig,
+} from "./session.js";
 
 const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
@@ -100,6 +108,10 @@ export interface GetContextOptions {
   systemOverride?: string;
   schema?: { [key: string]: any };
   logs?: boolean;
+  // Session support
+  sessionId?: string; // Continue existing session
+  createSession?: boolean; // Create new session
+  sessionConfig?: SessionConfig; // Truncation settings
 }
 
 export async function get_context(
@@ -107,7 +119,16 @@ export async function get_context(
   repoPath: string,
   opts: GetContextOptions
 ): Promise<ContextResult> {
-  const { modelName, pat, toolsConfig, systemOverride, schema } = opts;
+  const {
+    modelName,
+    pat,
+    toolsConfig,
+    systemOverride,
+    schema,
+    sessionId: inputSessionId,
+    createSession: shouldCreateSession,
+    sessionConfig,
+  } = opts;
   const startTime = Date.now();
   const provider = process.env.LLM_PROVIDER || "anthropic";
   const apiKey = getApiKeyForProvider(provider);
@@ -117,19 +138,32 @@ export async function get_context(
   });
   console.log("===> model", model);
 
+  // Session handling
+  let sessionId: string | undefined;
+  let previousMessages: ModelMessage[] = [];
+
+  if (inputSessionId) {
+    if (!sessionExists(inputSessionId)) {
+      throw new Error(`Session ${inputSessionId} not found`);
+    }
+    sessionId = inputSessionId;
+    previousMessages = loadSession(sessionId);
+  } else if (shouldCreateSession) {
+    sessionId = createNewSession();
+  }
+
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
-  let system = systemOverride || DEFAULT_SYSTEM;
+  let instructions = systemOverride || DEFAULT_SYSTEM;
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
   const hasAskQuestions = createHasAskQuestionsCondition<typeof tools>();
 
   let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
     hasEndMarker;
-  let stopSequences: string[] = ["[END_OF_ANSWER]"];
   let finalPrompt: string | ModelMessage[] = prompt;
 
   if (toolsConfig?.ask_clarifying_questions) {
-    system = ASK_CLARIFYING_QUESTIONS_SYSTEM;
+    instructions = ASK_CLARIFYING_QUESTIONS_SYSTEM;
     stopWhen = [hasEndMarker, hasAskQuestions];
 
     // Add clarifying questions text to prompt
@@ -143,15 +177,62 @@ export async function get_context(
     console.log("===> tool", tool, "===>", tools[tool].description);
   }
 
-  const { steps, totalUsage } = await generateText({
+  // Create the agent
+  const agent = new ToolLoopAgent({
     model,
+    instructions,
     tools,
-    prompt: finalPrompt,
-    system,
     stopWhen,
-    stopSequences,
+    stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => logStep(sf.content),
   });
+
+  // Build the user message for session storage
+  const userMessageContent =
+    typeof finalPrompt === "string"
+      ? finalPrompt
+      : finalPrompt.find((m) => m.role === "user")?.content || prompt;
+  const userMessage: ModelMessage = {
+    role: "user",
+    content: userMessageContent as string,
+  };
+
+  // Generate response
+  let result;
+  if (previousMessages.length > 0) {
+    // Continue conversation with history + new message
+    const messagesToSend =
+      typeof finalPrompt === "string"
+        ? [...previousMessages, userMessage]
+        : [...previousMessages, ...finalPrompt];
+    result = await agent.generate({
+      messages: messagesToSend,
+    });
+  } else {
+    // Fresh conversation
+    if (typeof finalPrompt === "string") {
+      result = await agent.generate({
+        prompt: finalPrompt,
+      });
+    } else {
+      result = await agent.generate({
+        messages: finalPrompt,
+      });
+    }
+  }
+
+  const { steps, totalUsage } = result;
+
+  // Save to session if enabled
+  if (sessionId) {
+    // Extract messages from this turn (user + assistant + tool)
+    const newMessages = extractMessagesFromSteps(
+      userMessage,
+      steps,
+      sessionConfig
+    );
+    appendMessages(sessionId, newMessages);
+  }
 
   const final = extractFinalAnswer(steps);
 
@@ -184,6 +265,7 @@ export async function get_context(
       totalTokens: totalUsage.totalTokens || 0,
     },
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
+    sessionId,
   };
 }
 

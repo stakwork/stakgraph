@@ -8,6 +8,7 @@ import { setBusy } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
+import { SessionConfig } from "./session.js";
 
 export { services_agent, mocks_agent };
 
@@ -27,6 +28,10 @@ export async function repo_agent(req: Request, res: Response) {
     const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
     const modelName = req.body.model as ModelName | undefined;
     const logs = req.body.logs as boolean | undefined;
+    // Session support
+    const sessionId = req.body.sessionId as string | undefined;
+    const createSession = req.body.createSession as boolean | undefined;
+    const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
       return;
@@ -44,6 +49,9 @@ export async function repo_agent(req: Request, res: Response) {
           schema,
           modelName,
           logs,
+          sessionId,
+          createSession,
+          sessionConfig,
         });
       })
       .then((result) => {
@@ -54,6 +62,7 @@ export async function repo_agent(req: Request, res: Response) {
           content: result.content,
           usage: result.usage,
           logs: result.logs,
+          sessionId: result.sessionId,
         });
         setBusy(false);
         console.log("[repo_agent] Background work completed, set busy=false");
