@@ -81,18 +81,22 @@ impl Stack for Python {
     fn class_definition_query(&self) -> String {
         format!(
             "
-            (class_definition
-                name: (identifier) @{CLASS_NAME}
-                superclasses: (argument_list
-                    (identifier)? @{CLASS_PARENT}
-                )
-                body: (block
-                    [
-                        (function_definition)+
-                        (decorated_definition)+
-                    ]
-                )
-            )@{CLASS_DEFINITION}
+            (
+                (decorator)* @{ATTRIBUTES}
+                .
+                (class_definition
+                    name: (identifier) @{CLASS_NAME}
+                    superclasses: (argument_list
+                        (identifier)? @{CLASS_PARENT}
+                    )?
+                    body: (block
+                        [
+                            (function_definition)+
+                            (decorated_definition)+
+                        ]
+                    )
+                )@{CLASS_DEFINITION}
+            )
             "
         )
     }

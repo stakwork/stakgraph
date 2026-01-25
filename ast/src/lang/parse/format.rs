@@ -25,6 +25,7 @@ impl Lang {
         let mut association_type = None;
         let mut assocition_target = None;
         let mut has_impl = false;
+        let mut attributes = Vec::new();
 
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == CLASS_NAME {
@@ -41,6 +42,8 @@ impl Lang {
                 association_type = Some(body);
             } else if o == ASSOCIATION_TARGET {
                 assocition_target = Some(body);
+            } else if o == ATTRIBUTES {
+                attributes.push(body);
             }
 
             if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
@@ -56,6 +59,10 @@ impl Lang {
             }
             Ok(())
         })?;
+
+        if !attributes.is_empty() {
+            cls.add_attributes(&attributes.join(" "));
+        }
 
         if self.lang.filter_by_implements() {
             if let Some(implements_query) = self.lang.implements_query() {
@@ -494,7 +501,10 @@ impl Lang {
                             let res = LspCmd::GotoDefinition(pos.clone()).send(lsp)?;
                             if let LspRes::GotoDefinition(Some(gt)) = res {
                                 // Decode URL-encoded characters in file path (e.g., %5Bid%5D -> [id])
-                                let target_file = gt.file.display().to_string()
+                                let target_file = gt
+                                    .file
+                                    .display()
+                                    .to_string()
                                     .replace("%5B", "[")
                                     .replace("%5D", "]");
                                 if let Some(target) = graph.find_node_by_name_in_file(
