@@ -656,7 +656,8 @@ impl Lang {
             })?;
         }
 
-        if let Some(tq) = self.lang.test_query() {
+        if self.lang.is_test_file(file) {
+            if let Some(tq) = self.lang.test_query() {
             let q_tests = self.q(&tq, &NodeType::UnitTest);
             let tree_tests = self.lang.parse(code, &NodeType::UnitTest)?;
             let mut cursor_tests = QueryCursor::new();
@@ -764,6 +765,7 @@ impl Lang {
                     }
                     Ok(())
                 })?;
+            }
             }
         }
         Ok(res)
