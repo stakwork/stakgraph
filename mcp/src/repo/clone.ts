@@ -12,6 +12,9 @@ const OPTIONS: SimpleGitOptions = {
 
 const git: SimpleGit = simpleGit(OPTIONS);
 
+// Lock map to prevent concurrent clones to the same directory
+const cloneLocks = new Map<string, Promise<string>>();
+
 export async function cloneOrUpdateRepo(
   repoUrl: string,
   username?: string,
@@ -26,6 +29,31 @@ export async function cloneOrUpdateRepo(
   // Create directory structure: /tmp/owner/repo
   const cloneDir = path.join("/tmp", owner, repoName);
 
+  // Check if there's already a clone operation in progress for this directory
+  const existingLock = cloneLocks.get(cloneDir);
+  if (existingLock) {
+    console.log(`Clone already in progress for ${cloneDir}, waiting...`);
+    return existingLock;
+  }
+
+  // Create and store the promise for this clone operation
+  const clonePromise = doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit);
+  cloneLocks.set(cloneDir, clonePromise);
+
+  try {
+    return await clonePromise;
+  } finally {
+    cloneLocks.delete(cloneDir);
+  }
+}
+
+async function doCloneOrUpdate(
+  repoUrl: string,
+  cloneDir: string,
+  username?: string,
+  pat?: string,
+  commit?: string
+): Promise<string> {
   let url = repoUrl;
   if (username && pat) {
     url = repoUrl.replace("https://", `https://${username}:${pat}@`);
