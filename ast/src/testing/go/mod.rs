@@ -132,7 +132,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 4, "Expected 4 data models");
+    assert_eq!(data_models.len(), 12, "Expected 12 data models");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
@@ -275,7 +275,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 81, "Expected 81 contains edges");
+    assert_eq!(contains, 103, "Expected 103 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();

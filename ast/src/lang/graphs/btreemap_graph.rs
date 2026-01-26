@@ -674,38 +674,6 @@ impl Graph for BTreeMapGraph {
             self.nodes.remove(key);
             self.edges.retain(|(src, dst, _)| src != key && dst != key);
         }
-        if parent_type == NodeType::Class {
-            let dm_prefix = format!("{:?}-", NodeType::DataModel).to_lowercase();
-            let data_models: Vec<(String, String, String)> = self
-                .nodes
-                .range(dm_prefix.clone()..)
-                .take_while(|(k, _)| k.starts_with(&dm_prefix))
-                .map(|(k, n)| {
-                    (
-                        k.clone(),
-                        n.node_data.name.clone(),
-                        n.node_data.file.clone(),
-                    )
-                })
-                .collect();
-
-            let mut dms_to_remove = Vec::new();
-
-            for (dm_key, name, file) in data_models {
-                if self
-                    .find_node_by_name_in_file(NodeType::Class, &name, &file)
-                    .is_some()
-                {
-                    dms_to_remove.push(dm_key);
-                }
-            }
-
-            for key in dms_to_remove {
-                self.nodes.remove(&key);
-                self.edges
-                    .retain(|(src, dst, _)| src != &key && dst != &key);
-            }
-        }
     }
 
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
