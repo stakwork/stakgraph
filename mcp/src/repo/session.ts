@@ -34,13 +34,14 @@ function getSessionFile(sessionId: string): string {
 }
 
 /**
- * Create a new session and return its ID
+ * Create a new session and return its ID.
+ * If an ID is provided, use it; otherwise generate a random UUID.
  */
-export function createSession(): string {
-  const id = randomUUID();
-  const filePath = getSessionFile(id);
+export function createSession(id?: string): string {
+  const sessionId = id || randomUUID();
+  const filePath = getSessionFile(sessionId);
   appendFileSync(filePath, "");
-  return id;
+  return sessionId;
 }
 
 /**

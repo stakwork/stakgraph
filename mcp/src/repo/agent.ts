@@ -109,8 +109,7 @@ export interface GetContextOptions {
   schema?: { [key: string]: any };
   logs?: boolean;
   // Session support
-  sessionId?: string; // Continue existing session
-  createSession?: boolean; // Create new session
+  sessionId?: string; // Use existing session or create new one with this ID
   sessionConfig?: SessionConfig; // Truncation settings
 }
 
@@ -126,7 +125,6 @@ export async function get_context(
     systemOverride,
     schema,
     sessionId: inputSessionId,
-    createSession: shouldCreateSession,
     sessionConfig,
   } = opts;
   const startTime = Date.now();
@@ -138,18 +136,19 @@ export async function get_context(
   });
   console.log("===> model", model);
 
-  // Session handling
+  // Session handling: if sessionId provided, use existing or create new with that ID
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
 
   if (inputSessionId) {
-    if (!sessionExists(inputSessionId)) {
-      throw new Error(`Session ${inputSessionId} not found`);
+    if (sessionExists(inputSessionId)) {
+      // Continue existing session
+      sessionId = inputSessionId;
+      previousMessages = loadSession(sessionId);
+    } else {
+      // Create new session with provided ID
+      sessionId = createNewSession(inputSessionId);
     }
-    sessionId = inputSessionId;
-    previousMessages = loadSession(sessionId);
-  } else if (shouldCreateSession) {
-    sessionId = createNewSession();
   }
 
   const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
