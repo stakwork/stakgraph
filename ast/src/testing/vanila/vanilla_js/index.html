@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vanilla JS App - Home</title>
+    <link rel="stylesheet" href="css/reset.css" />
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/responsive.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="navbar-container"></header>
+
+      <main>
+        <section class="hero">
+          <div class="container">
+            <h1>Welcome to Our Vanilla JS Application</h1>
+            <p>
+              Building the future with pure JavaScript, no frameworks attached.
+            </p>
+            <button id="cta-button" class="btn primary">Get Started</button>
+          </div>
+        </section>
+
+        <section class="features">
+          <div class="container">
+            <h2>Key Features</h2>
+            <div class="feature-grid">
+              <div class="feature-card">
+                <h3>Lightning Fast</h3>
+                <p>Optimized for performance with minimal overhead.</p>
+              </div>
+              <div class="feature-card">
+                <h3>Clean Code</h3>
+                <p>Maintainable and readable codebase structure.</p>
+              </div>
+              <div class="feature-card">
+                <h3>Responsive</h3>
+                <p>Looks great on all devices, from mobile to desktop.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="dynamic-content">
+          <div class="container">
+            <h2>Latest Updates</h2>
+            <div id="updates-container" class="loading">Loading updates...</div>
+          </div>
+        </section>
+      </main>
+
+      <footer id="footer-container"></footer>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

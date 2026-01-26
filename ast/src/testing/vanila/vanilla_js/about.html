@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>About Us - Vanilla JS App</title>
+    <link rel="stylesheet" href="css/reset.css" />
+    <link rel="stylesheet" href="css/style.css" />
+    <link rel="stylesheet" href="css/responsive.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="navbar-container"></header>
+
+      <main>
+        <section class="page-header">
+          <div class="container">
+            <h1>About Us</h1>
+          </div>
+        </section>
+
+        <section class="content-section">
+          <div class="container">
+            <div class="about-grid">
+              <div class="about-text">
+                <h2>Our Mission</h2>
+                <p>
+                  We believe in the power of simplicity. In a world of complex
+                  frameworks and build tools, we strive to show what's possible
+                  with standard web technologies.
+                </p>
+                <p>
+                  Our team consists of passionate developers who love the web
+                  platform.
+                </p>
+              </div>
+              <div class="about-image">
+                <img
+                  src="assets/images/logo.png"
+                  alt="Company Logo"
+                  class="img-fluid"
+                />
+              </div>
+            </div>
+
+            <div class="team-section">
+              <h2>Meet the Team</h2>
+              <div id="team-container" class="grid-3">
+                <!-- Team members injected via JS -->
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer id="footer-container"></footer>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

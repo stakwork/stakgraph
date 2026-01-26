@@ -368,20 +368,61 @@ impl Repo {
                 overridden_langs.push(overridden);
             }
         }
-        let filtered_langs: Vec<Language> = detected_langs
+        let mut filtered_langs: Vec<Language> = detected_langs
             .into_iter()
             .filter(|lang| !overridden_langs.contains(lang))
             .collect();
 
         if filtered_langs.is_empty() {
-            let supported_pkg_files: Vec<&str> = PROGRAMMING_LANGUAGES
-                .iter()
-                .flat_map(|l| l.pkg_files())
+            let mut fallback_detected: Vec<Language> = Vec::new();
+            for l in PROGRAMMING_LANGUAGES {
+                if let Ok(only_lang) = std::env::var("ONLY_LANG") {
+                    if only_lang != l.to_string() {
+                        continue;
+                    }
+                }
+                let conf = Config {
+                    exts: stringy(l.exts()),
+                    skip_dirs: stringy(l.skip_dirs()),
+                    ..Default::default()
+                };
+                let source_files = walk_files(&root.into(), &conf)
+                    .map_err(|e| Error::Custom(format!("Failed to walk files at {}: {}", root, e)))?;
+                
+                if !source_files.is_empty() {
+                    let required_indicators = l.required_indicator_files();
+                    let has_required_indicators = required_indicators.is_empty()
+                        || required_indicators
+                            .iter()
+                            .any(|indicator| Path::new(root).join(indicator).exists());
+                    
+                    if has_required_indicators && !fallback_detected.iter().any(|lang| lang == &l) {
+                        fallback_detected.push(l);
+                    }
+                }
+            }
+
+            let mut overridden_fallback: Vec<Language> = Vec::new();
+            for lang in &fallback_detected {
+                for overridden in lang.overrides() {
+                    overridden_fallback.push(overridden);
+                }
+            }
+            filtered_langs = fallback_detected
+                .into_iter()
+                .filter(|lang| !overridden_fallback.contains(lang))
                 .collect();
-            return Err(Error::Custom(format!(
-                "No supported language detected in '{}'. Expected one of these package files: {:?}",
-                root, supported_pkg_files
-            )));
+
+            if filtered_langs.is_empty() {
+                let supported_pkg_files: Vec<&str> = PROGRAMMING_LANGUAGES
+                    .iter()
+                    .flat_map(|l| l.pkg_files())
+                    .collect();
+                return Err(Error::Custom(format!(
+                    "No supported language detected in '{}'. Expected one of these package files: {:?}",
+                    root, supported_pkg_files
+                )));
+            }
         }
         info!("Detected languages: {:?}", filtered_langs);
         // Then, set up each repository with LSP
