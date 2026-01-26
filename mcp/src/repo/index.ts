@@ -9,6 +9,7 @@ import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
 import { SessionConfig } from "./session.js";
+import { McpServer } from "./mcpServers.js";
 
 export { services_agent, mocks_agent };
 
@@ -31,6 +32,8 @@ export async function repo_agent(req: Request, res: Response) {
     // Session support
     const sessionId = req.body.sessionId as string | undefined;
     const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
+    // MCP servers
+    const mcpServers = req.body.mcpServers as McpServer[] | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
       return;
@@ -50,6 +53,7 @@ export async function repo_agent(req: Request, res: Response) {
           logs,
           sessionId,
           sessionConfig,
+          mcpServers,
         });
       })
       .then((result) => {

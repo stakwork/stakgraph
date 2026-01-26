@@ -12,12 +12,16 @@
     "agent": "ts-node agent.ts",
     "http": "ts-node http.ts",
     "http-mcp-client": "ts-node http-mcp-client.ts",
-    "test-lru": "ts-node test-lru.ts"
+    "test-lru": "ts-node test-lru.ts",
+    "stak": "ts-node stak.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.15.1",
     "ai": "^4.3.16",
     "aieo": "^0.1.12",
     "dotenv": "^17.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.10"
   }
 }
