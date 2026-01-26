@@ -31,6 +31,7 @@ import {
   sessionExists,
   SessionConfig,
 } from "./session.js";
+import { McpServer, getMcpTools } from "./mcpServers.js";
 
 const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
@@ -111,6 +112,8 @@ export interface GetContextOptions {
   // Session support
   sessionId?: string; // Use existing session or create new one with this ID
   sessionConfig?: SessionConfig; // Truncation settings
+  // MCP servers
+  mcpServers?: McpServer[]; // External MCP servers to load tools from
 }
 
 export async function get_context(
@@ -126,6 +129,7 @@ export async function get_context(
     schema,
     sessionId: inputSessionId,
     sessionConfig,
+    mcpServers,
   } = opts;
   const startTime = Date.now();
   const provider = process.env.LLM_PROVIDER || "anthropic";
@@ -151,7 +155,15 @@ export async function get_context(
     }
   }
 
-  const tools = get_tools(repoPath, apiKey, pat, toolsConfig);
+  let tools = get_tools(repoPath, apiKey, pat, toolsConfig);
+
+  // Load and merge MCP server tools if configured
+  if (mcpServers && mcpServers.length > 0) {
+    const mcpTools = await getMcpTools(mcpServers);
+    tools = { ...tools, ...mcpTools };
+    console.log(`[MCP] Merged ${Object.keys(mcpTools).length} MCP tools`);
+  }
+
   let instructions = systemOverride || DEFAULT_SYSTEM;
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
@@ -332,4 +344,22 @@ curl -X POST \
     "prompt": "i want to build a sub-account feature."
   }' \
   "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "What workflows are available?",
+    "mcpServers": [
+      {
+        "name": "stak",
+        "url": "https://mcp.stakwork.com/mcp",
+        "token": "xxx",
+        "toolFilter": ["GetWorkflows"]
+      }
+    ]
+  }' \
+  "http://localhost:3355/repo/agent"
+
+curl "http://localhost:3355/progress?request_id=1bfbf646-fff5-4e60-816a-47af33994912"
 */
