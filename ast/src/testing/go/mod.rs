@@ -106,11 +106,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let instances = graph.find_nodes_by_type(NodeType::Instance);
     nodes_count += instances.len();
-    assert_eq!(
-        instances.len(),
-        0,
-        "Expected 0 instance nodes (now merged with Var)"
-    );
+    assert_eq!(instances.len(), 1, "Expected 1 instance node");
 
     let traits = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += traits.len();
@@ -136,11 +132,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(
-        data_models.len(),
-        0,
-        "Expected 0 data models (now merged with Class)"
-    );
+    assert_eq!(data_models.len(), 4, "Expected 4 data models");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
@@ -279,11 +271,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let of = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of;
-    assert_eq!(of, 1, "Expected 1 of edges");
+    assert_eq!(of, 2, "Expected 2 of edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 70, "Expected 70 contains edges");
+    assert_eq!(contains, 81, "Expected 81 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();

@@ -631,6 +631,45 @@ impl Graph for ArrayGraph {
                 .iter()
                 .any(|rm| key.starts_with(rm) || key.contains(&format!("-{}-", rm)))
         });
+
+        if parent_type == NodeType::Class {
+            let mut dms_to_remove = Vec::new();
+
+            let data_models: Vec<(String, String, String)> = self
+                .nodes
+                .iter()
+                .filter(|n| n.node_type == NodeType::DataModel)
+                .map(|n| {
+                    (
+                        create_node_key(n),
+                        n.node_data.name.clone(),
+                        n.node_data.file.clone(),
+                    )
+                })
+                .collect();
+
+            for (dm_key, name, file) in data_models {
+                if self
+                    .find_node_by_name_in_file(NodeType::Class, &name, &file)
+                    .is_some()
+                {
+                    dms_to_remove.push(dm_key);
+                }
+            }
+
+            self.node_keys.retain(|k| !dms_to_remove.contains(k));
+            self.edge_keys
+                .retain(|k| !dms_to_remove.iter().any(|rm| k.contains(rm)));
+            self.nodes.retain(|node| {
+                let key = create_node_key(node);
+                !dms_to_remove.contains(&key)
+            });
+            self.edges.retain(|edge| {
+                let src_key = create_node_key_from_ref(&edge.source);
+                let dst_key = create_node_key_from_ref(&edge.target);
+                !dms_to_remove.contains(&src_key) && !dms_to_remove.contains(&dst_key)
+            });
+        }
     }
     fn get_data_models_within(&mut self, lang: &Lang) {
         let data_model_nodes: Vec<NodeData> = self

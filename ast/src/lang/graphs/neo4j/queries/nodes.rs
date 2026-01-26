@@ -405,6 +405,20 @@ pub fn filter_out_nodes_without_children_query(
         child_type.to_string()
     );
 
+    let query = if parent_type == NodeType::Class {
+        format!(
+            "{} WITH count(*) as dummy
+             MATCH (parent:{})
+             MATCH (dm:{}) WHERE dm.name = parent.name AND dm.file = parent.file
+             DETACH DELETE dm",
+            query,
+            parent_type.to_string(),
+            NodeType::DataModel.to_string()
+        )
+    } else {
+        query
+    };
+
     (query, params)
 }
 pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap) {

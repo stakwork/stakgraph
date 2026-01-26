@@ -99,13 +99,21 @@ impl Stack for Go {
             "(type_spec
                 name: (type_identifier) @{CLASS_NAME}
                 type_parameters: (type_parameter_list)?
-                type: (struct_type)
             ) @{CLASS_DEFINITION}"
         )
     }
     //capture as variables instead
     fn instance_definition_query(&self) -> Option<String> {
-        None
+        Some(format!(
+            "(source_file
+                (var_declaration
+                    (var_spec
+                        name: (identifier) @{INSTANCE_NAME}
+                        type: (type_identifier) @{CLASS_NAME}
+                    )
+                ) @{INSTANCE}
+            )"
+        ))
     }
     fn function_definition_query(&self) -> String {
         let return_type = format!(r#"result: (_)? @{RETURN_TYPES}"#);
@@ -273,7 +281,14 @@ impl Stack for Go {
     //     }
     // It duplicates with classes...
     fn data_model_query(&self) -> Option<String> {
-        None
+        Some(format!(
+            "(type_declaration
+                (type_spec
+                    name: (type_identifier) @{STRUCT_NAME}
+                    type: (_)
+                )
+            ) @{STRUCT}"
+        ))
     }
     fn data_model_within_query(&self) -> Option<String> {
         // the surrounding () is required to match the match work
@@ -385,124 +400,3 @@ impl Stack for Go {
         callback(NodeType::Class, NodeType::Function, "operand");
     }
 }
-
-/*
-
-fn endpoint_finder(&self) -> Option<String> {
-        Some(format!(
-            r#"(call_expression
-    function: (member_expression
-        object: (identifier)
-        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "Get|Post|Put|Delete")
-    )
-    arguments: (arguments
-        (string
-            (string_fragment) @{ENDPOINT}
-        )
-        [
-            (member_expression
-                property: (property_identifier) @{HANDLER}
-            )
-            (identifier) @{HANDLER}
-        ]
-    )
-) @{ROUTE}"#
-        ))
-    }
-
-*/
-
-/*
-
-(function_definition
-    name: (identifier) @method-name
-    parameters: (parameters) @parameters)
-    body: (block) @body
-
-
-(class_definition
-    body: (block
-        (function_definition
-            name: (identifier) @method-name
-            parameters: (parameters) @parameters))
-    @method-definition)
-*/
-
-/*
-
-package something
-
-import (
-    "fmt"
-    "testing"
-)
-
-type Thing struct {}
-
-func (thing Thing) Init() {}
-
-func (thing Thing) Method(arg string) {
-    val := a_function(arg)
-}
-
-func (thing Thing) Method2(arg string) {
-    thing.Method("hi")
-}
-
-func a_function(a: string) {
-    return "return value " + a
-}
-
-func TestThing(t *testing.T) {
-    thing := Thing{}
-    ret := thing.Method("hi")
-    if ret != "return value hi" {
-        panic("bad return value"
-    }
-}
-
-*/
-
-/*
-
-fn function_definition_query(&self) -> Query {
-    self.q("
-    (function_declaration
-        name: (identifier) @function-name
-        parameters: (parameter_list
-            (parameter_declaration
-                name: (identifier) @arg-name
-                type: (type_identifier) @arg-type))*
-    ) @function-definition
-    ")
-}
-fn method_definition_query(&self) -> Option<Query> {
-    Some(self.q("
-    (method_declaration
-        receiver: (parameter_list
-            (parameter_declaration
-                name: (identifier) @parent-name
-                type: (type_identifier) @parent-type)
-        )
-        name: (field_identifier) @method-name
-        parameters: (parameter_list
-            (parameter_declaration
-                name: (identifier) @arg-name
-                type: (type_identifier) @arg-type))*
-    ) @method-definition
-    "))
-}
-
-*/
-
-/*
-
-(function_declaration
-            name: (identifier) @function-name
-            parameters: (parameter_list
-                (parameter_declaration
-                    name: (identifier) @arg-name
-                    type: (type_identifier) @arg-type))*
-        ) @function-definition
-
-*/
