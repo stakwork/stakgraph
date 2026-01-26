@@ -30,7 +30,6 @@ export async function repo_agent(req: Request, res: Response) {
     const logs = req.body.logs as boolean | undefined;
     // Session support
     const sessionId = req.body.sessionId as string | undefined;
-    const createSession = req.body.createSession as boolean | undefined;
     const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt" });
@@ -50,7 +49,6 @@ export async function repo_agent(req: Request, res: Response) {
           modelName,
           logs,
           sessionId,
-          createSession,
           sessionConfig,
         });
       })
