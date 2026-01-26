@@ -98,9 +98,11 @@ impl Stack for Go {
         format!(
             "(type_spec
                 name: (type_identifier) @{CLASS_NAME}
+                type_parameters: (type_parameter_list)?
             ) @{CLASS_DEFINITION}"
         )
     }
+    //capture as variables instead
     fn instance_definition_query(&self) -> Option<String> {
         Some(format!(
             "(source_file
@@ -119,6 +121,7 @@ impl Stack for Go {
             "[
                 (function_declaration
                     name: (identifier) @{FUNCTION_NAME}
+                    type_parameters: (type_parameter_list)?
                     parameters: (parameter_list) @{ARGUMENTS}
                     {return_type}
                 )
@@ -129,6 +132,8 @@ impl Stack for Go {
                             type: [
                                 (type_identifier)
                                 (pointer_type) (type_identifier)
+                                (generic_type)
+                                (pointer_type) (generic_type)
                             ] @{PARENT_TYPE}
                         )
                     )
@@ -179,7 +184,7 @@ impl Stack for Go {
             r#"(call_expression
                 function: (selector_expression
                     operand: (identifier)
-                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^Get$|^Post$|^Put$|^Delete$")
+                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|DELETE|PATCH|Get|Post|Put|Delete|Patch)$")
                 )
                 arguments: (argument_list
                     (interpreted_string_literal) @{ENDPOINT}
@@ -198,7 +203,7 @@ impl Stack for Go {
             r#"(call_expression
                 function: (selector_expression
                     operand: (identifier)
-                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "Mount")
+                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(Mount|Group)$")
                 )
                 arguments: (argument_list
                     (interpreted_string_literal) @{ENDPOINT}
@@ -221,8 +226,16 @@ impl Stack for Go {
         if parent_type.is_none() {
             return Ok(None);
         }
-        let parent_type = parent_type.unwrap();
-        let nodedata = find_class(parent_type);
+        let parent_str = parent_type.unwrap();
+        // Clean parent type: remove pointer * and generic [T]
+        let cleaned_type = parent_str.trim_start_matches('*');
+        let cleaned_type = if let Some(idx) = cleaned_type.find('[') {
+            &cleaned_type[..idx]
+        } else {
+            cleaned_type
+        };
+
+        let nodedata = find_class(cleaned_type);
         Ok(match nodedata {
             Some(class) => Some(Operand {
                 source: NodeKeys::new(&class.name, &class.file, class.start),
@@ -266,6 +279,7 @@ impl Stack for Go {
     // ) @{STRUCT}"
     //         ))
     //     }
+    // It duplicates with classes...
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             "(type_declaration
@@ -285,11 +299,60 @@ impl Stack for Go {
         );
         Some(type_finder)
     }
+    fn classify_test(&self, _name: &str, file: &str, body: &str) -> NodeType {
+        let f = file.replace('\\', "/").to_lowercase();
+        let fname = f.rsplit('/').next().unwrap_or(&f);
+
+        if f.contains("/tests/e2e/")
+            || f.contains("/test/e2e/")
+            || f.contains("/e2e/")
+            || fname.contains("e2e")
+        {
+            return NodeType::E2eTest;
+        }
+
+        if f.contains("/tests/integration/")
+            || f.contains("/test/integration/")
+            || f.contains("/integration/")
+            || fname.contains("integration_test")
+        {
+            return NodeType::IntegrationTest;
+        }
+
+        let has_browser_driver = body.contains("chromedp")
+            || body.contains("selenium")
+            || body.contains("playwright")
+            || body.contains("rod");
+
+        if has_browser_driver {
+            return NodeType::E2eTest;
+        }
+
+        let has_httptest =
+            body.contains("httptest.NewRecorder") || body.contains("net/http/httptest");
+
+        if has_httptest {
+            return NodeType::IntegrationTest;
+        }
+
+        NodeType::UnitTest
+    }
+
     fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
         func_name.starts_with("Test")
+            || func_name.starts_with("Benchmark")
+            || func_name.starts_with("Example")
     }
     fn is_test_file(&self, filename: &str) -> bool {
         filename.ends_with("_test.go")
+    }
+
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"(function_declaration
+                name: (identifier) @{FUNCTION_NAME} (#match? @{FUNCTION_NAME} "^(Test|Benchmark|Example)")
+            ) @{FUNCTION_DEFINITION}"#
+        ))
     }
 
     fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
@@ -337,124 +400,3 @@ impl Stack for Go {
         callback(NodeType::Class, NodeType::Function, "operand");
     }
 }
-
-/*
-
-fn endpoint_finder(&self) -> Option<String> {
-        Some(format!(
-            r#"(call_expression
-    function: (member_expression
-        object: (identifier)
-        property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "Get|Post|Put|Delete")
-    )
-    arguments: (arguments
-        (string
-            (string_fragment) @{ENDPOINT}
-        )
-        [
-            (member_expression
-                property: (property_identifier) @{HANDLER}
-            )
-            (identifier) @{HANDLER}
-        ]
-    )
-) @{ROUTE}"#
-        ))
-    }
-
-*/
-
-/*
-
-(function_definition
-    name: (identifier) @method-name
-    parameters: (parameters) @parameters)
-    body: (block) @body
-
-
-(class_definition
-    body: (block
-        (function_definition
-            name: (identifier) @method-name
-            parameters: (parameters) @parameters))
-    @method-definition)
-*/
-
-/*
-
-package something
-
-import (
-    "fmt"
-    "testing"
-)
-
-type Thing struct {}
-
-func (thing Thing) Init() {}
-
-func (thing Thing) Method(arg string) {
-    val := a_function(arg)
-}
-
-func (thing Thing) Method2(arg string) {
-    thing.Method("hi")
-}
-
-func a_function(a: string) {
-    return "return value " + a
-}
-
-func TestThing(t *testing.T) {
-    thing := Thing{}
-    ret := thing.Method("hi")
-    if ret != "return value hi" {
-        panic("bad return value"
-    }
-}
-
-*/
-
-/*
-
-fn function_definition_query(&self) -> Query {
-    self.q("
-    (function_declaration
-        name: (identifier) @function-name
-        parameters: (parameter_list
-            (parameter_declaration
-                name: (identifier) @arg-name
-                type: (type_identifier) @arg-type))*
-    ) @function-definition
-    ")
-}
-fn method_definition_query(&self) -> Option<Query> {
-    Some(self.q("
-    (method_declaration
-        receiver: (parameter_list
-            (parameter_declaration
-                name: (identifier) @parent-name
-                type: (type_identifier) @parent-type)
-        )
-        name: (field_identifier) @method-name
-        parameters: (parameter_list
-            (parameter_declaration
-                name: (identifier) @arg-name
-                type: (type_identifier) @arg-type))*
-    ) @method-definition
-    "))
-}
-
-*/
-
-/*
-
-(function_declaration
-            name: (identifier) @function-name
-            parameters: (parameter_list
-                (parameter_declaration
-                    name: (identifier) @arg-name
-                    type: (type_identifier) @arg-type))*
-        ) @function-definition
-
-*/
