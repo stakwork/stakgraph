@@ -8,7 +8,7 @@ WORKDIR /usr/src/app
 
 # Install dependencies
 RUN apt update
-RUN apt install -y sed git vim tree ripgrep wget
+RUN apt install -y sed git vim tree ripgrep wget curl
 
 # install Gitleaks (supports x64 and arm64)
 RUN ARCH=$(dpkg --print-architecture) && \
