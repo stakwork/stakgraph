@@ -9,16 +9,18 @@ export class FileLinker {
 
   /**
    * Link files for a single feature
+   * @param featureId - Feature ID (can be repo-prefixed or not)
+   * @param repo - Optional repo to help locate the feature
    */
-  async linkFeature(featureId: string): Promise<LinkResult> {
-    const feature = await this.storage.getFeature(featureId);
+  async linkFeature(featureId: string, repo?: string): Promise<LinkResult> {
+    const feature = await this.storage.getFeature(featureId, repo);
     if (!feature) {
       throw new Error(`Feature ${featureId} not found`);
     }
 
     console.log(`\n🔗 Linking files for feature: ${feature.name}`);
 
-    const result = await this.storage.linkFeaturesToFiles(featureId);
+    const result = await this.storage.linkFeaturesToFiles(featureId, feature.repo);
 
     const link = result.featureFileLinks[0];
     if (link) {
@@ -36,13 +38,14 @@ export class FileLinker {
 
   /**
    * Link files for all features
+   * @param repo - Optional repo to filter features
    */
-  async linkAllFeatures(): Promise<LinkResult> {
-    const features = await this.storage.getAllFeatures();
+  async linkAllFeatures(repo?: string): Promise<LinkResult> {
+    const features = await this.storage.getAllFeatures(repo);
 
-    console.log(`\n🔗 Linking files for ${features.length} features...\n`);
+    console.log(`\n🔗 Linking files for ${features.length} features${repo ? ` in ${repo}` : ''}...\n`);
 
-    const result = await this.storage.linkFeaturesToFiles();
+    const result = await this.storage.linkFeaturesToFiles(undefined, repo);
 
     console.log(`\n✅ Done linking files!`);
     console.log(`   Features processed: ${result.featuresProcessed}`);

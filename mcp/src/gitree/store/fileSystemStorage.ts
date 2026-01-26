@@ -68,7 +68,9 @@ export class FileSystemStore extends Storage {
 
   // Features
   async saveFeature(feature: Feature): Promise<void> {
-    const filePath = path.join(this.featuresDir, `${feature.id}.json`);
+    // Use sanitized ID for filename (replace / with __)
+    const safeId = feature.id.replace(/\//g, "__");
+    const filePath = path.join(this.featuresDir, `${safeId}.json`);
     const serialized = {
       ...feature,
       createdAt: feature.createdAt.toISOString(),
@@ -78,8 +80,10 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(filePath, JSON.stringify(serialized, null, 2));
   }
 
-  async getFeature(id: string): Promise<Feature | null> {
-    const filePath = path.join(this.featuresDir, `${id}.json`);
+  async getFeature(id: string, _repo?: string): Promise<Feature | null> {
+    // Use sanitized ID for filename (replace / with __)
+    const safeId = id.replace(/\//g, "__");
+    const filePath = path.join(this.featuresDir, `${safeId}.json`);
     try {
       const content = await fs.readFile(filePath, "utf-8");
       const parsed = JSON.parse(content);
@@ -96,7 +100,7 @@ export class FileSystemStore extends Storage {
     }
   }
 
-  async getAllFeatures(): Promise<Feature[]> {
+  async getAllFeatures(_repo?: string): Promise<Feature[]> {
     try {
       const files = await fs.readdir(this.featuresDir);
       const features: Feature[] = [];
@@ -119,14 +123,20 @@ export class FileSystemStore extends Storage {
         }
       }
 
+      // Filter by repo if provided (though FileSystemStorage doesn't fully support multi-repo)
+      if (_repo) {
+        return features.filter(f => f.repo === _repo);
+      }
+
       return features;
     } catch {
       return [];
     }
   }
 
-  async deleteFeature(id: string): Promise<void> {
-    const filePath = path.join(this.featuresDir, `${id}.json`);
+  async deleteFeature(id: string, _repo?: string): Promise<void> {
+    const safeId = id.replace(/\//g, "__");
+    const filePath = path.join(this.featuresDir, `${safeId}.json`);
     await fs.unlink(filePath);
   }
 
@@ -137,7 +147,7 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(filePath, content);
   }
 
-  async getPR(number: number): Promise<PRRecord | null> {
+  async getPR(number: number, _repo?: string): Promise<PRRecord | null> {
     const filePath = path.join(this.prsDir, `${number}.md`);
     try {
       const content = await fs.readFile(filePath, "utf-8");
@@ -147,7 +157,7 @@ export class FileSystemStore extends Storage {
     }
   }
 
-  async getAllPRs(): Promise<PRRecord[]> {
+  async getAllPRs(_repo?: string): Promise<PRRecord[]> {
     try {
       const files = await fs.readdir(this.prsDir);
       const prs: PRRecord[] = [];
@@ -173,7 +183,7 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(filePath, content);
   }
 
-  async getCommit(sha: string): Promise<CommitRecord | null> {
+  async getCommit(sha: string, _repo?: string): Promise<CommitRecord | null> {
     const filePath = path.join(this.commitsDir, `${sha}.md`);
     try {
       const content = await fs.readFile(filePath, "utf-8");
@@ -183,7 +193,7 @@ export class FileSystemStore extends Storage {
     }
   }
 
-  async getAllCommits(): Promise<CommitRecord[]> {
+  async getAllCommits(_repo?: string): Promise<CommitRecord[]> {
     try {
       const files = await fs.readdir(this.commitsDir);
       const commits: CommitRecord[] = [];
@@ -213,7 +223,7 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(filePath, JSON.stringify(serialized, null, 2));
   }
 
-  async getClue(id: string): Promise<Clue | null> {
+  async getClue(id: string, _repo?: string): Promise<Clue | null> {
     const filePath = path.join(this.cluesDir, `${id}.json`);
     try {
       const content = await fs.readFile(filePath, "utf-8");
@@ -228,7 +238,7 @@ export class FileSystemStore extends Storage {
     }
   }
 
-  async getAllClues(): Promise<Clue[]> {
+  async getAllClues(_repo?: string): Promise<Clue[]> {
     try {
       const files = await fs.readdir(this.cluesDir);
       const clues: Clue[] = [];
@@ -247,7 +257,7 @@ export class FileSystemStore extends Storage {
     }
   }
 
-  async deleteClue(id: string): Promise<void> {
+  async deleteClue(id: string, _repo?: string): Promise<void> {
     const filePath = path.join(this.cluesDir, `${id}.json`);
     await fs.unlink(filePath);
   }
@@ -260,11 +270,12 @@ export class FileSystemStore extends Storage {
     embeddings: number[],
     featureId?: string,
     limit: number = 10,
-    similarityThreshold: number = 0.5
+    similarityThreshold: number = 0.5,
+    _repo?: string
   ): Promise<Array<Clue & { score: number; relevanceBreakdown?: any }>> {
     const allClues = featureId
       ? await this.getCluesForFeature(featureId)
-      : await this.getAllClues();
+      : await this.getAllClues(_repo);
 
     const queryLower = query.toLowerCase();
 
@@ -338,127 +349,143 @@ export class FileSystemStore extends Storage {
     return denominator === 0 ? 0 : dotProduct / denominator;
   }
 
-  // Metadata
-  async getLastProcessedPR(): Promise<number> {
+  // Metadata - per-repo (FileSystemStorage uses a simple approach with repo-prefixed keys)
+  private getRepoMetadataKey(repo: string, key: string): string {
+    // For FileSystemStorage, we store per-repo metadata with prefixed keys
+    const safeRepo = repo.replace(/\//g, "__");
+    return `${safeRepo}__${key}`;
+  }
+
+  async getLastProcessedPR(repo: string): Promise<number> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
-      return metadata.lastProcessedPR || 0;
+      const key = this.getRepoMetadataKey(repo, "lastProcessedPR");
+      return metadata[key] || metadata.lastProcessedPR || 0;
     } catch {
       return 0;
     }
   }
 
-  async setLastProcessedPR(number: number): Promise<void> {
-    let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] };
+  async setLastProcessedPR(repo: string, number: number): Promise<void> {
+    let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
     } catch {
       // File doesn't exist yet
     }
-    metadata.lastProcessedPR = number;
+    const key = this.getRepoMetadataKey(repo, "lastProcessedPR");
+    metadata[key] = number;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
-  async getLastProcessedCommit(): Promise<string | null> {
+  async getLastProcessedCommit(repo: string): Promise<string | null> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
-      return metadata.lastProcessedCommit || null;
+      const key = this.getRepoMetadataKey(repo, "lastProcessedCommit");
+      return metadata[key] || metadata.lastProcessedCommit || null;
     } catch {
       return null;
     }
   }
 
-  async setLastProcessedCommit(sha: string): Promise<void> {
-    let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] };
+  async setLastProcessedCommit(repo: string, sha: string): Promise<void> {
+    let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
     } catch {
       // File doesn't exist yet
     }
-    metadata.lastProcessedCommit = sha;
+    const key = this.getRepoMetadataKey(repo, "lastProcessedCommit");
+    metadata[key] = sha;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
-  async getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+  async getChronologicalCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
-      return metadata.chronologicalCheckpoint || null;
+      const key = this.getRepoMetadataKey(repo, "chronologicalCheckpoint");
+      return metadata[key] || metadata.chronologicalCheckpoint || null;
     } catch {
       return null;
     }
   }
 
-  async setChronologicalCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void> {
-    let metadata: any = { lastProcessedPR: 0, lastProcessedCommit: null, recentThemes: [] };
+  async setChronologicalCheckpoint(repo: string, checkpoint: ChronologicalCheckpoint): Promise<void> {
+    let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
     } catch {
       // File doesn't exist yet
     }
-    metadata.chronologicalCheckpoint = checkpoint;
+    const key = this.getRepoMetadataKey(repo, "chronologicalCheckpoint");
+    metadata[key] = checkpoint;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
-  async getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+  async getClueAnalysisCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
-      return metadata.clueAnalysisCheckpoint || null;
+      const key = this.getRepoMetadataKey(repo, "clueAnalysisCheckpoint");
+      return metadata[key] || metadata.clueAnalysisCheckpoint || null;
     } catch {
       return null;
     }
   }
 
-  async setClueAnalysisCheckpoint(checkpoint: ChronologicalCheckpoint): Promise<void> {
-    let metadata: any = { lastProcessedPR: 0, lastProcessedCommit: null, recentThemes: [] };
+  async setClueAnalysisCheckpoint(repo: string, checkpoint: ChronologicalCheckpoint): Promise<void> {
+    let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
     } catch {
       // File doesn't exist yet
     }
-    metadata.clueAnalysisCheckpoint = checkpoint;
+    const key = this.getRepoMetadataKey(repo, "clueAnalysisCheckpoint");
+    metadata[key] = checkpoint;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
-  // Themes
-  async addThemes(themes: string[]): Promise<void> {
-    let metadata = { lastProcessedPR: 0, lastProcessedCommit: null as string | null, recentThemes: [] as string[] };
+  // Themes - per-repo
+  async addThemes(repo: string, themes: string[]): Promise<void> {
+    let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       metadata = JSON.parse(content);
-      if (!metadata.recentThemes) {
-        metadata.recentThemes = [];
-      }
     } catch {
       // File doesn't exist yet
     }
+
+    const key = this.getRepoMetadataKey(repo, "recentThemes");
+    let recentThemes: string[] = metadata[key] || metadata.recentThemes || [];
 
     // Remove themes if they already exist (LRU behavior)
-    metadata.recentThemes = metadata.recentThemes.filter((t: string) => !themes.includes(t));
+    recentThemes = recentThemes.filter((t: string) => !themes.includes(t));
 
     // Add to end (most recent)
-    metadata.recentThemes.push(...themes);
+    recentThemes.push(...themes);
 
     // Keep only last 100
-    if (metadata.recentThemes.length > 100) {
-      metadata.recentThemes = metadata.recentThemes.slice(-100);
+    if (recentThemes.length > 100) {
+      recentThemes = recentThemes.slice(-100);
     }
 
+    metadata[key] = recentThemes;
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
-  async getRecentThemes(): Promise<string[]> {
+  async getRecentThemes(repo: string): Promise<string[]> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
-      return metadata.recentThemes || [];
+      const key = this.getRepoMetadataKey(repo, "recentThemes");
+      return metadata[key] || metadata.recentThemes || [];
     } catch {
       return [];
     }
@@ -474,7 +501,7 @@ export class FileSystemStore extends Storage {
   }
 
   // Feature-File Linking (not supported in FileSystemStorage)
-  async linkFeaturesToFiles(_featureId?: string): Promise<LinkResult> {
+  async linkFeaturesToFiles(_featureId?: string, _repo?: string): Promise<LinkResult> {
     throw new Error(
       "Feature-File linking is only supported with GraphStorage. Use --graph flag."
     );

@@ -22,7 +22,8 @@ export interface LinkResult {
  */
 
 export interface Feature {
-  id: string; // Slug from name (e.g., "auth-system")
+  id: string; // Slug from name, repo-prefixed for uniqueness (e.g., "owner/repo/auth-system")
+  repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
   ref_id?: string; // Reference ID from the repository (e.g., "1234567890")
   name: string; // Human-readable (e.g., "Authentication System")
   description: string; // What this feature is about
@@ -37,6 +38,7 @@ export interface Feature {
 
 export interface PRRecord {
   number: number;
+  repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
   title: string;
   summary: string; // LLM-generated summary of what this PR does
   mergedAt: Date;
@@ -50,6 +52,7 @@ export interface PRRecord {
 
 export interface CommitRecord {
   sha: string;
+  repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
   message: string;
   summary: string; // LLM-generated summary of what this commit does
   committedAt: Date;
@@ -163,7 +166,8 @@ export interface ClueEntities {
  * Clue - a knowledge node about architectural patterns and utilities
  */
 export interface Clue {
-  id: string; // Slug from title (e.g., "auth-jwt-utils")
+  id: string; // Slug from title, repo-prefixed for uniqueness (e.g., "owner/repo/auth-jwt-utils")
+  repo?: string; // Repository identifier "owner/repo" - optional for backwards compat
   featureId: string; // Feature where this clue was discovered (provenance)
   type: ClueType;
   title: string; // e.g., "JWT Token Management Utilities"

@@ -19,6 +19,7 @@ import {ClueAnalyzer} from "./clueAnalyzer.js";
  */
 export class StreamingFeatureBuilder {
   private clueAnalyzer?: ClueAnalyzer; // ClueAnalyzer instance (lazily initialized)
+  private repo: string = ""; // Repository identifier "owner/repo"
 
   constructor(
     private storage: Storage,
@@ -32,6 +33,9 @@ export class StreamingFeatureBuilder {
    * Main entry point: process a repo (both PRs and commits chronologically)
    */
   async processRepo(owner: string, repo: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
+    // Set repo identifier for use throughout processing
+    this.repo = `${owner}/${repo}`;
+    
     const totalUsage: Usage = {
       inputTokens: 0,
       outputTokens: 0,
@@ -41,8 +45,8 @@ export class StreamingFeatureBuilder {
     // Track which features were modified during processing
     const modifiedFeatureIds = new Set<string>();
 
-    // Get chronological checkpoint (or migrate from old checkpoints)
-    let checkpoint = await this.storage.getChronologicalCheckpoint();
+    // Get chronological checkpoint for THIS repo (or migrate from old checkpoints)
+    let checkpoint = await this.storage.getChronologicalCheckpoint(this.repo);
 
     // Backwards compatibility: migrate old checkpoints if needed
     if (!checkpoint) {
@@ -89,6 +93,7 @@ export class StreamingFeatureBuilder {
           // Save a minimal PR record so we know it was attempted
           await this.storage.savePR({
             number: pr.number,
+            repo: this.repo,
             title: pr.title,
             summary: `Error during processing: ${
               error instanceof Error ? error.message : "Unknown error"
@@ -130,6 +135,7 @@ export class StreamingFeatureBuilder {
           // Save a minimal commit record so we know it was attempted
           await this.storage.saveCommit({
             sha: commit.sha,
+            repo: this.repo,
             message: commit.message,
             summary: `Error during processing: ${
               error instanceof Error ? error.message : "Unknown error"
@@ -147,7 +153,7 @@ export class StreamingFeatureBuilder {
     }
 
     // Show final summary
-    const features = await this.storage.getAllFeatures();
+    const features = await this.storage.getAllFeatures(this.repo);
     console.log(`\n🎉 Repository processing complete!`);
     console.log(`   Total features: ${features.length}`);
     console.log(`   Modified features: ${modifiedFeatureIds.size}`);
@@ -349,6 +355,7 @@ export class StreamingFeatureBuilder {
       // Still save the PR record for completeness
       await this.storage.savePR({
         number: pr.number,
+        repo: this.repo,
         title: pr.title,
         summary: "Skipped (maintenance/trivial)",
         mergedAt: pr.mergedAt,
@@ -359,7 +366,7 @@ export class StreamingFeatureBuilder {
     }
 
     // Get current features for context
-    const features = await this.storage.getAllFeatures();
+    const features = await this.storage.getAllFeatures(this.repo);
 
     // Fetch detailed PR info (additions/deletions/files) - done lazily per PR
     console.log(`   📥 Fetching PR details...`);
@@ -398,7 +405,7 @@ export class StreamingFeatureBuilder {
     if (this.shouldAnalyzeClues) {
       try {
         // Get features linked to this PR (after decision has been applied)
-        const linkedFeatures = await this.storage.getFeaturesForPR(pr.number);
+        const linkedFeatures = await this.storage.getFeaturesForPR(pr.number, this.repo);
         const featureIds = linkedFeatures.map((f) => f.id);
 
         // Fetch file list for context
@@ -493,7 +500,7 @@ ${DECISION_GUIDELINES}`;
    * Format recent themes for context
    */
   private async formatThemeContext(): Promise<string> {
-    const themes = await this.storage.getRecentThemes();
+    const themes = await this.storage.getRecentThemes(this.repo);
 
     if (themes.length === 0) {
       return "## Recent Technical Themes\n\nNo recent themes.";
@@ -523,9 +530,10 @@ ${DECISION_GUIDELINES}`;
       per_page: 100,
     });
 
-    // Save PR record
+    // Save PR record with repo
     const prRecord: PRRecord = {
       number: pr.number,
+      repo: this.repo,
       title: pr.title,
       summary: decision.summary,
       mergedAt: pr.mergedAt,
@@ -575,6 +583,7 @@ ${DECISION_GUIDELINES}`;
       // Still save the commit record for completeness
       await this.storage.saveCommit({
         sha: commit.sha,
+        repo: this.repo,
         message: commit.message,
         summary: "Skipped (maintenance/trivial)",
         author: commit.author,
@@ -586,7 +595,7 @@ ${DECISION_GUIDELINES}`;
     }
 
     // Get current features for context
-    const features = await this.storage.getAllFeatures();
+    const features = await this.storage.getAllFeatures(this.repo);
 
     // Fetch full commit content
     console.log(`   📥 Fetching commit details...`);
@@ -616,7 +625,7 @@ ${DECISION_GUIDELINES}`;
     if (this.shouldAnalyzeClues) {
       try {
         // Get features linked to this commit (after decision has been applied)
-        const linkedFeatures = await this.storage.getFeaturesForCommit(commit.sha);
+        const linkedFeatures = await this.storage.getFeaturesForCommit(commit.sha, this.repo);
         const featureIds = linkedFeatures.map((f) => f.id);
 
         // Fetch file list for context
@@ -688,9 +697,10 @@ ${DECISION_GUIDELINES}`;
 
     const files = commitData.files || [];
 
-    // Save commit record
+    // Save commit record with repo
     const commitRecord: CommitRecord = {
       sha: commit.sha,
+      repo: this.repo,
       message: commit.message,
       summary: decision.summary,
       author: commit.author,
@@ -752,7 +762,7 @@ ${DECISION_GUIDELINES}`;
           decision.existingFeatureIds.length > 0
         ) {
           for (const featureId of decision.existingFeatureIds) {
-            const feature = await this.storage.getFeature(featureId);
+            const feature = await this.storage.getFeature(featureId, this.repo);
             if (feature) {
               const wasAdded = await config.addToFeature(feature);
               if (wasAdded) {
@@ -776,6 +786,7 @@ ${DECISION_GUIDELINES}`;
           for (const newFeatureData of decision.newFeatures) {
             const baseFeature = {
               id: this.generateFeatureId(newFeatureData.name),
+              repo: this.repo,
               name: newFeatureData.name,
               description: newFeatureData.description,
               createdAt: config.changeDate,
@@ -793,7 +804,7 @@ ${DECISION_GUIDELINES}`;
     // Update feature descriptions
     if (decision.updateFeatures && decision.updateFeatures.length > 0) {
       for (const update of decision.updateFeatures) {
-        const feature = await this.storage.getFeature(update.featureId);
+        const feature = await this.storage.getFeature(update.featureId, this.repo);
         if (feature) {
           feature.description = update.newDescription;
           feature.lastUpdated = config.changeDate;
@@ -809,49 +820,53 @@ ${DECISION_GUIDELINES}`;
       }
     }
 
-    // Save themes
+    // Save themes (per-repo)
     if (decision.themes && decision.themes.length > 0) {
-      await this.storage.addThemes(decision.themes);
+      await this.storage.addThemes(this.repo, decision.themes);
       console.log(`   🏷️  Tagged: ${decision.themes.join(", ")}`);
     }
   }
 
   /**
-   * Generate slug-style feature ID from name
+   * Generate repo-prefixed slug-style feature ID from name
+   * e.g., "owner/repo/feature-slug"
    */
   private generateFeatureId(name: string): string {
-    return name
+    const slug = name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
+    
+    // Return repo-prefixed ID
+    return `${this.repo}/${slug}`;
   }
 
   /**
-   * Migrate old checkpoint format to new chronological checkpoint
+   * Migrate old checkpoint format to new chronological checkpoint (per-repo)
    */
   private async migrateOldCheckpoint(): Promise<ChronologicalCheckpoint | null> {
-    const lastPR = await this.storage.getLastProcessedPR();
-    const lastCommit = await this.storage.getLastProcessedCommit();
+    const lastPR = await this.storage.getLastProcessedPR(this.repo);
+    const lastCommit = await this.storage.getLastProcessedCommit(this.repo);
 
     // If no old checkpoints exist, return null (start from beginning)
     if (lastPR === 0 && !lastCommit) {
       return null;
     }
 
-    console.log(`   Migrating old checkpoints to chronological format...`);
+    console.log(`   Migrating old checkpoints to chronological format for ${this.repo}...`);
 
     // Get the dates of the last processed PR and commit
     let latestDate: Date | null = null;
 
     if (lastPR > 0) {
-      const pr = await this.storage.getPR(lastPR);
+      const pr = await this.storage.getPR(lastPR, this.repo);
       if (pr) {
         latestDate = pr.mergedAt;
       }
     }
 
     if (lastCommit) {
-      const commit = await this.storage.getCommit(lastCommit);
+      const commit = await this.storage.getCommit(lastCommit, this.repo);
       if (commit) {
         if (!latestDate || commit.committedAt > latestDate) {
           latestDate = commit.committedAt;
@@ -869,7 +884,7 @@ ${DECISION_GUIDELINES}`;
       processedAtTimestamp: [], // Don't include the last processed items (they're already done)
     };
 
-    await this.storage.setChronologicalCheckpoint(checkpoint);
+    await this.storage.setChronologicalCheckpoint(this.repo, checkpoint);
     console.log(
       `   Migrated to chronological checkpoint: ${checkpoint.lastProcessedTimestamp}`
     );
@@ -878,10 +893,10 @@ ${DECISION_GUIDELINES}`;
   }
 
   /**
-   * Update checkpoint after processing a change
+   * Update checkpoint after processing a change (per-repo)
    */
   private async updateCheckpoint(date: Date, id: string): Promise<void> {
-    const currentCheckpoint = await this.storage.getChronologicalCheckpoint();
+    const currentCheckpoint = await this.storage.getChronologicalCheckpoint(this.repo);
     const dateString = date.toISOString();
 
     if (
@@ -889,7 +904,7 @@ ${DECISION_GUIDELINES}`;
       currentCheckpoint.lastProcessedTimestamp < dateString
     ) {
       // New timestamp - replace checkpoint
-      await this.storage.setChronologicalCheckpoint({
+      await this.storage.setChronologicalCheckpoint(this.repo, {
         lastProcessedTimestamp: dateString,
         processedAtTimestamp: [id],
       });
@@ -897,7 +912,7 @@ ${DECISION_GUIDELINES}`;
       // Same timestamp - add to processedAtTimestamp array
       if (!currentCheckpoint.processedAtTimestamp.includes(id)) {
         currentCheckpoint.processedAtTimestamp.push(id);
-        await this.storage.setChronologicalCheckpoint(currentCheckpoint);
+        await this.storage.setChronologicalCheckpoint(this.repo, currentCheckpoint);
       }
     }
     // If date < checkpoint, this is an old item (shouldn't happen, but ignore)
@@ -955,14 +970,14 @@ ${DECISION_GUIDELINES}`;
   }
 
   /**
-   * Update clue analysis checkpoint (similar to updateCheckpoint but for clues)
+   * Update clue analysis checkpoint (similar to updateCheckpoint but for clues, per-repo)
    */
   private async updateClueAnalysisCheckpoint(
     date: Date,
     id: string
   ): Promise<void> {
     const currentCheckpoint =
-      await this.storage.getClueAnalysisCheckpoint();
+      await this.storage.getClueAnalysisCheckpoint(this.repo);
     const dateString = date.toISOString();
 
     if (
@@ -970,7 +985,7 @@ ${DECISION_GUIDELINES}`;
       currentCheckpoint.lastProcessedTimestamp < dateString
     ) {
       // New timestamp - create new checkpoint
-      await this.storage.setClueAnalysisCheckpoint({
+      await this.storage.setClueAnalysisCheckpoint(this.repo, {
         lastProcessedTimestamp: dateString,
         processedAtTimestamp: [id],
       });
@@ -978,7 +993,7 @@ ${DECISION_GUIDELINES}`;
       // Same timestamp - add to processedAtTimestamp array
       if (!currentCheckpoint.processedAtTimestamp.includes(id)) {
         currentCheckpoint.processedAtTimestamp.push(id);
-        await this.storage.setClueAnalysisCheckpoint(currentCheckpoint);
+        await this.storage.setClueAnalysisCheckpoint(this.repo, currentCheckpoint);
       }
     }
     // If date < checkpoint, this is an old item (shouldn't happen, but ignore)
