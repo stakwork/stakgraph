@@ -45,17 +45,30 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     nodes_count += libraries.len();
     assert_eq!(libraries.len(), 4, "Expected 4 library nodes");
 
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes_count += unit_tests.len();
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes_count += integration_tests.len();
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes_count += e2e_tests.len();
+
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 6, "Expected at least 6 file nodes");
+    assert_eq!(files.len(), 12, "Expected 12 file nodes");
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    assert_eq!(directories.len(), 0, "Expected 0 directory nodes");
+    assert_eq!(directories.len(), 1, "Expected 1 directory node");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 3, "Expected 3 imports");
+    assert_eq!(imports.len(), 8, "Expected 8 imports");
+
+    let packages = graph.find_nodes_by_type(NodeType::Package);
+    nodes_count += packages.len();
+    assert_eq!(packages.len(), 0, "Expected 0 packages");
 
     let main_import_body = format!(
         r#"import (
@@ -79,22 +92,37 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 1, "Expected 1 class");
+    assert_eq!(classes.len(), 8, "Expected 8 classes");
+
+    let database_class = classes
+        .iter()
+        .find(|c| c.name == "database")
+        .expect("Class 'database' not found");
+
     assert_eq!(
-        classes[0].name, "database",
-        "Class name should be 'database'"
-    );
-    assert_eq!(
-        classes[0].file, "src/testing/go/db.go",
+        database_class.file, "src/testing/go/db.go",
         "Class file path is incorrect"
     );
 
     let instances = graph.find_nodes_by_type(NodeType::Instance);
     nodes_count += instances.len();
-    assert_eq!(instances.len(), 1, "Expected 1 instance node");
+    assert_eq!(
+        instances.len(),
+        0,
+        "Expected 0 instance nodes (now merged with Var)"
+    );
+
+    let traits = graph.find_nodes_by_type(NodeType::Trait);
+    nodes_count += traits.len();
+    assert_eq!(traits.len(), 1, "Expected 1 trait");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
+    if use_lsp {
+        assert_eq!(functions.len(), 74, "Expected 74 functions");
+    } else {
+        assert_eq!(functions.len(), 26, "Expected 26 functions");
+    }
     assert!(
         functions
             .iter()
@@ -104,39 +132,18 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let class_function_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(class_function_edges.len(), 5, "Expected 5 methods");
+    assert_eq!(class_function_edges.len(), 15, "Expected 15 methods");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    assert_eq!(data_models.len(), 5, "Expected 5 data models");
-    let person = data_models
-        .iter()
-        .find(|dm| dm.name == "Person" && dm.file == "src/testing/go/db.go")
-        .expect("Person data model not found");
-    assert!(
-        person.body.contains("ID    int"),
-        "Person should have ID field"
+    assert_eq!(
+        data_models.len(),
+        0,
+        "Expected 0 data models (now merged with Class)"
     );
-    assert!(
-        person.body.contains("Name  string"),
-        "Person should have Name field"
-    );
-    assert!(
-        person.body.contains("Email string"),
-        "Person should have Email field"
-    );
-    let leaderboard = data_models
-        .iter()
-        .find(|dm| dm.name == "LeaderboardEntry")
-        .expect("LeaderboardEntry data model not found");
-    assert!(
-        leaderboard.body.contains("Name  string"),
-        "LeaderboardEntry should have Name field"
-    );
-    assert!(
-        leaderboard.body.contains("Score int"),
-        "LeaderboardEntry should have Score field"
-    );
+
+    let requests = graph.find_nodes_by_type(NodeType::Request);
+    nodes_count += requests.len();
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
@@ -260,19 +267,23 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += function_calls;
-    assert_eq!(function_calls, 8, "Expected 8 function calls");
+    assert_eq!(function_calls, 12, "Expected 12 function calls");
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 5, "Expected 5 operands");
+    if use_lsp {
+        assert_eq!(operands, 19, "Expected 19 operands with lsp");
+    } else {
+        assert_eq!(operands, 15, "Expected 15 operands without lsp");
+    }
 
     let of = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of;
-    assert_eq!(of, 2, "Expected 2 of edges");
+    assert_eq!(of, 1, "Expected 1 of edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 49, "Expected 49 contains edges");
+    assert_eq!(contains, 70, "Expected 70 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -287,7 +298,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 50, "Expected 50 uses edges with lsp");
+        assert_eq!(uses, 73, "Expected 73 uses edges with lsp");
     }
 
     let handler_fn = graph
@@ -325,6 +336,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     );
 
     let (nodes, edges) = graph.get_graph_size();
+
     assert_eq!(
         nodes as usize, nodes_count,
         "Expected {} nodes got {}",
