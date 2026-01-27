@@ -37,6 +37,10 @@ RUN npx -y playwright install
 COPY ./package.json ./package.json
 COPY ./yarn.lock ./yarn.lock
 
+# Copy workspace package.json files (required for yarn workspaces)
+COPY ./src/aieo/package.json ./src/aieo/package.json
+COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
+
 # Install dependencies
 RUN yarn
 

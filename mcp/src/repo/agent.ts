@@ -362,4 +362,9 @@ curl -X POST \
   "http://localhost:3355/repo/agent"
 
 curl "http://localhost:3355/progress?request_id=1bfbf646-fff5-4e60-816a-47af33994912"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d @mcp/test-results/test.json \
+  "http://localhost:3355/repo/agent"
 */
