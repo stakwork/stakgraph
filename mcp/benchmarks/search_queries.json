@@ -329,5 +329,80 @@
         }
       ]
     }
+  },
+  {
+    "id": "semantic-login-flow",
+    "query": "user login flow",
+    "category": "Semantic",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "authOptions",
+          "type": "Var",
+          "file": "src/lib/auth/nextauth.ts"
+        }
+      ]
+    }
+  },
+  {
+    "id": "semantic-schema-def",
+    "query": "database schema definitions",
+    "category": "Semantic",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "schema.prisma",
+          "type": "File",
+          "file": "prisma/schema.prisma"
+        }
+      ]
+    }
+  },
+  {
+    "id": "semantic-workspace-state",
+    "query": "managing workspace state",
+    "category": "Semantic",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "WorkspaceContext",
+          "type": "Function",
+          "file": "src/contexts/WorkspaceContext.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "semantic-sidebar-logic",
+    "query": "sidebar navigation logic",
+    "category": "Semantic",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "Sidebar",
+          "type": "Function",
+          "file": "src/components/Sidebar.tsx"
+        }
+      ]
+    }
+  },
+  {
+    "id": "semantic-webhook-handler",
+    "query": "github webhook handler",
+    "category": "Semantic",
+    "k": 10,
+    "expected": {
+      "nodes": [
+        {
+          "name": "/api/github/webhook",
+          "type": "Endpoint",
+          "file": "src/app/api/github/webhook/route.ts"
+        }
+      ]
+    }
   }
 ]

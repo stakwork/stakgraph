@@ -302,7 +302,7 @@ class Db {
   }
 
   async embed_data_bank_bodies(do_files: boolean) {
-    let embed_batch_size = 32; // Adjust based on your memory constraints
+    let embed_batch_size = 16; // Reduced to prevent OOM - was 32
     let skip = 0;
     let batchIndex = 0;
     let hasMoreNodes = true;
