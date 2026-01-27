@@ -25,6 +25,8 @@ pub mod swift;
 pub mod test_backend;
 pub mod test_frontend;
 pub mod typescript;
+#[cfg(test)]
+pub mod vanila;
 
 #[cfg(test)]
 fn pre_test() {
