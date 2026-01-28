@@ -20,10 +20,12 @@
     "ai": "6.0.0-beta.124"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "dev": "NODE_OPTIONS='--max-old-space-size=4096' tsx src/index.ts",
     "build": "tsc",
     "start": "node build/index.js",
-    "gitree": "tsx src/gitree/cli.ts",
+    "benchmark:search": "tsx src/benchmark/run_search_benchmark.ts",
+    "benchmark:vector": "tsx src/benchmark/run_vector_benchmark.ts",
+    "benchmark:compare": "tsx src/benchmark/compare_search_methods.ts",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
