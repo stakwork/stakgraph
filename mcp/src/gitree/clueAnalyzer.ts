@@ -7,10 +7,22 @@ import { vectorizeQuery } from "../vector/index.js";
  * Analyzes feature codebases to extract architectural clues
  */
 export class ClueAnalyzer {
+  private repo?: string; // Repository identifier "owner/repo"
+  
   constructor(
     private storage: Storage,
-    private repoPath: string
-  ) {}
+    private repoPath: string,
+    repo?: string
+  ) {
+    this.repo = repo;
+  }
+  
+  /**
+   * Set the repo identifier (for multi-repo support)
+   */
+  setRepo(repo: string): void {
+    this.repo = repo;
+  }
 
   /**
    * Analyze a single feature for clues (iterative)
@@ -134,8 +146,12 @@ export class ClueAnalyzer {
       // Generate embedding from title + content
       const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
 
+      // Get repo from feature if not set
+      const clueRepo = this.repo || feature.repo;
+      
       const clue: Clue = {
-        id: this.generateClueId(clueData.title),
+        id: this.generateClueId(clueData.title, clueRepo),
+        repo: clueRepo,
         featureId,
         type: clueData.type,
         title: clueData.title,
@@ -184,12 +200,16 @@ export class ClueAnalyzer {
 
   /**
    * Analyze all features that need clue analysis
+   * @param force - Force re-analysis even if already analyzed
+   * @param autoLink - Automatically link clues to features
+   * @param repo - Optional repo to filter features
    */
   async analyzeAllFeatures(
     force: boolean = false,
-    autoLink: boolean = true
+    autoLink: boolean = true,
+    repo?: string
   ): Promise<Usage> {
-    const features = await this.storage.getAllFeatures();
+    const features = await this.storage.getAllFeatures(repo || this.repo);
     console.log(`\n📚 Analyzing clues for ${features.length} features...\n`);
 
     const totalUsage: Usage = {
@@ -378,7 +398,8 @@ export class ClueAnalyzer {
       const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
 
       const clue: Clue = {
-        id: this.generateClueId(clueData.title),
+        id: this.generateClueId(clueData.title, this.repo),
+        repo: this.repo,
         featureId: "unassigned", // Temporary, will be replaced by linking
         type: clueData.type,
         title: clueData.title,
@@ -658,12 +679,16 @@ Analyze the codebase with the change context in mind and extract valuable, ACTIO
   }
 
   /**
-   * Generate slug-style clue ID from title
+   * Generate repo-prefixed slug-style clue ID from title
+   * e.g., "owner/repo/clue-slug"
    */
-  private generateClueId(title: string): string {
-    return title
+  private generateClueId(title: string, repo?: string): string {
+    const slug = title
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
+    
+    // Return repo-prefixed ID if repo is provided
+    return repo ? `${repo}/${slug}` : slug;
   }
 }

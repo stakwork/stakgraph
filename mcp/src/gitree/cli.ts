@@ -272,18 +272,25 @@ program
   .description("Show knowledge base statistics")
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
+  .option("--repo <owner/repo>", "Repository identifier (e.g., stakwork/hive)")
   .action(async (options) => {
     try {
       const storage = await createStorage(options);
+      const repo = options.repo as string | undefined;
 
-      const features = await storage.getAllFeatures();
-      const prs = await storage.getAllPRs();
-      const lastProcessed = await storage.getLastProcessedPR();
+      const features = await storage.getAllFeatures(repo);
+      const prs = await storage.getAllPRs(repo);
 
       console.log(`\n📊 Knowledge Base Statistics\n`);
+      if (repo) {
+        console.log(`Repository: ${repo}`);
+      }
       console.log(`Total Features: ${features.length}`);
       console.log(`Total PRs: ${prs.length}`);
-      console.log(`Last Processed PR: #${lastProcessed}`);
+      if (repo) {
+        const lastProcessed = await storage.getLastProcessedPR(repo);
+        console.log(`Last Processed PR: #${lastProcessed}`);
+      }
 
       if (features.length > 0) {
         const avgPRsPerFeature =
@@ -450,16 +457,22 @@ program
   .option("-d, --dir <path>", "Knowledge base directory", "./knowledge-base")
   .option("-g, --graph", "Use Neo4j GraphStorage instead of FileSystemStorage")
   .option("-r, --repo-path <path>", "Path to repository", process.cwd())
+  .option("--repo <owner/repo>", "Repository identifier (e.g., stakwork/hive) - required for checkpoint tracking")
   .option("-f, --force", "Force re-analysis of all changes (ignore checkpoint)")
   .action(async (options) => {
     try {
       const storage = await createStorage(options);
       const analyzer = new ClueAnalyzer(storage, options.repoPath);
+      const repo = options.repo as string | undefined;
 
-      // Get checkpoint (unless force)
-      const checkpoint = options.force
+      if (!repo) {
+        console.log(`\n⚠️  Warning: --repo not specified, checkpoint tracking will be disabled.\n`);
+      }
+
+      // Get checkpoint (unless force or no repo specified)
+      const checkpoint = options.force || !repo
         ? null
-        : await storage.getClueAnalysisCheckpoint();
+        : await storage.getClueAnalysisCheckpoint(repo);
 
       if (checkpoint) {
         console.log(
@@ -563,11 +576,13 @@ program
               await linker.linkClues(result.clues.map((c) => c.id));
             }
 
-            // Update checkpoint
-            await storage.setClueAnalysisCheckpoint({
-              lastProcessedTimestamp: pr.mergedAt.toISOString(),
-              processedAtTimestamp: [pr.number.toString()],
-            });
+            // Update checkpoint (only if repo is specified)
+            if (repo) {
+              await storage.setClueAnalysisCheckpoint(repo, {
+                lastProcessedTimestamp: pr.mergedAt.toISOString(),
+                processedAtTimestamp: [pr.number.toString()],
+              });
+            }
           } catch (error) {
             console.error(
               `   ❌ Error:`,
@@ -605,11 +620,13 @@ program
               await linker.linkClues(result.clues.map((c) => c.id));
             }
 
-            // Update checkpoint
-            await storage.setClueAnalysisCheckpoint({
-              lastProcessedTimestamp: commit.committedAt.toISOString(),
-              processedAtTimestamp: [commit.sha],
-            });
+            // Update checkpoint (only if repo is specified)
+            if (repo) {
+              await storage.setClueAnalysisCheckpoint(repo, {
+                lastProcessedTimestamp: commit.committedAt.toISOString(),
+                processedAtTimestamp: [commit.sha],
+              });
+            }
           } catch (error) {
             console.error(
               `   ❌ Error:`,

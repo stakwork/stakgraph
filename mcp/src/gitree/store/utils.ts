@@ -1,6 +1,80 @@
 import { Feature, PRRecord, CommitRecord } from "../types.js";
 import { Storage } from "./index.js";
 
+// ============================================================================
+// Multi-Repo Utility Functions
+// ============================================================================
+
+/**
+ * Parse "owner/repo" from various URL formats
+ * Supports:
+ * - https://github.com/owner/repo
+ * - https://github.com/owner/repo/pull/123
+ * - https://github.com/owner/repo/commit/sha
+ * - git@github.com:owner/repo.git
+ * - owner/repo
+ */
+export function parseRepoFromUrl(url: string): string | null {
+  if (!url) return null;
+  
+  // Remove trailing .git if present
+  let cleanUrl = url.replace(/\.git$/, "");
+  
+  // Handle SSH format (git@host:owner/repo)
+  const sshMatch = cleanUrl.match(/git@[^:]+:(.+)/);
+  if (sshMatch) {
+    cleanUrl = sshMatch[1];
+  }
+  
+  // Remove protocol and domain
+  cleanUrl = cleanUrl.replace(/^https?:\/\//, "");
+  cleanUrl = cleanUrl.replace(/^[^\/]+\//, ""); // Remove domain/host
+  
+  // Extract owner/repo (first two path segments)
+  const pathParts = cleanUrl.split("/").filter((p) => p.length > 0);
+  
+  if (pathParts.length >= 2) {
+    return `${pathParts[0]}/${pathParts[1]}`;
+  }
+  
+  return null;
+}
+
+/**
+ * Generate repo-prefixed ID
+ */
+export function makeRepoId(repo: string, slug: string): string {
+  return `${repo}/${slug}`;
+}
+
+/**
+ * Extract slug from repo-prefixed ID
+ * e.g., "owner/repo/feature-slug" -> "feature-slug"
+ */
+export function getSlugFromRepoId(repoId: string): string {
+  const parts = repoId.split("/");
+  return parts.length >= 3 ? parts.slice(2).join("/") : repoId;
+}
+
+/**
+ * Extract repo from repo-prefixed ID
+ * e.g., "owner/repo/feature-slug" -> "owner/repo"
+ */
+export function getRepoFromRepoId(repoId: string): string | null {
+  const parts = repoId.split("/");
+  return parts.length >= 3 ? `${parts[0]}/${parts[1]}` : null;
+}
+
+/**
+ * Generate a slug from a name
+ */
+export function generateSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 /**
  * Format PR as markdown
  */

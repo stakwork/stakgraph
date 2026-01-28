@@ -27,6 +27,7 @@ import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Feature } from "./types.js";
 import { setBusy } from "../busy.js";
+import { generateSlug, makeRepoId } from "./store/utils.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -76,6 +77,29 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
   } catch (error) {
     return null;
   }
+}
+
+/**
+ * Parse and normalize repo parameter from query string
+ * Accepts: owner/repo, https://github.com/owner/repo, etc.
+ * Returns normalized "owner/repo" format or undefined
+ */
+function parseRepoParam(req: Request): string | undefined {
+  const repoParam = req.query.repo as string | undefined;
+  if (!repoParam) return undefined;
+  
+  // Use existing parseGitRepoUrl function
+  const parsed = parseGitRepoUrl(repoParam);
+  if (parsed) {
+    return `${parsed.owner}/${parsed.repo}`;
+  }
+  
+  // If it looks like owner/repo already, use as-is
+  if (repoParam.match(/^[^\/]+\/[^\/]+$/)) {
+    return repoParam;
+  }
+  
+  return undefined;
 }
 
 /**
@@ -228,19 +252,24 @@ export async function gitree_process(req: Request, res: Response) {
 
 /**
  * List all features
- * GET /gitree/features
+ * GET /gitree/features?repo=owner/repo (optional)
  */
-export async function gitree_list_features(_req: Request, res: Response) {
+export async function gitree_list_features(req: Request, res: Response) {
   try {
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const features = await storage.getAllFeatures();
-    const checkpoint = await storage.getChronologicalCheckpoint();
+    const features = await storage.getAllFeatures(repo);
+    // Only get checkpoint if repo is specified (per-repo checkpoints)
+    const checkpoint = repo 
+      ? await storage.getChronologicalCheckpoint(repo)
+      : null;
 
     res.json({
       features: features.map((f) => ({
         id: f.id,
+        repo: f.repo,
         ref_id: f.ref_id,
         name: f.name,
         description: f.description,
@@ -250,6 +279,7 @@ export async function gitree_list_features(_req: Request, res: Response) {
         hasDocumentation: !!f.documentation,
       })),
       total: features.length,
+      repo: repo || "all",
       lastProcessedTimestamp: checkpoint?.lastProcessedTimestamp || null,
       processing: isProcessing,
     });
@@ -261,16 +291,17 @@ export async function gitree_list_features(_req: Request, res: Response) {
 
 /**
  * Get a specific feature
- * GET /gitree/features/:id?include=files
+ * GET /gitree/features/:id?include=files&repo=owner/repo (repo optional)
  */
 export async function gitree_get_feature(req: Request, res: Response) {
   try {
     const featureId = req.params.id as string;
     const include = req.query.include as string | undefined;
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const feature = await storage.getFeature(featureId);
+    const feature = await storage.getFeature(featureId, repo);
 
     if (!feature) {
       res.status(404).json({ error: "Feature not found" });
@@ -294,22 +325,23 @@ export async function gitree_get_feature(req: Request, res: Response) {
 
 /**
  * Delete a specific feature
- * DELETE /gitree/features/:id
+ * DELETE /gitree/features/:id?repo=owner/repo (repo optional)
  */
 export async function gitree_delete_feature(req: Request, res: Response) {
   try {
     const featureId = req.params.id as string;
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const feature = await storage.getFeature(featureId);
+    const feature = await storage.getFeature(featureId, repo);
 
     if (!feature) {
       res.status(404).json({ error: "Feature not found" });
       return;
     }
 
-    await storage.deleteFeature(featureId);
+    await storage.deleteFeature(featureId, repo);
 
     res.json({
       status: "success",
@@ -325,26 +357,28 @@ export async function gitree_delete_feature(req: Request, res: Response) {
 
 /**
  * Get a specific PR
- * GET /gitree/prs/:number
+ * GET /gitree/prs/:number?repo=owner/repo (repo optional)
  */
 export async function gitree_get_pr(req: Request, res: Response) {
   try {
     const prNumber = parseInt(req.params.number as string);
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const pr = await storage.getPR(prNumber);
+    const pr = await storage.getPR(prNumber, repo);
 
     if (!pr) {
       res.status(404).json({ error: "PR not found" });
       return;
     }
 
-    const features = await storage.getFeaturesForPR(prNumber);
+    const features = await storage.getFeaturesForPR(prNumber, pr.repo);
 
     res.json({
       pr: {
         number: pr.number,
+        repo: pr.repo,
         title: pr.title,
         summary: pr.summary,
         mergedAt: pr.mergedAt.toISOString(),
@@ -367,26 +401,28 @@ export async function gitree_get_pr(req: Request, res: Response) {
 
 /**
  * Get a specific commit
- * GET /gitree/commits/:sha
+ * GET /gitree/commits/:sha?repo=owner/repo (repo optional)
  */
 export async function gitree_get_commit(req: Request, res: Response) {
   try {
     const sha = req.params.sha as string;
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const commit = await storage.getCommit(sha);
+    const commit = await storage.getCommit(sha, repo);
 
     if (!commit) {
       res.status(404).json({ error: "Commit not found" });
       return;
     }
 
-    const features = await storage.getFeaturesForCommit(sha);
+    const features = await storage.getFeaturesForCommit(sha, commit.repo);
 
     res.json({
       commit: {
         sha: commit.sha,
+        repo: commit.repo,
         message: commit.message,
         summary: commit.summary,
         author: commit.author,
@@ -478,16 +514,18 @@ function formatFilesAsText(files: any[]): string {
 
 /**
  * Get knowledge base statistics
- * GET /gitree/stats
+ * GET /gitree/stats?repo=owner/repo (repo optional)
  */
-export async function gitree_stats(_req: Request, res: Response) {
+export async function gitree_stats(req: Request, res: Response) {
   try {
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const features = await storage.getAllFeatures();
-    const prs = await storage.getAllPRs();
-    const lastProcessed = await storage.getLastProcessedPR();
+    const features = await storage.getAllFeatures(repo);
+    const prs = await storage.getAllPRs(repo);
+    // Only get lastProcessed if repo is specified
+    const lastProcessed = repo ? await storage.getLastProcessedPR(repo) : 0;
 
     const avgPRsPerFeature =
       features.length > 0
@@ -503,6 +541,7 @@ export async function gitree_stats(_req: Request, res: Response) {
         : null;
 
     res.json({
+      repo: repo || "all",
       totalFeatures: features.length,
       totalPRs: prs.length,
       lastProcessedPR: lastProcessed,
@@ -665,15 +704,16 @@ function toConciseNode(node: Neo4jNode): {
 
 /**
  * Get all features with files and contained nodes as a flat graph structure
- * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true&depth=2&per_type_limits=Function:50,Class:25
+ * GET /gitree/all-features-graph?limit=100&node_types=Function,Class&concise=true&depth=2&per_type_limits=Function:50,Class:25&repo=owner/repo
  */
 export async function gitree_all_features_graph(req: Request, res: Response) {
   try {
+    const repo = parseRepoParam(req);
     const storage = new GraphStorage();
     await storage.initialize();
 
-    // Get all data from GraphStorage
-    const data = await storage.getAllFeaturesWithFilesAndContains();
+    // Get all data from GraphStorage (optionally filtered by repo)
+    const data = await storage.getAllFeaturesWithFilesAndContains(repo);
 
     // Parse query parameters
     const limit = parseLimit(req.query);
@@ -806,6 +846,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
 export async function gitree_relevant_features(req: Request, res: Response) {
   try {
     const { prompt } = req.body;
+    const repo = parseRepoParam(req);
 
     if (!prompt) {
       res.status(400).json({ error: "Missing prompt in request body" });
@@ -816,7 +857,7 @@ export async function gitree_relevant_features(req: Request, res: Response) {
     await storage.initialize();
 
     // Get all features without documentation for the initial AI call
-    const allFeatures = await storage.getAllFeatures();
+    const allFeatures = await storage.getAllFeatures(repo);
     const featuresWithoutDocs = allFeatures.map((f) => ({
       id: f.id,
       name: f.name,
@@ -866,7 +907,7 @@ Please analyze the user's prompt and the list of available features. Return an a
     // Fetch full features WITH documentation
     const relevantFeatures = await Promise.all(
       relevantFeatureIds.map(async (featureId: string) => {
-        const feature = await storage.getFeature(featureId);
+        const feature = await storage.getFeature(featureId, repo);
         if (!feature) return null;
         return formatFeatureWithDetails(feature, storage);
       })
@@ -946,15 +987,15 @@ export async function gitree_create_feature(req: Request, res: Response) {
         });
         const documentation = contextResult.content;
 
-        // Generate feature ID from name (same logic as builder.ts)
-        const featureId = name
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "");
+        // Generate feature ID from name with repo prefix
+        const slug = generateSlug(name);
+        const repoId = `${owner}/${repo}`;
+        const featureId = makeRepoId(repoId, slug);
 
         // Create the feature object
         const feature: Feature = {
           id: featureId,
+          repo: repoId,
           name: name,
           description: prompt,
           prNumbers: [],
@@ -1112,7 +1153,8 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
         const analyzer = new ClueAnalyzer(storage, repoPath);
 
         // Get checkpoint (unless force)
-        const checkpoint = force ? null : await storage.getClueAnalysisCheckpoint();
+        const repoId = `${owner}/${repo}`;
+        const checkpoint = force ? null : await storage.getClueAnalysisCheckpoint(repoId);
 
         console.log(
           checkpoint
@@ -1219,7 +1261,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
               }
 
               // Update checkpoint
-              await storage.setClueAnalysisCheckpoint({
+              await storage.setClueAnalysisCheckpoint(repoId, {
                 lastProcessedTimestamp: pr.mergedAt.toISOString(),
                 processedAtTimestamp: [pr.number.toString()],
               });
@@ -1261,7 +1303,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
               }
 
               // Update checkpoint
-              await storage.setClueAnalysisCheckpoint({
+              await storage.setClueAnalysisCheckpoint(repoId, {
                 lastProcessedTimestamp: commit.committedAt.toISOString(),
                 processedAtTimestamp: [commit.sha],
               });
@@ -1303,23 +1345,25 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 }
 
 /**
- * GET /gitree/clues
+ * GET /gitree/clues?feature_id=xxx&repo=owner/repo (both optional)
  * List all clues or clues for a specific feature
  */
 export async function gitree_list_clues(req: Request, res: Response) {
   try {
     const featureId = req.query.feature_id as string | undefined;
+    const repo = parseRepoParam(req);
 
     const storage = new GraphStorage();
     await storage.initialize();
 
     const clues = featureId
-      ? await storage.getCluesForFeature(featureId)
-      : await storage.getAllClues();
+      ? await storage.getCluesForFeature(featureId, undefined, repo)
+      : await storage.getAllClues(repo);
 
     res.json({
       clues,
       count: clues.length,
+      repo: repo || "all",
     });
   } catch (error) {
     console.error("Error in gitree_list_clues:", error);
@@ -1330,17 +1374,18 @@ export async function gitree_list_clues(req: Request, res: Response) {
 }
 
 /**
- * GET /gitree/clues/:id
+ * GET /gitree/clues/:id?repo=owner/repo (repo optional)
  * Get a specific clue by ID
  */
 export async function gitree_get_clue(req: Request, res: Response) {
   try {
     const clueId = req.params.id as string;
+    const repo = parseRepoParam(req);
 
     const storage = new GraphStorage();
     await storage.initialize();
 
-    const clue = await storage.getClue(clueId);
+    const clue = await storage.getClue(clueId, repo);
 
     if (!clue) {
       return res.status(404).json({ error: "Clue not found" });
@@ -1356,17 +1401,18 @@ export async function gitree_get_clue(req: Request, res: Response) {
 }
 
 /**
- * DELETE /gitree/clues/:id
+ * DELETE /gitree/clues/:id?repo=owner/repo (repo optional)
  * Delete a specific clue
  */
 export async function gitree_delete_clue(req: Request, res: Response) {
   try {
     const clueId = req.params.id as string;
+    const repo = parseRepoParam(req);
 
     const storage = new GraphStorage();
     await storage.initialize();
 
-    await storage.deleteClue(clueId);
+    await storage.deleteClue(clueId, repo);
 
     res.json({ message: "Clue deleted successfully" });
   } catch (error) {
@@ -1425,14 +1471,16 @@ export async function gitree_link_clues(req: Request, res: Response) {
 /**
  * POST /gitree/search-clues
  * Search clues by relevance using embeddings, keywords, and centrality
- * Body: { query: string, featureId?: string, limit?: number, similarityThreshold?: number }
+ * Body: { query: string, featureId?: string, limit?: number, similarityThreshold?: number, repo?: string }
  curl -X POST http://localhost:3355/gitree/search-clues \
     -H "Content-Type: application/json" \
     -d '{"query": "workspace access"}'
  */
 export async function gitree_search_clues(req: Request, res: Response) {
   try {
-    const { query, featureId, limit = 10, similarityThreshold = 0.5 } = req.body;
+    const { query, featureId, limit = 10, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
+    // Support repo from both query param and body
+    const repo = parseRepoParam(req) || bodyRepo;
 
     if (!query || typeof query !== "string") {
       return res.status(400).json({ error: "query is required and must be a string" });
@@ -1451,16 +1499,19 @@ export async function gitree_search_clues(req: Request, res: Response) {
       embeddings,
       featureId,
       limit,
-      similarityThreshold
+      similarityThreshold,
+      repo
     );
 
     res.json({
       query,
       featureId: featureId || "all",
+      repo: repo || "all",
       count: results.length,
       results: results.map((r) => ({
         clue: {
           id: r.id,
+          repo: r.repo,
           featureId: r.featureId,
           type: r.type,
           title: r.title,

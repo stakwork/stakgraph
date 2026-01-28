@@ -9,7 +9,7 @@ import {
   LinkResult,
   ChronologicalCheckpoint,
 } from "../types.js";
-import { formatPRMarkdown, formatCommitMarkdown } from "./utils.js";
+import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl } from "./utils.js";
 
 const Data_Bank = "Data_Bank";
 
@@ -66,8 +66,133 @@ export class GraphStorage extends Storage {
       await session.run(
         "CREATE INDEX var_name_index IF NOT EXISTS FOR (v:Var) ON (v.name)"
       );
+      
+      // Multi-repo indexes
+      await session.run(
+        "CREATE INDEX feature_repo_index IF NOT EXISTS FOR (f:Feature) ON (f.repo)"
+      );
+      await session.run(
+        "CREATE INDEX pr_repo_index IF NOT EXISTS FOR (p:PullRequest) ON (p.repo)"
+      );
+      await session.run(
+        "CREATE INDEX commit_repo_index IF NOT EXISTS FOR (c:Commit) ON (c.repo)"
+      );
+      await session.run(
+        "CREATE INDEX clue_repo_index IF NOT EXISTS FOR (c:Clue) ON (c.repo)"
+      );
+      await session.run(
+        "CREATE INDEX pr_id_index IF NOT EXISTS FOR (p:PullRequest) ON (p.id)"
+      );
+      await session.run(
+        "CREATE INDEX commit_id_index IF NOT EXISTS FOR (c:Commit) ON (c.id)"
+      );
+      
+      // Run migration if needed
+      await this.migrateToMultiRepo();
     } catch (error) {
       console.error("Error creating GraphStorage indexes:", error);
+    } finally {
+      await session.close();
+    }
+  }
+  
+  /**
+   * Migrate existing data to multi-repo format
+   * Only runs if migration is needed (checks first)
+   */
+  private async migrateToMultiRepo(): Promise<void> {
+    const session = this.driver.session();
+    try {
+      // Check if migration is needed by looking for PRs without repo field that have a URL
+      const checkResult = await session.run(`
+        MATCH (p:PullRequest) 
+        WHERE p.repo IS NULL AND p.url IS NOT NULL
+        RETURN count(p) as count
+      `);
+      
+      const count = checkResult.records[0]?.get("count")?.toNumber() || 0;
+      
+      if (count === 0) {
+        console.log("===> Multi-repo migration: Not needed (already migrated or no data)");
+        return;
+      }
+      
+      console.log(`===> Multi-repo migration: Migrating ${count} PRs and related nodes...`);
+      
+      // Step 1: Migrate PRs (parse repo from url)
+      console.log("   Migrating PullRequest nodes...");
+      await session.run(`
+        MATCH (p:PullRequest)
+        WHERE p.repo IS NULL AND p.url IS NOT NULL
+        WITH p, 
+             split(replace(replace(p.url, 'https://github.com/', ''), '/pull/' + toString(p.number), ''), '/') as parts
+        WHERE size(parts) >= 2
+        SET p.repo = parts[0] + '/' + parts[1],
+            p.legacyName = p.name,
+            p.name = parts[0] + '/' + parts[1] + '/pr-' + toString(p.number),
+            p.id = parts[0] + '/' + parts[1] + '/pr-' + toString(p.number)
+      `);
+      
+      // Step 2: Migrate Commits (parse repo from url)
+      console.log("   Migrating Commit nodes...");
+      await session.run(`
+        MATCH (c:Commit)
+        WHERE c.repo IS NULL AND c.url IS NOT NULL
+        WITH c,
+             split(replace(c.url, 'https://github.com/', ''), '/') as parts
+        WHERE size(parts) >= 2
+        SET c.repo = parts[0] + '/' + parts[1],
+            c.legacyName = c.name,
+            c.name = parts[0] + '/' + parts[1] + '/commit-' + substring(c.sha, 0, 7),
+            c.id = parts[0] + '/' + parts[1] + '/commit-' + substring(c.sha, 0, 7)
+      `);
+      
+      // Step 3: Migrate Features (infer repo from linked PRs)
+      console.log("   Migrating Feature nodes...");
+      await session.run(`
+        MATCH (f:Feature)
+        WHERE f.repo IS NULL
+        OPTIONAL MATCH (p:PullRequest)-[:TOUCHES]->(f)
+        WHERE p.repo IS NOT NULL
+        WITH f, collect(DISTINCT p.repo)[0] as inferredRepo
+        WHERE inferredRepo IS NOT NULL
+        SET f.repo = inferredRepo,
+            f.legacyId = f.id,
+            f.id = inferredRepo + '/' + f.id
+      `);
+      
+      // Step 4: Migrate Clues (infer repo from linked features via RELEVANT_TO)
+      console.log("   Migrating Clue nodes...");
+      await session.run(`
+        MATCH (c:Clue)
+        WHERE c.repo IS NULL
+        OPTIONAL MATCH (c)-[:RELEVANT_TO]->(f:Feature)
+        WHERE f.repo IS NOT NULL
+        WITH c, collect(DISTINCT f.repo)[0] as inferredRepo, collect(f.id)[0] as newFeatureId
+        WHERE inferredRepo IS NOT NULL
+        SET c.repo = inferredRepo,
+            c.legacyId = c.id,
+            c.id = inferredRepo + '/' + c.id,
+            c.featureId = COALESCE(newFeatureId, c.featureId)
+      `);
+      
+      // Step 5: Migrate FeaturesMetadata to per-repo
+      console.log("   Migrating FeaturesMetadata nodes...");
+      await session.run(`
+        MATCH (m:FeaturesMetadata)
+        WHERE m.repo IS NULL
+        OPTIONAL MATCH (p:PullRequest)
+        WHERE p.repo IS NOT NULL
+        WITH m, collect(DISTINCT p.repo)[0] as inferredRepo
+        WHERE inferredRepo IS NOT NULL
+        SET m.repo = inferredRepo
+      `);
+      
+      console.log("===> Multi-repo migration: Complete!");
+      
+    } catch (error) {
+      console.error("===> Multi-repo migration: Error during migration:", error);
+      // Don't throw - allow app to continue even if migration fails
     } finally {
       await session.close();
     }
@@ -95,6 +220,7 @@ export class GraphStorage extends Storage {
         `
         MERGE (f:${Data_Bank}:Feature {id: $id})
         SET f.name = $name,
+            f.repo = $repo,
             f.description = $description,
             f.prNumbers = $prNumbers,
             f.commitShas = $commitShas,
@@ -109,7 +235,8 @@ export class GraphStorage extends Storage {
         RETURN f
         `,
         {
-          id: feature.id,
+          id: feature.id, // Should be repo-prefixed: "owner/repo/slug"
+          repo: feature.repo || null,
           name: feature.name,
           description: feature.description,
           prNumbers: feature.prNumbers,
@@ -126,7 +253,24 @@ export class GraphStorage extends Storage {
       );
 
       // Create TOUCHES relationships from PRs to this Feature
-      if (feature.prNumbers.length > 0) {
+      // Match PRs by repo-prefixed id or by number+repo combo
+      if (feature.prNumbers.length > 0 && feature.repo) {
+        await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          UNWIND $prNumbers as prNumber
+          MATCH (p:PullRequest)
+          WHERE (p.repo = $repo AND p.number = prNumber) OR p.id = $repo + '/pr-' + toString(prNumber)
+          MERGE (p)-[:TOUCHES]->(f)
+          `,
+          {
+            featureId: feature.id,
+            prNumbers: feature.prNumbers,
+            repo: feature.repo,
+          }
+        );
+      } else if (feature.prNumbers.length > 0) {
+        // Legacy: no repo, match by number only
         await session.run(
           `
           MATCH (f:Feature {id: $featureId})
@@ -143,7 +287,23 @@ export class GraphStorage extends Storage {
 
       // Create TOUCHES relationships from Commits to this Feature
       const commitShas = feature.commitShas || [];
-      if (commitShas.length > 0) {
+      if (commitShas.length > 0 && feature.repo) {
+        await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          UNWIND $commitShas as commitSha
+          MATCH (c:Commit)
+          WHERE (c.repo = $repo AND c.sha = commitSha) OR c.sha = commitSha
+          MERGE (c)-[:TOUCHES]->(f)
+          `,
+          {
+            featureId: feature.id,
+            commitShas: commitShas,
+            repo: feature.repo,
+          }
+        );
+      } else if (commitShas.length > 0) {
+        // Legacy: no repo, match by sha only
         await session.run(
           `
           MATCH (f:Feature {id: $featureId})
@@ -162,15 +322,18 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getFeature(id: string): Promise<Feature | null> {
+  async getFeature(id: string, repo?: string): Promise<Feature | null> {
     const session = this.driver.session();
     try {
+      // If repo provided and id doesn't have prefix, construct full id
+      const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
+      
       const result = await session.run(
         `
         MATCH (f:Feature {id: $id})
         RETURN f
         `,
-        { id }
+        { id: fullId }
       );
 
       if (result.records.length === 0) {
@@ -184,15 +347,17 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getAllFeatures(): Promise<Feature[]> {
+  async getAllFeatures(repo?: string): Promise<Feature[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
         MATCH (f:Feature)
+        WHERE $repo IS NULL OR f.repo = $repo
         RETURN f
         ORDER BY f.date DESC
-        `
+        `,
+        { repo: repo || null }
       );
 
       return result.records.map((record) =>
@@ -203,15 +368,18 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async deleteFeature(id: string): Promise<void> {
+  async deleteFeature(id: string, repo?: string): Promise<void> {
     const session = this.driver.session();
     try {
+      // If repo provided and id doesn't have prefix, construct full id
+      const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
+      
       await session.run(
         `
         MATCH (f:Feature {id: $id})
         DETACH DELETE f
         `,
-        { id }
+        { id: fullId }
       );
     } finally {
       await session.close();
@@ -226,11 +394,16 @@ export class GraphStorage extends Storage {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(pr.mergedAt.getTime() / 1000);
       const docs = await formatPRMarkdown(pr, this);
+      
+      // Generate repo-prefixed ID for multi-repo support
+      const prId = pr.repo ? `${pr.repo}/pr-${pr.number}` : `pr-${pr.number}`;
 
       await session.run(
         `
-        MERGE (p:${Data_Bank}:PullRequest {number: $number})
-        SET p.name = $name,
+        MERGE (p:${Data_Bank}:PullRequest {id: $id})
+        SET p.number = $number,
+            p.repo = $repo,
+            p.name = $name,
             p.title = $title,
             p.summary = $summary,
             p.date = $date,
@@ -245,8 +418,10 @@ export class GraphStorage extends Storage {
         RETURN p
         `,
         {
+          id: prId,
           number: pr.number,
-          name: `pr-${pr.number}`,
+          repo: pr.repo || null,
+          name: prId,
           title: pr.title,
           summary: pr.summary,
           date: dateTimestamp,
@@ -270,16 +445,24 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getPR(number: number): Promise<PRRecord | null> {
+  async getPR(number: number, repo?: string): Promise<PRRecord | null> {
     const session = this.driver.session();
     try {
-      const result = await session.run(
-        `
-        MATCH (p:PullRequest {number: $number})
-        RETURN p
-        `,
-        { number }
-      );
+      let query: string;
+      let params: Record<string, any>;
+      
+      if (repo) {
+        // Look up by repo-prefixed ID
+        const prId = `${repo}/pr-${number}`;
+        query = `MATCH (p:PullRequest {id: $id}) RETURN p`;
+        params = { id: prId };
+      } else {
+        // Look up by number (may return first found from any repo)
+        query = `MATCH (p:PullRequest {number: $number}) RETURN p LIMIT 1`;
+        params = { number };
+      }
+      
+      const result = await session.run(query, params);
 
       if (result.records.length === 0) {
         return null;
@@ -292,15 +475,17 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getAllPRs(): Promise<PRRecord[]> {
+  async getAllPRs(repo?: string): Promise<PRRecord[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
         MATCH (p:PullRequest)
+        WHERE $repo IS NULL OR p.repo = $repo
         RETURN p
         ORDER BY p.number ASC
-        `
+        `,
+        { repo: repo || null }
       );
 
       return result.records.map((record) => this.nodeToPR(record.get("p")));
@@ -317,11 +502,18 @@ export class GraphStorage extends Storage {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(commit.committedAt.getTime() / 1000);
       const docs = await formatCommitMarkdown(commit, this);
+      
+      // Generate repo-prefixed ID for multi-repo support
+      const commitId = commit.repo 
+        ? `${commit.repo}/commit-${commit.sha.substring(0, 7)}` 
+        : `commit-${commit.sha.substring(0, 7)}`;
 
       await session.run(
         `
-        MERGE (c:${Data_Bank}:Commit {sha: $sha})
-        SET c.name = $name,
+        MERGE (c:${Data_Bank}:Commit {id: $id})
+        SET c.sha = $sha,
+            c.repo = $repo,
+            c.name = $name,
             c.message = $message,
             c.summary = $summary,
             c.author = $author,
@@ -337,8 +529,10 @@ export class GraphStorage extends Storage {
         RETURN c
         `,
         {
+          id: commitId,
           sha: commit.sha,
-          name: `commit-${commit.sha.substring(0, 7)}`,
+          repo: commit.repo || null,
+          name: commitId,
           message: commit.message,
           summary: commit.summary,
           author: commit.author,
@@ -363,16 +557,23 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getCommit(sha: string): Promise<CommitRecord | null> {
+  async getCommit(sha: string, repo?: string): Promise<CommitRecord | null> {
     const session = this.driver.session();
     try {
-      const result = await session.run(
-        `
-        MATCH (c:Commit {sha: $sha})
-        RETURN c
-        `,
-        { sha }
-      );
+      let query: string;
+      let params: Record<string, any>;
+      
+      if (repo) {
+        // Look up by repo + sha (more specific)
+        query = `MATCH (c:Commit) WHERE c.sha = $sha AND c.repo = $repo RETURN c`;
+        params = { sha, repo };
+      } else {
+        // Look up by sha only (globally unique anyway)
+        query = `MATCH (c:Commit {sha: $sha}) RETURN c LIMIT 1`;
+        params = { sha };
+      }
+      
+      const result = await session.run(query, params);
 
       if (result.records.length === 0) {
         return null;
@@ -385,15 +586,17 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getAllCommits(): Promise<CommitRecord[]> {
+  async getAllCommits(repo?: string): Promise<CommitRecord[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
         MATCH (c:Commit)
+        WHERE $repo IS NULL OR c.repo = $repo
         RETURN c
         ORDER BY c.date ASC
-        `
+        `,
+        { repo: repo || null }
       );
 
       return result.records.map((record) => this.nodeToCommit(record.get("c")));
@@ -414,7 +617,8 @@ export class GraphStorage extends Storage {
       await session.run(
         `
         MERGE (c:${Data_Bank}:Clue {id: $id})
-        SET c.featureId = $featureId,
+        SET c.repo = $repo,
+            c.featureId = $featureId,
             c.type = $type,
             c.title = $title,
             c.content = $content,
@@ -446,7 +650,8 @@ export class GraphStorage extends Storage {
         MERGE (c)-[:RELEVANT_TO]->(f)
         `,
         {
-          id: clue.id,
+          id: clue.id, // Should be repo-prefixed: "owner/repo/clue-slug"
+          repo: clue.repo || null,
           featureId: clue.featureId,
           type: clue.type,
           title: clue.title,
@@ -519,15 +724,18 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getClue(id: string): Promise<Clue | null> {
+  async getClue(id: string, repo?: string): Promise<Clue | null> {
     const session = this.driver.session();
     try {
+      // If repo provided and id doesn't have prefix, construct full id
+      const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
+      
       const result = await session.run(
         `
         MATCH (c:Clue {id: $id})
         RETURN c
         `,
-        { id }
+        { id: fullId }
       );
 
       if (result.records.length === 0) {
@@ -541,15 +749,17 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getAllClues(): Promise<Clue[]> {
+  async getAllClues(repo?: string): Promise<Clue[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
         MATCH (c:Clue)
+        WHERE $repo IS NULL OR c.repo = $repo
         RETURN c
         ORDER BY c.createdAt DESC
-        `
+        `,
+        { repo: repo || null }
       );
 
       return result.records.map((record) => this.nodeToClue(record.get("c")));
@@ -561,9 +771,12 @@ export class GraphStorage extends Storage {
   /**
    * Get clues relevant to a specific feature (via RELEVANT_TO edges)
    */
-  async getCluesForFeature(featureId: string, limit?: number): Promise<Clue[]> {
+  async getCluesForFeature(featureId: string, limit?: number, repo?: string): Promise<Clue[]> {
     const session = this.driver.session();
     try {
+      // If repo provided and featureId doesn't have prefix, construct full id
+      const fullFeatureId = repo && !featureId.includes('/') ? `${repo}/${featureId}` : featureId;
+      
       const result = await session.run(
         `
         MATCH (c:Clue)-[:RELEVANT_TO]->(f:Feature {id: $featureId})
@@ -571,7 +784,7 @@ export class GraphStorage extends Storage {
         ORDER BY c.createdAt DESC
         ${limit ? 'LIMIT $limit' : ''}
         `,
-        { featureId, limit: limit ? neo4j.int(limit) : undefined }
+        { featureId: fullFeatureId, limit: limit ? neo4j.int(limit) : undefined }
       );
 
       return result.records.map((record) => this.nodeToClue(record.get("c")));
@@ -580,15 +793,18 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async deleteClue(id: string): Promise<void> {
+  async deleteClue(id: string, repo?: string): Promise<void> {
     const session = this.driver.session();
     try {
+      // If repo provided and id doesn't have prefix, construct full id
+      const fullId = repo && !id.includes('/') ? `${repo}/${id}` : id;
+      
       await session.run(
         `
         MATCH (c:Clue {id: $id})
         DETACH DELETE c
         `,
-        { id }
+        { id: fullId }
       );
     } finally {
       await session.close();
@@ -603,10 +819,16 @@ export class GraphStorage extends Storage {
     embeddings: number[],
     featureId?: string,
     limit: number = 10,
-    similarityThreshold: number = 0.5
+    similarityThreshold: number = 0.5,
+    repo?: string
   ): Promise<Array<Clue & { score: number; relevanceBreakdown: any }>> {
     const session = this.driver.session();
     try {
+      // If repo provided and featureId doesn't have prefix, construct full id
+      const fullFeatureId = repo && featureId && !featureId.includes('/') 
+        ? `${repo}/${featureId}` 
+        : featureId;
+      
       // Search query that combines:
       // 1. Vector similarity (embedding)
       // 2. Keyword matching
@@ -619,6 +841,7 @@ export class GraphStorage extends Storage {
             WHEN $featureId IS NOT NULL THEN c.featureId = $featureId
             ELSE true
           END
+          AND ($repo IS NULL OR c.repo = $repo)
           AND c.embeddings IS NOT NULL
         WITH c, gds.similarity.cosine(c.embeddings, $embeddings) AS vectorScore
         WHERE vectorScore >= $similarityThreshold
@@ -653,7 +876,8 @@ export class GraphStorage extends Storage {
         {
           query,
           embeddings,
-          featureId: featureId || null,
+          featureId: fullFeatureId || null,
+          repo: repo || null,
           limit,
           similarityThreshold,
         }
@@ -685,21 +909,21 @@ export class GraphStorage extends Storage {
     }
   }
 
-  // Metadata
+  // Metadata - now per-repo
 
-  async getLastProcessedPR(): Promise<number> {
+  async getLastProcessedPR(repo: string): Promise<number> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         RETURN m.lastProcessedPR as lastProcessedPR
         `,
-        { namespace: "default" }
+        { namespace: "default", repo }
       );
 
       if (result.records.length === 0) {
-        console.log("   No lastProcessedPR found, starting from 0");
+        console.log(`   No lastProcessedPR found for ${repo}, starting from 0`);
         return 0;
       }
 
@@ -710,7 +934,7 @@ export class GraphStorage extends Storage {
           : value?.toNumber
           ? value.toNumber()
           : 0;
-      console.log(`   Resuming from PR #${lastPR}`);
+      console.log(`   Resuming from PR #${lastPR} for ${repo}`);
       return lastPR;
     } catch (error) {
       console.error("   Error reading lastProcessedPR:", error);
@@ -720,14 +944,14 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async setLastProcessedPR(number: number): Promise<void> {
+  async setLastProcessedPR(repo: string, number: number): Promise<void> {
     const session = this.driver.session();
     try {
       const now = Math.floor(Date.now() / 1000);
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         SET m.lastProcessedPR = $number,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -735,6 +959,7 @@ export class GraphStorage extends Storage {
         `,
         {
           namespace: "default",
+          repo,
           number,
           refId: uuidv4(),
           dateAddedToGraph: now,
@@ -745,25 +970,25 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getLastProcessedCommit(): Promise<string | null> {
+  async getLastProcessedCommit(repo: string): Promise<string | null> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         RETURN m.lastProcessedCommit as lastProcessedCommit
         `,
-        { namespace: "default" }
+        { namespace: "default", repo }
       );
 
       if (result.records.length === 0) {
-        console.log("   No lastProcessedCommit found, starting from beginning");
+        console.log(`   No lastProcessedCommit found for ${repo}, starting from beginning`);
         return null;
       }
 
       const value = result.records[0].get("lastProcessedCommit");
       if (value) {
-        console.log(`   Resuming from commit ${value.substring(0, 7)}`);
+        console.log(`   Resuming from commit ${value.substring(0, 7)} for ${repo}`);
       }
       return value || null;
     } catch (error) {
@@ -774,14 +999,14 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async setLastProcessedCommit(sha: string): Promise<void> {
+  async setLastProcessedCommit(repo: string, sha: string): Promise<void> {
     const session = this.driver.session();
     try {
       const now = Math.floor(Date.now() / 1000);
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         SET m.lastProcessedCommit = $sha,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -789,6 +1014,7 @@ export class GraphStorage extends Storage {
         `,
         {
           namespace: "default",
+          repo,
           sha,
           refId: uuidv4(),
           dateAddedToGraph: now,
@@ -799,15 +1025,15 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getChronologicalCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+  async getChronologicalCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         RETURN m.chronologicalCheckpoint as checkpoint
         `,
-        { namespace: "default" }
+        { namespace: "default", repo }
       );
 
       if (result.records.length === 0) {
@@ -829,6 +1055,7 @@ export class GraphStorage extends Storage {
   }
 
   async setChronologicalCheckpoint(
+    repo: string,
     checkpoint: ChronologicalCheckpoint
   ): Promise<void> {
     const session = this.driver.session();
@@ -837,7 +1064,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         SET m.chronologicalCheckpoint = $checkpoint,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -845,6 +1072,7 @@ export class GraphStorage extends Storage {
         `,
         {
           namespace: "default",
+          repo,
           checkpoint: JSON.stringify(checkpoint),
           refId: uuidv4(),
           dateAddedToGraph: now,
@@ -855,15 +1083,15 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getClueAnalysisCheckpoint(): Promise<ChronologicalCheckpoint | null> {
+  async getClueAnalysisCheckpoint(repo: string): Promise<ChronologicalCheckpoint | null> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         RETURN m.clueAnalysisCheckpoint as checkpoint
         `,
-        { namespace: "default" }
+        { namespace: "default", repo }
       );
 
       if (result.records.length === 0) {
@@ -885,6 +1113,7 @@ export class GraphStorage extends Storage {
   }
 
   async setClueAnalysisCheckpoint(
+    repo: string,
     checkpoint: ChronologicalCheckpoint
   ): Promise<void> {
     const session = this.driver.session();
@@ -893,7 +1122,7 @@ export class GraphStorage extends Storage {
 
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         SET m.clueAnalysisCheckpoint = $checkpoint,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -901,6 +1130,7 @@ export class GraphStorage extends Storage {
         `,
         {
           namespace: "default",
+          repo,
           checkpoint: JSON.stringify(checkpoint),
           refId: uuidv4(),
           dateAddedToGraph: now,
@@ -911,9 +1141,9 @@ export class GraphStorage extends Storage {
     }
   }
 
-  // Themes
+  // Themes - now per-repo
 
-  async addThemes(themes: string[]): Promise<void> {
+  async addThemes(repo: string, themes: string[]): Promise<void> {
     const session = this.driver.session();
     try {
       const now = Math.floor(Date.now() / 1000);
@@ -921,10 +1151,10 @@ export class GraphStorage extends Storage {
       // Get current themes
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         RETURN m.recentThemes as recentThemes
         `,
-        { namespace: "default" }
+        { namespace: "default", repo }
       );
 
       let recentThemes: string[] = [];
@@ -946,7 +1176,7 @@ export class GraphStorage extends Storage {
       // Update metadata node
       await session.run(
         `
-        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         SET m.recentThemes = $recentThemes,
             m.ref_id = COALESCE(m.ref_id, $refId),
             m.date_added_to_graph = COALESCE(m.date_added_to_graph, $dateAddedToGraph)
@@ -954,6 +1184,7 @@ export class GraphStorage extends Storage {
         `,
         {
           namespace: "default",
+          repo,
           recentThemes,
           refId: uuidv4(),
           dateAddedToGraph: now,
@@ -964,15 +1195,15 @@ export class GraphStorage extends Storage {
     }
   }
 
-  async getRecentThemes(): Promise<string[]> {
+  async getRecentThemes(repo: string): Promise<string[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
-        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace})
+        MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
         RETURN m.recentThemes as recentThemes
         `,
-        { namespace: "default" }
+        { namespace: "default", repo }
       );
 
       if (result.records.length === 0) {
@@ -1018,6 +1249,7 @@ export class GraphStorage extends Storage {
     const props = node.properties;
     return {
       id: props.id,
+      repo: props.repo || undefined,
       ref_id: props.ref_id,
       name: props.name,
       description: props.description,
@@ -1037,6 +1269,7 @@ export class GraphStorage extends Storage {
     const props = node.properties;
     return {
       number: props.number.toNumber ? props.number.toNumber() : props.number,
+      repo: props.repo || undefined,
       title: props.title,
       summary: props.summary,
       mergedAt: new Date(props.date * 1000),
@@ -1052,6 +1285,7 @@ export class GraphStorage extends Storage {
     const props = node.properties;
     return {
       sha: props.sha,
+      repo: props.repo || undefined,
       message: props.message,
       summary: props.summary,
       author: props.author,
@@ -1068,6 +1302,7 @@ export class GraphStorage extends Storage {
     const props = node.properties;
     return {
       id: props.id,
+      repo: props.repo || undefined,
       featureId: props.featureId,
       type: props.type,
       title: props.title,
@@ -1119,15 +1354,15 @@ export class GraphStorage extends Storage {
     return pathsToCheck.some((path) => docLower.includes(path.toLowerCase()));
   }
 
-  async linkFeaturesToFiles(featureId?: string): Promise<LinkResult> {
+  async linkFeaturesToFiles(featureId?: string, repo?: string): Promise<LinkResult> {
     const session = this.driver.session();
     try {
       // Get features to process
       const features = featureId
-        ? [await this.getFeature(featureId)].filter(
+        ? [await this.getFeature(featureId, repo)].filter(
             (f): f is Feature => f !== null
           )
-        : await this.getAllFeatures();
+        : await this.getAllFeatures(repo);
 
       if (features.length === 0) {
         return {
@@ -1379,7 +1614,7 @@ export class GraphStorage extends Storage {
    * Get all features with their files and contained nodes
    * Returns structured data for building a flat graph
    */
-  async getAllFeaturesWithFilesAndContains(): Promise<{
+  async getAllFeaturesWithFilesAndContains(repo?: string): Promise<{
     features: any[];
     files: any[];
     containedNodes: any[];
@@ -1388,9 +1623,10 @@ export class GraphStorage extends Storage {
   }> {
     const session = this.driver.session();
     try {
-      // Get all features
+      // Get all features (optionally filtered by repo)
       const featuresResult = await session.run(
-        `MATCH (f:Feature) RETURN f ORDER BY f.date DESC`
+        `MATCH (f:Feature) WHERE $repo IS NULL OR f.repo = $repo RETURN f ORDER BY f.date DESC`,
+        { repo: repo || null }
       );
       const features = featuresResult.records.map((r) => r.get("f"));
 
@@ -1516,9 +1752,12 @@ export class GraphStorage extends Storage {
   /**
    * Get provenance data for multiple features by their IDs
    * Returns concepts with their files and filtered code entities
+   * @param conceptIds - Array of feature IDs (can be repo-prefixed or not)
+   * @param repo - Optional repo to filter/prefix IDs
    */
   async getProvenanceForConcepts(
-    conceptIds: string[]
+    conceptIds: string[],
+    repo?: string
   ): Promise<
     Array<{
       conceptId: string;
@@ -1542,6 +1781,11 @@ export class GraphStorage extends Storage {
   > {
     const session = this.driver.session();
     try {
+      // If repo provided and IDs don't have prefix, construct full IDs
+      const fullConceptIds = repo 
+        ? conceptIds.map(id => id.includes('/') ? id : `${repo}/${id}`)
+        : conceptIds;
+      
       const result = await session.run(
         `
         // Match features by id
@@ -1586,7 +1830,7 @@ export class GraphStorage extends Storage {
                concept.docs AS documentation,
                files
         `,
-        { conceptIds }
+        { conceptIds: fullConceptIds }
       );
 
       const concepts: Array<{

@@ -11,14 +11,16 @@ export class ClueLinker {
 
   /**
    * Link specific clues to relevant features
+   * @param clueIds - Array of clue IDs to link
+   * @param repo - Optional repo to filter features
    */
-  async linkClues(clueIds: string[]): Promise<Usage> {
+  async linkClues(clueIds: string[], repo?: string): Promise<Usage> {
     if (clueIds.length === 0) {
       return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
-    const features = await this.storage.getAllFeatures();
-    const allClues = await this.storage.getAllClues();
+    const features = await this.storage.getAllFeatures(repo);
+    const allClues = await this.storage.getAllClues(repo);
     const cluesToLink = allClues.filter((c) => clueIds.includes(c.id));
 
     console.log(
@@ -39,10 +41,12 @@ export class ClueLinker {
 
   /**
    * Link all clues to relevant features
+   * @param force - Force re-linking even if already linked
+   * @param repo - Optional repo to filter
    */
-  async linkAllClues(force: boolean = false): Promise<Usage> {
-    const features = await this.storage.getAllFeatures();
-    const allClues = await this.storage.getAllClues();
+  async linkAllClues(force: boolean = false, repo?: string): Promise<Usage> {
+    const features = await this.storage.getAllFeatures(repo);
+    const allClues = await this.storage.getAllClues(repo);
 
     console.log(`\n🔗 Linking ${allClues.length} clues to ${features.length} features...\n`);
 
