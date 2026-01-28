@@ -1,69 +1,146 @@
-use crate::utils::parse_node_types;
 use crate::types::{
-    Result, CoverageParams, Coverage, CoverageStat, MockStat,
-    QueryNodesParams, QueryNodesResponse, NodesResponseItem,
-    NodeConcise, Node, HasParams, HasResponse,
-    WebError,
+    Coverage, CoverageParams, CoverageResponse, CoverageStat, HasParams, HasResponse,
+    LanguageCoverage, MockStat, Node, NodeConcise, NodesResponseItem, QueryNodesParams,
+    QueryNodesResponse, Result, WebError,
 };
+use crate::utils::parse_node_types;
+use ast::lang::{
+    graphs::{graph_ops::GraphOps, TestFilters},
+    NodeType,
+};
+use axum::{extract::Query, Json};
 use shared::Error;
-use ast::lang::{graphs::{graph_ops::GraphOps, TestFilters}, NodeType};
-use axum::{Json, extract::Query};
+
+fn split_at_comma(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn aggregate_coverage_stats(stats: &[Option<CoverageStat>]) -> Option<CoverageStat> {
+    let valid: Vec<_> = stats.iter().filter_map(|s| s.as_ref()).collect();
+    if valid.is_empty() {
+        return None;
+    }
+
+    let total: usize = valid.iter().map(|s| s.total).sum();
+    let total_tests: usize = valid.iter().map(|s| s.total_tests).sum();
+    let covered: usize = valid.iter().map(|s| s.covered).sum();
+    let total_lines: usize = valid.iter().map(|s| s.total_lines).sum();
+    let covered_lines: usize = valid.iter().map(|s| s.covered_lines).sum();
+
+    Some(CoverageStat {
+        total,
+        total_tests,
+        covered,
+        percent: if total > 0 {
+            (covered as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        },
+        total_lines,
+        covered_lines,
+        line_percent: if total_lines > 0 {
+            (covered_lines as f64 / total_lines as f64) * 100.0
+        } else {
+            0.0
+        },
+    })
+}
+
+fn aggregate_mock_stats(stats: &[Option<MockStat>]) -> Option<MockStat> {
+    let valid: Vec<_> = stats.iter().filter_map(|s| s.as_ref()).collect();
+    if valid.is_empty() {
+        return None;
+    }
+
+    let total: usize = valid.iter().map(|s| s.total).sum();
+    let mocked: usize = valid.iter().map(|s| s.mocked).sum();
+
+    Some(MockStat {
+        total,
+        mocked,
+        percent: if total > 0 {
+            (mocked as f64 / total as f64) * 100.0
+        } else {
+            0.0
+        },
+    })
+}
 
 #[axum::debug_handler]
-pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Coverage>> {
+pub async fn coverage_handler(
+    Query(params): Query<CoverageParams>,
+) -> Result<Json<CoverageResponse>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
+
+    let ignore_dirs = params
+        .ignore_dirs
+        .as_ref()
+        .map(|s| split_at_comma(s))
+        .unwrap_or_default();
+
+    let languages = params.language.as_ref().map(|s| split_at_comma(s));
 
     let test_filters = TestFilters {
         unit_regexes: vec![],
         integration_regexes: vec![],
         e2e_regexes: vec![],
         target_regex: params.regex.clone(),
-        ignore_dirs: params
-            .ignore_dirs
-            .as_ref()
-            .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-            .unwrap_or_default(),
+        ignore_dirs,
+        languages,
     };
 
-    let totals = graph_ops
+    let graph_coverages = graph_ops
         .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
-    Ok(Json(Coverage {
-        language: totals.language,
-        unit_tests: totals.unit_tests.map(|s| CoverageStat {
-            total: s.total,
-            total_tests: s.total_tests,
-            covered: s.covered,
-            percent: s.percent,
-            total_lines: s.total_lines,
-            covered_lines: s.covered_lines,
-            line_percent: s.line_percent,
-        }),
-        integration_tests: totals.integration_tests.map(|s| CoverageStat {
-            total: s.total,
-            total_tests: s.total_tests,
-            covered: s.covered,
-            percent: s.percent,
-            total_lines: s.total_lines,
-            covered_lines: s.covered_lines,
-            line_percent: s.line_percent,
-        }),
-        e2e_tests: totals.e2e_tests.map(|s| CoverageStat {
-            total: s.total,
-            total_tests: s.total_tests,
-            covered: s.covered,
-            percent: s.percent,
-            total_lines: s.total_lines,
-            covered_lines: s.covered_lines,
-            line_percent: s.line_percent,
-        }),
-        mocks: totals.mocks.map(|s| MockStat {
-            total: s.total,
-            mocked: s.mocked,
-            percent: s.percent,
-        }),
+    let coverages: Vec<Coverage> = graph_coverages.into_iter().map(Coverage::from).collect();
+
+    let languages: Vec<LanguageCoverage> = coverages
+        .iter()
+        .map(|c| LanguageCoverage {
+            name: c.language.clone().unwrap_or_default(),
+            unit_tests: c.unit_tests.clone(),
+            integration_tests: c.integration_tests.clone(),
+            e2e_tests: c.e2e_tests.clone(),
+            mocks: c.mocks.clone(),
+        })
+        .collect();
+
+    let unit_tests = aggregate_coverage_stats(
+        &coverages
+            .iter()
+            .map(|c| c.unit_tests.clone())
+            .collect::<Vec<_>>(),
+    );
+    let integration_tests = aggregate_coverage_stats(
+        &coverages
+            .iter()
+            .map(|c| c.integration_tests.clone())
+            .collect::<Vec<_>>(),
+    );
+    let e2e_tests = aggregate_coverage_stats(
+        &coverages
+            .iter()
+            .map(|c| c.e2e_tests.clone())
+            .collect::<Vec<_>>(),
+    );
+    let mocks = aggregate_mock_stats(
+        &coverages
+            .iter()
+            .map(|c| c.mocks.clone())
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(Json(CoverageResponse {
+        unit_tests,
+        integration_tests,
+        e2e_tests,
+        mocks,
+        languages,
     }))
 }
 
@@ -114,10 +191,10 @@ pub async fn nodes_handler(
             .as_ref()
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
             .unwrap_or_default(),
+        languages: None,
     };
 
-
-   let (total_count, results) = graph_ops
+    let (total_count, results) = graph_ops
         .query_nodes_with_count(
             &node_types,
             offset,
@@ -133,46 +210,58 @@ pub async fn nodes_handler(
         )
         .await?;
 
-         let items: Vec<NodesResponseItem> = results
+    let items: Vec<NodesResponseItem> = results
         .into_iter()
-        .map(|(node_type,  node_data, usage_count, covered, test_count, ref_id, body_len, line_cnt, is_muted)| {
-            let verb = if node_type == NodeType::Endpoint {
-                node_data.meta.get("verb").cloned()
-            } else {
-                None
-            };
+        .map(
+            |(
+                node_type,
+                node_data,
+                usage_count,
+                covered,
+                test_count,
+                ref_id,
+                body_len,
+                line_cnt,
+                is_muted,
+            )| {
+                let verb = if node_type == NodeType::Endpoint {
+                    node_data.meta.get("verb").cloned()
+                } else {
+                    None
+                };
 
-            if concise {
-                NodesResponseItem::Concise(NodeConcise {
-                    node_type: node_type.to_string(),
-                    name: node_data.name.clone(),
-                    file: node_data.file.clone(),
-                    ref_id,
-                    weight: usage_count,
-                    test_count,
-                    covered,
-                    body_length: body_len,
-                    line_count: line_cnt,
-                    verb,
-                    start: node_data.start,
-                    end: node_data.end,
-                    meta: node_data.meta,
-                    is_muted,
-                })
-            } else {
-                NodesResponseItem::Full(Node {
-                    node_type: node_type.to_string(),
-                    ref_id,
-                    weight: usage_count,
-                    test_count,
-                    covered,
-                    properties: node_data,
-                    body_length: body_len,
-                    line_count: line_cnt,
-                    is_muted,
-                })
-            }
-        })
+                if concise {
+                    NodesResponseItem::Concise(NodeConcise {
+                        node_type: node_type.to_string(),
+                        name: node_data.name.clone(),
+                        file: node_data.file.clone(),
+                        ref_id,
+                        weight: usage_count,
+                        test_count,
+                        covered,
+                        body_length: body_len,
+                        line_count: line_cnt,
+                        verb,
+                        start: node_data.start,
+                        end: node_data.end,
+                        meta: node_data.meta,
+                        is_muted,
+                    })
+                } else {
+                    NodesResponseItem::Full(Node {
+                        node_type: node_type.to_string(),
+                        ref_id,
+                        weight: usage_count,
+                        test_count,
+                        covered,
+                        properties: node_data,
+                        body_length: body_len,
+                        line_count: line_cnt,
+                        is_muted,
+                    })
+                }
+            },
+        )
         .collect();
 
     let total_returned = items.len();
@@ -217,5 +306,3 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
         .await?;
     Ok(Json(HasResponse { covered }))
 }
-
-

@@ -1,7 +1,7 @@
 use ast::lang::asg::NodeData;
+#[cfg(feature = "neo4j")]
+use ast::lang::graphs::neo4j::operations::coverage::GraphCoverage;
 use ast::repo::StatusUpdate;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::broadcast;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -9,7 +9,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct WebError(pub shared::Error);
@@ -112,6 +114,7 @@ pub struct CoverageParams {
     pub ignore_dirs: Option<String>,
     pub regex: Option<String>,
     pub is_muted: Option<bool>,
+    pub language: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -145,6 +148,32 @@ pub struct Coverage {
     pub integration_tests: Option<CoverageStat>,
     pub e2e_tests: Option<CoverageStat>,
     pub mocks: Option<MockStat>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LanguageCoverage {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_tests: Option<CoverageStat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub integration_tests: Option<CoverageStat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub e2e_tests: Option<CoverageStat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mocks: Option<MockStat>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CoverageResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit_tests: Option<CoverageStat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub integration_tests: Option<CoverageStat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub e2e_tests: Option<CoverageStat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mocks: Option<MockStat>,
+    pub languages: Vec<LanguageCoverage>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -208,6 +237,7 @@ pub struct QueryNodesParams {
     pub e2e_regexes: Option<String>,
     pub search: Option<String>,
     pub is_muted: Option<bool>,
+    pub language: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -270,5 +300,45 @@ impl IntoResponse for WebError {
 impl From<shared::Error> for WebError {
     fn from(e: shared::Error) -> Self {
         WebError(e)
+    }
+}
+#[cfg(feature = "neo4j")]
+impl From<GraphCoverage> for Coverage {
+    fn from(graph_coverage: GraphCoverage) -> Self {
+        Coverage {
+            language: graph_coverage.language,
+            unit_tests: graph_coverage.unit_tests.map(|s| CoverageStat {
+                total: s.total,
+                total_tests: s.total_tests,
+                covered: s.covered,
+                percent: s.percent,
+                total_lines: s.total_lines,
+                covered_lines: s.covered_lines,
+                line_percent: s.line_percent,
+            }),
+            integration_tests: graph_coverage.integration_tests.map(|s| CoverageStat {
+                total: s.total,
+                total_tests: s.total_tests,
+                covered: s.covered,
+                percent: s.percent,
+                total_lines: s.total_lines,
+                covered_lines: s.covered_lines,
+                line_percent: s.line_percent,
+            }),
+            e2e_tests: graph_coverage.e2e_tests.map(|s| CoverageStat {
+                total: s.total,
+                total_tests: s.total_tests,
+                covered: s.covered,
+                percent: s.percent,
+                total_lines: s.total_lines,
+                covered_lines: s.covered_lines,
+                line_percent: s.line_percent,
+            }),
+            mocks: graph_coverage.mocks.map(|s| MockStat {
+                total: s.total,
+                mocked: s.mocked,
+                percent: s.percent,
+            }),
+        }
     }
 }

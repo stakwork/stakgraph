@@ -117,6 +117,7 @@ pub struct TestFilters {
     pub e2e_regexes: Vec<String>,
     pub target_regex: Option<String>,
     pub ignore_dirs: Vec<String>,
+    pub languages   : Option<Vec<String>>,
 }
 
 impl Edge {
