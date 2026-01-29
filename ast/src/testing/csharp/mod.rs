@@ -35,6 +35,10 @@ pub async fn test_csharp_generic<G: Graph>() -> Result<()> {
     nodes += file_nodes.len();
     assert_eq!(file_nodes.len(), 26, "Expected 26 File nodes");
 
+    let repo_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges += repo_edges;
+    assert_eq!(repo_edges, 1, "Expected 1 Of edge");
+
     let _program_file = file_nodes
         .iter()
         .find(|f| f.file.ends_with("Program.cs"))
@@ -208,7 +212,7 @@ pub async fn test_csharp_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 1518, "Expected 1518 Contains edges");
+    assert_eq!(contains, 1517, "Expected 1517 Contains edges");
 
     let parent_of = graph.count_edges_of_type(EdgeType::ParentOf);
     edges += parent_of;
