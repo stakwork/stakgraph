@@ -386,16 +386,17 @@ impl Repo {
                     skip_dirs: stringy(l.skip_dirs()),
                     ..Default::default()
                 };
-                let source_files = walk_files(&root.into(), &conf)
-                    .map_err(|e| Error::Custom(format!("Failed to walk files at {}: {}", root, e)))?;
-                
+                let source_files = walk_files(&root.into(), &conf).map_err(|e| {
+                    Error::Custom(format!("Failed to walk files at {}: {}", root, e))
+                })?;
+
                 if !source_files.is_empty() {
                     let required_indicators = l.required_indicator_files();
                     let has_required_indicators = required_indicators.is_empty()
                         || required_indicators
                             .iter()
                             .any(|indicator| Path::new(root).join(indicator).exists());
-                    
+
                     if has_required_indicators && !fallback_detected.iter().any(|lang| lang == &l) {
                         fallback_detected.push(l);
                     }
@@ -789,17 +790,6 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
 fn skip_dir(entry: &DirEntry, skip_dirs: &[String]) -> bool {
     if is_hidden(entry) {
         return true;
-    }
-    // FIXME skip all for all...?
-    for l in PROGRAMMING_LANGUAGES {
-        if entry
-            .file_name()
-            .to_str()
-            .map(|s| l.skip_dirs().contains(&s))
-            .unwrap_or(false)
-        {
-            return true;
-        }
     }
     entry
         .file_name()
