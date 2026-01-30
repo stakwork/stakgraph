@@ -539,8 +539,8 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         "get_person should call PersonService.get_person_by_id"
     );
     assert_eq!(
-        get_person_fn.body.lines().next().unwrap().trim(),
-        "# Retrieves a person by ID",
+        get_person_fn.docs,
+        Some("Retrieves a person by ID".to_string()),
         "get_person should have documentation"
     );
     assert!(

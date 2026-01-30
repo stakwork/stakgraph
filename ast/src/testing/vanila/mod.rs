@@ -39,7 +39,7 @@ async fn test_vanilla_js() -> Result<()> {
     assert_eq!(
         format_date_fn.docs,
         Some(
-            "*\nFormat a date object to a readable string.\n@param {Date} date\n@returns {string}"
+            "Format a date object to a readable string.\n@param {Date} date\n@returns {string}"
                 .to_string()
         ),
         "formatDate should have documentation"

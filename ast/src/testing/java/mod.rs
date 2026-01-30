@@ -188,7 +188,7 @@ import java.util.Optional;"#
     );
     assert_eq!(
         get_person_fn.node_data.docs,
-        Some("*\nGet a person by ID.".to_string()),
+        Some("Get a person by ID.".to_string()),
         "getPerson should have documentation"
     );
 

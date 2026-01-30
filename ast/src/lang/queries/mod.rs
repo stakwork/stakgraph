@@ -99,6 +99,12 @@ pub trait Stack {
     fn comment_query(&self) -> Option<String> {
         None
     }
+    fn class_comment_query(&self) -> Option<String> {
+        self.comment_query()
+    }
+    fn data_model_comment_query(&self) -> Option<String> {
+        self.comment_query()
+    }
     fn type_identifier_node_name(&self) -> String {
         "type_identifier".to_string()
     }

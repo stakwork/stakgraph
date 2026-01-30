@@ -340,7 +340,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     );
     assert_eq!(
         insert_person_fn_check.docs,
-        Some("*\nInsert a person into the database.".to_string()),
+        Some("Insert a person into the database.".to_string()),
         "insertPerson should have documentation"
     );
 
