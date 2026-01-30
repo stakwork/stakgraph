@@ -669,6 +669,29 @@ from flask_app.routes import flask_bp"#
         .map(|n| Node::new(NodeType::Function, n))
         .expect("cleanup function not found in main.py");
 
+    let cleanup_fn_data = functions
+        .iter()
+        .find(|f| f.name == "cleanup")
+        .expect("cleanup function not found");
+
+    assert_eq!(
+        cleanup_fn_data.docs,
+        Some("Clean up all processes".to_string()),
+        "cleanup should have documentation"
+    );
+
+    let run_servers_fn = functions
+        .iter()
+        .find(|f| f.name == "run_servers")
+        .expect("run_servers function not found");
+
+    // docstring takes precedence over comment if both exist because format_function captures it
+    assert_eq!(
+        run_servers_fn.docs,
+        Some("Run all three frameworks".to_string()),
+        "run_servers should have docstring documentation"
+    );
+
     let signal_handler_fn = graph
         .find_nodes_by_name(NodeType::Function, "signal_handler")
         .into_iter()

@@ -83,6 +83,12 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
         .find(|f| f.name == "index" && f.file.ends_with("UserController.php"))
         .expect("UserController::index not found");
 
+    assert_eq!(
+        index_method.docs,
+        Some("Display a listing of the resource.".to_string()),
+        "index method should have documentation"
+    );
+
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
     assert_eq!(endpoints.len(), 38, "Expected 38 Endpoint nodes");

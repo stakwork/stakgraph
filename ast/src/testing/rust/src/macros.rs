@@ -36,12 +36,13 @@ macro_rules! impl_display {
     };
 }
 
+/// This function uses macros
 pub fn use_macros() {
     say_hello!();
-    
+
     create_function!(generated_func);
     let name = generated_func();
-    
+
     let value = 42;
     log_expr!(value);
     log_expr!(value + 10);

@@ -186,6 +186,11 @@ import java.util.Optional;"#
         get_person_attrs.unwrap().contains("GetMapping"),
         "getPerson should have @GetMapping annotation"
     );
+    assert_eq!(
+        get_person_fn.node_data.docs,
+        Some("*\nGet a person by ID.".to_string()),
+        "getPerson should have documentation"
+    );
 
     let create_person_fn = functions
     .iter()

@@ -111,6 +111,11 @@ impl Stack for Python {
                 name: (identifier) @{FUNCTION_NAME}
                 parameters: (parameters) @{ARGUMENTS}
                 return_type: (type)? @{RETURN_TYPES}
+                body: (block
+                    (expression_statement
+                        (string) @{FUNCTION_COMMENT}
+                    )?
+                )?
               ) @{FUNCTION_DEFINITION}
             )
             "#

@@ -16,6 +16,18 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    let create_person_fn = functions
+        .iter()
+        .find(|f| f.name == "createPerson" && f.file.ends_with("model.cpp"))
+        .expect("createPerson function not found");
+
+    assert_eq!(
+        create_person_fn.docs,
+        Some("Creates a new person in the database".to_string()),
+        "createPerson should have documentation"
+    );
+
     graph.analysis();
 
     let mut nodes = 0;

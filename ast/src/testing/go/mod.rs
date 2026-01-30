@@ -19,7 +19,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -211,6 +211,11 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
         .find(|n| n.file == "src/testing/go/routes.go")
         .map(|nd| Node::new(NodeType::Function, nd))
         .expect("NewRouter function not found in routes.go");
+    assert_eq!(
+        new_router_fn.node_data.docs,
+        Some("NewRouter creates a chi router".to_string()),
+        "NewRouter should have documentation"
+    );
     assert_eq!(new_router_fn.node_data.name, "NewRouter");
     assert!(
         graph.has_edge(&main_fn, &new_router_fn, EdgeType::Calls),

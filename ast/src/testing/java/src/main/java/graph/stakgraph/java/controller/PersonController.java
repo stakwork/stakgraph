@@ -18,6 +18,9 @@ public class PersonController {
         this.repository = repository;
     }
 
+    /**
+     * Get a person by ID.
+     */
     @GetMapping("/person/{id}")
     public ResponseEntity<Person> getPerson(@PathVariable Long id) {
         Optional<Person> person = getPersonById(id);

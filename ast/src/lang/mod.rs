@@ -199,9 +199,7 @@ impl Lang {
             lang: Box::new(php::Php::new()),
         }
     }
-    pub fn lang(&self) -> &dyn Stack {
-        self.lang.as_ref()
-    }
+
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
@@ -658,114 +656,120 @@ impl Lang {
 
         if self.lang.is_test_file(file) {
             if let Some(tq) = self.lang.test_query() {
-            let q_tests = self.q(&tq, &NodeType::UnitTest);
-            let tree_tests = self.lang.parse(code, &NodeType::UnitTest)?;
-            let mut cursor_tests = QueryCursor::new();
-            let mut test_matches =
-                cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
+                let q_tests = self.q(&tq, &NodeType::UnitTest);
+                let tree_tests = self.lang.parse(code, &NodeType::UnitTest)?;
+                let mut cursor_tests = QueryCursor::new();
+                let mut test_matches =
+                    cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
 
-            while let Some(tm) = test_matches.next() {
-                let mut caller_name = String::new();
-                let mut attributes = Vec::new();
-                Self::loop_captures(&q_tests, tm, code, |body, node, o| {
-                    if o == FUNCTION_NAME {
-                        caller_name = trim_quotes(&body).to_string();
-                    } else if o == ATTRIBUTES {
-                        attributes.push(body);
-                    } else if o == FUNCTION_DEFINITION {
-                        let caller_start = node.start_position().row;
-                        let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
-                        let calls = self.collect_calls_in_function(
-                            &q2,
-                            code,
-                            file,
-                            node,
-                            &caller_name,
-                            caller_start,
-                            graph,
-                            lsp_tx,
-                            graph.get_allow_unverified_calls(),
-                        )?;
-                        let full_body = if !attributes.is_empty() {
-                            format!("{} {}", attributes.join(" "), body)
-                        } else {
-                            body.to_string()
-                        };
-                        self.add_calls_inside(&mut res, &caller_name, file, &full_body, calls);
-                        // link test to endpoint: integration tests
-                        if let Some(rq) = self.lang.request_finder() {
-                            let rq_q = self.q(&rq, &NodeType::Request);
-                            let mut cursor_r = QueryCursor::new();
-                            let mut matches_r = cursor_r.matches(&rq_q, node, code.as_bytes());
-                            while let Some(mr) = matches_r.next() {
-                                if let Ok(reqs) =
-                                    self.format_endpoint::<G>(mr, code, file, &rq_q, None, &None)
-                                {
-                                    for (req_node, _edge_opt) in reqs {
-                                        if req_node.name.is_empty() {
-                                            continue;
-                                        }
-                                        let mut path = req_node.name.clone();
-                                        if let Some(pos) = path.find("://") {
-                                            if let Some(start) = path[pos + 3..].find('/') {
-                                                path = path[pos + 3 + start..].to_string();
+                while let Some(tm) = test_matches.next() {
+                    let mut caller_name = String::new();
+                    let mut attributes = Vec::new();
+                    Self::loop_captures(&q_tests, tm, code, |body, node, o| {
+                        if o == FUNCTION_NAME {
+                            caller_name = trim_quotes(&body).to_string();
+                        } else if o == ATTRIBUTES {
+                            attributes.push(body);
+                        } else if o == FUNCTION_DEFINITION {
+                            let caller_start = node.start_position().row;
+                            let q2 = self.q(&self.lang.function_call_query(), &NodeType::Function);
+                            let calls = self.collect_calls_in_function(
+                                &q2,
+                                code,
+                                file,
+                                node,
+                                &caller_name,
+                                caller_start,
+                                graph,
+                                lsp_tx,
+                                graph.get_allow_unverified_calls(),
+                            )?;
+                            let full_body = if !attributes.is_empty() {
+                                format!("{} {}", attributes.join(" "), body)
+                            } else {
+                                body.to_string()
+                            };
+                            self.add_calls_inside(&mut res, &caller_name, file, &full_body, calls);
+                            // link test to endpoint: integration tests
+                            if let Some(rq) = self.lang.request_finder() {
+                                let rq_q = self.q(&rq, &NodeType::Request);
+                                let mut cursor_r = QueryCursor::new();
+                                let mut matches_r = cursor_r.matches(&rq_q, node, code.as_bytes());
+                                while let Some(mr) = matches_r.next() {
+                                    if let Ok(reqs) = self
+                                        .format_endpoint::<G>(mr, code, file, &rq_q, None, &None)
+                                    {
+                                        for (req_node, _edge_opt) in reqs {
+                                            if req_node.name.is_empty() {
+                                                continue;
                                             }
-                                        }
-                                        if let Some(q) = path.find('?') {
-                                            path = path[..q].to_string();
-                                        }
-                                        if let Some(h) = path.find('#') {
-                                            path = path[..h].to_string();
-                                        }
-                                        if path.len() > 1 && path.ends_with('/') {
-                                            path.pop();
-                                        }
+                                            let mut path = req_node.name.clone();
+                                            if let Some(pos) = path.find("://") {
+                                                if let Some(start) = path[pos + 3..].find('/') {
+                                                    path = path[pos + 3 + start..].to_string();
+                                                }
+                                            }
+                                            if let Some(q) = path.find('?') {
+                                                path = path[..q].to_string();
+                                            }
+                                            if let Some(h) = path.find('#') {
+                                                path = path[..h].to_string();
+                                            }
+                                            if path.len() > 1 && path.ends_with('/') {
+                                                path.pop();
+                                            }
 
-                                        let verb = req_node
-                                            .meta
-                                            .get("verb")
-                                            .cloned()
-                                            .unwrap_or_else(|| "GET".to_string());
+                                            let verb = req_node
+                                                .meta
+                                                .get("verb")
+                                                .cloned()
+                                                .unwrap_or_else(|| "GET".to_string());
 
-                                        let mut endpoints = graph.find_resource_nodes(
-                                            NodeType::Endpoint,
-                                            &verb,
-                                            &path,
-                                        );
-                                        if endpoints.is_empty() {
-                                            endpoints =
-                                                graph.find_nodes_by_name(NodeType::Endpoint, &path);
-                                            if !endpoints.is_empty() {
-                                                endpoints
-                                                    .retain(|e| e.meta.get("verb") == Some(&verb));
-                                            }
-                                            if endpoints.is_empty() {
-                                                let mut eps = graph.find_nodes_by_name(
-                                                    NodeType::Endpoint,
-                                                    &req_node.name,
-                                                );
-                                                eps.retain(|e| e.meta.get("verb") == Some(&verb));
-                                                endpoints = eps;
-                                            }
-                                        }
-                                        for ep in endpoints {
-                                            let source =
-                                                NodeKeys::new(&caller_name, file, caller_start);
-                                            let edge = Edge::new(
-                                                EdgeType::Calls,
-                                                NodeRef::from(source, NodeType::IntegrationTest),
-                                                NodeRef::from(ep.into(), NodeType::Endpoint),
+                                            let mut endpoints = graph.find_resource_nodes(
+                                                NodeType::Endpoint,
+                                                &verb,
+                                                &path,
                                             );
-                                            res.2.push(edge);
+                                            if endpoints.is_empty() {
+                                                endpoints = graph
+                                                    .find_nodes_by_name(NodeType::Endpoint, &path);
+                                                if !endpoints.is_empty() {
+                                                    endpoints.retain(|e| {
+                                                        e.meta.get("verb") == Some(&verb)
+                                                    });
+                                                }
+                                                if endpoints.is_empty() {
+                                                    let mut eps = graph.find_nodes_by_name(
+                                                        NodeType::Endpoint,
+                                                        &req_node.name,
+                                                    );
+                                                    eps.retain(|e| {
+                                                        e.meta.get("verb") == Some(&verb)
+                                                    });
+                                                    endpoints = eps;
+                                                }
+                                            }
+                                            for ep in endpoints {
+                                                let source =
+                                                    NodeKeys::new(&caller_name, file, caller_start);
+                                                let edge = Edge::new(
+                                                    EdgeType::Calls,
+                                                    NodeRef::from(
+                                                        source,
+                                                        NodeType::IntegrationTest,
+                                                    ),
+                                                    NodeRef::from(ep.into(), NodeType::Endpoint),
+                                                );
+                                                res.2.push(edge);
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    Ok(())
-                })?;
-            }
+                        Ok(())
+                    })?;
+                }
             }
         }
         Ok(res)
@@ -783,6 +787,10 @@ impl Lang {
         } else {
             res.0.extend_from_slice(&calls);
         }
+    }
+
+    pub fn lang(&self) -> &dyn Stack {
+        self.lang.as_ref()
     }
 }
 

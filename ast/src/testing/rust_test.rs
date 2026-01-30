@@ -278,6 +278,16 @@ use std::net::SocketAddr;"#
         "Expected 5 macros (say_hello, create_function, log_expr, make_struct, impl_display)"
     );
 
+    let use_macros_fn = functions
+        .iter()
+        .find(|f| f.name == "use_macros" && f.file.ends_with("src/testing/rust/src/macros.rs"))
+        .expect("use_macros function not found");
+    assert_eq!(
+        use_macros_fn.docs,
+        Some("This function uses macros".to_string()),
+        "use_macros should have documentation"
+    );
+
     let say_hello_macro = macros
         .iter()
         .find(|m| m.name == "say_hello" && m.file.ends_with("src/testing/rust/src/macros.rs"));
