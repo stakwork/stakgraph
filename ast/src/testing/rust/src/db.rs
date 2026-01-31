@@ -1,9 +1,10 @@
-use serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use sqlx::{sqlite::SqlitePoolOptions, Pool, Sqlite};
 use std::sync::OnceLock;
 
+/// Represents a person record
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct Person {
     #[serde(skip_deserializing)]
@@ -12,6 +13,7 @@ pub struct Person {
     pub email: String,
 }
 
+/// Main database connection pool
 #[derive(Clone)]
 pub struct Database {
     pool: Pool<Sqlite>,
@@ -134,17 +136,19 @@ mod tests {
     #[tokio::test]
     async fn test_create_and_get_person() {
         init_db().await.unwrap();
-        
+
         let person = Person {
             id: None,
             name: "Bob".to_string(),
             email: "bob@example.com".to_string(),
         };
-        
+
         let created = Database::new_person(person).await.unwrap();
         assert!(created.id.is_some());
-        
-        let retrieved = Database::get_person_by_id(created.id.unwrap() as u32).await.unwrap();
+
+        let retrieved = Database::get_person_by_id(created.id.unwrap() as u32)
+            .await
+            .unwrap();
         assert_eq!(retrieved.name, "Bob");
         assert_eq!(retrieved.email, "bob@example.com");
     }
@@ -155,13 +159,13 @@ mod tests {
         if result.is_err() {
             return;
         }
-        
+
         let person = Person {
             id: None,
             name: "Charlie".to_string(),
             email: "charlie@test.com".to_string(),
         };
-        
+
         let created_result = Database::new_person(person).await;
         if let Ok(created) = created_result {
             assert!(created.id.is_some());
@@ -176,7 +180,7 @@ mod tests {
             name: "".to_string(),
             email: "test@example.com".to_string(),
         };
-        
+
         assert_eq!(person.name, "");
         assert!(person.email.contains('@'));
     }
@@ -184,7 +188,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_person_by_id_not_found() {
         init_db().await.unwrap();
-        
+
         let result = Database::get_person_by_id(99999).await;
         assert!(result.is_err(), "Getting non-existent person should fail");
     }
@@ -192,11 +196,23 @@ mod tests {
     #[tokio::test]
     async fn test_person_data_structure() {
         let people = vec![
-            Person { id: None, name: "User1".to_string(), email: "user1@test.com".to_string() },
-            Person { id: None, name: "User2".to_string(), email: "user2@test.com".to_string() },
-            Person { id: None, name: "User3".to_string(), email: "user3@test.com".to_string() },
+            Person {
+                id: None,
+                name: "User1".to_string(),
+                email: "user1@test.com".to_string(),
+            },
+            Person {
+                id: None,
+                name: "User2".to_string(),
+                email: "user2@test.com".to_string(),
+            },
+            Person {
+                id: None,
+                name: "User3".to_string(),
+                email: "user3@test.com".to_string(),
+            },
         ];
-        
+
         assert_eq!(people.len(), 3);
         assert_eq!(people[0].name, "User1");
         assert_eq!(people[2].email, "user3@test.com");
@@ -285,7 +301,7 @@ impl<T: Clone> Wrapper<T> {
     pub fn new(value: T) -> Self {
         Self { value }
     }
-    
+
     pub fn get(&self) -> T {
         self.value.clone()
     }

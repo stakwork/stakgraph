@@ -454,6 +454,12 @@ impl Stack for TypeScriptReact {
     fn comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
     }
+    fn class_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{CLASS_COMMENT}"#))
+    }
+    fn data_model_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{STRUCT_COMMENT}"#))
+    }
 
     // MERGED: data_model_query (React has slightly different ordering but same patterns)
     fn data_model_query(&self) -> Option<String> {
@@ -922,26 +928,26 @@ impl Stack for TypeScriptReact {
         _handler_params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
         let http_verbs = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
-        
+
         // Helper to find HTTP verb handler directly in the same file
         // This avoids the start-position guard in node_data_finder
         let find_http_verb_handler = |verb: &str| -> Option<NodeData> {
             let verb_upper = verb.to_uppercase();
             let verb_lower = verb.to_lowercase();
-            
+
             // Get all functions in the endpoint's file
             let functions_in_file = find_fns_in(&endpoint.file);
-            
+
             // Find function matching the verb (case-insensitive)
             functions_in_file.into_iter().find(|f| {
                 f.name.to_uppercase() == verb_upper || f.name.to_lowercase() == verb_lower
             })
         };
-        
+
         // First try: look for explicit "handler" meta
         if let Some(handler) = endpoint.meta.get("handler") {
             let is_http_verb = http_verbs.contains(&handler.to_uppercase().as_str());
-            
+
             if is_http_verb {
                 // Next.js style: handler IS the HTTP verb, use direct lookup
                 if let Some(nd) = find_http_verb_handler(handler) {
@@ -956,7 +962,7 @@ impl Stack for TypeScriptReact {
                 }
             }
         }
-        
+
         // Second try: for Next.js style where verb IS the handler name
         if let Some(verb) = endpoint.meta.get("verb") {
             if http_verbs.contains(&verb.to_uppercase().as_str()) {
@@ -966,7 +972,7 @@ impl Stack for TypeScriptReact {
                 }
             }
         }
-        
+
         vec![(endpoint, None)]
     }
 

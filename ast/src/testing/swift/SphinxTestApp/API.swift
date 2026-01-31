@@ -56,6 +56,9 @@ class API {
         }
     }
     
+    /**
+     * Get the list of people.
+     */
     public func getPeopleList(
         callback: @escaping GetPeopleListCallback
     ) {

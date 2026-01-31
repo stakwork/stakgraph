@@ -538,6 +538,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
             .contains("PersonService.get_person_by_id"),
         "get_person should call PersonService.get_person_by_id"
     );
+    assert_eq!(
+        get_person_fn.docs,
+        Some("Retrieves a person by ID".to_string()),
+        "get_person should have documentation"
+    );
     assert!(
         get_person_fn.body.contains("render json: person"),
         "get_person should render json response"

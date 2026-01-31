@@ -16,6 +16,18 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    let create_person_fn = functions
+        .iter()
+        .find(|f| f.name == "createPerson" && f.file.ends_with("model.cpp"))
+        .expect("createPerson function not found");
+
+    assert_eq!(
+        create_person_fn.docs,
+        Some("Creates a new person in the database".to_string()),
+        "createPerson should have documentation"
+    );
+
     graph.analysis();
 
     let mut nodes = 0;
@@ -114,7 +126,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 20, "Expected 20 contains edges");
+    assert_eq!(contains, 22, "Expected 22 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -134,7 +146,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 4, "Expected 4 functions");
+    assert_eq!(functions.len(), 6, "Expected 6 functions");
 
     let database = classes
         .into_iter()

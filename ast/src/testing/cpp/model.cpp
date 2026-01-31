@@ -17,6 +17,7 @@ Database::~Database() {
     if (db) sqlite3_close(db);
 }
 
+// Creates a new person in the database
 bool Database::createPerson(const Person& p) {
     const char* sql = "INSERT INTO people (id, name, email) VALUES (?, ?, ?);";
     sqlite3_stmt* stmt;

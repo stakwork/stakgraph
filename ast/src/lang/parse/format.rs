@@ -26,6 +26,7 @@ impl Lang {
         let mut assocition_target = None;
         let mut has_impl = false;
         let mut attributes = Vec::new();
+        let mut comments = Vec::new();
 
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == CLASS_NAME {
@@ -44,6 +45,8 @@ impl Lang {
                 assocition_target = Some(body);
             } else if o == ATTRIBUTES {
                 attributes.push(body);
+            } else if o == CLASS_COMMENT {
+                comments.push(body);
             }
 
             if let (Some(ref _ty), Some(ref target)) = (&association_type, &assocition_target) {
@@ -62,6 +65,10 @@ impl Lang {
 
         if !attributes.is_empty() {
             cls.add_attributes(&attributes.join(" "));
+        }
+
+        if !comments.is_empty() {
+            cls.docs = Some(self.clean_and_combine_comments(&comments));
         }
 
         if self.lang.filter_by_implements() {
@@ -552,6 +559,7 @@ impl Lang {
     ) -> Result<NodeData> {
         let mut inst = NodeData::in_file(file);
         let mut attributes = Vec::new();
+        let mut comments = Vec::new();
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == STRUCT_NAME {
                 inst.name = trim_quotes(&body).to_string();
@@ -561,11 +569,16 @@ impl Lang {
                 inst.end = node.end_position().row;
             } else if o == ATTRIBUTES {
                 attributes.push(body);
+            } else if o == STRUCT_COMMENT {
+                comments.push(body);
             }
             Ok(())
         })?;
         if !attributes.is_empty() {
             inst.add_attributes(&attributes.join(" "));
+        }
+        if !comments.is_empty() {
+            inst.docs = Some(self.clean_and_combine_comments(&comments));
         }
         Ok(inst)
     }
@@ -1358,7 +1371,12 @@ impl Lang {
                     if let Some(without_end) = without_start.strip_suffix("*/") {
                         without_end.trim().to_string()
                     } else {
-                        without_start.to_string()
+                        // Handle /** case - if what remains is just *, treat as empty
+                        if without_start == "*" || without_start.is_empty() {
+                            String::new()
+                        } else {
+                            without_start.to_string()
+                        }
                     }
                 } else if let Some(stripped) = trimmed.strip_suffix("*/") {
                     stripped.trim().to_string()

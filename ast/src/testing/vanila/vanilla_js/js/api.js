@@ -1,5 +1,8 @@
 import { API_BASE_URL } from "../api/endpoints.js";
 
+/**
+ * Handles API interactions
+ */
 export class ApiClient {
   constructor(baseUrl = API_BASE_URL) {
     this.baseUrl = baseUrl;

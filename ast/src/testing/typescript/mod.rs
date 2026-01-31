@@ -329,6 +329,12 @@ import {{ sequelize }} from "./config.js";"#
         .map(|n| Node::new(NodeType::Function, n.clone()))
         .expect("createPerson function not found");
 
+    assert_eq!(
+        create_person_fn.node_data.docs,
+        Some("Create a new person.".to_string()),
+        "createPerson should have documentation"
+    );
+
     let get_person_fn = functions
         .iter()
         .find(|f| {

@@ -213,6 +213,11 @@ end
         get_people.file.contains("API.swift"),
         "getPeopleList should be in API.swift file"
     );
+    assert_eq!(
+        get_people.docs,
+        Some("Get the list of people.".to_string()),
+        "getPeopleList should have documentation"
+    );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();

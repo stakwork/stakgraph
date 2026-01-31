@@ -16,10 +16,7 @@ async fn build_and_detect(relative_path: &str) -> Result<BTreeMapGraph> {
 
 fn assert_language(graph: &BTreeMapGraph, expected: &str) -> Result<()> {
     let langs = graph.find_nodes_by_type(NodeType::Language);
-    assert!(
-        !langs.is_empty(),
-        "No language detected in graph"
-    );
+    assert!(!langs.is_empty(), "No language detected in graph");
     assert_eq!(
         langs[0].name, expected,
         "Expected language '{}' but got '{}'",
@@ -32,6 +29,33 @@ fn assert_language(graph: &BTreeMapGraph, expected: &str) -> Result<()> {
 async fn test_vanilla_js() -> Result<()> {
     let graph = build_and_detect("vanila/vanilla_js").await?;
     assert_language(&graph, "typescript")?;
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    let format_date_fn = functions
+        .iter()
+        .find(|f| f.name == "formatDate" && f.file.ends_with("utils.js"))
+        .expect("formatDate function not found");
+
+    assert_eq!(
+        format_date_fn.docs,
+        Some(
+            "Format a date object to a readable string.\n@param {Date} date\n@returns {string}"
+                .to_string()
+        ),
+        "formatDate should have documentation"
+    );
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let api_client = classes
+        .iter()
+        .find(|c| c.name == "ApiClient" && c.file.ends_with("api.js"))
+        .expect("ApiClient class not found");
+    assert_eq!(
+        api_client.docs,
+        Some("Handles API interactions".to_string()),
+        "ApiClient class should have doc comment"
+    );
+
     Ok(())
 }
 
@@ -53,6 +77,18 @@ async fn test_python_setuppy() -> Result<()> {
 async fn test_typescript_bare() -> Result<()> {
     let graph = build_and_detect("vanila/typescript_bare").await?;
     assert_language(&graph, "typescript")?;
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let user_class = classes
+        .iter()
+        .find(|c| c.name == "User" && c.file.ends_with("models/User.ts"))
+        .expect("User class not found");
+    assert_eq!(
+        user_class.docs,
+        Some("Represents a system user".to_string()),
+        "User class should have doc comment"
+    );
+
     Ok(())
 }
 

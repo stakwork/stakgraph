@@ -1,4 +1,5 @@
 class PeopleController < ApplicationController
+  # Retrieves a person by ID
   def get_person
     person = PersonService.get_person_by_id(params[:id])
     

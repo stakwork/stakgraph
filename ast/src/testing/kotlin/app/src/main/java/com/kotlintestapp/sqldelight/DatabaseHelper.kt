@@ -12,6 +12,9 @@ class DatabaseHelper(context: Context) {
 
     private val queries = database.personQueries
 
+    /**
+     * Insert a person into the database.
+     */
     fun insertPerson(
         id: Long,
         alias: String,

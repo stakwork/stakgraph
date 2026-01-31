@@ -338,6 +338,11 @@ import com.kotlintestapp.db.PersonDatabase"#
         insert_person_fn_check.body.contains("queries.insertPerson"),
         "insertPerson should use PersonQueries"
     );
+    assert_eq!(
+        insert_person_fn_check.docs,
+        Some("Insert a person into the database.".to_string()),
+        "insertPerson should have documentation"
+    );
 
     let update_person_fn_check = functions
         .iter()
