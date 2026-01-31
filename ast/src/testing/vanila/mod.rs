@@ -45,6 +45,17 @@ async fn test_vanilla_js() -> Result<()> {
         "formatDate should have documentation"
     );
 
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let api_client = classes
+        .iter()
+        .find(|c| c.name == "ApiClient" && c.file.ends_with("api.js"))
+        .expect("ApiClient class not found");
+    assert_eq!(
+        api_client.docs,
+        Some("Handles API interactions".to_string()),
+        "ApiClient class should have doc comment"
+    );
+
     Ok(())
 }
 
@@ -66,6 +77,18 @@ async fn test_python_setuppy() -> Result<()> {
 async fn test_typescript_bare() -> Result<()> {
     let graph = build_and_detect("vanila/typescript_bare").await?;
     assert_language(&graph, "typescript")?;
+
+    let classes = graph.find_nodes_by_type(NodeType::Class);
+    let user_class = classes
+        .iter()
+        .find(|c| c.name == "User" && c.file.ends_with("models/User.ts"))
+        .expect("User class not found");
+    assert_eq!(
+        user_class.docs,
+        Some("Represents a system user".to_string()),
+        "User class should have doc comment"
+    );
+
     Ok(())
 }
 

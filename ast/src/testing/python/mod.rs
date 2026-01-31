@@ -58,7 +58,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 139, "Expected 139 contains edges");
+    assert_eq!(contains, 141, "Expected 141 contains edges");
     edges_count += contains;
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -125,7 +125,7 @@ from flask_app.routes import flask_bp"#
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
 
-    assert_eq!(classes.len(), 8, "Expected 8 classes");
+    assert_eq!(classes.len(), 10, "Expected 10 classes");
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
@@ -215,6 +215,18 @@ from flask_app.routes import flask_bp"#
     assert!(
         graph.has_edge(&fastapi_post_endpoint, &create_person_fn, EdgeType::Handler),
         "Expected FastAPI '/person/' POST endpoint to be handled by 'create_person'"
+    );
+
+    assert_eq!(
+        person_class.node_data.docs,
+        Some("Person model for storing user details".to_string()),
+        "Person class should have docstring"
+    );
+
+    assert_eq!(
+        create_or_edit_person_dm.node_data.docs,
+        Some("PersonCreate model for creating new person".to_string()),
+        "CreateOrEditPerson DataModel should have docstring"
     );
 
     let django_views_file = graph
@@ -842,10 +854,30 @@ from flask_app.routes import flask_bp"#
         .find(|f| f.name == "fetch_data")
         .expect("async fetch_data function not found");
 
+    let create_person_dm = data_models
+        .iter()
+        .find(|d| d.name == "CreateOrEditPerson")
+        .expect("CreateOrEditPerson data model not found");
+    assert_eq!(
+        create_person_dm.docs,
+        Some("PersonCreate model for creating new person".to_string()),
+        "CreateOrEditPerson should have docstring"
+    );
+
     let _async_method = functions
         .iter()
         .find(|f| f.name == "process")
         .expect("async process method not found");
+
+    let person_class = classes
+        .iter()
+        .find(|c| c.name == "Person")
+        .expect("Person class not found");
+    assert_eq!(
+        person_class.docs,
+        Some("Person model for storing user details".to_string()),
+        "Person class should have docstring"
+    );
 
     let user_class = classes
         .iter()

@@ -790,10 +790,7 @@ impl Repo {
                     continue;
                 }
             }
-            let q = self.lang.lang().data_model_query();
-            let structs = self
-                .lang
-                .get_query_opt::<G>(q, code, filename, NodeType::DataModel)?;
+            let structs = self.lang.get_data_models::<G>(code, filename)?;
             datamodel_count += structs.len();
 
             for st in &structs {

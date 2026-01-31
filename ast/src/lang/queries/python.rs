@@ -90,9 +90,13 @@ impl Stack for Python {
                         (identifier)? @{CLASS_PARENT}
                     )?
                     body: (block
+                        (expression_statement
+                            (string) @{CLASS_COMMENT}
+                        )?
                         [
                             (function_definition)+
                             (decorated_definition)+
+                            (expression_statement)*
                         ]
                     )
                 )@{CLASS_DEFINITION}
@@ -353,6 +357,11 @@ impl Stack for Python {
         Some(format!(
             "(class_definition
                 name: (identifier) @{STRUCT_NAME}
+                body: (block
+                    (expression_statement
+                        (string) @{STRUCT_COMMENT}
+                    )?
+                )?
              ) @{STRUCT}"
         ))
     }

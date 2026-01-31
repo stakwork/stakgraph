@@ -111,6 +111,12 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let traits = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += traits.len();
     assert_eq!(traits.len(), 1, "Expected 1 trait");
+    assert_eq!(traits[0].name, "Shape", "Trait should be Shape");
+    assert_eq!(
+        traits[0].docs,
+        Some("Shape is a geometric shape interface".to_string()),
+        "Shape interface should have comment"
+    );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
@@ -133,6 +139,16 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
     assert_eq!(data_models.len(), 12, "Expected 12 data models");
+
+    let rect_dm = data_models
+        .iter()
+        .find(|dm| dm.name == "Rectangle")
+        .expect("Rectangle struct not found");
+    assert_eq!(
+        rect_dm.docs,
+        Some("Rectangle represents a rectangle".to_string()),
+        "Rectangle should have comment"
+    );
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();

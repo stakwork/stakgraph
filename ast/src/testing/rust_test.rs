@@ -130,6 +130,11 @@ use std::net::SocketAddr;"#
 
     let person_attrs = person_dm.node_data.meta.get("attributes");
     assert!(person_attrs.is_some(), "Person should have attributes");
+    assert_eq!(
+        person_dm.node_data.docs,
+        Some("Represents a person record".to_string()),
+        "Person struct should have doc comment"
+    );
     let attrs = person_attrs.unwrap();
     assert!(
         attrs.contains("derive"),
@@ -157,6 +162,11 @@ use std::net::SocketAddr;"#
         .find(|c| c.name == "Database" && c.file.ends_with("src/testing/rust/src/db.rs"))
         .map(|n| Node::new(NodeType::Class, n.clone()))
         .expect("Class 'Database' not found in db.rs");
+    assert_eq!(
+        database_class.node_data.docs,
+        Some("Main database connection pool".to_string()),
+        "Database class should have doc comment"
+    );
 
     let dm_imports = graph.has_edge(&rocket_file, &person_dm, EdgeType::Imports);
     assert!(

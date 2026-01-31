@@ -61,6 +61,7 @@ impl Lang {
             NodeType::Function => self.lang.comment_query(),
             NodeType::Class => self.lang.class_comment_query(),
             NodeType::DataModel => self.lang.data_model_comment_query(),
+            NodeType::Trait => self.lang.trait_comment_query(),
             _ => return Ok(out),
         };
         let Some(cq_str) = cq else {
@@ -70,14 +71,15 @@ impl Lang {
         let tree = self.lang.parse(code, node_type)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&comment_q, tree.root_node(), code.as_bytes());
-        
+
         let capture_name = match node_type {
             NodeType::Function => FUNCTION_COMMENT,
             NodeType::Class => CLASS_COMMENT,
             NodeType::DataModel => STRUCT_COMMENT,
+            NodeType::Trait => TRAIT_COMMENT,
             _ => return Ok(out),
         };
-        
+
         while let Some(m) = matches.next() {
             for cap in m.captures.iter() {
                 let name = &comment_q.capture_names()[cap.index as usize];
@@ -94,7 +96,12 @@ impl Lang {
         }
         Ok(out)
     }
-    fn attach_comments(&self, code: &str, nodes: &mut [NodeData], node_type: &NodeType) -> Result<()> {
+    fn attach_comments(
+        &self,
+        code: &str,
+        nodes: &mut [NodeData],
+        node_type: &NodeType,
+    ) -> Result<()> {
         if nodes.is_empty() {
             return Ok(());
         }
@@ -141,7 +148,7 @@ impl Lang {
         }
         Ok(())
     }
-    
+
     fn attach_function_comments(&self, code: &str, funcs: &mut [Function]) -> Result<()> {
         if funcs.is_empty() {
             return Ok(());
@@ -248,7 +255,9 @@ impl Lang {
     pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.trait_query() {
             let qo = self.q(&qo, &NodeType::Trait);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Trait)?)
+            let mut traits = self.collect::<G>(&qo, code, file, NodeType::Trait)?;
+            self.attach_comments(code, &mut traits, &NodeType::Trait)?;
+            Ok(traits)
         } else {
             Ok(Vec::new())
         }
