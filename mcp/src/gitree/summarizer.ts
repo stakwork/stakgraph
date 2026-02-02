@@ -138,9 +138,10 @@ export class Summarizer {
 
   /**
    * Generate documentation for all features
+   * @param repo - Optional repo to filter features
    */
-  async summarizeAllFeatures(): Promise<Usage> {
-    const features = await this.storage.getAllFeatures();
+  async summarizeAllFeatures(repo?: string): Promise<Usage> {
+    const features = await this.storage.getAllFeatures(repo);
 
     console.log(`\n📚 Summarizing ${features.length} features...\n`);
 
