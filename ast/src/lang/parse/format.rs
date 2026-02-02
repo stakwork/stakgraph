@@ -339,6 +339,8 @@ impl Lang {
                 endp.body = body;
                 endp.start = node.start_position().row;
                 endp.end = node.end_position().row;
+            } else if o == ENDPOINT_COMMENT {
+                endp.docs = Some(self.clean_and_combine_comments(&[body]));
             } else if o == HANDLER {
                 let handler_name = trim_quotes(&body);
                 endp.add_handler(handler_name);

@@ -10,6 +10,7 @@ enum APP_NAMES{
   MyDemoApp = "My Demo App"
 }
 
+// The name of the application
 export const AppName: string = APP_NAMES.MyReactApp;
 export const hostPort: string = "http://localhost:5002";
 

@@ -402,6 +402,26 @@ impl Stack for Rust {
         "#
         ))
     }
+    fn endpoint_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{ENDPOINT_COMMENT}
+        "#
+        ))
+    }
+    fn var_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{VAR_COMMENT}
+        "#
+        ))
+    }
     fn function_call_query(&self) -> String {
         format!(
             r#"

@@ -3,6 +3,7 @@ use crate::routes::admin_actix::admin_config;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use serde_json::json;
 
+// Get person endpoint
 #[get("/person/{id}")]
 async fn get_person(path: web::Path<u32>) -> impl Responder {
     let id = path.into_inner();
@@ -16,6 +17,7 @@ async fn get_person(path: web::Path<u32>) -> impl Responder {
     }
 }
 
+// Create person endpoint
 #[post("/person")]
 async fn create_person(person: web::Json<Person>) -> impl Responder {
     match Database::new_person(person.into_inner()).await {

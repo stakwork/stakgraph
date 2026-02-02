@@ -460,6 +460,12 @@ impl Stack for TypeScriptReact {
     fn data_model_comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment) @{STRUCT_COMMENT}"#))
     }
+    fn endpoint_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{ENDPOINT_COMMENT}"#))
+    }
+    fn var_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{VAR_COMMENT}"#))
+    }
 
     // MERGED: data_model_query (React has slightly different ordering but same patterns)
     fn data_model_query(&self) -> Option<String> {

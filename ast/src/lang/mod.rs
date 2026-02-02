@@ -62,6 +62,8 @@ impl Lang {
             NodeType::Class => self.lang.class_comment_query(),
             NodeType::DataModel => self.lang.data_model_comment_query(),
             NodeType::Trait => self.lang.trait_comment_query(),
+            NodeType::Endpoint => self.lang.endpoint_comment_query(),
+            NodeType::Var => self.lang.var_comment_query(),
             _ => return Ok(out),
         };
         let Some(cq_str) = cq else {
@@ -77,6 +79,8 @@ impl Lang {
             NodeType::Class => CLASS_COMMENT,
             NodeType::DataModel => STRUCT_COMMENT,
             NodeType::Trait => TRAIT_COMMENT,
+            NodeType::Endpoint => ENDPOINT_COMMENT,
+            NodeType::Var => VAR_COMMENT,
             _ => return Ok(out),
         };
 
@@ -281,7 +285,9 @@ impl Lang {
     pub fn get_vars<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.variables_query() {
             let qo = self.q(&qo, &NodeType::Var);
-            Ok(self.collect::<G>(&qo, code, file, NodeType::Var)?)
+            let mut vars = self.collect::<G>(&qo, code, file, NodeType::Var)?;
+            self.attach_comments(code, &mut vars, &NodeType::Var)?;
+            Ok(vars)
         } else {
             Ok(Vec::new())
         }

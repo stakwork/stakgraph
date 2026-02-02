@@ -355,6 +355,18 @@ import NewPerson from "./components/NewPerson";"#
         initial_state_var.node_data.body.contains("people: []"),
         "initialState should have empty people array"
     );
+    let app_name_var = variables
+        .iter()
+        .find(|v| {
+            v.name == "AppName"
+                && normalize_path(&v.file) == "src/testing/react/src/App.tsx"
+        })
+        .expect("AppName variable not found");
+    assert_eq!(
+        app_name_var.docs,
+        Some("The name of the application".to_string()),
+        "AppName should have documentation"
+    );
 
     let name_var = variables.iter().find(|v| {
         v.name == "name"
@@ -508,6 +520,18 @@ import NewPerson from "./components/NewPerson";"#
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 9, "Expected 9 endpoints");
+    let users_get_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users"
+                && normalize_path(&e.file) == "src/testing/react/src/api/routes.ts"
+        })
+        .expect("/users endpoint not found");
+    assert_eq!(
+        users_get_endpoint.docs,
+        Some("GET endpoint".to_string()),
+        "/users endpoint should have documentation"
+    );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();

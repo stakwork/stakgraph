@@ -770,6 +770,23 @@ from flask_app.routes import flask_bp"#
         .map(|n| Node::new(NodeType::Var, n))
         .expect("DEBUG variable not found in Django settings.py");
 
+    assert_eq!(
+        secret_key_var.node_data.docs,
+        Some("SECURITY WARNING: keep the secret key used in production secret!".to_string()),
+        "SECRET_KEY should have documentation"
+    );
+
+    assert_eq!(
+        flask_post_endpoint.node_data.docs, None,
+        "Flask POST endpoint should not have documentation"
+    );
+
+    assert_eq!(
+        fastapi_post_endpoint.node_data.docs,
+        Some("Create new user endpoint".to_string()),
+        "FastAPI POST endpoint should have documentation"
+    );
+
     assert!(
         graph.has_edge(&django_settings_file, &secret_key_var, EdgeType::Contains),
         "Expected Django settings.py to contain SECRET_KEY variable"

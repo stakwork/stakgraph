@@ -154,6 +154,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         api_status_endpoint.file, "src/testing/ruby/config/routes.rb",
         "API status endpoint file path is incorrect"
     );
+    assert_eq!(
+        api_status_endpoint.docs,
+        Some("Check API status".to_string()),
+        "API status endpoint should have docs"
+    );
 
     let api_tokens_post_endpoint = endpoints
         .iter()
@@ -346,8 +351,16 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    //var is not in a .rb file, so it is not detected
-    assert_eq!(variables.len(), 0, "Expected 0 variable nodes");
+    assert_eq!(variables.len(), 1, "Expected 1 variable node");
+    assert_eq!(
+        variables[0].name, "MAX_PEOPLE",
+        "Expected MAX_PEOPLE variable"
+    );
+    assert_eq!(
+        variables[0].docs,
+        Some("Max people limit".to_string()),
+        "Expected variable docs"
+    );
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;
