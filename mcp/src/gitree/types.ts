@@ -34,6 +34,7 @@ export interface Feature {
   documentation?: string; // LLM-generated comprehensive documentation of current state
   cluesCount?: number; // Number of clues for this feature
   cluesLastAnalyzedAt?: Date; // Last time clues were generated
+  usage?: Usage; // Token usage for summarizing this feature
 }
 
 export interface PRRecord {
@@ -48,6 +49,7 @@ export interface PRRecord {
     file: string;
     declarations: string[];
   }>;
+  usage?: Usage; // Token usage for processing this PR
 }
 
 export interface CommitRecord {
@@ -63,6 +65,7 @@ export interface CommitRecord {
     file: string;
     declarations: string[];
   }>;
+  usage?: Usage; // Token usage for processing this commit
 }
 
 export interface LLMDecision {

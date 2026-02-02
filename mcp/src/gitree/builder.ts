@@ -398,8 +398,8 @@ export class StreamingFeatureBuilder {
     console.log(`   🤖 Asking LLM for decision...`);
     const { decision, usage } = await this.llm.decide(prompt);
 
-    // Apply decision
-    await this.applyPrDecision(owner, repo, pr, decision, modifiedFeatureIds);
+    // Apply decision (pass usage to save with PR record)
+    await this.applyPrDecision(owner, repo, pr, decision, modifiedFeatureIds, usage);
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
@@ -520,7 +520,8 @@ ${DECISION_GUIDELINES}`;
     repo: string,
     pr: GitHubPR,
     decision: LLMDecision,
-    modifiedFeatureIds: Set<string>
+    modifiedFeatureIds: Set<string>,
+    usage?: Usage
   ): Promise<void> {
     // Fetch file list for this PR
     const { data: files } = await this.octokit.pulls.listFiles({
@@ -530,7 +531,7 @@ ${DECISION_GUIDELINES}`;
       per_page: 100,
     });
 
-    // Save PR record with repo
+    // Save PR record with repo and usage
     const prRecord: PRRecord = {
       number: pr.number,
       repo: this.repo,
@@ -540,6 +541,7 @@ ${DECISION_GUIDELINES}`;
       url: pr.url,
       files: files.map((f) => f.filename),
       newDeclarations: decision.newDeclarations,
+      usage: usage,
     };
     await this.storage.savePR(prRecord);
 
@@ -618,8 +620,8 @@ ${DECISION_GUIDELINES}`;
     console.log(`   🤖 Asking LLM for decision...`);
     const { decision, usage } = await this.llm.decide(prompt);
 
-    // Apply decision
-    await this.applyCommitDecision(owner, repo, commit, decision, modifiedFeatureIds);
+    // Apply decision (pass usage to save with commit record)
+    await this.applyCommitDecision(owner, repo, commit, decision, modifiedFeatureIds, usage);
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
@@ -686,7 +688,8 @@ ${DECISION_GUIDELINES}`;
       url: string;
     },
     decision: LLMDecision,
-    modifiedFeatureIds: Set<string>
+    modifiedFeatureIds: Set<string>,
+    usage?: Usage
   ): Promise<void> {
     // Fetch file list for this commit
     const { data: commitData } = await this.octokit.repos.getCommit({
@@ -697,7 +700,7 @@ ${DECISION_GUIDELINES}`;
 
     const files = commitData.files || [];
 
-    // Save commit record with repo
+    // Save commit record with repo and usage
     const commitRecord: CommitRecord = {
       sha: commit.sha,
       repo: this.repo,
@@ -708,6 +711,7 @@ ${DECISION_GUIDELINES}`;
       url: commit.url,
       files: files.map((f: any) => f.filename),
       newDeclarations: decision.newDeclarations,
+      usage: usage,
     };
     await this.storage.saveCommit(commitRecord);
 
