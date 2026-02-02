@@ -48,6 +48,9 @@ async function getPerson(req: Request, res: Response) {
   }
 }
 
+/**
+ * Create a new person.
+ */
 async function createPerson(req: PersonRequest, res: PersonResponse) {
   const { name, email } = req.body;
   try {

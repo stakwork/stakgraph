@@ -55,6 +55,15 @@ impl Lang {
                 res.push((cls, edges));
             }
         }
+
+        // Attach comments
+        let mut nodes: Vec<NodeData> = res.iter().map(|(n, _)| n.clone()).collect();
+        self.attach_comments(code, &mut nodes, &NodeType::Class)?;
+
+        for (i, node) in nodes.into_iter().enumerate() {
+            res[i].0.docs = node.docs;
+        }
+
         Ok(res)
     }
     pub fn collect_implements(

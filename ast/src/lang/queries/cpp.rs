@@ -166,6 +166,17 @@ impl Stack for Cpp {
                                     )?
                                 )
                 )@{FUNCTION_DEFINITION}
+                (function_definition
+                                type : (_) @{RETURN_TYPES}
+                                declarator: (function_declarator
+                                    declarator : (qualified_identifier
+                                        name: (identifier) @{FUNCTION_NAME}
+                                    )
+                                    parameters: (parameter_list
+                                        (parameter_declaration)@{ARGUMENTS}
+                                    )?
+                                )
+                )@{FUNCTION_DEFINITION}
                 ]
             )
             "#

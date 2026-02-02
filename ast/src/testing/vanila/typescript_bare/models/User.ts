@@ -1,5 +1,8 @@
 import { IEntity } from "../types.ts";
 
+/**
+ * Represents a system user
+ */
 export class User implements IEntity {
   id: string;
   username: string;

@@ -44,9 +44,11 @@ def cleanup():
 def signal_handler(sig, frame):
     print("\nReceived termination signal. Shutting down...")
     cleanup()
+    cleanup()
     sys.exit(0)
 
 
+# This function runs the servers
 def run_servers():
     """Run all three frameworks"""
     current_dir = os.path.dirname(os.path.abspath(__file__))

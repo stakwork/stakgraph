@@ -1,9 +1,9 @@
 use super::super::*;
 use super::consts::*;
-use shared::error::{Context, Result};
-use tree_sitter::{Language, Parser, Query, Tree};
 use crate::lang::parse::utils::trim_quotes;
+use shared::error::{Context, Result};
 use std::collections::HashMap;
+use tree_sitter::{Language, Parser, Query, Tree};
 pub struct Rust(Language);
 
 impl Default for Rust {
@@ -21,7 +21,7 @@ impl Rust {
 impl Rust {
     // Actix-specific helper: captures .service(handler) calls (on scope or chained)
     fn actix_service_registration_query() -> String {
-        use super::consts::{HANDLER_REF};
+        use super::consts::HANDLER_REF;
         format!(
             r#"
             (call_expression
@@ -40,7 +40,7 @@ impl Rust {
     fn find_scope_prefix(node: tree_sitter::Node, code: &str) -> Option<String> {
         // The node passed in is the call_expression for .service()
         // Pattern: call_expression { function: field_expression { value: ..., field: "service" } }
-        
+
         if let Some(func_node) = node.child_by_field_name("function") {
             if func_node.kind() == "field_expression" {
                 if let Some(value_node) = func_node.child_by_field_name("value") {
@@ -69,7 +69,7 @@ impl Rust {
                 }
             }
         }
-        
+
         None
     }
 
@@ -78,7 +78,7 @@ impl Rust {
             if func_node.kind() == "field_expression" {
                 if let Some(field_node) = func_node.child_by_field_name("field") {
                     let field_text = field_node.utf8_text(code.as_bytes()).ok()?;
-                    
+
                     if field_text == "nest" {
                         if let Some(args_node) = node.child_by_field_name("arguments") {
                             for i in 0..args_node.child_count() {
@@ -91,7 +91,7 @@ impl Rust {
                         }
                     }
                 }
-                
+
                 if let Some(value_node) = func_node.child_by_field_name("value") {
                     if let Some(parent_prefix) = Self::find_nest_prefix(value_node, code) {
                         return Some(parent_prefix);
@@ -99,18 +99,18 @@ impl Rust {
                 }
             }
         }
-        
+
         None
     }
 
     fn extract_rocket_handlers(token_tree_text: &str) -> Vec<String> {
         let trimmed = token_tree_text.trim();
-        
+
         let inner = trimmed
             .strip_prefix('[')
             .and_then(|s| s.strip_suffix(']'))
             .unwrap_or(trimmed);
-        
+
         inner
             .split(',')
             .map(|s| s.trim().to_string())
@@ -130,19 +130,26 @@ impl Rust {
                 if func.kind() == "field_expression" {
                     if let Some(field) = func.child_by_field_name("field") {
                         let field_text = field.utf8_text(code.as_bytes()).unwrap_or("");
-                        
+
                         if field_text == "route" {
                             if let Some(args) = node.child_by_field_name("arguments") {
                                 let mut handler_name = None;
-                                
+
                                 for i in 0..args.child_count() {
                                     if let Some(arg) = args.child(i) {
                                         if arg.kind() == "call_expression" {
-                                            if let Some(handler_args) = arg.child_by_field_name("arguments") {
+                                            if let Some(handler_args) =
+                                                arg.child_by_field_name("arguments")
+                                            {
                                                 for j in 0..handler_args.child_count() {
                                                     if let Some(h_arg) = handler_args.child(j) {
                                                         if h_arg.kind() == "identifier" {
-                                                            handler_name = Some(h_arg.utf8_text(code.as_bytes()).unwrap_or("").to_string());
+                                                            handler_name = Some(
+                                                                h_arg
+                                                                    .utf8_text(code.as_bytes())
+                                                                    .unwrap_or("")
+                                                                    .to_string(),
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -150,7 +157,7 @@ impl Rust {
                                         }
                                     }
                                 }
-                                
+
                                 if let Some(h) = handler_name {
                                     let key = (h, file.to_string());
                                     handler_map.entry(key).or_default().push(prefix.to_string());
@@ -158,7 +165,7 @@ impl Rust {
                             }
                         }
                     }
-                    
+
                     if let Some(value) = func.child_by_field_name("value") {
                         Self::extract_axum_handlers(value, code, handler_map, file, prefix);
                     }
@@ -273,16 +280,14 @@ impl Stack for Rust {
         ))
     }
     fn trait_query(&self) -> Option<String> {
-        Some(
-            format!(
-                r#"
+        Some(format!(
+            r#"
             (trait_item
                 name: (type_identifier) @{TRAIT_NAME}
                 body: (declaration_list)
             ) @{TRAIT}
             "#
-            )
-        )
+        ))
     }
 
     fn class_definition_query(&self) -> String {
@@ -301,17 +306,15 @@ impl Stack for Rust {
     }
 
     fn implements_query(&self) -> Option<String> {
-        Some(
-            format!(
-                r#"
+        Some(format!(
+            r#"
         (impl_item
             trait: (type_identifier)? @{TRAIT_NAME}
             type: (type_identifier) @{CLASS_NAME}
             body: (declaration_list)?
         ) @{IMPLEMENTS}
         "#
-            )
-        )
+        ))
     }
 
     fn function_definition_query(&self) -> String {
@@ -365,6 +368,26 @@ impl Stack for Rust {
               (line_comment)+
               (block_comment)+
             ] @{FUNCTION_COMMENT}
+        "#
+        ))
+    }
+    fn class_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{CLASS_COMMENT}
+        "#
+        ))
+    }
+    fn data_model_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{STRUCT_COMMENT}
         "#
         ))
     }
@@ -698,7 +721,6 @@ impl Stack for Rust {
         file: &str,
         find_import_node: &dyn Fn(&str) -> Option<NodeData>,
     ) -> Option<Vec<(String, Vec<String>)>> {
-
         let import_node = find_import_node(file)?;
         let code = import_node.body.as_str();
 
@@ -748,12 +770,11 @@ impl Stack for Rust {
         endpoints: &[NodeData],
         find_import_node: &dyn Fn(&str) -> Option<NodeData>,
     ) -> Vec<(NodeData, String)> {
-
         let mut matches = Vec::new();
-        
+
         // Build handler-to-prefix mapping using Actix service registration query
         let reg_query_str = Rust::actix_service_registration_query();
-        
+
         let reg_query = match tree_sitter::Query::new(&self.0, &reg_query_str) {
             Ok(q) => q,
             Err(_e) => {
@@ -764,15 +785,14 @@ impl Stack for Rust {
         // Collect all (handler, file) -> prefix mappings from all files
         // Key is (handler_name, file_path) to avoid cross-framework collisions
         let mut handler_to_prefix: HashMap<(String, String), Vec<String>> = HashMap::new();
-        
+
         // Get unique files from groups
         let mut files_to_scan: std::collections::HashSet<String> = std::collections::HashSet::new();
         for group in groups {
             files_to_scan.insert(group.file.clone());
         }
-        
+
         for file in &files_to_scan {
-            
             // Read the full file
             let code = match std::fs::read_to_string(file) {
                 Ok(c) => c,
@@ -780,30 +800,31 @@ impl Stack for Rust {
                     continue;
                 }
             };
-            
+
             let tree = match self.parse(&code, &NodeType::Endpoint) {
-            Ok(t) => t,
-            Err(_e) => {
-                continue;
-            }
-        };            let mut cursor = QueryCursor::new();
+                Ok(t) => t,
+                Err(_e) => {
+                    continue;
+                }
+            };
+            let mut cursor = QueryCursor::new();
             let mut query_matches = cursor.matches(&reg_query, tree.root_node(), code.as_bytes());
-            
+
             while let Some(m) = query_matches.next() {
                 let mut handler = None;
                 let mut service_node = None;
-                
+
                 for capture in m.captures {
                     let capture_name = &reg_query.capture_names()[capture.index as usize];
                     let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
-                    
+
                     if capture_name == &HANDLER_REF {
                         handler = Some(text.to_string());
                     } else if capture_name == &"service_call" {
                         service_node = Some(capture.node);
                     }
                 }
-                
+
                 // Walk up AST to find web::scope() call
                 if let (Some(h), Some(node)) = (handler, service_node) {
                     if let Some(prefix) = Self::find_scope_prefix(node, &code) {
@@ -814,7 +835,7 @@ impl Stack for Rust {
                 }
             }
         }
-        
+
         // Match endpoints by handler name AND file path (Actix)
         for endpoint in endpoints {
             if let Some(handler_name) = endpoint.meta.get("handler") {
@@ -826,7 +847,7 @@ impl Stack for Rust {
                 }
             }
         }
-        
+
         // Axum: scan for .nest() patterns
         let nest_query_str = r#"
             (call_expression
@@ -836,68 +857,92 @@ impl Stack for Rust {
                 arguments: (arguments) @nest_args
             ) @nest_call
         "#;
-        
+
         let nest_query = match tree_sitter::Query::new(&self.0, nest_query_str) {
             Ok(q) => q,
             Err(_) => {
                 return matches;
             }
         };
-        
+
         let mut axum_handler_to_prefix: HashMap<(String, String), Vec<String>> = HashMap::new();
-        
+
         for file in &files_to_scan {
             let code = match std::fs::read_to_string(file) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            
+
             let tree = match self.parse(&code, &NodeType::Endpoint) {
                 Ok(t) => t,
                 Err(_) => continue,
             };
-            
+
             let mut cursor = QueryCursor::new();
             let mut query_matches = cursor.matches(&nest_query, tree.root_node(), code.as_bytes());
-            
+
             while let Some(m) = query_matches.next() {
                 let mut nest_node = None;
                 let mut is_nest = false;
-                
+
                 for capture in m.captures {
                     let capture_name = nest_query.capture_names()[capture.index as usize];
                     let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
-                    
+
                     if capture_name == "nest_method" && text == "nest" {
                         is_nest = true;
                     } else if capture_name == "nest_call" {
                         nest_node = Some(capture.node);
                     }
                 }
-                
+
                 if !is_nest {
                     continue;
                 }
-                
+
                 if let Some(node) = nest_node {
                     if let Some(prefix) = Self::find_nest_prefix(node, &code) {
                         if let Some(args) = node.child_by_field_name("arguments") {
                             for i in 0..args.child_count() {
                                 if let Some(child) = args.child(i) {
                                     if child.kind() == "call_expression" {
-                                        let router_text = child.utf8_text(code.as_bytes()).unwrap_or("");
-                                        
+                                        let router_text =
+                                            child.utf8_text(code.as_bytes()).unwrap_or("");
+
                                         if router_text.contains("Router::new()") {
-                                            Self::extract_axum_handlers(child, &code, &mut axum_handler_to_prefix, file, &prefix);
-                                        } else if let Some(func) = child.child_by_field_name("function") {
-                                            let func_text = func.utf8_text(code.as_bytes()).unwrap_or("");
-                                            
-                                            if let Some(resolved_source) = self.resolve_import_source(func_text, file, find_import_node) {
+                                            Self::extract_axum_handlers(
+                                                child,
+                                                &code,
+                                                &mut axum_handler_to_prefix,
+                                                file,
+                                                &prefix,
+                                            );
+                                        } else if let Some(func) =
+                                            child.child_by_field_name("function")
+                                        {
+                                            let func_text =
+                                                func.utf8_text(code.as_bytes()).unwrap_or("");
+
+                                            if let Some(resolved_source) = self
+                                                .resolve_import_source(
+                                                    func_text,
+                                                    file,
+                                                    find_import_node,
+                                                )
+                                            {
                                                 for endpoint in endpoints {
                                                     if endpoint.file.contains(&resolved_source) {
-                                                        if let Some(handler) = endpoint.meta.get("handler") {
-                                                            let key = (handler.clone(), endpoint.file.clone());
-                                                            axum_handler_to_prefix.entry(key).or_default().push(prefix.clone());
+                                                        if let Some(handler) =
+                                                            endpoint.meta.get("handler")
+                                                        {
+                                                            let key = (
+                                                                handler.clone(),
+                                                                endpoint.file.clone(),
+                                                            );
+                                                            axum_handler_to_prefix
+                                                                .entry(key)
+                                                                .or_default()
+                                                                .push(prefix.clone());
                                                         }
                                                     }
                                                 }
@@ -911,7 +956,7 @@ impl Stack for Rust {
                 }
             }
         }
-        
+
         for endpoint in endpoints {
             if let Some(handler_name) = endpoint.meta.get("handler") {
                 let key = (handler_name.clone(), endpoint.file.clone());
@@ -922,7 +967,7 @@ impl Stack for Rust {
                 }
             }
         }
-        
+
         let mount_query_str = r#"
             (call_expression
                 function: (field_expression
@@ -937,40 +982,40 @@ impl Stack for Rust {
                 )
             ) @mount_call
         "#;
-        
+
         let mount_query = match tree_sitter::Query::new(&self.0, mount_query_str) {
             Ok(q) => q,
             Err(_) => {
                 return matches;
             }
         };
-        
+
         let mut rocket_handler_to_prefix: HashMap<(String, String), Vec<String>> = HashMap::new();
-        
+
         for file in &files_to_scan {
             let code = match std::fs::read_to_string(file) {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            
+
             let tree = match self.parse(&code, &NodeType::Endpoint) {
                 Ok(t) => t,
                 Err(_) => continue,
             };
-            
+
             let mut cursor = QueryCursor::new();
             let mut query_matches = cursor.matches(&mount_query, tree.root_node(), code.as_bytes());
-            
+
             while let Some(m) = query_matches.next() {
                 let mut prefix = None;
                 let mut handlers_text = None;
                 let mut is_mount = false;
                 let mut is_routes_macro = false;
-                
+
                 for capture in m.captures {
                     let capture_name = mount_query.capture_names()[capture.index as usize];
                     let text = capture.node.utf8_text(code.as_bytes()).unwrap_or("");
-                    
+
                     if capture_name == "mount_method" && text == "mount" {
                         is_mount = true;
                     } else if capture_name == "macro_name" && text == "routes" {
@@ -981,32 +1026,35 @@ impl Stack for Rust {
                         handlers_text = Some(text.to_string());
                     }
                 }
-                
+
                 if !is_mount || !is_routes_macro {
                     continue;
                 }
-                
+
                 if let (Some(p), Some(token_text)) = (prefix, handlers_text) {
                     if p == "/" {
                         continue;
                     }
-                    
+
                     let handlers = Self::extract_rocket_handlers(&token_text);
-                    
+
                     for handler in &handlers {
                         for endpoint in endpoints {
                             if let Some(ep_handler) = endpoint.meta.get("handler") {
-                                if ep_handler == handler                                    && endpoint.file.contains("rocket") {
-                                        let key = (ep_handler.clone(), endpoint.file.clone());
-                                        rocket_handler_to_prefix.entry(key).or_default().push(p.clone());
-                                    }
+                                if ep_handler == handler && endpoint.file.contains("rocket") {
+                                    let key = (ep_handler.clone(), endpoint.file.clone());
+                                    rocket_handler_to_prefix
+                                        .entry(key)
+                                        .or_default()
+                                        .push(p.clone());
+                                }
                             }
                         }
                     }
                 }
             }
         }
-        
+
         for endpoint in endpoints {
             if let Some(handler_name) = endpoint.meta.get("handler") {
                 let key = (handler_name.clone(), endpoint.file.clone());
@@ -1017,7 +1065,7 @@ impl Stack for Rust {
                 }
             }
         }
-        
+
         // Also handle cross-file grouping via .configure() as before (Actix)
         for group in groups {
             let prefix = &group.name;

@@ -148,6 +148,15 @@ impl Stack for Go {
     fn comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment) @{FUNCTION_COMMENT}"#))
     }
+    fn class_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{CLASS_COMMENT}"#))
+    }
+    fn data_model_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{STRUCT_COMMENT}"#))
+    }
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{TRAIT_COMMENT}"#))
+    }
     fn function_call_query(&self) -> String {
         format!(
             "(call_expression
