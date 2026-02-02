@@ -72,8 +72,9 @@ export class Summarizer {
 
     const documentation = result.text;
 
-    // Save documentation to feature JSON
+    // Save documentation and usage to feature
     feature.documentation = documentation;
+    feature.usage = result.usage;
     await this.storage.saveFeature(feature);
 
     // Save documentation as markdown file

@@ -491,6 +491,47 @@ export class FileSystemStore extends Storage {
     }
   }
 
+  // Total Usage - cumulative token usage across all processing runs
+  async getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }> {
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      const metadata = JSON.parse(content);
+      const key = this.getRepoMetadataKey(repo, "totalUsage");
+      const usage = metadata[key] || metadata.totalUsage;
+      if (usage) {
+        return {
+          inputTokens: usage.inputTokens || 0,
+          outputTokens: usage.outputTokens || 0,
+          totalTokens: usage.totalTokens || 0,
+        };
+      }
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    } catch {
+      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    }
+  }
+
+  async addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void> {
+    let metadata: any = {};
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      metadata = JSON.parse(content);
+    } catch {
+      // File doesn't exist yet
+    }
+
+    const key = this.getRepoMetadataKey(repo, "totalUsage");
+    const current = metadata[key] || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    
+    metadata[key] = {
+      inputTokens: (current.inputTokens || 0) + usage.inputTokens,
+      outputTokens: (current.outputTokens || 0) + usage.outputTokens,
+      totalTokens: (current.totalTokens || 0) + usage.totalTokens,
+    };
+    
+    await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
+  }
+
   // Documentation
   async saveDocumentation(
     featureId: string,

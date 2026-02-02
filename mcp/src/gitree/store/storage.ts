@@ -60,6 +60,10 @@ export abstract class Storage {
   abstract addThemes(repo: string, themes: string[]): Promise<void>;
   abstract getRecentThemes(repo: string): Promise<string[]>;
 
+  // Total Usage - cumulative token usage across all processing runs, per-repo
+  abstract getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }>;
+  abstract addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void>;
+
   // Documentation
   abstract saveDocumentation(featureId: string, documentation: string): Promise<void>;
 

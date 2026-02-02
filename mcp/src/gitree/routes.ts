@@ -220,10 +220,18 @@ export async function gitree_process(req: Request, res: Response) {
             (summarizeUsage?.totalTokens || 0),
         };
 
+        // Add this run's usage to the cumulative total in metadata
+        const repoId = `${owner}/${repo}`;
+        await storage.addToTotalUsage(repoId, totalUsage);
+        
+        // Get the new cumulative total
+        const cumulativeUsage = await storage.getTotalUsage(repoId);
+
         const result: any = {
           status: "success",
           message: messageParts.join(", "),
           usage: totalUsage,
+          cumulativeUsage: cumulativeUsage,
         };
 
         if (linkResult) {
