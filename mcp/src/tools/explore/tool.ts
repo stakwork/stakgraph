@@ -45,12 +45,6 @@ export interface GeneralContextResult {
   features: string[];
 }
 
-interface ToolConfig {
-  name: string;
-  description?: string;
-  tokenLimit?: number;
-}
-
 export async function get_context_explore(
   prompt: string | ModelMessage[],
   re_explore: boolean = false,

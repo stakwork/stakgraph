@@ -7,10 +7,8 @@ import {
   jsonSchema,
 } from "ai";
 import {
-  getModel,
-  getApiKeyForProvider,
-  Provider,
   ModelName,
+  getModelDetails,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
@@ -104,6 +102,7 @@ async function structureFinalAnswer(
 
 export interface GetContextOptions {
   modelName?: ModelName;
+  apiKey?: string;
   pat?: string | undefined;
   toolsConfig?: ToolsConfig;
   systemOverride?: string;
@@ -130,14 +129,10 @@ export async function get_context(
     sessionId: inputSessionId,
     sessionConfig,
     mcpServers,
+    apiKey: apiKeyIn,
   } = opts;
   const startTime = Date.now();
-  const provider = process.env.LLM_PROVIDER || "anthropic";
-  const apiKey = getApiKeyForProvider(provider);
-  const model = await getModel(provider as Provider, {
-    modelName,
-    apiKey,
-  });
+  const { model, apiKey } = getModelDetails(modelName, apiKeyIn);
   console.log("===> model", model);
 
   // Session handling: if sessionId provided, use existing or create new with that ID

@@ -638,6 +638,11 @@
   dependencies:
     "@octokit/openapi-types" "^27.0.0"
 
+"@openrouter/ai-sdk-provider@^2.1.1":
+  version "2.1.1"
+  resolved "https://registry.npmjs.org/@openrouter/ai-sdk-provider/-/ai-sdk-provider-2.1.1.tgz"
+  integrity sha512-UypPbVnSExxmG/4Zg0usRiit3auvQVrjUXSyEhm0sZ9GQnW/d8p/bKgCk2neh1W5YyRSo7PNQvCrAEBHZnqQkQ==
+
 "@opentelemetry/api@1.9.0":
   version "1.9.0"
   resolved "https://registry.npmjs.org/@opentelemetry/api/-/api-1.9.0.tgz"
@@ -944,7 +949,7 @@ ai@^4.3.9:
     "@opentelemetry/api" "1.9.0"
     jsondiffpatch "0.6.0"
 
-ai@6.0.0-beta.124:
+ai@^6.0.0, ai@6.0.0-beta.124:
   version "6.0.0-beta.124"
   resolved "https://registry.npmjs.org/ai/-/ai-6.0.0-beta.124.tgz"
   integrity sha512-Apl4uNZLzc4sAUtu4W77DpM9o+bJJB46A/ayVLDck3MBv+rw4/qGBY9H6/gY9Xpc/CeVogyyEr1DxBMv47olCw==
@@ -4185,7 +4190,7 @@ zod-to-json-schema@^3.23.5, zod-to-json-schema@^3.24.1, zod-to-json-schema@^3.25
   resolved "https://registry.npmjs.org/zod-to-json-schema/-/zod-to-json-schema-3.25.0.tgz"
   integrity sha512-HvWtU2UG41LALjajJrML6uQejQhNJx+JBO9IflpSja4R03iNWfKXrj6W2h7ljuLyc1nKS+9yDyL/9tD1U/yBnQ==
 
-zod@^3.0.0, zod@^3.23.8, "zod@^3.25 || ^4", "zod@^3.25.76 || ^4.1.8", "zod@>=3.25.0 <3.25.68", zod@4.1.12:
+zod@^3.0.0, zod@^3.23.8, "zod@^3.25 || ^4", "zod@^3.25.0 || ^4.0.0", "zod@^3.25.76 || ^4.1.8", "zod@>=3.25.0 <3.25.68", zod@4.1.12:
   version "4.1.12"
   resolved "https://registry.npmjs.org/zod/-/zod-4.1.12.tgz"
   integrity sha512-JInaHOamG8pt5+Ey8kGmdcAcg3OL9reK8ltczgHTAwNhMys/6ThXHityHxVV2p3fkw/c+MAvBHFVYHFZDmjMCQ==
