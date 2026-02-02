@@ -845,10 +845,6 @@ impl Lang {
             res.0.extend_from_slice(&calls);
         }
     }
-
-    pub fn lang(&self) -> &dyn Stack {
-        self.lang.as_ref()
-    }
 }
 
 impl Lang {
