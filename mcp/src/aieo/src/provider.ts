@@ -6,17 +6,19 @@ import {
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
+import { createOpenRouter, OpenRouterProviderOptions } from "@openrouter/ai-sdk-provider";
 
-export type Provider = "anthropic" | "google" | "openai" | "claude_code";
+export type Provider = "anthropic" | "google" | "openai" | "claude_code" | "openrouter";
 
 export const PROVIDERS: Provider[] = [
   "anthropic",
   "google",
   "openai",
+  "openrouter",
   "claude_code",
 ];
 
-export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt";
+export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi";
 
 type ModelId = string;
 
@@ -35,6 +37,9 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   claude_code: {
     sonnet: "sonnet",
   },
+  openrouter: {
+    kimi: "moonshotai/kimi-k2.5"
+  }
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
@@ -42,6 +47,7 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   google: MODELS.google.gemini!,
   openai: MODELS.openai.gpt!,
   claude_code: MODELS.claude_code.sonnet!,
+  openrouter: MODELS.openrouter.kimi!,
 };
 
 export interface TokenPricing {
@@ -123,6 +129,11 @@ export function getModel(
         apiKey,
       });
       return openai(modelId);
+    case "openrouter":
+      const openrouter = createOpenRouter({
+        apiKey,
+      });
+      return openrouter(modelId);
     // case "claude_code":
     //   try {
     //     const customProvider = createClaudeCode({
@@ -166,6 +177,10 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
     inputTokenPrice: 3.0,
     outputTokenPrice: 15.0,
   },
+  openrouter: {
+    inputTokenPrice: 0.6,
+    outputTokenPrice: 3.0,
+  },
 };
 
 export function getTokenPricing(provider: Provider): TokenPricing {
@@ -199,6 +214,10 @@ export function getProviderOptions(
     case "openai":
       return {
         openai: {} satisfies OpenAIResponsesProviderOptions,
+      };
+    case "openrouter":
+      return {
+        openrouter: {} satisfies OpenRouterProviderOptions,
       };
     case "claude_code":
       return;

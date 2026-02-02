@@ -1,6 +1,6 @@
 {
   "name": "aieo",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "main": "./dist/index.js",
   "type": "module",
   "module": "./dist/index.mjs",
@@ -15,7 +15,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "try": "ts-node ./src/test/try.ts",
     "try-cc": "ts-node ./src/test/try-cc.ts",
-    "try-anthropic": "ts-node ./src/test/try-anthropic.ts"
+    "try-anthropic": "ts-node ./src/test/try-anthropic.ts",
+    "try-kimi": "ts-node ./src/test/try-kimi.ts"
   },
   "keywords": [
     "llm",
@@ -28,6 +29,7 @@
     "@ai-sdk/anthropic": "3.0.0-beta.66",
     "@ai-sdk/google": "3.0.0-beta.62",
     "@ai-sdk/openai": "3.0.0-beta.74",
+    "@openrouter/ai-sdk-provider": "^2.1.1",
     "ai": "6.0.0-beta.124",
     "zod": "4.1.12"
   },
