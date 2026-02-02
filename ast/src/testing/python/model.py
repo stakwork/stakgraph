@@ -46,6 +46,7 @@ class PersonResponse(BaseModel):
 
 
 class Animal(ABC):
+    """Abstract base class for animals"""
 
     @abstractmethod
     def make_sound(self) -> str:

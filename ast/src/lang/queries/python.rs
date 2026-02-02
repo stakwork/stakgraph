@@ -398,9 +398,18 @@ impl Stack for Python {
                 superclasses: (argument_list
                     (identifier) @parent (#eq? @parent "ABC")
                 )
+                body: (block
+                    (expression_statement
+                        (string) @{TRAIT_COMMENT}
+                    )?
+                )
             )@{TRAIT}
             "#
         ))
+    }
+
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{TRAIT_COMMENT}"#))
     }
 
     fn implements_query(&self) -> Option<String> {

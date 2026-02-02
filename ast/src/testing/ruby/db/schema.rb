@@ -20,6 +20,7 @@ ActiveRecord::Schema[8.0].define(version: 2025_04_07_222218) do
     t.index ["person_id"], name: "index_articles_on_person_id"
   end
 
+  # Table for people
   create_table "people", force: :cascade do |t|
     t.string "name"
     t.string "email"

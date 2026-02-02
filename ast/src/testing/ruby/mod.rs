@@ -639,6 +639,11 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         .iter()
         .find(|dm| dm.name == "people" && dm.file.ends_with("db/schema.rb"))
         .expect("people DataModel not found");
+    assert_eq!(
+        people_table.docs,
+        Some("Table for people".to_string()),
+        "people table should have docs"
+    );
     assert!(
         people_table.body.contains("t.string \"name\""),
         "people table should have name column"

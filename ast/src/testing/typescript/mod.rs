@@ -281,6 +281,12 @@ import {{ sequelize }} from "./config.js";"#
         })
         .expect("PersonService trait not found");
 
+    assert_eq!(
+        person_service_trait.docs,
+        Some("Interface for Person Service".to_string()),
+        "PersonService trait should have docs"
+    );
+
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
     assert_eq!(variables.len(), 6, "Expected 6 variables");
@@ -366,6 +372,12 @@ import {{ sequelize }} from "./config.js";"#
         .find(|c| c.name == "SequelizePersonService")
         .map(|n| Node::new(NodeType::Class, n.clone()))
         .expect("SequelizePersonService class not found");
+
+    assert_eq!(
+        sequelize_service.node_data.docs,
+        Some("Service for managing people using Sequelize".to_string()),
+        "SequelizePersonService class should have docs"
+    );
     let typeorm_service = classes
         .iter()
         .find(|c| c.name == "TypeOrmPersonService")
@@ -702,6 +714,21 @@ import {{ sequelize }} from "./config.js";"#
                 m.name == model_name && normalize_path(&m.file).ends_with("types-and-imports.ts")
             })
             .expect(&format!("DataModel {} not found", model_name));
+
+        if model_name == "UserDTO" {
+            let model = data_models
+                .iter()
+                .find(|m| {
+                    m.name == model_name
+                        && normalize_path(&m.file).ends_with("types-and-imports.ts")
+                })
+                .unwrap();
+            assert_eq!(
+                model.docs,
+                Some("Data Transfer Object for User".to_string()),
+                "UserDTO should have docs"
+            );
+        }
     }
 
     // Check Traits (Interfaces/Types with methods)

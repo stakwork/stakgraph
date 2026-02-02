@@ -290,6 +290,17 @@ impl Stack for Rust {
         ))
     }
 
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{TRAIT_COMMENT}
+        "#
+        ))
+    }
+
     fn class_definition_query(&self) -> String {
         format!(
             r#"
