@@ -90,6 +90,11 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
         .map(|n| Node::new(NodeType::Trait, n.clone()))
         .expect("Trait 'Greet' not found in traits.rs");
 
+    assert_eq!(
+        trait_node.node_data.docs,
+        Some("Greet trait documentation".to_string())
+    );
+
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
 

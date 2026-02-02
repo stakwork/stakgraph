@@ -1064,6 +1064,10 @@ impl Stack for TypeScriptReact {
         ))
     }
 
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{TRAIT_COMMENT}"#))
+    }
+
     // FROM TYPESCRIPT: implements_query
     fn implements_query(&self) -> Option<String> {
         Some(format!(

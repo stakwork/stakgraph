@@ -142,6 +142,9 @@ impl Stack for Ruby {
         "#
         ))
     }
+    fn data_model_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{STRUCT_COMMENT}"#))
+    }
     fn function_call_query(&self) -> String {
         format!(
             "(call

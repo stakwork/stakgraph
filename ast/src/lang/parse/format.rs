@@ -248,6 +248,7 @@ impl Lang {
         q: &Query,
     ) -> Result<NodeData> {
         let mut tr = NodeData::in_file(file);
+        let mut comments = Vec::new();
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == TRAIT_NAME {
                 tr.name = body;
@@ -255,9 +256,14 @@ impl Lang {
                 tr.body = body;
                 tr.start = node.start_position().row;
                 tr.end = node.end_position().row;
+            } else if o == TRAIT_COMMENT {
+                comments.push(body);
             }
             Ok(())
         })?;
+        if !comments.is_empty() {
+            tr.docs = Some(self.clean_and_combine_comments(&comments));
+        }
         Ok(tr)
     }
     pub fn format_instance(
@@ -1367,7 +1373,10 @@ impl Lang {
                 } else if let Some(stripped) = trimmed.strip_prefix("#") {
                     stripped.trim().to_string()
                 } else if let Some(stripped) = trimmed.strip_prefix("/*") {
-                    let without_start = stripped.trim();
+                    let mut without_start = stripped.trim();
+                    if without_start.starts_with('*') {
+                        without_start = without_start[1..].trim();
+                    }
                     if let Some(without_end) = without_start.strip_suffix("*/") {
                         without_end.trim().to_string()
                     } else {

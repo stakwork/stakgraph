@@ -156,6 +156,12 @@ from flask_app.routes import flask_bp"#
 
     let trait_nodes = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += trait_nodes.len();
+    let trait_node = trait_nodes.first().expect("Trait node not found");
+    assert_eq!(trait_node.name, "Animal");
+    assert_eq!(
+        trait_node.docs,
+        Some("Abstract base class for animals".to_string())
+    );
     assert_eq!(trait_nodes.len(), 1, "Expected 1 traits");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
