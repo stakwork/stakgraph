@@ -290,6 +290,17 @@ impl Stack for Rust {
         ))
     }
 
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{TRAIT_COMMENT}
+        "#
+        ))
+    }
+
     fn class_definition_query(&self) -> String {
         format!(
             r#"
@@ -388,6 +399,26 @@ impl Stack for Rust {
               (line_comment)+
               (block_comment)+
             ] @{STRUCT_COMMENT}
+        "#
+        ))
+    }
+    fn endpoint_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{ENDPOINT_COMMENT}
+        "#
+        ))
+    }
+    fn var_comment_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            [
+              (line_comment)+
+              (block_comment)+
+            ] @{VAR_COMMENT}
         "#
         ))
     }

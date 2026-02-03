@@ -337,7 +337,10 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
         "Expected handler to call DB method"
     );
 
-    let db_var = &variables[0];
+    let db_var = variables
+        .iter()
+        .find(|v| v.name == "DB")
+        .expect("DB var not found");
     assert_eq!(db_var.name, "DB", "Variable name should be 'DB'");
     assert_eq!(
         db_var.file, "src/testing/go/db.go",
@@ -346,6 +349,17 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     assert!(
         db_var.body.contains("var DB database"),
         "DB variable should have correct declaration"
+    );
+    assert_eq!(
+        db_var.docs,
+        Some("DB is the object".to_string()),
+        "DB variable should have documentation"
+    );
+
+    assert_eq!(
+        post_endpoint.node_data.docs,
+        Some("Create a new person".to_string()),
+        "POST endpoint should have documentation"
     );
 
     let (nodes, edges) = graph.get_graph_size();

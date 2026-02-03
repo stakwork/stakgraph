@@ -128,6 +128,12 @@ impl Stack for Python {
     fn comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment)+ @{FUNCTION_COMMENT}"#))
     }
+    fn endpoint_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment)+ @{ENDPOINT_COMMENT}"#))
+    }
+    fn var_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment)+ @{VAR_COMMENT}"#))
+    }
     fn test_query(&self) -> Option<String> {
         Some(format!(
             r#"[
@@ -398,9 +404,18 @@ impl Stack for Python {
                 superclasses: (argument_list
                     (identifier) @parent (#eq? @parent "ABC")
                 )
+                body: (block
+                    (expression_statement
+                        (string) @{TRAIT_COMMENT}
+                    )?
+                )
             )@{TRAIT}
             "#
         ))
+    }
+
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{TRAIT_COMMENT}"#))
     }
 
     fn implements_query(&self) -> Option<String> {

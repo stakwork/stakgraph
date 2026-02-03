@@ -109,6 +109,12 @@ pub trait Stack {
     fn trait_comment_query(&self) -> Option<String> {
         self.comment_query()
     }
+    fn endpoint_comment_query(&self) -> Option<String> {
+        self.comment_query()
+    }
+    fn var_comment_query(&self) -> Option<String> {
+        self.comment_query()
+    }
     fn type_identifier_node_name(&self) -> String {
         "type_identifier".to_string()
     }

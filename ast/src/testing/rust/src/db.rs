@@ -19,6 +19,7 @@ pub struct Database {
     pool: Pool<Sqlite>,
 }
 
+// Database instance
 static DB_INSTANCE: OnceLock<Database> = OnceLock::new();
 
 #[inline]

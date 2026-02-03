@@ -156,6 +156,12 @@ from flask_app.routes import flask_bp"#
 
     let trait_nodes = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += trait_nodes.len();
+    let trait_node = trait_nodes.first().expect("Trait node not found");
+    assert_eq!(trait_node.name, "Animal");
+    assert_eq!(
+        trait_node.docs,
+        Some("Abstract base class for animals".to_string())
+    );
     assert_eq!(trait_nodes.len(), 1, "Expected 1 traits");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
@@ -763,6 +769,23 @@ from flask_app.routes import flask_bp"#
         .find(|n| n.file == "src/testing/python/django_app/settings.py")
         .map(|n| Node::new(NodeType::Var, n))
         .expect("DEBUG variable not found in Django settings.py");
+
+    assert_eq!(
+        secret_key_var.node_data.docs,
+        Some("SECURITY WARNING: keep the secret key used in production secret!".to_string()),
+        "SECRET_KEY should have documentation"
+    );
+
+    assert_eq!(
+        flask_post_endpoint.node_data.docs, None,
+        "Flask POST endpoint should not have documentation"
+    );
+
+    assert_eq!(
+        fastapi_post_endpoint.node_data.docs,
+        Some("Create new user endpoint".to_string()),
+        "FastAPI POST endpoint should have documentation"
+    );
 
     assert!(
         graph.has_edge(&django_settings_file, &secret_key_var, EdgeType::Contains),

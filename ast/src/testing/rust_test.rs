@@ -90,6 +90,11 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
         .map(|n| Node::new(NodeType::Trait, n.clone()))
         .expect("Trait 'Greet' not found in traits.rs");
 
+    assert_eq!(
+        trait_node.node_data.docs,
+        Some("Greet trait documentation".to_string())
+    );
+
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
 
@@ -117,6 +122,15 @@ use std::net::SocketAddr;"#
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
     assert_eq!(vars.len(), 2, "Expected 2 variables");
+    let db_instance_var = vars
+        .iter()
+        .find(|v| v.name == "DB_INSTANCE" && v.file.ends_with("src/testing/rust/src/db.rs"))
+        .expect("DB_INSTANCE var not found in db.rs");
+    assert_eq!(
+        db_instance_var.docs,
+        Some("Database instance".to_string()),
+        "DB_INSTANCE should have documentation"
+    );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -426,12 +440,22 @@ use std::net::SocketAddr;"#
         .find(|e| e.name == "/api/person/{id}" && e.file.ends_with("src/routes/actix_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("GET /api/person/{id} endpoint not found in actix_routes.rs");
+    assert_eq!(
+        get_person_endpoint.node_data.docs,
+        Some("Get person endpoint".to_string()),
+        "GET /api/person/id should have documentation"
+    );
 
     let post_person_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/api/person" && e.file.ends_with("src/routes/actix_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("POST /api/person endpoint not found in actix_routes.rs");
+    assert_eq!(
+        post_person_endpoint.node_data.docs,
+        Some("Create person endpoint".to_string()),
+        "POST /api/person should have documentation"
+    );
 
     assert!(
         graph.has_edge(&get_person_endpoint, &get_person_fn, EdgeType::Handler),

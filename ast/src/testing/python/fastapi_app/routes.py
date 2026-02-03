@@ -25,6 +25,7 @@ async def get_person(id: int, db: Session = Depends(get_db)):
     )
 
 
+# Create new user endpoint
 @router.post("/person/", response_model=PersonResponse)
 async def create_person(person: CreateOrEditPerson, db: Session = Depends(get_db)):
     """

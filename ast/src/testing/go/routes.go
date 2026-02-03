@@ -20,6 +20,7 @@ func NewRouter() *http.Server {
 
 	r.Group(func(r chi.Router) {
 		r.Get("/person/{id}", GetPerson)
+		// Create a new person
 		r.Post("/person", CreatePerson)
 		r.Get("/leaderboard", GetLeaderboard)
         bh := &bountyHandler{db: &bountyDB{}}

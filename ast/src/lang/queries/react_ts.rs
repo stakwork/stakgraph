@@ -165,7 +165,7 @@ impl Stack for TypeScriptReact {
 
     // FROM REACT (identical in both): variables_query
     fn variables_query(&self) -> Option<String> {
-        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
+        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)(member_expression)(identifier)";
         Some(format!(
             r#"(program
                     (export_statement
@@ -459,6 +459,12 @@ impl Stack for TypeScriptReact {
     }
     fn data_model_comment_query(&self) -> Option<String> {
         Some(format!(r#"(comment) @{STRUCT_COMMENT}"#))
+    }
+    fn endpoint_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{ENDPOINT_COMMENT}"#))
+    }
+    fn var_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{VAR_COMMENT}"#))
     }
 
     // MERGED: data_model_query (React has slightly different ordering but same patterns)
@@ -1062,6 +1068,10 @@ impl Stack for TypeScriptReact {
             ]@{TRAIT}
             "#
         ))
+    }
+
+    fn trait_comment_query(&self) -> Option<String> {
+        Some(format!(r#"(comment) @{TRAIT_COMMENT}"#))
     }
 
     // FROM TYPESCRIPT: implements_query

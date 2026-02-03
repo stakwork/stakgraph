@@ -1,3 +1,6 @@
+# Max people limit
+MAX_PEOPLE = 100
+
 class PeopleController < ApplicationController
   # Retrieves a person by ID
   def get_person

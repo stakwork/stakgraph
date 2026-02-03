@@ -4,6 +4,7 @@ Rails.application.routes.draw do
   namespace :api do
     namespace :v1 do
       resources :tokens, only: [:create, :destroy]
+      # Check API status
       get 'status', to: 'health#status'
     end
   end

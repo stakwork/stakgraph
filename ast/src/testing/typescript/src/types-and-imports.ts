@@ -8,6 +8,7 @@ import "./config";
 // 1. Type Aliases
 export type ID = string | number;
 
+/** Data Transfer Object for User */
 export type UserDTO = {
   id: ID;
   username: string;

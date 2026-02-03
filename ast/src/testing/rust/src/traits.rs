@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+/// Greet trait documentation
 pub trait Greet {
     fn greet(&self) -> String;
 }
@@ -23,7 +24,7 @@ impl Greet for Greeter {
 
 pub trait Container {
     type Item;
-    
+
     fn get(&self) -> Option<&Self::Item>;
     fn set(&mut self, item: Self::Item);
 }
@@ -40,7 +41,7 @@ pub trait Logger {
     fn log(&self, msg: &str) {
         println!("[LOG] {}", msg);
     }
-    
+
     fn error(&self, msg: &str) {
         println!("[ERROR] {}", msg);
     }
@@ -52,11 +53,11 @@ pub struct StringContainer {
 
 impl Container for StringContainer {
     type Item = String;
-    
+
     fn get(&self) -> Option<&Self::Item> {
         self.value.as_ref()
     }
-    
+
     fn set(&mut self, item: Self::Item) {
         self.value = Some(item);
     }
@@ -68,7 +69,7 @@ impl<T: Clone + Send> Processor<T> for SimpleProcessor {
     fn process(&self, item: T) -> T {
         item.clone()
     }
-    
+
     fn batch_process(&self, items: Vec<T>) -> Vec<T> {
         items.into_iter().map(|i| self.process(i)).collect()
     }
@@ -106,7 +107,7 @@ mod tests {
     fn test_string_container_set_and_get() {
         let mut container = StringContainer { value: None };
         container.set("hello".to_string());
-        
+
         let value = container.get();
         assert!(value.is_some());
         assert_eq!(value.unwrap(), "hello");
@@ -114,9 +115,11 @@ mod tests {
 
     #[test]
     fn test_string_container_overwrite() {
-        let mut container = StringContainer { value: Some("first".to_string()) };
+        let mut container = StringContainer {
+            value: Some("first".to_string()),
+        };
         container.set("second".to_string());
-        
+
         let value = container.get();
         assert_eq!(value.unwrap(), "second");
     }

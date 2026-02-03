@@ -5,7 +5,7 @@ function deprecated(message: string) {
   return function (
     target: any,
     propertyKey: string,
-    descriptor: PropertyDescriptor
+    descriptor: PropertyDescriptor,
   ) {
     console.warn(`${propertyKey} is deprecated: ${message}`);
   };
@@ -27,6 +27,7 @@ export interface PersonData {
 
 type IdType = number | string;
 
+/** Interface for Person Service */
 export interface PersonService {
   getById(id: IdType): Promise<PersonData | null>;
   create(personData: PersonData): Promise<PersonData>;
@@ -43,6 +44,7 @@ export async function newPerson(personData: PersonData): Promise<PersonData> {
   const person = await SequelizePerson.create(personData);
   return person.toJSON() as PersonData;
 }
+/** Service for managing people using Sequelize */
 export class SequelizePersonService implements PersonService {
   @log
   async getById(id: IdType): Promise<PersonData | null> {
