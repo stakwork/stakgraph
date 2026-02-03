@@ -6,7 +6,7 @@ import {
   fulltextSearch,
   executeBashCommand,
 } from "./bash.js";
-import { getProviderTool } from "../aieo/src/index.js";
+import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 
 type ToolName =
@@ -108,13 +108,14 @@ export function get_tools(
   repoPath: string,
   apiKey: string,
   pat: string | undefined,
-  toolsConfig?: ToolsConfig
+  toolsConfig?: ToolsConfig,
+  provider?: Provider
 ) {
   const repoArr = repoPath.split("/");
   const repoOwner = repoArr[repoArr.length - 2];
   const repoName = repoArr[repoArr.length - 1];
-  const web_search_tool = getProviderTool("anthropic", apiKey, "webSearch");
-  const bash_tool = getProviderTool("anthropic", apiKey, "bash");
+  const web_search_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "webSearch") : undefined
+  const bash_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "bash") : undefined
 
   console.log("===> web_search_tool type:", web_search_tool?.type);
   console.log(

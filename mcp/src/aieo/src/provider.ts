@@ -55,6 +55,28 @@ export interface TokenPricing {
   outputTokenPrice: number;
 }
 
+export function getProviderForModel(modelName?: ModelName): Provider {
+  switch (modelName) {
+    case "kimi":
+      return "openrouter";
+    case "sonnet":
+      return "anthropic";
+    case "opus":
+      return "anthropic";
+    case "haiku":
+      return "anthropic";
+    case "gemini":
+      return "google";
+    case "gpt":
+      return "openai";
+    default:
+      if (process.env.LLM_PROVIDER && PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)) {
+        return process.env.LLM_PROVIDER as Provider;
+      }
+      return "anthropic";
+  }
+}
+
 export function getApiKeyForProvider(provider: Provider | string): string {
   let apiKey: string | undefined;
   switch (provider) {
@@ -66,6 +88,9 @@ export function getApiKeyForProvider(provider: Provider | string): string {
       break;
     case "openai":
       apiKey = process.env.OPENAI_API_KEY;
+      break;
+    case "openrouter":
+      apiKey = process.env.OPENROUTER_API_KEY;
       break;
     case "claude_code":
       apiKey = process.env.CLAUDE_CODE_API_KEY;
@@ -94,6 +119,21 @@ function getModelForProvider(provider: Provider, modelName: ModelName): string {
     );
   }
   return model;
+}
+
+interface ModelDetails {
+  provider: Provider,
+  apiKey: string,
+  model: LanguageModel
+}
+export function getModelDetails(modelName?: ModelName, apiKeyIn?: string): ModelDetails {
+  const provider = getProviderForModel(modelName);
+  const apiKey = apiKeyIn || getApiKeyForProvider(provider);
+  const model = getModel(provider, {
+    modelName,
+    apiKey,
+  });
+  return {model, provider, apiKey}
 }
 
 export function getModel(
