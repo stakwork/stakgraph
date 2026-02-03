@@ -4,12 +4,14 @@ use lsp::git::validate_git_credentials;
 use reqwest::Client;
 use std::sync::Arc;
 use tracing::info;
+use uuid::Uuid;
 
+use crate::busy::BusyGuard;
 use crate::types::{
     AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebError,
     WebhookPayload,
 };
-use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo};
+use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo};
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 
 use crate::service::graph_service::{ingest, sync};
@@ -19,7 +21,7 @@ pub async fn sync_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> impl IntoResponse {
-    let (_, repo_url, username, pat, _, _branch) = match resolve_repo(&body) {
+    let (_repo_paths, repo_urls, username, pat, _, _branch) = match resolve_repo(&body) {
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
@@ -29,6 +31,16 @@ pub async fn sync_async(
         }
     };
 
+    // Enforce single-repo constraint for sync
+    if repo_urls.len() > 1 {
+        return Json(serde_json::json!({
+            "error": "sync_async only supports a single repository. Use ingest_async for multiple repositories."
+        }))
+        .into_response();
+    }
+
+    let repo_url = repo_urls[0].clone();
+
     if let Err(e) = validate_git_credentials(&repo_url, username.clone(), pat.clone()).await {
         return Json(serde_json::json!({
             "error": format!("Git authentication failed: {:?}", e)
@@ -37,7 +49,7 @@ pub async fn sync_async(
     }
 
     // Try to acquire the busy lock before creating request_id
-    let guard = match crate::busy::BusyGuard::try_new(state.clone()) {
+    let guard = match BusyGuard::try_new(state.clone()) {
         Some(g) => g,
         None => {
             return Json(serde_json::json!({
@@ -47,7 +59,7 @@ pub async fn sync_async(
         }
     };
 
-    let request_id = uuid::Uuid::new_v4().to_string();
+    let request_id = Uuid::new_v4().to_string();
     let status_map = state.async_status.clone();
     let mut rx = state.tx.subscribe();
 
@@ -126,6 +138,8 @@ pub async fn sync_async(
     );
 
     let state_for_process = state.clone();
+    let docs_param = body_clone.docs.clone();
+    let mocks_param = body_clone.mocks.clone();
 
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
@@ -155,9 +169,12 @@ pub async fn sync_async(
                 };
                 map.insert(request_id_for_work.clone(), entry);
 
-                // Call mocks discovery in sync mode after process completes
-                call_mcp_docs(&repo_url, true).await;
-                call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
+                if should_call_mcp_for_repo(&docs_param, &repo_url) {
+                    call_mcp_docs(&repo_url, true).await;
+                }
+                if should_call_mcp_for_repo(&mocks_param, &repo_url) {
+                    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
+                }
 
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {
@@ -236,7 +253,7 @@ pub async fn ingest_async(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> impl IntoResponse {
-    let (_, repo_url, username, pat, _, _branch) = match resolve_repo(&body) {
+    let (_repo_paths, repo_urls, username, pat, _, _branch) = match resolve_repo(&body) {
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
@@ -246,7 +263,9 @@ pub async fn ingest_async(
         }
     };
 
-    if let Err(e) = validate_git_credentials(&repo_url, username.clone(), pat.clone()).await {
+    if let Err(e) =
+        lsp::git::validate_git_credentials_multi(&repo_urls, username.clone(), pat.clone()).await
+    {
         return Json(serde_json::json!({
             "error": format!("Git authentication failed: {:?}", e)
         }))

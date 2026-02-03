@@ -106,11 +106,45 @@ fn env_not_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+pub fn extract_repo_name(url: &str) -> Result<String> {
+    let gurl = git_url_parse::GitUrl::parse(url)?;
+    Ok(gurl.name)
+}
+
+pub fn should_call_mcp_for_repo(param_value: &Option<String>, repo_url: &str) -> bool {
+    match param_value {
+        None => false,
+        Some(value) => {
+            if value.eq_ignore_ascii_case("true") {
+                return true;
+            }
+
+            let repo_name = match extract_repo_name(repo_url) {
+                Ok(name) => name,
+                Err(_) => return false,
+            };
+
+            value
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .any(|pattern| repo_name.ends_with(pattern))
+        }
+    }
+}
+
+fn parse_repo_urls(urls: &str) -> Vec<String> {
+    urls.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 pub fn resolve_repo(
     body: &ProcessBody,
 ) -> Result<(
-    String,
-    String,
+    Vec<String>,
+    Vec<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -134,16 +168,29 @@ pub fn resolve_repo(
 
     if let Some(path) = repo_path {
         Ok((
-            path,
-            repo_url.unwrap_or_default(),
+            vec![path.clone()],
+            vec![repo_url.unwrap_or_default()],
             username,
             pat,
             commit,
             branch,
         ))
     } else {
-        let url = repo_url.unwrap();
-        let tmp_path = Repo::get_path_from_url(&url)?;
-        Ok((tmp_path, url, username, pat, commit, branch))
+        let url_string = repo_url.unwrap();
+        let urls = parse_repo_urls(&url_string);
+
+        if urls.is_empty() {
+            return Err(shared::Error::Custom(
+                "REPO_URL is empty after parsing".into(),
+            ));
+        }
+
+        let mut paths = Vec::new();
+        for url in &urls {
+            let tmp_path = Repo::get_path_from_url(url)?;
+            paths.push(tmp_path);
+        }
+
+        Ok((paths, urls, username, pat, commit, branch))
     }
 }

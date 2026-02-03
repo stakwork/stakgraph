@@ -4568,6 +4568,7 @@ dependencies = [
  "base64 0.21.7",
  "chrono",
  "futures",
+ "git-url-parse",
  "hex",
  "hmac",
  "lsp",
