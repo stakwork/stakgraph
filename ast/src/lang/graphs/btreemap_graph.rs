@@ -4,7 +4,7 @@ use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::Serialize;
 use shared::error::Result;
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, Default)]
 pub struct BTreeMapGraph {
@@ -673,6 +673,54 @@ impl Graph for BTreeMapGraph {
         for key in &nodes_to_remove {
             self.nodes.remove(key);
             self.edges.retain(|(src, dst, _)| src != key && dst != key);
+        }
+    }
+
+    fn remove_node(&mut self, node_type: NodeType, node_data: &NodeData) {
+        let node = Node::new(node_type, node_data.clone());
+        let node_key = create_node_key(&node);
+
+        self.nodes.remove(&node_key);
+
+        self.edges
+            .retain(|(src, dst, _)| src != &node_key && dst != &node_key);
+    }
+
+    fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, _operation: &str) {
+        let remove_prefix = format!("{:?}-", remove_type).to_lowercase();
+        let nodes_to_check: Vec<NodeData> = self
+            .nodes
+            .range(remove_prefix.clone()..)
+            .take_while(|(k, _)| k.starts_with(&remove_prefix))
+            .map(|(_, node)| node.node_data.clone())
+            .collect();
+
+        let keep_prefix = format!("{:?}-", keep_type).to_lowercase();
+        let mut keep_nodes_map: HashMap<(String, String), String> = HashMap::new();
+        for (k, node) in self
+            .nodes
+            .range(keep_prefix.clone()..)
+            .take_while(|(k, _)| k.starts_with(&keep_prefix))
+        {
+            let key = (node.node_data.name.clone(), node.node_data.file.clone());
+            keep_nodes_map.insert(key, k.clone());
+        }
+
+        let mut keys_with_methods: HashSet<String> = HashSet::new();
+        for (src, _, edge_type) in &self.edges {
+            if edge_type == &EdgeType::Operand {
+                keys_with_methods.insert(src.clone());
+            }
+        }
+
+        for remove_node in nodes_to_check {
+            let lookup_key = (remove_node.name.clone(), remove_node.file.clone());
+
+            if let Some(keep_key) = keep_nodes_map.get(&lookup_key) {
+                if keys_with_methods.contains(keep_key) {
+                    self.remove_node(remove_type.clone(), &remove_node);
+                }
+            }
         }
     }
 

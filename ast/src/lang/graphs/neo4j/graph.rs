@@ -10,7 +10,11 @@ use lsp::Language;
 use neo4rs::{query, BoltMap, Graph as Neo4jConnection};
 use shared::{Context, Error, Result};
 use std::str::FromStr;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+    time::Duration,
+};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -625,6 +629,57 @@ impl Neo4jGraph {
         txn_manager.execute().await
     }
 
+    pub async fn remove_node_async(&self, node_type: NodeType, node_data: NodeData) -> Result<()> {
+        let connection = self.ensure_connected().await?;
+        let mut txn_manager = TransactionManager::new(&connection);
+
+        let (query, params) = remove_node_query(node_type, &node_data);
+        txn_manager.add_query((query, params));
+
+        txn_manager.execute().await
+    }
+
+    pub async fn deduplicate_nodes_async(
+        &self,
+        remove_type: NodeType,
+        keep_type: NodeType,
+        _operation: &str,
+    ) -> Result<()> {
+        let nodes_to_check = self.find_nodes_by_type_async(remove_type.clone()).await;
+        let keep_nodes = self.find_nodes_by_type_async(keep_type.clone()).await;
+
+        let mut keep_nodes_map: HashMap<(String, String), NodeData> = HashMap::new();
+        for node in &keep_nodes {
+            let key = (node.name.clone(), node.file.clone());
+            keep_nodes_map.insert(key, node.clone());
+        }
+
+        let operand_edges = self
+            .find_nodes_with_edge_type_async(
+                keep_type.clone(),
+                NodeType::Function,
+                EdgeType::Operand,
+            )
+            .await;
+
+        let mut nodes_with_methods: HashSet<(String, String)> = HashSet::new();
+        for (src, _) in operand_edges {
+            nodes_with_methods.insert((src.name.clone(), src.file.clone()));
+        }
+
+        for remove_node in nodes_to_check {
+            let lookup_key = (remove_node.name.clone(), remove_node.file.clone());
+
+            if keep_nodes_map.contains_key(&lookup_key) && nodes_with_methods.contains(&lookup_key)
+            {
+                self.remove_node_async(remove_type.clone(), remove_node)
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn process_endpoint_groups_async(
         &self,
         eg: Vec<NodeData>,
@@ -1129,6 +1184,23 @@ impl Graph for Neo4jGraph {
                 .unwrap_or_default()
         });
     }
+
+    fn remove_node(&mut self, node_type: NodeType, node_data: &NodeData) {
+        sync_fn(|| async {
+            self.remove_node_async(node_type, node_data.clone())
+                .await
+                .unwrap_or_default()
+        });
+    }
+
+    fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, operation: &str) {
+        sync_fn(|| async {
+            self.deduplicate_nodes_async(remove_type, keep_type, operation)
+                .await
+                .unwrap_or_default()
+        });
+    }
+
     fn get_data_models_within(&mut self, lang: &Lang) {
         sync_fn(|| async {
             self.get_data_models_within_async(lang)

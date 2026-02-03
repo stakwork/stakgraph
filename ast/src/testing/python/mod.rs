@@ -16,7 +16,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -58,7 +58,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 141, "Expected 141 contains edges");
+    assert_eq!(contains, 132, "Expected 132 contains edges");
     edges_count += contains;
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
@@ -125,7 +125,7 @@ from flask_app.routes import flask_bp"#
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
 
-    assert_eq!(classes.len(), 10, "Expected 10 classes");
+    assert_eq!(classes.len(), 8, "Expected 8 classes");
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
@@ -147,8 +147,7 @@ from flask_app.routes import flask_bp"#
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    //should be 3, but some classes are picked up as datamodels
-    assert_eq!(data_models.len(), 10, "Expected 10 data models");
+    assert_eq!(data_models.len(), 5, "Expected 5 data models");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();

@@ -96,7 +96,6 @@ impl Stack for Python {
                         [
                             (function_definition)+
                             (decorated_definition)+
-                            (expression_statement)*
                         ]
                     )
                 )@{CLASS_DEFINITION}
@@ -485,5 +484,9 @@ impl Stack for Python {
 
     fn use_handler_finder(&self) -> bool {
         true
+    }
+
+    fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
+        callback(NodeType::DataModel, NodeType::Class, "deduplicate");
     }
 }

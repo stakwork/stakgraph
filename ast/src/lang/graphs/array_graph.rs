@@ -6,7 +6,7 @@ use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
 use serde::{Deserialize, Serialize};
 use shared::error::Result;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use tracing::debug;
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -632,6 +632,90 @@ impl Graph for ArrayGraph {
                 .any(|rm| key.starts_with(rm) || key.contains(&format!("-{}-", rm)))
         });
     }
+
+    fn remove_node(&mut self, node_type: NodeType, node_data: &NodeData) {
+        let nodes_to_remove: Vec<Node> = self
+            .nodes
+            .iter()
+            .filter(|node| {
+                if node.node_type != node_type {
+                    return false;
+                }
+
+                let name_match = node.node_data.name == node_data.name;
+                let file_match = node.node_data.file == node_data.file;
+                let start_match = node.node_data.start == node_data.start;
+
+                let verb_match = if node_type == NodeType::Endpoint {
+                    node.node_data.meta.get("verb") == node_data.meta.get("verb")
+                } else {
+                    true
+                };
+
+                name_match && file_match && start_match && verb_match
+            })
+            .cloned()
+            .collect();
+
+        let keys_to_remove: Vec<String> = nodes_to_remove
+            .iter()
+            .map(|node| create_node_key(node))
+            .collect();
+
+        self.nodes.retain(|node| {
+            let key = create_node_key(node);
+            !keys_to_remove.contains(&key)
+        });
+        self.edges.retain(|edge| {
+            let src_key = create_node_key_from_ref(&edge.source);
+            let dst_key = create_node_key_from_ref(&edge.target);
+            !keys_to_remove.contains(&src_key) && !keys_to_remove.contains(&dst_key)
+        });
+
+        for key in &keys_to_remove {
+            self.node_keys.remove(key);
+        }
+        self.edge_keys.retain(|key| {
+            !keys_to_remove
+                .iter()
+                .any(|rm| key.starts_with(rm) || key.contains(&format!("-{}-", rm)))
+        });
+    }
+
+    fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, _operation: &str) {
+        let nodes_to_check: Vec<NodeData> = self
+            .nodes
+            .iter()
+            .filter(|node| node.node_type == remove_type)
+            .map(|node| node.node_data.clone())
+            .collect();
+
+        let mut keep_nodes_map: HashMap<(String, String), String> = HashMap::new();
+        for node in self.nodes.iter().filter(|n| n.node_type == keep_type) {
+            let key = (node.node_data.name.clone(), node.node_data.file.clone());
+            let node_key = create_node_key(node);
+            keep_nodes_map.insert(key, node_key);
+        }
+
+        let mut keys_with_methods: HashSet<String> = HashSet::new();
+        for edge in &self.edges {
+            if edge.edge == EdgeType::Operand {
+                let src_key = create_node_key_from_ref(&edge.source);
+                keys_with_methods.insert(src_key);
+            }
+        }
+
+        for remove_node in nodes_to_check {
+            let lookup_key = (remove_node.name.clone(), remove_node.file.clone());
+
+            if let Some(keep_key) = keep_nodes_map.get(&lookup_key) {
+                if keys_with_methods.contains(keep_key) {
+                    self.remove_node(remove_type.clone(), &remove_node);
+                }
+            }
+        }
+    }
+
     fn get_data_models_within(&mut self, lang: &Lang) {
         let data_model_nodes: Vec<NodeData> = self
             .nodes
