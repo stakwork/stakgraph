@@ -234,7 +234,15 @@ impl Lang {
             lang: Box::new(php::Php::new()),
         }
     }
-
+    pub fn new_csharp() -> Self {
+        Self {
+            kind: Language::CSharp,
+            lang: Box::new(csharp::CSharp::new()),
+        }
+    }
+    pub fn lang(&self) -> &dyn Stack {
+        self.lang.as_ref()
+    }
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
@@ -837,10 +845,6 @@ impl Lang {
             res.0.extend_from_slice(&calls);
         }
     }
-
-    pub fn lang(&self) -> &dyn Stack {
-        self.lang.as_ref()
-    }
 }
 
 impl Lang {
@@ -860,6 +864,7 @@ impl Lang {
             Language::Angular => Lang::new_angular(),
             Language::Cpp => Lang::new_cpp(),
             Language::Php => Lang::new_php(),
+            Language::CSharp => Lang::new_csharp(),
         }
     }
 }

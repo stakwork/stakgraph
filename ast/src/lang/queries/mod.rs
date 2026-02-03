@@ -2,6 +2,7 @@ pub mod angular;
 pub mod bash;
 pub mod consts;
 pub mod cpp;
+pub mod csharp;
 pub mod erb;
 pub mod go;
 pub mod haml;
@@ -392,6 +393,7 @@ pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {
         LspLanguage::Angular => tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
         LspLanguage::Cpp => tree_sitter_cpp::LANGUAGE.into(),
         LspLanguage::Php => tree_sitter_php::LANGUAGE_PHP.into(),
+        LspLanguage::CSharp => tree_sitter_c_sharp::LANGUAGE.into(),
     }
 }
 
