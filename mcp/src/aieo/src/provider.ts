@@ -8,16 +8,16 @@ import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
 import { createOpenRouter, OpenRouterProviderOptions } from "@openrouter/ai-sdk-provider";
 
-export type Provider = "anthropic" | "google" | "openai" | "claude_code" | "openrouter";
+export type Provider = "anthropic" | "google" | "openai" | "openrouter";
 
 export const PROVIDERS: Provider[] = [
   "anthropic",
   "google",
   "openai",
   "openrouter",
-  "claude_code",
 ];
 
+// shortcuts to latest models
 export type ModelName = "sonnet" | "opus" | "haiku" | "gemini" | "gpt" | "kimi";
 
 type ModelId = string;
@@ -34,9 +34,6 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   openai: {
     gpt: "gpt-5",
   },
-  claude_code: {
-    sonnet: "sonnet",
-  },
   openrouter: {
     kimi: "moonshotai/kimi-k2.5"
   }
@@ -46,7 +43,6 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   anthropic: MODELS.anthropic.sonnet!,
   google: MODELS.google.gemini!,
   openai: MODELS.openai.gpt!,
-  claude_code: MODELS.claude_code.sonnet!,
   openrouter: MODELS.openrouter.kimi!,
 };
 
@@ -55,7 +51,14 @@ export interface TokenPricing {
   outputTokenPrice: number;
 }
 
-export function getProviderForModel(modelName?: ModelName): Provider {
+export function getProviderForModel(modelName?: ModelName | string): Provider {
+  // Handle format like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.5"
+  if (modelName && modelName.includes("/")) {
+    const provider = modelName.split("/")[0] as Provider;
+    if (PROVIDERS.includes(provider)) {
+      return provider;
+    }
+  }
   switch (modelName) {
     case "kimi":
       return "openrouter";
@@ -104,7 +107,7 @@ export function getApiKeyForProvider(provider: Provider | string): string {
 
 export interface GetModelOptions {
   apiKey?: string;
-  modelName?: ModelName;
+  modelName?: ModelName | string;
   cwd?: string;
   executablePath?: string;
   logger?: Logger;
@@ -126,7 +129,7 @@ interface ModelDetails {
   apiKey: string,
   model: LanguageModel
 }
-export function getModelDetails(modelName?: ModelName, apiKeyIn?: string): ModelDetails {
+export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string): ModelDetails {
   const provider = getProviderForModel(modelName);
   const apiKey = apiKeyIn || getApiKeyForProvider(provider);
   const model = getModel(provider, {
@@ -144,9 +147,21 @@ export function getModel(
     opts = { apiKey: opts };
   }
   const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
-  const modelId = opts?.modelName
-    ? getModelForProvider(provider, opts.modelName)
-    : DEFAULT_MODELS[provider];
+  
+  // Handle slash format: extract modelId from "provider/model" or "provider/org/model"
+  let modelId: string;
+  if (opts?.modelName && opts.modelName.includes("/")) {
+    const parts = opts.modelName.split("/");
+    if (PROVIDERS.includes(parts[0] as Provider)) {
+      modelId = parts.slice(1).join("/");
+    } else {
+      modelId = opts.modelName;
+    }
+  } else if (opts?.modelName) {
+    modelId = getModelForProvider(provider, opts.modelName as ModelName);
+  } else {
+    modelId = DEFAULT_MODELS[provider];
+  }
 
   if (opts?.logger) {
     opts.logger.info(
@@ -213,10 +228,6 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
     inputTokenPrice: 2.5,
     outputTokenPrice: 10.0,
   },
-  claude_code: {
-    inputTokenPrice: 3.0,
-    outputTokenPrice: 15.0,
-  },
   openrouter: {
     inputTokenPrice: 0.6,
     outputTokenPrice: 3.0,
@@ -259,8 +270,6 @@ export function getProviderOptions(
       return {
         openrouter: {} satisfies OpenRouterProviderOptions,
       };
-    case "claude_code":
-      return;
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
