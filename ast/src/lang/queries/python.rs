@@ -96,7 +96,6 @@ impl Stack for Python {
                         [
                             (function_definition)+
                             (decorated_definition)+
-                            (expression_statement)*
                         ]
                     )
                 )@{CLASS_DEFINITION}
