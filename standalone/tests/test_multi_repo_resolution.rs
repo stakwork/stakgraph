@@ -13,7 +13,8 @@ fn test_resolve_single_repo_url() {
         branch: None,
         callback_url: None,
         realtime: None,
-        skip: None,
+        docs: None,
+        mocks: None,
     };
 
     let result = resolve_repo(&body);
@@ -41,7 +42,8 @@ fn test_resolve_multi_repo_urls() {
         branch: None,
         callback_url: None,
         realtime: None,
-        skip: None,
+        docs: None,
+        mocks: None,
     };
 
     let result = resolve_repo(&body);
@@ -71,7 +73,8 @@ fn test_resolve_multi_repo_urls_with_spaces() {
         branch: None,
         callback_url: None,
         realtime: None,
-        skip: None,
+        docs: None,
+        mocks: None,
     };
 
     let result = resolve_repo(&body);
@@ -97,7 +100,8 @@ fn test_resolve_repo_path_returns_single_element_vectors() {
         branch: None,
         callback_url: None,
         realtime: None,
-        skip: None,
+        docs: None,
+        mocks: None,
     };
 
     let result = resolve_repo(&body);
@@ -159,7 +163,8 @@ fn test_resolve_empty_repo_url() {
         branch: None,
         callback_url: None,
         realtime: None,
-        skip: None,
+        docs: None,
+        mocks: None,
     };
 
     let result = resolve_repo(&body);

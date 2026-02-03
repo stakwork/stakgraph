@@ -26,6 +26,7 @@ hmac = "0.12"
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
+git-url-parse = "0.4.5"
 
 [features]
 neo4j = ["ast/neo4j"]

@@ -106,13 +106,30 @@ fn env_not_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
-pub fn should_skip_mcp_call(skip_param: &Option<String>, call_type: &str) -> bool {
-    if let Some(skip) = skip_param {
-        skip.split(',')
-            .map(|s| s.trim())
-            .any(|s| s.eq_ignore_ascii_case(call_type))
-    } else {
-        false
+pub fn extract_repo_name(url: &str) -> Result<String> {
+    let gurl = git_url_parse::GitUrl::parse(url)?;
+    Ok(gurl.name)
+}
+
+pub fn should_call_mcp_for_repo(param_value: &Option<String>, repo_url: &str) -> bool {
+    match param_value {
+        None => false,
+        Some(value) => {
+            if value.eq_ignore_ascii_case("true") {
+                return true;
+            }
+
+            let repo_name = match extract_repo_name(repo_url) {
+                Ok(name) => name,
+                Err(_) => return false,
+            };
+
+            value
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .any(|pattern| repo_name.ends_with(pattern))
+        }
     }
 }
 

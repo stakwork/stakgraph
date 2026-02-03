@@ -41,7 +41,8 @@ pub struct ProcessBody {
     pub branch: Option<String>,
     pub callback_url: Option<String>,
     pub realtime: Option<bool>,
-    pub skip: Option<String>,
+    pub docs: Option<String>,
+    pub mocks: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {

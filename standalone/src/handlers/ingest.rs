@@ -11,7 +11,7 @@ use crate::types::{
     AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebError,
     WebhookPayload,
 };
-use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo, should_skip_mcp_call};
+use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo};
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 
 use crate::service::graph_service::{ingest, sync};
@@ -138,7 +138,8 @@ pub async fn sync_async(
     );
 
     let state_for_process = state.clone();
-    let skip_param = body_clone.skip.clone();
+    let docs_param = body_clone.docs.clone();
+    let mocks_param = body_clone.mocks.clone();
 
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
@@ -168,11 +169,10 @@ pub async fn sync_async(
                 };
                 map.insert(request_id_for_work.clone(), entry);
 
-                // Call mocks discovery in sync mode after process completes
-                if !should_skip_mcp_call(&skip_param, "docs") {
+                if should_call_mcp_for_repo(&docs_param, &repo_url) {
                     call_mcp_docs(&repo_url, true).await;
                 }
-                if !should_skip_mcp_call(&skip_param, "mocks") {
+                if should_call_mcp_for_repo(&mocks_param, &repo_url) {
                     call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
                 }
 

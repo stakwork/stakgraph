@@ -1,5 +1,5 @@
 use crate::types::{AppState, ProcessBody, ProcessResponse, Result, WebError};
-use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo};
+use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo};
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
 use ast::repo::{clone_repo, Repo};
 use axum::{extract::State, Json};
@@ -16,7 +16,8 @@ pub async fn ingest(
     let start_total = Instant::now();
     let (repo_paths, repo_urls, username, pat, commit, branch) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
-    let skip_param = body.skip.clone();
+    let docs_param = body.docs.clone();
+    let mocks_param = body.mocks.clone();
 
     let repo_url_joined = repo_urls.join(",");
     let final_repo_path = repo_paths.first().cloned().unwrap_or_default();
@@ -176,11 +177,13 @@ pub async fn ingest(
         }
     }
 
-    if !crate::utils::should_skip_mcp_call(&skip_param, "docs") {
-        call_mcp_docs(&repo_url_joined, false).await;
-    }
-    if !crate::utils::should_skip_mcp_call(&skip_param, "mocks") {
-        call_mcp_mocks(&repo_url_joined, username.as_deref(), pat.as_deref(), false).await;
+    for repo_url in &repo_urls {
+        if should_call_mcp_for_repo(&docs_param, repo_url) {
+            call_mcp_docs(repo_url, false).await;
+        }
+        if should_call_mcp_for_repo(&mocks_param, repo_url) {
+            call_mcp_mocks(repo_url, username.as_deref(), pat.as_deref(), false).await;
+        }
     }
 
     Ok(Json(ProcessResponse { nodes, edges }))
