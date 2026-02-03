@@ -13,23 +13,31 @@ export async function vectorizeQuery(query: string): Promise<number[]> {
 }
 
 export async function vectorizeCodeDocument(
-  codeString: string
+  codeString: string,
 ): Promise<number[]> {
   const flagEmbedding = await FlagEmbedding.init({
     model: MODEL,
     maxLength: 512,
   });
 
-  // For smaller documents, use directly
   if (codeString.length < 400) {
-    const embedding = await flagEmbedding.queryEmbed(codeString);
-    return embedding; // Ensure we return a single vector
+    const embeddingsGenerator = flagEmbedding.embed([codeString]);
+    let embedding: number[] = [];
+
+    for await (const embeddings of embeddingsGenerator) {
+      embedding = embeddings[0];
+    }
+
+    // Normalize to ensure consistent L2 norm = 1.0
+    const magnitude = Math.sqrt(
+      embedding.reduce((sum, val) => sum + val * val, 0),
+    );
+
+    return embedding.map((val) => val / magnitude);
   }
 
-  // Use overlapping chunks for better context capture
   const chunks = chunkCode(codeString, 400);
 
-  // Generate embeddings for all chunks
   const embeddingsGenerator = flagEmbedding.embed(chunks);
   let allEmbeddings: number[][] = [];
 
@@ -46,7 +54,7 @@ export async function vectorizeCodeDocument(
 
   // Normalize the final vector
   const magnitude = Math.sqrt(
-    pooledEmbedding.reduce((sum, val) => sum + val * val, 0)
+    pooledEmbedding.reduce((sum, val) => sum + val * val, 0),
   );
 
   return pooledEmbedding.map((val) => val / magnitude);
