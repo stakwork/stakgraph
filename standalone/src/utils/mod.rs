@@ -106,11 +106,28 @@ fn env_not_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().filter(|v| !v.is_empty())
 }
 
+pub fn should_skip_mcp_call(skip_param: &Option<String>, call_type: &str) -> bool {
+    if let Some(skip) = skip_param {
+        skip.split(',')
+            .map(|s| s.trim())
+            .any(|s| s.eq_ignore_ascii_case(call_type))
+    } else {
+        false
+    }
+}
+
+fn parse_repo_urls(urls: &str) -> Vec<String> {
+    urls.split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 pub fn resolve_repo(
     body: &ProcessBody,
 ) -> Result<(
-    String,
-    String,
+    Vec<String>,
+    Vec<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -134,16 +151,29 @@ pub fn resolve_repo(
 
     if let Some(path) = repo_path {
         Ok((
-            path,
-            repo_url.unwrap_or_default(),
+            vec![path.clone()],
+            vec![repo_url.unwrap_or_default()],
             username,
             pat,
             commit,
             branch,
         ))
     } else {
-        let url = repo_url.unwrap();
-        let tmp_path = Repo::get_path_from_url(&url)?;
-        Ok((tmp_path, url, username, pat, commit, branch))
+        let url_string = repo_url.unwrap();
+        let urls = parse_repo_urls(&url_string);
+
+        if urls.is_empty() {
+            return Err(shared::Error::Custom(
+                "REPO_URL is empty after parsing".into(),
+            ));
+        }
+
+        let mut paths = Vec::new();
+        for url in &urls {
+            let tmp_path = Repo::get_path_from_url(url)?;
+            paths.push(tmp_path);
+        }
+
+        Ok((paths, urls, username, pat, commit, branch))
     }
 }

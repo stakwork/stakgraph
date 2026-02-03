@@ -14,16 +14,19 @@ pub async fn ingest(
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
     let start_total = Instant::now();
-    let (final_repo_path, final_repo_url, username, pat, commit, branch) = resolve_repo(&body)?;
+    let (repo_paths, repo_urls, username, pat, commit, branch) = resolve_repo(&body)?;
     let use_lsp = body.use_lsp;
-    let repo_url = final_repo_url.clone();
+    let skip_param = body.skip.clone();
+
+    let repo_url_joined = repo_urls.join(",");
+    let final_repo_path = repo_paths.first().cloned().unwrap_or_default();
 
     let start_clone = Instant::now();
     let mut repos = if body.repo_path.is_some() || std::env::var("REPO_PATH").is_ok() {
         info!("Using local repository at: {}", final_repo_path);
         Repo::new_multi_detect(
             &final_repo_path,
-            Some(final_repo_url.clone()),
+            Some(repo_url_joined.clone()),
             Vec::new(),
             Vec::new(),
             use_lsp,
@@ -37,7 +40,7 @@ pub async fn ingest(
         })?
     } else {
         Repo::new_clone_multi_detect(
-            &repo_url,
+            &repo_url_joined,
             username.clone(),
             pat.clone(),
             Vec::new(),
@@ -56,8 +59,9 @@ pub async fn ingest(
     };
     let clone_s = start_clone.elapsed().as_secs_f64();
     info!(
-        "[perf][ingest] phase=clone_detect repo={} s={:.2}",
-        final_repo_url.clone(),
+        "[perf][ingest] phase=clone_detect repos={} count={} s={:.2}",
+        repo_url_joined,
+        repo_urls.len(),
         clone_s
     );
 
@@ -85,10 +89,8 @@ pub async fn ingest(
         })?;
     let build_s = start_build.elapsed().as_secs_f64();
     info!(
-        "[perf][ingest] phase=build repo={} streaming={} s={:.2}",
-        final_repo_url.clone(),
-        streaming,
-        build_s
+        "[perf][ingest] phase=build repos={} streaming={} s={:.2}",
+        repo_url_joined, streaming, build_s
     );
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
@@ -144,15 +146,16 @@ pub async fn ingest(
 
     let upload_s = start_upload.elapsed().as_secs_f64();
     info!(
-        "[perf][ingest] phase=upload repo={} streaming={} s={:.2}",
-        final_repo_url, streaming, upload_s
+        "[perf][ingest] phase=upload repos={} streaming={} s={:.2}",
+        repo_url_joined, streaming, upload_s
     );
 
     let build_upload_s = build_s + upload_s;
     let total_s = start_total.elapsed().as_secs_f64();
     info!(
-        "[perf][ingest][results] repo={} streaming={} clone_s={:.2} build_s={:.2} upload_s={:.2} build_upload_s={:.2} total_s={:.2} nodes={} edges={}",
-        final_repo_url,
+        "[perf][ingest][results] repos={} count={} streaming={} clone_s={:.2} build_s={:.2} upload_s={:.2} build_upload_s={:.2} total_s={:.2} nodes={} edges={}",
+        repo_url_joined,
+        repo_urls.len(),
         streaming,
         clone_s,
         build_s,
@@ -173,8 +176,12 @@ pub async fn ingest(
         }
     }
 
-    call_mcp_docs(&repo_url, false).await;
-    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), false).await;
+    if !crate::utils::should_skip_mcp_call(&skip_param, "docs") {
+        call_mcp_docs(&repo_url_joined, false).await;
+    }
+    if !crate::utils::should_skip_mcp_call(&skip_param, "mocks") {
+        call_mcp_mocks(&repo_url_joined, username.as_deref(), pat.as_deref(), false).await;
+    }
 
     Ok(Json(ProcessResponse { nodes, edges }))
 }
@@ -184,14 +191,18 @@ pub async fn sync(
     State(state): State<Arc<AppState>>,
     body: Json<ProcessBody>,
 ) -> Result<Json<ProcessResponse>> {
-    if body.repo_url.clone().unwrap_or_default().contains(",") {
+    let (repo_paths, repo_urls, username, pat, _, branch) = resolve_repo(&body)?;
+
+    if repo_urls.len() > 1 {
         return Err(WebError(shared::Error::Custom(
-            "Multiple repositories are not supported in a single request".into(),
+            "sync only supports a single repository. Use ingest for multiple repositories.".into(),
         )));
     }
-    let (final_repo_path, final_repo_url, username, pat, _, branch) = resolve_repo(&body)?;
 
-    if let Err(e) = validate_git_credentials(&final_repo_url, username.clone(), pat.clone()).await {
+    let final_repo_path = &repo_paths[0];
+    let final_repo_url = &repo_urls[0];
+
+    if let Err(e) = validate_git_credentials(final_repo_url, username.clone(), pat.clone()).await {
         return Err(WebError(e));
     }
 

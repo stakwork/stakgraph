@@ -52,6 +52,30 @@ pub async fn validate_git_credentials(
         }
     }
 }
+
+pub async fn validate_git_credentials_multi(
+    repos: &[String],
+    username: Option<String>,
+    pat: Option<String>,
+) -> Result<()> {
+    let mut errors = Vec::new();
+
+    for repo in repos {
+        if let Err(e) = validate_git_credentials(repo, username.clone(), pat.clone()).await {
+            errors.push(format!("Repo '{}': {}", repo, e));
+        }
+    }
+
+    if !errors.is_empty() {
+        return Err(Error::Custom(format!(
+            "Git validation failed for {} repository(ies):\n{}",
+            errors.len(),
+            errors.join("\n")
+        )));
+    }
+
+    Ok(())
+}
 pub async fn git_clone(
     repo: &str,
     path: &str,

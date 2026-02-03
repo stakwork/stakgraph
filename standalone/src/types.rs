@@ -1,7 +1,5 @@
 use ast::lang::asg::NodeData;
 use ast::repo::StatusUpdate;
-use std::sync::atomic::AtomicBool;
-use tokio::sync::broadcast;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -9,7 +7,9 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::Mutex;
 #[derive(Debug)]
 pub struct WebError(pub shared::Error);
@@ -41,6 +41,7 @@ pub struct ProcessBody {
     pub branch: Option<String>,
     pub callback_url: Option<String>,
     pub realtime: Option<bool>,
+    pub skip: Option<String>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {
