@@ -344,7 +344,7 @@ import NewPerson from "./components/NewPerson";"#
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    assert_eq!(variables.len(), 7, "Expected 7 variables");
+    assert_eq!(variables.len(), 8, "Expected 8 variables");
 
     let initial_state_var = variables
         .iter()
@@ -497,8 +497,8 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 222,
-        "Expected 222 contains edges, got {}",
+        contains_edges_count, 223,
+        "Expected 223 contains edges, got {}",
         contains_edges_count
     );
 
@@ -524,7 +524,7 @@ import NewPerson from "./components/NewPerson";"#
         .iter()
         .find(|e| {
             e.name == "/users"
-                && normalize_path(&e.file) == "src/testing/react/src/api/routes.ts"
+                && normalize_path(&e.file) == "src/testing/react/src/api/routes.ts" && e.meta.get("verb") == Some(&"GET".to_string())
         })
         .expect("/users endpoint not found");
     assert_eq!(

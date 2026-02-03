@@ -109,7 +109,7 @@ async fn test_btreemap_edges() -> Result<()> {
     assert_eq!(renders_edges, 4);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 222);
+    assert_eq!(contains_edges, 223);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 9);
@@ -134,8 +134,8 @@ async fn test_react_graph_upload() -> Result<()> {
     // Requests(14) + Pages(4) + Variables(7) + DataModels(22) + Endpoints(5)
     // UnitTests(3) + IntegrationTests(2) + E2eTests(2) + Files(~11 TSX + others) + Dirs(14)
     // Total approx 187+. We will adjust based on actual test run.
-    assert_eq!(nodes, 218);
-    assert_eq!(edges, 282); // Derived from previous test runs matches actual output
+    assert_eq!(nodes, 219);
+    assert_eq!(edges, 283); // Derived from previous test runs matches actual output
 
     Ok(())
 }

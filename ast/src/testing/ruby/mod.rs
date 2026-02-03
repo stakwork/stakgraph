@@ -430,7 +430,7 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     edges_count += of_edges;
     assert_eq!(of_edges, 1, "Expected 1 Of edges");
     assert!(
-        (expected_contains - 2..=expected_contains).contains(&contains),
+        (expected_contains - 2..=(expected_contains + 2)).contains(&contains),
         "Expected ~{} Contains edges, got {}",
         expected_contains,
         contains

@@ -165,7 +165,7 @@ impl Stack for TypeScriptReact {
 
     // FROM REACT (identical in both): variables_query
     fn variables_query(&self) -> Option<String> {
-        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)";
+        let types = "(string)(template_string)(number)(object)(array)(true)(false)(new_expression)(member_expression)(identifier)";
         Some(format!(
             r#"(program
                     (export_statement
