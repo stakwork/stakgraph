@@ -273,6 +273,10 @@ export async function gitree_list_features(req: Request, res: Response) {
     const checkpoint = repo 
       ? await storage.getChronologicalCheckpoint(repo)
       : null;
+    // Only get cumulative usage if repo is specified
+    const cumulativeUsage = repo
+      ? await storage.getTotalUsage(repo)
+      : null;
 
     res.json({
       features: features.map((f) => ({
@@ -289,6 +293,7 @@ export async function gitree_list_features(req: Request, res: Response) {
       total: features.length,
       repo: repo || "all",
       lastProcessedTimestamp: checkpoint?.lastProcessedTimestamp || null,
+      cumulativeUsage,
       processing: isProcessing,
     });
   } catch (error: any) {
