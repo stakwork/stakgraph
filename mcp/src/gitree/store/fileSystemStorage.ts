@@ -532,6 +532,54 @@ export class FileSystemStore extends Storage {
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
+  async getAggregatedMetadata(): Promise<{
+    lastProcessedTimestamp: string | null;
+    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  }> {
+    try {
+      const content = await fs.readFile(this.metadataPath, "utf-8");
+      const metadata = JSON.parse(content);
+      
+      let latestTimestamp: string | null = null;
+      let totalInput = 0;
+      let totalOutput = 0;
+      let totalTokens = 0;
+
+      for (const key of Object.keys(metadata)) {
+        // Process checkpoint keys
+        if (key.includes(":chronologicalCheckpoint")) {
+          const checkpoint = metadata[key];
+          if (checkpoint?.lastProcessedTimestamp) {
+            if (!latestTimestamp || checkpoint.lastProcessedTimestamp > latestTimestamp) {
+              latestTimestamp = checkpoint.lastProcessedTimestamp;
+            }
+          }
+        }
+        // Process usage keys
+        if (key.includes(":totalUsage")) {
+          const usage = metadata[key];
+          totalInput += usage?.inputTokens || 0;
+          totalOutput += usage?.outputTokens || 0;
+          totalTokens += usage?.totalTokens || 0;
+        }
+      }
+
+      return {
+        lastProcessedTimestamp: latestTimestamp,
+        cumulativeUsage: {
+          inputTokens: totalInput,
+          outputTokens: totalOutput,
+          totalTokens: totalTokens,
+        },
+      };
+    } catch {
+      return {
+        lastProcessedTimestamp: null,
+        cumulativeUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      };
+    }
+  }
+
   // Documentation
   async saveDocumentation(
     featureId: string,

@@ -64,6 +64,12 @@ export abstract class Storage {
   abstract getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }>;
   abstract addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void>;
 
+  // Get aggregated metadata across all repos (latest timestamp, summed usage)
+  abstract getAggregatedMetadata(): Promise<{
+    lastProcessedTimestamp: string | null;
+    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  }>;
+
   // Documentation
   abstract saveDocumentation(featureId: string, documentation: string): Promise<void>;
 

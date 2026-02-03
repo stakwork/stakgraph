@@ -1304,6 +1304,62 @@ export class GraphStorage extends Storage {
     }
   }
 
+  async getAggregatedMetadata(): Promise<{
+    lastProcessedTimestamp: string | null;
+    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  }> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        `MATCH (m:${Data_Bank}:FeaturesMetadata)
+         RETURN m.chronologicalCheckpoint as checkpoint,
+                m.totalInputTokens as inputTokens,
+                m.totalOutputTokens as outputTokens,
+                m.totalTokens as totalTokens`
+      );
+
+      let latestTimestamp: string | null = null;
+      let totalInput = 0;
+      let totalOutput = 0;
+      let totalTokens = 0;
+
+      for (const record of result.records) {
+        // Parse checkpoint to get timestamp
+        const checkpointStr = record.get("checkpoint");
+        if (checkpointStr) {
+          try {
+            const checkpoint = JSON.parse(checkpointStr);
+            if (checkpoint.lastProcessedTimestamp) {
+              if (!latestTimestamp || checkpoint.lastProcessedTimestamp > latestTimestamp) {
+                latestTimestamp = checkpoint.lastProcessedTimestamp;
+              }
+            }
+          } catch {}
+        }
+
+        // Sum usage
+        const inputRaw = record.get("inputTokens");
+        const outputRaw = record.get("outputTokens");
+        const tokensRaw = record.get("totalTokens");
+        
+        totalInput += inputRaw?.toNumber ? inputRaw.toNumber() : (inputRaw || 0);
+        totalOutput += outputRaw?.toNumber ? outputRaw.toNumber() : (outputRaw || 0);
+        totalTokens += tokensRaw?.toNumber ? tokensRaw.toNumber() : (tokensRaw || 0);
+      }
+
+      return {
+        lastProcessedTimestamp: latestTimestamp,
+        cumulativeUsage: {
+          inputTokens: totalInput,
+          outputTokens: totalOutput,
+          totalTokens: totalTokens,
+        },
+      };
+    } finally {
+      await session.close();
+    }
+  }
+
   // Documentation
 
   async saveDocumentation(
