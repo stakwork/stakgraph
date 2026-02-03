@@ -49,7 +49,7 @@ pub trait Graph: Default + Debug {
     fn add_edge(&mut self, edge: Edge);
     fn add_node(&mut self, node_type: NodeType, node_data: NodeData);
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>);
-    fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)>{
+    fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)> {
         BTreeSet::new()
     }
 
@@ -86,13 +86,19 @@ pub trait Graph: Default + Debug {
             }
         }
     }
-    fn add_calls(&mut self, calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>), lang: &Lang);
+    fn add_calls(
+        &mut self,
+        calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>),
+        lang: &Lang,
+    );
     fn filter_out_nodes_without_children(
         &mut self,
         parent_type: NodeType,
         child_type: NodeType,
         child_meta_key: &str,
     );
+    fn remove_node(&mut self, node_type: NodeType, node_data: &NodeData);
+    fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, _operation: &str);
     fn get_data_models_within(&mut self, lang: &Lang);
 
     //Specific
@@ -131,7 +137,11 @@ pub trait Graph: Default + Debug {
     }
 
     fn find_test_node(&self, name: &str, file: &str) -> Option<NodeData> {
-        for test_type in [NodeType::UnitTest, NodeType::IntegrationTest, NodeType::E2eTest] {
+        for test_type in [
+            NodeType::UnitTest,
+            NodeType::IntegrationTest,
+            NodeType::E2eTest,
+        ] {
             if let Some(node) = self.find_node_by_name_in_file(test_type, name, file) {
                 return Some(node);
             }

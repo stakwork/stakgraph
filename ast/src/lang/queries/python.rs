@@ -471,4 +471,8 @@ impl Stack for Python {
     fn use_handler_finder(&self) -> bool {
         true
     }
+
+    fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
+        callback(NodeType::DataModel, NodeType::Class, "deduplicate");
+    }
 }

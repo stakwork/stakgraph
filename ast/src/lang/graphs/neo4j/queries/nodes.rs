@@ -407,6 +407,35 @@ pub fn filter_out_nodes_without_children_query(
 
     (query, params)
 }
+
+pub fn remove_node_query(node_type: NodeType, node_data: &NodeData) -> (String, BoltMap) {
+    let mut params = BoltMap::new();
+    boltmap_insert_str(&mut params, "name", &node_data.name);
+    boltmap_insert_str(&mut params, "file", &node_data.file);
+    boltmap_insert_int(&mut params, "start", node_data.start as i64);
+
+    let verb_clause = if node_type == NodeType::Endpoint {
+        if let Some(verb) = node_data.meta.get("verb") {
+            boltmap_insert_str(&mut params, "verb", verb);
+            "AND n.verb = $verb"
+        } else {
+            ""
+        }
+    } else {
+        ""
+    };
+
+    let query = format!(
+        "MATCH (n:{} {{name: $name, file: $file, start: $start}})
+         WHERE true {}
+         DETACH DELETE n",
+        node_type.to_string(),
+        verb_clause
+    );
+
+    (query, params)
+}
+
 pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "group_function_name", group_function_name);

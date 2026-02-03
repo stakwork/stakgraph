@@ -1126,8 +1126,16 @@ impl Repo {
 
         self.lang
             .lang()
-            .clean_graph(&mut |parent_type, child_type, child_meta_key| {
-                graph.filter_out_nodes_without_children(parent_type, child_type, child_meta_key);
+            .clean_graph(&mut |parent_type, child_type, operation| match operation {
+                "operand" => {
+                    graph.filter_out_nodes_without_children(parent_type, child_type, operation);
+                }
+                "deduplicate" => {
+                    graph.deduplicate_nodes(parent_type, child_type, operation);
+                }
+                _ => {
+                    graph.filter_out_nodes_without_children(parent_type, child_type, operation);
+                }
             });
 
         Ok(())
