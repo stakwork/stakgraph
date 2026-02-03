@@ -47,7 +47,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 27, "Expected 27 File nodes");
+    assert_eq!(files.len(), 28, "Expected 28 File nodes");
 
     let pkg_files = files
         .iter()
@@ -82,7 +82,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(functions.len(), 38, "Expected 38 functions with LSP");
     } else {
-        assert_eq!(functions.len(), 60, "Expected 60 functions without LSP");
+        assert_eq!(functions.len(), 65, "Expected 65 functions without LSP");
     }
 
     let log_fn = functions
@@ -301,7 +301,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 214, "Expected 214 contains edges");
+    assert_eq!(contains, 220, "Expected 220 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -320,6 +320,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
+
     if use_lsp {
         assert_eq!(handlers, 8, "Expected 8 handler edges with LSP");
     } else {
@@ -350,6 +351,33 @@ import {{ sequelize }} from "./config.js";"#
         .map(|n| Node::new(NodeType::Function, n.clone()))
         .expect("getPerson function not found");
 
+    // NEW: anonymous_functions.ts tests
+    let anon_file_funcs = functions
+        .iter()
+        .filter(|f| normalize_path(&f.file) == "src/testing/typescript/src/anonymous_functions.ts")
+        .collect::<Vec<_>>();
+
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "basicArrow"),
+        "Missing basicArrow"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "arrowWithArgs"),
+        "Missing arrowWithArgs"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "implicitReturn"),
+        "Missing implicitReturn"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "anonExpr"),
+        "Missing anonExpr"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "anonWithArgs"),
+        "Missing anonWithArgs"
+    );
+    //TODO: Callbacks and IIFFEs are not captured as standalone roots for now.
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");

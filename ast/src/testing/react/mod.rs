@@ -357,10 +357,7 @@ import NewPerson from "./components/NewPerson";"#
     );
     let app_name_var = variables
         .iter()
-        .find(|v| {
-            v.name == "AppName"
-                && normalize_path(&v.file) == "src/testing/react/src/App.tsx"
-        })
+        .find(|v| v.name == "AppName" && normalize_path(&v.file) == "src/testing/react/src/App.tsx")
         .expect("AppName variable not found");
     assert_eq!(
         app_name_var.docs,
@@ -518,13 +515,15 @@ import NewPerson from "./components/NewPerson";"#
     assert_eq!(operand_edges, 1, "Expected 1 operand edges");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 9, "Expected 9 endpoints");
     let users_get_endpoint = endpoints
         .iter()
         .find(|e| {
             e.name == "/users"
-                && normalize_path(&e.file) == "src/testing/react/src/api/routes.ts" && e.meta.get("verb") == Some(&"GET".to_string())
+                && normalize_path(&e.file) == "src/testing/react/src/api/routes.ts"
+                && e.meta.get("verb") == Some(&"GET".to_string())
         })
         .expect("/users endpoint not found");
     assert_eq!(
@@ -575,9 +574,8 @@ import NewPerson from "./components/NewPerson";"#
     assert_eq!(nested_in, 2, "Expected 2 NestedIn edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
+
     edges_count += handlers;
-    // Was 5, now 9 - unified parser's endpoint_finders now capture @{ENDPOINT_OBJECT}
-    // for the router pattern, enabling proper endpoint group matching and handler linking
     assert_eq!(handlers, 9, "Expected 9 handler edges");
 
     if use_lsp {}

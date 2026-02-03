@@ -342,7 +342,7 @@ impl Stack for Php {
                             [
                                 (anonymous_function)
                                 (arrow_function)
-                            ] @{ARROW_FUNCTION_HANDLER}
+                            ] @{ANONYMOUS_FUNCTION}
                         )
                     )
                 ) @{ROUTE}"#
@@ -357,7 +357,7 @@ impl Stack for Php {
                             [
                                 (anonymous_function)
                                 (arrow_function)
-                            ] @{ARROW_FUNCTION_HANDLER}
+                            ] @{ANONYMOUS_FUNCTION}
                         )
                     )
                 ) @{ROUTE}"#
@@ -590,7 +590,12 @@ impl Stack for Php {
         Ok(parents)
     }
 
-    fn generate_arrow_handler_name(&self, method: &str, path: &str, line: usize) -> Option<String> {
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
         let clean_method = method.to_lowercase();
         let clean_path = path
             .replace("/", "_")

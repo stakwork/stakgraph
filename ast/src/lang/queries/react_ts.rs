@@ -305,10 +305,16 @@ impl Stack for TypeScriptReact {
                 (lexical_declaration
                     (variable_declarator
                         name: (identifier) @{FUNCTION_NAME}
-                        value: (arrow_function
-                            parameters: (formal_parameters)? @{ARGUMENTS}
-                            return_type: (type_annotation)? @{RETURN_TYPES}
-                        )
+                        value: [
+                            (arrow_function
+                                parameters: (formal_parameters)? @{ARGUMENTS}
+                                return_type: (type_annotation)? @{RETURN_TYPES}
+                            )
+                            (function_expression
+                                parameters: (formal_parameters)? @{ARGUMENTS}
+                                return_type: (type_annotation)? @{RETURN_TYPES}
+                            )
+                        ]
                     )
                 ) @{FUNCTION_DEFINITION}
             )
@@ -628,7 +634,7 @@ impl Stack for TypeScriptReact {
                     )
                     arguments: (arguments
                         (string) @{ENDPOINT}
-                        (arrow_function) @{ARROW_FUNCTION_HANDLER}
+                        (arrow_function) @{ANONYMOUS_FUNCTION}
                     )
                     ) @{ROUTE}
                 "#
@@ -660,7 +666,7 @@ impl Stack for TypeScriptReact {
                         )
                         property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
                     )
-                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    arguments: (arguments (arrow_function) @{ANONYMOUS_FUNCTION})
                     ) @{ROUTE}
                 "#
             ),
@@ -683,7 +689,7 @@ impl Stack for TypeScriptReact {
                         )
                         property: (property_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^get$|^post$|^put$|^delete$|^patch$")
                     )
-                    arguments: (arguments (arrow_function) @{ARROW_FUNCTION_HANDLER})
+                    arguments: (arguments (arrow_function) @{ANONYMOUS_FUNCTION})
                     ) @{ROUTE}
                 "#
             ),
@@ -878,8 +884,12 @@ impl Stack for TypeScriptReact {
         Some("GET".to_string())
     }
 
-    // FROM TYPESCRIPT: generate_arrow_handler_name
-    fn generate_arrow_handler_name(&self, method: &str, path: &str, line: usize) -> Option<String> {
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
         let clean_method = method.to_lowercase();
         let clean_path = path
             .replace("/", "_")
