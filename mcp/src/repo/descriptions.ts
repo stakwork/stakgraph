@@ -39,6 +39,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const cost_limit = parseFloat(req.body.cost_limit || "0.5");
   const batch_size = parseInt(req.body.batch_size || "25");
   const repo_url = req.body.repo_url as string | undefined;
+  const file_paths = (req.body.file_paths || []) as string[];
 
   if (isNaN(cost_limit) || cost_limit <= 0) {
     res.status(400).json({ error: "Invalid cost_limit. Must be a positive number." });
@@ -58,7 +59,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   }
 
   if (repo_paths) {
-    const testNodes = await db.get_nodes_without_description(1, repo_paths);
+    const testNodes = await db.get_nodes_without_description(1, repo_paths, file_paths);
     if (testNodes.length === 0) {
       res.status(400).json({ 
         error: `No nodes found for repository: ${repo_url}. Repositories available may not match.`,
@@ -69,7 +70,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   }
 
   console.log(
-    `[describe_nodes] Starting job. Provider: ${PROVIDER}, Model: ${MODEL_NAME}, Cost limit: $${cost_limit}, Batch size: ${batch_size}${repo_paths ? `, Repos: ${repo_paths.join(", ")}` : ""}`,
+    `[describe_nodes] Starting job. Provider: ${PROVIDER}, Model: ${MODEL_NAME}, Cost limit: $${cost_limit}, Batch size: ${batch_size}${repo_paths ? `, Repos: ${repo_paths.join(", ")}` : ""}${file_paths.length > 0 ? `, Files: ${file_paths.length}` : ""}`,
   );
   res.json({
     request_id,
@@ -94,7 +95,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         break;
       }
 
-      const nodes = await db.get_nodes_without_description(batch_size, repo_paths);
+      const nodes = await db.get_nodes_without_description(batch_size, repo_paths, file_paths);
       if (nodes.length === 0) {
         console.log(`[describe_nodes] No more nodes to process.`);
         break;

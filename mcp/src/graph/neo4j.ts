@@ -1143,12 +1143,13 @@ class Db {
     }
   }
 
-  async get_nodes_without_description(limit: number, repo_paths: string[] | null = null): Promise<Neo4jNode[]> {
+  async get_nodes_without_description(limit: number, repo_paths: string[] | null, file_paths: string[]): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(Q.GET_NODES_WITHOUT_DESCRIPTION_QUERY, {
         limit: neo4j.int(limit),
         repo_paths: repo_paths || [],
+        file_paths,
       });
       return result.records.map((record) => ({
         properties: record.get("properties"),

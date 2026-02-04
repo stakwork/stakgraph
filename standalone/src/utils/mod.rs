@@ -111,6 +111,59 @@ pub fn extract_repo_name(url: &str) -> Result<String> {
     Ok(gurl.name)
 }
 
+pub fn extract_repo_owner_and_name(url: &str) -> Result<String> {
+    let gurl = git_url_parse::GitUrl::parse(url)?;
+    Ok(format!("{}/{}", gurl.owner.unwrap_or_default(), gurl.name))
+}
+
+pub async fn call_mcp_embed(
+    repo_url: &str,
+    cost_limit: f32,
+    file_paths: Vec<String>,
+    sync: bool,
+) {
+    let mcp_url =
+        std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
+
+    let url = format!("{}/repo/describe", mcp_url);
+    println!(
+        "[mcp_embed] Calling MCP to embed descriptions (sync={}, files={}): {}",
+        sync,
+        file_paths.len(),
+        url
+    );
+
+    let client = Client::new();
+    let body = serde_json::json!({
+        "cost_limit": cost_limit,
+        "repo_url": repo_url,
+        "file_paths": file_paths,
+    });
+
+    let mut req = client
+        .post(&url)
+        .json(&body)
+        .timeout(Duration::from_secs(300));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.header("x-api-token", token);
+    }
+    match req.send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                println!("[mcp_embed] MCP embed call succeeded");
+            } else {
+                println!(
+                    "[mcp_embed] MCP embed call returned status: {}",
+                    resp.status()
+                );
+            }
+        }
+        Err(e) => {
+            println!("[mcp_embed] MCP embed call failed (non-fatal): {}", e);
+        }
+    }
+}
+
 pub fn should_call_mcp_for_repo(param_value: &Option<String>, repo_url: &str) -> bool {
     match param_value {
         None => false,

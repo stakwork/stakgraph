@@ -799,7 +799,15 @@ MATCH (source)-[r]->(target)
 WHERE (source.ref_id = refId OR target.ref_id = refId)
   AND source.ref_id IS NOT NULL
   AND target.ref_id IS NOT NULL
+  AND
+  CASE
+    WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
+    ELSE (source.file IS NOT NULL AND ANY(ext IN $extensions WHERE source.file ENDS WITH ext))
+         OR (target.file IS NOT NULL AND ANY(ext IN $extensions WHERE target.file ENDS WITH ext))
+  END
 RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r) AS edge_type, properties(r) AS properties, r.ref_id AS edge_ref_id, id(r) AS edge_id
+ORDER BY edge_type, source_ref_id
+LIMIT toInteger($limit)
 `;
 
 export const ALL_EDGES_QUERY = `
@@ -822,6 +830,7 @@ MATCH (n)
 WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel)
   AND (n.description IS NULL OR n.description = '')
   AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
+  AND ($file_paths IS NULL OR size($file_paths) = 0 OR ANY(path IN $file_paths WHERE n.file ENDS WITH path))
 RETURN n, n.ref_id as ref_id, labels(n) as labels, properties(n) as properties
 LIMIT toInteger($limit)
 `;
