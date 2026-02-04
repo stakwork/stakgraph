@@ -6,6 +6,7 @@ export function createHasEndMarkerCondition<
 >(): StopCondition<T> {
   return ({ steps }) => {
     for (const step of steps) {
+      if (!step.content) continue;
       for (const item of step.content) {
         if (item.type === "text" && item.text?.includes("[END_OF_ANSWER]")) {
           return true;
@@ -21,6 +22,7 @@ export function createHasAskQuestionsCondition<
 >(): StopCondition<T> {
   return ({ steps }) => {
     for (const step of steps) {
+      if (!step.content) continue;
       for (const item of step.content) {
         // Check for successful ask_clarifying_questions call
         if (
@@ -140,7 +142,9 @@ export function extractFinalAnswer(
 ): FinalAnswerResult {
   // Search for ask_clarifying_questions tool result (highest priority)
   for (let i = steps.length - 1; i >= 0; i--) {
-    const askQuestionsResult = steps[i].content.find(
+    const content = steps[i].content;
+    if (!content) continue;
+    const askQuestionsResult = content.find(
       (c) =>
         c.type === "tool-result" && c.toolName === "ask_clarifying_questions"
     );
@@ -155,6 +159,7 @@ export function extractFinalAnswer(
   // Look for text with [END_OF_ANSWER] sequence (search all text)
   let allText = "";
   for (const step of steps) {
+    if (!step.content) continue;
     for (const item of step.content) {
       if (item.type === "text" && item.text) {
         allText += item.text;
@@ -179,8 +184,10 @@ export function extractFinalAnswer(
 
   // Find the last tool-call or tool-result
   for (let i = steps.length - 1; i >= 0; i--) {
-    for (let j = steps[i].content.length - 1; j >= 0; j--) {
-      const item = steps[i].content[j];
+    const content = steps[i].content;
+    if (!content) continue;
+    for (let j = content.length - 1; j >= 0; j--) {
+      const item = content[j];
       if (item.type === "tool-call" || item.type === "tool-result") {
         lastToolStepIndex = i;
         lastToolContentIndex = j;
@@ -195,8 +202,10 @@ export function extractFinalAnswer(
   let startCollecting = false;
 
   for (let i = 0; i < steps.length; i++) {
-    for (let j = 0; j < steps[i].content.length; j++) {
-      const item = steps[i].content[j];
+    const content = steps[i].content;
+    if (!content) continue;
+    for (let j = 0; j < content.length; j++) {
+      const item = content[j];
 
       // Start collecting after we've passed the last tool
       if (i === lastToolStepIndex && j === lastToolContentIndex) {
@@ -246,6 +255,8 @@ export function extractMessagesFromSteps(
   const messages: ModelMessage[] = [userMessage];
 
   for (const step of steps) {
+    if (!step.content) continue;
+    
     // Build assistant message content
     const assistantContent: any[] = [];
 
