@@ -1,5 +1,5 @@
 use crate::types::{AppState, ProcessBody, ProcessResponse, Result, WebError};
-use crate::utils::{call_mcp_docs, call_mcp_mocks, call_mcp_embed, extract_repo_owner_and_name, resolve_repo, should_call_mcp_for_repo};
+use crate::utils::{call_mcp_docs, call_mcp_mocks, call_mcp_embed, resolve_repo, should_call_mcp_for_repo};
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
 use ast::repo::{clone_repo, Repo, check_revs_files};
 use axum::{extract::State, Json};
@@ -298,13 +298,7 @@ pub async fn sync(
 
     if should_call_mcp_for_repo(&embeddings_param, repo_url) {
         if let Some(files) = modified_files {
-            if let Ok(owner_name) = extract_repo_owner_and_name(repo_url) {
-                let full_paths: Vec<String> = files
-                    .iter()
-                    .map(|f| format!("{}/{}", owner_name, f))
-                    .collect();
-                call_mcp_embed(repo_url, embeddings_limit, full_paths, true).await;
-            }
+            call_mcp_embed(repo_url, embeddings_limit, files, true).await;
         }
     }
 

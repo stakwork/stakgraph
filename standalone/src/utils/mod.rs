@@ -111,11 +111,6 @@ pub fn extract_repo_name(url: &str) -> Result<String> {
     Ok(gurl.name)
 }
 
-pub fn extract_repo_owner_and_name(url: &str) -> Result<String> {
-    let gurl = git_url_parse::GitUrl::parse(url)?;
-    Ok(format!("{}/{}", gurl.owner.unwrap_or_default(), gurl.name))
-}
-
 pub async fn call_mcp_embed(
     repo_url: &str,
     cost_limit: f32,
