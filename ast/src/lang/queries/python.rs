@@ -315,6 +315,35 @@ impl Stack for Python {
                     )
                 )"#
             ),
+            format!(
+                r#"(call
+                    function: (call
+                        function: (attribute
+                            attribute: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^route$|^get$|^post$|^put$|^delete$")
+                        )
+                        arguments: (argument_list
+                            (string) @{ENDPOINT}
+                        )
+                    )
+                    arguments: (argument_list
+                        (lambda) @{ANONYMOUS_FUNCTION}
+                    )
+                ) @{ROUTE}"#
+            ),
+            format!(
+                r#"(call
+                    function: (attribute
+                         attribute: (identifier) @method (#match? @method "^add_url_rule$")
+                    )
+                    arguments: (argument_list
+                        (string) @{ENDPOINT}
+                        (keyword_argument
+                            name: (identifier) @kw (#eq? @kw "view_func")
+                            value: (lambda) @{ANONYMOUS_FUNCTION}
+                        )
+                    )
+                ) @{ROUTE}"#
+            ),
         ]
     }
 
@@ -488,5 +517,23 @@ impl Stack for Python {
 
     fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
         callback(NodeType::DataModel, NodeType::Class, "deduplicate");
+    }
+
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let clean_method = method.to_lowercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .replace("-", "_")
+            .trim_start_matches('_')
+            .trim_end_matches('_')
+            .to_string();
+
+        Some(format!("{}_{}_lambda_L{}", clean_method, clean_path, line))
     }
 }

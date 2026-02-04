@@ -67,7 +67,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 22);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 60);
+    assert_eq!(functions.len(), 65);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 8);
@@ -109,7 +109,7 @@ async fn test_btreemap_test_to_function_edges() -> Result<()> {
     assert_eq!(calls_edges, 14);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 214);
+    assert_eq!(contains_edges, 220);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 22);
@@ -126,8 +126,8 @@ async fn test_typescript_graph_upload() -> Result<()> {
     let graph_ops = setup_typescript_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 215);
-    assert_eq!(edges, 297);
+    assert_eq!(nodes, 221);
+    assert_eq!(edges, 303);
 
     Ok(())
 }
@@ -303,8 +303,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 16);
-    assert_eq!(results.len(), 16);
+    assert_eq!(count, 21);
+    assert_eq!(results.len(), 21);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -496,7 +496,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 38);
+    assert_eq!(count, 43);
 
     let has_function = results
         .iter()
@@ -932,7 +932,7 @@ async fn test_nodes_with_repo_filter() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 16);
+    assert_eq!(count, 21);
 
     let (empty_count, _) = graph_ops
         .query_nodes_with_count(

@@ -313,6 +313,7 @@ impl Stack for Php {
                     arguments: (arguments
                         (argument) @{ENDPOINT}
                         (argument) @{HANDLER}
+                        (#not-match? @{HANDLER} "^function|^fn|^static")
                     )
                 ) @{ROUTE}"#
             ),

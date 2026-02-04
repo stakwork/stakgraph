@@ -123,7 +123,7 @@ impl Stack for Ruby {
 
     fn function_definition_query(&self) -> String {
         format!(
-            "[
+            r#"[
                 (method
                     name: (identifier) @{FUNCTION_NAME}
                     parameters: (method_parameters)? @{ARGUMENTS}
@@ -132,7 +132,7 @@ impl Stack for Ruby {
                     name: (identifier) @{FUNCTION_NAME}
                     parameters: (method_parameters)? @{ARGUMENTS}
                 )
-            ] @{FUNCTION_DEFINITION}"
+            ] @{FUNCTION_DEFINITION}"#
         )
     }
     fn comment_query(&self) -> Option<String> {
@@ -167,6 +167,23 @@ impl Stack for Ruby {
     fn endpoint_finders(&self) -> Vec<String> {
         super::rails_routes::ruby_endpoint_finders_func()
     }
+
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let clean_method = method.to_lowercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .trim_start_matches('_')
+            .to_string();
+
+        Some(format!("{}_{}_block_L{}", clean_method, clean_path, line))
+    }
+
     fn endpoint_path_filter(&self) -> Option<String> {
         Some("routes.rb".to_string())
     }

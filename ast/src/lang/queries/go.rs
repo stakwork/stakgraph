@@ -195,8 +195,9 @@ impl Stack for Go {
     //         vec![q1.to_string()]
     //     }
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"(call_expression
+        vec![
+            format!(
+                r#"(call_expression
                 function: (selector_expression
                     operand: (identifier)
                     field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|DELETE|PATCH|Get|Post|Put|Delete|Patch)$")
@@ -211,7 +212,37 @@ impl Stack for Go {
                     ]
                 )
             ) @{ROUTE}"#
-        )]
+            ),
+            format!(
+                r#"(call_expression
+                function: (selector_expression
+                    operand: (identifier)
+                    field: (field_identifier) @{ENDPOINT_VERB}
+                    (#match? @{ENDPOINT_VERB} "^(GET|POST|PUT|DELETE|PATCH|Get|Post|Put|Delete|Patch)$")
+                )
+                arguments: (argument_list
+                    (interpreted_string_literal) @{ENDPOINT}
+                    (func_literal) @{ANONYMOUS_FUNCTION}
+                )
+            ) @{ROUTE}"#
+            ),
+        ]
+    }
+
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let clean_method = method.to_uppercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .trim_start_matches('_')
+            .to_string();
+
+        Some(format!("{}_{}_func_L{}", clean_method, clean_path, line))
     }
     fn endpoint_group_find(&self) -> Option<String> {
         Some(format!(
