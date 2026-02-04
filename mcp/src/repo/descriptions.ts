@@ -132,7 +132,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
           const name = node.properties.name || "Unknown";
 
           const prompt = `
-                          Please write a short, concise description (2-3 sentences) for this ${nodeType}.
+                          Please write a short, concise description (1-3 sentences) for this ${nodeType}.
                           Do not include the code itself in the description, just describe what it does.
 
                           Name: ${name}
