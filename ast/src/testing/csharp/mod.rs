@@ -113,7 +113,7 @@ pub async fn test_csharp_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 356, "Expected 356 Function nodes");
+    assert_eq!(functions.len(), 362, "Expected 362 Function nodes");
 
     let _get_all_method = functions
         .iter()
@@ -212,7 +212,7 @@ pub async fn test_csharp_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 1517, "Expected 1517 Contains edges");
+    assert_eq!(contains, 1523, "Expected 1523 Contains edges");
 
     let parent_of = graph.count_edges_of_type(EdgeType::ParentOf);
     edges += parent_of;
@@ -224,7 +224,7 @@ pub async fn test_csharp_generic<G: Graph>() -> Result<()> {
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
-    assert_eq!(handlers, 75, "Expected 75 Handler edges");
+    assert_eq!(handlers, 81, "Expected 81 Handler edges");
 
     let (num_nodes, num_edges) = graph.get_graph_size();
 

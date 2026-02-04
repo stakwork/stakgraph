@@ -44,7 +44,7 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 18, "Expected 18 files (added lib.rs)");
+    assert_eq!(files.len(), 19, "Expected 19 files");
 
     let rocket_file = files
         .iter()
@@ -78,7 +78,7 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 13, "Expected 13 imports");
+    assert_eq!(imports.len(), 14, "Expected 14 imports");
 
     let traits = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += traits.len();
@@ -270,7 +270,7 @@ use std::net::SocketAddr;"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 18, "Expected 18 endpoints");
+    assert_eq!(endpoints.len(), 21, "Expected 21 endpoints");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imported_edges;
@@ -278,7 +278,7 @@ use std::net::SocketAddr;"#
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 253, "Expected 253 contains edges (was 197)");
+    assert_eq!(contains_edges, 259, "Expected 259 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -290,7 +290,7 @@ use std::net::SocketAddr;"#
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 74, "Expected 74 functions");
+    assert_eq!(functions.len(), 78, "Expected 78 functions");
 
     let macros: Vec<_> = functions
         .iter()
@@ -415,11 +415,15 @@ use std::net::SocketAddr;"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 18, "Expected 18 handler edges");
+    assert_eq!(handlers, 21, "Expected 21 handler edges");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
     assert_eq!(implements, 2, "Expected 2 implements edges");
+
+    let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges_count += nested_in;
+    assert_eq!(nested_in, 3, "Expected 3 NestedIn edges");
 
     let get_person_fn = functions
         .iter()
@@ -753,6 +757,73 @@ use std::net::SocketAddr;"#
     assert!(
         graph.has_edge(&delete_user_endpoint, &delete_user_fn, EdgeType::Handler),
         "Expected '/admin/users/{{id}}' DELETE endpoint to be handled by delete_user (cross-file)"
+    );
+
+    // Verify anonymous closures
+    let anon_get_handler = functions
+        .iter()
+        .find(|f| {
+            f.name.contains("GET_anon-get_closure") && f.file.ends_with("anonymous_routes.rs")
+        })
+        .expect("Anonymous GET closure handler not found");
+
+    let anon_post_handler = functions
+        .iter()
+        .find(|f| {
+            f.name.contains("POST_anon-post_closure") && f.file.ends_with("anonymous_routes.rs")
+        })
+        .expect("Anonymous POST closure handler not found");
+
+    let anon_move_handler = functions
+        .iter()
+        .find(|f| {
+            f.name.contains("GET_anon-move_closure") && f.file.ends_with("anonymous_routes.rs")
+        })
+        .expect("Anonymous move closure handler not found");
+
+    let anon_get_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/anon-get" && e.file.ends_with("anonymous_routes.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("Anonymous GET endpoint not found");
+
+    let anon_post_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/anon-post" && e.file.ends_with("anonymous_routes.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("Anonymous POST endpoint not found");
+
+    let anon_move_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/anon-move" && e.file.ends_with("anonymous_routes.rs"))
+        .map(|n| Node::new(NodeType::Endpoint, n.clone()))
+        .expect("Anonymous move endpoint not found");
+
+    assert!(
+        graph.has_edge(
+            &anon_get_endpoint,
+            &Node::new(NodeType::Function, anon_get_handler.clone()),
+            EdgeType::Handler
+        ),
+        "Expected anonymous GET endpoint to link to closure handler"
+    );
+
+    assert!(
+        graph.has_edge(
+            &anon_post_endpoint,
+            &Node::new(NodeType::Function, anon_post_handler.clone()),
+            EdgeType::Handler
+        ),
+        "Expected anonymous POST endpoint to link to closure handler"
+    );
+
+    assert!(
+        graph.has_edge(
+            &anon_move_endpoint,
+            &Node::new(NodeType::Function, anon_move_handler.clone()),
+            EdgeType::Handler
+        ),
+        "Expected anonymous move endpoint to link to closure handler"
     );
 
     let init_db_fn = functions

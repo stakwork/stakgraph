@@ -1,6 +1,6 @@
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-// use crate::utils::get_use_lsp;
 use crate::{
     lang::Lang,
     repo::{Repo, Repos},
@@ -465,7 +465,6 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_php() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_php_generic::<ArrayGraph>().await.unwrap();
     test_php_generic::<BTreeMapGraph>().await.unwrap();
 }

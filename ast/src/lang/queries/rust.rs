@@ -509,6 +509,25 @@ impl Stack for Rust {
                 ) @{ROUTE}
             "#,
             ),
+            // Anonymous closures in routes (.route("/path", get(|args| { ... })))
+            format!(
+                r#"
+                (call_expression
+                    function: (field_expression
+                        field: (field_identifier) @route_method (#eq? @route_method "route")
+                    )
+                    arguments: (arguments
+                        (string_literal) @{ENDPOINT}
+                        (call_expression
+                            function: (identifier) @endpoint-verb (#match? @endpoint-verb "^get$|^post$|^put$|^delete$|^patch$")
+                            arguments: (arguments
+                                (closure_expression) @{ANONYMOUS_FUNCTION}
+                            )
+                        )
+                    )
+                ) @{ROUTE}
+                "#
+            ),
         ]
     }
 
@@ -621,7 +640,8 @@ impl Stack for Rust {
 
     fn add_endpoint_verb(&self, endpoint: &mut NodeData, call: &Option<String>) -> Option<String> {
         if let Some(verb) = endpoint.meta.remove("http_method") {
-            endpoint.add_verb(&verb);
+            let verb_upper = verb.to_uppercase();
+            endpoint.add_verb(&verb_upper);
             return None;
         }
 
@@ -666,6 +686,23 @@ impl Stack for Rust {
         path = path.replace("::", "/");
         path
     }
+
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let clean_method = method.to_uppercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .trim_start_matches('_')
+            .to_string();
+
+        Some(format!("{}_{}_closure_L{}", clean_method, clean_path, line))
+    }
+
     fn filter_by_implements(&self) -> bool {
         true
     }

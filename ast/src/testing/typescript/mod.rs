@@ -1,6 +1,7 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 // use crate::utils::get_use_lsp;
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -653,9 +654,6 @@ import {{ sequelize }} from "./config.js";"#
         "Expected 5 endpoints in post-router.ts"
     );
 
-    // Phase 2: Method chaining pattern (router.route().post().delete())
-    // Handler names follow pattern: {verb}_{path}_handler_L{line}
-    // Path params become param_ prefix, e.g. :postId becomes param_postId
     let like_post_endpoint = endpoints
         .iter()
         .find(|e| {
@@ -666,7 +664,6 @@ import {{ sequelize }} from "./config.js";"#
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("POST /:postId/like endpoint not found (method chaining)");
 
-    // LSP doesn't create Handler edges for inline arrow functions
     if !use_lsp {
         let like_post_handler = functions
             .iter()
@@ -713,7 +710,6 @@ import {{ sequelize }} from "./config.js";"#
         );
     }
 
-    // Phase 6-7: Types and Imports
     let types_file_nodes = graph
         .find_nodes_by_type(NodeType::Import)
         .into_iter()
@@ -733,7 +729,6 @@ import {{ sequelize }} from "./config.js";"#
     assert!(import_body.contains("as SP")); // Check aliasing
     assert!(import_body.contains("import \"./config\";")); // Side-effect
 
-    // Check DataModels (Type Aliases & Enums & Interfaces)
     let new_models = ["ID", "UserDTO", "UserRole", "Status", "Config"];
     for model_name in new_models {
         data_models
@@ -770,9 +765,6 @@ import {{ sequelize }} from "./config.js";"#
             .expect(&format!("Trait {} not found", trait_name));
     }
 
-    // Note: Logger and IGreeter might ALSO appear in DataModels due to query overlap
-    // verified by count 17 (10 old + 5 models + 2 dual-role)
-
     let (nodes, edges) = graph.get_graph_size();
 
     assert_eq!(
@@ -790,7 +782,6 @@ import {{ sequelize }} from "./config.js";"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_typescript() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_typescript_generic::<BTreeMapGraph>().await.unwrap();
     test_typescript_generic::<ArrayGraph>().await.unwrap();
 
