@@ -19,34 +19,39 @@ impl Cpp {
     }
 }
 impl Stack for Cpp {
-    fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+    fn q(&self, q: &str, nt: &NodeType) -> Query {
+        if matches!(nt, NodeType::Library) {
+            Query::new(&tree_sitter_bash::LANGUAGE.into(), q).unwrap()
+        } else {
+            Query::new(&self.0, q).unwrap()
+        }
     }
 
-    fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
+     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
-        parser.set_language(&self.0)?;
-        parser.parse(code, None).context("Failed to parse code")
+        if matches!(nt, NodeType::Library) {
+            parser.set_language(&tree_sitter_bash::LANGUAGE.into())?;
+        } else {
+            parser.set_language(&self.0)?;
+        }
+        Ok(parser.parse(code, None).context("failed to parse")?)
     }
 
     fn lib_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (translation_unit
-                (preproc_include
-                    path: (_)@{LIBRARY_NAME}
-                )?@{LIBRARY}
-                (preproc_ifdef
-                    name: (identifier) @condition
-                    (preproc_include
-                        path: (_)@{LIBRARY_NAME}
+            (command
+                name : (command_name) @command_name (#match? @command_name "^find_package$|^add_library$")
+                (subshell
+                    (command
+                        name: (command_name)@{LIBRARY_NAME}
+                        argument: (word)? @{LIBRARY_VERSION}
                     )@{LIBRARY}
-                )?
+                )
             )
             "#
         ))
     }
-
     fn imports_query(&self) -> Option<String> {
         Some(format!(
             r#"
