@@ -104,6 +104,13 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         `[describe_nodes] Processing batch of ${nodes.length} nodes...`,
       );
 
+      asyncReqs.updateReq(request_id, {
+        processed: totalProcessed,
+        total_cost: totalCost,
+        total_tokens: totalTokens,
+        current_batch_size: nodes.length,
+      });
+
       // Process batch sequentially
       for (const node of nodes) {
         // double check cost before each node to be safe
