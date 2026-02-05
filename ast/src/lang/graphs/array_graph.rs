@@ -16,6 +16,8 @@ pub struct ArrayGraph {
     pub errors: Vec<String>,
 
     #[serde(skip)]
+    allow_unverified_calls: bool,
+    #[serde(skip)]
     node_keys: HashSet<String>,
     #[serde(skip)]
     edge_keys: HashSet<String>,
@@ -881,10 +883,12 @@ impl Graph for ArrayGraph {
         self.edges.clone()
     }
 
-    fn set_allow_unverified_calls(&mut self, _allow: bool) {}
+    fn set_allow_unverified_calls(&mut self, allow: bool) {
+        self.allow_unverified_calls = allow;
+    }
 
     fn get_allow_unverified_calls(&self) -> bool {
-        false
+        self.allow_unverified_calls
     }
 }
 
