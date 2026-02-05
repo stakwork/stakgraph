@@ -1,6 +1,6 @@
 import { createMCPClient } from "@ai-sdk/mcp";
-import { Tool } from "ai";
-import { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
+import type { Tool } from "ai";
+import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
 
 export interface McpServer {
   name: string;

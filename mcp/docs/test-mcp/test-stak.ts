@@ -1,5 +1,6 @@
 import { createMCPClient } from "@ai-sdk/mcp";
-import { getMcpTools, McpServer } from "../src/repo/mcpServers.js";
+import { getMcpTools } from "../../src/repo/mcpServers.ts";
+import type { McpServer } from "../../src/repo/mcpServers.ts";
 
 const MCP_URL = process.env.MCP_URL || "https://mcp.stakwork.com/mcp";
 const MCP_TOKEN = process.env.MCP_TOKEN || "";
@@ -105,7 +106,7 @@ async function testWithAgent() {
   console.log("\n=== Test with ToolLoopAgent (full simulation) ===\n");
 
   const { ToolLoopAgent } = await import("ai");
-  const { getModelDetails } = await import("../src/aieo/src/index.js");
+  const { getModelDetails } = await import("../../src/aieo/dist/index.js");
 
   const mcpServers: McpServer[] = [
     {
@@ -120,7 +121,7 @@ async function testWithAgent() {
     const tools = await getMcpTools(mcpServers);
     console.log("Tools loaded:", Object.keys(tools));
 
-    const { model } = getModelDetails("claude-sonnet");
+    const { model } = getModelDetails("sonnet");
 
     const agent = new ToolLoopAgent({
       model,
