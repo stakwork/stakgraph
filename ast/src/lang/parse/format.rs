@@ -366,7 +366,7 @@ impl Lang {
                         endp.add_middleware(&middlewares.join(","));
                     }
                 }
-            } else if o == ARROW_FUNCTION_HANDLER {
+            } else if o == ANONYMOUS_FUNCTION {
                 let p = node.start_position();
                 handler_position = Some(Position::new(file, p.row as u32, p.column as u32)?);
 
@@ -376,8 +376,9 @@ impl Lang {
                     .unwrap_or(&"unknown".to_string())
                     .clone();
                 let path = endp.name.clone();
-                if let Some(generated_name) =
-                    self.lang.generate_arrow_handler_name(&method, &path, p.row)
+                if let Some(generated_name) = self
+                    .lang
+                    .generate_anonymous_handler_name(&method, &path, p.row)
                 {
                     endp.add_handler(&generated_name);
                 }
@@ -611,7 +612,7 @@ impl Lang {
                 method = body.to_uppercase();
             } else if o == ENDPOINT {
                 path = trim_quotes(&body).to_string();
-            } else if o == ARROW_FUNCTION_HANDLER {
+            } else if o == ANONYMOUS_FUNCTION {
                 arrow_function_body = body;
                 func_start = node.start_position().row;
                 func_end = node.end_position().row;
@@ -625,7 +626,7 @@ impl Lang {
 
         if let Some(generated_name) = self
             .lang
-            .generate_arrow_handler_name(&method, &path, func_start)
+            .generate_anonymous_handler_name(&method, &path, func_start)
         {
             let mut func = NodeData::name_file_start(&generated_name, file, func_start);
             func.end = func_end;

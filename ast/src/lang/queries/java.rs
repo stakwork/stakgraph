@@ -140,21 +140,54 @@ impl Stack for Java {
         )
     }
     fn endpoint_finders(&self) -> Vec<String> {
-        vec![format!(
-            r#"
-            (method_declaration
-                (modifiers
-                (annotation
-                    name: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping")
-                    arguments: (annotation_argument_list 
-                    (string_literal) @{ENDPOINT}
-                    )?
-                )
-                )
-                name: (identifier) @{HANDLER}
-            ) @{ROUTE}
-            "#
-        )]
+        vec![
+            format!(
+                r#"
+                (method_declaration
+                    (modifiers
+                    (annotation
+                        name: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping")
+                        arguments: (annotation_argument_list 
+                        (string_literal) @{ENDPOINT}
+                        )?
+                    )
+                    )
+                    name: (identifier) @{HANDLER}
+                ) @{ROUTE}
+                "#
+            ),
+            format!(
+                r#"
+                (method_invocation
+                    name: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^GET$|^POST$|^PUT$|^DELETE$|^PATCH$")
+                    arguments: (argument_list
+                        (string_literal) @{ENDPOINT}
+                        (lambda_expression
+                            parameters: (_) @{ARGUMENTS}
+                            body: (_) @lambda.body
+                        ) @{ANONYMOUS_FUNCTION}
+                    )
+                ) @{ROUTE}
+                "#
+            ),
+        ]
+    }
+
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let clean_method = method.to_uppercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .replace("-", "_")
+            .trim_start_matches('_')
+            .to_string();
+
+        Some(format!("{}_{}_lambda_L{}", clean_method, clean_path, line))
     }
 
     fn endpoint_group_find(&self) -> Option<String> {

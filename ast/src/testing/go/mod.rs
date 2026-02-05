@@ -56,7 +56,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 12, "Expected 12 file nodes");
+    assert_eq!(files.len(), 13, "Expected 13 file nodes");
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
@@ -64,7 +64,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 8, "Expected 8 imports");
+    assert_eq!(imports.len(), 9, "Expected 9 imports");
 
     let packages = graph.find_nodes_by_type(NodeType::Package);
     nodes_count += packages.len();
@@ -121,9 +121,9 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 74, "Expected 74 functions");
+        assert_eq!(functions.len(), 77, "Expected 77 functions");
     } else {
-        assert_eq!(functions.len(), 26, "Expected 26 functions");
+        assert_eq!(functions.len(), 29, "Expected 29 functions");
     }
     assert!(
         functions
@@ -156,9 +156,9 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     if use_lsp {
-        assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
+        assert_eq!(endpoints.len(), 6, "Expected 6 endpoints");
     } else {
-        assert_eq!(endpoints.len(), 3, "Expected 3 endpoints");
+        assert_eq!(endpoints.len(), 5, "Expected 5 endpoints");
     }
 
     let get_endpoint = endpoints
@@ -273,7 +273,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
         assert_eq!(handler_edges_count, 4, "Expected 4 handler edges with lsp");
     } else {
         assert_eq!(
-            handler_edges_count, 3,
+            handler_edges_count, 5,
             "Expected 3 handler edges without lsp"
         );
     }
@@ -296,7 +296,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 103, "Expected 103 contains edges");
+    assert_eq!(contains, 108, "Expected 108 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -313,6 +313,13 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     if use_lsp {
         assert_eq!(uses, 73, "Expected 73 uses edges with lsp");
     }
+
+    let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges_count += nested_in;
+    assert_eq!(
+        nested_in, 2,
+        "Expected 2 NestedIn edges for anonymous functions"
+    );
 
     let handler_fn = graph
         .find_nodes_by_name(NodeType::Function, "GetBountiesLeaderboard")
@@ -371,8 +378,32 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     );
     assert_eq!(
         edges as usize, edges_count,
-        "Expected {} edges got {}",
-        edges, edges_count
+        "Expected 144 edges got {}",
+        edges
+    );
+
+    let anon_get = endpoints
+        .iter()
+        .find(|e| e.name == "/anon-get")
+        .expect("GET /anon-get endpoint not found");
+
+    let get_handler = anon_get.meta.get("handler").expect("Handler missing");
+    assert!(
+        get_handler.contains("GET_anon-get_func_L8"),
+        "Incorrect GET handler: {}",
+        get_handler
+    );
+
+    let anon_post = endpoints
+        .iter()
+        .find(|e| e.name == "/anon-post")
+        .expect("POST /anon-post endpoint not found");
+
+    let post_handler = anon_post.meta.get("handler").expect("Handler missing");
+    assert!(
+        post_handler.contains("POST_anon-post_func_L13"),
+        "Incorrect POST handler: {}",
+        post_handler
     );
 
     Ok(())

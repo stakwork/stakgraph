@@ -215,7 +215,7 @@ pub trait Stack {
         None
     }
     fn update_endpoint(&self, _nd: &mut NodeData, _call: &Option<String>) {}
-    fn generate_arrow_handler_name(
+    fn generate_anonymous_handler_name(
         &self,
         _method: &str,
         _path: &str,

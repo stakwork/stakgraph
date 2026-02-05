@@ -1,6 +1,7 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 // use crate::utils::get_use_lsp;
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -47,7 +48,7 @@ pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 27, "Expected 27 File nodes");
+    assert_eq!(files.len(), 28, "Expected 28 File nodes");
 
     let pkg_files = files
         .iter()
@@ -82,7 +83,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(functions.len(), 38, "Expected 38 functions with LSP");
     } else {
-        assert_eq!(functions.len(), 60, "Expected 60 functions without LSP");
+        assert_eq!(functions.len(), 65, "Expected 65 functions without LSP");
     }
 
     let log_fn = functions
@@ -301,7 +302,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 214, "Expected 214 contains edges");
+    assert_eq!(contains, 220, "Expected 220 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -320,6 +321,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
+
     if use_lsp {
         assert_eq!(handlers, 8, "Expected 8 handler edges with LSP");
     } else {
@@ -350,6 +352,33 @@ import {{ sequelize }} from "./config.js";"#
         .map(|n| Node::new(NodeType::Function, n.clone()))
         .expect("getPerson function not found");
 
+    // NEW: anonymous_functions.ts tests
+    let anon_file_funcs = functions
+        .iter()
+        .filter(|f| normalize_path(&f.file) == "src/testing/typescript/src/anonymous_functions.ts")
+        .collect::<Vec<_>>();
+
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "basicArrow"),
+        "Missing basicArrow"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "arrowWithArgs"),
+        "Missing arrowWithArgs"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "implicitReturn"),
+        "Missing implicitReturn"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "anonExpr"),
+        "Missing anonExpr"
+    );
+    assert!(
+        anon_file_funcs.iter().any(|f| f.name == "anonWithArgs"),
+        "Missing anonWithArgs"
+    );
+    //TODO: Callbacks and IIFFEs are not captured as standalone roots for now.
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");
@@ -625,9 +654,6 @@ import {{ sequelize }} from "./config.js";"#
         "Expected 5 endpoints in post-router.ts"
     );
 
-    // Phase 2: Method chaining pattern (router.route().post().delete())
-    // Handler names follow pattern: {verb}_{path}_handler_L{line}
-    // Path params become param_ prefix, e.g. :postId becomes param_postId
     let like_post_endpoint = endpoints
         .iter()
         .find(|e| {
@@ -638,7 +664,6 @@ import {{ sequelize }} from "./config.js";"#
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("POST /:postId/like endpoint not found (method chaining)");
 
-    // LSP doesn't create Handler edges for inline arrow functions
     if !use_lsp {
         let like_post_handler = functions
             .iter()
@@ -685,7 +710,6 @@ import {{ sequelize }} from "./config.js";"#
         );
     }
 
-    // Phase 6-7: Types and Imports
     let types_file_nodes = graph
         .find_nodes_by_type(NodeType::Import)
         .into_iter()
@@ -705,7 +729,6 @@ import {{ sequelize }} from "./config.js";"#
     assert!(import_body.contains("as SP")); // Check aliasing
     assert!(import_body.contains("import \"./config\";")); // Side-effect
 
-    // Check DataModels (Type Aliases & Enums & Interfaces)
     let new_models = ["ID", "UserDTO", "UserRole", "Status", "Config"];
     for model_name in new_models {
         data_models
@@ -742,9 +765,6 @@ import {{ sequelize }} from "./config.js";"#
             .expect(&format!("Trait {} not found", trait_name));
     }
 
-    // Note: Logger and IGreeter might ALSO appear in DataModels due to query overlap
-    // verified by count 17 (10 old + 5 models + 2 dual-role)
-
     let (nodes, edges) = graph.get_graph_size();
 
     assert_eq!(
@@ -762,7 +782,6 @@ import {{ sequelize }} from "./config.js";"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_typescript() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_typescript_generic::<BTreeMapGraph>().await.unwrap();
     test_typescript_generic::<ArrayGraph>().await.unwrap();
 

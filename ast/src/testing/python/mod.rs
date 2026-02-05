@@ -43,11 +43,11 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 20, "Expected 20 files");
+    assert_eq!(files.len(), 21, "Expected 21 files");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 16, "Expected 16 imports");
+    assert_eq!(imports.len(), 17, "Expected 17 imports");
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls;
@@ -58,13 +58,12 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 132, "Expected 132 contains edges");
+    assert_eq!(contains, 138, "Expected 138 contains edges");
     edges_count += contains;
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    //FIXME: this ough t o be 6 hadndlers
-    assert_eq!(handlers, 4, "Expected 4 handler edges");
+    assert_eq!(handlers, 6, "Expected 6 handler edges");
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
@@ -92,7 +91,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 27, "Expected 27 functions");
+    assert_eq!(functions.len(), 30, "Expected 30 functions");
 
     let librabries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += librabries.len();
@@ -129,7 +128,7 @@ from flask_app.routes import flask_bp"#
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
-    assert_eq!(vars.len(), 27, "Expected 27 variables");
+    assert_eq!(vars.len(), 28, "Expected 28 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -151,7 +150,7 @@ from flask_app.routes import flask_bp"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 6, "Expected 6 endpoints");
+    assert_eq!(endpoints.len(), 9, "Expected 9 endpoints");
 
     let trait_nodes = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += trait_nodes.len();
@@ -905,6 +904,55 @@ from flask_app.routes import flask_bp"#
         .iter()
         .find(|c| c.name == "User")
         .expect("User class not found");
+
+    let lambda_rule_endpoint = graph
+        .find_nodes_by_name(NodeType::Endpoint, "/lambda-rule")
+        .into_iter()
+        .next()
+        .expect("lambda-rule endpoint not found");
+
+    let lambda_decorator_endpoint = graph
+        .find_nodes_by_name(NodeType::Endpoint, "/lambda-decorator")
+        .into_iter()
+        .next()
+        .expect("lambda-decorator endpoint not found");
+
+    let lambda_get_endpoint = graph
+        .find_nodes_by_name(NodeType::Endpoint, "/lambda-get")
+        .into_iter()
+        .next()
+        .expect("lambda-get endpoint not found");
+
+    // Check handler names
+    let rule_handler = lambda_rule_endpoint
+        .meta
+        .get("handler")
+        .expect("Rule handler missing");
+    assert!(
+        rule_handler.contains("unknown_lambda_rule_lambda_L5"),
+        "Incorrect rule handler: {}",
+        rule_handler
+    );
+
+    let decorator_handler = lambda_decorator_endpoint
+        .meta
+        .get("handler")
+        .expect("Decorator handler missing");
+    assert!(
+        decorator_handler.contains("route_lambda_decorator_lambda_L8"),
+        "Incorrect decorator handler: {}",
+        decorator_handler
+    );
+
+    let get_handler = lambda_get_endpoint
+        .meta
+        .get("handler")
+        .expect("Get handler missing");
+    assert!(
+        get_handler.contains("get_lambda_get_lambda_L11"),
+        "Incorrect get handler: {}",
+        get_handler
+    );
 
     assert!(
         user_class

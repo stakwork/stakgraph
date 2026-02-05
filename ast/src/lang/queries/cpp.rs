@@ -252,6 +252,7 @@ impl Stack for Cpp {
                         )
                     )@{ROUTE}
                     )
+
                     (call_expression
                     function: (call_expression
                         (field_expression
@@ -280,9 +281,61 @@ impl Stack for Cpp {
                         )
                     )
                     )@{ROUTE}
+
+                    (expression_statement
+                        (call_expression
+                            function: (call_expression
+                                function: (identifier) @route_macro (#match? @route_macro "^CROW_(ROUTE|WEBSOCKET_ROUTE|BP_ROUTE)$")
+                                arguments: (argument_list
+                                    (identifier) @{OPERAND}
+                                    (string_literal) @{ENDPOINT}
+                                )
+                            )
+                            arguments: (argument_list
+                                (lambda_expression) @{ANONYMOUS_FUNCTION}
+                            )
+                        ) @{ROUTE}
+                    )
+
+                    (call_expression
+                        function: (call_expression
+                            function: (field_expression
+                                argument: (call_expression
+                                    function: (identifier) @route_macro (#match? @route_macro "^CROW_(ROUTE|WEBSOCKET_ROUTE|BP_ROUTE)$")
+                                    arguments: (argument_list
+                                        (identifier) @{OPERAND}
+                                        (string_literal) @{ENDPOINT}
+                                    )
+                                )
+                                field: (field_identifier) @method_name (#match? @method_name "methods")
+                            )
+                            arguments: (argument_list
+                                (user_defined_literal) @{ENDPOINT_VERB}
+                            )
+                        )
+                        arguments: (argument_list
+                            (lambda_expression) @{ANONYMOUS_FUNCTION}
+                        )
+                    ) @{ROUTE}
                     ]
                 "#
         )]
+    }
+
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let clean_method = method.to_uppercase();
+        let clean_path = path
+            .replace("/", "_")
+            .replace(":", "param_")
+            .trim_start_matches('_')
+            .to_string();
+
+        Some(format!("{}_{}_lambda_L{}", clean_method, clean_path, line))
     }
     fn add_endpoint_verb(&self, nd: &mut NodeData, _call: &Option<String>) -> Option<String> {
         if let Some(verb) = nd.meta.get("verb") {

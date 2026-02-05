@@ -299,6 +299,17 @@ impl Stack for CSharp {
         ))
     }
 
+    fn generate_anonymous_handler_name(
+        &self,
+        method: &str,
+        path: &str,
+        line: usize,
+    ) -> Option<String> {
+        let method_str = method.to_uppercase();
+        let path_str = path.replace('/', "_").replace(['{', '}', ':'], "");
+        Some(format!("{}_{}_closure_L{}", method_str, path_str, line))
+    }
+
     fn endpoint_finders(&self) -> Vec<String> {
         vec![
             // Controller action with [HttpGet], [HttpPost], etc.
@@ -338,7 +349,28 @@ impl Stack for CSharp {
                         (argument
                             (string_literal) @{ENDPOINT}
                         )
-                        (argument) @{HANDLER}
+                        (argument
+                            [
+                                (identifier)
+                                (member_access_expression)
+                            ] @{HANDLER}
+                        )
+                    )
+                ) @{ROUTE}"#
+            ),
+            // Minimal API with lambda: app.MapGet("/path", () => ...)
+            format!(
+                r#"(invocation_expression
+                    function: (member_access_expression
+                        name: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^Map(Get|Post|Put|Delete|Patch)$")
+                    )
+                    arguments: (argument_list
+                        (argument
+                            (string_literal) @{ENDPOINT}
+                        )
+                        (argument
+                            (lambda_expression) @{ANONYMOUS_FUNCTION}
+                        )
                     )
                 ) @{ROUTE}"#
             ),

@@ -34,7 +34,7 @@ pub const ASSOCIATION_TARGET: &str = "association-target";
 pub const ASSOCIATION_OPTION: &str = "association-option";
 
 pub const HANDLER: &str = "handler";
-pub const ARROW_FUNCTION_HANDLER: &str = "arrow-function-handler";
+pub const ANONYMOUS_FUNCTION: &str = "anonymous-function";
 pub const HANDLER_ACTIONS_ARRAY: &str = "handler-actions-array";
 pub const COLLECTION_ITEM: &str = "collection-item";
 pub const MEMBER_ITEM: &str = "member-item";

@@ -1,6 +1,6 @@
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-// use crate::utils::get_use_lsp;
 use crate::{
     lang::Lang,
     repo::{Repo, Repos},
@@ -34,7 +34,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 15, "Expected 15 File nodes");
+    assert_eq!(file_nodes.len(), 16, "Expected 16 File nodes");
 
     let _web_routes = file_nodes
         .iter()
@@ -45,6 +45,11 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
         .iter()
         .find(|f| f.file.ends_with("php/routes/api.php"))
         .expect("routes/api.php not found");
+
+    let _anon_funcs = file_nodes
+        .iter()
+        .find(|f| f.file.ends_with("php/anonymous_functions.php"))
+        .expect("anonymous_functions.php not found");
 
     let user_controller_file = file_nodes
         .iter()
@@ -76,7 +81,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 19, "Expected 19 Function nodes");
+    assert_eq!(functions.len(), 22, "Expected 22 Function nodes");
 
     let index_method = functions
         .iter()
@@ -91,7 +96,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
-    assert_eq!(endpoints.len(), 38, "Expected 38 Endpoint nodes");
+    assert_eq!(endpoints.len(), 41, "Expected 41 Endpoint nodes");
 
     let root_endpoint = endpoints
         .iter()
@@ -220,7 +225,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes += imports.len();
-    assert_eq!(imports.len(), 11, "Expected 11 Import nodes");
+    assert_eq!(imports.len(), 12, "Expected 12 Import nodes");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
@@ -260,7 +265,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 91, "Expected 91 Contains edges");
+    assert_eq!(contains, 96, "Expected 96 Contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -396,7 +401,7 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges += handlers;
-    assert_eq!(handlers, 8, "Expected 8 Handler edges");
+    assert_eq!(handlers, 13, "Expected 13 Handler edges");
 
     let (num_nodes, num_edges) = graph.get_graph_size();
 
@@ -410,12 +415,56 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
         "Edges mismatch: expected {edges} edges found {num_edges}"
     );
 
+    let closure_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/users-closure"
+                && e.file.ends_with("anonymous_functions.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /users-closure endpoint not found");
+
+    assert_eq!(
+        closure_endpoint.meta.get("handler"),
+        Some(&"get_users_closure_handler_L7".to_string()),
+        "Closure endpoint handler name incorrect"
+    );
+
+    let closure_post_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/posts-closure/{id}/like"
+                && e.file.ends_with("anonymous_functions.php")
+                && e.meta.get("verb") == Some(&"POST".to_string())
+        })
+        .expect("POST /posts-closure/{id}/like endpoint not found");
+
+    assert_eq!(
+        closure_post_endpoint.meta.get("handler"),
+        Some(&"post_posts_closure_{id}_like_handler_L11".to_string()),
+        "Closure POST endpoint handler name incorrect"
+    );
+
+    let arrow_endpoint = endpoints
+        .iter()
+        .find(|e| {
+            e.name == "/status-arrow"
+                && e.file.ends_with("anonymous_functions.php")
+                && e.meta.get("verb") == Some(&"GET".to_string())
+        })
+        .expect("GET /status-arrow endpoint not found");
+
+    assert_eq!(
+        arrow_endpoint.meta.get("handler"),
+        Some(&"get_status_arrow_handler_L16".to_string()),
+        "Arrow endpoint handler name incorrect"
+    );
+
     Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_php() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_php_generic::<ArrayGraph>().await.unwrap();
     test_php_generic::<BTreeMapGraph>().await.unwrap();
 }
