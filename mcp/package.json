@@ -40,7 +40,7 @@
     "@ai-sdk/anthropic": "3.0.0-beta.66",
     "@ai-sdk/mcp": "^1.0.13",
     "@anthropic-ai/sdk": "^0.37.0",
-    "@browserbasehq/stagehand": "^2.4.3",
+    "@browserbasehq/stagehand": "^3.0.8",
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@octokit/rest": "^22.0.0",
@@ -65,7 +65,7 @@
     "node-cache": "^5.1.2",
     "simple-git": "^3.28.0",
     "uuid": "^11.1.0",
-    "zod": "4.1.12"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/archy": "^0.0.36",
