@@ -43,6 +43,8 @@ pub struct ProcessBody {
     pub realtime: Option<bool>,
     pub docs: Option<String>,
     pub mocks: Option<String>,
+    pub embeddings: Option<String>,
+    pub embeddings_limit: Option<f32>,
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ProcessResponse {

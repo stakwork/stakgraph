@@ -1142,6 +1142,41 @@ class Db {
       await session.close();
     }
   }
+
+  async get_nodes_without_description(limit: number, repo_paths: string[] | null, file_paths: string[]): Promise<Neo4jNode[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_NODES_WITHOUT_DESCRIPTION_QUERY, {
+        limit: neo4j.int(limit),
+        repo_paths: repo_paths || [],
+        file_paths,
+      });
+      return result.records.map((record) => ({
+        properties: record.get("properties"),
+        labels: record.get("labels"),
+        ref_id: record.get("ref_id"),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async update_node_description_and_embeddings(
+    ref_id: string,
+    description: string,
+    embeddings: number[]
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.UPDATE_NODE_DESCRIPTION_AND_EMBEDDINGS_QUERY, {
+        ref_id,
+        description,
+        embeddings,
+      });
+    } finally {
+      await session.close();
+    }
+  }
 }
 
 export let db: Db;
@@ -1329,6 +1364,5 @@ function escapeSearchTerm(term: string): string {
     );
     result = result.replace(regex, `\\${char}`);
   }
-
   return result;
 }

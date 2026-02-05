@@ -4,6 +4,7 @@ interface Request {
   status: Status;
   result?: any;
   error?: any;
+  progress?: any;
 }
 
 const REQS: Record<string, Request> = {};
@@ -43,6 +44,12 @@ export function failReq(id: string, error: any) {
   if (REQS[id]) {
     REQS[id].status = "failed";
     REQS[id].error = error;
+  }
+}
+
+export function updateReq(id: string, progress: any) {
+  if (REQS[id]) {
+    REQS[id].progress = progress;
   }
 }
 

@@ -11,7 +11,8 @@ import { ModelName } from "../aieo/src/index.js";
 import { SessionConfig } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 
-export { services_agent, mocks_agent };
+import { describe_nodes_agent } from "./descriptions.js";
+export { services_agent, mocks_agent, describe_nodes_agent };
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.5"
 export async function repo_agent(req: Request, res: Response) {

@@ -1,7 +1,7 @@
 use crate::types::{AppState, ProcessBody, ProcessResponse, Result, WebError};
-use crate::utils::{call_mcp_docs, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo};
+use crate::utils::{call_mcp_docs, call_mcp_mocks, call_mcp_embed, resolve_repo, should_call_mcp_for_repo};
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
-use ast::repo::{clone_repo, Repo};
+use ast::repo::{clone_repo, Repo, check_revs_files};
 use axum::{extract::State, Json};
 use lsp::{git::get_commit_hash, git::validate_git_credentials, strip_tmp};
 use std::sync::Arc;
@@ -18,6 +18,8 @@ pub async fn ingest(
     let use_lsp = body.use_lsp;
     let docs_param = body.docs.clone();
     let mocks_param = body.mocks.clone();
+    let embeddings_param = body.embeddings.clone();
+    let embeddings_limit = body.embeddings_limit.unwrap_or(5.0);
 
     let repo_url_joined = repo_urls.join(",");
     let final_repo_path = repo_paths.first().cloned().unwrap_or_default();
@@ -184,6 +186,9 @@ pub async fn ingest(
         if should_call_mcp_for_repo(&mocks_param, repo_url) {
             call_mcp_mocks(repo_url, username.as_deref(), pat.as_deref(), false).await;
         }
+        if should_call_mcp_for_repo(&embeddings_param, repo_url) {
+            call_mcp_embed(repo_url, embeddings_limit, vec![], false).await;
+        }
     }
 
     Ok(Json(ProcessResponse { nodes, edges }))
@@ -210,6 +215,8 @@ pub async fn sync(
     }
 
     let use_lsp = body.use_lsp;
+    let embeddings_param = body.embeddings.clone();
+    let embeddings_limit = body.embeddings_limit.unwrap_or(5.0);
 
     let total_start = Instant::now();
 
@@ -263,6 +270,12 @@ pub async fn sync(
 
     let (prev_nodes, prev_edges) = graph_ops.graph.get_graph_size();
 
+    let modified_files = if !hash.is_empty() {
+        check_revs_files(&repo_path, vec![hash.to_string(), current_hash.clone()])
+    } else {
+        None
+    };
+
     info!("Updating repository hash from {} to {}", hash, current_hash);
     let (nodes, edges) = graph_ops
         .update_incremental(
@@ -282,6 +295,12 @@ pub async fn sync(
         "\n\n ==>> Total processing time: {:.2?} \n\n",
         total_start.elapsed()
     );
+
+    if should_call_mcp_for_repo(&embeddings_param, repo_url) {
+        if let Some(files) = modified_files {
+            call_mcp_embed(repo_url, embeddings_limit, files, true).await;
+        }
+    }
 
     let delta_nodes = nodes - prev_nodes;
     let delta_edges = edges - prev_edges;

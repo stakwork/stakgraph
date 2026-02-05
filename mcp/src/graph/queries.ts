@@ -824,6 +824,21 @@ RETURN r, source.ref_id AS source_ref_id, target.ref_id AS target_ref_id, type(r
 ORDER BY edge_type, source_ref_id
 LIMIT toInteger($limit)
 `;
+
+export const GET_NODES_WITHOUT_DESCRIPTION_QUERY = `
+MATCH (n)
+WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel)
+  AND (n.description IS NULL OR n.description = '')
+  AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
+  AND ($file_paths IS NULL OR size($file_paths) = 0 OR ANY(path IN $file_paths WHERE n.file ENDS WITH path))
+RETURN n, n.ref_id as ref_id, labels(n) as labels, properties(n) as properties
+LIMIT toInteger($limit)
+`;
+
+export const UPDATE_NODE_DESCRIPTION_AND_EMBEDDINGS_QUERY = `
+MATCH (n {ref_id: $ref_id})
+SET n.description = $description, n.embeddings = $embeddings
+`;
 /*
 
 CALL db.index.fulltext.queryNodes('nameIndex', 'bounty') YIELD node, score
