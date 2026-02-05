@@ -392,8 +392,8 @@ export async function create_pull_request(req: Request, res: Response) {
 
   try {
     // Vectorize the docs
-    const { vectorizeQuery } = await import("../vector/index.js");
-    const embeddings = await vectorizeQuery(docs);
+    const { vectorizeCodeDocument } = await import("../vector/index.js");
+    const embeddings = await vectorizeCodeDocument(docs);
 
     // Create the PullRequest node
     const result = await db.create_pull_request(name, docs, embeddings, number);

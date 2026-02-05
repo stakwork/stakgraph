@@ -1,7 +1,7 @@
 import { Storage } from "./store/index.js";
 import { Clue, ClueAnalysisResult, Usage } from "./types.js";
 import { get_context } from "../repo/agent.js";
-import { vectorizeQuery } from "../vector/index.js";
+import { vectorizeCodeDocument } from "../vector/index.js";
 
 /**
  * Analyzes feature codebases to extract architectural clues
@@ -144,7 +144,9 @@ export class ClueAnalyzer {
 
     for (const clueData of decision.clues || []) {
       // Generate embedding from title + content
-      const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
+      const embedding = await vectorizeCodeDocument(
+        `${clueData.title}\n\n${clueData.content}`,
+      );
 
       // Get repo from feature if not set
       const clueRepo = this.repo || feature.repo;
@@ -395,7 +397,9 @@ export class ClueAnalyzer {
 
     for (const clueData of decision.clues || []) {
       // Generate embedding from title + content
-      const embedding = await vectorizeQuery(`${clueData.title}\n\n${clueData.content}`);
+      const embedding = await vectorizeCodeDocument(
+        `${clueData.title}\n\n${clueData.content}`,
+      );
 
       const clue: Clue = {
         id: this.generateClueId(clueData.title, this.repo),

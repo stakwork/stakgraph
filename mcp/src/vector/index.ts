@@ -22,7 +22,7 @@ export async function vectorizeCodeDocument(
 
   // For smaller documents, use directly
   if (codeString.length < 400) {
-    const embedding = await flagEmbedding.queryEmbed(codeString);
+    const [embedding] = await flagEmbedding.embed([codeString]);
     return embedding; // Ensure we return a single vector
   }
 
