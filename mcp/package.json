@@ -44,6 +44,7 @@
     "@microsoft/tiktokenizer": "^1.0.9",
     "@modelcontextprotocol/sdk": "^1.25.2",
     "@octokit/rest": "^22.0.0",
+    "@openrouter/ai-sdk-provider": "^2.1.1",
     "@playwright/test": "^1.53.0",
     "ai": "6.0.0-beta.124",
     "archy": "^1.0.0",
