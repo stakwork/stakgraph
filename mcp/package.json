@@ -54,7 +54,7 @@
     "express": "^4.21.2",
     "express-fileupload": "^1.5.1",
     "fast-glob": "^3.3.3",
-    "fastembed": "^1.0.0",
+    "fastembed": "^2.1.0",
     "git-url-parse": "^16.0.1",
     "gitsee": "1.0.18",
     "gitsee-agent": "1.0.19",

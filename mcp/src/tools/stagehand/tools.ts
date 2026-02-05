@@ -8,8 +8,17 @@ import {
   getConsoleLogs,
   getNetworkEntries,
 } from "./core.js";
-import { AgentProviderType } from "@browserbasehq/stagehand";
+import { Stagehand, Page } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
+
+// Helper to get the active page from a Stagehand instance
+function getActivePage(stagehand: Stagehand): Page {
+  const page = stagehand.context.activePage();
+  if (!page) {
+    throw new Error("No active page available");
+  }
+  return page;
+}
 
 // human logs + session tracking to generate a tracker
 // integrate click tracker (puppeteer or playwright)
@@ -185,17 +194,20 @@ export async function call(
   };
 
   try {
+    // Get the active page for page-level operations
+    const page = getActivePage(stagehand);
+
     switch (name) {
       case NavigateTool.name: {
         const parsedArgs = NavigateSchema.parse(args);
-        await stagehand.page.goto(parsedArgs.url);
+        await page.goto(parsedArgs.url);
         return success(`Navigated to: ${parsedArgs.url}`);
       }
 
       case ActTool.name: {
         const parsedArgs = ActSchema.parse(args);
-        await stagehand.page.act({
-          action: parsedArgs.action,
+        // act() is now a method on Stagehand directly
+        await stagehand.act(parsedArgs.action, {
           variables: parsedArgs.variables,
         });
         return success(`Action performed: ${parsedArgs.action}`);
@@ -203,7 +215,8 @@ export async function call(
 
       case ExtractTool.name: {
         ExtractSchema.parse(args); // Validate even though no args expected
-        const bodyText = await stagehand.page.evaluate(
+        // Use page.evaluate for raw text extraction
+        const bodyText = await page.evaluate(
           () => document.body.innerText
         );
         const content = sanitize(bodyText);
@@ -212,21 +225,19 @@ export async function call(
 
       case ObserveTool.name: {
         const parsedArgs = ObserveSchema.parse(args);
-        const observations = await stagehand.page.observe({
-          instruction: parsedArgs.instruction,
-          returnAction: false,
-        });
+        // observe() is now a method on Stagehand directly
+        const observations = await stagehand.observe(parsedArgs.instruction);
         return success(`${JSON.stringify(observations)}`);
       }
 
       case ScreenshotTool.name: {
         ScreenshotSchema.parse(args); // Validate even though no args expected
-        const buffer = await stagehand.page.screenshot({ fullPage: false });
+        const buffer = await page.screenshot({ fullPage: false });
         const base64 = buffer.toString("base64");
-        const name = `screenshot-${new Date()
+        const screenshotName = `screenshot-${new Date()
           .toISOString()
           .replace(/:/g, "-")}`;
-        return success(`Screenshot taken: ${name}`, {
+        return success(`Screenshot taken: ${screenshotName}`, {
           type: "image" as const,
           data: base64,
           mimeType: "image/png",
@@ -237,9 +248,10 @@ export async function call(
         const parsedArgs = AgentSchema.parse(args);
         let provider = getProvider(parsedArgs.provider);
         console.log("agent provider:", provider.computer_use_model);
+        // New agent API uses 'model' field in AgentConfig, and 'mode' for CUA
         const agent = stagehand.agent({
-          provider: provider.name as AgentProviderType,
           model: provider.computer_use_model,
+          mode: "cua", // Use Computer Use Agent mode
         });
         const rez = (await agent.execute({
           instruction: parsedArgs.instruction,
@@ -247,7 +259,7 @@ export async function call(
         })) as any;
         if (parsedArgs.include_screenshot) {
           console.log("=====> agent taking screenshot");
-          const buffer = await stagehand.page.screenshot({ fullPage: false });
+          const buffer = await page.screenshot({ fullPage: false });
           const base64 = buffer.toString("base64");
           rez.screenshot = {
             type: "image" as const,
