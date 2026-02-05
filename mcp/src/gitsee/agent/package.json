@@ -25,11 +25,11 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@ai-sdk/anthropic": "3.0.0-beta.66",
-    "ai": "6.0.0-beta.124",
+    "@ai-sdk/anthropic": "3.0.37",
+    "ai": "6.0.72",
     "dotenv": "^17.2.2",
     "isomorphic-git": "^1.25.0",
-    "zod": "^4.1.8"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20.19.13",

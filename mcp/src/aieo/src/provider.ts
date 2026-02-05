@@ -6,7 +6,7 @@ import {
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
 import { LanguageModel } from "ai";
 import { Logger } from "./logger.js";
-import { createOpenRouter, OpenRouterProviderOptions } from "@openrouter/ai-sdk-provider";
+import { createOpenRouter, OpenRouterModelOptions } from "@openrouter/ai-sdk-provider";
 
 export type Provider = "anthropic" | "google" | "openai" | "openrouter";
 
@@ -268,7 +268,7 @@ export function getProviderOptions(
       };
     case "openrouter":
       return {
-        openrouter: {} satisfies OpenRouterProviderOptions,
+        openrouter: {} satisfies OpenRouterModelOptions,
       };
     default:
       throw new Error(`Unsupported provider: ${provider}`);

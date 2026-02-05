@@ -13,12 +13,14 @@
     "http": "ts-node http.ts",
     "http-mcp-client": "ts-node http-mcp-client.ts",
     "test-lru": "ts-node test-lru.ts",
-    "stak": "ts-node stak.ts"
+    "stak": "ts-node stak.ts",
+    "test-stak": "ts-node test-stak.ts"
   },
   "dependencies": {
+    "@ai-sdk/provider": "^3.0.7",
     "@modelcontextprotocol/sdk": "^1.15.1",
-    "ai": "^4.3.16",
-    "aieo": "^0.1.12",
+    "ai": "^6.0.72",
+    "aieo": "^0.1.30",
     "dotenv": "^17.2.0"
   },
   "devDependencies": {

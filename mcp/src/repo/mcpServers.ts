@@ -1,6 +1,6 @@
 import { createMCPClient } from "@ai-sdk/mcp";
-import { Tool } from "ai";
-import { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
+import type { Tool } from "ai";
+import type { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
 
 export interface McpServer {
   name: string;
@@ -13,6 +13,8 @@ export interface McpServer {
 // Safe wrapper for toModelOutput that handles undefined output
 // This fixes a bug in @ai-sdk/mcp where mcpToModelOutput crashes on undefined
 function createSafeToModelOutput(
+  serverName: string,
+  toolName: string,
   originalToModelOutput?: (params: {
     toolCallId: string;
     input: unknown;
@@ -24,13 +26,24 @@ function createSafeToModelOutput(
     input: unknown;
     output: unknown;
   }): LanguageModelV2ToolResultOutput => {
-    const { output } = params;
+    const { toolCallId, input, output } = params;
+
+    // Debug logging to see what the agent receives
+    console.log(`[MCP Debug] ========================================`);
+    console.log(`[MCP Debug] Server: ${serverName}, Tool: ${toolName}`);
+    console.log(`[MCP Debug] toolCallId: ${toolCallId}`);
+    console.log(`[MCP Debug] input:`, JSON.stringify(input, null, 2));
+    console.log(`[MCP Debug] output type: ${typeof output}`);
+    console.log(`[MCP Debug] output:`, JSON.stringify(output, null, 2));
+    console.log(`[MCP Debug] ========================================`);
 
     // Handle undefined/null output before passing to original
     if (output === undefined || output === null) {
+      console.error(`[MCP Debug] ERROR: Tool ${serverName}_${toolName} returned undefined/null`);
+      console.error(`[MCP Debug] Input was:`, JSON.stringify(input, null, 2));
       return {
         type: "text",
-        value: "Error: Tool returned undefined result",
+        value: `Error: Tool ${serverName}_${toolName} returned undefined result. Input was: ${JSON.stringify(input)}`,
       };
     }
 
@@ -88,6 +101,8 @@ export async function getMcpTools(
           const wrappedTool = {
             ...tool,
             toModelOutput: createSafeToModelOutput(
+              server.name,
+              toolName,
               (tool as any).toModelOutput
             ),
           };
