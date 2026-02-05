@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
-import { mcp_routes } from "./tools/server.js";
-import { sse_routes } from "./tools/sse.js";
+import { graph_mcp_routes } from "./tools/server.js";
+import { graph_sse_routes } from "./tools/sse.js";
 import fileUpload from "express-fileupload";
 import * as r from "./graph/routes.js";
 import * as uploads from "./graph/uploads.js";
@@ -16,6 +16,7 @@ import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
 import * as rr from "./repo/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
+import { mcp_routes } from "./handler/index.js";
 
 dotenv.config();
 
@@ -30,9 +31,11 @@ const app = express();
 app.use(cors());
 
 // SSE routes must come before body parsing middleware to preserve raw streams
-sse_routes(app);
+graph_sse_routes(app);
 
 app.use(express.json());
+
+graph_mcp_routes(app);
 
 mcp_routes(app);
 

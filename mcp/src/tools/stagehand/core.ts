@@ -1,4 +1,4 @@
-import { Stagehand } from "@browserbasehq/stagehand";
+import { Stagehand, Page } from "@browserbasehq/stagehand";
 import { getProvider } from "./providers.js";
 
 let STATE: {
@@ -9,6 +9,15 @@ let STATE: {
     networkEntries: NetworkEntry[];
   };
 } = {};
+
+// Helper to get the active page from Stagehand instance
+function getActivePage(sh: Stagehand): Page {
+  const page = sh.context.activePage();
+  if (!page) {
+    throw new Error("No active page available");
+  }
+  return page;
+}
 
 export interface ConsoleLog {
   timestamp: string;
@@ -51,14 +60,13 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
   console.log("initializing stagehand!", provider.model);
   const sh = new Stagehand({
     env: "LOCAL",
-    domSettleTimeoutMs: 60000,
+    domSettleTimeout: 60000,
     localBrowserLaunchOptions: {
       headless: true,
       viewport: { width: 1024, height: 768 },
     },
-    enableCaching: true,
-    modelName: provider.model,
-    modelClientOptions: {
+    model: {
+      modelName: provider.model,
       apiKey: process.env[provider.api_key_env_var_name],
     },
   });
@@ -72,63 +80,25 @@ export async function getOrCreateStagehand(sessionIdMaybe?: string) {
     networkEntries: [],
   };
 
-  // Set up console log listener
-  sh.page.on("console", (msg) => {
+  // Set up console log listener on the active page
+  const page = getActivePage(sh);
+  page.on("console", (msg) => {
+    const location = msg.location();
     addConsoleLog(sessionId, {
       timestamp: new Date().toISOString(),
       type: msg.type(),
       text: msg.text(),
-      location: msg.location(),
+      location: {
+        url: location.url || "",
+        lineNumber: location.lineNumber || 0,
+        columnNumber: location.columnNumber || 0,
+      },
     });
   });
 
-  // Set up network monitoring listeners
-  const requestStartTimes = new Map<string, number>();
-
-  sh.page.on("request", (request) => {
-    const requestId = `${request.method()}-${request.url()}-${Date.now()}`;
-    requestStartTimes.set(request.url(), Date.now());
-
-    addNetworkEntry(sessionId, {
-      id: requestId,
-      timestamp: new Date().toISOString(),
-      type: 'request',
-      method: request.method(),
-      url: request.url(),
-      resourceType: request.resourceType(),
-    });
-  });
-
-  sh.page.on("response", async (response) => {
-    const requestUrl = response.url();
-    const startTime = requestStartTimes.get(requestUrl);
-    const duration = startTime ? Date.now() - startTime : undefined;
-    const responseId = `${response.request().method()}-${requestUrl}-${Date.now()}`;
-
-    let size: number | undefined;
-    try {
-      const body = await response.body();
-      size = body.length;
-    } catch (error) {
-      // Some responses may not have accessible bodies
-      size = undefined;
-    }
-
-    addNetworkEntry(sessionId, {
-      id: responseId,
-      timestamp: new Date().toISOString(),
-      type: 'response',
-      method: response.request().method(),
-      url: requestUrl,
-      status: response.status(),
-      duration,
-      resourceType: response.request().resourceType(),
-      size,
-    });
-
-    // Clean up timing data
-    requestStartTimes.delete(requestUrl);
-  });
+  // Note: Network monitoring via request/response events is not available
+  // in the new Stagehand V3 API. The Page class only exposes "console" events.
+  // Network monitoring would need to be implemented via CDP directly if needed.
 
   // Check if we need to evict old sessions (LRU)
   if (Object.keys(STATE).length > MAX_SESSIONS) {

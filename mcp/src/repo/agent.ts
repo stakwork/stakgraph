@@ -132,7 +132,7 @@ export async function get_context(
     apiKey: apiKeyIn,
   } = opts;
   const startTime = Date.now();
-  const { model, apiKey } = getModelDetails(modelName, apiKeyIn);
+  const { model, apiKey, provider } = getModelDetails(modelName, apiKeyIn);
   console.log("===> model", model);
 
   // Session handling: if sessionId provided, use existing or create new with that ID
@@ -150,7 +150,7 @@ export async function get_context(
     }
   }
 
-  let tools = get_tools(repoPath, apiKey, pat, toolsConfig);
+  let tools = get_tools(repoPath, apiKey, pat, toolsConfig, provider);
 
   // Load and merge MCP server tools if configured
   if (mcpServers && mcpServers.length > 0) {

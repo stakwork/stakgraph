@@ -40,6 +40,7 @@ export async function cloneOrUpdateRepo(
   const clonePromise = doCloneOrUpdate(repoUrl, cloneDir, username, pat, commit);
   cloneLocks.set(cloneDir, clonePromise);
 
+  console.log("===> cloning into", cloneDir);
   try {
     return await clonePromise;
   } finally {

@@ -26,11 +26,11 @@ export const server = new MCPServer(
 );
 
 // streamable http routes
-export function mcp_routes(app: Express) {
-  app.get("/mcp", bearerToken, async (req, res) => {
+export function graph_mcp_routes(app: Express) {
+  app.get("/graph_mcp", bearerToken, async (req, res) => {
     await server.handleGetRequest(req, res);
   });
-  app.post("/mcp", bearerToken, async (req, res) => {
+  app.post("/graph_mcp", bearerToken, async (req, res) => {
     await server.handlePostRequest(req, res);
   });
 }
