@@ -42,7 +42,7 @@
     "@anthropic-ai/sdk": "^0.37.0",
     "@browserbasehq/stagehand": "^2.4.3",
     "@microsoft/tiktokenizer": "^1.0.9",
-    "@modelcontextprotocol/sdk": "^1.11.4",
+    "@modelcontextprotocol/sdk": "^1.25.2",
     "@octokit/rest": "^22.0.0",
     "@playwright/test": "^1.53.0",
     "ai": "6.0.0-beta.124",

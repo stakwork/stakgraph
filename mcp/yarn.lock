@@ -406,7 +406,7 @@
   resolved "https://registry.npmjs.org/@microsoft/tiktokenizer/-/tiktokenizer-1.0.10.tgz"
   integrity sha512-k6ujcOTZEEjvb5CWHA3LTVfwLw+if6rW9fp0JfYRez0Ex3wKq42tnovoXs107pGMS39qPdiV1+Dv8dJgROshJg==
 
-"@modelcontextprotocol/sdk@^1.11.4", "@modelcontextprotocol/sdk@^1.17.2", "@modelcontextprotocol/sdk@^1.25.2", "@modelcontextprotocol/sdk@1.25.2":
+"@modelcontextprotocol/sdk@^1.17.2", "@modelcontextprotocol/sdk@^1.25.2", "@modelcontextprotocol/sdk@1.25.2":
   version "1.25.2"
   resolved "https://registry.npmjs.org/@modelcontextprotocol/sdk/-/sdk-1.25.2.tgz"
   integrity sha512-LZFeo4F9M5qOhC/Uc1aQSrBHxMrvxett+9KLHt7OhcExtoiRN9DKgbZffMP/nxjutWDQpfMDfP3nkHI4X9ijww==
