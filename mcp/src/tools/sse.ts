@@ -5,7 +5,7 @@ import { Tool, Json } from "./types.js";
 import { server } from "./server.js";
 import { getMcpTools } from "./utils.js";
 
-export function sse_routes(app: Express) {
+export function graph_sse_routes(app: Express) {
   let currentTransport: SSEServerTransport | null = null;
 
   app.get("/sse", bearerToken, mcpSession, async (req, res) => {
