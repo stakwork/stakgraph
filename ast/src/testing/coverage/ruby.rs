@@ -49,7 +49,7 @@ async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_ruby_graph_upload() -> Result<()> {
     let graph_ops = setup_ruby_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
@@ -61,7 +61,7 @@ async fn test_ruby_graph_upload() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_default_params() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 

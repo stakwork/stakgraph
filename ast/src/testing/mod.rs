@@ -69,7 +69,7 @@ async fn run_client_tests() {
     }
 }
 
-pub fn print_nodes(nodes: Vec<NodeData>) {
+pub fn _print_nodes(nodes: Vec<NodeData>) {
     println!(
         "{:#?}",
         nodes
