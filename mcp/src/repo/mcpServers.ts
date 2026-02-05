@@ -1,5 +1,6 @@
 import { createMCPClient } from "@ai-sdk/mcp";
 import { Tool } from "ai";
+import { LanguageModelV2ToolResultOutput } from "@ai-sdk/provider";
 
 export interface McpServer {
   name: string;
@@ -7,6 +8,46 @@ export interface McpServer {
   token?: string; // Shorthand for Authorization: Bearer <token>
   headers?: Record<string, string>; // Full headers for custom auth
   toolFilter?: string[]; // Only include these tools (if empty/undefined, include all)
+}
+
+// Safe wrapper for toModelOutput that handles undefined output
+// This fixes a bug in @ai-sdk/mcp where mcpToModelOutput crashes on undefined
+function createSafeToModelOutput(
+  originalToModelOutput?: (params: {
+    toolCallId: string;
+    input: unknown;
+    output: unknown;
+  }) => LanguageModelV2ToolResultOutput
+) {
+  return (params: {
+    toolCallId: string;
+    input: unknown;
+    output: unknown;
+  }): LanguageModelV2ToolResultOutput => {
+    const { output } = params;
+
+    // Handle undefined/null output before passing to original
+    if (output === undefined || output === null) {
+      return {
+        type: "text",
+        value: "Error: Tool returned undefined result",
+      };
+    }
+
+    // If no original toModelOutput, handle the MCP format ourselves
+    if (!originalToModelOutput) {
+      const result = output as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+      if (result.content && Array.isArray(result.content)) {
+        const textParts = result.content
+          .filter((c) => c.type === "text" && c.text)
+          .map((c) => c.text);
+        return { type: "text", value: textParts.join("\n") };
+      }
+      return { type: "json", value: output as any };
+    }
+
+    return originalToModelOutput(params);
+  };
 }
 
 export async function getMcpTools(
@@ -42,7 +83,16 @@ export async function getMcpTools(
         if (shouldInclude) {
           // Prefix with server name to avoid collisions
           const prefixedName = `${server.name}_${toolName}`;
-          allTools[prefixedName] = tool as Tool<any, any>;
+
+          // Wrap the tool with safe toModelOutput handling
+          const wrappedTool = {
+            ...tool,
+            toModelOutput: createSafeToModelOutput(
+              (tool as any).toModelOutput
+            ),
+          };
+
+          allTools[prefixedName] = wrappedTool as Tool<any, any>;
         }
       }
 
