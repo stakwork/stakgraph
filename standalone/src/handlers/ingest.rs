@@ -11,7 +11,9 @@ use crate::types::{
     AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebError,
     WebhookPayload,
 };
-use crate::utils::{call_mcp_docs, call_mcp_mocks, call_mcp_embed, resolve_repo, should_call_mcp_for_repo};
+use crate::utils::{
+    call_mcp_docs, call_mcp_embed, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo,
+};
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 
 use crate::service::graph_service::{ingest, sync};
@@ -141,7 +143,7 @@ pub async fn sync_async(
     let docs_param = body_clone.docs.clone();
     let mocks_param = body_clone.mocks.clone();
     let embeddings_param = body_clone.embeddings.clone();
-    let embeddings_limit = body_clone.embeddings_limit.unwrap_or(5.0);
+    let embeddings_limit = body_clone.embeddings_limit.unwrap_or(50.0);
 
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
