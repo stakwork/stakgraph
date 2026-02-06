@@ -179,7 +179,7 @@ impl Stack for Rust {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
         super::skips::rust::should_skip(called, operand)
     }
-    
+
     fn find_function_parent(
         &self,
         node: TreeNode,
@@ -196,7 +196,7 @@ impl Stack for Rust {
                 if let Some(type_node) = p.child_by_field_name("type") {
                     let type_name = type_node.utf8_text(code.as_bytes())?;
                     return Ok(Some(Operand {
-                        source:  NodeKeys::new(type_name, file, p.start_position().row),
+                        source: NodeKeys::new(type_name, file, p.start_position().row),
                         target: NodeKeys::new(func_name, file, node.start_position().row),
                     }));
                 }
@@ -205,7 +205,7 @@ impl Stack for Rust {
         }
         Ok(None)
     }
-    
+
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             Query::new(&tree_sitter_toml_ng::LANGUAGE.into(), q).unwrap()

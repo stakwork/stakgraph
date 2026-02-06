@@ -107,7 +107,7 @@ async fn test_coverage_default_params() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_repo_filter() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
     let coverage = graph_ops
@@ -126,7 +126,7 @@ async fn test_coverage_with_repo_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_ignore_dirs() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -152,7 +152,7 @@ async fn test_coverage_with_ignore_dirs() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_regex_filter() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
     let filters = TestFilters {
@@ -170,7 +170,7 @@ async fn test_coverage_with_regex_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_is_muted() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -184,7 +184,7 @@ async fn test_coverage_with_is_muted() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_combined_filters() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -206,7 +206,7 @@ async fn test_coverage_combined_filters() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_function_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -241,7 +241,7 @@ async fn test_nodes_function_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_endpoint_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -275,7 +275,7 @@ async fn test_nodes_endpoint_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_class_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -302,7 +302,7 @@ async fn test_nodes_class_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_unit_test_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -328,7 +328,7 @@ async fn test_nodes_unit_test_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_integration_test_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -354,7 +354,7 @@ async fn test_nodes_integration_test_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_e2e_test_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -380,7 +380,7 @@ async fn test_nodes_e2e_test_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_multi_type() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -416,7 +416,7 @@ async fn test_nodes_multi_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_all_test_types() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -447,7 +447,7 @@ async fn test_nodes_all_test_types() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_default() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -474,7 +474,7 @@ async fn test_nodes_pagination_default() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_second_page() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -540,7 +540,7 @@ async fn test_nodes_pagination_second_page() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_large_offset() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -570,7 +570,7 @@ async fn test_nodes_pagination_large_offset() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_max_limit() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -601,7 +601,7 @@ async fn test_nodes_pagination_max_limit() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_coverage_tested() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -631,7 +631,7 @@ async fn test_nodes_coverage_tested() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_coverage_untested() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -664,7 +664,7 @@ async fn test_nodes_coverage_untested() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_coverage_all() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -726,7 +726,7 @@ async fn test_nodes_coverage_all() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_body_length() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -760,7 +760,7 @@ async fn test_nodes_body_length() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_line_count() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -794,7 +794,7 @@ async fn test_nodes_line_count() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_both_metrics() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -823,7 +823,7 @@ async fn test_nodes_both_metrics() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_repo_filter() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -856,7 +856,7 @@ async fn test_nodes_repo_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_ignore_dirs() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -914,7 +914,7 @@ async fn test_nodes_ignore_dirs() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_regex_filter() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -955,7 +955,7 @@ async fn test_nodes_regex_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_search() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -988,7 +988,7 @@ async fn test_nodes_search() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_search_no_match() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1015,7 +1015,7 @@ async fn test_nodes_search_no_match() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_is_muted() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1076,7 +1076,7 @@ async fn test_nodes_is_muted() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_sort_by_test_count() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1114,7 +1114,7 @@ async fn test_nodes_sort_by_test_count() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_complex_combination() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1153,7 +1153,7 @@ async fn test_nodes_complex_combination() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_covered() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1175,7 +1175,7 @@ async fn test_has_function_covered() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_with_start() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1196,7 +1196,7 @@ async fn test_has_function_with_start() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_with_root() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1230,7 +1230,7 @@ async fn test_has_function_with_root() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_with_tests_filter() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1262,7 +1262,7 @@ async fn test_has_function_with_tests_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_endpoint_covered() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1281,7 +1281,7 @@ async fn test_has_endpoint_covered() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_nonexistent_function() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
@@ -1302,7 +1302,7 @@ async fn test_has_nonexistent_function() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_all_test_types() -> Result<()> {
     let mut graph_ops = setup_ruby_graph().await?;
 
