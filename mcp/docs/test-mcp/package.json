@@ -18,6 +18,7 @@
     "test-mcp": "ts-node test-mcp.ts"
   },
   "dependencies": {
+    "@ai-sdk/mcp": "^1.0.19",
     "@ai-sdk/provider": "^3.0.7",
     "@modelcontextprotocol/sdk": "^1.15.1",
     "ai": "^6.0.72",
