@@ -24,18 +24,27 @@ interface LogsSearchResponse {
 export async function searchLogs(params: LogsSearchParams): Promise<LogsSearchResponse> {
   const { query, max_hits = 100, start_timestamp, end_timestamp } = params;
   
-  const url = new URL(`${QUICKWIT_HOST}/api/v1/logs/search`);
-  url.searchParams.set("query", query);
-  url.searchParams.set("max_hits", max_hits.toString());
+  const url = `${QUICKWIT_HOST}/api/v1/logs/search`;
+  
+  const body: Record<string, unknown> = {
+    query,
+    max_hits,
+  };
   
   if (start_timestamp !== undefined) {
-    url.searchParams.set("start_timestamp", start_timestamp.toString());
+    body.start_timestamp = start_timestamp;
   }
   if (end_timestamp !== undefined) {
-    url.searchParams.set("end_timestamp", end_timestamp.toString());
+    body.end_timestamp = end_timestamp;
   }
 
-  const response = await fetch(url.toString());
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
   
   if (!response.ok) {
     const errorText = await response.text();
