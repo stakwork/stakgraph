@@ -286,7 +286,11 @@ use std::net::SocketAddr;"#
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
-    assert_eq!(calls_edges, 104, "Expected 104 calls edges");
+    assert_eq!(calls_edges, 84, "Expected 84 calls edges");
+
+    let operand_calls = graph.count_edges_of_type(EdgeType::Operand);
+    assert_eq!(operand_calls, 18, "Expected 18 Operand edges");
+    edges_count += operand_calls;
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();

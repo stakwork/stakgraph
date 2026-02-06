@@ -1012,6 +1012,8 @@ impl Lang {
                         }
                     }
                 }
+            } else if o == PARENT_NAME {
+                fc.operand = Some(body.clone());
             }
             Ok(())
         })?;

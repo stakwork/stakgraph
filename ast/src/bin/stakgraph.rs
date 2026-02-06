@@ -147,19 +147,26 @@ fn print_function_edges(
             let target_line = edge.target.node_data.start;
             let target_file = &edge.target.node_data.file;
 
-            // Look up the full target node to get operand metadata
-            let target_display = if let Some(target_node) = graph.nodes.iter().find(|n| {
-                ast::utils::create_node_key(n).to_lowercase()
-                    == ast::utils::create_node_key_from_ref(&edge.target).to_lowercase()
-            }) {
-                if let Some(operand) = target_node.node_data.meta.get("operand") {
-                    let delimiter = get_language_delimiter(&target_node.node_data.file);
-                    format!("{}{}{}", operand, delimiter, target_name)
+            let target_display = {
+                let operand = edge.operand.as_ref().or_else(|| {
+                    graph.nodes.iter().find(|n| {
+                        ast::utils::create_node_key(n).to_lowercase()
+                            == ast::utils::create_node_key_from_ref(&edge.target).to_lowercase()
+                    })
+                    .and_then(|n| n.node_data.meta.get("operand"))
+                });
+                
+                if let Some(op) = operand {
+                    let file_for_delimiter = if target_file == "unverified" {
+                        source_file
+                    } else {
+                        target_file
+                    };
+                    let delimiter = get_language_delimiter(file_for_delimiter);
+                    format!("{}{}{}", op, delimiter, target_name)
                 } else {
                     target_name.clone()
                 }
-            } else {
-                target_name.clone()
             };
 
             let file_info = if source_file != target_file && target_file != "unverified" {
