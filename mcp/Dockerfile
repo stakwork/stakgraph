@@ -73,8 +73,14 @@ COPY ./tests/hooks.js ./tests/hooks.js
 # Build the application
 RUN yarn build
 
-# Download fastembed models (~128MB)
-RUN node scripts/download-models.js
+# Download fastembed models (~128MB) - only on amd64
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = "amd64" ]; then \
+        echo "Downloading fastembed models for amd64..." && \
+        node scripts/download-models.js; \
+    else \
+        echo "Skipping fastembed model download for $ARCH"; \
+    fi
 
 EXPOSE 3000
 
