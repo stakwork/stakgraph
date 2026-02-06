@@ -18,6 +18,9 @@ impl Kotlin {
 }
 
 impl Stack for Kotlin {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::java::should_skip(called, operand)
+    }
     fn identifier_query(&self) -> String {
         "(simple_identifier) @identifier\n(identifier) @identifier".to_string()
     }

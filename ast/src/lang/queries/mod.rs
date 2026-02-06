@@ -14,6 +14,7 @@ mod rails_routes;
 pub mod react_ts;
 pub mod ruby;
 pub mod rust;
+pub mod skips;
 pub mod svelte;
 pub mod swift;
 pub mod toml;

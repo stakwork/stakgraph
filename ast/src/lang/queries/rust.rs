@@ -3,7 +3,7 @@ use super::consts::*;
 use crate::lang::parse::utils::trim_quotes;
 use shared::error::{Context, Result};
 use std::collections::HashMap;
-use tree_sitter::{Language, Parser, Query, Tree};
+use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 pub struct Rust(Language);
 
 impl Default for Rust {
@@ -176,6 +176,36 @@ impl Rust {
 }
 
 impl Stack for Rust {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::rust::should_skip(called, operand)
+    }
+    
+    fn find_function_parent(
+        &self,
+        node: TreeNode,
+        code: &str,
+        file: &str,
+        func_name: &str,
+        _callback: &dyn Fn(&str) -> Option<NodeData>,
+        _parent_type: Option<&str>,
+    ) -> Result<Option<Operand>> {
+        let mut parent = node.parent();
+        while let Some(p) = parent {
+            if p.kind() == "impl_item" {
+                // Found an impl block, extract the type
+                if let Some(type_node) = p.child_by_field_name("type") {
+                    let type_name = type_node.utf8_text(code.as_bytes())?;
+                    return Ok(Some(Operand {
+                        source:  NodeKeys::new(type_name, file, p.start_position().row),
+                        target: NodeKeys::new(func_name, file, node.start_position().row),
+                    }));
+                }
+            }
+            parent = p.parent();
+        }
+        Ok(None)
+    }
+    
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             Query::new(&tree_sitter_toml_ng::LANGUAGE.into(), q).unwrap()
@@ -357,17 +387,24 @@ impl Stack for Rust {
             ) @{MACRO} @{FUNCTION_DEFINITION}
             
             (impl_item
-              type: (_) @{PARENT_TYPE}
+              type: (type_identifier) @{PARENT_TYPE}
               body: (declaration_list
-                (
-                  (attribute_item)* @{ATTRIBUTES}
-                  .
+                [
+                  (
+                    (attribute_item)* @{ATTRIBUTES}
+                    .
+                    (function_item
+                      name: (identifier) @{FUNCTION_NAME}
+                      parameters: (parameters) @{ARGUMENTS}
+                      return_type: (_)? @{RETURN_TYPES}
+                      body: (block)? @method.body) @method @{FUNCTION_DEFINITION}
+                  )
                   (function_item
                     name: (identifier) @{FUNCTION_NAME}
                     parameters: (parameters) @{ARGUMENTS}
-                    return_type: (_)? @{RETURN_TYPES}
+                    return_type: (_)?  @{RETURN_TYPES}
                     body: (block)? @method.body) @method @{FUNCTION_DEFINITION}
-                )
+                ]
               )) @impl
             "#
         )

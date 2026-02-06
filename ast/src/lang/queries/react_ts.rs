@@ -1361,9 +1361,8 @@ impl Stack for TypeScriptReact {
         false
     }
 
-    // FROM REACT (identical in both): should_skip_function_call
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
-        consts::should_skip_js_function_call(called, operand)
+        super::skips::react_ts::should_skip(called, operand)
     }
 
     // MERGED: parse_imports_from_file (using TypeScript version with IMPORTS_ALIAS)

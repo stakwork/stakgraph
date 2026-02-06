@@ -18,6 +18,9 @@ impl Python {
 }
 
 impl Stack for Python {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::python::should_skip(called, operand)
+    }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             Query::new(&tree_sitter_bash::LANGUAGE.into(), q).unwrap()

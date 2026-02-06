@@ -1120,6 +1120,9 @@ impl Lang {
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
         } else if allow_unverified {
+            if self.lang.should_skip_function_call(&called, &fc.operand) {
+                return Ok(None);
+            }
             fc.target = NodeKeys::new(&called, "unverified", call_point.row);
         } else {
             // FALLBACK to find?
