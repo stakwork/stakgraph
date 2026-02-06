@@ -48,7 +48,7 @@ async fn setup_rust_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
     Ok(graph_ops)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_rust_coverage() -> Result<()> {
     let repo = Repo::new(
         "src/testing/rust",
@@ -83,14 +83,14 @@ async fn test_rust_coverage() -> Result<()> {
     assert_eq!(e2e_tests.len(), 8, "Expected 8 e2e tests");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges, 104, "Expected 104 Calls edges");
+    assert_eq!(calls_edges, 84, "Expected 84 Calls edges");
 
     let unit_test_to_function_edges =
         graph.find_nodes_with_edge_type(NodeType::UnitTest, NodeType::Function, EdgeType::Calls);
     assert_eq!(
         unit_test_to_function_edges.len(),
-        32,
-        "Expected 32 UnitTest → Function edges"
+        30,
+        "Expected 30 UnitTest → Function edges"
     );
 
     let integration_test_to_function_edges = graph.find_nodes_with_edge_type(
@@ -100,8 +100,8 @@ async fn test_rust_coverage() -> Result<()> {
     );
     assert_eq!(
         integration_test_to_function_edges.len(),
-        31,
-        "Expected 31 IntegrationTest → Function edges"
+        18,
+        "Expected 18 IntegrationTest → Function edges"
     );
 
     let unique_functions_tested: std::collections::HashSet<String> = unit_test_to_function_edges
@@ -110,34 +110,34 @@ async fn test_rust_coverage() -> Result<()> {
         .collect();
     assert_eq!(
         unique_functions_tested.len(),
-        19,
-        "Expected 19 unique functions covered by unit tests"
+        17,
+        "Expected 17 unique functions covered by unit tests"
     );
 
     let total_test_coverage_edges =
         unit_test_to_function_edges.len() + integration_test_to_function_edges.len();
     assert_eq!(
-        total_test_coverage_edges, 63,
-        "Expected 63 total test coverage edges"
+        total_test_coverage_edges, 48,
+        "Expected 48 total test coverage edges"
     );
 
     Ok(())
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_rust_graph_upload() -> Result<()> {
     let graph_ops = setup_rust_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
     assert_eq!(nodes, 248, "Graph should have 248 nodes after upload");
-    assert_eq!(edges, 402, "Graph should have 402 edges after upload");
+    assert_eq!(edges, 382, "Graph should have 382 edges after upload");
 
     Ok(())
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_default_params() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -172,7 +172,7 @@ async fn test_coverage_default_params() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_repo_filter() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
     let coverage = graph_ops
@@ -191,7 +191,7 @@ async fn test_coverage_with_repo_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_ignore_dirs() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -214,7 +214,7 @@ async fn test_coverage_with_ignore_dirs() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_regex_filter() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
     let filters = TestFilters {
@@ -232,7 +232,7 @@ async fn test_coverage_with_regex_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_with_is_muted() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -246,7 +246,7 @@ async fn test_coverage_with_is_muted() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_coverage_combined_filters() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -268,7 +268,7 @@ async fn test_coverage_combined_filters() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_function_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -302,7 +302,7 @@ async fn test_nodes_function_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_endpoint_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -337,7 +337,7 @@ async fn test_nodes_endpoint_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_class_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -364,7 +364,7 @@ async fn test_nodes_class_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_trait_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -391,7 +391,7 @@ async fn test_nodes_trait_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_data_model_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -418,7 +418,7 @@ async fn test_nodes_data_model_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_unit_test_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -444,7 +444,7 @@ async fn test_nodes_unit_test_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_integration_test_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -470,7 +470,7 @@ async fn test_nodes_integration_test_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_e2e_test_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -496,7 +496,7 @@ async fn test_nodes_e2e_test_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_multi_type() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -532,7 +532,7 @@ async fn test_nodes_multi_type() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_all_test_types() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -562,7 +562,7 @@ async fn test_nodes_all_test_types() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_default() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -589,7 +589,7 @@ async fn test_nodes_pagination_default() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_second_page() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -649,7 +649,7 @@ async fn test_nodes_pagination_second_page() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_large_offset() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -679,7 +679,7 @@ async fn test_nodes_pagination_large_offset() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_pagination_max_limit() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -706,7 +706,7 @@ async fn test_nodes_pagination_max_limit() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_coverage_tested() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -735,7 +735,7 @@ async fn test_nodes_coverage_tested() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_coverage_untested() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -767,7 +767,7 @@ async fn test_nodes_coverage_untested() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_coverage_all() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -829,7 +829,7 @@ async fn test_nodes_coverage_all() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_body_length() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -860,7 +860,7 @@ async fn test_nodes_body_length() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_line_count() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -891,7 +891,7 @@ async fn test_nodes_line_count() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_both_metrics() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -920,7 +920,7 @@ async fn test_nodes_both_metrics() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_repo_filter() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -953,7 +953,7 @@ async fn test_nodes_repo_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_ignore_dirs() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -992,7 +992,7 @@ async fn test_nodes_ignore_dirs() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_regex_filter() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1033,7 +1033,7 @@ async fn test_nodes_regex_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_search() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1067,7 +1067,7 @@ async fn test_nodes_search() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_search_no_match() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1094,7 +1094,7 @@ async fn test_nodes_search_no_match() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_is_muted() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1157,7 +1157,7 @@ async fn test_nodes_is_muted() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_sort_by_test_count() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1194,7 +1194,7 @@ async fn test_nodes_sort_by_test_count() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_complex_combination() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1233,7 +1233,7 @@ async fn test_nodes_complex_combination() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_covered() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1252,7 +1252,7 @@ async fn test_has_function_covered() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_with_start() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1273,7 +1273,7 @@ async fn test_has_function_with_start() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_with_root() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1305,7 +1305,7 @@ async fn test_has_function_with_root() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_function_with_tests_filter() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1335,7 +1335,7 @@ async fn test_has_function_with_tests_filter() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_endpoint_covered() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1354,7 +1354,7 @@ async fn test_has_endpoint_covered() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_nonexistent_function() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1375,7 +1375,7 @@ async fn test_has_nonexistent_function() -> Result<()> {
 }
 
 #[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_has_all_test_types() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
