@@ -11,11 +11,11 @@ use crate::{
 use shared::Result;
 
 impl Neo4jGraph {
-    pub async fn add_instances_async(&self, nodes: Vec<NodeData>) -> Result<()> {
+    pub async fn add_instances_async(&self, nodes: &[NodeData]) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        for inst in &nodes {
+        for inst in nodes {
             if let Some(of) = &inst.data_type {
                 let class_nodes = self.find_nodes_by_name_async(NodeType::Class, of).await;
                 if let Some(_class_node) = class_nodes.first() {
@@ -36,12 +36,12 @@ impl Neo4jGraph {
 
         txn_manager.execute().await
     }
-    pub async fn add_functions_async(&self, functions: Vec<Function>) -> Result<()> {
+    pub async fn add_functions_async(&self, functions: &[Function]) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
         for (function_node, method_of, reqs, dms, trait_operand, return_types, nested_in) in
-            &functions
+            functions
         {
             let queries = add_functions_query(
                 function_node,
@@ -71,7 +71,7 @@ impl Neo4jGraph {
         txn_manager.execute().await
     }
 
-    pub async fn add_pages_async(&self, pages: Vec<(NodeData, Vec<Edge>)>) -> Result<()> {
+    pub async fn add_pages_async(&self, pages: &[(NodeData, Vec<Edge>)]) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let queries = add_pages_query(&pages);
 
@@ -83,7 +83,7 @@ impl Neo4jGraph {
     }
     pub async fn add_endpoints_async(
         &self,
-        endpoints: Vec<(NodeData, Option<Edge>)>,
+        endpoints: &[(NodeData, Option<Edge>)],
     ) -> Result<()> {
         use std::collections::HashSet;
         let connection = self.ensure_connected().await?;
@@ -92,7 +92,7 @@ impl Neo4jGraph {
         let mut to_add = Vec::new();
         let mut seen = HashSet::new();
 
-        for (endpoint_data, handler_edge) in &endpoints {
+        for (endpoint_data, handler_edge) in endpoints {
             if endpoint_data.meta.contains_key("handler") {
                 let default_verb = "".to_string();
                 let verb = endpoint_data.meta.get("verb").unwrap_or(&default_verb);
@@ -129,10 +129,10 @@ impl Neo4jGraph {
     pub async fn add_calls_async(
         &self,
         calls: (
-            Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
-            Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
-            Vec<Edge>,
-            Vec<Edge>,
+            &[(Calls, Option<NodeData>, Option<NodeData>)],
+            &[(Calls, Option<NodeData>, Option<NodeData>)],
+            &[Edge],
+            &[Edge],
         ),
         lang: &Lang,
     ) -> Result<()> {
@@ -140,7 +140,7 @@ impl Neo4jGraph {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        for (calls, ext_func, class_call) in &funcs {
+        for (calls, ext_func, class_call) in funcs {
             if let Some(cls_call) = class_call {
                 txn_manager.add_node(&NodeType::Class, cls_call);
                 let edge = Edge::new(
@@ -162,7 +162,7 @@ impl Neo4jGraph {
                 txn_manager.add_edge(&edge);
             }
         }
-        for (test_call, ext_func, class_call) in &tests {
+        for (test_call, ext_func, class_call) in tests {
             let target_empty = test_call.target.is_empty();
             let has_class = class_call.is_some();
 

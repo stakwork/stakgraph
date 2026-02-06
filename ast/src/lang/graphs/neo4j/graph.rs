@@ -682,7 +682,7 @@ impl Neo4jGraph {
 
     pub async fn process_endpoint_groups_async(
         &self,
-        eg: Vec<NodeData>,
+        eg: &[NodeData],
         lang: &Lang,
     ) -> Result<()> {
         if eg.is_empty() {
@@ -1073,22 +1073,28 @@ impl Graph for Neo4jGraph {
     }
     fn add_node_with_parent(
         &mut self,
-        node_type: NodeType,
-        node_data: NodeData,
-        parent_type: NodeType,
+        node_type: &NodeType,
+        node_data: &NodeData,
+        parent_type: &NodeType,
         parent_file: &str,
     ) {
-        sync_fn(|| async {
+        let node_type = node_type.clone();
+        let node_data = node_data.clone();
+        let parent_type = parent_type.clone();
+        sync_fn(|| async move {
             self.add_node_with_parent_async(node_type, node_data, parent_type, parent_file)
                 .await
                 .unwrap_or_default()
         });
     }
-    fn add_edge(&mut self, edge: Edge) {
-        sync_fn(|| async { self.add_edge_async(edge).await.unwrap_or_default() });
+    fn add_edge(&mut self, edge: &Edge) {
+        let edge = edge.clone();
+        sync_fn(|| async move { self.add_edge_async(edge).await.unwrap_or_default() });
     }
-    fn add_node(&mut self, node_type: NodeType, node_data: NodeData) {
-        sync_fn(|| async {
+    fn add_node(&mut self, node_type: &NodeType, node_data: &NodeData) {
+        let node_type = node_type.clone();
+        let node_data = node_data.clone();
+        sync_fn(|| async move {
             self.add_node_async(node_type, node_data)
                 .await
                 .unwrap_or_default()
@@ -1110,7 +1116,7 @@ impl Graph for Neo4jGraph {
         })
     }
 
-    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()> {
+    fn process_endpoint_groups(&mut self, eg: &[NodeData], lang: &Lang) -> Result<()> {
         sync_fn(|| async {
             self.process_endpoint_groups_async(eg, lang)
                 .await
@@ -1124,10 +1130,10 @@ impl Graph for Neo4jGraph {
     fn class_includes(&mut self) {
         sync_fn(|| async { self.class_includes_async().await.unwrap_or_default() });
     }
-    fn add_instances(&mut self, nodes: Vec<NodeData>) {
+    fn add_instances(&mut self, nodes: &[NodeData]) {
         sync_fn(|| async { self.add_instances_async(nodes).await.unwrap_or_default() });
     }
-    fn add_functions(&mut self, functions: Vec<Function>) {
+    fn add_functions(&mut self, functions: &[Function]) {
         sync_fn(|| async {
             self.add_functions_async(functions)
                 .await
@@ -1137,36 +1143,36 @@ impl Graph for Neo4jGraph {
     fn add_page(&mut self, page: (NodeData, Option<Edge>)) {
         sync_fn(|| async { self.add_page_async(page).await.unwrap_or_default() });
     }
-    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>) {
+    fn add_pages(&mut self, pages: &[(NodeData, Vec<Edge>)]) {
         sync_fn(|| async { self.add_pages_async(pages).await.unwrap_or_default() });
     }
-    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>) {
+    fn add_endpoints(&mut self, endpoints: &[(NodeData, Option<Edge>)]) {
         sync_fn(|| async {
             self.add_endpoints_async(endpoints)
                 .await
                 .unwrap_or_default()
         });
     }
-    fn add_tests(&mut self, tests: Vec<TestRecord>) {
+    fn add_tests(&mut self, tests: &[TestRecord]) {
         for tr in tests {
             self.add_node_with_parent(
-                tr.kind.clone(),
-                tr.node.clone(),
-                NodeType::File,
+                &tr.kind,
+                &tr.node,
+                &NodeType::File,
                 &tr.node.file,
             );
-            for e in tr.edges.iter() {
-                self.add_edge(e.clone());
+            for e in &tr.edges {
+                self.add_edge(e);
             }
         }
     }
     fn add_calls(
         &mut self,
         calls: (
-            Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
-            Vec<(Calls, Option<NodeData>, Option<NodeData>)>,
-            Vec<Edge>,
-            Vec<Edge>,
+            &[(Calls, Option<NodeData>, Option<NodeData>)],
+            &[(Calls, Option<NodeData>, Option<NodeData>)],
+            &[Edge],
+            &[Edge],
         ),
         lang: &Lang,
     ) {

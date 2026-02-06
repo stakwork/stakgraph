@@ -87,7 +87,7 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
                 if matches {
                     let edge =
                         Edge::test_calls(NodeType::IntegrationTest, t, NodeType::Endpoint, ep);
-                    graph.add_edge(edge);
+                    graph.add_edge(&edge);
                     added_direct += 1;
                 }
             }
@@ -125,7 +125,7 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
                             let mut updated_ep = (*ep).clone();
                             updated_ep.add_indirect_test(&t.name);
                             updated_ep.add_test_helper(&helper.name);
-                            graph.add_node(NodeType::Endpoint, updated_ep);
+                            graph.add_node(&NodeType::Endpoint, &updated_ep);
                             added_indirect += 1;
                         }
                     }
@@ -227,7 +227,7 @@ pub fn link_e2e_tests_pages<G: Graph>(graph: &mut G) -> Result<()> {
         for p in &pages {
             if body_lc.contains(&p.name.to_lowercase()) {
                 let edge = Edge::test_calls(NodeType::E2eTest, t, NodeType::Page, p);
-                graph.add_edge(edge);
+                graph.add_edge(&edge);
                 added += 1;
             }
         }
@@ -273,7 +273,7 @@ pub fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
             for ftestid in frontend_test_ids {
                 if test_ids.contains(ftestid) {
                     let edge = Edge::linked_e2e_test_call(t, f);
-                    graph.add_edge(edge);
+                    graph.add_edge(&edge);
                     i += 1;
                 }
             }
@@ -387,7 +387,7 @@ pub fn link_api_nodes<G: Graph>(graph: &mut G) -> Result<()> {
         for (endpoint, _) in &backend_endpoints {
             if paths_match(&req_path, &endpoint.name) && verbs_match(&req, endpoint) {
                 let edge = Edge::calls(NodeType::Request, &req, NodeType::Endpoint, endpoint);
-                graph.add_edge(edge);
+                graph.add_edge(&edge);
                 i += 1;
             }
         }

@@ -174,14 +174,14 @@ fn add_package_nodes<G: Graph>(graph: &mut G, packages: &[PackageInfo], _repo_ur
             .meta
             .insert("language".to_string(), pkg.language.to_string());
 
-        graph.add_node(NodeType::Package, pkg_data.clone());
+        graph.add_node(&NodeType::Package, &pkg_data);
         info!(
             "Created Package node: {} (language: {}, framework: {:?})",
             pkg.name, pkg.language, pkg.framework
         );
 
         if let Some(repo) = repo_node {
-            graph.add_edge(Edge::contains(
+            graph.add_edge(&Edge::contains(
                 NodeType::Repository,
                 repo,
                 NodeType::Package,
@@ -192,7 +192,7 @@ fn add_package_nodes<G: Graph>(graph: &mut G, packages: &[PackageInfo], _repo_ur
         let lang_name = pkg.language.to_string();
         let lang_nodes = graph.find_nodes_by_name(NodeType::Language, &lang_name);
         if let Some(lang) = lang_nodes.first() {
-            graph.add_edge(Edge::of_typed(
+            graph.add_edge(&Edge::of_typed(
                 NodeType::Package,
                 &pkg_data,
                 NodeType::Language,
@@ -202,7 +202,7 @@ fn add_package_nodes<G: Graph>(graph: &mut G, packages: &[PackageInfo], _repo_ur
 
         let dir_nodes = graph.find_nodes_by_type(NodeType::Directory);
         if let Some(dir) = dir_nodes.iter().find(|d| d.file == pkg_path) {
-            graph.add_edge(Edge::contains(
+            graph.add_edge(&Edge::contains(
                 NodeType::Package,
                 &pkg_data,
                 NodeType::Directory,
