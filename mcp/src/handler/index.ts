@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { randomUUID } from 'crypto';
 import { Express } from 'express';
 import { createMcpHandler } from 'mcp-handler';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -48,7 +49,9 @@ function registerTools(server: McpServer) {
 export function mcp_routes(app: Express) {
   const handler = createMcpHandler(registerTools, {}, {
     basePath: "/mcp",
-    verboseLogs: true
+    verboseLogs: true,
+    // @ts-expect-error mcp-handler types incorrectly define sessionIdGenerator as undefined
+    sessionIdGenerator: () => randomUUID()
   });
 
   app.all('/mcp*', createExpressAdapter(handler));
