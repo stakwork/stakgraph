@@ -1,12 +1,15 @@
 import { z } from 'zod';
-import { randomUUID } from 'crypto';
 import { Express } from 'express';
-import { createMcpHandler } from 'mcp-handler';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { createExpressAdapter } from './utils.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { MCPHttpServer } from './server.js';
 import { listConcepts, learnConcept, searchLogsHandler } from './tools.js';
 
-function registerTools(server: McpServer) {
+function createServer(): McpServer {
+  const server = new McpServer({
+    name: "Stakgraph",
+    version: "0.1.0",
+  });
+
   server.registerTool(
     "list_concepts",
     {
@@ -44,15 +47,18 @@ function registerTools(server: McpServer) {
     async ({ query, max_hits, start_timestamp, end_timestamp }) => 
       searchLogsHandler({ query, max_hits, start_timestamp, end_timestamp })
   );
+
+  return server;
 }
 
+const httpServer = new MCPHttpServer(createServer);
+
 export function mcp_routes(app: Express) {
-  const handler = createMcpHandler(registerTools, {}, {
-    basePath: "/mcp",
-    verboseLogs: true,
-    // @ts-expect-error mcp-handler types incorrectly define sessionIdGenerator as undefined
-    sessionIdGenerator: () => randomUUID()
+  app.get('/mcp', async (req, res) => {
+    await httpServer.handleGetRequest(req, res);
   });
 
-  app.all('/mcp*', createExpressAdapter(handler));
+  app.post('/mcp', async (req, res) => {
+    await httpServer.handlePostRequest(req, res);
+  });
 }

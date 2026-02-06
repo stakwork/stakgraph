@@ -63,7 +63,6 @@
     "gitsee": "1.0.18",
     "gitsee-agent": "1.0.19",
     "js-yaml": "^4.1.0",
-    "mcp-handler": "^1.0.6",
     "nanoid": "^5.1.6",
     "neo4j-driver": "^5.28.1",
     "node-cache": "^5.1.2",
