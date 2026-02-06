@@ -43,9 +43,13 @@ COPY ./src/gitsee/agent/package.json ./src/gitsee/agent/package.json
 # Install dependencies
 RUN yarn
 
+# Install linux x64 tokenizer bindings (required for fastembed in Docker)
+RUN npm install --force --os=linux --cpu=x64 @anush008/tokenizers-linux-x64-gnu@0.0.0
+
 # Copy the rest of your application code
 COPY ./tsconfig.json ./tsconfig.json
 COPY ./src ./src
+COPY ./scripts ./scripts
 
 # Build aieo first so gitsee-agent can find the dist folder
 RUN cd src/aieo && yarn build
@@ -68,6 +72,9 @@ COPY ./tests/hooks.js ./tests/hooks.js
 
 # Build the application
 RUN yarn build
+
+# Download fastembed models (~128MB)
+RUN node scripts/download-models.js
 
 EXPOSE 3000
 
