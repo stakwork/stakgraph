@@ -41,13 +41,13 @@ pub trait Graph: Default + Debug {
     fn find_nodes_by_name(&self, node_type: NodeType, name: &str) -> Vec<NodeData>;
     fn add_node_with_parent(
         &mut self,
-        node_type: NodeType,
-        node_data: NodeData,
-        parent_type: NodeType,
+        node_type: &NodeType,
+        node_data: &NodeData,
+        parent_type: &NodeType,
         parent_file: &str,
     );
-    fn add_edge(&mut self, edge: Edge);
-    fn add_node(&mut self, node_type: NodeType, node_data: NodeData);
+    fn add_edge(&mut self, edge: &Edge);
+    fn add_node(&mut self, node_type: &NodeType, node_data: &NodeData);
     fn get_graph_keys(&self) -> (HashSet<String>, HashSet<String>);
     fn get_edge_keys(&self) -> BTreeSet<(String, String, EdgeType)> {
         BTreeSet::new()
@@ -65,30 +65,30 @@ pub trait Graph: Default + Debug {
     ) -> Option<NodeKeys>;
 
     //Special cases
-    fn process_endpoint_groups(&mut self, eg: Vec<NodeData>, lang: &Lang) -> Result<()>;
+    fn process_endpoint_groups(&mut self, eg: &[NodeData], lang: &Lang) -> Result<()>;
     fn class_inherits(&mut self);
     fn class_includes(&mut self);
-    fn add_instances(&mut self, nodes: Vec<NodeData>);
-    fn add_functions(&mut self, functions: Vec<Function>);
+    fn add_instances(&mut self, nodes: &[NodeData]);
+    fn add_functions(&mut self, functions: &[Function]);
     fn add_page(&mut self, page: (NodeData, Option<Edge>));
-    fn add_pages(&mut self, pages: Vec<(NodeData, Vec<Edge>)>);
-    fn add_endpoints(&mut self, endpoints: Vec<(NodeData, Option<Edge>)>);
-    fn add_tests(&mut self, tests: Vec<TestRecord>) {
+    fn add_pages(&mut self, pages: &[(NodeData, Vec<Edge>)]);
+    fn add_endpoints(&mut self, endpoints: &[(NodeData, Option<Edge>)]);
+    fn add_tests(&mut self, tests: &[TestRecord]) {
         for tr in tests {
             self.add_node_with_parent(
-                tr.kind.clone(),
-                tr.node.clone(),
-                NodeType::File,
+                &tr.kind,
+                &tr.node,
+                &NodeType::File,
                 &tr.node.file,
             );
-            for e in tr.edges.clone() {
+            for e in &tr.edges {
                 self.add_edge(e);
             }
         }
     }
     fn add_calls(
         &mut self,
-        calls: (Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>),
+        calls: (&[FunctionCall], &[FunctionCall], &[Edge], &[Edge]),
         lang: &Lang,
     );
     fn filter_out_nodes_without_children(

@@ -112,7 +112,7 @@ impl Serialize for NodeData {
             map.serialize_entry("hash", hash)?;
         }
         // let mut map = serializer.serialize_map(Some(self.meta.len()))?;
-        for (k, v) in self.meta.clone() {
+        for (k, v) in &self.meta {
             map.serialize_entry(&k, &v)?;
         }
         map.end()

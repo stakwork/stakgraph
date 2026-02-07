@@ -320,7 +320,7 @@ impl Repo {
             let mut dir_data = NodeData::in_file(&dir_no_tmp);
             dir_data.name = dir_name;
 
-            graph.add_node_with_parent(NodeType::Directory, dir_data, parent_type, &parent_file);
+            graph.add_node_with_parent(&NodeType::Directory, &dir_data, &parent_type, &parent_file);
         }
         Ok(files)
     }
@@ -378,7 +378,7 @@ impl Repo {
 
             let (parent_type, parent_file) = self.get_parent_info(filepath);
 
-            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
+            graph.add_node_with_parent(&NodeType::File, &file_data, &parent_type, &parent_file);
         }
         Ok(ret)
     }
@@ -433,13 +433,13 @@ impl Repo {
 
             let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
 
-            graph.add_node_with_parent(NodeType::File, file_data, parent_type, &parent_file);
+            graph.add_node_with_parent(&NodeType::File, &file_data, &parent_type, &parent_file);
 
             let libs = self.lang.get_libs::<G>(code, pkg_file)?;
             lib_count += libs.len();
 
             for lib in libs {
-                graph.add_node_with_parent(NodeType::Library, lib, NodeType::File, pkg_file);
+                graph.add_node_with_parent(&NodeType::Library, &lib, &NodeType::File, pkg_file);
             }
         }
 
@@ -475,9 +475,9 @@ impl Repo {
 
             for import in import_section {
                 graph.add_node_with_parent(
-                    NodeType::Import,
-                    import.clone(),
-                    NodeType::File,
+                    &NodeType::Import,
+                    &import,
+                    &NodeType::File,
                     &import.file,
                 );
             }
@@ -508,9 +508,9 @@ impl Repo {
             var_count += variables.len();
             for variable in variables {
                 graph.add_node_with_parent(
-                    NodeType::Var,
-                    variable.clone(),
-                    NodeType::File,
+                    &NodeType::Var,
+                    &variable,
+                    &NodeType::File,
                     &variable.file,
                 );
             }
@@ -553,9 +553,9 @@ impl Repo {
             };
             repo_data.add_source_link(&self.url);
             graph.add_node_with_parent(
-                NodeType::Repository,
-                repo_data.clone(),
-                NodeType::Repository,
+                &NodeType::Repository,
+                &repo_data,
+                &NodeType::Repository,
                 "",
             );
             repo_data
@@ -570,9 +570,9 @@ impl Repo {
         debug!("add language for: {}", repo_file);
         let mut lang_data = NodeData::in_file(&repo_file);
         lang_data.name = self.lang.kind.to_string();
-        graph.add_node(NodeType::Language, lang_data.clone());
+        graph.add_node(&NodeType::Language, &lang_data);
 
-        graph.add_edge(Edge::of_typed(
+        graph.add_edge(&Edge::of_typed(
             NodeType::Repository,
             &repo_data,
             NodeType::Language,
@@ -617,13 +617,13 @@ impl Repo {
             class_count += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(
-                    NodeType::Class,
-                    class.clone(),
-                    NodeType::File,
+                    &NodeType::Class,
+                    &class,
+                    &NodeType::File,
                     &class.file,
                 );
                 for edge in assoc_edges {
-                    graph.add_edge(edge);
+                    graph.add_edge(&edge);
                 }
             }
 
@@ -676,7 +676,7 @@ impl Repo {
                 .lang
                 .get_query_opt::<G>(q, code, filename, NodeType::Instance)?;
             instance_count += instances.len();
-            graph.add_instances(instances);
+            graph.add_instances(&instances);
         }
 
         info!("=> get_traits...");
@@ -688,7 +688,7 @@ impl Repo {
             trait_count += traits.len();
 
             for tr in traits {
-                graph.add_node_with_parent(NodeType::Trait, tr.clone(), NodeType::File, &tr.file);
+                graph.add_node_with_parent(&NodeType::Trait, &tr, &NodeType::File, &tr.file);
             }
         }
 
@@ -754,7 +754,7 @@ impl Repo {
                 .or_else(|| traits.iter().find(|t| t.name == rel.trait_name));
 
             if let (Some(class), Some(trait_)) = (class_node, trait_node) {
-                graph.add_edge(Edge::implements(class, trait_));
+                graph.add_edge(&Edge::implements(class, trait_));
                 edge_count += 1;
             }
         }
@@ -795,16 +795,16 @@ impl Repo {
 
             for st in &structs {
                 graph.add_node_with_parent(
-                    NodeType::DataModel,
-                    st.clone(),
-                    NodeType::File,
+                    &NodeType::DataModel,
+                    st,
+                    &NodeType::File,
                     &st.file,
                 );
             }
             for dm in &structs {
                 let edges = self.lang.collect_class_contains_datamodel_edge(dm, graph)?;
                 for edge in edges {
-                    graph.add_edge(edge);
+                    graph.add_edge(&edge);
                 }
             }
         }
@@ -843,10 +843,10 @@ impl Repo {
                     .get_functions_and_tests(code, filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
 
-            graph.add_functions(funcs);
+            graph.add_functions(&funcs);
 
             test_count += tests.len();
-            graph.add_tests(tests);
+            graph.add_tests(&tests);
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -879,7 +879,7 @@ impl Repo {
             if self.lang.lang().is_router_file(filename, code) {
                 let pages = self.lang.get_pages(code, filename, &self.lsp_tx, graph)?;
                 page_count += pages.len();
-                graph.add_pages(pages);
+                graph.add_pages(&pages);
             }
         }
         info!("=> got {} pages", page_count);
@@ -934,12 +934,12 @@ impl Repo {
                         );
                         page.body = code.clone();
                         graph.add_node_with_parent(
-                            NodeType::Page,
-                            page,
-                            NodeType::File,
+                            &NodeType::Page,
+                            &page,
+                            &NodeType::File,
                             &edge.source.node_data.file,
                         );
-                        graph.add_edge(edge);
+                        graph.add_edge(&edge);
                     }
                 }
             }
@@ -971,7 +971,7 @@ impl Repo {
                 );
                 page_renders_count += page_edges.len();
                 for edge in page_edges {
-                    graph.add_edge(edge);
+                    graph.add_edge(&edge);
                 }
             }
             info!("=> got {} page component renders", page_renders_count);
@@ -1008,7 +1008,7 @@ impl Repo {
                 self.lang
                     .collect_endpoints(code, filename, Some(graph), &self.lsp_tx)?;
             endpoint_count += endpoints.len();
-            graph.add_endpoints(endpoints);
+            graph.add_endpoints(&endpoints);
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -1028,7 +1028,7 @@ impl Repo {
                 self.lang
                     .get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
             _endpoint_group_count += endpoint_groups.len();
-            let _ = graph.process_endpoint_groups(endpoint_groups, &self.lang);
+            let _ = graph.process_endpoint_groups(&endpoint_groups, &self.lang);
         }
 
         if self.lang.lang().use_data_model_within_finder() {
@@ -1054,7 +1054,7 @@ impl Repo {
                     self.lang
                         .collect_import_edges(&q, code, filename, graph, &self.lsp_tx)?;
                 for edge in import_edges {
-                    graph.add_edge(edge);
+                    graph.add_edge(&edge);
                     import_edges_count += 1;
                     _i += 1;
                 }
@@ -1088,7 +1088,7 @@ impl Repo {
                     .into_iter()
                     .map(|(nd, tt, edge_opt)| TestRecord::new(nd, tt, edge_opt))
                     .collect();
-                graph.add_tests(test_records);
+                graph.add_tests(&test_records);
             }
         }
         stats.insert("integration_tests".to_string(), integration_test_count);
@@ -1116,7 +1116,7 @@ impl Repo {
                     .await?;
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();
-                graph.add_calls(all_calls, &self.lang);
+                graph.add_calls((&all_calls.0, &all_calls.1, &all_calls.2, &all_calls.3), &self.lang);
             }
             stats.insert("function_calls".to_string(), function_call_count);
             info!("=> got {} function calls", _i);
