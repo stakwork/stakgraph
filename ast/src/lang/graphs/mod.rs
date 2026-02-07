@@ -296,7 +296,7 @@ impl From<Operand> for Edge {
     fn from(m: Operand) -> Self {
         Edge::new(
             EdgeType::Operand,
-            NodeRef::from(m.source, NodeType::Class),
+            NodeRef::from(m.source, m.source_type),
             NodeRef::from(m.target, NodeType::Function),
         )
     }

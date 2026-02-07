@@ -27,7 +27,7 @@ async fn setup_rust_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
                 .build_graphs_btree()
                 .await
                 .expect("Failed to build graph");
-            btree_graph.analysis();
+            // btree_graph.analysis();
 
             let mut graph_ops = GraphOps::new();
             graph_ops.connect().await.expect("Failed to connect");
@@ -61,7 +61,7 @@ async fn test_rust_coverage() -> Result<()> {
 
     let graph = repo.build_graph_inner::<BTreeMapGraph>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     assert_eq!(endpoints.len(), 21, "Expected exactly 21 endpoints");

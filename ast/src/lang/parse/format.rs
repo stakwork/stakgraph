@@ -701,10 +701,19 @@ impl Lang {
                     file,
                     &func.name,
                     &|name| {
+                        
                         graph
                             .find_nodes_by_name(NodeType::Class, name)
                             .first()
                             .cloned()
+                            .map(|n| (n, NodeType::Class))
+                            .or_else(|| {
+                                graph
+                                    .find_nodes_by_name(NodeType::DataModel, name)
+                                    .first()
+                                    .cloned()
+                                    .map(|n| (n, NodeType::DataModel))
+                            })
                     },
                     parent_type.as_deref(),
                 )?;

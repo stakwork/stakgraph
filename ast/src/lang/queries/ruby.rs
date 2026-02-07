@@ -193,7 +193,7 @@ impl Stack for Ruby {
         code: &str,
         file: &str,
         func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<NodeData>,
+        _callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -206,6 +206,7 @@ impl Stack for Ruby {
                 query_to_ident(query, p, code)?.map(|parent_name| Operand {
                     source: NodeKeys::new(&parent_name, file, p.start_position().row),
                     target: NodeKeys::new(func_name, file, node.start_position().row),
+                    source_type: NodeType::Class,
                 })
             }
             None => None,
