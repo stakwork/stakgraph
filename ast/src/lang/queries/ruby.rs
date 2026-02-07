@@ -193,7 +193,7 @@ impl Stack for Ruby {
         code: &str,
         file: &str,
         func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<NodeData>,
+        _callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -206,6 +206,7 @@ impl Stack for Ruby {
                 query_to_ident(query, p, code)?.map(|parent_name| Operand {
                     source: NodeKeys::new(&parent_name, file, p.start_position().row),
                     target: NodeKeys::new(func_name, file, node.start_position().row),
+                    source_type: NodeType::Class,
                 })
             }
             None => None,
@@ -772,48 +773,7 @@ impl Stack for Ruby {
         true
     }
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
-        if let Some(op) = operand {
-            if let Some(first_char) = op.chars().next() {
-                if first_char.is_lowercase() {
-                    return true;
-                }
-            }
-        }
-        let test_framework_methods = [
-            "to",
-            "not_to",
-            "to_not",
-            "eq",
-            "eql",
-            "be",
-            "be_a",
-            "be_an",
-            "be_nil",
-            "be_truthy",
-            "be_falsey",
-            "be_true",
-            "be_false",
-            "be_empty",
-            "be_blank",
-            "be_present",
-            "include",
-            "match",
-            "raise_error",
-            "change",
-            "have_",
-            "respond_to",
-            "expect",
-            "describe",
-            "it",
-            "context",
-            "before",
-            "after",
-            "let",
-            "subject",
-        ];
-        test_framework_methods
-            .iter()
-            .any(|&m| called.starts_with(m))
+        super::skips::ruby::should_skip(called, operand)
     }
     fn convert_association_to_name(&self, name: &str) -> String {
         let target_class = inflection_rs::inflection::singularize(name);

@@ -19,6 +19,9 @@ impl Go {
 }
 
 impl Stack for Go {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::go::should_skip(called, operand)
+    }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             Query::new(&tree_sitter_bash::LANGUAGE.into(), q).unwrap()
@@ -266,7 +269,7 @@ impl Stack for Go {
         _code: &str,
         file: &str,
         func_name: &str,
-        find_class: &dyn Fn(&str) -> Option<NodeData>,
+        find_class: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         if parent_type.is_none() {
@@ -283,9 +286,10 @@ impl Stack for Go {
 
         let nodedata = find_class(cleaned_type);
         Ok(match nodedata {
-            Some(class) => Some(Operand {
+            Some((class, source_type)) => Some(Operand {
                 source: NodeKeys::new(&class.name, &class.file, class.start),
                 target: NodeKeys::new(func_name, file, node.start_position().row),
+                source_type,
             }),
             None => None,
         })

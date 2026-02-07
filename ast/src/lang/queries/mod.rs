@@ -14,6 +14,7 @@ mod rails_routes;
 pub mod react_ts;
 pub mod ruby;
 pub mod rust;
+pub mod skips;
 pub mod svelte;
 pub mod swift;
 pub mod toml;
@@ -154,7 +155,7 @@ pub trait Stack {
         _code: &str,
         _file: &str,
         _func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<NodeData>,
+        _callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         Ok(None)

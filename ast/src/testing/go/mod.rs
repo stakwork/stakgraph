@@ -121,7 +121,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 77, "Expected 77 functions");
+        assert_eq!(functions.len(), 61, "Expected 61 functions");
     } else {
         assert_eq!(functions.len(), 29, "Expected 29 functions");
     }
@@ -311,7 +311,7 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
     if use_lsp {
-        assert_eq!(uses, 73, "Expected 73 uses edges with lsp");
+        assert_eq!(uses, 47, "Expected 47 uses edges with lsp");
     }
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);

@@ -18,6 +18,9 @@ impl Swift {
 }
 
 impl Stack for Swift {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::java::should_skip(called, operand)
+    }
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
         Query::new(&self.0, q).unwrap()
     }
@@ -97,7 +100,7 @@ impl Stack for Swift {
         code: &str,
         file: &str,
         func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<NodeData>,
+        _callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -114,6 +117,7 @@ impl Stack for Swift {
                 query_to_ident(query, p, code)?.map(|parent_name| Operand {
                     source: NodeKeys::new(&parent_name, file, p.start_position().row),
                     target: NodeKeys::new(func_name, file, node.start_position().row),
+                    source_type: NodeType::Class,
                 })
             }
             None => None,

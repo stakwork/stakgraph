@@ -3,7 +3,7 @@ use super::consts::*;
 use crate::lang::parse::utils::trim_quotes;
 use shared::error::{Context, Result};
 use std::collections::HashMap;
-use tree_sitter::{Language, Parser, Query, Tree};
+use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
 pub struct Rust(Language);
 
 impl Default for Rust {
@@ -176,6 +176,53 @@ impl Rust {
 }
 
 impl Stack for Rust {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::rust::should_skip(called, operand)
+    }
+
+    // fn find_function_parent(
+    //     &self,
+    //     node: TreeNode,
+    //     code: &str,
+    //     file: &str,
+    //     func_name: &str,
+    //     callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
+    //     _parent_type: Option<&str>,
+    // ) -> Result<Option<Operand>> {
+    //     let mut parent = node.parent();
+    //     while let Some(p) = parent {
+    //         if p.kind() == "impl_item" {
+    //             // Found an impl block, extract the type
+    //             if let Some(type_node) = p.child_by_field_name("type") {
+    //                 let type_name = type_node.utf8_text(code.as_bytes())?;
+                    
+    //                 // Callback now returns both NodeData and NodeType
+    //                 let mut found_node = callback(type_name);
+                    
+    //                 // If not found and has generics, try base name without generics
+    //                 if found_node.is_none() && type_name.contains('<') {
+    //                     let base_name = type_name.split('<').next().unwrap_or(type_name);
+    //                     found_node = callback(base_name);
+    //                 }
+                    
+    //                 if let Some((parent_node, source_type)) = found_node {
+    //                     let operand = Operand {
+    //                         source: NodeKeys::new(&parent_node.name, file, parent_node.start),
+    //                         target: NodeKeys::new(func_name, file, node.start_position().row),
+    //                         source_type,
+    //                     };
+    //                     return Ok(Some(operand));
+    //                 } else {
+    //                     println!("[RUST] Type '{}' not found, skipping Operand", type_name);
+    //                     return Ok(None);
+    //                 }
+    //             }
+    //         }
+    //         parent = p.parent();
+    //     }
+    //     Ok(None)
+    // }
+
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             Query::new(&tree_sitter_toml_ng::LANGUAGE.into(), q).unwrap()
@@ -357,17 +404,24 @@ impl Stack for Rust {
             ) @{MACRO} @{FUNCTION_DEFINITION}
             
             (impl_item
-              type: (_) @{PARENT_TYPE}
+              type: [(type_identifier) (generic_type)] @{PARENT_TYPE}
               body: (declaration_list
-                (
-                  (attribute_item)* @{ATTRIBUTES}
-                  .
+                [
+                  (
+                    (attribute_item)* @{ATTRIBUTES}
+                    .
+                    (function_item
+                      name: (identifier) @{FUNCTION_NAME}
+                      parameters: (parameters) @{ARGUMENTS}
+                      return_type: (_)? @{RETURN_TYPES}
+                      body: (block)? @method.body) @method @{FUNCTION_DEFINITION}
+                  )
                   (function_item
                     name: (identifier) @{FUNCTION_NAME}
                     parameters: (parameters) @{ARGUMENTS}
-                    return_type: (_)? @{RETURN_TYPES}
+                    return_type: (_)?  @{RETURN_TYPES}
                     body: (block)? @method.body) @method @{FUNCTION_DEFINITION}
-                )
+                ]
               )) @impl
             "#
         )

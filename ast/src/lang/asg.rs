@@ -228,6 +228,7 @@ impl NodeData {
 pub struct Operand {
     pub source: NodeKeys,
     pub target: NodeKeys,
+    pub source_type: NodeType,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

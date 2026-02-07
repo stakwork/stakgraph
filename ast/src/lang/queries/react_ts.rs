@@ -1107,7 +1107,7 @@ impl Stack for TypeScriptReact {
         code: &str,
         file: &str,
         func_name: &str,
-        _callback: &dyn Fn(&str) -> Option<NodeData>,
+        _callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
@@ -1128,6 +1128,7 @@ impl Stack for TypeScriptReact {
                 query_to_ident(query, p, code)?.map(|parent_name| Operand {
                     source: NodeKeys::new(&parent_name, file, p.start_position().row),
                     target: NodeKeys::new(func_name, file, node.start_position().row),
+                    source_type: NodeType::Class,
                 })
             }
             None => None,
@@ -1361,9 +1362,8 @@ impl Stack for TypeScriptReact {
         false
     }
 
-    // FROM REACT (identical in both): should_skip_function_call
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
-        consts::should_skip_js_function_call(called, operand)
+        super::skips::react_ts::should_skip(called, operand)
     }
 
     // MERGED: parse_imports_from_file (using TypeScript version with IMPORTS_ALIAS)

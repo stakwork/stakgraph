@@ -72,6 +72,8 @@ pub struct Edge {
     pub source: NodeRef,
     pub target: NodeRef,
     pub ref_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operand: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
@@ -126,7 +128,12 @@ impl Edge {
             source,
             target,
             ref_id: Uuid::new_v4().to_string(),
+            operand: None,
         }
+    }
+    pub fn with_operand(mut self, operand: Option<String>) -> Self {
+        self.operand = operand;
+        self
     }
     pub fn from_test_call(call: &Calls, lang: &Lang, graph: &impl Graph) -> Edge {
         // Look up test node to get body for language-specific classification
@@ -289,7 +296,7 @@ impl From<Operand> for Edge {
     fn from(m: Operand) -> Self {
         Edge::new(
             EdgeType::Operand,
-            NodeRef::from(m.source, NodeType::Class),
+            NodeRef::from(m.source, m.source_type),
             NodeRef::from(m.target, NodeType::Function),
         )
     }
@@ -302,6 +309,7 @@ impl From<Calls> for Edge {
             NodeRef::from(m.source, NodeType::Function),
             NodeRef::from(m.target, NodeType::Function),
         )
+        .with_operand(m.operand)
     }
 }
 

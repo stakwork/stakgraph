@@ -18,6 +18,9 @@ impl Kotlin {
 }
 
 impl Stack for Kotlin {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::java::should_skip(called, operand)
+    }
     fn identifier_query(&self) -> String {
         "(simple_identifier) @identifier\n(identifier) @identifier".to_string()
     }
@@ -151,7 +154,7 @@ impl Stack for Kotlin {
         _code: &str,
         file: &str,
         func_name: &str,
-        find_class: &dyn Fn(&str) -> Option<NodeData>,
+        find_class: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         if parent_type.is_none() {
@@ -160,9 +163,10 @@ impl Stack for Kotlin {
         let parent_type = parent_type.unwrap();
         let nodedata = find_class(parent_type);
         Ok(match nodedata {
-            Some(class) => Some(Operand {
+            Some((class, source_type)) => Some(Operand {
                 source: NodeKeys::new(&class.name, &class.file, class.start),
                 target: NodeKeys::new(func_name, file, node.start_position().row),
+                source_type,
             }),
             None => None,
         })

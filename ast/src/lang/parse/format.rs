@@ -701,10 +701,19 @@ impl Lang {
                     file,
                     &func.name,
                     &|name| {
+                        
                         graph
                             .find_nodes_by_name(NodeType::Class, name)
                             .first()
                             .cloned()
+                            .map(|n| (n, NodeType::Class))
+                            .or_else(|| {
+                                graph
+                                    .find_nodes_by_name(NodeType::DataModel, name)
+                                    .first()
+                                    .cloned()
+                                    .map(|n| (n, NodeType::DataModel))
+                            })
                     },
                     parent_type.as_deref(),
                 )?;
@@ -1012,6 +1021,8 @@ impl Lang {
                         }
                     }
                 }
+            } else if o == PARENT_NAME {
+                fc.operand = Some(body.clone());
             }
             Ok(())
         })?;
@@ -1120,6 +1131,9 @@ impl Lang {
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
         } else if allow_unverified {
+            if self.lang.should_skip_function_call(&called, &fc.operand) {
+                return Ok(None);
+            }
             fc.target = NodeKeys::new(&called, "unverified", call_point.row);
         } else {
             // FALLBACK to find?

@@ -1,4 +1,4 @@
-use crate::lang::graphs::{EdgeType, NodeType};
+use crate::lang::graphs::{EdgeType, NodeType, ArrayGraph, BTreeMapGraph};
 use crate::lang::{Graph, Node};
 use crate::utils::sanitize_string;
 use crate::{lang::Lang, repo::Repo};
@@ -286,7 +286,11 @@ use std::net::SocketAddr;"#
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
-    assert_eq!(calls_edges, 104, "Expected 104 calls edges");
+    assert_eq!(calls_edges, 84, "Expected 84 calls edges");
+
+    let operand_calls = graph.count_edges_of_type(EdgeType::Operand);
+    //assert_eq!(operand_calls, 18, "Expected 18 Operand edges");
+    edges_count += operand_calls;
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
@@ -869,7 +873,6 @@ use std::net::SocketAddr;"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_rust() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_rust_generic::<ArrayGraph>().await.unwrap();
     test_rust_generic::<BTreeMapGraph>().await.unwrap();
 
