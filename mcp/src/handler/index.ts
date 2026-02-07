@@ -36,7 +36,12 @@ function createServer(): McpServer {
   server.registerTool(
     "search_logs",
     {
-      description: "Search application logs using Quickwit. Supports Lucene query syntax.",
+      description: `Search application logs using Quickwit. Supports Lucene query syntax. Does not support wildcards or slash characters.
+Example queries:
+- "path:pool AND path:status" (for searching endpoint like /api/pool/[slug]/status)
+- "message:AuthenticationError",
+- "level:error"
+`,
       inputSchema: {
         query: z.string().describe("The search query (Lucene syntax supported). Use '*' to match all logs."),
         max_hits: z.number().optional().describe("Maximum number of results to return (default: 100)"),

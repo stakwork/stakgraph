@@ -23,7 +23,7 @@ async function run() {
     if (searchLogsTool && searchLogsTool.execute) {
         console.log('Executing search_logs...');
         const result = await searchLogsTool.execute({
-            query: '*',
+            query: 'path:pod-repair',
             max_hits: 10
         }, {
             toolCallId: '1',
