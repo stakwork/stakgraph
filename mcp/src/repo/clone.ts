@@ -56,8 +56,10 @@ async function doCloneOrUpdate(
   commit?: string
 ): Promise<string> {
   let url = repoUrl;
-  if (username && pat) {
-    url = repoUrl.replace("https://", `https://${username}:${pat}@`);
+  if (pat) {
+    // GitHub accepts PAT with any username (or just the token as username)
+    const user = username || "x-access-token";
+    url = repoUrl.replace("https://", `https://${user}:${pat}@`);
   }
 
   // Check if directory exists and is a git repo
