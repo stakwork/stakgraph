@@ -180,48 +180,47 @@ impl Stack for Rust {
         super::skips::rust::should_skip(called, operand)
     }
 
-    // fn find_function_parent(
-    //     &self,
-    //     node: TreeNode,
-    //     code: &str,
-    //     file: &str,
-    //     func_name: &str,
-    //     callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
-    //     _parent_type: Option<&str>,
-    // ) -> Result<Option<Operand>> {
-    //     let mut parent = node.parent();
-    //     while let Some(p) = parent {
-    //         if p.kind() == "impl_item" {
-    //             // Found an impl block, extract the type
-    //             if let Some(type_node) = p.child_by_field_name("type") {
-    //                 let type_name = type_node.utf8_text(code.as_bytes())?;
-                    
-    //                 // Callback now returns both NodeData and NodeType
-    //                 let mut found_node = callback(type_name);
-                    
-    //                 // If not found and has generics, try base name without generics
-    //                 if found_node.is_none() && type_name.contains('<') {
-    //                     let base_name = type_name.split('<').next().unwrap_or(type_name);
-    //                     found_node = callback(base_name);
-    //                 }
-                    
-    //                 if let Some((parent_node, source_type)) = found_node {
-    //                     let operand = Operand {
-    //                         source: NodeKeys::new(&parent_node.name, file, parent_node.start),
-    //                         target: NodeKeys::new(func_name, file, node.start_position().row),
-    //                         source_type,
-    //                     };
-    //                     return Ok(Some(operand));
-    //                 } else {
-    //                     println!("[RUST] Type '{}' not found, skipping Operand", type_name);
-    //                     return Ok(None);
-    //                 }
-    //             }
-    //         }
-    //         parent = p.parent();
-    //     }
-    //     Ok(None)
-    // }
+    fn find_function_parent(
+        &self,
+        node: TreeNode,
+        code: &str,
+        file: &str,
+        func_name: &str,
+        callback: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
+        _parent_type: Option<&str>,
+    ) -> Result<Option<Operand>> {
+        let mut parent = node.parent();
+        while let Some(p) = parent {
+            if p.kind() == "impl_item" {
+                // Found an impl block, extract the type
+                if let Some(type_node) = p.child_by_field_name("type") {
+                    let type_name = type_node.utf8_text(code.as_bytes())?;
+
+                    // Callback now returns both NodeData and NodeType
+                    let mut found_node = callback(type_name);
+
+                    // If not found and has generics, try base name without generics
+                    if found_node.is_none() && type_name.contains('<') {
+                        let base_name = type_name.split('<').next().unwrap_or(type_name);
+                        found_node = callback(base_name);
+                    }
+
+                    if let Some((parent_node, source_type)) = found_node {
+                        let operand = Operand {
+                            source: NodeKeys::new(&parent_node.name, file, parent_node.start),
+                            target: NodeKeys::new(func_name, file, node.start_position().row),
+                            source_type,
+                        };
+                        return Ok(Some(operand));
+                    } else {
+                        return Ok(None);
+                    }
+                }
+            }
+            parent = p.parent();
+        }
+        Ok(None)
+    }
 
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
@@ -354,9 +353,11 @@ impl Stack for Rust {
            [
                 (struct_item
                     name: (type_identifier) @{CLASS_NAME}
+                    type_parameters: (type_parameters)?
                 )
                 (enum_item
                     name: (type_identifier) @{CLASS_NAME}
+                    type_parameters: (type_parameters)?
                 )
             ]@{CLASS_DEFINITION}
             "#
@@ -653,11 +654,13 @@ impl Stack for Rust {
                         .
                         (struct_item
                             name: (type_identifier) @{STRUCT_NAME}
+                            type_parameters: (type_parameters)?
                         ) @{STRUCT}
                     )
                     (
                         (struct_item
                             name: (type_identifier) @{STRUCT_NAME}
+                            type_parameters: (type_parameters)?
                         ) @{STRUCT}
                     )
                     (
@@ -665,16 +668,19 @@ impl Stack for Rust {
                         .
                         (enum_item
                             name: (type_identifier) @{STRUCT_NAME}
+                            type_parameters: (type_parameters)?
                         ) @{STRUCT}
                     )
                     (
                         (enum_item
                             name: (type_identifier) @{STRUCT_NAME}
+                            type_parameters: (type_parameters)?
                         ) @{STRUCT}
                     )
                     (type_item
                         name: (type_identifier)@{STRUCT_NAME}
-                        type :(_)
+                        type: (_)
+                        type_parameters: (type_parameters)?
                     )@{STRUCT}
                 ]
             "#
@@ -758,7 +764,11 @@ impl Stack for Rust {
     }
 
     fn filter_by_implements(&self) -> bool {
-        true
+        false
+    }
+
+    fn clean_graph(&self, callback: &mut dyn FnMut(NodeType, NodeType, &str)) {
+        callback(NodeType::Class, NodeType::Function, "operand");
     }
 
     fn is_test_file(&self, filename: &str) -> bool {

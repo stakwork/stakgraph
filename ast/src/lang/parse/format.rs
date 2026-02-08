@@ -701,7 +701,6 @@ impl Lang {
                     file,
                     &func.name,
                     &|name| {
-                        
                         graph
                             .find_nodes_by_name(NodeType::Class, name)
                             .first()

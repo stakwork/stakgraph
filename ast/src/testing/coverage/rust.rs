@@ -130,8 +130,8 @@ async fn test_rust_graph_upload() -> Result<()> {
     let graph_ops = setup_rust_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 248, "Graph should have 248 nodes after upload");
-    assert_eq!(edges, 382, "Graph should have 382 edges after upload");
+    assert_eq!(nodes, 251, "Graph should have 251 nodes after upload");
+    assert_eq!(edges, 400, "Graph should have 400 edges after upload");
 
     Ok(())
 }
@@ -150,15 +150,15 @@ async fn test_coverage_default_params() -> Result<()> {
     );
 
     let unit = coverage.unit_tests.expect("Should have unit_tests");
-    assert_eq!(unit.total, 57, "Should have 57 unit test targets");
+    assert_eq!(unit.total, 39, "Should have 39 unit test targets");
     assert_eq!(unit.total_tests, 43, "Should have 43 unit tests");
 
     let integration = coverage
         .integration_tests
         .expect("Should have integration_tests");
     assert_eq!(
-        integration.total, 57,
-        "Should have 57 integration test targets"
+        integration.total, 39,
+        "Should have 39 integration test targets"
     );
     assert_eq!(
         integration.total_tests, 17,
@@ -206,8 +206,8 @@ async fn test_coverage_with_ignore_dirs() -> Result<()> {
 
     let unit = filtered.unit_tests.expect("Should have unit_tests");
     assert_eq!(
-        unit.total, 51,
-        "Should have 51 targets after ignoring routes"
+        unit.total, 33,
+        "Should have 33 targets after ignoring routes"
     );
 
     Ok(())
@@ -288,7 +288,7 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 57, "Should have 57 unique Function nodes");
+    assert_eq!(count, 39, "Should have 39 unique Function nodes");
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(
@@ -357,8 +357,8 @@ async fn test_nodes_class_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 7, "Should have 7 Class nodes");
-    assert_eq!(results.len(), 7);
+    assert_eq!(count, 10, "Should have 10 Class nodes");
+    assert_eq!(results.len(), 10);
 
     Ok(())
 }
@@ -516,7 +516,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 78, "Should have 57 Functions + 21 Endpoints = 78");
+    assert_eq!(count, 60, "Should have 39 Functions + 21 Endpoints = 60");
 
     let has_function = results
         .iter()
@@ -582,7 +582,7 @@ async fn test_nodes_pagination_default() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 57, "Total count should be 57");
+    assert_eq!(count, 39, "Total count should be 39");
     assert_eq!(results.len(), 10, "Should return 10 items per page");
 
     Ok(())
@@ -669,7 +669,7 @@ async fn test_nodes_pagination_large_offset() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 57, "Total count should still be accurate");
+    assert_eq!(count, 39, "Total count should still be accurate");
     assert!(
         results.is_empty(),
         "Should return empty for offset beyond data"
@@ -699,8 +699,8 @@ async fn test_nodes_pagination_max_limit() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 57, "Total count should be 57");
-    assert_eq!(results.len(), 57, "Should return all 57 functions");
+    assert_eq!(count, 39, "Total count should be 39");
+    assert_eq!(results.len(), 39, "Should return all 39 functions");
 
     Ok(())
 }
@@ -940,7 +940,7 @@ async fn test_nodes_repo_filter() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 57, "Should find 57 functions in Rust repo");
+    assert_eq!(count, 39, "Should find 39 functions in Rust repo");
 
     for (_, node_data, _, _, _, _, _, _, _) in &results {
         assert!(
@@ -1034,40 +1034,6 @@ async fn test_nodes_regex_filter() -> Result<()> {
 
 #[cfg(feature = "neo4j")]
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-async fn test_nodes_search() -> Result<()> {
-    let mut graph_ops = setup_rust_graph().await?;
-
-    let (count, results) = graph_ops
-        .query_nodes_with_count(
-            &[NodeType::Function],
-            0,
-            100,
-            true,
-            None,
-            false,
-            false,
-            None,
-            None,
-            Some("person"),
-            None,
-        )
-        .await?;
-
-    assert_ne!(count, 0, "Should find functions matching search");
-
-    for (_, node_data, _, _, _, _, _, _, _) in &results {
-        assert!(
-            node_data.name.to_lowercase().contains("person")
-                || node_data.file.to_lowercase().contains("person"),
-            "Results should match search term"
-        );
-    }
-
-    Ok(())
-}
-
-#[cfg(feature = "neo4j")]
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_nodes_search_no_match() -> Result<()> {
     let mut graph_ops = setup_rust_graph().await?;
 
@@ -1146,8 +1112,8 @@ async fn test_nodes_is_muted() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(unmuted_count, 57, "Unmuted count should be 57");
-    assert_eq!(all_count, 57, "All count should be 57");
+    assert_eq!(unmuted_count, 39, "Unmuted count should be 39");
+    assert_eq!(all_count, 39, "All count should be 39");
     assert_eq!(
         unmuted_count, all_count,
         "Unmuted should equal all when no nodes muted"

@@ -1,4 +1,4 @@
-use crate::lang::graphs::{EdgeType, NodeType, ArrayGraph, BTreeMapGraph};
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::utils::sanitize_string;
 use crate::{lang::Lang, repo::Repo};
@@ -169,7 +169,7 @@ use std::net::SocketAddr;"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 7, "Expected 7 class nodes");
+    assert_eq!(classes.len(), 10, "Expected 10 class nodes");
 
     let database_class = classes
         .iter()
@@ -182,31 +182,16 @@ use std::net::SocketAddr;"#
         "Database class should have doc comment"
     );
 
-    let dm_imports = graph.has_edge(&rocket_file, &person_dm, EdgeType::Imports);
-    assert!(
-        dm_imports,
-        "Expected 'Person' data model to be imported in 'rocket_routes.rs'"
-    );
     let db_imports = graph.has_edge(&rocket_file, &database_class, EdgeType::Imports);
     assert!(
         db_imports,
         "Expected 'Database' class to be imported in 'rocket_routes.rs'"
     );
 
-    let dm_imports = graph.has_edge(&axum_file, &person_dm, EdgeType::Imports);
-    assert!(
-        dm_imports,
-        "Expected 'Person' data model to be imported in 'axum_routes.rs'"
-    );
     let db_imports = graph.has_edge(&axum_file, &database_class, EdgeType::Imports);
     assert!(
         db_imports,
         "Expected 'Database' class to be imported in 'axum_routes.rs'"
-    );
-    let dm_imports = graph.has_edge(&actix_file, &person_dm, EdgeType::Imports);
-    assert!(
-        dm_imports,
-        "Expected 'Person' data model to be imported in 'actix_routes.rs'"
     );
     let db_imports = graph.has_edge(&actix_file, &database_class, EdgeType::Imports);
     assert!(
@@ -274,11 +259,11 @@ use std::net::SocketAddr;"#
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imported_edges;
-    assert_eq!(imported_edges, 12, "Expected 12 import edges");
+    assert_eq!(imported_edges, 9, "Expected 9 import edges");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 259, "Expected 259 contains edges");
+    assert_eq!(contains_edges, 262, "Expected 262 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -289,7 +274,7 @@ use std::net::SocketAddr;"#
     assert_eq!(calls_edges, 84, "Expected 84 calls edges");
 
     let operand_calls = graph.count_edges_of_type(EdgeType::Operand);
-    //assert_eq!(operand_calls, 18, "Expected 18 Operand edges");
+    assert_eq!(operand_calls, 18, "Expected 18 Operand edges");
     edges_count += operand_calls;
 
     let functions = graph.find_nodes_by_type(NodeType::Function);

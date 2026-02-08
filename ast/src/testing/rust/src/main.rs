@@ -1,8 +1,8 @@
 mod db;
+mod macros;
 mod routes;
 mod traits;
 mod types;
-mod macros;
 
 use crate::db::init_db;
 use crate::routes::{
@@ -19,7 +19,7 @@ enum PORT {
     Rocket = 5006,
 }
 
-//should be DM and NOT Class 'cause there is no implementation
+//should be Class 'cause there are implementation
 enum CRATES {
     STANDALONE,
     AST,
