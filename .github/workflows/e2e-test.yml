@@ -95,6 +95,9 @@ jobs:
         working-directory: ./mcp
         run: |
           export TEST_REF_ID=1 \n          export USE_STAGEHAND=false
+          export TEST_REF_ID=1 \n          export USE_STAGEHAND=false
+          # Download models before starting server
+          node scripts/download-models.js
           yarn run dev > server.log 2>&1 & #capture logs
 
       - name: Wait for the server
@@ -109,6 +112,11 @@ jobs:
           -F "nodes=@./ast/examples/demo-repo-nodes.jsonl" \
           -F "edges=@./ast/examples/demo-repo-edges.jsonl" \
           http://localhost:3355/upload
+
+      - name: Seed Embeddings
+        working-directory: ./mcp
+        run: |
+          npx tsx scripts/seed-embeddings.ts
 
       - name: Test API Response
         working-directory: ./mcp
@@ -182,8 +190,29 @@ jobs:
           jq --sort-keys 'sort_by(.properties.name)' "$EXPECTED_NODETYPE_ENDPOINT_FILE" > "$SORTED_EXPECTED_NODETYPE_ENDPOINT_FILE"
 
           if diff --color=always -u "$SORTED_EXPECTED_NODETYPE_ENDPOINT_FILE" "$SORTED_ACTUAL_NODETYPE_ENDPOINT_FILE"; then
-            echo "Nodetypes Response matches expected output ✅"
+            echo "Nodetypes Response matches expected output"
           else
-            echo "Nodetypes Response does NOT match expected output ❌"
+            echo "Nodetypes Response does NOT match expected output"
             exit 1
+          fi
+
+      - name: Check Vector Search
+        working-directory: ./mcp
+        run: |
+          # Search for "router" which should match the seeded description for "NewRouter"
+          curl -s -X GET "http://localhost:3355/search?query=router&method=vector&output=json" -o ./testing/actual-vector-search.json
+
+          # Filter actual response to remove dynamic fields (score, date_added_to_graph, etc.) for comparison
+          cat ./testing/actual-vector-search.json | jq 'map(del(.score, .date_added_to_graph, .properties.date_added_to_graph, .properties.score, .ref_id))' > ./testing/actual-vector-search-clean.json
+
+          EXPECTED_FILE="./testing/ci-vector-search-router.json"
+          ACTUAL_FILE="./testing/actual-vector-search-clean.json"
+
+          echo "Comparing vector search results..."
+          if diff --color=always -u <(jq -S . "$EXPECTED_FILE") <(jq -S . "$ACTUAL_FILE"); then
+             echo "Vector Search matches expected ground truth"
+          else
+             echo "Vector Search response mismatch"
+             cat "$ACTUAL_FILE"
+             exit 1
           fi
