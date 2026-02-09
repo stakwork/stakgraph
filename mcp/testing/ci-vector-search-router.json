@@ -1,7 +1,6 @@
 [
   {
     "node_type": "Function",
-    "ref_id": "49c0f8c5-f0f1-4aaf-b680-33dd6b78e511",
     "properties": {
       "start": 17,
       "description": "Initializes the Chi router, sets up routes for Person endpoints (GET /person/{id}, POST /person, GET /people), and starts the HTTP server on the specified port.",

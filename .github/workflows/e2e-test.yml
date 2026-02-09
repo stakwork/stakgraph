@@ -203,7 +203,7 @@ jobs:
           curl -s -X GET "http://localhost:3355/search?query=router&method=vector&output=json" -o ./testing/actual-vector-search.json
 
           # Filter actual response to remove dynamic fields (score, date_added_to_graph, etc.) for comparison
-          cat ./testing/actual-vector-search.json | jq 'map(del(.score, .date_added_to_graph, .properties.date_added_to_graph, .properties.score))' > ./testing/actual-vector-search-clean.json
+          cat ./testing/actual-vector-search.json | jq 'map(del(.score, .date_added_to_graph, .properties.date_added_to_graph, .properties.score, .ref_id))' > ./testing/actual-vector-search-clean.json
 
           EXPECTED_FILE="./testing/ci-vector-search-router.json"
           ACTUAL_FILE="./testing/actual-vector-search-clean.json"

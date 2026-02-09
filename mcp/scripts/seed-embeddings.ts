@@ -1,6 +1,27 @@
 import { db } from "../src/graph/neo4j.js";
 import { vectorizeCodeDocument } from "../src/vector/index.js";
 
+const RETRY_COUNT = 10;
+const RETRY_DELAY_MS = 2000;
+
+async function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function findNodesWithRetry(name: string, type: string) {
+  for (let i = 0; i < RETRY_COUNT; i++) {
+    const nodes = await db.findNodesByName(name, type);
+    if (nodes.length > 0) {
+      return nodes;
+    }
+    console.log(
+      `[seed-embeddings] Waiting for node '${name}' to appear (attempt ${i + 1}/${RETRY_COUNT})...`,
+    );
+    await wait(RETRY_DELAY_MS);
+  }
+  return [];
+}
+
 async function main() {
   console.log("[seed-embeddings] Starting...");
 
@@ -31,7 +52,7 @@ async function main() {
         `[seed-embeddings] Processing node: ${item.name} (${item.type})`,
       );
 
-      const nodes = await db.findNodesByName(item.name, item.type);
+      const nodes = await findNodesWithRetry(item.name, item.type);
 
       if (nodes.length === 0) {
         console.warn(
