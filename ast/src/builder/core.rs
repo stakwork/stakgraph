@@ -65,16 +65,20 @@ impl Repo {
             None
         };
 
+
         self.send_status_update("initialization", 1);
         self.add_repository_and_language_nodes(&mut graph).await?;
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
+            let (nodes, edges) = graph.get_graph_size();
             let all_nodes = graph.get_all_nodes();
             let bolt_nodes = nodes_to_bolt_format(all_nodes);
             ctx.uploader
                 .flush_stage(&ctx.neo, "repository_language", &bolt_nodes)
                 .await?;
+            ctx.prev_node_count = nodes as usize;
+            ctx.prev_edge_count = edges as usize;
         }
         let files = self.collect_and_add_directories(&mut graph)?;
         stats.insert("directories".to_string(), files.len());
@@ -85,15 +89,22 @@ impl Repo {
         self.send_status_progress(100, 100, 1);
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "files", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "files", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "files", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "files", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
 
         self.setup_lsp(&filez)?;
@@ -106,147 +117,225 @@ impl Repo {
         self.process_libraries(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "libraries", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "libraries", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_import_sections(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "imports", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "imports", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "imports", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "imports", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_variables(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "variables", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "variables", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "variables", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "variables", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "classes", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "classes", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "classes", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "classes", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "instances_traits", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "instances_traits", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "implements", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "implements", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "implements", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "implements", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_data_models(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "data_models", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "data_models", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "functions_tests", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "functions_tests", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_pages_and_templates(&mut graph, &filez)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "pages_templates", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "pages_templates", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.process_endpoints(&mut graph, &allowed_files)?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "endpoints", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "endpoints", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
         }
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
-            ctx.uploader
-                .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
-                .await?;
-            let edges = graph.get_edge_keys();
-            ctx.uploader
-                .flush_edges_stage(&ctx.neo, "finalize", &edges)
-                .await?;
+            let (nodes, edges) = graph.get_graph_size();
+            if nodes as usize > ctx.prev_node_count {
+                let all_nodes = graph.get_all_nodes();
+                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                ctx.uploader
+                    .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
+                    .await?;
+                ctx.prev_node_count = nodes as usize;
+            }
+            if edges as usize > ctx.prev_edge_count {
+                let edge_keys = graph.get_edge_keys();
+                ctx.uploader
+                    .flush_edges_stage(&ctx.neo, "finalize", &edge_keys)
+                    .await?;
+                ctx.prev_edge_count = edges as usize;
+            }
+
         }
 
         let graph = filter_by_revs(

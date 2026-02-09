@@ -512,7 +512,6 @@ impl Graph for BTreeMapGraph {
         }
     }
     fn process_endpoint_groups(&mut self, eg: &[NodeData], lang: &Lang) -> Result<()> {
-        // Collect all endpoints
         let endpoints: Vec<NodeData> = self
             .nodes
             .values()
@@ -520,7 +519,6 @@ impl Graph for BTreeMapGraph {
             .map(|node| node.node_data.clone())
             .collect();
 
-        // Create callback to find Import nodes by file
         let find_import_node = |file: &str| -> Option<NodeData> {
             self.nodes
                 .values()
@@ -528,16 +526,12 @@ impl Graph for BTreeMapGraph {
                 .map(|node| node.node_data.clone())
         };
 
-        // Delegate matching logic to language implementation
         let matches = lang
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
-        // Apply prefix updates to nodes and edges
         let mut updates = Vec::new();
         for (endpoint, prefix) in &matches {
-            // Find the node key for this endpoint
-            // Must match name, file, AND start line to distinguish multiple endpoints with same name
             if let Some((key, node)) = self.nodes.iter().find(|(_, n)| {
                 n.node_type == NodeType::Endpoint
                     && n.node_data.name == endpoint.name
@@ -559,7 +553,6 @@ impl Graph for BTreeMapGraph {
             }
         }
 
-        // Apply all updates
         for (old_key, updated_node, edges) in updates {
             let new_key = create_node_key(&updated_node);
 
@@ -908,8 +901,15 @@ impl Graph for BTreeMapGraph {
             .collect()
     }
 }
-
 impl BTreeMapGraph {
+    pub fn iter_all_nodes(&self) -> impl Iterator<Item = (&NodeType, &NodeData)> {
+        self.nodes.values().map(|node| (&node.node_type, &node.node_data))
+    }
+
+    pub fn iter_all_edges(&self) -> impl Iterator<Item = (&String, &String, &EdgeType)> {
+        self.edges.iter().map(|(src, dst, edge)| (src, dst, edge))
+    }
+
     pub fn find_edge_by_keys(
         &self,
         src_key: &str,
