@@ -19,6 +19,7 @@ use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
 use std::path::PathBuf;
+use std::time::Instant;
 use std::{collections::HashSet, path::Path};
 use tokio::fs;
 use tracing::{debug, info, trace};
@@ -67,7 +68,9 @@ impl Repo {
 
 
         self.send_status_update("initialization", 1);
+        let stage_start = Instant::now();
         self.add_repository_and_language_nodes(&mut graph).await?;
+        info!("[perf][stage] repository_language s={:.2}", stage_start.elapsed().as_secs_f64());
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -80,10 +83,14 @@ impl Repo {
             ctx.prev_node_count = nodes as usize;
             ctx.prev_edge_count = edges as usize;
         }
+        let stage_start = Instant::now();
         let files = self.collect_and_add_directories(&mut graph)?;
+        info!("[perf][stage] directories s={:.2}", stage_start.elapsed().as_secs_f64());
         stats.insert("directories".to_string(), files.len());
 
+        let stage_start = Instant::now();
         let filez = self.process_and_add_files(&mut graph, &files).await?;
+        info!("[perf][stage] files s={:.2}", stage_start.elapsed().as_secs_f64());
         stats.insert("files".to_string(), filez.len());
         self.send_status_with_stats(stats.clone());
         self.send_status_progress(100, 100, 1);
@@ -107,14 +114,18 @@ impl Repo {
             }
         }
 
+        let stage_start = Instant::now();
         self.setup_lsp(&filez)?;
+        info!("[perf][stage] lsp_setup s={:.2}", stage_start.elapsed().as_secs_f64());
 
         let allowed_files = filez
             .iter()
             .filter(|(f, _)| is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
             .cloned()
             .collect::<Vec<_>>();
+        let stage_start = Instant::now();
         self.process_libraries(&mut graph, &allowed_files)?;
+        info!("[perf][stage] libraries s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -134,7 +145,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_import_sections(&mut graph, &filez)?;
+        info!("[perf][stage] imports s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -154,7 +167,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_variables(&mut graph, &allowed_files)?;
+        info!("[perf][stage] variables s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -174,7 +189,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
+        info!("[perf][stage] classes s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -194,7 +211,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
+        info!("[perf][stage] instances_traits s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -214,7 +233,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
+        info!("[perf][stage] implements s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -234,7 +255,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_data_models(&mut graph, &allowed_files)?;
+        info!("[perf][stage] data_models s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -254,8 +277,10 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
+        info!("[perf][stage] functions_tests s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -275,7 +300,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_pages_and_templates(&mut graph, &filez)?;
+        info!("[perf][stage] pages_templates s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -295,7 +322,9 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.process_endpoints(&mut graph, &allowed_files)?;
+        info!("[perf][stage] endpoints s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -315,8 +344,10 @@ impl Repo {
                 ctx.prev_edge_count = edges as usize;
             }
         }
+        let stage_start = Instant::now();
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
+        info!("[perf][stage] finalize s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();

@@ -13,6 +13,7 @@ use lsp::{git::git_clone, spawn_analyzer, strip_tmp, CmdSender};
 use shared::{Context, Error, Result};
 use std::path::Path;
 use std::str::FromStr;
+use std::time::Instant;
 use std::{fs, path::PathBuf};
 use tokio::sync::broadcast::Sender;
 use tracing::{info, warn};
@@ -132,10 +133,12 @@ impl Repos {
         if let Some(first_repo) = &self.0.first() {
             first_repo.send_status_update("linking_graphs", 14);
         }
+        let stage_start = Instant::now();
         info!("linking e2e tests");
         linker::link_e2e_tests(&mut graph)?;
         info!("linking api nodes");
         linker::link_api_nodes(&mut graph)?;
+        info!("[perf][stage] cross_repo_linking s={:.2}", stage_start.elapsed().as_secs_f64());
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming_ctx {
             let all_nodes = graph.get_all_nodes();
