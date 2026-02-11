@@ -83,14 +83,17 @@ impl Repos {
         self.build_graphs_inner_impl::<BTreeMapGraph>(streaming)
             .await
     }
-    pub async fn build_graphs_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
+    pub async fn build_graphs_inner_with_streaming<G: Graph + Sync>(
+        &self,
+        streaming: bool,
+    ) -> Result<G> {
         self.build_graphs_inner_impl(streaming).await
     }
-    pub async fn build_graphs_inner<G: Graph>(&self) -> Result<G> {
+    pub async fn build_graphs_inner<G: Graph + Sync>(&self) -> Result<G> {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graphs_inner_impl(streaming).await
     }
-    async fn build_graphs_inner_impl<G: Graph>(&self, streaming: bool) -> Result<G> {
+    async fn build_graphs_inner_impl<G: Graph + Sync>(&self, streaming: bool) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }

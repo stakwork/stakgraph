@@ -18,6 +18,7 @@ use crate::lang::call_finder::{parse_imports_for_file, IMPORT_CACHE};
 
 use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
+use rayon::prelude::*;
 use shared::error::Result;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -49,12 +50,15 @@ impl Repo {
         self.build_graph_inner().await
     }
 
-    pub async fn build_graph_inner<G: Graph>(&self) -> Result<G> {
+    pub async fn build_graph_inner<G: Graph + Sync>(&self) -> Result<G> {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graph_inner_with_streaming(streaming).await
     }
     #[allow(unused)]
-    pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
+    pub async fn build_graph_inner_with_streaming<G: Graph + Sync>(
+        &self,
+        streaming: bool,
+    ) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         graph.set_allow_unverified_calls(self.allow_unverified_calls);
@@ -596,18 +600,28 @@ impl Repo {
         }
         Ok(())
     }
-    fn process_libraries<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+    fn process_libraries<G: Graph + Sync>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+    ) -> Result<()> {
         self.send_status_update("process_libraries", 3);
         let mut i = 0;
         let mut lib_count = 0;
-        let pkg_files = filez
-            .iter()
+        let pkg_files_res: Vec<_> = filez
+            .par_iter()
             .filter(|(f, _)| self.lang.kind.is_package_file(f))
-            .collect::<Vec<_>>();
+            .map(|(pkg_file, code)| {
+                let mut file_data = self.prepare_file_data(pkg_file, code);
+                file_data.meta.insert("lib".to_string(), "true".to_string());
+                let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
+                let libs = self.lang.get_libs::<G>(code, pkg_file)?;
+                Ok((pkg_file, file_data, parent_type, parent_file, libs))
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-        let total_pkg_files = pkg_files.len();
-
-        for (pkg_file, code) in pkg_files {
+        let total_pkg_files = pkg_files_res.len();
+        for (pkg_file, file_data, parent_type, parent_file, libs) in pkg_files_res {
             i += 1;
             if i % 2 == 0 || i == total_pkg_files {
                 self.send_status_progress(i, total_pkg_files, 5);
@@ -615,14 +629,8 @@ impl Repo {
 
             info!("=> get_packages in... {:?}", pkg_file);
 
-            let mut file_data = self.prepare_file_data(pkg_file, code);
-            file_data.meta.insert("lib".to_string(), "true".to_string());
-
-            let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
-
             graph.add_node_with_parent(&NodeType::File, &file_data, &parent_type, &parent_file);
 
-            let libs = self.lang.get_libs::<G>(code, pkg_file)?;
             lib_count += libs.len();
 
             for lib in libs {
@@ -638,7 +646,7 @@ impl Repo {
         info!("=> got {} libs", lib_count);
         Ok(())
     }
-    fn process_import_sections<G: Graph>(
+    fn process_import_sections<G: Graph + Sync>(
         &self,
         graph: &mut G,
         filez: &[(String, String)],
@@ -649,15 +657,22 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_imports...");
-        for (filename, code) in filez {
+
+        let lang = &self.lang;
+        let results: Vec<_> = filez
+            .par_iter()
+            .map(|(filename, code)| {
+                let imports = lang.get_imports::<G>(code, filename)?;
+                let import_section = combine_import_sections(imports);
+                Ok((filename.clone(), import_section))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for (filename, import_section) in results {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 6);
             }
-
-            let imports = self.lang.get_imports::<G>(code, filename)?;
-
-            let import_section = combine_import_sections(imports);
             import_count += import_section.len();
 
             for import in import_section {
@@ -669,9 +684,8 @@ impl Repo {
                 );
             }
 
-            // Populate import cache after adding Import nodes
-            if let Some(import_data) = parse_imports_for_file(filename, &self.lang, graph) {
-                IMPORT_CACHE.insert(filename.to_string(), Some(import_data));
+            if let Some(import_data) = parse_imports_for_file(&filename, &self.lang, graph) {
+                IMPORT_CACHE.insert(filename, Some(import_data));
             }
         }
 
@@ -682,20 +696,32 @@ impl Repo {
         info!("=> got {} import sections", import_count);
         Ok(())
     }
-    fn process_variables<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+    fn process_variables<G: Graph + Sync>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+    ) -> Result<()> {
         self.send_status_update("process_variables", 5);
         let mut i = 0;
         let mut var_count = 0;
         let total = filez.len();
 
         info!("=> get_vars...");
-        for (filename, code) in filez {
+
+        let lang = &self.lang;
+        let results: Vec<_> = filez
+            .par_iter()
+            .map(|(filename, code)| {
+                let variables = lang.get_vars::<G>(code, filename)?;
+                Ok(variables)
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for variables in results {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 7);
             }
-
-            let variables = self.lang.get_vars::<G>(code, filename)?;
 
             var_count += variables.len();
             for variable in variables {
@@ -781,7 +807,7 @@ impl Repo {
 
         Ok(())
     }
-    fn process_classes<G: Graph>(
+    fn process_classes<G: Graph + Sync>(
         &self,
         graph: &mut G,
         filez: &[(String, String)],
@@ -793,19 +819,40 @@ impl Repo {
         let mut impl_relationships = Vec::new();
 
         info!("=> get_classes...");
-        for (filename, code) in filez {
+        info!("=> get_classes...");
+
+        let lang = &self.lang;
+        let graph_ref = &*graph;
+
+        let results: Vec<_> = filez
+            .par_iter()
+            .filter(|(filename, _)| lang.kind.is_source_file(filename))
+            .map(|(filename, code)| {
+                let qo = lang.q(&lang.lang().class_definition_query(), &NodeType::Class);
+                let classes = lang.collect_classes::<G>(&qo, code, filename, graph_ref)?;
+
+                let mut impl_rels = Vec::new();
+                if let Some(impl_query) = lang.lang().implements_query() {
+                    let q = lang.q(&impl_query, &NodeType::Class);
+                    let impls = lang.collect_implements(&q, code, filename)?;
+                    impl_rels.extend(impls.into_iter().map(
+                        |(class_name, trait_name, file_path)| ImplementsRelationship {
+                            class_name,
+                            trait_name,
+                            file_path,
+                        },
+                    ));
+                }
+                Ok((classes, impl_rels))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for (classes, impls) in results {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 8);
             }
 
-            if !self.lang.kind.is_source_file(filename) {
-                continue;
-            }
-            let qo = self
-                .lang
-                .q(&self.lang.lang().class_definition_query(), &NodeType::Class);
-            let classes = self.lang.collect_classes::<G>(&qo, code, filename, graph)?;
             class_count += classes.len();
             for (class, assoc_edges) in classes {
                 graph.add_node_with_parent(&NodeType::Class, &class, &NodeType::File, &class.file);
@@ -813,18 +860,7 @@ impl Repo {
                     graph.add_edge(&edge);
                 }
             }
-
-            if let Some(impl_query) = self.lang.lang().implements_query() {
-                let q = self.lang.q(&impl_query, &NodeType::Class);
-                let impls = self.lang.collect_implements(&q, code, filename)?;
-                impl_relationships.extend(impls.into_iter().map(
-                    |(class_name, trait_name, file_path)| ImplementsRelationship {
-                        class_name,
-                        trait_name,
-                        file_path,
-                    },
-                ));
-            }
+            impl_relationships.extend(impls);
         }
 
         let mut stats = std::collections::HashMap::new();
@@ -837,7 +873,7 @@ impl Repo {
         graph.class_includes();
         Ok(impl_relationships)
     }
-    fn process_instances_and_traits<G: Graph>(
+    fn process_instances_and_traits<G: Graph + Sync>(
         &self,
         graph: &mut G,
         filez: &[(String, String)],
@@ -849,31 +885,34 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_instances...");
-        for (filename, code) in filez {
+
+        let lang = &self.lang;
+
+        let results: Vec<_> = filez
+            .par_iter()
+            .filter(|(filename, _)| lang.kind.is_source_file(filename))
+            .map(|(filename, code)| {
+                let q_inst = lang.lang().instance_definition_query();
+                let instances =
+                    lang.get_query_opt::<G>(q_inst, code, filename, NodeType::Instance)?;
+
+                let traits = lang.get_traits::<G>(code, filename)?;
+
+                Ok((instances, traits))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        info!("=> get_traits...");
+
+        for (instances, traits) in results {
             cnt += 1;
             if cnt % 20 == 0 || cnt == total {
                 self.send_status_progress(cnt, total, 9);
             }
 
-            if !self.lang.kind.is_source_file(filename) {
-                continue;
-            }
-            let q = self.lang.lang().instance_definition_query();
-            let instances = self
-                .lang
-                .get_query_opt::<G>(q, code, filename, NodeType::Instance)?;
             instance_count += instances.len();
             graph.add_instances(&instances);
-        }
 
-        info!("=> get_traits...");
-        for (filename, code) in filez {
-            if !self.lang.kind.is_source_file(filename) {
-                continue;
-            }
-            let traits = self.lang.get_traits::<G>(code, filename)?;
             trait_count += traits.len();
-
             for tr in traits {
                 graph.add_node_with_parent(&NodeType::Trait, &tr, &NodeType::File, &tr.file);
             }
@@ -952,7 +991,7 @@ impl Repo {
         );
         Ok(())
     }
-    fn process_data_models<G: Graph>(
+    fn process_data_models<G: Graph + Sync>(
         &self,
         graph: &mut G,
         filez: &[(String, String)],
@@ -963,31 +1002,48 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_structs...");
-        for (filename, code) in filez {
+        info!("=> get_structs...");
+
+        let lang = &self.lang;
+        let graph_ref = &*graph;
+
+        let results: Vec<_> = filez
+            .par_iter()
+            .filter(|(filename, _)| {
+                if !lang.kind.is_source_file(filename) {
+                    return false;
+                }
+                if let Some(dmf) = lang.lang().data_model_path_filter() {
+                    if !filename.contains(&dmf) {
+                        return false;
+                    }
+                }
+                true
+            })
+            .map(|(filename, code)| {
+                let structs = lang.get_data_models::<G>(code, filename)?;
+                let mut all_edges = Vec::new();
+                for dm in &structs {
+                    let edges = lang.collect_class_contains_datamodel_edge(dm, graph_ref)?;
+                    all_edges.extend(edges);
+                }
+                Ok((structs, all_edges))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        for (structs, edges) in results {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 10);
             }
 
-            if !self.lang.kind.is_source_file(filename) {
-                continue;
-            }
-            if let Some(dmf) = self.lang.lang().data_model_path_filter() {
-                if !filename.contains(&dmf) {
-                    continue;
-                }
-            }
-            let structs = self.lang.get_data_models::<G>(code, filename)?;
             datamodel_count += structs.len();
 
             for st in &structs {
                 graph.add_node_with_parent(&NodeType::DataModel, st, &NodeType::File, &st.file);
             }
-            for dm in &structs {
-                let edges = self.lang.collect_class_contains_datamodel_edge(dm, graph)?;
-                for edge in edges {
-                    graph.add_edge(&edge);
-                }
+            for edge in edges {
+                graph.add_edge(&edge);
             }
         }
 
@@ -999,7 +1055,7 @@ impl Repo {
         info!("=> got {} data models", datamodel_count);
         Ok(())
     }
-    async fn process_functions_and_tests<G: Graph>(
+    async fn process_functions_and_tests<G: Graph + Sync>(
         &self,
         graph: &mut G,
         filez: &[(String, String)],
@@ -1011,20 +1067,24 @@ impl Repo {
         let total = filez.len();
 
         info!("=> get_functions_and_tests...");
-        for (filename, code) in filez {
+
+        let lang = &self.lang;
+        let lsp_tx = &self.lsp_tx;
+        let graph_ref = &*graph;
+
+        let results: Vec<_> = filez
+            .par_iter()
+            .filter(|(filename, _)| lang.kind.is_source_file(filename))
+            .map(|(filename, code)| lang.get_functions_and_tests(code, filename, graph_ref, lsp_tx))
+            .collect::<Result<Vec<_>>>()?;
+
+        for (funcs, tests) in results {
             i += 1;
             if i % 10 == 0 || i == total {
                 self.send_status_progress(i, total, 11);
             }
 
-            if !self.lang.kind.is_source_file(filename) {
-                continue;
-            }
-            let (funcs, tests) =
-                self.lang
-                    .get_functions_and_tests(code, filename, graph, &self.lsp_tx)?;
             function_count += funcs.len();
-
             graph.add_functions(&funcs);
 
             test_count += tests.len();
@@ -1161,56 +1221,54 @@ impl Repo {
 
         Ok(())
     }
-    fn process_endpoints<G: Graph>(&self, graph: &mut G, filez: &[(String, String)]) -> Result<()> {
+    fn process_endpoints<G: Graph + Sync>(
+        &self,
+        graph: &mut G,
+        filez: &[(String, String)],
+    ) -> Result<()> {
         self.send_status_update("process_endpoints", 11);
-        let mut _i = 0;
-        let mut endpoint_count = 0;
-        let total = filez.len();
-
         info!("=> get_endpoints...");
-        for (filename, code) in filez {
-            _i += 1;
-            if _i % 10 == 0 || _i == total {
-                self.send_status_progress(_i, total, 11);
-            }
 
-            if !self.lang.kind.is_source_file(filename) {
-                continue;
-            }
-            if let Some(epf) = self.lang.lang().endpoint_path_filter() {
-                if !filename.contains(&epf) {
-                    continue;
+        let lang = &self.lang;
+        let lsp_tx = &self.lsp_tx;
+        let graph_ref = &*graph;
+
+        let results: Vec<_> = filez
+            .par_iter()
+            .map(|(filename, code)| {
+                let mut endpoints = Vec::new();
+                let mut endpoint_groups = Vec::new();
+
+                if lang.kind.is_source_file(filename) {
+                    let pass_filter = if let Some(epf) = lang.lang().endpoint_path_filter() {
+                        filename.contains(&epf)
+                    } else {
+                        true
+                    };
+
+                    if pass_filter && !lang.lang().is_test_file(filename) {
+                        debug!("get_endpoints in {:?}", filename);
+                        endpoints =
+                            lang.collect_endpoints(code, filename, Some(graph_ref), lsp_tx)?;
+                    }
                 }
-            }
-            if self.lang.lang().is_test_file(filename) {
-                continue;
-            }
-            debug!("get_endpoints in {:?}", filename);
-            let endpoints =
-                self.lang
-                    .collect_endpoints(code, filename, Some(graph), &self.lsp_tx)?;
-            endpoint_count += endpoints.len();
+
+                if !lang.lang().is_test_file(filename) {
+                    let q = lang.lang().endpoint_group_find();
+                    endpoint_groups =
+                        lang.get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
+                }
+
+                Ok((endpoints, endpoint_groups))
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        info!("=> process endpoints and groups Results...");
+
+        for (endpoints, endpoint_groups) in results {
             graph.add_endpoints(&endpoints);
-        }
 
-        let mut stats = std::collections::HashMap::new();
-        stats.insert("endpoints".to_string(), endpoint_count);
-        self.send_status_with_stats(stats);
-
-        info!("=> got {} endpoints", endpoint_count);
-
-        info!("=> get_endpoint_groups...");
-        let mut _endpoint_group_count = 0;
-        for (filename, code) in filez {
-            if self.lang.lang().is_test_file(filename) {
-                continue;
-            }
-            let q = self.lang.lang().endpoint_group_find();
-            let endpoint_groups =
-                self.lang
-                    .get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
-            _endpoint_group_count += endpoint_groups.len();
-            let _ = graph.process_endpoint_groups(&endpoint_groups, &self.lang);
+            let _ = graph.process_endpoint_groups(&endpoint_groups, lang);
         }
 
         if self.lang.lang().use_data_model_within_finder() {
