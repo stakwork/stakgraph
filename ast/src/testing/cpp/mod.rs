@@ -1,4 +1,4 @@
-use crate::lang::graphs::{EdgeType, NodeType};
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
@@ -141,6 +141,7 @@ pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
     assert_eq!(contains, 30, "Expected 30 contains edges");
+
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
     assert_eq!(of_edges, 2, "Expected 2 of edge");
@@ -166,7 +167,7 @@ pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
 
     let pkg_file = files
         .iter()
-        .find(|f| f.name == "CMakeLists.txt" && f.file == "src/testing/cpp/CMakeLists.txt")
+        .find(|f| f.name == "CMakeLists.txt" && f.file == "src/testing/cpp/web_api/CMakeLists.txt")
         .map(|f| Node::new(NodeType::File, f.clone()))
         .expect("CMakeLists.txt not found");
 
@@ -309,7 +310,11 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 101, "Expected 101 functions from CUDA suite");
+    assert_eq!(
+        functions.len(),
+        101,
+        "Expected 101 functions from CUDA suite"
+    );
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();
@@ -333,7 +338,11 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes += directories.len();
-    assert_eq!(directories.len(), 7, "Expected 7 directories for CUDA structure");
+    assert_eq!(
+        directories.len(),
+        7,
+        "Expected 7 directories for CUDA structure"
+    );
 
     let repositories = graph.find_nodes_by_type(NodeType::Repository);
     nodes += repositories.len();
@@ -345,54 +354,58 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes += imports.len();
+    assert_eq!(imports.len(), 26, "Expected 26 imports");
 
- 
-    let vector_add = functions
+    let libraries = graph.find_nodes_by_type(NodeType::Library);
+    nodes += libraries.len();
+    assert_eq!(libraries.len(), 1, "Expected 1 library node");
+
+    let _vector_add = functions
         .iter()
         .find(|f| f.name == "vectorAdd" && f.file.ends_with("kernels/vector_add.cu"))
         .expect("vectorAdd kernel not found");
-    
-    let matrix_mul = functions
+
+    let _matrix_mul = functions
         .iter()
         .find(|f| f.name == "matrixMulTiled" && f.file.ends_with("kernels/matrix_multiply.cu"))
         .expect("matrixMulTiled kernel not found");
 
-    let reduce_kernel = functions
+    let _reduce_kernel = functions
         .iter()
         .find(|f| f.name == "reduce_sum" && f.file.ends_with("kernels/reduction.cu"))
         .expect("reduce_sum kernel not found");
 
-    let convolve = functions
+    let _convolve = functions
         .iter()
         .find(|f| f.name == "convolve2D" && f.file.ends_with("kernels/convolution.cu"))
         .expect("convolve2D kernel not found");
 
-    let tensor_ops = functions
+    let _tensor_ops = functions
         .iter()
         .find(|f| f.name == "tensorTranspose" && f.file.ends_with("kernels/tensor_ops.cu"))
         .expect("tensorTranspose kernel not found");
 
-    let unified_mem = functions
+    let _unified_mem = functions
         .iter()
         .find(|f| f.name == "unifiedMemoryKernel" && f.file.ends_with("memory/unified_memory.cu"))
         .expect("unifiedMemoryKernel not found");
 
-    let pinned_mem = functions
+    let _pinned_mem = functions
         .iter()
         .find(|f| f.name == "pinnedMemoryKernel" && f.file.ends_with("memory/pinned_memory.cu"))
         .expect("pinnedMemoryKernel not found");
 
-    let texture_mem = functions
+    let _texture_mem = functions
         .iter()
         .find(|f| f.name == "textureMemoryKernel" && f.file.ends_with("memory/texture_memory.cu"))
         .expect("textureMemoryKernel not found");
 
-    let shared_mem = functions
+    let _shared_mem = functions
         .iter()
         .find(|f| f.name == "sharedMemoryReduction" && f.file.ends_with("memory/shared_memory.cu"))
         .expect("sharedMemoryReduction not found");
 
-    let p2p = functions
+    let _p2p = functions
         .iter()
         .find(|f| f.name == "p2pTransferKernel" && f.file.ends_with("multi_gpu/p2p_access.cu"))
         .expect("p2pTransferKernel not found");
@@ -424,12 +437,18 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
     let _coop_groups = functions
         .iter()
-        .find(|f| f.name == "cooperativeGroupsReduction" && f.file.ends_with("advanced/cooperative_groups.cu"))
+        .find(|f| {
+            f.name == "cooperativeGroupsReduction"
+                && f.file.ends_with("advanced/cooperative_groups.cu")
+        })
         .expect("cooperativeGroupsReduction not found");
 
     let _dynamic_parallel = functions
         .iter()
-        .find(|f| f.name == "dynamicParallelismKernel" && f.file.ends_with("advanced/dynamic_parallelism.cu"))
+        .find(|f| {
+            f.name == "dynamicParallelismKernel"
+                && f.file.ends_with("advanced/dynamic_parallelism.cu")
+        })
         .expect("dynamicParallelismKernel not found");
 
     let _tensor_cores = functions
@@ -454,7 +473,7 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls_edges;
-    assert!(calls_edges >= 4, "Expected at least 4 Calls edges, got {}", calls_edges);
+    assert_eq!(calls_edges, 4, "Check Calls edge count");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains_edges;
@@ -462,9 +481,30 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
     let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in_edges;
+    assert_eq!(nested_in_edges, 0, "Check NestedIn edge count");
 
-  
+    let uses_edges = graph.count_edges_of_type(EdgeType::Uses);
+    edges += uses_edges;
+    assert_eq!(uses_edges, 0, "Check Uses edge count");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges += of_edges;
+    assert_eq!(of_edges, 1, "Check Of edge count");
+
+    let imports_edges = graph.count_edges_of_type(EdgeType::Imports);
+    edges += imports_edges;
+
     let (num_nodes, num_edges) = graph.get_graph_size();
+    assert_eq!(
+        num_nodes, nodes as u32,
+        "Expected {} nodes found {}",
+        nodes, num_nodes
+    );
+    assert_eq!(
+        num_edges, edges as u32,
+        "Expected {} edges found {}",
+        edges, num_edges
+    );
     assert_eq!(num_nodes as u32, 168, "Expected 168 nodes");
     assert_eq!(num_edges as u32, 173, "Expected 173 edges");
 
@@ -473,9 +513,6 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_cpp() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    
-
     test_cpp_web_api_generic::<ArrayGraph>().await.unwrap();
     test_cpp_web_api_generic::<BTreeMapGraph>().await.unwrap();
 
@@ -487,10 +524,11 @@ async fn test_cpp() {
         use crate::lang::graphs::Neo4jGraph;
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
-        
+
         test_cpp_web_api_generic::<Neo4jGraph>().await.unwrap();
-        
-        println!("\n===== Testing CUDA with Neo4j =====");
+
+        graph.clear().await.unwrap();
+
         test_cpp_cuda_generic::<Neo4jGraph>().await.unwrap();
     }
 }

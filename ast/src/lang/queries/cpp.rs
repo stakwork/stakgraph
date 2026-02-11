@@ -17,6 +17,19 @@ impl Cpp {
     pub fn new() -> Self {
         Cpp(tree_sitter_cpp::LANGUAGE.into())
     }
+
+    fn is_cuda_keyword(text: &str) -> bool {
+        matches!(
+            text,
+            "__global__"
+                | "__device__"
+                | "__host__"
+                | "__shared__"
+                | "__constant__"
+                | "__managed__"
+                | "__restrict__"
+        )
+    }
 }
 impl Stack for Cpp {
     fn q(&self, q: &str, nt: &NodeType) -> Query {
@@ -80,6 +93,7 @@ impl Stack for Cpp {
             (translation_unit
                 (declaration
                     (storage_class_specifier)? @{ATTRIBUTES}
+                    (type_identifier)? @{ATTRIBUTES}
                     type: (_) @{VARIABLE_TYPE}
                     declarator : (identifier)? @{VARIABLE_NAME}
                     declarator : (init_declarator
@@ -140,6 +154,7 @@ impl Stack for Cpp {
                     body: (field_declaration_list
                         (function_definition
                                 (storage_class_specifier)? @{ATTRIBUTES}
+                                (type_identifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (field_identifier) @{FUNCTION_NAME}
@@ -155,6 +170,7 @@ impl Stack for Cpp {
                     body: (field_declaration_list
                         (function_definition
                                 (storage_class_specifier)? @{ATTRIBUTES}
+                                (type_identifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (field_identifier) @{FUNCTION_NAME}
@@ -167,6 +183,7 @@ impl Stack for Cpp {
                 )?
                 (function_definition
                                 (storage_class_specifier)? @{ATTRIBUTES}
+                                (type_identifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (identifier) @{FUNCTION_NAME}
@@ -177,6 +194,7 @@ impl Stack for Cpp {
                 )@{FUNCTION_DEFINITION}
                 (function_definition
                                 (storage_class_specifier)? @{ATTRIBUTES}
+                                (type_identifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (qualified_identifier
@@ -369,5 +387,20 @@ impl Stack for Cpp {
         } else {
             nd.add_verb("ANY");
         }
+    }
+
+    fn filter_attribute(&self, attr: &str, _capture_name: &str) -> Option<String> {
+        if Self::is_cuda_keyword(attr) {
+            return Some(attr.to_string());
+        }
+
+        if matches!(
+            attr,
+            "static" | "extern" | "const" | "volatile" | "mutable" | "thread_local"
+        ) {
+            return Some(attr.to_string());
+        }
+
+        None
     }
 }
