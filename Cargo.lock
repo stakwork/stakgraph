@@ -160,6 +160,7 @@ dependencies = [
  "lazy_static",
  "lsp",
  "neo4rs",
+ "rayon",
  "regex",
  "serde",
  "serde-jsonlines",
