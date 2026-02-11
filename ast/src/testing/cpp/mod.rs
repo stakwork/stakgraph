@@ -4,9 +4,9 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
+pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
     let repo = Repo::new(
-        "src/testing/cpp",
+        "src/testing/cpp/web_api",
         Lang::from_str("cpp").unwrap(),
         false,
         Vec::new(),
@@ -19,7 +19,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     let create_person_fn = functions
         .iter()
-        .find(|f| f.name == "createPerson" && f.file.ends_with("model.cpp"))
+        .find(|f| f.name == "createPerson" && f.file.ends_with("web_api/model.cpp"))
         .expect("createPerson function not found");
 
     assert_eq!(
@@ -28,7 +28,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
         "createPerson should have documentation"
     );
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -41,7 +41,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
         "Language node name should be 'cpp'"
     );
     assert!(
-        "src/testing/cpp/".contains(language_nodes[0].file.as_str()),
+        "src/testing/cpp/web_api".contains(language_nodes[0].file.as_str()),
         "Language node file path is incorrect"
     );
     let repositories = graph.find_nodes_by_type(NodeType::Repository);
@@ -70,7 +70,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
     );
     let main = imports
         .iter()
-        .find(|i| i.file == "src/testing/cpp/main.cpp")
+        .find(|i| i.file == "src/testing/cpp/web_api/main.cpp")
         .unwrap();
 
     assert_eq!(
@@ -86,7 +86,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
         "Class name should be 'Database'"
     );
     assert_eq!(
-        classes[0].file, "src/testing/cpp/model.h",
+        classes[0].file, "src/testing/cpp/web_api/model.h",
         "Class file path is incorrect"
     );
 
@@ -96,7 +96,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
     assert!(
         data_models
             .iter()
-            .any(|dm| dm.name == "Person" && dm.file == "src/testing/cpp/model.h"),
+            .any(|dm| dm.name == "Person" && dm.file == "src/testing/cpp/web_api/model.h"),
         "Expected Person data model not found"
     );
 
@@ -108,13 +108,13 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
         .iter()
         .find(|e| e.name == "/person/<int>" && e.meta.get("verb") == Some(&"ANY".to_string()))
         .expect("ANY endpoint not found");
-    assert_eq!(get_endpoint.file, "src/testing/cpp/routes.cpp");
+    assert_eq!(get_endpoint.file, "src/testing/cpp/web_api/routes.cpp");
 
     let post_endpoint = endpoints
         .iter()
         .find(|e| e.name == "/person" && e.meta.get("verb") == Some(&"POST".to_string()))
         .expect("POST endpoint not found");
-    assert_eq!(post_endpoint.file, "src/testing/cpp/routes.cpp");
+    assert_eq!(post_endpoint.file, "src/testing/cpp/web_api/routes.cpp");
 
     let anon_post = endpoints
         .iter()
@@ -197,13 +197,13 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
 
     let database = classes
         .into_iter()
-        .find(|c| c.name == "Database" && c.file == "src/testing/cpp/model.h")
+        .find(|c| c.name == "Database" && c.file == "src/testing/cpp/web_api/model.h")
         .map(|c| Node::new(NodeType::Class, c))
         .expect("Database class not found");
 
     let db = instances
         .into_iter()
-        .find(|i| i.name == "db" && i.file == "src/testing/cpp/main.cpp")
+        .find(|i| i.name == "db" && i.file == "src/testing/cpp/web_api/main.cpp")
         .map(|i| Node::new(NodeType::Instance, i))
         .expect("db instance not found");
 
@@ -215,28 +215,28 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
     let person_data_model = graph
         .find_nodes_by_name(NodeType::DataModel, "Person")
         .into_iter()
-        .find(|n| n.file == "src/testing/cpp/model.h")
+        .find(|n| n.file == "src/testing/cpp/web_api/model.h")
         .map(|n| Node::new(NodeType::DataModel, n))
         .expect("Person DataModel not found in model.h");
 
     let database_class = graph
         .find_nodes_by_name(NodeType::Class, "Database")
         .into_iter()
-        .find(|n| n.file == "src/testing/cpp/model.h")
+        .find(|n| n.file == "src/testing/cpp/web_api/model.h")
         .map(|n| Node::new(NodeType::Class, n))
         .expect("Database class not found in model.h");
 
     let main_fn = graph
         .find_nodes_by_name(NodeType::Function, "main")
         .into_iter()
-        .find(|n| n.file == "src/testing/cpp/main.cpp")
+        .find(|n| n.file == "src/testing/cpp/web_api/main.cpp")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("main function not found in main.cpp");
 
     let setup_routes_fn = graph
         .find_nodes_by_name(NodeType::Function, "setup_routes")
         .into_iter()
-        .find(|n| n.file == "src/testing/cpp/routes.cpp")
+        .find(|n| n.file == "src/testing/cpp/web_api/routes.cpp")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("setup_routes function not found in routes.cpp");
 
@@ -244,7 +244,7 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
         .find_nodes_by_name(NodeType::Endpoint, "/person")
         .into_iter()
         .find(|n| {
-            n.file == "src/testing/cpp/routes.cpp"
+            n.file == "src/testing/cpp/web_api/routes.cpp"
                 && n.meta.get("verb") == Some(&"POST".to_string())
         })
         .map(|n| Node::new(NodeType::Endpoint, n))
@@ -252,14 +252,14 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
     let _new_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "new_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/cpp/routes.cpp")
+        .find(|n| n.file == "src/testing/cpp/web_api/routes.cpp")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("new_person function not found in routes.cpp");
 
     let model_h_file = graph
         .find_nodes_by_name(NodeType::File, "model.h")
         .into_iter()
-        .find(|n| n.file == "src/testing/cpp/model.h")
+        .find(|n| n.file == "src/testing/cpp/web_api/model.h")
         .map(|n| Node::new(NodeType::File, n))
         .expect("model.h file node not found");
 
@@ -292,17 +292,205 @@ pub async fn test_cpp_generic<G: Graph>() -> Result<()> {
     Ok(())
 }
 
+pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/cpp/cuda",
+        Lang::from_str("cpp").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+
+    let mut nodes = 0;
+    let mut edges = 0;
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes += functions.len();
+    assert_eq!(functions.len(), 101, "Expected 101 functions from CUDA suite");
+
+    let variables = graph.find_nodes_by_type(NodeType::Var);
+    nodes += variables.len();
+    assert_eq!(variables.len(), 3, "Expected 3 variables in CUDA suite");
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    nodes += files.len();
+    assert_eq!(files.len(), 28, "Expected 28 files");
+
+    let cu_files = files.iter().filter(|f| f.file.ends_with(".cu")).count();
+    assert_eq!(cu_files, 23, "Expected 23 .cu files");
+
+    let h_files = files.iter().filter(|f| f.file.ends_with(".h")).count();
+    assert_eq!(h_files, 2, "Expected 2 .h files");
+
+    let cuh_files = files.iter().filter(|f| f.file.ends_with(".cuh")).count();
+    assert_eq!(cuh_files, 1, "Expected 1 .cuh file");
+
+    let cpp_files = files.iter().filter(|f| f.file.ends_with(".cpp")).count();
+    assert_eq!(cpp_files, 1, "Expected 1 .cpp file");
+
+    let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes += directories.len();
+    assert_eq!(directories.len(), 7, "Expected 7 directories for CUDA structure");
+
+    let repositories = graph.find_nodes_by_type(NodeType::Repository);
+    nodes += repositories.len();
+    assert_eq!(repositories.len(), 1, "Expected 1 repository node");
+
+    let language_nodes = graph.find_nodes_by_name(NodeType::Language, "cpp");
+    nodes += language_nodes.len();
+    assert_eq!(language_nodes.len(), 1, "Expected 1 language node for cpp");
+
+    let imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes += imports.len();
+
+ 
+    let vector_add = functions
+        .iter()
+        .find(|f| f.name == "vectorAdd" && f.file.ends_with("kernels/vector_add.cu"))
+        .expect("vectorAdd kernel not found");
+    
+    let matrix_mul = functions
+        .iter()
+        .find(|f| f.name == "matrixMulTiled" && f.file.ends_with("kernels/matrix_multiply.cu"))
+        .expect("matrixMulTiled kernel not found");
+
+    let reduce_kernel = functions
+        .iter()
+        .find(|f| f.name == "reduce_sum" && f.file.ends_with("kernels/reduction.cu"))
+        .expect("reduce_sum kernel not found");
+
+    let convolve = functions
+        .iter()
+        .find(|f| f.name == "convolve2D" && f.file.ends_with("kernels/convolution.cu"))
+        .expect("convolve2D kernel not found");
+
+    let tensor_ops = functions
+        .iter()
+        .find(|f| f.name == "tensorTranspose" && f.file.ends_with("kernels/tensor_ops.cu"))
+        .expect("tensorTranspose kernel not found");
+
+    let unified_mem = functions
+        .iter()
+        .find(|f| f.name == "unifiedMemoryKernel" && f.file.ends_with("memory/unified_memory.cu"))
+        .expect("unifiedMemoryKernel not found");
+
+    let pinned_mem = functions
+        .iter()
+        .find(|f| f.name == "pinnedMemoryKernel" && f.file.ends_with("memory/pinned_memory.cu"))
+        .expect("pinnedMemoryKernel not found");
+
+    let texture_mem = functions
+        .iter()
+        .find(|f| f.name == "textureMemoryKernel" && f.file.ends_with("memory/texture_memory.cu"))
+        .expect("textureMemoryKernel not found");
+
+    let shared_mem = functions
+        .iter()
+        .find(|f| f.name == "sharedMemoryReduction" && f.file.ends_with("memory/shared_memory.cu"))
+        .expect("sharedMemoryReduction not found");
+
+    let p2p = functions
+        .iter()
+        .find(|f| f.name == "p2pTransferKernel" && f.file.ends_with("multi_gpu/p2p_access.cu"))
+        .expect("p2pTransferKernel not found");
+
+    let _multi_device = functions
+        .iter()
+        .find(|f| f.name == "multiDeviceKernel" && f.file.ends_with("multi_gpu/multi_device.cu"))
+        .expect("multiDeviceKernel not found");
+
+    let _ipc_mem = functions
+        .iter()
+        .find(|f| f.name == "ipcMemoryKernel" && f.file.ends_with("multi_gpu/ipc_memory.cu"))
+        .expect("ipcMemoryKernel not found");
+
+    let _async_kernel = functions
+        .iter()
+        .find(|f| f.name == "asyncKernel" && f.file.ends_with("streams/async_ops.cu"))
+        .expect("asyncKernel not found");
+
+    let _priority_kernel = functions
+        .iter()
+        .find(|f| f.name == "priorityKernel" && f.file.ends_with("streams/stream_priorities.cu"))
+        .expect("priorityKernel not found");
+
+    let _concurrent_kernel = functions
+        .iter()
+        .find(|f| f.name == "concurrentKernel" && f.file.ends_with("streams/concurrent_kernels.cu"))
+        .expect("concurrentKernel not found");
+
+    let _coop_groups = functions
+        .iter()
+        .find(|f| f.name == "cooperativeGroupsReduction" && f.file.ends_with("advanced/cooperative_groups.cu"))
+        .expect("cooperativeGroupsReduction not found");
+
+    let _dynamic_parallel = functions
+        .iter()
+        .find(|f| f.name == "dynamicParallelismKernel" && f.file.ends_with("advanced/dynamic_parallelism.cu"))
+        .expect("dynamicParallelismKernel not found");
+
+    let _tensor_cores = functions
+        .iter()
+        .find(|f| f.name == "tensorCoreMatmul" && f.file.ends_with("advanced/tensor_cores.cu"))
+        .expect("tensorCoreMatmul not found");
+
+    let _cuda_graphs = functions
+        .iter()
+        .find(|f| f.name == "graphKernel" && f.file.ends_with("advanced/cuda_graphs.cu"))
+        .expect("graphKernel not found");
+
+    let _main_fn = functions
+        .iter()
+        .find(|f| f.name == "main" && f.file.ends_with("host/main.cu"))
+        .expect("main function not found");
+
+    let _device_query = functions
+        .iter()
+        .find(|f| f.name == "queryAllDevices" && f.file.ends_with("host/device_query.cpp"))
+        .expect("queryAllDevices not found");
+
+    let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
+    edges += calls_edges;
+    assert!(calls_edges >= 4, "Expected at least 4 Calls edges, got {}", calls_edges);
+
+    let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
+    edges += contains_edges;
+    assert_eq!(contains_edges, 168, "Expected 168 Contains edges");
+
+    let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
+    edges += nested_in_edges;
+
+  
+    let (num_nodes, num_edges) = graph.get_graph_size();
+    assert_eq!(num_nodes as u32, 168, "Expected 168 nodes");
+    assert_eq!(num_edges as u32, 173, "Expected 173 edges");
+
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_cpp() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_cpp_generic::<ArrayGraph>().await.unwrap();
-    test_cpp_generic::<BTreeMapGraph>().await.unwrap();
+    
+
+    test_cpp_web_api_generic::<ArrayGraph>().await.unwrap();
+    test_cpp_web_api_generic::<BTreeMapGraph>().await.unwrap();
+
+    test_cpp_cuda_generic::<ArrayGraph>().await.unwrap();
+    test_cpp_cuda_generic::<BTreeMapGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
-        test_cpp_generic::<Neo4jGraph>().await.unwrap();
+        
+        test_cpp_web_api_generic::<Neo4jGraph>().await.unwrap();
+        
+        println!("\n===== Testing CUDA with Neo4j =====");
+        test_cpp_cuda_generic::<Neo4jGraph>().await.unwrap();
     }
 }

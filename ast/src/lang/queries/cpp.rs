@@ -79,6 +79,7 @@ impl Stack for Cpp {
             r#"
             (translation_unit
                 (declaration
+                    (storage_class_specifier)? @{ATTRIBUTES}
                     type: (_) @{VARIABLE_TYPE}
                     declarator : (identifier)? @{VARIABLE_NAME}
                     declarator : (init_declarator
@@ -138,6 +139,7 @@ impl Stack for Cpp {
                     name:(type_identifier)@{PARENT_TYPE}
                     body: (field_declaration_list
                         (function_definition
+                                (storage_class_specifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (field_identifier) @{FUNCTION_NAME}
@@ -152,6 +154,7 @@ impl Stack for Cpp {
                     name: (type_identifier) @{PARENT_TYPE}
                     body: (field_declaration_list
                         (function_definition
+                                (storage_class_specifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (field_identifier) @{FUNCTION_NAME}
@@ -163,6 +166,7 @@ impl Stack for Cpp {
                     )
                 )?
                 (function_definition
+                                (storage_class_specifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (identifier) @{FUNCTION_NAME}
@@ -172,6 +176,7 @@ impl Stack for Cpp {
                                 )
                 )@{FUNCTION_DEFINITION}
                 (function_definition
+                                (storage_class_specifier)? @{ATTRIBUTES}
                                 type : (_) @{RETURN_TYPES}
                                 declarator: (function_declarator
                                     declarator : (qualified_identifier
