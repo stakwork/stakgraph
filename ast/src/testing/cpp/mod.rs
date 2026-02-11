@@ -4,7 +4,8 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
+
+pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/cpp/web_api",
         Lang::from_str("cpp").unwrap(),

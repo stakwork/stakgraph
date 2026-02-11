@@ -4,7 +4,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_angular_generic<G: Graph>() -> Result<()> {
+pub async fn test_angular_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/angular",
         Lang::from_str("angular").unwrap(),

@@ -153,7 +153,7 @@ fn test_monorepo_turbo_ts_root_files() {
     assert!(base.join("Dockerfile").exists(), "Missing Dockerfile");
 }
 
-async fn check_monorepo_graph<G: Graph + 'static>(
+async fn check_monorepo_graph<G: Graph + 'static + Sync>(
     fixture: &str,
     expected_langs: &[&str],
     expected_files: &[&str],

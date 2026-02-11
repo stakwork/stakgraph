@@ -4,7 +4,8 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_swift_legacy_generic<G: Graph>() -> Result<()> {
+
+pub async fn test_swift_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/swift/LegacyApp",
         Lang::from_str("swift").unwrap(),

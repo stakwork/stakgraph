@@ -5,7 +5,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_typescript_generic<G: Graph>() -> Result<()> {
+pub async fn test_typescript_generic<G: Graph + Sync>() -> Result<()> {
     // TODO: LSP mode needs additional work for TypeScript - disabled for now
     let use_lsp = false; // get_use_lsp();
     let repo = Repo::new(
