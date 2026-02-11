@@ -6,7 +6,7 @@ use crate::utils::get_use_lsp;
 use shared::error::Result;
 use test_log::test;
 
-async fn test_demorepo_generic<G: Graph>(repos: &Repos) -> Result<()> {
+async fn test_demorepo_generic<G: Graph + Sync>(repos: &Repos) -> Result<()> {
     let use_lsp = get_use_lsp();
     let graph = repos.build_graphs_inner::<BTreeMapGraph>().await.unwrap();
 

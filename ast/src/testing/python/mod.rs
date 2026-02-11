@@ -4,7 +4,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_python_generic<G: Graph>() -> Result<()> {
+pub async fn test_python_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/python",
         Lang::from_str("python").unwrap(),
