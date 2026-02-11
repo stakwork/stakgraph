@@ -33,7 +33,7 @@ app.use(cors());
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 
 graph_mcp_routes(app);
 
