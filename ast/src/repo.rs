@@ -528,16 +528,14 @@ impl Repo {
         info!("Finished running: {:?}!", cmd);
         Ok(())
     }
-    fn start_lsp(_root: &str, _lang: &Lang, _lsp: bool) -> Result<Option<CmdSender>> {
-        // Ok(if lsp {
-        //     let (tx, rx) = tokio::sync::mpsc::channel(10000);
-        //     spawn_analyzer(&root.into(), &lang.kind, rx)?;
-        //     Some(tx)
-        // } else {
-        //     None
-        // })
-        //FIXME: we have Rayon in core.rs and LSP runs on Tokio, and they don't play well together. For now, we disable LSP in the minimal example to avoid issues with Rayon in the builder.
-        Ok(None)
+    fn start_lsp(root: &str, lang: &Lang, lsp: bool) -> Result<Option<CmdSender>> {
+        Ok(if lsp {
+            let (tx, rx) = tokio::sync::mpsc::channel(10000);
+            spawn_analyzer(&root.into(), &lang.kind, rx)?;
+            Some(tx)
+        } else {
+            None
+        })
     }
     pub fn delete_from_tmp(&self) -> Result<()> {
         fs::remove_dir_all(&self.root)?;
