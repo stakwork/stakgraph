@@ -1,6 +1,7 @@
 #[cfg(feature = "neo4j")]
 use super::streaming::{nodes_to_bolt_format, StreamingUploadContext};
 use super::utils::*;
+use super::metrics::{get_process_memory, get_node_type_breakdown, sample_body_sizes};
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::{
@@ -92,6 +93,20 @@ impl Repo {
         let filez = self.process_and_add_files(&mut graph, &files).await?;
         info!("[perf][stage] files s={:.2}", stage_start.elapsed().as_secs_f64());
         stats.insert("files".to_string(), filez.len());
+        
+        let mem = get_process_memory();
+        let node_breakdown = get_node_type_breakdown(&graph);
+        let body_stats = sample_body_sizes(&graph);
+        stats.insert("memory_rss_mb".to_string(), mem.rss_mb);
+        stats.insert("memory_vsz_mb".to_string(), mem.vsz_mb);
+        stats.insert("body_avg_bytes".to_string(), body_stats.avg_bytes);
+        stats.insert("body_total_mb".to_string(), body_stats.total_bytes / 1024 / 1024);
+        for (node_type, count) in node_breakdown {
+            stats.insert(format!("nodes_{}", node_type), count);
+        }
+        println!("[STAGE] files | RSS: {}MB | VSZ: {}MB | Avg Body: {}B | Total Body: {}MB", 
+            mem.rss_mb, mem.vsz_mb, body_stats.avg_bytes, body_stats.total_bytes / 1024 / 1024);
+        
         self.send_status_with_stats(stats.clone());
         self.send_status_progress(100, 100, 1);
         #[cfg(feature = "neo4j")]
@@ -281,6 +296,12 @@ impl Repo {
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
         info!("[perf][stage] functions_tests s={:.2}", stage_start.elapsed().as_secs_f64());
+        
+        let mem = get_process_memory();
+        let body_stats = sample_body_sizes(&graph);
+        println!("[STAGE] functions_tests | RSS: {}MB | VSZ: {}MB | Avg Body: {}B | Total Body: {}MB", 
+            mem.rss_mb, mem.vsz_mb, body_stats.avg_bytes, body_stats.total_bytes / 1024 / 1024);
+        
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -381,8 +402,30 @@ impl Repo {
             "Returning Graph with {} nodes and {} edges",
             num_of_nodes, num_of_edges
         );
+        
+        let mem_final = get_process_memory();
+        let body_stats_final = sample_body_sizes(&graph);
+        let node_breakdown_final = get_node_type_breakdown(&graph);
+        
         stats.insert("total_nodes".to_string(), num_of_nodes as usize);
         stats.insert("total_edges".to_string(), num_of_edges as usize);
+        stats.insert("memory_rss_mb_final".to_string(), mem_final.rss_mb);
+        stats.insert("memory_vsz_mb_final".to_string(), mem_final.vsz_mb);
+        stats.insert("body_avg_bytes_final".to_string(), body_stats_final.avg_bytes);
+        stats.insert("body_total_mb_final".to_string(), body_stats_final.total_bytes / 1024 / 1024);
+        
+        println!("\n[FINAL SUMMARY]");
+        println!("  Total Nodes: {}", num_of_nodes);
+        println!("  Total Edges: {}", num_of_edges);
+        println!("  Memory RSS: {}MB", mem_final.rss_mb);
+        println!("  Memory VSZ: {}MB", mem_final.vsz_mb);
+        println!("  Avg Body Size: {}B", body_stats_final.avg_bytes);
+        println!("  Total Body (estimated): {}MB", body_stats_final.total_bytes / 1024 / 1024);
+        for (node_type, count) in node_breakdown_final {
+            println!("    {}: {}", node_type, count);
+        }
+        println!();
+        
         self.send_status_with_stats(stats);
 
         Ok(graph)
