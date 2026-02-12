@@ -122,17 +122,17 @@ pub fn create_node_key(node: &Node) -> String {
 }
 
 pub fn get_use_lsp() -> bool {
-    // unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
+    unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
 
-    // delete_react_testing_node_modules().ok();
-    // let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
-    // if lsp == "true" || lsp == "1" {
-    //     return true;
-    // }
+    delete_react_testing_node_modules().ok();
+    let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
+    if lsp == "true" || lsp == "1" {
+        return true;
+    }
     false
 }
 
-fn _delete_react_testing_node_modules() -> std::io::Result<()> {
+fn delete_react_testing_node_modules() -> std::io::Result<()> {
     let path = std::path::Path::new("src/testing/react/node_modules");
     if path.exists() {
         std::fs::remove_dir_all(path)?;

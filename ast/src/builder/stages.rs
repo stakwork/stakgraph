@@ -7,7 +7,7 @@ use crate::lang::{
 use crate::repo::Repo;
 use rayon::prelude::*;
 use shared::error::Result;
-use std::path::Path;
+use std::{any::type_name, collections::HashMap, path::Path};
 use tracing::{debug, info};
 
 impl Repo {
@@ -17,7 +17,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_libraries", 3);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph");
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut lib_count = 0;
         let pkg_files_res: Vec<_> = if use_parallel {
@@ -64,7 +64,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("libraries".to_string(), lib_count);
         self.send_status_with_stats(stats);
 
@@ -78,7 +78,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_imports", 4);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph");
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut import_count = 0;
         let total = filez.len();
@@ -123,7 +123,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("imports".to_string(), import_count);
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 4);
@@ -136,7 +136,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_variables", 5);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph");
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut var_count = 0;
         let total = filez.len();
@@ -179,7 +179,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("variables".to_string(), var_count);
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 5);
@@ -193,7 +193,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_instances_and_traits", 7);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph");
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut cnt = 0;
         let mut instance_count = 0;
         let mut trait_count = 0;
@@ -249,7 +249,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("instances".to_string(), instance_count);
         stats.insert("traits".to_string(), trait_count);
         self.send_status_with_stats(stats);
@@ -264,7 +264,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_data_models", 8);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph");
+        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut datamodel_count = 0;
         let total = filez.len();
@@ -341,7 +341,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("data_models".to_string(), datamodel_count);
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 8);
@@ -398,7 +398,7 @@ impl Repo {
             graph.add_tests(&tests);
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("functions".to_string(), function_count);
         stats.insert("tests".to_string(), test_count);
         self.send_status_with_stats(stats);
@@ -494,7 +494,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("pages".to_string(), page_count);
         stats.insert("templates".to_string(), template_count);
         self.send_status_with_stats(stats);
@@ -625,7 +625,7 @@ impl Repo {
         &self,
         graph: &mut G,
         filez: &[(String, String)],
-        stats: &mut std::collections::HashMap<String, usize>,
+        stats: &mut HashMap<String, usize>,
     ) -> Result<()> {
         let mut _i = 0;
         let mut import_edges_count = 0;
