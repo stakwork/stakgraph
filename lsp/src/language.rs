@@ -162,6 +162,10 @@ impl Language {
         false
     }
 
+    pub fn has_lsp_support(&self) -> bool {
+        !self.lsp_exec().is_empty()
+    }
+
     pub fn lsp_exec(&self) -> String {
         match self {
             Self::Rust => "rust-analyzer",
@@ -170,12 +174,12 @@ impl Language {
             Self::Python => "pylsp",
             Self::Ruby => "ruby-lsp",
             Self::Kotlin => "kotlin-language-server",
-            Self::Swift => "sourcekit-lsp",
-            Self::Java => "jdtls",
+            Self::Swift => "",
+            Self::Java => "",
             Self::Bash => "",
             Self::Toml => "",
-            Self::Svelte => "svelte-language-server",
-            Self::Angular => "angular-language-server",
+            Self::Svelte => "",
+            Self::Angular => "",
             Self::Cpp => "",
             Self::Php => "",
             Self::CSharp => "",

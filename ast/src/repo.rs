@@ -508,13 +508,30 @@ impl Repo {
         Ok(())
     }
     fn start_lsp(root: &str, lang: &Lang, lsp: bool) -> Result<Option<CmdSender>> {
-        Ok(if lsp {
-            let (tx, rx) = tokio::sync::mpsc::channel(10000);
-            spawn_analyzer(&root.into(), &lang.kind, rx)?;
-            Some(tx)
-        } else {
-            None
-        })
+        if !lsp {
+            return Ok(None);
+        }
+
+        if !lang.kind.has_lsp_support() {
+            info!(
+                "LSP not implemented for {} language, continuing without LSP",
+                lang.kind
+            );
+            return Ok(None);
+        }
+
+        info!("Starting LSP for {} language", lang.kind);
+        let (tx, rx) = tokio::sync::mpsc::channel(10000);
+        match spawn_analyzer(&root.into(), &lang.kind, rx) {
+            Ok(_) => Ok(Some(tx)),
+            Err(e) => {
+                warn!(
+                    "Failed to start LSP for {} language: {}. Continuing without LSP",
+                    lang.kind, e
+                );
+                Ok(None)
+            }
+        }
     }
     pub fn delete_from_tmp(&self) -> Result<()> {
         fs::remove_dir_all(&self.root)?;

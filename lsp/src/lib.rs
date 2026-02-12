@@ -6,12 +6,14 @@ mod utils;
 use client::strip_root;
 pub use client::strip_tmp;
 pub use language::Language;
+use tokio::time;
 pub use utils::*;
 
 use lsp_types::{GotoDefinitionResponse, Hover, Location};
 use shared::{Context, Error, Result};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot::Sender as OneShotSender;
 use tracing::{error, info};
@@ -225,10 +227,28 @@ async fn spawn_inner(
 
     info!("waiting.... {:?}", lang);
     sleep(500).await;
-    indexed_rx
-        .await
-        .map_err(|e| Error::Custom(format!("bad indexed rx {:?}", e)))?;
-    info!("indexed!!! {:?}", lang);
+    
+    let timeout_duration = Duration::from_secs(15);
+    match time::timeout(timeout_duration, indexed_rx).await {
+        Ok(Ok(())) => {
+            info!("indexed!!! {:?}", lang);
+        }
+        Ok(Err(e)) => {
+            error!("LSP indexing failed for {:?}: {:?}", lang, e);
+            return Err(Error::Custom(format!("LSP indexing failed: {:?}", e)));
+        }
+        Err(_) => {
+            error!(
+                "LSP initialization timeout after {}s for {:?}. LSP may not be responding.",
+                timeout_duration.as_secs(),
+                lang
+            );
+            return Err(Error::Custom(format!(
+                "LSP initialization timeout after {}s",
+                timeout_duration.as_secs()
+            )));
+        }
+    }
 
     while let Some((cmd, res_tx)) = cmd_rx.recv().await {
         // debug!("got cmd: {:?}", cmd);
