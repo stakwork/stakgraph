@@ -64,6 +64,8 @@ impl GraphStreamingUploader {
 pub struct StreamingUploadContext {
     pub neo: Neo4jGraph,
     pub uploader: GraphStreamingUploader,
+    pub prev_node_count: usize,
+    pub prev_edge_count: usize,
 }
 
 impl StreamingUploadContext {
@@ -71,6 +73,8 @@ impl StreamingUploadContext {
         Self {
             neo,
             uploader: GraphStreamingUploader::new(),
+            prev_node_count: 0,
+            prev_edge_count: 0,
         }
     }
 }
