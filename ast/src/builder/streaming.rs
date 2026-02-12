@@ -1,7 +1,7 @@
 #![cfg(feature = "neo4j")]
 use std::collections::BTreeSet;
 
-use crate::lang::graphs::{neo4j::*, Neo4jGraph};
+use crate::lang::graphs::{neo4j::*, Graph, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use neo4rs::BoltMap;
 use shared::Result;
@@ -85,4 +85,28 @@ pub fn nodes_to_bolt_format<'a>(
     nodes
         .map(|(nt, nd)| add_node_query_stream(nt, nd))
         .collect()
+}
+
+pub async fn flush_stage_nodes<G: Graph>(
+    ctx: &mut StreamingUploadContext,
+    graph: &G,
+    stage: &str,
+) -> Result<()> {
+    let all_nodes = graph.get_all_nodes();
+    let bolt_nodes = nodes_to_bolt_format(all_nodes);
+    ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
+    Ok(())
+}
+
+pub async fn flush_stage_nodes_and_edges<G: Graph>(
+    ctx: &mut StreamingUploadContext,
+    graph: &G,
+    stage: &str,
+) -> Result<()> {
+    let all_nodes = graph.get_all_nodes();
+    let bolt_nodes = nodes_to_bolt_format(all_nodes);
+    ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
+    let edges = graph.get_edge_keys();
+    ctx.uploader.flush_edges_stage(&ctx.neo, stage, &edges).await?;
+    Ok(())
 }
