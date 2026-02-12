@@ -14,6 +14,7 @@ import {
 } from "../aieo/src/provider.js";
 import { generateObject, jsonSchema } from "ai";
 import { formatFeatureWithDetails } from "./utils.js";
+import { listFeatures } from "./service.js";
 import {
   toReturnNode,
   parseNodeTypes,
@@ -265,12 +266,11 @@ export async function gitree_process(req: Request, res: Response) {
 export async function gitree_list_features(req: Request, res: Response) {
   try {
     const repo = parseRepoParam(req);
+    const result = await listFeatures(repo);
+
+    // Get checkpoint and usage - aggregated if no repo specified
     const storage = new GraphStorage();
     await storage.initialize();
-
-    const features = await storage.getAllFeatures(repo);
-    
-    // Get checkpoint and usage - aggregated if no repo specified
     const { lastProcessedTimestamp, cumulativeUsage } = repo
       ? {
           lastProcessedTimestamp: (await storage.getChronologicalCheckpoint(repo))?.lastProcessedTimestamp || null,
@@ -279,18 +279,7 @@ export async function gitree_list_features(req: Request, res: Response) {
       : await storage.getAggregatedMetadata();
 
     res.json({
-      features: features.map((f) => ({
-        id: f.id,
-        repo: f.repo,
-        ref_id: f.ref_id,
-        name: f.name,
-        description: f.description,
-        prCount: f.prNumbers.length,
-        commitCount: (f.commitShas || []).length,
-        lastUpdated: f.lastUpdated.toISOString(),
-        hasDocumentation: !!f.documentation,
-      })),
-      total: features.length,
+      ...result,
       repo: repo || "all",
       lastProcessedTimestamp,
       cumulativeUsage,

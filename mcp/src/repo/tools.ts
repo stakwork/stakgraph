@@ -8,6 +8,7 @@ import {
 } from "./bash.js";
 import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
+import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 
 type ToolName =
   | "repo_overview"
@@ -18,7 +19,9 @@ type ToolName =
   | "web_search"
   | "bash"
   | "final_answer"
-  | "ask_clarifying_questions";
+  | "ask_clarifying_questions"
+  | "list_concepts"
+  | "learn_concept";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -102,6 +105,10 @@ Rules:
 - Use comparison_table when comparing multiple approaches with pros/cons
 - Use color_swatch when asking about colors/themes
 - Can combine: use questionArtifact to show a diagram AND rich options for choices`,
+  list_concepts:
+    "List all high-level concepts (features) that have been learned about this codebase. Use this to discover what areas of functionality have been documented and understand the main components of the system. Returns a list of concepts with their names, descriptions, and metadata about associated PRs and commits.",
+  learn_concept:
+    "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
 };
 
 export function get_tools(
@@ -215,6 +222,45 @@ export function get_tools(
           return await fulltextSearch(query, repoPath);
         } catch (e) {
           return `Search failed: ${e}`;
+        }
+      },
+    }),
+    list_concepts: tool({
+      description: defaultDescriptions.list_concepts,
+      inputSchema: z.object({}),
+      execute: async () => {
+        try {
+          const repo = `${repoOwner}/${repoName}`;
+          const result = await listFeatures(repo);
+          return {
+            concepts: result.features,
+            total: result.total,
+            repo,
+          };
+        } catch (e) {
+          console.error("Error listing concepts:", e);
+          return "Could not retrieve concepts";
+        }
+      },
+    }),
+    learn_concept: tool({
+      description: defaultDescriptions.learn_concept,
+      inputSchema: z.object({
+        concept_id: z
+          .string()
+          .describe("The ID of the concept/feature to learn about"),
+      }),
+      execute: async ({ concept_id }: { concept_id: string }) => {
+        try {
+          const repo = `${repoOwner}/${repoName}`;
+          const doc = await getFeatureDocumentation(concept_id, repo);
+          if (!doc) {
+            return { error: "Concept not found" };
+          }
+          return doc;
+        } catch (e) {
+          console.error("Error getting concept:", e);
+          return "Could not retrieve concept";
         }
       },
     }),
