@@ -100,7 +100,7 @@ COMPARISON TABLE EXAMPLE: (use when comparing multiple approaches/technologies):
 }]
 
 Rules:
-- Maximum 4 questions
+- Maximum 3 questions
 - Use mermaid questionArtifact to visualize and confirm flows before implementing
 - Use comparison_table when comparing multiple approaches with pros/cons
 - Use color_swatch when asking about colors/themes
