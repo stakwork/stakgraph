@@ -470,10 +470,12 @@ pub fn process_endpoint_groups_queries(
             let mut new_node_data = endpoint.clone();
             new_node_data.name = new_name.clone();
             let new_key = create_node_key(&Node::new(NodeType::Endpoint, new_node_data));
+            let endpoint_verb = endpoint.meta.get("verb").map(|v| v.as_str());
 
             queries.push(update_endpoint_name_query(
                 &endpoint.name,
                 &endpoint.file,
+                endpoint_verb,
                 &new_name,
                 &new_key,
             ));
@@ -481,6 +483,7 @@ pub fn process_endpoint_groups_queries(
             queries.push(update_endpoint_relationships_query(
                 &endpoint.name,
                 &endpoint.file,
+                endpoint_verb,
                 &new_name,
             ));
         }

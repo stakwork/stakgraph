@@ -11,7 +11,7 @@ async fn build_and_detect(relative_path: &str) -> Result<BTreeMapGraph> {
         Some(false),
     )
     .await?;
-    repos.build_graphs().await
+    repos.build_graphs_local().await
 }
 
 fn assert_language(graph: &BTreeMapGraph, expected: &str) -> Result<()> {

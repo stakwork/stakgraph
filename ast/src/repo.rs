@@ -67,14 +67,25 @@ impl Repos {
             repo.status_tx = Some(status_tx.clone());
         }
     }
+    pub async fn build_graphs_local(&self) -> Result<BTreeMapGraph> {
+        self.build_graphs_inner_impl::<BTreeMapGraph>(false).await
+    }
     pub async fn build_graphs(&self) -> Result<BTreeMapGraph> {
-        self.build_graphs_inner().await
+        self.build_graphs_local().await
     }
     pub async fn build_graphs_array(&self) -> Result<ArrayGraph> {
-        self.build_graphs_inner().await
+        self.build_graphs_inner_impl::<ArrayGraph>(false).await
     }
-    pub async fn build_graphs_btree(&self) -> Result<BTreeMapGraph> {
-        self.build_graphs_inner().await
+    pub async fn build_graphs_with_batch_upload(&self) -> Result<BTreeMapGraph> {
+        self.build_graphs_inner_impl::<BTreeMapGraph>(true).await
+    }
+    #[cfg(feature = "neo4j")]
+    pub async fn build_graphs_neo4j_incremental(&self) -> Result<Neo4jGraph> {
+        self.build_graphs_inner_impl::<Neo4jGraph>(false).await
+    }
+    pub async fn build_graphs_inner<G: Graph + Sync>(&self) -> Result<G> {
+        let enable_batch_upload = std::env::var("STREAM_UPLOAD").is_ok();
+        self.build_graphs_inner_impl(enable_batch_upload).await
     }
     pub async fn build_graphs_btree_with_streaming(
         &self,
@@ -83,17 +94,7 @@ impl Repos {
         self.build_graphs_inner_impl::<BTreeMapGraph>(streaming)
             .await
     }
-    pub async fn build_graphs_inner_with_streaming<G: Graph + Sync>(
-        &self,
-        streaming: bool,
-    ) -> Result<G> {
-        self.build_graphs_inner_impl(streaming).await
-    }
-    pub async fn build_graphs_inner<G: Graph + Sync>(&self) -> Result<G> {
-        let streaming = std::env::var("STREAM_UPLOAD").is_ok();
-        self.build_graphs_inner_impl(streaming).await
-    }
-    async fn build_graphs_inner_impl<G: Graph + Sync>(&self, streaming: bool) -> Result<G> {
+    async fn build_graphs_inner_impl<G: Graph + Sync>(&self, enable_batch_upload: bool) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }
@@ -106,7 +107,7 @@ impl Repos {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> = if streaming {
+        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> = if enable_batch_upload && std::any::type_name::<G>().contains("BTreeMapGraph") {
             let neo = Neo4jGraph::default();
             let _ = neo.connect().await;
             Some((neo, GraphStreamingUploader::new()))
@@ -114,7 +115,7 @@ impl Repos {
             None
         };
         for repo in &self.0 {
-            let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
+            let subgraph = repo.build_graph_inner_with_streaming(enable_batch_upload).await?;
             graph.extend_graph(subgraph);
             memory::log_memory("repo_done");
 

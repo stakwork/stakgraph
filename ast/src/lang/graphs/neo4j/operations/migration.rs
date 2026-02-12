@@ -283,6 +283,7 @@ pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String,
 pub fn update_endpoint_name_query(
     old_name: &str,
     file: &str,
+    verb: Option<&str>,
     new_name: &str,
     new_key: &str,
 ) -> (String, BoltMap) {
@@ -291,29 +292,44 @@ pub fn update_endpoint_name_query(
     boltmap_insert_str(&mut params, "file", file);
     boltmap_insert_str(&mut params, "new_name", new_name);
     boltmap_insert_str(&mut params, "new_key", new_key);
+    let verb_clause = if let Some(v) = verb {
+        boltmap_insert_str(&mut params, "verb", v);
+        " AND n.verb = $verb"
+    } else {
+        ""
+    };
 
-    let query = "MATCH (n:Endpoint {name: $old_name, file: $file})
-                 SET n.name = $new_name, n.node_key = $new_key
-                 RETURN n";
+    let query = format!(
+        "MATCH (n:Endpoint {{name: $old_name, file: $file}}){}\n                 SET n.name = $new_name, n.node_key = $new_key\n                 RETURN n",
+        verb_clause
+    );
 
-    (query.to_string(), params)
+    (query, params)
 }
 
 pub fn update_endpoint_relationships_query(
     old_name: &str,
     file: &str,
+    verb: Option<&str>,
     new_name: &str,
 ) -> (String, BoltMap) {
     let mut params = BoltMap::new();
     boltmap_insert_str(&mut params, "old_name", old_name);
     boltmap_insert_str(&mut params, "file", file);
     boltmap_insert_str(&mut params, "new_name", new_name);
+    let verb_clause = if let Some(v) = verb {
+        boltmap_insert_str(&mut params, "verb", v);
+        " AND source.verb = $verb"
+    } else {
+        ""
+    };
 
-    let query = "MATCH (source:Endpoint {{name: $old_name, file: $file}})-[r]->(target)
-                SET source.name = $new_name
-                RETURN r";
+    let query = format!(
+        "MATCH (source:Endpoint {{name: $old_name, file: $file}}){}-[r]->(target)\n                SET source.name = $new_name\n                RETURN r",
+        verb_clause
+    );
 
-    (query.to_string(), params)
+    (query, params)
 }
 
 pub fn clear_graph_query() -> String {

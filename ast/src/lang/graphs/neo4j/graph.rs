@@ -702,25 +702,55 @@ impl Neo4jGraph {
         let matches = lang
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
+        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> = HashMap::new();
+
+        for (endpoint, prefix) in matches {
+            let endpoint_verb = endpoint.meta.get("verb").cloned().unwrap_or_default();
+            let key = (
+                endpoint.name.clone(),
+                endpoint.file.clone(),
+                endpoint.start,
+                endpoint_verb,
+            );
+
+            match best_matches.get(&key) {
+                Some((_existing_ep, existing_prefix)) if prefix.len() > existing_prefix.len() => {
+                    best_matches.insert(key, (endpoint, prefix));
+                }
+                None => {
+                    best_matches.insert(key, (endpoint, prefix));
+                }
+                _ => {
+                }
+            }
+        }
 
         let mut txn_manager = TransactionManager::new(&connection);
 
-        for (endpoint, prefix) in matches {
+        for ((_, _, _, _), (endpoint, prefix)) in best_matches {
             let full_path = format!("{}{}", prefix, endpoint.name);
             let mut new_node_data = endpoint.clone();
             new_node_data.name = full_path.clone();
             let new_key = create_node_key(&Node::new(NodeType::Endpoint, new_node_data));
 
-            let update_query = format!(
-                "MATCH (e:Endpoint) WHERE e.name = $old_name AND e.file = $file AND e.start = $start \
-                 SET e.name = $new_name, e.node_key = $new_key RETURN e.name"
+            let endpoint_verb = endpoint.meta.get("verb").map(|v| v.as_str());
+            let mut update_query = String::from(
+                "MATCH (e:Endpoint) WHERE e.name = $old_name AND e.file = $file AND e.start = $start",
             );
+            if endpoint_verb.is_some() {
+                update_query.push_str(" AND e.verb = $verb");
+            }
+            update_query.push_str(" SET e.name = $new_name, e.node_key = $new_key RETURN e.name");
+
             let mut params = BoltMap::new();
             boltmap_insert_str(&mut params, "old_name", &endpoint.name);
             boltmap_insert_str(&mut params, "file", &endpoint.file);
             boltmap_insert_int(&mut params, "start", endpoint.start as i64);
             boltmap_insert_str(&mut params, "new_name", &full_path);
             boltmap_insert_str(&mut params, "new_key", &new_key);
+            if let Some(verb) = endpoint_verb {
+                boltmap_insert_str(&mut params, "verb", verb);
+            }
 
             txn_manager.add_query((update_query, params));
         }

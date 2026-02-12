@@ -24,7 +24,7 @@ async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
 
             let repos = Repos(vec![repo]);
             let btree_graph = repos
-                .build_graphs_btree()
+                .build_graphs_local()
                 .await
                 .expect("Failed to build graph");
             btree_graph.analysis();
