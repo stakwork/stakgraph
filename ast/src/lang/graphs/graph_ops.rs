@@ -154,7 +154,7 @@ impl GraphOps {
                     subgraph_repos.set_status_tx(tx).await;
                 }
 
-                subgraph_repos.build_graphs_inner::<Neo4jGraph>().await?;
+                subgraph_repos.build_graphs_neo4j_incremental().await?;
 
                 if !all_dynamic_edges.is_empty() {
                     let restored_count =
@@ -197,7 +197,7 @@ impl GraphOps {
                 repos.set_status_tx(tx).await;
             }
 
-            let _graph = repos.build_graphs_inner::<Neo4jGraph>().await?;
+            let _graph = repos.build_graphs_neo4j_incremental().await?;
 
             info!("Setting Data_Bank property for nodes missing it...");
             if let Err(e) = self.graph.set_missing_data_bank().await {
@@ -252,9 +252,9 @@ impl GraphOps {
 
         let streaming = streaming.unwrap_or(false);
         let temp_graph = if streaming {
-            repos.build_graphs_btree_with_streaming(streaming).await?
+            repos.build_graphs_with_batch_upload().await?
         } else {
-            repos.build_graphs_inner::<BTreeMapGraph>().await?
+            repos.build_graphs_local().await?
         };
 
         temp_graph.analysis();

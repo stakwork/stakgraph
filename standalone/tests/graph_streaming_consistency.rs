@@ -61,10 +61,7 @@ async fn graph_streaming_consistency() {
     .unwrap();
 
     // Build with streaming enabled
-    let _streaming_graph = repos
-        .build_graphs_inner_with_streaming::<BTreeMapGraph>(true)
-        .await
-        .unwrap();
+    let _streaming_graph = repos.build_graphs_with_batch_upload().await.unwrap();
 
     // Also build local graph for comparison
     let repos_local = Repo::new_clone_multi_detect(
