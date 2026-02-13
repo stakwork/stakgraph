@@ -874,11 +874,11 @@ impl Graph for BTreeMapGraph {
                 Some(Edge::new(
                     edge_type.clone(),
                     NodeRef::from(
-                        src_node.node_data.clone().into(),
+                        (&src_node.node_data).into(),
                         src_node.node_type.clone(),
                     ),
                     NodeRef::from(
-                        dst_node.node_data.clone().into(),
+                        (&dst_node.node_data).into(),
                         dst_node.node_type.clone(),
                     ),
                 ))
@@ -921,11 +921,11 @@ impl BTreeMapGraph {
             Some(Edge::new(
                 edge_type.clone(),
                 NodeRef::from(
-                    src_node.node_data.clone().into(),
+                    (&src_node.node_data).into(),
                     src_node.node_type.clone(),
                 ),
                 NodeRef::from(
-                    dst_node.node_data.clone().into(),
+                    (&dst_node.node_data).into(),
                     dst_node.node_type.clone(),
                 ),
             ))
