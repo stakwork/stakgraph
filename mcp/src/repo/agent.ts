@@ -113,6 +113,8 @@ export interface GetContextOptions {
   sessionConfig?: SessionConfig; // Truncation settings
   // MCP servers
   mcpServers?: McpServer[]; // External MCP servers to load tools from
+  // Multi-repo support: list of "owner/repo" strings
+  repos?: string[];
 }
 
 export async function get_context(
@@ -130,6 +132,7 @@ export async function get_context(
     sessionConfig,
     mcpServers,
     apiKey: apiKeyIn,
+    repos,
   } = opts;
   const startTime = Date.now();
   const { model, apiKey, provider } = getModelDetails(modelName, apiKeyIn);
@@ -150,7 +153,7 @@ export async function get_context(
     }
   }
 
-  let tools = get_tools(repoPath, apiKey, pat, toolsConfig, provider);
+  let tools = get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos);
 
   // Load and merge MCP server tools if configured
   if (mcpServers && mcpServers.length > 0) {
