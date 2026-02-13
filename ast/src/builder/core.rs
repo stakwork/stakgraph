@@ -66,17 +66,18 @@ impl Repo {
             None
         };
 
-
         self.send_status_update("initialization", 1);
         let stage_start = Instant::now();
         self.add_repository_and_language_nodes(&mut graph).await?;
-        info!("[perf][stage] repository_language s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] repository_language s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
-            let all_nodes = graph.get_all_nodes();
-            let bolt_nodes = nodes_to_bolt_format(all_nodes);
+            let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
             ctx.uploader
                 .flush_stage(&ctx.neo, "repository_language", &bolt_nodes)
                 .await?;
@@ -85,22 +86,27 @@ impl Repo {
         }
         let stage_start = Instant::now();
         let files = self.collect_and_add_directories(&mut graph)?;
-        info!("[perf][stage] directories s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] directories s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         stats.insert("directories".to_string(), files.len());
 
         let stage_start = Instant::now();
         let filez = self.process_and_add_files(&mut graph, &files).await?;
-        info!("[perf][stage] files s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] files s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         stats.insert("files".to_string(), filez.len());
-        
+
         self.send_status_with_stats(stats.clone());
         self.send_status_progress(100, 100, 1);
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "files", &bolt_nodes)
                     .await?;
@@ -117,7 +123,10 @@ impl Repo {
 
         let stage_start = Instant::now();
         self.setup_lsp(&filez)?;
-        info!("[perf][stage] lsp_setup s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] lsp_setup s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
 
         let allowed_files = filez
             .iter()
@@ -126,13 +135,15 @@ impl Repo {
             .collect::<Vec<_>>();
         let stage_start = Instant::now();
         self.process_libraries(&mut graph, &allowed_files)?;
-        info!("[perf][stage] libraries s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] libraries s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "libraries", &bolt_nodes)
                     .await?;
@@ -148,13 +159,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.process_import_sections(&mut graph, &filez)?;
-        info!("[perf][stage] imports s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] imports s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "imports", &bolt_nodes)
                     .await?;
@@ -170,13 +183,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.process_variables(&mut graph, &allowed_files)?;
-        info!("[perf][stage] variables s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] variables s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "variables", &bolt_nodes)
                     .await?;
@@ -192,13 +207,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
-        info!("[perf][stage] classes s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] classes s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "classes", &bolt_nodes)
                     .await?;
@@ -214,13 +231,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
-        info!("[perf][stage] instances_traits s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] instances_traits s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "instances_traits", &bolt_nodes)
                     .await?;
@@ -236,13 +255,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
-        info!("[perf][stage] implements s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] implements s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "implements", &bolt_nodes)
                     .await?;
@@ -258,13 +279,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.process_data_models(&mut graph, &allowed_files)?;
-        info!("[perf][stage] data_models s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] data_models s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "data_models", &bolt_nodes)
                     .await?;
@@ -281,14 +304,16 @@ impl Repo {
         let stage_start = Instant::now();
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
-        info!("[perf][stage] functions_tests s={:.2}", stage_start.elapsed().as_secs_f64());
-        
+        info!(
+            "[perf][stage] functions_tests s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "functions_tests", &bolt_nodes)
                     .await?;
@@ -304,13 +329,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.process_pages_and_templates(&mut graph, &filez)?;
-        info!("[perf][stage] pages_templates s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] pages_templates s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "pages_templates", &bolt_nodes)
                     .await?;
@@ -326,13 +353,15 @@ impl Repo {
         }
         let stage_start = Instant::now();
         self.process_endpoints(&mut graph, &allowed_files)?;
-        info!("[perf][stage] endpoints s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] endpoints s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "endpoints", &bolt_nodes)
                     .await?;
@@ -349,13 +378,15 @@ impl Repo {
         let stage_start = Instant::now();
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
-        info!("[perf][stage] finalize s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] finalize s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
             if nodes as usize > ctx.prev_node_count {
-                let all_nodes = graph.get_all_nodes();
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
                 ctx.uploader
                     .flush_stage(&ctx.neo, "finalize", &bolt_nodes)
                     .await?;
@@ -368,7 +399,6 @@ impl Repo {
                     .await?;
                 ctx.prev_edge_count = edges as usize;
             }
-
         }
 
         let graph = filter_by_revs(
@@ -383,10 +413,10 @@ impl Repo {
             "Returning Graph with {} nodes and {} edges",
             num_of_nodes, num_of_edges
         );
-        
+
         stats.insert("total_nodes".to_string(), num_of_nodes as usize);
         stats.insert("total_edges".to_string(), num_of_edges as usize);
-        
+
         self.send_status_with_stats(stats);
 
         Ok(graph)
@@ -740,12 +770,7 @@ impl Repo {
             let classes = self.lang.collect_classes::<G>(&qo, code, filename, graph)?;
             class_count += classes.len();
             for (class, assoc_edges) in classes {
-                graph.add_node_with_parent(
-                    &NodeType::Class,
-                    &class,
-                    &NodeType::File,
-                    &class.file,
-                );
+                graph.add_node_with_parent(&NodeType::Class, &class, &NodeType::File, &class.file);
                 for edge in assoc_edges {
                     graph.add_edge(&edge);
                 }
@@ -918,12 +943,7 @@ impl Repo {
             datamodel_count += structs.len();
 
             for st in &structs {
-                graph.add_node_with_parent(
-                    &NodeType::DataModel,
-                    st,
-                    &NodeType::File,
-                    &st.file,
-                );
+                graph.add_node_with_parent(&NodeType::DataModel, st, &NodeType::File, &st.file);
             }
             for dm in &structs {
                 let edges = self.lang.collect_class_contains_datamodel_edge(dm, graph)?;
@@ -1240,7 +1260,10 @@ impl Repo {
                     .await?;
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();
-                graph.add_calls((&all_calls.0, &all_calls.1, &all_calls.2, &all_calls.3), &self.lang);
+                graph.add_calls(
+                    (&all_calls.0, &all_calls.1, &all_calls.2, &all_calls.3),
+                    &self.lang,
+                );
             }
             stats.insert("function_calls".to_string(), function_call_count);
             info!("=> got {} function calls", _i);

@@ -111,9 +111,8 @@ impl Repos {
             graph.extend_graph(subgraph);
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
-                let all_nodes = graph.get_all_nodes();
-                if !all_nodes.is_empty() {
-                    let bolt_nodes = nodes_to_bolt_format(all_nodes);
+                let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
+                if !bolt_nodes.is_empty() {
                     let _ = uploader
                         .flush_stage(neo, "repo_complete", &bolt_nodes)
                         .await;
@@ -138,12 +137,14 @@ impl Repos {
         linker::link_e2e_tests(&mut graph)?;
         info!("linking api nodes");
         linker::link_api_nodes(&mut graph)?;
-        info!("[perf][stage] cross_repo_linking s={:.2}", stage_start.elapsed().as_secs_f64());
+        info!(
+            "[perf][stage] cross_repo_linking s={:.2}",
+            stage_start.elapsed().as_secs_f64()
+        );
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming_ctx {
-            let all_nodes = graph.get_all_nodes();
-            if !all_nodes.is_empty() {
-                let bolt_nodes = nodes_to_bolt_format(all_nodes);
+            let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
+            if !bolt_nodes.is_empty() {
                 let _ = uploader
                     .flush_stage(neo, "cross_repo_linking", &bolt_nodes)
                     .await;

@@ -53,8 +53,8 @@ pub trait Graph: Default + Debug {
         BTreeSet::new()
     }
 
-    fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
-        vec![]
+    fn iter_all_nodes(&self) -> Box<dyn Iterator<Item = (&NodeType, &NodeData)> + '_> {
+        Box::new(std::iter::empty())
     }
 
     fn find_source_edge_by_name_and_file(
@@ -75,12 +75,7 @@ pub trait Graph: Default + Debug {
     fn add_endpoints(&mut self, endpoints: &[(NodeData, Option<Edge>)]);
     fn add_tests(&mut self, tests: &[TestRecord]) {
         for tr in tests {
-            self.add_node_with_parent(
-                &tr.kind,
-                &tr.node,
-                &NodeType::File,
-                &tr.node.file,
-            );
+            self.add_node_with_parent(&tr.kind, &tr.node, &NodeType::File, &tr.node.file);
             for e in &tr.edges {
                 self.add_edge(e);
             }
