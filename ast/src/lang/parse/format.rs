@@ -44,7 +44,9 @@ impl Lang {
             } else if o == ASSOCIATION_TARGET {
                 assocition_target = Some(body);
             } else if o == ATTRIBUTES {
-                attributes.push(body);
+                if let Some(filtered) = self.lang.filter_attribute(&body, &o) {
+                    attributes.push(filtered);
+                }
             } else if o == CLASS_COMMENT {
                 comments.push(body);
             }
@@ -577,7 +579,9 @@ impl Lang {
                 inst.start = node.start_position().row;
                 inst.end = node.end_position().row;
             } else if o == ATTRIBUTES {
-                attributes.push(body);
+                if let Some(filtered) = self.lang.filter_attribute(&body, &o) {
+                    attributes.push(filtered);
+                }
             } else if o == STRUCT_COMMENT {
                 comments.push(body);
             }
@@ -859,7 +863,9 @@ impl Lang {
             } else if o == FUNCTION_COMMENT {
                 comments.push(body);
             } else if o == ATTRIBUTES {
-                attributes.push(body);
+                if let Some(filtered) = self.lang.filter_attribute(&body, &o) {
+                    attributes.push(filtered);
+                }
                 if attributes_start_byte.is_none() {
                     attributes_start_byte = Some(node.start_byte());
                 }
