@@ -52,7 +52,8 @@ impl Graph for BTreeMapGraph {
     fn add_edge(&mut self, edge: &Edge) {
         let source_key = create_node_key_from_ref(&edge.source);
         let target_key = create_node_key_from_ref(&edge.target);
-        self.edges.insert((source_key, target_key, edge.edge.clone()));
+        self.edges
+            .insert((source_key, target_key, edge.edge.clone()));
     }
     fn add_node(&mut self, node_type: &NodeType, node_data: &NodeData) {
         let node = Node::new(node_type.clone(), node_data.clone());
@@ -128,7 +129,12 @@ impl Graph for BTreeMapGraph {
             .take_while(|(k, _)| k.starts_with(&prefix))
             .find(|(_, n)| n.node_data.file == parent_file)
         {
-            let edge = Edge::contains(parent_type.clone(), &parent_node.node_data, node_type.clone(), node_data);
+            let edge = Edge::contains(
+                parent_type.clone(),
+                &parent_node.node_data,
+                node_type.clone(),
+                node_data,
+            );
             self.add_edge(&edge);
         }
     }
@@ -873,14 +879,8 @@ impl Graph for BTreeMapGraph {
                 let dst_node = self.nodes.get(dst_key)?;
                 Some(Edge::new(
                     edge_type.clone(),
-                    NodeRef::from(
-                        src_node.node_data.clone().into(),
-                        src_node.node_type.clone(),
-                    ),
-                    NodeRef::from(
-                        dst_node.node_data.clone().into(),
-                        dst_node.node_type.clone(),
-                    ),
+                    NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                    NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
                 ))
             })
             .collect()
@@ -894,18 +894,15 @@ impl Graph for BTreeMapGraph {
         self.allow_unverified_calls
     }
 
-    fn get_all_nodes(&self) -> Vec<(NodeType, NodeData)> {
-        self.nodes
-            .values()
-            .map(|node| (node.node_type.clone(), node.node_data.clone()))
-            .collect()
+    fn iter_all_nodes(&self) -> Box<dyn Iterator<Item = (&NodeType, &NodeData)> + '_> {
+        Box::new(
+            self.nodes
+                .values()
+                .map(|node| (&node.node_type, &node.node_data)),
+        )
     }
 }
 impl BTreeMapGraph {
-    pub fn iter_all_nodes(&self) -> impl Iterator<Item = (&NodeType, &NodeData)> {
-        self.nodes.values().map(|node| (&node.node_type, &node.node_data))
-    }
-
     pub fn iter_all_edges(&self) -> impl Iterator<Item = (&String, &String, &EdgeType)> {
         self.edges.iter().map(|(src, dst, edge)| (src, dst, edge))
     }
@@ -920,14 +917,8 @@ impl BTreeMapGraph {
         {
             Some(Edge::new(
                 edge_type.clone(),
-                NodeRef::from(
-                    src_node.node_data.clone().into(),
-                    src_node.node_type.clone(),
-                ),
-                NodeRef::from(
-                    dst_node.node_data.clone().into(),
-                    dst_node.node_type.clone(),
-                ),
+                NodeRef::from((&src_node.node_data).into(), src_node.node_type.clone()),
+                NodeRef::from((&dst_node.node_data).into(), dst_node.node_type.clone()),
             ))
         } else {
             None
