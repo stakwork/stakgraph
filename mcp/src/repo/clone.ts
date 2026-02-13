@@ -15,7 +15,34 @@ const git: SimpleGit = simpleGit(OPTIONS);
 // Lock map to prevent concurrent clones to the same directory
 const cloneLocks = new Map<string, Promise<string>>();
 
+/**
+ * Clone or update one or more repositories.
+ * If repoUrls is a comma-separated list, clones all repos to /tmp/owner/repo each
+ * and returns /tmp as the parent directory.
+ * If repoUrls is a single URL, returns the specific repo directory (backward compatible).
+ */
 export async function cloneOrUpdateRepo(
+  repoUrls: string,
+  username?: string,
+  pat?: string,
+  commit?: string
+): Promise<string> {
+  // Split by comma and trim whitespace
+  const urls = repoUrls.split(",").map((url) => url.trim()).filter((url) => url.length > 0);
+
+  if (urls.length === 1) {
+    // Single repo - use original behavior for backward compatibility
+    return cloneSingleRepo(urls[0], username, pat, commit);
+  }
+
+  // Multiple repos - clone all in parallel, return /tmp
+  return cloneMultipleRepos(urls, username, pat, commit);
+}
+
+/**
+ * Clone a single repository (original behavior)
+ */
+async function cloneSingleRepo(
   repoUrl: string,
   username?: string,
   pat?: string,
@@ -46,6 +73,29 @@ export async function cloneOrUpdateRepo(
   } finally {
     cloneLocks.delete(cloneDir);
   }
+}
+
+/**
+ * Clone multiple repositories to /tmp/owner/repo each.
+ * Returns /tmp as the parent directory containing all repos.
+ */
+async function cloneMultipleRepos(
+  repoUrls: string[],
+  username?: string,
+  pat?: string,
+  commit?: string
+): Promise<string> {
+  console.log(`===> cloning ${repoUrls.length} repos into /tmp`);
+
+  // Clone all repos in parallel using the same structure as single repos
+  const clonePromises = repoUrls.map((repoUrl) => 
+    cloneSingleRepo(repoUrl, username, pat, commit)
+  );
+
+  await Promise.all(clonePromises);
+
+  // Return /tmp as the parent directory containing all repos
+  return "/tmp";
 }
 
 async function doCloneOrUpdate(

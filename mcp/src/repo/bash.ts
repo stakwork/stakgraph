@@ -162,7 +162,8 @@ function execShellCommand(
 }
 
 // Get repository map
-export async function getRepoMap(repoPath: string): Promise<string> {
+// repos is an optional array of "owner/repo" strings to filter by (for multi-repo)
+export async function getRepoMap(repoPath: string, repos?: string[]): Promise<string> {
   if (!repoPath) {
     return "No repository path provided";
   }
@@ -172,11 +173,33 @@ export async function getRepoMap(repoPath: string): Promise<string> {
   }
 
   try {
-    const result = await execShellCommand(
-      "git ls-tree -r --name-only HEAD | tree -L 3 --fromfile",
-      repoPath
-    );
-    return result;
+    // Check if this is a multi-repo directory (/tmp with multiple owner/repo subdirs)
+    const isMultiRepo = repoPath === "/tmp" && repos && repos.length > 0;
+    
+    if (isMultiRepo) {
+      // For multi-repo, iterate over the requested repos only
+      const results: string[] = [];
+      for (const repo of repos) {
+        const repoDir = path.join(repoPath, repo);
+        if (fs.existsSync(repoDir)) {
+          const files = await execShellCommand(
+            "git ls-tree -r --name-only HEAD | head -100",
+            repoDir
+          );
+          results.push(`=== ${repo} ===\n${files}`);
+        } else {
+          results.push(`=== ${repo} ===\n(not found)`);
+        }
+      }
+      return results.join("\n\n");
+    } else {
+      // Single repo - use git ls-tree
+      const result = await execShellCommand(
+        "git ls-tree -r --name-only HEAD | tree -L 3 --fromfile",
+        repoPath
+      );
+      return result;
+    }
   } catch (error: any) {
     return `Error getting repo map: ${error.message}`;
   }

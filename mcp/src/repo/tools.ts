@@ -116,11 +116,14 @@ export function get_tools(
   apiKey: string,
   pat: string | undefined,
   toolsConfig?: ToolsConfig,
-  provider?: Provider
+  provider?: Provider,
+  repos?: string[]
 ) {
   const repoArr = repoPath.split("/");
-  const repoOwner = repoArr[repoArr.length - 2];
-  const repoName = repoArr[repoArr.length - 1];
+  const isMultiRepo = repoPath === "/tmp";
+  // For single repo, extract owner/name from path. For multi-repo, these will be empty.
+  const repoOwner = isMultiRepo ? "" : repoArr[repoArr.length - 2];
+  const repoName = isMultiRepo ? "" : repoArr[repoArr.length - 1];
   const web_search_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "webSearch") : undefined
   const bash_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "bash") : undefined
 
@@ -142,7 +145,7 @@ export function get_tools(
       inputSchema: z.object({}),
       execute: async () => {
         try {
-          return await getRepoMap(repoPath);
+          return await getRepoMap(repoPath, repos);
         } catch (e) {
           return "Could not retrieve repository map";
         }
@@ -170,6 +173,9 @@ export function get_tools(
       description: defaultDescriptions.recent_commits,
       inputSchema: z.object({ limit: z.number().optional().default(10) }),
       execute: async ({ limit }: { limit?: number }) => {
+        if (isMultiRepo) {
+          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
+        }
         try {
           const analyzer = new RepoAnalyzer({
             githubToken: pat,
@@ -195,6 +201,9 @@ export function get_tools(
         limit: z.number().optional().default(5),
       }),
       execute: async ({ user, limit }: { user: string; limit?: number }) => {
+        if (isMultiRepo) {
+          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
+        }
         try {
           const analyzer = new RepoAnalyzer({
             githubToken: pat,
@@ -229,6 +238,9 @@ export function get_tools(
       description: defaultDescriptions.list_concepts,
       inputSchema: z.object({}),
       execute: async () => {
+        if (isMultiRepo) {
+          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
+        }
         try {
           const repo = `${repoOwner}/${repoName}`;
           const result = await listFeatures(repo);
@@ -251,6 +263,9 @@ export function get_tools(
           .describe("The ID of the concept/feature to learn about"),
       }),
       execute: async ({ concept_id }: { concept_id: string }) => {
+        if (isMultiRepo) {
+          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
+        }
         try {
           const repo = `${repoOwner}/${repoName}`;
           const doc = await getFeatureDocumentation(concept_id, repo);
