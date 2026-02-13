@@ -893,16 +893,16 @@ impl Graph for BTreeMapGraph {
     fn get_allow_unverified_calls(&self) -> bool {
         self.allow_unverified_calls
     }
-}
-impl BTreeMapGraph {
-    pub fn iter_all_nodes(&self) -> Box<dyn Iterator<Item = (&NodeType, &NodeData)> + '_> {
+
+    fn iter_all_nodes(&self) -> Box<dyn Iterator<Item = (&NodeType, &NodeData)> + '_> {
         Box::new(
             self.nodes
                 .values()
                 .map(|node| (&node.node_type, &node.node_data)),
         )
     }
-
+}
+impl BTreeMapGraph {
     pub fn iter_all_edges(&self) -> impl Iterator<Item = (&String, &String, &EdgeType)> {
         self.edges.iter().map(|(src, dst, edge)| (src, dst, edge))
     }
