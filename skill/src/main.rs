@@ -121,7 +121,7 @@ async fn start_inner() -> Result<Response> {
                 None,
             )
             .await?;
-            repo.build_graph().await?
+            repo.build_graph_local().await?
         }
         None => {
             let repos = Repo::new_clone_multi_detect(
@@ -135,7 +135,7 @@ async fn start_inner() -> Result<Response> {
                 use_lsp,
             )
             .await?;
-            repos.build_graphs().await?
+            repos.build_graphs_local().await?
         }
     };
 

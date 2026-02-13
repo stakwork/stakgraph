@@ -5,7 +5,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::Result;
 use std::str::FromStr;
 
-pub async fn test_rust_generic<G: Graph>() -> Result<()> {
+pub async fn test_rust_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/rust",
         Lang::from_str("rust").unwrap(),

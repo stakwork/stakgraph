@@ -8,7 +8,7 @@ use crate::{
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_php_generic<G: Graph>() -> Result<()> {
+pub async fn test_php_generic<G: Graph + Sync>() -> Result<()> {
     let use_lsp = false;
     let repo = Repo::new(
         "src/testing/php",
