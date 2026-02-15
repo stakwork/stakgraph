@@ -635,6 +635,13 @@ impl Repo {
                     &import.file,
                 );
             }
+
+            // Eagerly populate import cache after adding Import nodes
+            use crate::lang::call_finder::parse_imports_for_file;
+            if let Some(import_data) = parse_imports_for_file(filename, &self.lang, graph) {
+                use crate::lang::call_finder::IMPORT_CACHE;
+                IMPORT_CACHE.insert(filename.to_string(), Some(import_data));
+            }
         }
 
         let mut stats = std::collections::HashMap::new();
