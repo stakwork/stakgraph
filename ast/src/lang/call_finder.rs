@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 use tree_sitter::QueryCursor;
 
 type ImportCache = DashMap<String, Option<Vec<(String, Vec<String>)>>>;
-static IMPORT_CACHE: LazyLock<ImportCache> = LazyLock::new(DashMap::new);
+pub static IMPORT_CACHE: LazyLock<ImportCache> = LazyLock::new(DashMap::new);
 
 pub fn clear_import_cache() {
     IMPORT_CACHE.clear();
@@ -115,7 +115,7 @@ pub fn get_imports_for_file<G: Graph>(
     result
 }
 
-fn parse_imports_for_file<G: Graph>(
+pub fn parse_imports_for_file<G: Graph>(
     current_file: &str,
     lang: &Lang,
     graph: &G,

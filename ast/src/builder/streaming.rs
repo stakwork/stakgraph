@@ -79,9 +79,10 @@ impl StreamingUploadContext {
     }
 }
 
-pub fn nodes_to_bolt_format(nodes: Vec<(NodeType, NodeData)>) -> Vec<(String, BoltMap)> {
+pub fn nodes_to_bolt_format<'a>(
+    nodes: impl Iterator<Item = (&'a NodeType, &'a NodeData)>,
+) -> Vec<(String, BoltMap)> {
     nodes
-        .iter()
         .map(|(nt, nd)| add_node_query_stream(nt, nd))
         .collect()
 }
