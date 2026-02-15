@@ -39,6 +39,7 @@ cargo run --bin index
 - [x] Angular
 - [x] Svelte
 - [x] C++
+- [x] C
 - [x] C#
 - [x] PHP
 
