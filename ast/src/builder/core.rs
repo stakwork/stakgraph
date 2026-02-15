@@ -14,6 +14,7 @@ use crate::lang::{
 };
 use crate::lang::{ArrayGraph, BTreeMapGraph};
 use crate::repo::Repo;
+use crate::lang::call_finder::{parse_imports_for_file, IMPORT_CACHE};
 
 use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
@@ -634,6 +635,11 @@ impl Repo {
                     &NodeType::File,
                     &import.file,
                 );
+            }
+
+            // Populate import cache after adding Import nodes
+            if let Some(import_data) = parse_imports_for_file(filename, &self.lang, graph) {
+                IMPORT_CACHE.insert(filename.to_string(), Some(import_data));
             }
         }
 
