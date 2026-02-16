@@ -1,12 +1,12 @@
-use crate::lang::graphs::{EdgeType, NodeType};
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_swift_generic<G: Graph>() -> Result<()> {
+pub async fn test_swift_legacy_generic<G: Graph>() -> Result<()> {
     let repo = Repo::new(
-        "src/testing/swift",
+        "src/testing/swift/LegacyApp",
         Lang::from_str("swift").unwrap(),
         false,
         Vec::new(),
@@ -29,7 +29,7 @@ pub async fn test_swift_generic<G: Graph>() -> Result<()> {
         "Language node name should be 'swift'"
     );
     assert_eq!(
-        language_nodes[0].file, "src/testing/swift",
+        language_nodes[0].file, "src/testing/swift/LegacyApp",
         "Language node file path is incorrect"
     );
 
@@ -102,7 +102,7 @@ end
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 7, "Expected 7 classes");
+    assert_eq!(classes.len(), 9, "Expected 9 classes");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -281,7 +281,7 @@ end
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 88, "Expected 88 contains edges");
+    assert_eq!(contains, 90, "Expected 90 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -349,17 +349,139 @@ end
 
     Ok(())
 }
+pub async fn test_swift_modern_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/swift/ModernApp",
+        Lang::from_str("swift").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+
+    graph.analysis();
+
+    let mut nodes_count = 0;
+    let mut edges_count = 0;
+
+    let language_nodes = graph.find_nodes_by_type(NodeType::Language);
+    nodes_count += language_nodes.len();
+    assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
+    assert_eq!(
+        language_nodes[0].name, "swift",
+        "Language node name should be 'swift'"
+    );
+
+    let structs = graph.find_nodes_by_type(NodeType::Class);
+    nodes_count += structs.len();
+
+    let profile_service = structs
+        .iter()
+        .find(|s| s.name == "ProfileService")
+        .expect("ProfileService actor not found");
+    assert!(
+        profile_service.file.contains("ProfileService.swift"),
+        "ProfileService should be in ProfileService.swift"
+    );
+
+    let profile_view = structs
+        .iter()
+        .find(|s| s.name == "ProfileView")
+        .expect("ProfileView struct not found");
+    assert!(
+        profile_view.file.contains("ProfileView.swift"),
+        "ProfileView should be in ProfileView.swift"
+    );
+
+    let _api_client = structs
+        .iter()
+        .find(|s| s.name == "APIClient")
+        .expect("APIClient struct not found");
+
+    let functions = graph.find_nodes_by_type(NodeType::Function);
+    nodes_count += functions.len();
+
+    let fetch_profile = functions
+        .iter()
+        .find(|f| f.name == "fetchProfile")
+        .expect("fetchProfile function not found");
+    assert!(
+        fetch_profile.body.contains("async"),
+        "fetchProfile should be async"
+    );
+    assert!(
+        fetch_profile.body.contains("throws"),
+        "fetchProfile should throw"
+    );
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests");
+    let _test_fetch = unit_tests
+        .iter()
+        .find(|t| t.name == "testFetchProfile")
+        .expect("testFetchProfile not found");
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    nodes_count += files.len();
+    let _package_file = files
+        .iter()
+        .find(|f| f.name == "Package.swift")
+        .expect("Package.swift not found");
+
+    let repositories = graph.find_nodes_by_type(NodeType::Repository);
+    nodes_count += repositories.len();
+    assert_eq!(repositories.len(), 1, "Expected 1 repository");
+
+    let file_imports = graph.find_nodes_by_type(NodeType::Import);
+    nodes_count += file_imports.len();
+    assert_eq!(file_imports.len(), 12, "Expected 12 imports");
+
+    let vars = graph.find_nodes_by_type(NodeType::Var);
+    nodes_count += vars.len();
+    assert_eq!(vars.len(), 1, "Expected 1 variable");
+
+    let directories = graph.find_nodes_by_type(NodeType::Directory);
+    nodes_count += directories.len();
+    assert_eq!(directories.len(), 10, "Expected 10 directories");
+
+    let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
+    edges_count += contains_edges;
+    assert_eq!(contains_edges, 60, "Expected 60 contains edges");
+
+    let of_edges = graph.count_edges_of_type(EdgeType::Of);
+    edges_count += of_edges;
+    assert_eq!(of_edges, 1, "Expected 1 Of edge");
+
+    let operand_edges = graph.count_edges_of_type(EdgeType::Operand);
+    edges_count += operand_edges;
+    assert_eq!(operand_edges, 7, "Expected 7 operand edges");
+
+    let call_edges = graph.count_edges_of_type(EdgeType::Calls);
+    edges_count += call_edges;
+    assert_eq!(call_edges, 0, "Expected 0 call edges");
+
+    let (nodes, edges) = graph.get_graph_size();
+    assert_eq!(nodes as usize, nodes_count, "Node count mismatch");
+    assert_eq!(edges as usize, edges_count, "Edge count mismatch");
+
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_swift() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_swift_generic::<ArrayGraph>().await.unwrap();
-    test_swift_generic::<BTreeMapGraph>().await.unwrap();
+    test_swift_legacy_generic::<ArrayGraph>().await.unwrap();
+    test_swift_legacy_generic::<BTreeMapGraph>().await.unwrap();
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
-        test_swift_generic::<Neo4jGraph>().await.unwrap();
+        test_swift_legacy_generic::<Neo4jGraph>().await.unwrap();
     }
+
+    test_swift_modern_generic::<ArrayGraph>().await.unwrap();
+    test_swift_modern_generic::<BTreeMapGraph>().await.unwrap();
 }
