@@ -64,14 +64,14 @@ impl Stack for Kotlin {
         Some(format!(
             r#"
             (source_file
-                (property_declaration
-                    (modifiers)?@modifiers
+            (property_declaration
+                (modifiers)?@modifiers
                     (binding_pattern_kind)
-                    (variable_declaration
-                        (user_type)?@{VARIABLE_TYPE}
+                (variable_declaration
+                    (user_type)?@{VARIABLE_TYPE}
                     )@{VARIABLE_NAME}
-                    (_)?@{VARIABLE_VALUE}
-                )@{VARIABLE_DECLARATION}
+                (_)?@{VARIABLE_VALUE}
+            )@{VARIABLE_DECLARATION}
             )
             "#
         ))
@@ -81,6 +81,7 @@ impl Stack for Kotlin {
         format!(
             r#"
             (class_declaration
+                (modifiers (annotation)*)? @{ATTRIBUTES}
                 (type_identifier)@{CLASS_NAME}
                 (delegation_specifier
                     (constructor_invocation
@@ -213,17 +214,37 @@ impl Stack for Kotlin {
                 )
             )
         ) @{ROUTE}
+        
+        (function_declaration
+            (modifiers
+                (annotation
+                    (constructor_invocation
+                        (user_type
+                            (type_identifier) @{REQUEST_CALL}
+                        )
+                        (value_arguments
+                            (value_argument
+                                (string_literal
+                                    (string_content) @{ENDPOINT}
+                                )
+                            )
+                        )
+                    )
+                    (#match? @{REQUEST_CALL} "^GET$|^POST$|^PUT$|^DELETE$")
+                )
+            )
+        ) @{ROUTE}
         "#
         ))
     }
 
     fn add_endpoint_verb(&self, inst: &mut NodeData, call: &Option<String>) -> Option<String> {
         if let Some(c) = call {
-            let verb = match c.as_str() {
-                "get" => "GET",
-                "post" => "POST",
-                "put" => "PUT",
-                "delete" => "DELETE",
+            let verb = match c.to_uppercase().as_str() {
+                "GET" => "GET",
+                "POST" => "POST",
+                "PUT" => "PUT",
+                "DELETE" => "DELETE",
                 _ => "",
             };
 
@@ -243,7 +264,7 @@ impl Stack for Kotlin {
     }
 
     fn data_model_path_filter(&self) -> Option<String> {
-        Some("app/models".to_string())
+        Some("models".to_string())
     }
 
     fn data_model_within_query(&self) -> Option<String> {
