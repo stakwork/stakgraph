@@ -180,6 +180,7 @@ pub async fn ingest(
     }
 
     for repo_url in &repo_urls {
+        println!("Processing post-ingest MCP calls for repo: {}", repo_url);
         if should_call_mcp_for_repo(&docs_param, repo_url) {
             call_mcp_docs(repo_url, false).await;
         }

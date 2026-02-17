@@ -24,8 +24,8 @@ pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<
         url.push_str("&sync=true");
     }
     println!(
-        "[mcp_mocks] Calling MCP to discover mocks (sync={}): {}",
-        sync, url
+        "[mcp_mocks] Calling MCP to discover mocks (sync={}): for {}",
+        sync, repo_url
     );
 
     let client = Client::new();
@@ -60,8 +60,8 @@ pub async fn call_mcp_docs(repo_url: &str, sync: bool) {
         url.push_str("&sync=true");
     }
     println!(
-        "[mcp_docs] Calling MCP to learn docs (sync={}): {}",
-        sync, url
+        "[mcp_docs] Calling MCP to learn docs (sync={}): for {}",
+        sync, repo_url
     );
 
     let client = Client::new();
@@ -125,7 +125,7 @@ pub async fn call_mcp_embed(
         "[mcp_embed] Calling MCP to embed descriptions (sync={}, files={}): {}",
         sync,
         file_paths.len(),
-        url
+        repo_url
     );
 
     let client = Client::new();
@@ -145,7 +145,7 @@ pub async fn call_mcp_embed(
     match req.send().await {
         Ok(resp) => {
             if resp.status().is_success() {
-                println!("[mcp_embed] MCP embed call succeeded");
+                println!("[mcp_embed] MCP embed call succeeded for repo: {}", repo_url);
             } else {
                 println!(
                     "[mcp_embed] MCP embed call returned status: {}",
