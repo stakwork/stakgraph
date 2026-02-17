@@ -21,6 +21,7 @@ impl Repo {
         let mut i = 0;
         let mut lib_count = 0;
         let pkg_files_res: Vec<_> = if use_parallel {
+            info!("[parallel] process_libraries: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .filter(|(f, _)| self.lang.kind.is_package_file(f))
@@ -87,6 +88,7 @@ impl Repo {
 
         let lang = &self.lang;
         let results: Vec<_> = if use_parallel {
+            info!("[parallel] process_imports: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .map(|(filename, code)| {
@@ -145,6 +147,7 @@ impl Repo {
 
         let lang = &self.lang;
         let results: Vec<_> = if use_parallel {
+            info!("[parallel] process_variables: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .map(|(filename, code)| {
@@ -204,6 +207,7 @@ impl Repo {
         let lang = &self.lang;
 
         let results: Vec<_> = if use_parallel {
+            info!("[parallel] process_instances_and_traits: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .filter(|(filename, _)| lang.kind.is_source_file(filename))
@@ -276,6 +280,7 @@ impl Repo {
         let graph_ref = &*graph;
 
         let results: Vec<_> = if use_parallel {
+            info!("[parallel] process_data_models: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .filter(|(filename, _)| {
@@ -368,6 +373,7 @@ impl Repo {
         let graph_ref = &*graph;
 
         let results: Vec<_> = if use_parallel {
+            info!("[parallel] process_functions_and_tests: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .filter(|(filename, _)| lang.kind.is_source_file(filename))
@@ -542,6 +548,7 @@ impl Repo {
         let graph_ref = &*graph;
 
         let results: Vec<_> = if use_parallel {
+            info!("[parallel] process_endpoints: pool={} items={}", rayon::current_num_threads(), filez.len());
             filez
                 .par_iter()
                 .map(|(filename, code)| {
