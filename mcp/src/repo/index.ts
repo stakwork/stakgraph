@@ -8,7 +8,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
-import { SessionConfig } from "./session.js";
+import { SessionConfig, loadSession, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 
 import { describe_nodes_agent } from "./descriptions.js";
@@ -126,6 +126,29 @@ export async function get_agent_tools(req: Request, res: Response) {
     res.json({ success: true, toolsConfig });
   } catch (e) {
     console.error("Error in get_agent_tools", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
+export async function get_agent_session(req: Request, res: Response) {
+  const sessionId = req.query.session_id as string || req.query.sessionId as string;
+  console.log("===> GET /repo/agent/session", sessionId);
+
+  if (!sessionId) {
+    res.status(400).json({ error: "Missing session_id" });
+    return;
+  }
+
+  if (!sessionExists(sessionId)) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  try {
+    const messages = loadSession(sessionId);
+    res.json({ sessionId, messages });
+  } catch (e) {
+    console.error("Error in get_agent_session", e);
     res.status(500).json({ error: "Internal server error" });
   }
 }
