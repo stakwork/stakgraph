@@ -64,8 +64,6 @@ impl GraphStreamingUploader {
 pub struct StreamingUploadContext {
     pub neo: Neo4jGraph,
     pub uploader: GraphStreamingUploader,
-    pub prev_node_count: usize,
-    pub prev_edge_count: usize,
 }
 
 impl StreamingUploadContext {
@@ -73,8 +71,6 @@ impl StreamingUploadContext {
         Self {
             neo,
             uploader: GraphStreamingUploader::new(),
-            prev_node_count: 0,
-            prev_edge_count: 0,
         }
     }
 }
@@ -92,8 +88,7 @@ pub async fn flush_stage_nodes<G: Graph>(
     graph: &G,
     stage: &str,
 ) -> Result<()> {
-    let all_nodes = graph.get_all_nodes();
-    let bolt_nodes = nodes_to_bolt_format(all_nodes);
+    let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
     ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
     Ok(())
 }
@@ -103,8 +98,7 @@ pub async fn flush_stage_nodes_and_edges<G: Graph>(
     graph: &G,
     stage: &str,
 ) -> Result<()> {
-    let all_nodes = graph.get_all_nodes();
-    let bolt_nodes = nodes_to_bolt_format(all_nodes);
+    let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
     ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
     let edges = graph.get_edge_keys();
     ctx.uploader.flush_edges_stage(&ctx.neo, stage, &edges).await?;
