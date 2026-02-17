@@ -1,4 +1,4 @@
-use crate::lang::graphs::{EdgeType, NodeType};
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
@@ -57,19 +57,11 @@ pub async fn test_kotlin_generic<G: Graph>() -> Result<()> {
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes_count += libraries.len();
-    if use_lsp {
-        assert_eq!(libraries.len(), 58, "Expected 58 libraries with LSP");
-    } else {
-        assert_eq!(libraries.len(), 58, "Expected 58 libraries without LSP");
-    }
+    assert_eq!(libraries.len(), 58, "Expected 58 libraries");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    if use_lsp {
-        assert_eq!(imports.len(), 9, "Expected 9 imports with LSP");
-    } else {
-        assert_eq!(imports.len(), 9, "Expected 9 imports without LSP");
-    }
+    assert_eq!(imports.len(), 14, "Expected 14 imports");
 
     let main_import_body = format!(
         r#"package com.kotlintestapp.sqldelight
@@ -92,29 +84,21 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    if use_lsp {
-        assert_eq!(classes.len(), 8, "Expected 8 classes with LSP");
-    } else {
-        assert_eq!(classes.len(), 8, "Expected 8 classes without LSP");
-    }
+    assert_eq!(classes.len(), 16, "Expected 16 classes");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
-    if use_lsp {
-        assert_eq!(variables.len(), 9, "Expected 9 variables with LSP");
-    } else {
-        assert_eq!(variables.len(), 9, "Expected 9 variables without LSP");
-    }
+    assert_eq!(variables.len(), 9, "Expected 9 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
 
     assert_eq!(
-        sorted_classes[3].name, "ExampleInstrumentedTest",
+        sorted_classes[6].name, "ExampleInstrumentedTest",
         "Class name is incorrect"
     );
     assert_eq!(
-        normalize_path(&sorted_classes[3].file),
+        normalize_path(&sorted_classes[6].file),
         "src/testing/kotlin/app/src/androidTest/java/com/kotlintestapp/ExampleInstrumentedTest.kt",
         "Class file path is incorrect"
     );
@@ -122,7 +106,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        let expected = 22;
+        let expected = 32;
         assert!(
             (expected - 1..=expected).contains(&functions.len()),
             "Expected {} functions with LSP (±1), got {}",
@@ -130,24 +114,16 @@ import com.kotlintestapp.db.PersonDatabase"#
             functions.len()
         );
     } else {
-        assert_eq!(functions.len(), 21, "Expected 21 functions without LSP");
+        assert_eq!(functions.len(), 31, "Expected 31 functions without LSP");
     }
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
-    if use_lsp {
-        assert_eq!(data_models.len(), 3, "Expected 3 data models with LSP");
-    } else {
-        assert_eq!(data_models.len(), 3, "Expected 3 data models without LSP");
-    }
+    assert_eq!(data_models.len(), 9, "Expected 9 data models");
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
-    if use_lsp {
-        assert_eq!(requests.len(), 2, "Expected 2 requests with LSP");
-    } else {
-        assert_eq!(requests.len(), 2, "Expected 2 request without LSP");
-    }
+    assert_eq!(requests.len(), 5, "Expected 5 requests");
 
     let function_names: Vec<&str> = functions.iter().map(|f| f.name.as_str()).collect();
     assert!(
@@ -182,29 +158,25 @@ import com.kotlintestapp.db.PersonDatabase"#
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
     if use_lsp {
-        assert_eq!(calls_edges_count, 14, "Expected 14 calls edges with LSP");
+        assert_eq!(calls_edges_count, 22, "Expected 22 calls edges with LSP");
     } else {
-        assert_eq!(calls_edges_count, 14, "Expected 14 calls edges without LSP");
+        assert_eq!(calls_edges_count, 21, "Expected 21 calls edges without LSP");
     }
 
     let import_edges_count = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += import_edges_count;
     if use_lsp {
-        assert_eq!(import_edges_count, 16, "Expected 16 import edges with LSP");
+        assert_eq!(import_edges_count, 35, "Expected 35 import edges with LSP");
     } else {
-        assert_eq!(import_edges_count, 6, "Expected 6 import edges without LSP");
+        assert_eq!(
+            import_edges_count, 16,
+            "Expected 16 import edges without LSP"
+        );
     }
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    if use_lsp {
-        assert_eq!(contains_edges, 177, "Expected 177 contains edges with LSP");
-    } else {
-        assert_eq!(
-            contains_edges, 177,
-            "Expected 177 contains edges without LSP"
-        );
-    }
+    assert_eq!(contains_edges, 217, "Expected 217 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -216,17 +188,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let operand_edges_count = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operand_edges_count;
-    if use_lsp {
-        assert_eq!(
-            operand_edges_count, 13,
-            "Expected 13 operand edges with LSP"
-        );
-    } else {
-        assert_eq!(
-            operand_edges_count, 13,
-            "Expected 13 operand edges without LSP"
-        );
-    }
+    assert_eq!(operand_edges_count, 20, "Expected 20 operand edges");
 
     let parentof = graph.count_edges_of_type(EdgeType::ParentOf);
     edges_count += parentof;
@@ -235,19 +197,6 @@ import com.kotlintestapp.db.PersonDatabase"#
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges_count += nested_in;
     assert_eq!(nested_in, 2, "Expected 2 NestedIn edges");
-
-    // operand_edges_count was asserted earlier; keep a sanity check split by LSP mode
-    if use_lsp {
-        assert_eq!(
-            operand_edges_count, 13,
-            "Expected 13 operand edges with LSP"
-        );
-    } else {
-        assert_eq!(
-            operand_edges_count, 13,
-            "Expected 13 operand edges without LSP"
-        );
-    }
 
     let database_helper = classes
         .iter()
@@ -488,8 +437,8 @@ import com.kotlintestapp.db.PersonDatabase"#
         graph.find_nodes_with_edge_type(NodeType::Function, NodeType::Request, EdgeType::Calls);
     assert_eq!(
         call_edges.len(),
-        2,
-        "Expected 2 function to request call edges"
+        5,
+        "Expected 5 function to request call edges"
     );
 
     let fetch_people_call = call_edges
@@ -510,19 +459,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let import_edges =
         graph.find_nodes_with_edge_type(NodeType::File, NodeType::Import, EdgeType::Contains);
-    if use_lsp {
-        assert_eq!(
-            import_edges.len(),
-            9,
-            "Expected 9 file to import edges with LSP"
-        );
-    } else {
-        assert_eq!(
-            import_edges.len(),
-            9,
-            "Expected 9 file to import edges without LSP"
-        );
-    }
+    assert_eq!(import_edges.len(), 14, "Expected 14 file to import edges");
 
     let database_helper_imports = import_edges
         .iter()
@@ -542,25 +479,13 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    if use_lsp {
-        assert_eq!(files.len(), 31, "Expected 31 files with LSP");
-    } else {
-        assert_eq!(files.len(), 31, "Expected 31 files without LSP");
-    }
+    assert_eq!(files.len(), 36, "Expected 36 files");
 
     let kotlin_files: Vec<_> = files.iter().filter(|f| f.name.ends_with(".kt")).collect();
-    if use_lsp {
-        assert_eq!(kotlin_files.len(), 9, "Expected 9 Kotlin files with LSP");
-    } else {
-        assert_eq!(kotlin_files.len(), 9, "Expected 9 Kotlin files without LSP");
-    }
+    assert_eq!(kotlin_files.len(), 14, "Expected 14 Kotlin files");
 
     let gradle_files: Vec<_> = files.iter().filter(|f| f.name.contains("gradle")).collect();
-    if use_lsp {
-        assert_eq!(gradle_files.len(), 6, "Expected 6 Gradle files with LSP");
-    } else {
-        assert_eq!(gradle_files.len(), 6, "Expected 6 Gradle files without LSP");
-    }
+    assert_eq!(gradle_files.len(), 6, "Expected 6 Gradle files");
 
     let manifest_files: Vec<_> = files
         .iter()
@@ -574,11 +499,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    if use_lsp {
-        assert_eq!(directories.len(), 35, "Expected 35 directories with LSP");
-    } else {
-        assert_eq!(directories.len(), 35, "Expected 35 directories without LSP");
-    }
+    assert_eq!(directories.len(), 41, "Expected 41 directories");
 
     let app_directory = directories
         .iter()
@@ -655,17 +576,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         "Nodes count mismatch computed vs graph"
     );
 
-    let expected_edges = if use_lsp { 225 } else { 214 };
-
+    // We allow up to 2 extra edges (found in LSP mode) that are not accounted for in manual counts
     assert!(
-        if use_lsp {
-            (expected_edges - 1..=expected_edges + 1).contains(&(edges as usize))
-        } else {
-            edges as usize == expected_edges
-        },
-        "Expected {} edges {}, found {} (edges_count computed: {})",
-        expected_edges,
-        if use_lsp { "(±1)" } else { "" },
+        (edges_count..=edges_count + 2).contains(&(edges as usize)),
+        "Expected edges between {} and {}, found {} (edges_count computed: {})",
+        edges_count,
+        edges_count + 2,
         edges,
         edges_count
     );
@@ -674,7 +590,6 @@ import com.kotlintestapp.db.PersonDatabase"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_kotlin() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_kotlin_generic::<ArrayGraph>().await.unwrap();
     test_kotlin_generic::<BTreeMapGraph>().await.unwrap();
 
