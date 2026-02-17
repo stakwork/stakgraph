@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import * as asyncReqs from "../graph/reqs.js";
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { setBusy } from "../busy.js";
+import { startTracking, endTracking } from "../busy.js";
 import { parse_files_contents } from "../gitsee/agent/index.js";
 
 // curl "http://localhost:3355/progress?request_id=123"
@@ -17,12 +17,11 @@ export async function services_agent(req: Request, res: Response) {
   const pat = req.query.pat as string | undefined;
 
   const request_id = asyncReqs.startReq();
-  setBusy(true);
+  const opId = startTracking("services_agent");
   try {
     cloneOrUpdateRepo(`https://github.com/${owner}/${repoName}`, username, pat)
       .then(async (repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        // replace all instance of MY_REPO_NAME with the actual repo name
         const fad = FINAL_ANSWER.replaceAll("MY_REPO_NAME", repoName);
         const prompt =
           "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend." +
@@ -36,14 +35,13 @@ export async function services_agent(req: Request, res: Response) {
       .then((result) => {
         const files = parse_files_contents(result);
         asyncReqs.finishReq(request_id, files);
-        setBusy(false);
-        console.log("[repo_agent] Background work completed, set busy=false");
       })
       .catch((error) => {
         console.error("[repo_agent] Background work failed with error:", error);
         asyncReqs.failReq(request_id, error.message || error.toString());
-        setBusy(false);
-        console.log("[repo_agent] Set busy=false after error");
+      })
+      .finally(() => {
+        endTracking(opId);
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {
@@ -51,7 +49,7 @@ export async function services_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     console.error("Error in repo_agent", error);
     res.status(500).json({ error: "Internal server error" });
-    setBusy(false);
+    endTracking(opId);
   }
 }
 

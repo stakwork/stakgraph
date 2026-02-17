@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import * as asyncReqs from "../graph/reqs.js";
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { setBusy } from "../busy.js";
+import { startTracking, endTracking } from "../busy.js";
 import { db } from "../graph/neo4j.js";
 import { z } from "zod";
 
@@ -48,7 +48,7 @@ export async function mocks_agent(req: Request, res: Response) {
   const sync = req.query.sync === "true" || req.query.sync === "1";
 
   const request_id = asyncReqs.startReq();
-  setBusy(true);
+  const opId = startTracking("mocks_agent");
   try {
     cloneOrUpdateRepo(repoUrl, username, pat)
       .then(async (repoDir) => {
@@ -83,7 +83,6 @@ export async function mocks_agent(req: Request, res: Response) {
           systemOverride: MOCKS_SYSTEM,
           schema,
         });
-        // When schema is provided, result.content is already the structured object
         return { mocksResult: result.content as MocksResult, minimalMocks };
       })
       .then(async ({ mocksResult, minimalMocks }) => {
@@ -122,8 +121,6 @@ export async function mocks_agent(req: Request, res: Response) {
 
         await persistMocksToGraph(mocksResult, minimalMocks, sync);
         asyncReqs.finishReq(request_id, mocksResult);
-        setBusy(false);
-        console.log("[mocks_agent] Background work completed, set busy=false");
       })
       .catch((error) => {
         console.error(
@@ -131,8 +128,9 @@ export async function mocks_agent(req: Request, res: Response) {
           error
         );
         asyncReqs.failReq(request_id, error.message || error.toString());
-        setBusy(false);
-        console.log("[mocks_agent] Set busy=false after error");
+      })
+      .finally(() => {
+        endTracking(opId);
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {
@@ -140,7 +138,7 @@ export async function mocks_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     console.error("Error in mocks_agent", error);
     res.status(500).json({ error: "Internal server error" });
-    setBusy(false);
+    endTracking(opId);
   }
 }
 
