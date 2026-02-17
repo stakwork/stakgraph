@@ -6,6 +6,7 @@ use std::str::FromStr;
 
 pub mod angular;
 
+pub mod c;
 #[cfg(test)]
 pub mod coverage;
 pub mod cpp;

@@ -232,6 +232,12 @@ impl Lang {
             lang: Box::new(cpp::Cpp::new()),
         }
     }
+    pub fn new_c() -> Self {
+        Self {
+            kind: Language::C,
+            lang: Box::new(c::C::new()),
+        }
+    }
     pub fn new_php() -> Self {
         Self {
             kind: Language::Php,
@@ -869,6 +875,7 @@ impl Lang {
             Language::Svelte => Lang::new_svelte(),
             Language::Angular => Lang::new_angular(),
             Language::Cpp => Lang::new_cpp(),
+            Language::C => Lang::new_c(),
             Language::Php => Lang::new_php(),
             Language::CSharp => Lang::new_csharp(),
         }
