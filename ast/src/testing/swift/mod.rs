@@ -350,7 +350,7 @@ end
 
     Ok(())
 }
-pub async fn test_swift_modern_generic<G: Graph>() -> Result<()> {
+pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/swift/ModernApp",
         Lang::from_str("swift").unwrap(),
@@ -476,8 +476,8 @@ async fn test_swift() {
     #[cfg(not(feature = "neo4j"))]
     {
         use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-        test_swift_legacy_generic::<ArrayGraph>().await.unwrap();
-        test_swift_legacy_generic::<BTreeMapGraph>().await.unwrap();
+        test_swift_generic::<ArrayGraph>().await.unwrap();
+        test_swift_generic::<BTreeMapGraph>().await.unwrap();
         test_swift_modern_generic::<ArrayGraph>().await.unwrap();
         test_swift_modern_generic::<BTreeMapGraph>().await.unwrap();
     }
@@ -486,7 +486,7 @@ async fn test_swift() {
         use crate::lang::graphs::Neo4jGraph;
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
-        test_swift_legacy_generic::<Neo4jGraph>().await.unwrap();
+        test_swift_generic::<Neo4jGraph>().await.unwrap();
         graph.clear().await.unwrap();
         test_swift_modern_generic::<Neo4jGraph>().await.unwrap();
     }
