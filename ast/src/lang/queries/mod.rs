@@ -383,6 +383,10 @@ pub trait Stack {
     ) -> Vec<NodeData> {
         Vec::new()
     }
+
+    fn filter_attribute(&self, attr: &str, _capture_name: &str) -> Option<String> {
+        Some(attr.to_string())
+    }
 }
 
 pub fn treesitter_from_lsp_language(ll: LspLanguage) -> tree_sitter::Language {

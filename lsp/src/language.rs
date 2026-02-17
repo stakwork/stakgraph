@@ -84,7 +84,7 @@ impl Language {
             Self::Svelte => vec!["svelte", "ts", "js", "html", "css"],
             Self::Angular => vec!["ts", "js", "html", "css"],
             Self::C => vec!["c", "h"],
-            Self::Cpp => vec!["cpp", "hpp", "cc", "cxx", "hxx", "h"],
+            Self::Cpp => vec!["cpp", "hpp", "cc", "cxx", "hxx", "h", "cu"],
             Self::Php => vec!["php"],
             Self::CSharp => vec!["cs"],
         }

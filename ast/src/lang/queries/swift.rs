@@ -60,6 +60,10 @@ impl Stack for Swift {
             (class_declaration
                 name: (type_identifier) @{CLASS_NAME}
             ) @{CLASS_DEFINITION}
+            
+            (class_declaration
+                name: (user_type) @{CLASS_NAME}
+            ) @{CLASS_DEFINITION}
             "#
         )
     }
@@ -68,7 +72,10 @@ impl Stack for Swift {
         format!(
             r#"
         (function_declaration
-            (simple_identifier) @{FUNCTION_NAME}
+            name: (simple_identifier) @{FUNCTION_NAME}
+        ) @{FUNCTION_DEFINITION}
+        (init_declaration
+            name: (_) @{FUNCTION_NAME}
         ) @{FUNCTION_DEFINITION}
         "#
         )

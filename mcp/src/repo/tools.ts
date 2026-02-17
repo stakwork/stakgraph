@@ -234,51 +234,6 @@ export function get_tools(
         }
       },
     }),
-    list_concepts: tool({
-      description: defaultDescriptions.list_concepts,
-      inputSchema: z.object({}),
-      execute: async () => {
-        if (isMultiRepo) {
-          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
-        }
-        try {
-          const repo = `${repoOwner}/${repoName}`;
-          const result = await listFeatures(repo);
-          return {
-            concepts: result.features,
-            total: result.total,
-            repo,
-          };
-        } catch (e) {
-          console.error("Error listing concepts:", e);
-          return "Could not retrieve concepts";
-        }
-      },
-    }),
-    learn_concept: tool({
-      description: defaultDescriptions.learn_concept,
-      inputSchema: z.object({
-        concept_id: z
-          .string()
-          .describe("The ID of the concept/feature to learn about"),
-      }),
-      execute: async ({ concept_id }: { concept_id: string }) => {
-        if (isMultiRepo) {
-          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
-        }
-        try {
-          const repo = `${repoOwner}/${repoName}`;
-          const doc = await getFeatureDocumentation(concept_id, repo);
-          if (!doc) {
-            return { error: "Concept not found" };
-          }
-          return doc;
-        } catch (e) {
-          console.error("Error getting concept:", e);
-          return "Could not retrieve concept";
-        }
-      },
-    }),
     // final_answer: tool({
     //   description: defaultDescriptions.final_answer,
     //   inputSchema: z.object({
@@ -358,6 +313,54 @@ export function get_tools(
           return questions;
         },
       });
+    }
+    // concepts
+    if (toolsConfig.learn_concept || toolsConfig.list_concepts) {
+      allTools.list_concepts = tool({
+        description: defaultDescriptions.list_concepts,
+        inputSchema: z.object({}),
+        execute: async () => {
+          if (isMultiRepo) {
+            return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
+          }
+          try {
+            const repo = `${repoOwner}/${repoName}`;
+            const result = await listFeatures(repo);
+            return {
+              concepts: result.features,
+              total: result.total,
+              repo,
+            };
+          } catch (e) {
+            console.error("Error listing concepts:", e);
+            return "Could not retrieve concepts";
+          }
+        },
+      })
+      allTools.learn_concept = tool({
+        description: defaultDescriptions.learn_concept,
+        inputSchema: z.object({
+          concept_id: z
+            .string()
+            .describe("The ID of the concept/feature to learn about"),
+        }),
+        execute: async ({ concept_id }: { concept_id: string }) => {
+          if (isMultiRepo) {
+            return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
+          }
+          try {
+            const repo = `${repoOwner}/${repoName}`;
+            const doc = await getFeatureDocumentation(concept_id, repo);
+            if (!doc) {
+              return { error: "Concept not found" };
+            }
+            return doc;
+          } catch (e) {
+            console.error("Error getting concept:", e);
+            return "Could not retrieve concept";
+          }
+        },
+      })
     }
   }
 
