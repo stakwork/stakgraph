@@ -27,7 +27,7 @@ import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Feature } from "./types.js";
-import { setBusy } from "../busy.js";
+import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 
 // In-memory flag to track if processing is currently running
@@ -117,43 +117,45 @@ function parseRepoParam(req: Request): string | undefined {
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.url, req.method);
   const request_id = asyncReqs.startReq();
+
+  let owner = req.query.owner as string;
+  let repo = req.query.repo as string;
+  const repoUrl = req.query.repo_url as string;
+  const githubTokenQuery = req.query.token as string;
+  const shouldSummarize = req.query.summarize === "true";
+  const shouldLink = req.query.link === "true";
+  const shouldAnalyzeClues = req.query.analyze_clues === "true";
+  const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
+
+
+  if (repoUrl && (!owner || !repo)) {
+    const parsed = parseGitRepoUrl(repoUrl);
+    if (parsed) {
+      owner = parsed.owner;
+      repo = parsed.repo;
+    }
+  }
+
+  if (!owner || !repo) {
+    asyncReqs.failReq(
+      request_id,
+      new Error("Missing owner/repo or repo_url")
+    );
+    res.status(400).json({ error: "Missing owner/repo or repo_url" });
+    return;
+  }
+
+  if (!githubToken) {
+    asyncReqs.failReq(request_id, new Error("Missing GitHub token"));
+    res.status(400).json({ error: "Missing GitHub token" });
+    return;
+  }
+
+  const opId = startTracking("gitree/processRepo");
+
   try {
-    let owner = req.query.owner as string;
-    let repo = req.query.repo as string;
-    const repoUrl = req.query.repo_url as string;
-    const githubTokenQuery = req.query.token as string;
-    const shouldSummarize = req.query.summarize === "true";
-    const shouldLink = req.query.link === "true";
-    const shouldAnalyzeClues = req.query.analyze_clues === "true";
-    const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
-
-    // Parse repo_url if provided
-    if (repoUrl && (!owner || !repo)) {
-      const parsed = parseGitRepoUrl(repoUrl);
-      if (parsed) {
-        owner = parsed.owner;
-        repo = parsed.repo;
-      }
-    }
-
-    if (!owner || !repo) {
-      asyncReqs.failReq(
-        request_id,
-        new Error("Missing owner/repo or repo_url")
-      );
-      res.status(400).json({ error: "Missing owner/repo or repo_url" });
-      return;
-    }
-
-    if (!githubToken) {
-      asyncReqs.failReq(request_id, new Error("Missing GitHub token"));
-      res.status(400).json({ error: "Missing GitHub token" });
-      return;
-    }
-
     // Process repository in background
     isProcessing = true;
-    setBusy(true);
 
     (async () => {
       try {
@@ -241,11 +243,11 @@ export async function gitree_process(req: Request, res: Response) {
 
         asyncReqs.finishReq(request_id, result);
         isProcessing = false;
-        setBusy(false)
+        endTracking(opId);
       } catch (error) {
         asyncReqs.failReq(request_id, error);
         isProcessing = false;
-        setBusy(false)
+        endTracking(opId);
       }
     })();
 
@@ -254,7 +256,7 @@ export async function gitree_process(req: Request, res: Response) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
     isProcessing = false;
-    setBusy(false)
+    endTracking(opId);
     res.status(500).json({ error: "Failed to process repository" });
   }
 }

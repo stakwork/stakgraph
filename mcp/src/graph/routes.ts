@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { startTracking, endTracking } from "../busy.js";
 import {
   ContainerConfig,
   Neo4jNode,
@@ -736,9 +737,7 @@ export async function gitsee(req: Request, res: Response) {
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-    const { setBusy } = await import("../busy.js");
-    setBusy(true);
-    console.log("[gitsee] Set busy=true before starting work");
+    const opId = startTracking("gitsee");
 
     const originalEnd = res.end.bind(res);
     let responseData: any;
@@ -759,21 +758,17 @@ export async function gitsee(req: Request, res: Response) {
             ingestGitSeeData(responseData)
               .catch((err) => console.error("Background ingestion error:", err))
               .finally(() => {
-                setBusy(false);
-                console.log(
-                  "[gitsee] Background work completed, set busy=false"
-                );
+                endTracking(opId);
               });
           } else {
-            setBusy(false);
-            console.log("[gitsee] No background work needed, set busy=false");
+            endTracking(opId);
           }
         } catch (e) {
           console.error("Error parsing response for ingestion:", e);
-          setBusy(false);
+          endTracking(opId);
         }
       } else {
-        setBusy(false);
+        endTracking(opId);
       }
       return originalEnd(chunk);
     };

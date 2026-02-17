@@ -4,7 +4,7 @@ import { ToolsConfig, getDefaultToolDescriptions } from "./tools.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
-import { setBusy } from "../busy.js";
+import { startTracking, endTracking } from "../busy.js";
 import { services_agent } from "./services.js";
 import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
@@ -38,30 +38,32 @@ export async function repo_agent(req: Request, res: Response) {
   // curl "http://localhost:3355/progress?request_id=5c501254-cc7b-44f4-9537-6fa18f642b5c"
   console.log("===> repo_agent", req.body, req.body.prompt);
   const request_id = asyncReqs.startReq();
+
+  const repoUrl = req.body.repo_url as string;
+  const username = req.body.username as string | undefined;
+  const pat = req.body.pat as string | undefined;
+  const commit = req.body.commit as string | undefined;
+  const branch = req.body.branch as string | undefined;
+  const prompt = req.body.prompt as any;
+  const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
+  const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
+  const modelName = req.body.model as ModelName | undefined;
+  const logs = req.body.logs as boolean | undefined;
+  // Session support
+  const sessionId = req.body.sessionId as string | undefined;
+  const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
+  // MCP servers
+  const mcpServers = req.body.mcpServers as McpServer[] | undefined;
+
+  if (!prompt) {
+    res.status(400).json({ error: "Missing prompt" });
+    return;
+  }
+
+
+  const opId = startTracking("repo_agent");
+
   try {
-    const repoUrl = req.body.repo_url as string;
-    const username = req.body.username as string | undefined;
-    const pat = req.body.pat as string | undefined;
-    const commit = req.body.commit as string | undefined;
-    const branch = req.body.branch as string | undefined;
-    const prompt = req.body.prompt as any;
-    const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
-    const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
-    const modelName = req.body.model as ModelName | undefined;
-    const logs = req.body.logs as boolean | undefined;
-    // Session support
-    const sessionId = req.body.sessionId as string | undefined;
-    const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
-    // MCP servers
-    const mcpServers = req.body.mcpServers as McpServer[] | undefined;
-    if (!prompt) {
-      res.status(400).json({ error: "Missing prompt" });
-      return;
-    }
-
-    setBusy(true);
-    console.log("[repo_agent] Set busy=true before starting work");
-
     // Extract owner/repo from each URL for multi-repo filtering
     const repoList = repoUrl
       .split(",")
@@ -99,14 +101,13 @@ export async function repo_agent(req: Request, res: Response) {
           logs: result.logs,
           sessionId: result.sessionId,
         });
-        setBusy(false);
-        console.log("[repo_agent] Background work completed, set busy=false");
       })
       .catch((error) => {
         console.error("[repo_agent] Background work failed with error:", error);
         asyncReqs.failReq(request_id, error.message || error.toString());
-        setBusy(false);
-        console.log("[repo_agent] Set busy=false after error");
+      })
+      .finally(() => {
+        endTracking(opId);
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {
@@ -114,7 +115,7 @@ export async function repo_agent(req: Request, res: Response) {
     asyncReqs.failReq(request_id, error);
     console.error("Error in repo_agent", error);
     res.status(500).json({ error: "Internal server error" });
-    setBusy(false);
+    endTracking(opId);
   }
 }
 

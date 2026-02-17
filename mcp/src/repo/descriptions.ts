@@ -9,7 +9,7 @@ import {
 } from "../aieo/src/index.js";
 import { vectorizeCodeDocument } from "../vector/index.js";
 import * as asyncReqs from "../graph/reqs.js";
-import { setBusy } from "../busy.js";
+import { startTracking, endTracking } from "../busy.js";
 
 // Hardcoded provider for now as we want to use 'haiku' specifically from Anthropic
 const PROVIDER: Provider = "anthropic";
@@ -78,7 +78,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     message: "Started description generation job",
   });
 
-  setBusy(true);
+  const opId = startTracking("describe_nodes");
 
   try {
     let totalCost = 0;
@@ -206,6 +206,6 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     console.error("[describe_nodes] Fatal error:", error);
     asyncReqs.failReq(request_id, error.message || error.toString());
   } finally {
-    setBusy(false);
+    endTracking(opId);
   }
 };
