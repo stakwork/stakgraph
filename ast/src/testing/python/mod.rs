@@ -59,7 +59,7 @@ pub async fn test_python_web_generic<G: Graph>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 138, "Expected 138 contains edges");
+    assert_eq!(contains, 197, "Expected 197 contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -128,7 +128,7 @@ from flask_app.routes import flask_bp"#
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
-    assert_eq!(vars.len(), 28, "Expected 28 variables");
+    assert_eq!(vars.len(), 40, "Expected 40 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1085,6 +1085,37 @@ pub async fn test_python_cli_generic<G: Graph>() -> Result<()> {
         .into_iter()
         .find(|n| n.file.ends_with("utils.py"))
         .expect("deploy_service function not found");
+
+    let config_vars = _graph.find_nodes_by_type(NodeType::Var);
+    let app_config_vars: Vec<_> = config_vars
+        .iter()
+        .filter(|v| v.file.ends_with("config.py"))
+        .collect();
+
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "host"),
+        "AppConfig.host should be captured as a variable"
+    );
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "port"),
+        "AppConfig.port should be captured as a variable"
+    );
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "debug"),
+        "AppConfig.debug should be captured as a variable"
+    );
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "api_key"),
+        "AppConfig.api_key should be captured as a variable"
+    );
+
+    let data_models = _graph.find_nodes_by_type(NodeType::DataModel);
+    assert!(
+        data_models
+            .iter()
+            .any(|dm| dm.name == "DeploymentError" && dm.file.ends_with("utils.py")),
+        "DeploymentError should be captured as a DataModel"
+    );
 
     Ok(())
 }
