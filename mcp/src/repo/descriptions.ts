@@ -3,7 +3,6 @@ import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
 import {
   getModel,
-  getApiKeyForProvider,
   Provider,
   getTokenPricing,
 } from "../aieo/src/index.js";
@@ -85,6 +84,8 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     let totalProcessed = 0;
     let totalTokens = { input: 0, output: 0 };
     const pricing = getTokenPricing(PROVIDER);
+    // Create model once, reuse for all nodes (avoids creating a new SDK client per node)
+    const model = getModel(PROVIDER, { modelName: MODEL_NAME });
 
     // Loop until cost limit reached or no more nodes
     while (true) {
@@ -142,8 +143,6 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
                           Code:
                           ${content.slice(0, 2000)} // Truncate to avoid context limit issues
                           `;
-
-          const model = getModel(PROVIDER, { modelName: MODEL_NAME });
 
           if (totalProcessed === 0) {
             console.log(`[describe_nodes] Invoking ${PROVIDER}/${MODEL_NAME} for first node: ${name}`);

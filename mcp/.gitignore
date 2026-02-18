@@ -51,3 +51,6 @@ knowledge-base/
 
 # Session storage for agent conversations
 .sessions/
+
+# Async request storage (file-backed instead of in-memory)
+.reqs/
