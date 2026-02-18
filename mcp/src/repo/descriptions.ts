@@ -3,7 +3,6 @@ import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
 import {
   getModel,
-  getApiKeyForProvider,
   Provider,
   getTokenPricing,
 } from "../aieo/src/index.js";
