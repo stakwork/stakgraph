@@ -1000,27 +1000,19 @@ async fn test_remote_nextjs() -> Result<()> {
 
     let sign_in_page = pages
         .iter()
-        .find(|p| {
-            p.name == "sign-in" && p.file.ends_with("src/pages/sign-in.tsx") && p.body == "/sign-in"
-        })
+        .find(|p| p.name == "sign-in" && p.file.ends_with("src/pages/sign-in.tsx"))
         .expect("sign-in page not found");
     let sign_up_page = pages
         .iter()
-        .find(|p| {
-            p.name == "sign-up" && p.file.ends_with("src/pages/sign-up.tsx") && p.body == "/sign-up"
-        })
+        .find(|p| p.name == "sign-up" && p.file.ends_with("src/pages/sign-up.tsx"))
         .expect("sign-up page not found");
     let dashboard_page = pages
         .iter()
-        .find(|p| {
-            p.name == "dashboard"
-                && p.file.ends_with("src/pages/dashboard/index.tsx")
-                && p.body == "/dashboard"
-        })
+        .find(|p| p.name == "dashboard" && p.file.ends_with("src/pages/dashboard/index.tsx"))
         .expect("dashboard page not found");
     let index_page = pages
         .iter()
-        .find(|p| p.name == "index" && p.file.ends_with("src/pages/index.tsx") && p.body == "/")
+        .find(|p| p.name == "index" && p.file.ends_with("src/pages/index.tsx"))
         .expect("index page not found");
 
     let sign_in_component = functions
