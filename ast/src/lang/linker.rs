@@ -1,5 +1,6 @@
 use crate::lang::graphs::{EdgeType, Graph, NodeType};
 use crate::lang::{Edge, Language, NodeData};
+use crate::utils::read_node_body;
 use lsp::language::PROGRAMMING_LANGUAGES;
 use regex::Regex;
 use shared::{Context, Error, Result};
@@ -70,8 +71,9 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
     let mut added_indirect = 0;
 
     for t in &tests {
-        let body_lc = t.body.to_lowercase();
-        let test_verbs = extract_http_verbs_from_test(&t.body);
+        let body = read_node_body(&t.file, t.start, t.end);
+        let body_lc = body.to_lowercase();
+        let test_verbs = extract_http_verbs_from_test(&body);
 
         for ep in &endpoints {
             if body_lc.contains(&ep.name.to_lowercase()) {
@@ -223,7 +225,8 @@ pub fn link_e2e_tests_pages<G: Graph>(graph: &mut G) -> Result<()> {
     }
     let mut added = 0;
     for t in &tests {
-        let body_lc = t.body.to_lowercase();
+        let body = read_node_body(&t.file, t.start, t.end);
+        let body_lc = body.to_lowercase();
         for p in &pages {
             if body_lc.contains(&p.name.to_lowercase()) {
                 let edge = Edge::test_calls(NodeType::E2eTest, t, NodeType::Page, p);
@@ -251,7 +254,8 @@ pub fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
 
     for node_data in e2e_test_nodes {
         if let Ok(lang) = infer_lang(&node_data) {
-            if let Ok(test_ids) = extract_test_ids(&node_data.body, &lang) {
+            let body = read_node_body(&node_data.file, node_data.start, node_data.end);
+            if let Ok(test_ids) = extract_test_ids(&body, &lang) {
                 e2e_tests.push((node_data.clone(), test_ids));
             }
         }
@@ -260,7 +264,8 @@ pub fn link_e2e_tests<G: Graph>(graph: &mut G) -> Result<()> {
     for node_data in function_nodes {
         if let Ok(lang) = infer_lang(&node_data) {
             if lang.is_frontend() {
-                if let Ok(test_ids) = extract_test_ids(&node_data.body, &lang) {
+                let body = read_node_body(&node_data.file, node_data.start, node_data.end);
+                if let Ok(test_ids) = extract_test_ids(&body, &lang) {
                     frontend_functions.push((node_data.clone(), test_ids));
                 }
             }
@@ -402,8 +407,7 @@ pub fn normalize_frontend_path(path: &str) -> Option<String> {
         return None;
     }
 
-    let path_stripped = path
-        .replace("http://localhost:3000", "");
+    let path_stripped = path.replace("http://localhost:3000", "");
 
     let path_part = if path_stripped.starts_with("${") {
         if let Some(close_brace) = path_stripped.find('}') {

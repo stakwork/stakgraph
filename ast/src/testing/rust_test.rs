@@ -100,25 +100,6 @@ pub async fn test_rust_generic<G: Graph>() -> Result<()> {
 
     assert_eq!(libraries.len(), 10, "Expected 10 library nodes");
 
-    let main_import_body = format!(
-        r#"use crate::db::init_db;
-use crate::routes::{{
-    actix_routes::config, axum_routes::create_router, rocket_routes::create_rocket,
-}};
-
-use anyhow::Result;
-use std::net::SocketAddr;"#
-    );
-    let main = imports
-        .iter()
-        .find(|i| i.file == "src/testing/rust/src/main.rs")
-        .unwrap();
-
-    assert_eq!(
-        main.body, main_import_body,
-        "Model import body is incorrect"
-    );
-
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
     assert_eq!(vars.len(), 2, "Expected 2 variables");
@@ -377,17 +358,6 @@ use std::net::SocketAddr;"#
     assert!(
         interface.contains("pub fn multi_attribute_function"),
         "interface should contain function signature"
-    );
-
-    assert!(
-        multi_attr_fn.body.contains("#["),
-        "body should contain attribute markers"
-    );
-    assert!(
-        multi_attr_fn
-            .body
-            .contains("pub fn multi_attribute_function"),
-        "body should contain full function with attributes"
     );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);

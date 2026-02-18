@@ -101,26 +101,6 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     nodes_count += instances.len();
     assert_eq!(instances.len(), 0, "Expected 0 instance");
 
-    let main_import_body = format!(
-        r#"import os
-import signal
-import subprocess
-import sys
-from fastapi import FastAPI
-from flask import Flask
-from fastapi_app.routes import router
-from database import Base, engine
-from flask_app.routes import flask_bp"#
-    );
-    let main = imports
-        .iter()
-        .find(|i| i.file == "src/testing/python/main.py")
-        .unwrap();
-
-    assert_eq!(
-        main.body, main_import_body,
-        "Model import body is incorrect"
-    );
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
 

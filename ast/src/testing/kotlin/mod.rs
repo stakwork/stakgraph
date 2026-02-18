@@ -1,6 +1,6 @@
 use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
-use crate::utils::get_use_lsp;
+use crate::utils::{get_use_lsp, slice_body};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -78,7 +78,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .unwrap();
 
     assert_eq!(
-        main.body, main_import_body,
+        slice_body(
+            &std::fs::read_to_string(&main.file).expect("Failed to read file"),
+            main.start,
+            main.end
+        ),
+        main_import_body,
         "Model import body is incorrect"
     );
 
@@ -203,12 +208,17 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|c| c.name == "DatabaseHelper")
         .expect("DatabaseHelper class not found");
 
+    let database_helper_body = slice_body(
+        &std::fs::read_to_string(&database_helper.file).expect("Failed to read file"),
+        database_helper.start,
+        database_helper.end,
+    );
     assert!(
-        database_helper.body.contains("SqlDriver"),
+        database_helper_body.contains("SqlDriver"),
         "DatabaseHelper should contain SqlDriver"
     );
     assert!(
-        database_helper.body.contains("PersonDatabase"),
+        database_helper_body.contains("PersonDatabase"),
         "DatabaseHelper should contain PersonDatabase"
     );
 
@@ -217,7 +227,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|c| c.name == "ExampleInstrumentedTest")
         .expect("ExampleInstrumentedTest class not found");
     assert!(
-        example_test.body.contains("useAppContext"),
+        slice_body(
+            &std::fs::read_to_string(&example_test.file).expect("Failed to read file"),
+            example_test.start,
+            example_test.end
+        )
+        .contains("useAppContext"),
         "ExampleInstrumentedTest should contain useAppContext"
     );
 
@@ -226,7 +241,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|c| c.name == "ExampleUnitTest")
         .expect("ExampleUnitTest class not found");
     assert!(
-        example_unit_test.body.contains("addition_isCorrect"),
+        slice_body(
+            &std::fs::read_to_string(&example_unit_test.file).expect("Failed to read file"),
+            example_unit_test.start,
+            example_unit_test.end
+        )
+        .contains("addition_isCorrect"),
         "ExampleUnitTest should contain addition_isCorrect"
     );
 
@@ -234,16 +254,21 @@ import com.kotlintestapp.db.PersonDatabase"#
         .iter()
         .find(|c| c.name == "Person")
         .expect("Person model not found");
+    let person_model_body = slice_body(
+        &std::fs::read_to_string(&person_model.file).expect("Failed to read file"),
+        person_model.start,
+        person_model.end,
+    );
     assert!(
-        person_model.body.contains("data class"),
+        person_model_body.contains("data class"),
         "Person should be a data class"
     );
     assert!(
-        person_model.body.contains("val owner_pubkey: String,"),
+        person_model_body.contains("val owner_pubkey: String,"),
         "Person should have owner_pubkey property"
     );
     assert!(
-        person_model.body.contains("val img: String,"),
+        person_model_body.contains("val img: String,"),
         "Person should have img property"
     );
 
@@ -256,7 +281,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         })
         .expect("insertPersonsIntoDatabase function not found");
     assert!(
-        create_person_fn.body.contains("Dispatchers.IO"),
+        slice_body(
+            &std::fs::read_to_string(&create_person_fn.file).expect("Failed to read file"),
+            create_person_fn.start,
+            create_person_fn.end
+        )
+        .contains("Dispatchers.IO"),
         "insertPersonsIntoDatabase should use Dispatchers.IO"
     );
 
@@ -268,14 +298,17 @@ import com.kotlintestapp.db.PersonDatabase"#
                     == "src/testing/kotlin/app/src/main/java/com/kotlintestapp/viewModels/PersonViewModel.kt"
         })
         .expect("fetchPeople function not found");
+    let get_person_fn_body = slice_body(
+        &std::fs::read_to_string(&get_person_fn.file).expect("Failed to read file"),
+        get_person_fn.start,
+        get_person_fn.end,
+    );
     assert!(
-        get_person_fn.body.contains(".get()"),
+        get_person_fn_body.contains(".get()"),
         "getPerson should be a GET request"
     );
     assert!(
-        get_person_fn
-            .body
-            .contains("Gson().fromJson(json, listType)"),
+        get_person_fn_body.contains("Gson().fromJson(json, listType)"),
         "getPerson should use Gson for JSON parsing"
     );
 
@@ -284,7 +317,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|f| f.name == "insertPerson" && normalize_path(&f.file) == "src/testing/kotlin/app/src/main/java/com/kotlintestapp/sqldelight/DatabaseHelper.kt")
         .expect("insertPerson function not found");
     assert!(
-        insert_person_fn_check.body.contains("queries.insertPerson"),
+        slice_body(
+            &std::fs::read_to_string(&insert_person_fn_check.file).expect("Failed to read file"),
+            insert_person_fn_check.start,
+            insert_person_fn_check.end
+        )
+        .contains("queries.insertPerson"),
         "insertPerson should use PersonQueries"
     );
     assert_eq!(
@@ -297,12 +335,17 @@ import com.kotlintestapp.db.PersonDatabase"#
         .iter()
         .find(|f| f.name == "updatePerson" && normalize_path(&f.file) == "src/testing/kotlin/app/src/main/java/com/kotlintestapp/sqldelight/DatabaseHelper.kt")
         .expect("updatePerson function not found");
+    let update_person_fn_check_body = slice_body(
+        &std::fs::read_to_string(&update_person_fn_check.file).expect("Failed to read file"),
+        update_person_fn_check.start,
+        update_person_fn_check.end,
+    );
     assert!(
-        update_person_fn_check.body.contains("queries.updatePerson"),
+        update_person_fn_check_body.contains("queries.updatePerson"),
         "updatePerson should use PersonQueries"
     );
     assert!(
-        update_person_fn_check.body.contains("update"),
+        update_person_fn_check_body.contains("update"),
         "updatePerson should contain update operation"
     );
 
@@ -311,7 +354,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|f| f.name == "getAllPersons")
         .expect("getAllPersons function not found");
     assert!(
-        get_all_persons_fn.body.contains("selectAll"),
+        slice_body(
+            &std::fs::read_to_string(&get_all_persons_fn.file).expect("Failed to read file"),
+            get_all_persons_fn.start,
+            get_all_persons_fn.end
+        )
+        .contains("selectAll"),
         "getAllPersons should use selectAll"
     );
 
@@ -320,7 +368,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|f| f.name == "clearDatabase")
         .expect("clearDatabase function not found");
     assert!(
-        delete_person_fn.body.contains("deleteAll"),
+        slice_body(
+            &std::fs::read_to_string(&delete_person_fn.file).expect("Failed to read file"),
+            delete_person_fn.start,
+            delete_person_fn.end
+        )
+        .contains("deleteAll"),
         "clearDatabase should contain deleteAll operation"
     );
 
@@ -333,7 +386,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         })
         .expect("onCreate function not found");
     assert!(
-        oncreate_fn.body.contains("super.onCreate"),
+        slice_body(
+            &std::fs::read_to_string(&oncreate_fn.file).expect("Failed to read file"),
+            oncreate_fn.start,
+            oncreate_fn.end
+        )
+        .contains("super.onCreate"),
         "onCreate should call super.onCreate"
     );
 
@@ -349,7 +407,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|f| f.name == "useAppContext")
         .expect("useAppContext function not found");
     assert!(
-        use_app_context_fn.body.contains("InstrumentationRegistry"),
+        slice_body(
+            &std::fs::read_to_string(&use_app_context_fn.file).expect("Failed to read file"),
+            use_app_context_fn.start,
+            use_app_context_fn.end
+        )
+        .contains("InstrumentationRegistry"),
         "useAppContext should use InstrumentationRegistry"
     );
 
@@ -358,7 +421,12 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|f| f.name == "addition_isCorrect")
         .expect("addition_isCorrect function not found");
     assert!(
-        addition_is_correct_fn.body.contains("assertEquals"),
+        slice_body(
+            &std::fs::read_to_string(&addition_is_correct_fn.file).expect("Failed to read file"),
+            addition_is_correct_fn.start,
+            addition_is_correct_fn.end
+        )
+        .contains("assertEquals"),
         "addition_isCorrect should use assertEquals"
     );
 
@@ -547,16 +615,21 @@ import com.kotlintestapp.db.PersonDatabase"#
         .iter()
         .find(|f| f.name == "person.sq")
         .expect("Person.sq file not found");
+    let person_sqldelight_file_body = slice_body(
+        &std::fs::read_to_string(&person_sqldelight_file.file).expect("Failed to read file"),
+        person_sqldelight_file.start,
+        person_sqldelight_file.end,
+    );
     assert!(
-        person_sqldelight_file.body.contains("CREATE TABLE"),
+        person_sqldelight_file_body.contains("CREATE TABLE"),
         "Person.sq should contain CREATE TABLE"
     );
     assert!(
-        person_sqldelight_file.body.contains("INSERT"),
+        person_sqldelight_file_body.contains("INSERT"),
         "Person.sq should contain INSERT"
     );
     assert!(
-        person_sqldelight_file.body.contains("SELECT"),
+        person_sqldelight_file_body.contains("SELECT"),
         "Person.sq should contain SELECT"
     );
 

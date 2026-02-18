@@ -1,5 +1,8 @@
-use crate::lang::graphs::{Neo4jGraph, operations::{GraphCoverage, CoverageStat, MockStat}};
 use super::{EdgeType, NodeData, NodeType};
+use crate::lang::graphs::{
+    operations::{CoverageStat, GraphCoverage, MockStat},
+    Neo4jGraph,
+};
 use shared::Result;
 use std::collections::HashSet;
 
@@ -13,7 +16,7 @@ pub enum CoverageLanguage {
 impl CoverageLanguage {
     pub async fn from_graph(graph: &Neo4jGraph) -> Self {
         let language_nodes = graph.find_nodes_by_type_async(NodeType::Language).await;
-        
+
         for lang_node in language_nodes {
             let lang_name = lang_node.name.to_lowercase();
             if lang_name == "ruby" {
@@ -22,7 +25,7 @@ impl CoverageLanguage {
                 return CoverageLanguage::Rust;
             }
         }
-        
+
         CoverageLanguage::Typescript
     }
 
@@ -40,15 +43,9 @@ impl CoverageLanguage {
         in_scope: impl Fn(&NodeData) -> bool,
     ) -> Result<GraphCoverage> {
         match self {
-            CoverageLanguage::Typescript => {
-                self.get_typescript_coverage(graph, in_scope).await
-            }
-            CoverageLanguage::Ruby => {
-                self.get_ruby_coverage(graph, in_scope).await
-            }
-            CoverageLanguage::Rust => {
-                self.get_rust_coverage(graph, in_scope).await
-            }
+            CoverageLanguage::Typescript => self.get_typescript_coverage(graph, in_scope).await,
+            CoverageLanguage::Ruby => self.get_ruby_coverage(graph, in_scope).await,
+            CoverageLanguage::Rust => self.get_rust_coverage(graph, in_scope).await,
         }
     }
 
@@ -58,28 +55,32 @@ impl CoverageLanguage {
         in_scope: impl Fn(&NodeData) -> bool,
     ) -> Result<GraphCoverage> {
         let unit_tests = graph.find_nodes_by_type_async(NodeType::UnitTest).await;
-        let integration_tests = graph.find_nodes_by_type_async(NodeType::IntegrationTest).await;
+        let integration_tests = graph
+            .find_nodes_by_type_async(NodeType::IntegrationTest)
+            .await;
         let e2e_tests = graph.find_nodes_by_type_async(NodeType::E2eTest).await;
 
         let functions = graph.find_top_level_functions_async().await;
         let endpoints = graph.find_nodes_by_type_async(NodeType::Endpoint).await;
         let pages = graph.find_nodes_by_type_async(NodeType::Page).await;
 
-        let unit_calls_funcs = graph.find_nodes_with_edge_type_async(
-            NodeType::UnitTest,
-            NodeType::Function,
-            EdgeType::Calls,
-        ).await;
-        let integration_calls_endpoints = graph.find_nodes_with_edge_type_async(
-            NodeType::IntegrationTest,
-            NodeType::Endpoint,
-            EdgeType::Calls,
-        ).await;
-        let e2e_calls_pages = graph.find_nodes_with_edge_type_async(
-            NodeType::E2eTest,
-            NodeType::Page,
-            EdgeType::Calls,
-        ).await;
+        let unit_calls_funcs = graph
+            .find_nodes_with_edge_type_async(
+                NodeType::UnitTest,
+                NodeType::Function,
+                EdgeType::Calls,
+            )
+            .await;
+        let integration_calls_endpoints = graph
+            .find_nodes_with_edge_type_async(
+                NodeType::IntegrationTest,
+                NodeType::Endpoint,
+                EdgeType::Calls,
+            )
+            .await;
+        let e2e_calls_pages = graph
+            .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Page, EdgeType::Calls)
+            .await;
 
         let collect_targets = |calls: &Vec<(NodeData, NodeData)>| -> HashSet<String> {
             calls
@@ -96,7 +97,7 @@ impl CoverageLanguage {
             .into_iter()
             .filter(|n| in_scope(n))
             .filter(|n| {
-                if n.body.trim().is_empty() {
+                if n.end > 0 && n.end > n.start {
                     return false;
                 }
                 let is_component = n
@@ -210,27 +211,27 @@ impl CoverageLanguage {
         in_scope: impl Fn(&NodeData) -> bool,
     ) -> Result<GraphCoverage> {
         let unit_tests = graph.find_nodes_by_type_async(NodeType::UnitTest).await;
-        let integration_tests = graph.find_nodes_by_type_async(NodeType::IntegrationTest).await;
+        let integration_tests = graph
+            .find_nodes_by_type_async(NodeType::IntegrationTest)
+            .await;
         let e2e_tests = graph.find_nodes_by_type_async(NodeType::E2eTest).await;
 
         let classes = graph.find_nodes_by_type_async(NodeType::Class).await;
         let pages = graph.find_nodes_by_type_async(NodeType::Page).await;
 
-        let unit_calls_classes = graph.find_nodes_with_edge_type_async(
-            NodeType::UnitTest,
-            NodeType::Class,
-            EdgeType::Calls,
-        ).await;
-        let integration_calls_classes = graph.find_nodes_with_edge_type_async(
-            NodeType::IntegrationTest,
-            NodeType::Class,
-            EdgeType::Calls,
-        ).await;
-        let e2e_calls_pages = graph.find_nodes_with_edge_type_async(
-            NodeType::E2eTest,
-            NodeType::Page,
-            EdgeType::Calls,
-        ).await;
+        let unit_calls_classes = graph
+            .find_nodes_with_edge_type_async(NodeType::UnitTest, NodeType::Class, EdgeType::Calls)
+            .await;
+        let integration_calls_classes = graph
+            .find_nodes_with_edge_type_async(
+                NodeType::IntegrationTest,
+                NodeType::Class,
+                EdgeType::Calls,
+            )
+            .await;
+        let e2e_calls_pages = graph
+            .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Page, EdgeType::Calls)
+            .await;
 
         let collect_targets = |calls: &Vec<(NodeData, NodeData)>| -> HashSet<String> {
             calls
@@ -355,27 +356,31 @@ impl CoverageLanguage {
         in_scope: impl Fn(&NodeData) -> bool,
     ) -> Result<GraphCoverage> {
         let unit_tests = graph.find_nodes_by_type_async(NodeType::UnitTest).await;
-        let integration_tests = graph.find_nodes_by_type_async(NodeType::IntegrationTest).await;
+        let integration_tests = graph
+            .find_nodes_by_type_async(NodeType::IntegrationTest)
+            .await;
         let e2e_tests = graph.find_nodes_by_type_async(NodeType::E2eTest).await;
 
         let functions = graph.find_top_level_functions_async().await;
         let endpoints = graph.find_nodes_by_type_async(NodeType::Endpoint).await;
 
-        let unit_calls_funcs = graph.find_nodes_with_edge_type_async(
-            NodeType::UnitTest,
-            NodeType::Function,
-            EdgeType::Calls,
-        ).await;
-        let integration_calls_funcs = graph.find_nodes_with_edge_type_async(
-            NodeType::IntegrationTest,
-            NodeType::Function,
-            EdgeType::Calls,
-        ).await;
-        let e2e_calls_endpoints = graph.find_nodes_with_edge_type_async(
-            NodeType::E2eTest,
-            NodeType::Endpoint,
-            EdgeType::Calls,
-        ).await;
+        let unit_calls_funcs = graph
+            .find_nodes_with_edge_type_async(
+                NodeType::UnitTest,
+                NodeType::Function,
+                EdgeType::Calls,
+            )
+            .await;
+        let integration_calls_funcs = graph
+            .find_nodes_with_edge_type_async(
+                NodeType::IntegrationTest,
+                NodeType::Function,
+                EdgeType::Calls,
+            )
+            .await;
+        let e2e_calls_endpoints = graph
+            .find_nodes_with_edge_type_async(NodeType::E2eTest, NodeType::Endpoint, EdgeType::Calls)
+            .await;
 
         let collect_targets = |calls: &Vec<(NodeData, NodeData)>| -> HashSet<String> {
             calls
@@ -393,7 +398,7 @@ impl CoverageLanguage {
             .into_iter()
             .filter(|n| in_scope(n))
             .filter(|n| {
-                if n.body.trim().is_empty() {
+                if n.end > 0 && n.end > n.start {
                     return false;
                 }
                 true
@@ -404,7 +409,7 @@ impl CoverageLanguage {
             .into_iter()
             .filter(|n| in_scope(n))
             .filter(|n| {
-                if n.body.trim().is_empty() {
+                if n.end > 0 && n.end > n.start {
                     return false;
                 }
                 true
@@ -498,7 +503,11 @@ impl CoverageLanguage {
                 &integration_tests_in_scope,
                 &integration_target_functions,
             ),
-            e2e_tests: build_stat(&endpoints_in_scope, &e2e_tests_in_scope, &e2e_target_endpoints),
+            e2e_tests: build_stat(
+                &endpoints_in_scope,
+                &e2e_tests_in_scope,
+                &e2e_target_endpoints,
+            ),
             mocks: mock_stat,
         })
     }

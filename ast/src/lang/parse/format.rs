@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use crate::lang::call_finder::{get_imports_for_file, node_data_finder};
 use crate::lang::parse::extract_methods_from_handler;
 use crate::lang::{graphs::Graph, *};
+use crate::utils::{read_node_body, slice_body};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::Result;
 use streaming_iterator::StreamingIterator;
@@ -32,7 +33,6 @@ impl Lang {
             if o == CLASS_NAME {
                 cls.name = clean_class_name(&body);
             } else if o == CLASS_DEFINITION {
-                cls.body = body;
                 cls.start = node.start_position().row;
                 cls.end = node.end_position().row;
             } else if o == CLASS_PARENT {
@@ -107,7 +107,6 @@ impl Lang {
             if o == LIBRARY_NAME {
                 cls.name = trim_quotes(&body).to_string();
             } else if o == LIBRARY {
-                cls.body = body;
                 cls.start = node.start_position().row;
                 cls.end = node.end_position().row;
             } else if o == LIBRARY_VERSION {
@@ -125,11 +124,10 @@ impl Lang {
         q: &Query,
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
-        Self::loop_captures_multi(q, m, code, |body, node, o| {
+        Self::loop_captures_multi(q, m, code, |_body, node, o| {
             let mut impy = NodeData::in_file(file);
             if o == IMPORTS {
                 impy.name = "imports".to_string();
-                impy.body = body;
                 impy.start = node.start_position().row;
                 impy.end = node.end_position().row;
                 res.push(impy);
@@ -152,16 +150,14 @@ impl Lang {
             if o == VARIABLE_NAME {
                 v.name = body.to_string();
             } else if o == VARIABLE_DECLARATION {
-                v.body = body;
                 v.start = node.start_position().row;
-                v.end = node.end_position().row;
             } else if o == VARIABLE_TYPE {
                 v.data_type = Some(body);
             }
 
             Ok(())
         })?;
-        if !v.name.is_empty() && !v.body.is_empty() {
+        if !v.name.is_empty() && (v.start > 0 || v.end > 0) {
             res.push(v);
         }
         Ok(res)
@@ -188,7 +184,6 @@ impl Lang {
                     .map(|s| trim_quotes(s).to_string())
                     .collect();
             } else if o == PAGE {
-                pag.body = body;
                 pag.start = node.start_position().row;
                 pag.end = node.end_position().row;
             } else if o == PAGE_COMPONENT || o == PAGE_CHILD || o == PAGE_HEADER {
@@ -255,7 +250,6 @@ impl Lang {
             if o == TRAIT_NAME {
                 tr.name = body;
             } else if o == TRAIT {
-                tr.body = body;
                 tr.start = node.start_position().row;
                 tr.end = node.end_position().row;
             } else if o == TRAIT_COMMENT {
@@ -283,8 +277,6 @@ impl Lang {
                 inst.end = node.end_position().row;
             } else if o == CLASS_NAME {
                 inst.data_type = Some(body);
-            } else if o == INSTANCE {
-                inst.body = body;
             }
             Ok(())
         })?;
@@ -338,7 +330,6 @@ impl Lang {
                     endp.name = namey.to_string();
                 }
             } else if o == ROUTE {
-                endp.body = body;
                 endp.start = node.start_position().row;
                 endp.end = node.end_position().row;
             } else if o == ENDPOINT_COMMENT {
@@ -452,7 +443,9 @@ impl Lang {
                         };
 
                         if let Some(handler_fn) = handler_node {
-                            let methods = extract_methods_from_handler(&handler_fn.body, self);
+                            let handler_body =
+                                read_node_body(&handler_fn.file, handler_fn.start, handler_fn.end);
+                            let methods = extract_methods_from_handler(&handler_body, self);
 
                             if !methods.is_empty() {
                                 let mut result = Vec::new();
@@ -575,7 +568,6 @@ impl Lang {
             if o == STRUCT_NAME {
                 inst.name = trim_quotes(&body).to_string();
             } else if o == STRUCT {
-                inst.body = body;
                 inst.start = node.start_position().row;
                 inst.end = node.end_position().row;
             } else if o == ATTRIBUTES {
@@ -634,7 +626,6 @@ impl Lang {
         {
             let mut func = NodeData::name_file_start(&generated_name, file, func_start);
             func.end = func_end;
-            func.body = arrow_function_body;
             func.add_function_type("arrow");
 
             Ok(Some((
@@ -690,7 +681,6 @@ impl Lang {
             } else if o == MACRO {
                 is_macro = true;
             } else if o == FUNCTION_DEFINITION {
-                func.body = body;
                 func.start = node.start_position().row;
                 func.end = node.end_position().row;
                 def_start_byte = Some(node.start_byte());
@@ -783,7 +773,10 @@ impl Lang {
                     let qqq = self.q(&vuq, &NodeType::Var);
                     let mut matches = cursor.matches(&qqq, node, code.as_bytes());
                     let imports = graph.find_nodes_by_file_ends_with(NodeType::Import, file);
-                    let import_body = imports.first().map(|i| i.body.clone()).unwrap_or_default();
+                    let import_body = imports
+                        .first()
+                        .map(|i| read_node_body(&i.file, i.start, i.end))
+                        .unwrap_or_default();
                     let mut found_vars = HashSet::new();
 
                     while let Some(m) = matches.next() {
@@ -872,7 +865,7 @@ impl Lang {
             }
             Ok(())
         })?;
-        if func.body.is_empty() {
+        if func.start == 0 && func.end == 0 {
             log_cmd(format!("found function but empty body {:?}", func.name));
             return Ok(None);
         }
@@ -888,8 +881,6 @@ impl Lang {
         let start_byte = attributes_start_byte.or(def_start_byte);
         if let (Some(start), Some(def_end)) = (start_byte, def_end_byte) {
             if def_end > start && def_end <= code.len() {
-                func.body = code[start..def_end].to_string();
-
                 let interface_end = return_end_byte.or(args_end_byte);
                 if let Some(end) = interface_end {
                     if end > start && end <= code.len() {
@@ -910,13 +901,13 @@ impl Lang {
                     .next()
                     .map(|c| c.is_uppercase())
                     .unwrap_or(false);
-            let body = func.body.as_str();
-            let has_jsx = body.contains("<>")
-                || body.contains("</")
-                || body.contains("/>")
-                || body.contains("<Fragment")
-                || body.contains("<fragment");
-            let is_styled = body.contains("styled.");
+            let func_body = slice_body(code, func.start, func.end);
+            let has_jsx = func_body.contains("<>")
+                || func_body.contains("</")
+                || func_body.contains("/>")
+                || func_body.contains("<Fragment")
+                || func_body.contains("<fragment");
+            let is_styled = func_body.contains("styled.");
             if (titled_name && has_jsx) || is_styled {
                 func.add_component();
             }
@@ -968,13 +959,13 @@ impl Lang {
             if o == FUNCTION_NAME {
                 test.name = trim_quotes(&body).to_string();
             } else if o == FUNCTION_DEFINITION {
-                test.body = body;
                 test.start = node.start_position().row;
                 test.end = node.end_position().row;
             }
             Ok(())
         })?;
-        let tt = self.lang.classify_test(&test.name, file, &test.body);
+        let test_body = slice_body(code, test.start, test.end);
+        let tt = self.lang.classify_test(&test.name, file, &test_body);
         match tt {
             NodeType::E2eTest => test.add_test_kind("e2e"),
             NodeType::IntegrationTest => test.add_test_kind("integration"),
@@ -1066,7 +1057,7 @@ impl Lang {
                     ));
                     fc.target = NodeKeys::new(&called, &t.file, t.start);
                     // set extenal func so this is marked as USES edge rather than CALLS
-                    if t.body.is_empty() && t.docs.is_some() {
+                    if (t.start == 0 && t.end == 0) && t.docs.is_some() {
                         log_cmd(format!("==> ! found target is external {:?}!!!", called));
                         external_func = Some(t);
                     }
@@ -1217,7 +1208,6 @@ impl Lang {
             if o == EXTRA_NAME {
                 ex.name = trim_quotes(&body).to_string();
             } else if o == EXTRA {
-                ex.body = body;
                 ex.start = node.start_position().row;
                 ex.end = node.end_position().row;
             } else if o == EXTRA_PROP {
@@ -1268,7 +1258,6 @@ impl Lang {
         let mut raw_name = String::new();
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == INTEGRATION_TEST || o == E2E_TEST {
-                nd.body = body.clone();
                 nd.start = node.start_position().row;
                 nd.end = node.end_position().row;
             } else if o == TEST_NAME || o == E2E_TEST_NAME {
@@ -1277,7 +1266,10 @@ impl Lang {
             Ok(())
         })?;
         nd.name = raw_name.clone();
-        let tt = self.lang.classify_test(&nd.name, file, &nd.body);
+        let integration_test_body = slice_body(code, nd.start, nd.end);
+        let tt = self
+            .lang
+            .classify_test(&nd.name, file, &integration_test_body);
         if tt == NodeType::E2eTest {
             nd.add_test_kind("e2e");
         } else if tt == NodeType::IntegrationTest {

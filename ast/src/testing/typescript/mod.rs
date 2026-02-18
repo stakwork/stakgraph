@@ -2,6 +2,7 @@ use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 // use crate::utils::get_use_lsp;
 use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+use crate::utils::slice_body;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -70,7 +71,12 @@ import {{ sequelize }} from "./config.js";"#
         .find(|i| i.file == "src/testing/typescript/src/model.ts")
         .unwrap();
     assert_eq!(
-        model.body, model_import_body,
+        slice_body(
+            &std::fs::read_to_string(&model.file).expect("Failed to read file"),
+            model.start,
+            model.end
+        ),
+        model_import_body,
         "Model import body is incorrect"
     );
 
@@ -167,9 +173,12 @@ import {{ sequelize }} from "./config.js";"#
         })
         .expect("unit: PersonService test not found");
     assert!(
-        person_service_test
-            .body
-            .contains("describe(\"unit: PersonService\""),
+        slice_body(
+            &std::fs::read_to_string(&person_service_test.file).expect("Failed to read file"),
+            person_service_test.start,
+            person_service_test.end
+        )
+        .contains("describe(\"unit: PersonService\""),
         "PersonService test body should contain describe block"
     );
 
@@ -213,7 +222,12 @@ import {{ sequelize }} from "./config.js";"#
         })
         .expect("integration: /person endpoint test not found");
     assert!(
-        person_endpoint_test.body.contains("fetch("),
+        slice_body(
+            &std::fs::read_to_string(&person_endpoint_test.file).expect("Failed to read file"),
+            person_endpoint_test.start,
+            person_endpoint_test.end
+        )
+        .contains("fetch("),
         "Integration test body should contain fetch call"
     );
 
@@ -237,7 +251,12 @@ import {{ sequelize }} from "./config.js";"#
         })
         .expect("e2e: checkout flow test not found");
     assert!(
-        cypress_test.body.contains("cy.visit("),
+        slice_body(
+            &std::fs::read_to_string(&cypress_test.file).expect("Failed to read file"),
+            cypress_test.start,
+            cypress_test.end
+        )
+        .contains("cy.visit("),
         "Cypress test body should contain cy.visit"
     );
 
@@ -249,7 +268,12 @@ import {{ sequelize }} from "./config.js";"#
         })
         .expect("e2e: form submission test not found");
     assert!(
-        puppeteer_test.body.contains("puppeteer.launch"),
+        slice_body(
+            &std::fs::read_to_string(&puppeteer_test.file).expect("Failed to read file"),
+            puppeteer_test.start,
+            puppeteer_test.end
+        )
+        .contains("puppeteer.launch"),
         "Puppeteer test body should contain puppeteer.launch"
     );
 
@@ -722,7 +746,11 @@ import {{ sequelize }} from "./config.js";"#
         "Expected 1 aggregated import node for types-and-imports.ts"
     );
 
-    let import_body = &types_file_nodes[0].body;
+    let import_body = slice_body(
+        &std::fs::read_to_string(&types_file_nodes[0].file).expect("Failed to read file"),
+        types_file_nodes[0].start,
+        types_file_nodes[0].end,
+    );
     assert!(import_body.contains("import { PersonService } from \"./service\";"));
     assert!(import_body.contains("import type { SequelizePerson } from \"./model\";"));
     assert!(import_body.contains("import * as models from \"./model\";"));

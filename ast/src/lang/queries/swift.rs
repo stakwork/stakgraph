@@ -1,3 +1,5 @@
+use crate::utils::read_node_body;
+
 use super::super::*;
 use super::consts::*;
 use shared::error::{Context, Result};
@@ -142,14 +144,15 @@ impl Stack for Swift {
         ))
     }
     fn add_endpoint_verb(&self, inst: &mut NodeData, _call: &Option<String>) -> Option<String> {
+        let inst_body = read_node_body(&inst.file, inst.start, inst.end);
         if !inst.meta.contains_key("verb") {
-            if inst.body.contains("method: \"GET\"") || inst.body.contains("bodyParams: nil") {
+            if inst_body.contains("method: \"GET\"") || inst_body.contains("bodyParams: nil") {
                 inst.add_verb("GET");
-            } else if inst.body.contains("method: \"POST\"") {
+            } else if inst_body.contains("method: \"POST\"") {
                 inst.add_verb("POST");
-            } else if inst.body.contains("method: \"PUT\"") {
+            } else if inst_body.contains("method: \"PUT\"") {
                 inst.add_verb("PUT");
-            } else if inst.body.contains("method: \"DELETE\"") {
+            } else if inst_body.contains("method: \"DELETE\"") {
                 inst.add_verb("DELETE");
             }
 
@@ -158,12 +161,12 @@ impl Stack for Swift {
             }
         }
         if inst.name.is_empty() {
-            let url_start = inst.body.find("url:");
+            let url_start = inst_body.find("url:");
             if let Some(start_pos) = url_start {
-                if let Some(quote_start) = inst.body[start_pos..].find("\"") {
+                if let Some(quote_start) = inst_body[start_pos..].find("\"") {
                     let start_idx = start_pos + quote_start + 1;
-                    if let Some(quote_end) = inst.body[start_idx..].find("\"") {
-                        let url_section = &inst.body[start_idx..start_idx + quote_end];
+                    if let Some(quote_end) = inst_body[start_idx..].find("\"") {
+                        let url_section = &inst_body[start_idx..start_idx + quote_end];
                         if let Some(path_start) = url_section.rfind("/") {
                             let path = &url_section[path_start..];
                             if !path.is_empty() {

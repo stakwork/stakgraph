@@ -1,5 +1,6 @@
 use crate::lang::{BTreeMapGraph, EdgeType, Graph, NodeType};
 use crate::repo::Repo;
+use crate::utils::slice_body;
 
 use shared::error::Result;
 use std::path::Path;
@@ -391,13 +392,23 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
 
     let claude_file = root_files.iter().find(|f| f.name == "CLAUDE.md").unwrap();
     assert!(
-        !claude_file.body.is_empty(),
+        !slice_body(
+            &std::fs::read_to_string(&claude_file.file).expect("Failed to read file"),
+            claude_file.start,
+            claude_file.end
+        )
+        .is_empty(),
         "CLAUDE.md should have body content"
     );
 
     let readme_file = root_files.iter().find(|f| f.name == "README.md").unwrap();
     assert!(
-        !readme_file.body.is_empty(),
+        !slice_body(
+            &std::fs::read_to_string(&readme_file.file).expect("Failed to read file"),
+            readme_file.start,
+            readme_file.end
+        )
+        .is_empty(),
         "README.md should have body content"
     );
     assert!(claude_file.hash.is_some(), "CLAUDE.md should have hash set");

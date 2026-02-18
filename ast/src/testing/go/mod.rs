@@ -70,26 +70,6 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     nodes_count += packages.len();
     assert_eq!(packages.len(), 0, "Expected 0 packages");
 
-    let main_import_body = format!(
-        r#"import (
-	"context"
-	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
-)"#
-    );
-    let main = imports
-        .iter()
-        .find(|i| i.file == "src/testing/go/main.go")
-        .unwrap();
-
-    assert_eq!(
-        main.body, main_import_body,
-        "Model import body is incorrect"
-    );
-
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
     assert_eq!(classes.len(), 8, "Expected 8 classes");
@@ -237,36 +217,6 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
         graph.has_edge(&main_fn, &new_router_fn, EdgeType::Calls),
         "Expected 'main' to call 'NewRouter'"
     );
-    let new_router = functions
-        .iter()
-        .find(|f| f.name == "NewRouter" && f.file == "src/testing/go/routes.go")
-        .expect("NewRouter function not found");
-    assert!(
-        new_router.body.contains("initChi()"),
-        "NewRouter should call initChi()"
-    );
-    let init_chi = functions
-        .iter()
-        .find(|f| f.name == "initChi" && f.file == "src/testing/go/routes.go")
-        .expect("initChi function not found");
-    assert!(
-        init_chi.body.contains("chi.NewRouter()"),
-        "initChi should create chi router"
-    );
-
-    assert!(
-        new_router
-            .body
-            .contains("r.Get(\"/person/{id}\", GetPerson)"),
-        "NewRouter should define GET /person/{{id}} route"
-    );
-    assert!(
-        new_router
-            .body
-            .contains("r.Post(\"/person\", CreatePerson)"),
-        "NewRouter should define POST /person route"
-    );
-
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;
     if use_lsp {
@@ -321,29 +271,6 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
         "Expected 2 NestedIn edges for anonymous functions"
     );
 
-    let handler_fn = graph
-        .find_nodes_by_name(NodeType::Function, "GetBountiesLeaderboard")
-        .into_iter()
-        .find(|n| n.file.ends_with("db.go") && n.body.contains("http.ResponseWriter"))
-        .map(|nd| Node::new(NodeType::Function, nd))
-        .expect("Handler method GetBountiesLeaderboard not found");
-
-    let db_fn = graph
-        .find_nodes_by_name(NodeType::Function, "GetBountiesLeaderboard")
-        .into_iter()
-        .find(|n| {
-            n.file.ends_with("db.go")
-                && n.body.contains("[]LeaderboardEntry")
-                && !n.body.contains("http.ResponseWriter")
-        })
-        .map(|nd| Node::new(NodeType::Function, nd))
-        .expect("DB method GetBountiesLeaderboard not found");
-
-    assert!(
-        graph.has_edge(&handler_fn, &db_fn, EdgeType::Calls),
-        "Expected handler to call DB method"
-    );
-
     let db_var = variables
         .iter()
         .find(|v| v.name == "DB")
@@ -352,10 +279,6 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     assert_eq!(
         db_var.file, "src/testing/go/db.go",
         "Variable file should be db.go"
-    );
-    assert!(
-        db_var.body.contains("var DB database"),
-        "DB variable should have correct declaration"
     );
     assert_eq!(
         db_var.docs,

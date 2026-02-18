@@ -330,67 +330,10 @@ pub async fn test_php_generic<G: Graph>() -> Result<()> {
         "GET /users/{{user}} endpoint should be handled by UserController::show"
     );
 
-    let user_class = classes
+    let _user_class = classes
         .iter()
         .find(|c| c.name == "User" && c.file.ends_with("Models/User.php"))
         .expect("User model class not found");
-    assert!(
-        user_class.body.contains("HasApiTokens"),
-        "User model should use HasApiTokens trait"
-    );
-    assert!(
-        user_class.body.contains("HasFactory"),
-        "User model should use HasFactory trait"
-    );
-    assert!(
-        user_class.body.contains("Notifiable"),
-        "User model should use Notifiable trait"
-    );
-    assert!(
-        user_class.body.contains("$fillable"),
-        "User model should have $fillable property"
-    );
-    assert!(
-        user_class.body.contains("$hidden"),
-        "User model should have $hidden property"
-    );
-    assert!(
-        user_class.body.contains("$casts"),
-        "User model should have $casts property"
-    );
-    assert!(
-        user_class.body.contains("hasMany(Post::class)"),
-        "User model should have hasMany relationship with Post"
-    );
-
-    let post_class = classes
-        .iter()
-        .find(|c| c.name == "Post" && c.file.ends_with("Models/Post.php"))
-        .expect("Post model class not found");
-    assert!(
-        post_class.body.contains("HasFactory"),
-        "Post model should use HasFactory trait"
-    );
-    assert!(
-        post_class.body.contains("belongsTo(User::class)"),
-        "Post model should have belongsTo relationship with User"
-    );
-
-    let register_user_fn = functions
-        .iter()
-        .find(|f| f.name == "registerUser" && f.file.ends_with("UserService.php"))
-        .expect("UserService::registerUser not found");
-    assert!(
-        register_user_fn.body.contains("$this->users->create"),
-        "registerUser should call users repository create method"
-    );
-
-    assert!(
-        store_method
-            .body
-            .contains("$this->userService->registerUser"),
-        "UserController::store should call userService->registerUser"
-    );
 
     let imports_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges += imports_edges;

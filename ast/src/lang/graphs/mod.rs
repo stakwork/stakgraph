@@ -25,6 +25,7 @@ use shared::Error;
 
 use crate::lang::asg::*;
 use crate::lang::Lang;
+use crate::utils::read_node_body;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
@@ -138,10 +139,13 @@ impl Edge {
     pub fn from_test_call(call: &Calls, lang: &Lang, graph: &impl Graph) -> Edge {
         // Look up test node to get body for language-specific classification
         let test_node = graph.find_test_node(&call.source.name, &call.source.file);
-        let body = test_node.as_ref().map(|n| n.body.as_str()).unwrap_or("");
+        let body = test_node
+            .as_ref()
+            .map(|n| read_node_body(&n.file, n.start, n.end))
+            .unwrap_or_default();
         let tt = lang
             .lang()
-            .classify_test(&call.source.name, &call.source.file, body);
+            .classify_test(&call.source.name, &call.source.file, &body);
 
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;
@@ -158,10 +162,13 @@ impl Edge {
     ) -> Edge {
         // Look up test node to get body for language-specific classification
         let test_node = graph.find_test_node(&call.source.name, &call.source.file);
-        let body = test_node.as_ref().map(|n| n.body.as_str()).unwrap_or("");
+        let body = test_node
+            .as_ref()
+            .map(|n| read_node_body(&n.file, n.start, n.end))
+            .unwrap_or_default();
         let test_type = lang
             .lang()
-            .classify_test(&call.source.name, &call.source.file, body);
+            .classify_test(&call.source.name, &call.source.file, &body);
 
         let mut src_nd = NodeData::name_file(&call.source.name, &call.source.file);
         src_nd.start = call.source.start;

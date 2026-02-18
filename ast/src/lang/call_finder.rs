@@ -1,3 +1,5 @@
+use crate::utils::read_node_body;
+
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
@@ -122,12 +124,12 @@ fn parse_imports_for_file<G: Graph>(
 ) -> Option<Vec<(String, Vec<String>)>> {
     let import_nodes = graph.find_nodes_by_file_ends_with(NodeType::Import, current_file);
     let import_node = import_nodes.first()?;
-    let code = import_node.body.as_str();
+    let code = read_node_body(&import_node.file, import_node.start, import_node.end);
 
     let imports_query = lang.lang().imports_query()?;
     let q = lang.q(&imports_query, &NodeType::Import);
 
-    let tree = match lang.lang().parse(code, &NodeType::Import) {
+    let tree = match lang.lang().parse(&code, &NodeType::Import) {
         Ok(t) => t,
         Err(_) => return None,
     };
@@ -141,7 +143,7 @@ fn parse_imports_for_file<G: Graph>(
         let mut import_source = None;
         let mut import_aliases = Vec::new();
 
-        if Lang::loop_captures_multi(&q, m, code, |body, _node, o| {
+        if Lang::loop_captures_multi(&q, m, &code, |body, _node, o| {
             if o == IMPORTS_NAME {
                 import_names.push(body);
             } else if o == IMPORTS_ALIAS {
@@ -196,7 +198,7 @@ fn find_function_by_import<G: Graph>(
         if let Some(target) =
             graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &resolved_path)
         {
-            if !target.body.is_empty() {
+            if target.start > 0 || target.end > 0 {
                 log_cmd(format!(
                     "::: found function by import: {:?} (resolved: {:?})",
                     func_name, resolved_path
@@ -234,7 +236,8 @@ fn find_only_one_function_file<G: Graph>(
     for node in nodes {
         let is_same = node.start == source_start && node.file == current_file;
         // NOT empty functions (interfaces)
-        if !node.body.is_empty() && (!is_same || source_node_type != NodeType::Function) {
+        if (node.start > 0 || node.end > 0) && (!is_same || source_node_type != NodeType::Function)
+        {
             target_files_starts.push(node);
         }
     }
@@ -320,7 +323,10 @@ fn find_function_in_same_file<G: Graph>(
         if node.name != func_name && node.name.to_lowercase() == func_name.to_lowercase() {
             return None;
         }
-        if !node.body.is_empty() && node.file == current_file && node.start != source_start {
+        if (node.start > 0 || node.end > 0)
+            && node.file == current_file
+            && node.start != source_start
+        {
             log_cmd(format!(
                 "::: found function in same file: {:?}",
                 current_file
@@ -357,7 +363,7 @@ fn find_function_in_same_directory<G: Graph>(
         if node.name != func_name && node.name.to_lowercase() == func_name.to_lowercase() {
             return None;
         }
-        if !node.body.is_empty() {
+        if node.start > 0 || node.end > 0 {
             if let Some(node_dir) = std::path::Path::new(&node.file)
                 .parent()
                 .and_then(|p| p.to_str())
@@ -398,7 +404,7 @@ fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {
     let mut target_files = Vec::new();
     let function_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     for node in function_nodes {
-        if !node.body.is_empty() {
+        if node.start > 0 || node.end > 0 {
             target_files.push(node.file.clone());
         }
     }

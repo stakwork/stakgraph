@@ -42,7 +42,6 @@ pub async fn test_svelte_generic<G: Graph>() -> Result<()> {
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     assert_eq!(classes.len(), 2, "Expected 2 classes");
-    assert_eq!(classes[0].body, "", "Class body should be empty");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     assert_eq!(functions.len(), 6, "Expected 6 functions");

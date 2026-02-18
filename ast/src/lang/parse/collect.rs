@@ -1,5 +1,8 @@
 use super::utils::trim_quotes;
-use crate::lang::{graphs::Graph, *};
+use crate::{
+    lang::{graphs::Graph, *},
+    utils::{read_node_body, slice_body},
+};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
 use streaming_iterator::StreamingIterator;
@@ -231,7 +234,8 @@ impl Lang {
             let test_edge = if let Some(class_nd) =
                 graph.find_nodes_by_name(NodeType::Class, &ff.name).first()
             {
-                let test_type = self.lang.classify_test(&ff.name, file, &ff.body);
+                let test_body = slice_body(code, ff.start, ff.end);
+                let test_type = self.lang.classify_test(&ff.name, file, &test_body);
                 Some(Edge::calls(test_type, &ff, NodeType::Class, class_nd))
             } else {
                 None
@@ -548,7 +552,8 @@ impl Lang {
             return self.collect_var_call_in_function_lsp(func, graph, lsp);
         }
         let mut edges = Vec::new();
-        if func.body.is_empty() {
+        let func_body = read_node_body(&func.file, func.start, func.end);
+        if func_body.is_empty() {
             return edges;
         }
 
@@ -557,7 +562,7 @@ impl Lang {
         let imports = graph.find_nodes_by_file_ends_with(NodeType::Import, &func.file);
         let import_body = imports
             .first()
-            .map(|imp| imp.body.clone())
+            .map(|imp| read_node_body(&imp.file, imp.start, imp.end))
             .unwrap_or_default();
 
         for var in all_vars {
@@ -565,7 +570,7 @@ impl Lang {
                 continue;
             }
 
-            if func.body.contains(&var.name) {
+            if func_body.contains(&var.name) {
                 if var.file == func.file {
                     edges.push(Edge::contains(
                         NodeType::Function,
@@ -597,12 +602,12 @@ impl Lang {
         let mut edges = Vec::new();
         let mut processed = std::collections::HashSet::new();
 
-        if func.body.is_empty() {
+        if func.start == 0 && func.end == 0 {
             return edges;
         }
 
-        let code = &func.body;
-        let tree = match self.lang.parse(code, &NodeType::Function) {
+        let code = read_node_body(&func.file, func.start, func.end);
+        let tree = match self.lang.parse(&code, &NodeType::Function) {
             Ok(tree) => tree,
             Err(_) => return edges,
         };
@@ -612,7 +617,7 @@ impl Lang {
 
         let mut identifiers = Vec::new();
         while let Some(m) = matches.next() {
-            Self::loop_captures(&query, m, code, |body, node, _o| {
+            Self::loop_captures(&query, m, &code, |body, node, _o| {
                 let p = node.start_position();
                 identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())

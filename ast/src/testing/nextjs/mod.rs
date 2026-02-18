@@ -1,7 +1,7 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::linker::{normalize_backend_path, normalize_frontend_path};
 use crate::lang::{Graph, Node};
-use crate::utils::get_use_lsp;
+use crate::utils::{get_use_lsp, slice_body};
 use crate::{
     lang::Lang,
     repo::{Repo, Repos},
@@ -177,14 +177,26 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 
     let app_page = pages
         .iter()
-        .find(|p| p.name == "app" && p.file.ends_with("nextjs/app/page.tsx") && p.body == "/")
+        .find(|p| {
+            if !(p.name == "app" && p.file.ends_with("nextjs/app/page.tsx")) {
+                return false;
+            }
+            let code = std::fs::read_to_string(&p.file).expect("Failed to read file");
+            let body = slice_body(&code, p.start, p.end);
+            body == "/"
+        })
         .map(|n| Node::new(NodeType::Page, n.clone()))
         .expect("Page 'Home' not found");
 
     let items_page = pages
         .iter()
         .find(|p| {
-            p.name == "items" && p.file.ends_with("nextjs/app/items/page.tsx") && p.body == "/items"
+            if !(p.name == "items" && p.file.ends_with("nextjs/app/items/page.tsx")) {
+                return false;
+            }
+            let code = std::fs::read_to_string(&p.file).expect("Failed to read file");
+            let body = slice_body(&code, p.start, p.end);
+            body == "/items"
         })
         .map(|n| Node::new(NodeType::Page, n.clone()))
         .expect("Page 'Items' not found");
@@ -192,9 +204,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let person_page = pages
         .iter()
         .find(|p| {
-            p.name == "person"
-                && p.file.ends_with("nextjs/app/person/page.tsx")
-                && p.body == "/person"
+            if !(p.name == "person" && p.file.ends_with("nextjs/app/person/page.tsx")) {
+                return false;
+            }
+            let code = std::fs::read_to_string(&p.file).expect("Failed to read file");
+            let body = slice_body(&code, p.start, p.end);
+            body == "/person"
         })
         .map(|n| Node::new(NodeType::Page, n.clone()))
         .expect("Page 'Person' not found");
@@ -202,7 +217,12 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
     let _docs_page = pages
         .iter()
         .find(|p| {
-            p.name == "docs" && p.file.ends_with("nextjs/app/docs/page.mdx") && p.body == "/docs"
+            if !(p.name == "docs" && p.file.ends_with("nextjs/app/docs/page.mdx")) {
+                return false;
+            }
+            let code = std::fs::read_to_string(&p.file).expect("Failed to read file");
+            let body = slice_body(&code, p.start, p.end);
+            body == "/docs"
         })
         .map(|n| Node::new(NodeType::Page, n.clone()))
         .expect("Page 'Docs' not found");
@@ -370,7 +390,14 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
 }})"#
         );
         assert_eq!(test.name, "unit: utils.cn");
-        assert_eq!(test.body, test_body,)
+        assert_eq!(
+            slice_body(
+                &std::fs::read_to_string(&test.file).expect("Failed to read file"),
+                test.start,
+                test.end
+            ),
+            test_body,
+        )
     } else {
         panic!("Unit test 'unit: utils.cn' not found");
     }
@@ -463,7 +490,14 @@ pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
         );
 
         assert_eq!(test.name, "e2e: user flows");
-        assert_eq!(test.body, test_body,)
+        assert_eq!(
+            slice_body(
+                &std::fs::read_to_string(&test.file).expect("Failed to read file"),
+                test.start,
+                test.end
+            ),
+            test_body,
+        )
     } else {
         panic!("E2E test 'e2e: user flowse' not found");
     }

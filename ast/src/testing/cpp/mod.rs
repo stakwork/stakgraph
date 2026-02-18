@@ -1,5 +1,6 @@
 use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::utils::slice_body;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -74,7 +75,12 @@ pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
         .unwrap();
 
     assert_eq!(
-        main.body, main_import_body,
+        slice_body(
+            &std::fs::read_to_string(&main.file).expect("Failed to read file"),
+            main.start,
+            main.end
+        ),
+        main_import_body,
         "Model import body is incorrect"
     );
 

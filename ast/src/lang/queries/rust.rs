@@ -1,6 +1,7 @@
 use super::super::*;
 use super::consts::*;
 use crate::lang::parse::utils::trim_quotes;
+use crate::utils::read_node_body;
 use shared::error::{Context, Result};
 use std::collections::HashMap;
 use tree_sitter::{Language, Node as TreeNode, Parser, Query, Tree};
@@ -854,12 +855,12 @@ impl Stack for Rust {
         find_import_node: &dyn Fn(&str) -> Option<NodeData>,
     ) -> Option<Vec<(String, Vec<String>)>> {
         let import_node = find_import_node(file)?;
-        let code = import_node.body.as_str();
+        let code = read_node_body(&import_node.file, import_node.start, import_node.end);
 
         let imports_query = self.imports_query()?;
         let q = tree_sitter::Query::new(&self.0, &imports_query).unwrap();
 
-        let tree = match self.parse(code, &NodeType::Import) {
+        let tree = match self.parse(&code, &NodeType::Import) {
             Ok(t) => t,
             Err(_) => return None,
         };

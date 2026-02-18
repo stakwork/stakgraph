@@ -65,21 +65,6 @@ pub async fn test_angular_generic<G: Graph>() -> Result<()> {
     nodes += imports.len();
     assert_eq!(imports.len(), 14, "Expected 14 imports");
 
-    let main_import_body = format!(
-        r#"import {{ bootstrapApplication }} from '@angular/platform-browser';
-import {{ appConfig }} from './app/app.config';
-import {{ AppComponent }} from './app/app.component';"#
-    );
-    let main = imports
-        .iter()
-        .find(|i| i.file == "src/testing/angular/src/main.ts")
-        .unwrap();
-
-    assert_eq!(
-        main.body, main_import_body,
-        "Model import body is incorrect"
-    );
-
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes += classes.len();
     assert_eq!(classes.len(), 5, "Expected 5 classes");

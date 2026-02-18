@@ -1,5 +1,7 @@
 use std::fs;
 
+use crate::utils::read_node_body;
+
 use super::super::*;
 use super::consts::*;
 use lsp::strip_tmp;
@@ -855,16 +857,17 @@ impl Stack for TypeScriptReact {
                         return Some("USE".to_string());
                     }
                     "fetch" => {
-                        if inst.body.contains("GET") {
+                        let inst_body = read_node_body(&inst.file, inst.start, inst.end);
+                        if inst_body.contains("GET") {
                             inst.add_verb("GET")
                         }
-                        if inst.body.contains("POST") {
+                        if inst_body.contains("POST") {
                             inst.add_verb("POST")
                         }
-                        if inst.body.contains("PUT") {
+                        if inst_body.contains("PUT") {
                             inst.add_verb("PUT")
                         }
-                        if inst.body.contains("DELETE") {
+                        if inst_body.contains("DELETE") {
                             inst.add_verb("DELETE")
                         }
                         if let Some(v) = inst.meta.get("verb") {
@@ -1277,7 +1280,8 @@ impl Stack for TypeScriptReact {
         let name = page_name(&filename);
 
         let mut page = NodeData::name_file(&name, &filename);
-        page.body = route_from_path(&filename);
+        page.meta
+            .insert("route".to_string(), route_from_path(&filename));
 
         let code = fs::read_to_string(file_path).ok()?;
 
@@ -1377,12 +1381,12 @@ impl Stack for TypeScriptReact {
         use tree_sitter::QueryCursor;
 
         let import_node = find_import_node(file)?;
-        let code = import_node.body.as_str();
+        let code = read_node_body(&import_node.file, import_node.start, import_node.end);
 
         let imports_query = self.imports_query()?;
         let q = tree_sitter::Query::new(&self.tsx, &imports_query).unwrap();
 
-        let tree = match self.parse(code, &NodeType::Import) {
+        let tree = match self.parse(&code, &NodeType::Import) {
             Ok(t) => t,
             Err(_) => return None,
         };

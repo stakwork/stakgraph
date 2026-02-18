@@ -1,5 +1,6 @@
 use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::utils::slice_body;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -184,7 +185,14 @@ pub async fn test_c_generic<G: Graph>() -> Result<()> {
 
     let sensors_h_import = imports
         .iter()
-        .find(|i| i.file.ends_with("sensors.c") && i.body.contains("sensors.h"))
+        .find(|i| {
+            if !i.file.ends_with("sensors.c") {
+                return false;
+            }
+            let code = std::fs::read_to_string(&i.file).expect("Failed to read file");
+            let body = slice_body(&code, i.start, i.end);
+            body.contains("sensors.h")
+        })
         .expect("sensors.h import in sensors.c not found");
     let sensors_h_import_node = Node::new(NodeType::Import, sensors_h_import.clone());
 

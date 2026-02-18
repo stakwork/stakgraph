@@ -1079,15 +1079,6 @@ impl Repo {
                     },
                     &|filename| graph.find_nodes_by_file_ends_with(NodeType::Function, filename),
                 ) {
-                    let code = filez
-                        .iter()
-                        .find(|(f, _)| f.ends_with(&pagepath) || pagepath.ends_with(f))
-                        .map(|(_, c)| c.as_str())
-                        .unwrap_or("");
-                    let mut page_node = page_node;
-                    if page_node.body.is_empty() {
-                        page_node.body = code.to_string();
-                    }
                     graph.add_page((page_node, edge));
                 }
             }
@@ -1103,11 +1094,10 @@ impl Repo {
                         .get_component_templates::<G>(code, filename, graph)?;
                     template_count += template_edges.len();
                     for edge in template_edges {
-                        let mut page = NodeData::name_file(
+                        let page = NodeData::name_file(
                             &edge.source.node_data.name,
                             &edge.source.node_data.file,
                         );
-                        page.body = code.clone();
                         graph.add_node_with_parent(
                             &NodeType::Page,
                             &page,

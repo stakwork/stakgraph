@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use ast::lang::Edge;
-use ast::lang::Node;
 use ast::lang::graphs::EdgeType;
 use ast::lang::graphs::NodeType;
 use ast::lang::ArrayGraph;
+use ast::lang::Edge;
+use ast::lang::Node;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use shared::{Error, Result};
@@ -88,7 +88,7 @@ fn get_language_delimiter(file: &str) -> &'static str {
 
 fn format_function_name_with_operand(node: &Node) -> String {
     let nd = &node.node_data;
-    
+
     if let Some(verb) = nd.meta.get("verb") {
         format!("{} {}", verb, nd.name)
     } else if matches!(node.node_type, NodeType::Import) {
@@ -107,24 +107,25 @@ fn format_function_name_with_operand(node: &Node) -> String {
 
 fn build_edge_indices(
     edges: &[Edge],
-) -> (
-    HashMap<String, Vec<&Edge>>,
-    HashMap<String, Vec<&Edge>>,
-) {
+) -> (HashMap<String, Vec<&Edge>>, HashMap<String, Vec<&Edge>>) {
     let mut edges_by_source = HashMap::new();
     let mut edges_by_target = HashMap::new();
 
     for edge in edges {
         match edge.edge {
             EdgeType::Calls | EdgeType::Uses => {
-                let source_key =
-                    ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
-                edges_by_source.entry(source_key).or_insert_with(Vec::new).push(edge);
+                let source_key = create_node_key_from_ref(&edge.source).to_lowercase();
+                edges_by_source
+                    .entry(source_key)
+                    .or_insert_with(Vec::new)
+                    .push(edge);
             }
             EdgeType::Operand => {
-                let target_key =
-                    ast::utils::create_node_key_from_ref(&edge.target).to_lowercase();
-                edges_by_target.entry(target_key).or_insert_with(Vec::new).push(edge);
+                let target_key = create_node_key_from_ref(&edge.target).to_lowercase();
+                edges_by_target
+                    .entry(target_key)
+                    .or_insert_with(Vec::new)
+                    .push(edge);
             }
             _ => {}
         }
@@ -149,13 +150,16 @@ fn print_function_edges(
 
             let target_display = {
                 let operand = edge.operand.as_ref().or_else(|| {
-                    graph.nodes.iter().find(|n| {
-                        ast::utils::create_node_key(n).to_lowercase()
-                            == ast::utils::create_node_key_from_ref(&edge.target).to_lowercase()
-                    })
-                    .and_then(|n| n.node_data.meta.get("operand"))
+                    graph
+                        .nodes
+                        .iter()
+                        .find(|n| {
+                            create_node_key(n).to_lowercase()
+                                == create_node_key_from_ref(&edge.target).to_lowercase()
+                        })
+                        .and_then(|n| n.node_data.meta.get("operand"))
                 });
-                
+
                 if let Some(op) = operand {
                     let file_for_delimiter = if target_file == "unverified" {
                         source_file
@@ -211,18 +215,21 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
             _ => 0,
         };
 
-        if body_lines > 0 && !nd.body.is_empty() {
-            let body = if matches!(node.node_type, NodeType::Import) {
-                nd.body
-                    .lines()
-                    .filter(|line| !line.trim().is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            } else {
-                nd.body.clone()
-            };
-            let body_preview = first_lines(&body, body_lines, 200);
-            println!("```\n{}\n```", body_preview);
+        if body_lines > 0 {
+            let node_body = read_node_body(&nd.file, nd.start, nd.end);
+            if !node_body.is_empty() {
+                let body = if matches!(node.node_type, NodeType::Import) {
+                    node_body
+                        .lines()
+                        .filter(|line: &&str| !line.trim().is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                } else {
+                    node_body
+                };
+                let body_preview = first_lines(&body, body_lines, 200);
+                println!("```\n{}\n```", body_preview);
+            }
         }
     }
 }

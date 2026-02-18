@@ -23,6 +23,7 @@ pub mod toml;
 use crate::lang::asg::Operand;
 use crate::lang::graphs::Edge;
 use crate::lang::{Function, NodeData, NodeType};
+use crate::utils::read_node_body;
 use lsp::Language as LspLanguage;
 use lsp::{CmdSender, Position};
 use shared::Result;
@@ -230,7 +231,8 @@ pub trait Stack {
         let mut fs = Vec::new();
         let mut ts = Vec::new();
         for func in funcs {
-            if self.is_test(&func.0.name, &func.0.file, &func.0.body) {
+            let func_body = read_node_body(&func.0.file, func.0.start, func.0.end);
+            if self.is_test(&func.0.name, &func.0.file, &func_body) {
                 // for JS, tests are not function, but describe, test, it CALLS
                 if self.tests_are_functions() {
                     ts.push(func);

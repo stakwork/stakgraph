@@ -67,7 +67,6 @@ impl From<NodeData> for NodeKeys {
 pub struct NodeData {
     pub name: String,
     pub file: String,
-    pub body: String,
     pub start: usize,
     pub end: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,7 +85,7 @@ impl Serialize for NodeData {
     where
         S: Serializer,
     {
-        let mut named_fields_len = 5;
+        let mut named_fields_len = 4;
         if self.data_type.is_some() {
             named_fields_len += 1;
         }
@@ -99,7 +98,6 @@ impl Serialize for NodeData {
         let mut map = serializer.serialize_map(Some(self.meta.len() + named_fields_len))?;
         map.serialize_entry("name", &self.name)?;
         map.serialize_entry("file", &self.file)?;
-        map.serialize_entry("body", &self.body)?;
         map.serialize_entry("start", &self.start)?;
         map.serialize_entry("end", &self.end)?;
         if let Some(data_type) = &self.data_type {
@@ -111,7 +109,6 @@ impl Serialize for NodeData {
         if let Some(hash) = &self.hash {
             map.serialize_entry("hash", hash)?;
         }
-        // let mut map = serializer.serialize_map(Some(self.meta.len()))?;
         for (k, v) in &self.meta {
             map.serialize_entry(&k, &v)?;
         }
@@ -362,7 +359,6 @@ impl From<&NodeData> for BoltMap {
         let mut map = BoltMap::new();
         boltmap_insert_str(&mut map, "name", &node_data.name);
         boltmap_insert_str(&mut map, "file", &node_data.file);
-        boltmap_insert_str(&mut map, "body", &node_data.body);
         boltmap_insert_int(&mut map, "start", node_data.start as i64);
         boltmap_insert_int(&mut map, "end", node_data.end as i64);
         if let Some(ref docs) = node_data.docs {
@@ -409,7 +405,6 @@ impl TryFrom<&BoltNode> for NodeData {
         Ok(NodeData {
             name: node.get::<String>("name").unwrap_or_default(),
             file: node.get::<String>("file").unwrap_or_default(),
-            body: node.get::<String>("body").unwrap_or_default(),
             start: node.get::<i64>("start").unwrap_or(0) as usize,
             end: node.get::<i64>("end").unwrap_or(0) as usize,
             docs: node.get::<String>("docs").ok(),

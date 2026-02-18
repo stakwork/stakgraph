@@ -7,7 +7,7 @@ pub mod linker;
 pub mod parse;
 pub mod queries;
 
-use crate::lang::parse::utils::trim_quotes;
+use crate::{lang::parse::utils::trim_quotes, utils::slice_body};
 pub use asg::NodeData;
 use asg::*;
 use consts::*;
@@ -521,10 +521,11 @@ impl Lang {
             let more_tests = self.collect_tests(&qo2, code, file, graph)?;
             for (mt, edge) in more_tests {
                 let nd = mt.0.clone();
-                if !self.lang.is_test(&nd.name, &nd.file, &nd.body) {
+                let nd_body = slice_body(code, nd.start, nd.end);
+                if !self.lang.is_test(&nd.name, &nd.file, &nd_body) {
                     continue;
                 }
-                let kind = self.lang.classify_test(&nd.name, file, &nd.body);
+                let kind = self.lang.classify_test(&nd.name, file, &nd_body);
                 self.add_test_to_collections(
                     nd,
                     file,
@@ -613,7 +614,8 @@ impl Lang {
             let (funcs, filtered_tests) = self.lang.filter_tests(funcs1);
             for t in filtered_tests.iter() {
                 let nd = t.0.clone();
-                let kind = self.lang.classify_test(&nd.name, file, &nd.body);
+                let nd_body = slice_body(code, nd.start, nd.end);
+                let kind = self.lang.classify_test(&nd.name, file, &nd_body);
                 self.add_test_to_collections(
                     nd,
                     file,

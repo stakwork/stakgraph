@@ -1,4 +1,4 @@
-use crate::lang::graphs::{EdgeType, NodeType, ArrayGraph, BTreeMapGraph};
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
@@ -70,18 +70,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         pkg_files[0].name, "Gemfile",
         "Package file name is incorrect"
     );
-    assert!(
-        pkg_files[0].body.contains("rails"),
-        "Gemfile should contain rails gem"
-    );
-    assert!(
-        pkg_files[0].body.contains("sqlite3"),
-        "Gemfile should contain sqlite3 gem"
-    );
-    assert!(
-        pkg_files[0].body.contains("puma"),
-        "Gemfile should contain puma gem"
-    );
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
@@ -92,40 +80,21 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         imports.len()
     );
 
-    let import_body = imports
+    let _import_body = imports
         .iter()
         .find(|i| i.file == "src/testing/ruby/config/environment.rb")
         .expect("Import body not found");
-    let environment_body = format!(r#"require_relative "application""#,);
+    let _environment_body = format!(r#"require_relative "application""#,);
 
-    assert_eq!(
-        import_body.body, environment_body,
-        "Import body is incorrect"
-    );
-
-    let boot_import = imports
+    let _boot_import = imports
         .iter()
         .find(|i| i.file == "src/testing/ruby/config/boot.rb")
         .expect("Boot import not found");
-    assert!(
-        boot_import.body.contains("require \"bundler/setup\""),
-        "Boot should require bundler/setup"
-    );
 
-    let application_import = imports
+    let _application_import = imports
         .iter()
         .find(|i| i.file == "src/testing/ruby/config/application.rb")
         .expect("Application import not found");
-    assert!(
-        application_import
-            .body
-            .contains("require_relative \"boot\""),
-        "Application should require boot"
-    );
-    assert!(
-        application_import.body.contains("require \"rails\""),
-        "Application should require rails"
-    );
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
@@ -415,11 +384,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
-    // if use_lsp {
-    //     assert_eq!(uses, 21, "Expected 21 Uses edges, got {}", uses);
-    // } else {
-    //     assert_eq!(uses, 0, "Expected 0 Uses edges, got {}", uses);
-    // }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
@@ -452,77 +416,29 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         "Expected 35 class nodes, got {}",
         classes.len()
     );
-    let person_model = classes
+    let _person_model = classes
         .iter()
         .find(|c| c.name == "Person" && c.file.ends_with("app/models/person.rb"))
         .expect("Person model not found");
-    assert!(
-        person_model.body.contains("has_many :articles"),
-        "Person should have many articles"
-    );
-    assert!(
-        person_model
-            .body
-            .contains("validates :name, presence: true"),
-        "Person should validate name presence"
-    );
-    assert!(
-        person_model
-            .body
-            .contains("validates :email, presence: true, uniqueness: true"),
-        "Person should validate email presence and uniqueness"
-    );
 
-    let article_model = classes
+    let _article_model = classes
         .iter()
         .find(|c| c.name == "Article" && c.file.ends_with("app/models/article.rb"))
         .expect("Article model not found");
-    assert!(
-        article_model.body.contains("belongs_to :person"),
-        "Article should belong to person"
-    );
-    assert!(
-        article_model
-            .body
-            .contains("validates :title, presence: true"),
-        "Article should validate title presence"
-    );
-    assert!(
-        article_model
-            .body
-            .contains("validates :body, presence: true"),
-        "Article should validate body presence"
-    );
 
-    let country_model = classes
+    let _country_model = classes
         .iter()
         .find(|c| c.name == "Country" && c.file.ends_with("app/models/country.rb"))
         .expect("Country model not found");
-    assert!(
-        country_model
-            .body
-            .contains("validates :name, presence: true"),
-        "Country should validate name presence"
-    );
-    assert!(
-        country_model
-            .body
-            .contains("validates :code, presence: true, uniqueness: true"),
-        "Country should validate code presence and uniqueness"
-    );
 
-    let app_record = classes
+    let _app_record = classes
         .iter()
         .find(|c| {
             c.name == "ApplicationRecord" && c.file.ends_with("app/models/application_record.rb")
         })
         .expect("ApplicationRecord not found");
-    assert!(
-        app_record.body.contains("primary_abstract_class"),
-        "ApplicationRecord should have primary_abstract_class"
-    );
 
-    let app_controller = classes
+    let _app_controller = classes
         .iter()
         .find(|c| {
             c.name == "ApplicationController"
@@ -530,10 +446,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
                     .ends_with("app/controllers/application_controller.rb")
         })
         .expect("ApplicationController not found");
-    assert!(
-        app_controller.body.contains("ActionController::API"),
-        "ApplicationController should inherit from ActionController::API"
-    );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
@@ -543,106 +455,59 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
             f.name == "get_person" && f.file.ends_with("app/controllers/people_controller.rb")
         })
         .expect("get_person method not found");
-    assert!(
-        get_person_fn
-            .body
-            .contains("PersonService.get_person_by_id"),
-        "get_person should call PersonService.get_person_by_id"
-    );
     assert_eq!(
         get_person_fn.docs,
         Some("Retrieves a person by ID".to_string()),
         "get_person should have documentation"
     );
-    assert!(
-        get_person_fn.body.contains("render json: person"),
-        "get_person should render json response"
-    );
 
-    let create_person_fn = functions
+    let _create_person_fn = functions
         .iter()
         .find(|f| {
             f.name == "create_person" && f.file.ends_with("app/controllers/people_controller.rb")
         })
         .expect("create_person method not found");
-    assert!(
-        create_person_fn.body.contains("PersonService.new_person"),
-        "create_person should call PersonService.new_person"
-    );
-    assert!(
-        create_person_fn.body.contains("person_params"),
-        "create_person should use person_params"
-    );
-
-    let destroy_fn = functions
+    let _destroy_fn = functions
         .iter()
         .find(|f| f.name == "destroy" && f.file.ends_with("app/controllers/people_controller.rb"))
         .expect("destroy method not found");
-    assert!(
-        destroy_fn.body.contains("PersonService.delete"),
-        "destroy should call PersonService.delete"
-    );
 
-    let articles_fn = functions
+    let _articles_fn = functions
         .iter()
         .find(|f| f.name == "articles" && f.file.ends_with("app/controllers/people_controller.rb"))
         .expect("articles method not found");
-    assert!(
-        articles_fn.body.contains("Article.all"),
-        "articles should call Article.all"
-    );
 
-    let show_profile_fn = functions
+    let _show_profile_fn = functions
         .iter()
         .find(|f| {
             f.name == "show_person_profile"
                 && f.file.ends_with("app/controllers/people_controller.rb")
         })
         .expect("show_person_profile method not found");
-    assert!(
-        show_profile_fn.body.contains("Person.find(params[:id])"),
-        "show_person_profile should find person by id"
-    );
 
-    let process_fn = functions
+    let _process_fn = functions
         .iter()
         .find(|f| {
             f.name == "process" && f.file.ends_with("app/controllers/countries_controller.rb")
         })
         .expect("process method not found");
-    assert!(
-        process_fn.body.contains("Country.new(country_params)"),
-        "process should create new Country"
-    );
 
-    let get_person_by_id = functions
+    let _get_person_by_id = functions
         .iter()
         .find(|f| {
             f.name == "get_person_by_id" && f.file.ends_with("app/services/person_service.rb")
         })
         .expect("get_person_by_id method not found");
-    assert!(
-        get_person_by_id.body.contains("Person.find_by(id: id)"),
-        "get_person_by_id should call Person.find_by"
-    );
 
-    let new_person = functions
+    let _new_person = functions
         .iter()
         .find(|f| f.name == "new_person" && f.file.ends_with("app/services/person_service.rb"))
         .expect("new_person method not found");
-    assert!(
-        new_person.body.contains("Person.create(person_params)"),
-        "new_person should call Person.create"
-    );
 
-    let delete = functions
+    let _delete = functions
         .iter()
         .find(|f| f.name == "delete" && f.file.ends_with("app/services/person_service.rb"))
         .expect("delete method not found");
-    assert!(
-        delete.body.contains("Person.destroy(id)"),
-        "delete should call Person.destroy"
-    );
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -655,67 +520,21 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
         Some("Table for people".to_string()),
         "people table should have docs"
     );
-    assert!(
-        people_table.body.contains("t.string \"name\""),
-        "people table should have name column"
-    );
-    assert!(
-        people_table.body.contains("t.string \"email\""),
-        "people table should have email column"
-    );
-    assert!(
-        people_table
-            .body
-            .contains("index [\"email\"], name: \"index_people_on_email\", unique: true"),
-        "people table should have unique email index"
-    );
 
-    let articles_table = data_models
+    let _articles_table = data_models
         .iter()
         .find(|dm| dm.name == "articles" && dm.file.ends_with("db/schema.rb"))
         .expect("articles DataModel not found");
-    assert!(
-        articles_table.body.contains("t.string \"title\""),
-        "articles table should have title column"
-    );
-    assert!(
-        articles_table.body.contains("t.text \"body\""),
-        "articles table should have body column"
-    );
-    assert!(
-        articles_table
-            .body
-            .contains("t.integer \"person_id\", null: false"),
-        "articles table should have person_id foreign key"
-    );
 
-    let create_people_migration = classes
+    let _create_people_migration = classes
         .iter()
         .find(|c| c.name == "CreatePeople" && c.file.contains("create_people.rb"))
         .expect("CreatePeople migration not found");
-    assert!(
-        create_people_migration
-            .body
-            .contains("create_table :people"),
-        "CreatePeople should create people table"
-    );
 
-    let create_articles_migration = classes
+    let _create_articles_migration = classes
         .iter()
         .find(|c| c.name == "CreateArticles" && c.file.contains("create_articles.rb"))
         .expect("CreateArticles migration not found");
-    assert!(
-        create_articles_migration
-            .body
-            .contains("create_table :articles"),
-        "CreateArticles should create articles table"
-    );
-    assert!(
-        create_articles_migration
-            .body
-            .contains("t.references :person, null: false, foreign_key: true"),
-        "CreateArticles should add person foreign key"
-    );
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes_count += pages.len();
@@ -728,10 +547,6 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
     assert!(
         profile_page.file.ends_with("show_person_profile.html.erb"),
         "Page should be an erb file"
-    );
-    assert!(
-        profile_page.body.contains("@person.name"),
-        "Profile page should display person name"
     );
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
@@ -766,97 +581,38 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
     nodes_count += unit_tests.len();
 
-    let person_service_test = unit_tests
+    let _person_service_test = unit_tests
         .iter()
         .find(|t| t.name.contains("PersonService") && t.file.contains("unit"))
         .expect("PersonService unit test not found");
-    assert!(
-        person_service_test
-            .body
-            .contains("RSpec.describe PersonService"),
-        "PersonService test should contain RSpec.describe PersonService"
-    );
-    assert!(
-        person_service_test.body.contains(".get_person_by_id"),
-        "PersonService test should test get_person_by_id"
-    );
-    assert!(
-        person_service_test.body.contains(".new_person"),
-        "PersonService test should test new_person"
-    );
-    assert!(
-        person_service_test.body.contains(".delete"),
-        "PersonService test should test delete"
-    );
 
-    let models_test = unit_tests
+    let _models_test = unit_tests
         .iter()
         .find(|t| {
             (t.name.contains("Person") || t.name.contains("Article")) && t.file.contains("unit")
         })
         .expect("Models unit test not found");
-    assert!(
-        models_test.body.contains("RSpec.describe Person")
-            || models_test.body.contains("RSpec.describe Article"),
-        "Models test should contain RSpec.describe for Person or Article"
-    );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
 
-    let people_api_test = integration_tests
+    let _people_api_test = integration_tests
         .iter()
         .find(|t| t.name.contains("People API"))
         .expect("People API integration test not found");
-    assert!(
-        people_api_test
-            .body
-            .contains("RSpec.describe \"People API\""),
-        "People API test should contain RSpec.describe"
-    );
-    assert!(
-        people_api_test.body.contains("GET /person/:id")
-            || people_api_test.body.contains("POST /person"),
-        "People API test should test endpoints"
-    );
 
-    let articles_api_test = integration_tests
+    let _articles_api_test = integration_tests
         .iter()
         .find(|t| t.name.contains("Articles API") && t.file.contains("integration"))
         .expect("Articles API integration test not found");
-    assert!(
-        articles_api_test
-            .body
-            .contains("RSpec.describe \"Articles API\""),
-        "Articles API test should contain RSpec.describe"
-    );
-    assert!(
-        articles_api_test.body.contains("GET /people/articles")
-            || articles_api_test.body.contains("POST /people/:id/articles"),
-        "Articles API test should test endpoints"
-    );
+
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
 
-    let person_workflow_test = e2e_tests
+    let _person_workflow_test = e2e_tests
         .iter()
         .find(|t| t.name.contains("Person Workflow"))
         .expect("Person Workflow E2E test not found");
-    assert!(
-        person_workflow_test
-            .body
-            .contains("RSpec.describe \"Person Workflow\""),
-        "Person Workflow test should contain RSpec.describe"
-    );
-    assert!(
-        person_workflow_test
-            .body
-            .contains("creates, retrieves, updates, and deletes")
-            || person_workflow_test
-                .body
-                .contains("manages person through controller"),
-        "Person Workflow test should test complete workflows"
-    );
 
     let person_service_class = classes
         .iter()

@@ -60,24 +60,6 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         }
     }
 
-    let mut combined_body = String::new();
-    let mut current_position = unique_nodes[0].start;
-    for (i, node) in unique_nodes.iter().enumerate() {
-        // Add extra newlines if there's a gap between this node and the previous position
-        if node.start > current_position {
-            let extra_newlines = node.start - current_position;
-            combined_body.push_str(&"\n".repeat(extra_newlines));
-        }
-        // Add the node body
-        combined_body.push_str(&node.body);
-        // Add a newline separator between nodes (except after the last one)
-        if i < unique_nodes.len() - 1 {
-            combined_body.push('\n');
-            current_position = node.end + 1; // +1 for the newline we just added
-        } else {
-            current_position = node.end;
-        }
-    }
     // Use the file from the first node
     let file = if !unique_nodes.is_empty() {
         unique_nodes[0].file.clone()
@@ -88,7 +70,6 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
     vec![NodeData {
         name: import_name,
         file,
-        body: combined_body,
         start: unique_nodes[0].start,
         end: unique_nodes.last().unwrap().end,
         ..Default::default()
@@ -116,12 +97,8 @@ impl Repo {
         let mut file_data = NodeData::in_file(path);
         let filename = path.split('/').next_back().unwrap_or(path);
         file_data.name = filename.to_string();
-
-        let skip_file_content = std::env::var("DEV_SKIP_FILE_CONTENT").is_ok();
-        if !skip_file_content {
-            file_data.body = code.to_string();
-        }
-        file_data.hash = Some(sha256::digest(&file_data.body));
+        file_data.end = code.lines().count().saturating_sub(1);
+        file_data.hash = Some(sha256::digest(code));
         file_data
     }
     pub fn get_parent_info(&self, path: &Path) -> (NodeType, String) {

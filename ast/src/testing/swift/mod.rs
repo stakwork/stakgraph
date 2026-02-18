@@ -1,5 +1,6 @@
 use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
+use crate::utils::slice_body;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -62,7 +63,12 @@ end
         "Package file name is incorrect"
     );
     assert_eq!(
-        pkg_files[0].body, expected_results,
+        slice_body(
+            &std::fs::read_to_string(&pkg_files[0].file).expect("Failed to read file"),
+            pkg_files[0].start,
+            pkg_files[0].end
+        ),
+        expected_results,
         "Podfile should contain correct content"
     );
 
@@ -75,28 +81,55 @@ end
 
     let ui_kit_import = imports
         .iter()
-        .find(|i| i.body.contains("UIKit"))
+        .find(|i| {
+            let code = std::fs::read_to_string(&i.file).expect("Failed to read file");
+            let body = slice_body(&code, i.start, i.end);
+            body.contains("UIKit")
+        })
         .expect("UIKit import not found");
+    let ui_kit_body = slice_body(
+        &std::fs::read_to_string(&ui_kit_import.file).expect("Failed to read file"),
+        ui_kit_import.start,
+        ui_kit_import.end,
+    );
     assert!(
-        ui_kit_import.body.contains("import UIKit"),
+        ui_kit_body.contains("import UIKit"),
         "Should import UIKit framework"
     );
 
     let core_data_import = imports
         .iter()
-        .find(|i| i.body.contains("CoreData"))
+        .find(|i| {
+            let code = std::fs::read_to_string(&i.file).expect("Failed to read file");
+            let body = slice_body(&code, i.start, i.end);
+            body.contains("CoreData")
+        })
         .expect("CoreData import not found");
+    let core_data_body = slice_body(
+        &std::fs::read_to_string(&core_data_import.file).expect("Failed to read file"),
+        core_data_import.start,
+        core_data_import.end,
+    );
     assert!(
-        core_data_import.body.contains("import CoreData"),
+        core_data_body.contains("import CoreData"),
         "Should import CoreData framework"
     );
 
     let foundation_import = imports
         .iter()
-        .find(|i| i.body.contains("Foundation"))
+        .find(|i| {
+            let code = std::fs::read_to_string(&i.file).expect("Failed to read file");
+            let body = slice_body(&code, i.start, i.end);
+            body.contains("Foundation")
+        })
         .expect("Foundation import not found");
+    let foundation_body = slice_body(
+        &std::fs::read_to_string(&foundation_import.file).expect("Failed to read file"),
+        foundation_import.start,
+        foundation_import.end,
+    );
     assert!(
-        foundation_import.body.contains("import Foundation"),
+        foundation_body.contains("import Foundation"),
         "Should import Foundation framework"
     );
 
@@ -182,8 +215,13 @@ end
         .iter()
         .find(|f| f.name == "saveContext")
         .expect("saveContext function not found");
+    let save_context_body = slice_body(
+        &std::fs::read_to_string(&save_context.file).expect("Failed to read file"),
+        save_context.start,
+        save_context.end,
+    );
     assert!(
-        save_context.body.contains("context"),
+        save_context_body.contains("context"),
         "saveContext should use context"
     );
 
@@ -407,12 +445,17 @@ pub async fn test_swift_modern_generic<G: Graph>() -> Result<()> {
         .iter()
         .find(|f| f.name == "fetchProfile")
         .expect("fetchProfile function not found");
+    let fetch_profile_body = slice_body(
+        &std::fs::read_to_string(&fetch_profile.file).expect("Failed to read file"),
+        fetch_profile.start,
+        fetch_profile.end,
+    );
     assert!(
-        fetch_profile.body.contains("async"),
+        fetch_profile_body.contains("async"),
         "fetchProfile should be async"
     );
     assert!(
-        fetch_profile.body.contains("throws"),
+        fetch_profile_body.contains("throws"),
         "fetchProfile should throw"
     );
 

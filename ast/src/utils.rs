@@ -226,3 +226,32 @@ where
 {
     tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
 }
+
+pub fn read_node_body(file_path: &str, start: usize, end: usize) -> String {
+    use std::io::BufRead;
+    let file = match File::open(file_path) {
+        Ok(f) => f,
+        Err(_) => return String::new(),
+    };
+    let reader = std::io::BufReader::new(file);
+    let mut lines = Vec::new();
+    for (i, line) in reader.lines().enumerate() {
+        if i > end {
+            break;
+        }
+        if i >= start {
+            if let Ok(l) = line {
+                lines.push(l);
+            }
+        }
+    }
+    lines.join("\n")
+}
+
+pub fn slice_body(code: &str, start: usize, end: usize) -> String {
+    code.lines()
+        .skip(start)
+        .take(end.saturating_sub(start) + 1)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
