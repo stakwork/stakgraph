@@ -24,6 +24,8 @@ use std::{collections::HashSet, path::Path};
 use tokio::fs;
 use tracing::{debug, info, trace};
 
+use super::memory;
+
 #[derive(Debug, Clone)]
 pub struct ImplementsRelationship {
     pub class_name: String,
@@ -67,12 +69,15 @@ impl Repo {
         };
 
         self.send_status_update("initialization", 1);
+        memory::log_memory("init");
+
         let stage_start = Instant::now();
         self.add_repository_and_language_nodes(&mut graph).await?;
         info!(
             "[perf][stage] repository_language s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("repository_language");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -90,6 +95,8 @@ impl Repo {
             "[perf][stage] directories s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("directories");
+
         stats.insert("directories".to_string(), files.len());
 
         let stage_start = Instant::now();
@@ -98,6 +105,8 @@ impl Repo {
             "[perf][stage] files s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("files");
+
         stats.insert("files".to_string(), filez.len());
 
         self.send_status_with_stats(stats.clone());
@@ -127,6 +136,7 @@ impl Repo {
             "[perf][stage] lsp_setup s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("lsp_setup");
 
         let allowed_files = filez
             .iter()
@@ -139,6 +149,8 @@ impl Repo {
             "[perf][stage] libraries s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("libraries");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -163,6 +175,8 @@ impl Repo {
             "[perf][stage] imports s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("imports");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -187,6 +201,8 @@ impl Repo {
             "[perf][stage] variables s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("variables");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -211,6 +227,8 @@ impl Repo {
             "[perf][stage] classes s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("classes");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -235,6 +253,8 @@ impl Repo {
             "[perf][stage] instances_traits s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("instances_traits");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -259,6 +279,8 @@ impl Repo {
             "[perf][stage] implements s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("implements");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -283,6 +305,8 @@ impl Repo {
             "[perf][stage] data_models s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("data_models");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -308,6 +332,7 @@ impl Repo {
             "[perf][stage] functions_tests s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("functions_tests");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
@@ -333,6 +358,8 @@ impl Repo {
             "[perf][stage] pages_templates s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("pages_templates");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -357,6 +384,8 @@ impl Repo {
             "[perf][stage] endpoints s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("endpoints");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
@@ -382,6 +411,8 @@ impl Repo {
             "[perf][stage] finalize s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("finalize");
+
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             let (nodes, edges) = graph.get_graph_size();
