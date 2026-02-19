@@ -1,3 +1,4 @@
+use crate::builder::memory;
 pub use crate::builder::progress::StatusUpdate;
 #[cfg(feature = "neo4j")]
 use crate::builder::streaming::{nodes_to_bolt_format, GraphStreamingUploader};
@@ -94,6 +95,9 @@ impl Repos {
             return Err(Error::Custom("Language is not supported".into()));
         }
 
+        memory::log_memory("repos_init");
+        let start_rss = memory::get_rss_mb();
+
         let mut graph = G::new(String::new(), Language::Typescript);
         if let Some(first_repo) = self.0.first() {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
@@ -109,6 +113,8 @@ impl Repos {
         for repo in &self.0 {
             let subgraph = repo.build_graph_inner_with_streaming(streaming).await?;
             graph.extend_graph(subgraph);
+            memory::log_memory("repo_done");
+
             #[cfg(feature = "neo4j")]
             if let Some((neo, uploader)) = &mut streaming_ctx {
                 let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
@@ -141,6 +147,8 @@ impl Repos {
             "[perf][stage] cross_repo_linking s={:.2}",
             stage_start.elapsed().as_secs_f64()
         );
+        memory::log_memory("cross_repo_linking");
+
         #[cfg(feature = "neo4j")]
         if let Some((neo, uploader)) = &mut streaming_ctx {
             let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
@@ -157,6 +165,14 @@ impl Repos {
 
         let (nodes_size, edges_size) = graph.get_graph_size();
         info!("Graph complete: {} nodes, {} edges", nodes_size, edges_size);
+
+        let end_rss = memory::get_rss_mb();
+        info!(
+            "[perf][memory] total rss_start={:.2}MB rss_end={:.2}MB delta={:+.2}MB",
+            start_rss,
+            end_rss,
+            end_rss - start_rss
+        );
 
         Ok(graph)
     }
