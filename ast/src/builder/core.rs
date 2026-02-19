@@ -52,6 +52,7 @@ impl Repo {
         let streaming = std::env::var("STREAM_UPLOAD").is_ok();
         self.build_graph_inner_with_streaming(streaming).await
     }
+    #[allow(unused)]
     pub async fn build_graph_inner_with_streaming<G: Graph>(&self, streaming: bool) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());

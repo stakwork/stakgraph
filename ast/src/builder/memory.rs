@@ -1,3 +1,5 @@
+use tracing::info;
+
 pub fn get_rss_mb() -> f64 {
     let pid = std::process::id();
 
@@ -21,5 +23,5 @@ pub fn get_rss_mb() -> f64 {
 
 pub fn log_memory(stage: &str) {
     let rss = get_rss_mb();
-    println!("[perf][memory] {} rss={:.2}MB", stage, rss);
+    info!("[perf][memory] {} rss={:.2}MB", stage, rss);
 }
