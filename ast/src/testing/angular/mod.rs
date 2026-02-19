@@ -532,9 +532,12 @@ import {{ AppComponent }} from './app/app.component';"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_angular() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_angular_generic::<ArrayGraph>().await.unwrap();
-    test_angular_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_angular_generic::<ArrayGraph>().await.unwrap();
+        test_angular_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

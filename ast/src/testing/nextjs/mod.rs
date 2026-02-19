@@ -1054,9 +1054,12 @@ async fn test_remote_nextjs() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_nextjs() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_nextjs_generic::<ArrayGraph>().await.unwrap();
-    test_nextjs_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_nextjs_generic::<ArrayGraph>().await.unwrap();
+        test_nextjs_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

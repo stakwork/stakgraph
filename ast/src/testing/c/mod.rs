@@ -1,4 +1,4 @@
-use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
+use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
@@ -243,8 +243,12 @@ pub async fn test_c_generic<G: Graph>() -> Result<()> {
 
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_c() {
-    test_c_generic::<ArrayGraph>().await.unwrap();
-    test_c_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_c_generic::<ArrayGraph>().await.unwrap();
+        test_c_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

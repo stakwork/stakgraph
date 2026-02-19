@@ -1,4 +1,4 @@
-use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
+use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
@@ -1122,21 +1122,25 @@ pub async fn test_python_cli_generic<G: Graph>() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_python() {
-    // Web Suite
-    test_python_web_generic::<ArrayGraph>().await.unwrap();
-    test_python_web_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        // Web Suite
+        test_python_web_generic::<ArrayGraph>().await.unwrap();
+        test_python_web_generic::<BTreeMapGraph>().await.unwrap();
 
-    // Data Science Suite
-    test_python_data_science_generic::<ArrayGraph>()
-        .await
-        .unwrap();
-    test_python_data_science_generic::<BTreeMapGraph>()
-        .await
-        .unwrap();
+        // Data Science Suite
+        test_python_data_science_generic::<ArrayGraph>()
+            .await
+            .unwrap();
+        test_python_data_science_generic::<BTreeMapGraph>()
+            .await
+            .unwrap();
 
-    // CLI Suite
-    test_python_cli_generic::<ArrayGraph>().await.unwrap();
-    test_python_cli_generic::<BTreeMapGraph>().await.unwrap();
+        // CLI Suite
+        test_python_cli_generic::<ArrayGraph>().await.unwrap();
+        test_python_cli_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

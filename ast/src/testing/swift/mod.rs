@@ -1,4 +1,4 @@
-use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
+use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
@@ -472,16 +472,22 @@ pub async fn test_swift_modern_generic<G: Graph>() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_swift() {
-    test_swift_legacy_generic::<ArrayGraph>().await.unwrap();
-    test_swift_legacy_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_swift_legacy_generic::<ArrayGraph>().await.unwrap();
+        test_swift_legacy_generic::<BTreeMapGraph>().await.unwrap();
+        test_swift_modern_generic::<ArrayGraph>().await.unwrap();
+        test_swift_modern_generic::<BTreeMapGraph>().await.unwrap();
+    }
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         test_swift_legacy_generic::<Neo4jGraph>().await.unwrap();
+        graph.clear().await.unwrap();
+        test_swift_modern_generic::<Neo4jGraph>().await.unwrap();
     }
 
-    test_swift_modern_generic::<ArrayGraph>().await.unwrap();
-    test_swift_modern_generic::<BTreeMapGraph>().await.unwrap();
 }

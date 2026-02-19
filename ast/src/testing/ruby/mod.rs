@@ -1,4 +1,4 @@
-use crate::lang::graphs::{EdgeType, NodeType, ArrayGraph, BTreeMapGraph};
+use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
@@ -933,8 +933,12 @@ pub async fn test_ruby_generic<G: Graph>() -> Result<()> {
 
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_ruby() {
-    test_ruby_generic::<ArrayGraph>().await.unwrap();
-    test_ruby_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_ruby_generic::<ArrayGraph>().await.unwrap();
+        test_ruby_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

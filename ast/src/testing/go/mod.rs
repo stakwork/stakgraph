@@ -411,9 +411,12 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_go() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_go_generic::<ArrayGraph>().await.unwrap();
-    test_go_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_go_generic::<ArrayGraph>().await.unwrap();
+        test_go_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {
