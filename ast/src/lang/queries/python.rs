@@ -73,9 +73,20 @@ impl Stack for Python {
                     (assignment
                         left: (identifier) @{VARIABLE_NAME}
                         type: (type)? @{VARIABLE_TYPE}
-                        right: (_) @{VARIABLE_VALUE}
+                        right: (_)? @{VARIABLE_VALUE}
                     )
                 )@{VARIABLE_DECLARATION}
+            )
+            (class_definition
+                body: (block
+                    (expression_statement
+                        (assignment
+                            left: (identifier) @{VARIABLE_NAME}
+                            type: (type)? @{VARIABLE_TYPE}
+                            right: (_)? @{VARIABLE_VALUE}
+                        )
+                    )@{VARIABLE_DECLARATION}
+                )
             )
             "#
         ))

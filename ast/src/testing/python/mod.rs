@@ -1,12 +1,12 @@
-use crate::lang::graphs::{EdgeType, NodeType};
+use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_python_generic<G: Graph>() -> Result<()> {
+pub async fn test_python_web_generic<G: Graph>() -> Result<()> {
     let repo = Repo::new(
-        "src/testing/python",
+        "src/testing/python/web",
         Lang::from_str("python").unwrap(),
         false,
         Vec::new(),
@@ -29,7 +29,7 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
         "Language node name should be 'python'"
     );
     assert_eq!(
-        language_nodes[0].file, "src/testing/python",
+        language_nodes[0].file, "src/testing/python/web",
         "Language node file path is incorrect"
     );
 
@@ -58,8 +58,8 @@ pub async fn test_python_generic<G: Graph>() -> Result<()> {
     assert_eq!(implements, 1, "Expected 1 implements edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains, 138, "Expected 138 contains edges");
     edges_count += contains;
+    assert_eq!(contains, 197, "Expected 197 contains edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -114,7 +114,7 @@ from flask_app.routes import flask_bp"#
     );
     let main = imports
         .iter()
-        .find(|i| i.file == "src/testing/python/main.py")
+        .find(|i| i.file == "src/testing/python/web/main.py")
         .unwrap();
 
     assert_eq!(
@@ -128,7 +128,7 @@ from flask_app.routes import flask_bp"#
 
     let vars = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += vars.len();
-    assert_eq!(vars.len(), 28, "Expected 28 variables");
+    assert_eq!(vars.len(), 40, "Expected 40 variables");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -136,7 +136,7 @@ from flask_app.routes import flask_bp"#
     assert!(
         classes
             .iter()
-            .any(|c| c.name == "Person" && c.file == "src/testing/python/model.py"),
+            .any(|c| c.name == "Person" && c.file == "src/testing/python/web/model.py"),
         "Expected Person class not found"
     );
 
@@ -169,21 +169,21 @@ from flask_app.routes import flask_bp"#
     let person_class = graph
         .find_nodes_by_name(NodeType::Class, "Person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Class, n))
         .expect("Person class not found in model.py");
 
     let create_or_edit_person_dm = graph
         .find_nodes_by_name(NodeType::DataModel, "CreateOrEditPerson")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::DataModel, n))
         .expect("CreateOrEditPerson DataModel not found in model.py");
 
     let model_py_file = graph
         .find_nodes_by_name(NodeType::File, "model.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("model.py file node not found");
 
@@ -191,7 +191,7 @@ from flask_app.routes import flask_bp"#
         .find_nodes_by_name(NodeType::Endpoint, "/person/")
         .into_iter()
         .find(|n| {
-            n.file == "src/testing/python/fastapi_app/routes.py"
+            n.file == "src/testing/python/web/fastapi_app/routes.py"
                 && n.meta.get("verb") == Some(&"POST".to_string())
         })
         .map(|n| Node::new(NodeType::Endpoint, n))
@@ -200,7 +200,7 @@ from flask_app.routes import flask_bp"#
     let create_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "create_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/fastapi_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/fastapi_app/routes.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("create_person function not found in fastapi_app/routes.py");
 
@@ -236,21 +236,21 @@ from flask_app.routes import flask_bp"#
     let django_views_file = graph
         .find_nodes_by_name(NodeType::File, "views.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/views.py")
+        .find(|n| n.file == "src/testing/python/web/django_app/views.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("Django views.py file not found");
 
     let django_get_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/views.py")
+        .find(|n| n.file == "src/testing/python/web/django_app/views.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("Django get_person function not found");
 
     let django_create_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "create_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/views.py")
+        .find(|n| n.file == "src/testing/python/web/django_app/views.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("Django create_person function not found");
 
@@ -275,21 +275,21 @@ from flask_app.routes import flask_bp"#
     let flask_routes_file = graph
         .find_nodes_by_name(NodeType::File, "routes.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/flask_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/flask_app/routes.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("Flask routes.py file not found");
 
     let flask_get_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/flask_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/flask_app/routes.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("Flask get_person function not found");
 
     let flask_create_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "create_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/flask_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/flask_app/routes.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("Flask create_person function not found");
 
@@ -310,14 +310,14 @@ from flask_app.routes import flask_bp"#
     let fastapi_routes_file = graph
         .find_nodes_by_name(NodeType::File, "routes.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/fastapi_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/fastapi_app/routes.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("FastAPI routes.py file not found");
 
     let fastapi_get_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/fastapi_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/fastapi_app/routes.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("FastAPI get_person function not found");
 
@@ -338,21 +338,21 @@ from flask_app.routes import flask_bp"#
     let db_file = graph
         .find_nodes_by_name(NodeType::File, "db.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/db.py")
+        .find(|n| n.file == "src/testing/python/web/db.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("db.py file not found");
 
     let get_db_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_db")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/db.py")
+        .find(|n| n.file == "src/testing/python/web/db.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("get_db function not found in db.py");
 
     let db_session_fn = graph
         .find_nodes_by_name(NodeType::Function, "db_session")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/db.py")
+        .find(|n| n.file == "src/testing/python/web/db.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("db_session function not found in db.py");
 
@@ -370,7 +370,7 @@ from flask_app.routes import flask_bp"#
     let species_fn = graph
         .find_nodes_by_name(NodeType::Function, "species")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("species function not found in model.py");
 
@@ -385,7 +385,7 @@ from flask_app.routes import flask_bp"#
     let is_mammal_fn = graph
         .find_nodes_by_name(NodeType::Function, "is_mammal")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("is_mammal function not found in model.py");
 
@@ -403,7 +403,7 @@ from flask_app.routes import flask_bp"#
     let create_puppy_fn = graph
         .find_nodes_by_name(NodeType::Function, "create_puppy")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("create_puppy function not found in model.py");
 
@@ -421,7 +421,7 @@ from flask_app.routes import flask_bp"#
     let get_animal_info_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_animal_info")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("get_animal_info function not found in model.py");
 
@@ -443,14 +443,14 @@ from flask_app.routes import flask_bp"#
     let get_person_by_id_fn = graph
         .find_nodes_by_name(NodeType::Function, "get_person_by_id")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/db.py")
+        .find(|n| n.file == "src/testing/python/web/db.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("get_person_by_id function not found in db.py");
 
     let create_new_person_fn = graph
         .find_nodes_by_name(NodeType::Function, "create_new_person")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/db.py")
+        .find(|n| n.file == "src/testing/python/web/db.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("create_new_person function not found in db.py");
 
@@ -540,21 +540,21 @@ from flask_app.routes import flask_bp"#
     let flask_get_endpoint = graph
         .find_nodes_by_name(NodeType::Endpoint, "/person/<int:id>")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/flask_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/flask_app/routes.py")
         .map(|n| Node::new(NodeType::Endpoint, n))
         .expect("Flask GET endpoint not found");
 
     let flask_post_endpoint = graph
         .find_nodes_by_name(NodeType::Endpoint, "/person/")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/flask_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/flask_app/routes.py")
         .map(|n| Node::new(NodeType::Endpoint, n))
         .expect("Flask POST endpoint not found");
 
     let fastapi_get_endpoint = graph
         .find_nodes_by_name(NodeType::Endpoint, "/person/{id}")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/fastapi_app/routes.py")
+        .find(|n| n.file == "src/testing/python/web/fastapi_app/routes.py")
         .map(|n| Node::new(NodeType::Endpoint, n))
         .expect("FastAPI GET endpoint not found");
 
@@ -589,14 +589,14 @@ from flask_app.routes import flask_bp"#
     let repr_fn = graph
         .find_nodes_by_name(NodeType::Function, "__repr__")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("__repr__ method not found in model.py");
 
     let str_fn = graph
         .find_nodes_by_name(NodeType::Function, "__str__")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("__str__ method not found in model.py");
 
@@ -624,7 +624,7 @@ from flask_app.routes import flask_bp"#
     let person_response_dm = graph
         .find_nodes_by_name(NodeType::DataModel, "PersonResponse")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/model.py")
+        .find(|n| n.file == "src/testing/python/web/model.py")
         .map(|n| Node::new(NodeType::DataModel, n))
         .expect("PersonResponse DataModel not found in model.py");
 
@@ -651,14 +651,14 @@ from flask_app.routes import flask_bp"#
         .find_nodes_with_edge_type(NodeType::File, NodeType::Class, EdgeType::Imports)
         .into_iter()
         .find(|(source, target)| {
-            source.file == "src/testing/python/db.py" && target.name == "Person"
+            source.file == "src/testing/python/web/db.py" && target.name == "Person"
         })
         .expect("Expected db.py to import Person class");
 
     let session_local_var = graph
         .find_nodes_by_name(NodeType::Var, "SessionLocal")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/database.py")
+        .find(|n| n.file == "src/testing/python/web/database.py")
         .map(|n| Node::new(NodeType::Var, n))
         .expect("SessionLocal variable not found in database.py");
 
@@ -675,13 +675,13 @@ from flask_app.routes import flask_bp"#
     let main_file = graph
         .find_nodes_by_name(NodeType::File, "main.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/main.py")
+        .find(|n| n.file == "src/testing/python/web/main.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("main.py file not found");
     let cleanup_fn = graph
         .find_nodes_by_name(NodeType::Function, "cleanup")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/main.py")
+        .find(|n| n.file == "src/testing/python/web/main.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("cleanup function not found in main.py");
 
@@ -711,14 +711,14 @@ from flask_app.routes import flask_bp"#
     let signal_handler_fn = graph
         .find_nodes_by_name(NodeType::Function, "signal_handler")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/main.py")
+        .find(|n| n.file == "src/testing/python/web/main.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("signal_handler function not found in main.py");
 
     let run_servers_fn = graph
         .find_nodes_by_name(NodeType::Function, "run_servers")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/main.py")
+        .find(|n| n.file == "src/testing/python/web/main.py")
         .map(|n| Node::new(NodeType::Function, n))
         .expect("run_servers function not found in main.py");
 
@@ -750,21 +750,21 @@ from flask_app.routes import flask_bp"#
     let django_settings_file = graph
         .find_nodes_by_name(NodeType::File, "settings.py")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/settings.py")
+        .find(|n| n.file == "src/testing/python/web/django_app/settings.py")
         .map(|n| Node::new(NodeType::File, n))
         .expect("Django settings.py file not found");
 
     let secret_key_var = graph
         .find_nodes_by_name(NodeType::Var, "SECRET_KEY")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/settings.py")
+        .find(|n| n.file == "src/testing/python/web/django_app/settings.py")
         .map(|n| Node::new(NodeType::Var, n))
         .expect("SECRET_KEY variable not found in Django settings.py");
 
     let debug_var = graph
         .find_nodes_by_name(NodeType::Var, "DEBUG")
         .into_iter()
-        .find(|n| n.file == "src/testing/python/django_app/settings.py")
+        .find(|n| n.file == "src/testing/python/web/django_app/settings.py")
         .map(|n| Node::new(NodeType::Var, n))
         .expect("DEBUG variable not found in Django settings.py");
 
@@ -832,7 +832,7 @@ from flask_app.routes import flask_bp"#
 
     let unit_test_file = files
         .iter()
-        .find(|f| f.file.starts_with("src/testing/python/tests") && f.name == "unit_test.py")
+        .find(|f| f.file.starts_with("src/testing/python/web/tests") && f.name == "unit_test.py")
         .expect("unit_test.py not found");
     assert!(graph.has_edge(
         &Node::new(NodeType::File, unit_test_file.clone()),
@@ -842,7 +842,7 @@ from flask_app.routes import flask_bp"#
 
     let e2e_test_file = files
         .iter()
-        .find(|f| f.file.starts_with("src/testing/python/tests") && f.name == "e2e_test.py")
+        .find(|f| f.file.starts_with("src/testing/python/web/tests") && f.name == "e2e_test.py")
         .expect("e2e_test.py not found");
     assert!(graph.has_edge(
         &Node::new(NodeType::File, e2e_test_file.clone()),
@@ -978,17 +978,180 @@ from flask_app.routes import flask_bp"#
     Ok(())
 }
 
+pub async fn test_python_data_science_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/python/data_science",
+        Lang::from_str("python").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let _graph = repo.build_graph_inner::<G>().await?;
+
+    // Data Science Suite Assertions
+    let files = _graph.find_nodes_by_type(NodeType::File);
+    assert_eq!(files.len(), 3, "Expected 3 files in Data Science suite");
+
+    let classes = _graph.find_nodes_by_type(NodeType::Class);
+    assert!(
+        classes.len() >= 2,
+        "Expected at least 2 classes (FraudDetector, DataPipeline)"
+    );
+
+    let fraud_detector = _graph
+        .find_nodes_by_name(NodeType::Class, "FraudDetector")
+        .into_iter()
+        .find(|n| n.file.ends_with("model.py"))
+        .expect("FraudDetector class not found");
+
+    let forward_method = _graph
+        .find_nodes_by_name(NodeType::Function, "forward")
+        .into_iter()
+        .find(|n| n.file.ends_with("model.py"))
+        .expect("forward method not found");
+
+    assert!(
+        _graph.has_edge(
+            &Node::new(NodeType::Class, fraud_detector.clone()),
+            &Node::new(NodeType::Function, forward_method.clone()),
+            EdgeType::Operand
+        ),
+        "FraudDetector should have forward method as operand"
+    );
+
+    let _threshold_prop = _graph
+        .find_nodes_by_name(NodeType::Function, "threshold")
+        .into_iter()
+        .find(|n| n.file.ends_with("model.py"))
+        .expect("threshold property not found");
+
+    let train_fn = _graph
+        .find_nodes_by_name(NodeType::Function, "train_model")
+        .into_iter()
+        .find(|n| n.file.ends_with("train.py"))
+        .expect("train_model function not found");
+
+    assert!(
+        train_fn.docs.is_some(),
+        "train_model should have documentation"
+    );
+
+    Ok(())
+}
+
+pub async fn test_python_cli_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/python/cli",
+        Lang::from_str("python").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let _graph = repo.build_graph_inner::<G>().await?;
+
+    let files = _graph.find_nodes_by_type(NodeType::File);
+    assert_eq!(files.len(), 3, "Expected 3 files in CLI suite");
+
+    let _app_config = _graph
+        .find_nodes_by_name(NodeType::Class, "AppConfig")
+        .into_iter()
+        .find(|n| n.file.ends_with("config.py"))
+        .expect("AppConfig class not found");
+
+    let cli_group = _graph
+        .find_nodes_by_name(NodeType::Function, "cli")
+        .into_iter()
+        .find(|n| n.file.ends_with("main.py"))
+        .expect("cli group function not found");
+
+    assert_eq!(
+        cli_group.docs.as_deref(),
+        Some("CloudOps CLI Tool."),
+        "cli group docstring mismatch"
+    );
+
+    let _deploy_cmd = _graph
+        .find_nodes_by_name(NodeType::Function, "deploy")
+        .into_iter()
+        .find(|n| n.file.ends_with("main.py"))
+        .expect("deploy command function not found");
+
+    let _deploy_service_fn = _graph
+        .find_nodes_by_name(NodeType::Function, "deploy_service")
+        .into_iter()
+        .find(|n| n.file.ends_with("utils.py"))
+        .expect("deploy_service function not found");
+
+    let config_vars = _graph.find_nodes_by_type(NodeType::Var);
+    let app_config_vars: Vec<_> = config_vars
+        .iter()
+        .filter(|v| v.file.ends_with("config.py"))
+        .collect();
+
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "host"),
+        "AppConfig.host should be captured as a variable"
+    );
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "port"),
+        "AppConfig.port should be captured as a variable"
+    );
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "debug"),
+        "AppConfig.debug should be captured as a variable"
+    );
+    assert!(
+        app_config_vars.iter().any(|v| v.name == "api_key"),
+        "AppConfig.api_key should be captured as a variable"
+    );
+
+    let data_models = _graph.find_nodes_by_type(NodeType::DataModel);
+    assert!(
+        data_models
+            .iter()
+            .any(|dm| dm.name == "DeploymentError" && dm.file.ends_with("utils.py")),
+        "DeploymentError should be captured as a DataModel"
+    );
+
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_python() {
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_python_generic::<ArrayGraph>().await.unwrap();
-    test_python_generic::<BTreeMapGraph>().await.unwrap();
+    // Web Suite
+    test_python_web_generic::<ArrayGraph>().await.unwrap();
+    test_python_web_generic::<BTreeMapGraph>().await.unwrap();
+
+    // Data Science Suite
+    test_python_data_science_generic::<ArrayGraph>()
+        .await
+        .unwrap();
+    test_python_data_science_generic::<BTreeMapGraph>()
+        .await
+        .unwrap();
+
+    // CLI Suite
+    test_python_cli_generic::<ArrayGraph>().await.unwrap();
+    test_python_cli_generic::<BTreeMapGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
-        test_python_generic::<Neo4jGraph>().await.unwrap();
+
+        test_python_web_generic::<Neo4jGraph>().await.unwrap();
+        graph.clear().await.unwrap();
+
+        test_python_data_science_generic::<Neo4jGraph>()
+            .await
+            .unwrap();
+        graph.clear().await.unwrap();
+
+        test_python_cli_generic::<Neo4jGraph>().await.unwrap();
     }
 }
