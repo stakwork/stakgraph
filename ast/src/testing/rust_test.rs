@@ -839,3 +839,14 @@ async fn test_rust() {
         test_rust_generic::<Neo4jGraph>().await.unwrap();
     }
 }
+
+/*
+lures:
+    testing::c::test_c
+    testing::cpp::test_cpp
+    testing::monorepo::test_remote_monorepo_comprehensive_graph
+    testing::monorepo::test_remote_monorepo_root_detection
+    testing::nextjs::test_nextjs
+    testing::react::test_react_typescript
+    testing::rust_test::test_rust
+    testing::swift::test_swift */

@@ -198,13 +198,11 @@ fn find_function_by_import<G: Graph>(
         if let Some(target) =
             graph.find_node_by_name_and_file_contains(NodeType::Function, func_name, &resolved_path)
         {
-            if target.start > 0 || target.end > 0 {
-                log_cmd(format!(
-                    "::: found function by import: {:?} (resolved: {:?})",
-                    func_name, resolved_path
-                ));
-                return Some(target);
-            }
+            log_cmd(format!(
+                "::: found function by import: {:?} (resolved: {:?})",
+                func_name, resolved_path
+            ));
+            return Some(target);
         }
     }
 
@@ -236,8 +234,7 @@ fn find_only_one_function_file<G: Graph>(
     for node in nodes {
         let is_same = node.start == source_start && node.file == current_file;
         // NOT empty functions (interfaces)
-        if (node.start > 0 || node.end > 0) && (!is_same || source_node_type != NodeType::Function)
-        {
+        if !is_same || source_node_type != NodeType::Function {
             target_files_starts.push(node);
         }
     }
@@ -323,10 +320,7 @@ fn find_function_in_same_file<G: Graph>(
         if node.name != func_name && node.name.to_lowercase() == func_name.to_lowercase() {
             return None;
         }
-        if (node.start > 0 || node.end > 0)
-            && node.file == current_file
-            && node.start != source_start
-        {
+        if node.file == current_file && node.start != source_start {
             log_cmd(format!(
                 "::: found function in same file: {:?}",
                 current_file
@@ -363,20 +357,18 @@ fn find_function_in_same_directory<G: Graph>(
         if node.name != func_name && node.name.to_lowercase() == func_name.to_lowercase() {
             return None;
         }
-        if node.start > 0 || node.end > 0 {
-            if let Some(node_dir) = std::path::Path::new(&node.file)
-                .parent()
-                .and_then(|p| p.to_str())
-            {
-                if node_dir == current_dir && !node.file.contains("mock") {
-                    let is_same = node.start == source_start && node.file == current_file;
-                    if !is_same {
-                        log_cmd(format!(
-                            "::: found function in same directory! file: {:?}",
-                            current_file
-                        ));
-                        same_dir_files.push(node);
-                    }
+        if let Some(node_dir) = std::path::Path::new(&node.file)
+            .parent()
+            .and_then(|p| p.to_str())
+        {
+            if node_dir == current_dir && !node.file.contains("mock") {
+                let is_same = node.start == source_start && node.file == current_file;
+                if !is_same {
+                    log_cmd(format!(
+                        "::: found function in same directory! file: {:?}",
+                        current_file
+                    ));
+                    same_dir_files.push(node);
                 }
             }
         }
@@ -404,9 +396,7 @@ fn _find_function_files<G: Graph>(func_name: &str, graph: &G) -> Vec<String> {
     let mut target_files = Vec::new();
     let function_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     for node in function_nodes {
-        if node.start > 0 || node.end > 0 {
-            target_files.push(node.file.clone());
-        }
+        target_files.push(node.file.clone());
     }
     target_files
 }

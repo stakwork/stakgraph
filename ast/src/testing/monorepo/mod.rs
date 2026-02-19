@@ -391,9 +391,10 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
     );
 
     let claude_file = root_files.iter().find(|f| f.name == "CLAUDE.md").unwrap();
+    let claude_path = Path::new("/tmp").join(&claude_file.file);
     assert!(
         !slice_body(
-            &std::fs::read_to_string(&claude_file.file).expect("Failed to read file"),
+            &std::fs::read_to_string(&claude_path).expect("Failed to read file"),
             claude_file.start,
             claude_file.end
         )
@@ -402,9 +403,10 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
     );
 
     let readme_file = root_files.iter().find(|f| f.name == "README.md").unwrap();
+    let readme_path = Path::new("/tmp").join(&readme_file.file);
     assert!(
         !slice_body(
-            &std::fs::read_to_string(&readme_file.file).expect("Failed to read file"),
+            &std::fs::read_to_string(&readme_path).expect("Failed to read file"),
             readme_file.start,
             readme_file.end
         )

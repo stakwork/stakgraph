@@ -63,9 +63,7 @@ pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
 
     let main_import_body = format!(
         r#"#include "crow.h"
-
 #include "routes.h"
-
 #include "model.h"
 "#
     );

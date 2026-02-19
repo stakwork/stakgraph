@@ -146,22 +146,25 @@ impl Lang {
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
         let mut v = NodeData::in_file(file);
+        let mut has_declaration = false;
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == VARIABLE_NAME {
                 v.name = body.to_string();
             } else if o == VARIABLE_DECLARATION {
                 v.start = node.start_position().row;
+                has_declaration = true;
             } else if o == VARIABLE_TYPE {
                 v.data_type = Some(body);
             }
 
             Ok(())
         })?;
-        if !v.name.is_empty() && (v.start > 0 || v.end > 0) {
+        if !v.name.is_empty() && has_declaration {
             res.push(v);
         }
         Ok(res)
     }
+
     pub fn format_page<G: Graph>(
         &self,
         m: &QueryMatch,
@@ -669,6 +672,7 @@ impl Lang {
         let mut return_end_byte: Option<usize> = None;
         let mut attributes_start_byte: Option<usize> = None;
         let mut is_macro = false;
+        let mut has_def = false;
 
         Self::loop_captures(q, m, code, |body, node, o| {
             if o == PARENT_TYPE {
@@ -685,6 +689,7 @@ impl Lang {
                 func.end = node.end_position().row;
                 def_start_byte = Some(node.start_byte());
                 def_end_byte = Some(node.end_byte());
+                has_def = true;
                 if attributes_start_byte.is_none() {
                     attributes_start_byte = Some(node.start_byte());
                 }
@@ -865,8 +870,11 @@ impl Lang {
             }
             Ok(())
         })?;
-        if func.start == 0 && func.end == 0 {
-            log_cmd(format!("found function but empty body {:?}", func.name));
+        if !has_def {
+            log_cmd(format!(
+                "found function but no definition captured {:?}",
+                func.name
+            ));
             return Ok(None);
         }
 
@@ -1056,8 +1064,8 @@ impl Lang {
                         called, &t.file
                     ));
                     fc.target = NodeKeys::new(&called, &t.file, t.start);
-                    // set extenal func so this is marked as USES edge rather than CALLS
-                    if (t.start == 0 && t.end == 0) && t.docs.is_some() {
+                    // set external func so this is marked as USES edge rather than CALLS
+                    if t.meta.contains_key("external") {
                         log_cmd(format!("==> ! found target is external {:?}!!!", called));
                         external_func = Some(t);
                     }
@@ -1088,6 +1096,7 @@ impl Lang {
                                 let mut lib_func = NodeData::name_file(&called, &target_file);
                                 lib_func.start = gt.line as usize;
                                 lib_func.end = gt.line as usize;
+                                lib_func.add_external();
                                 let pos2 = Position::new(
                                     file,
                                     call_point.row as u32,

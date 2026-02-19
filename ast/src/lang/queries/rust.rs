@@ -801,6 +801,39 @@ impl Stack for Rust {
         false
     }
 
+    fn filter_tests(&self, funcs: Vec<Function>) -> (Vec<Function>, Vec<Function>) {
+        let test_attr_patterns = [
+            "test",
+            "tokio::test",
+            "actix_rt::test",
+            "actix_web::test",
+            "rstest",
+            "proptest",
+            "quickcheck",
+            "wasm_bindgen_test",
+            "bench",
+        ];
+
+        let mut regular = Vec::new();
+        let mut tests = Vec::new();
+
+        for func in funcs {
+            let is_test = if let Some(attrs) = func.0.meta.get("attributes") {
+                test_attr_patterns.iter().any(|pat| attrs.contains(pat))
+            } else {
+                false
+            };
+
+            if is_test {
+                tests.push(func);
+            } else {
+                regular.push(func);
+            }
+        }
+
+        (regular, tests)
+    }
+
     fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
         let f = file.replace('\\', "/");
         let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();

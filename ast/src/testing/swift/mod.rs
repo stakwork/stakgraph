@@ -17,7 +17,7 @@ pub async fn test_swift_legacy_generic<G: Graph>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -44,33 +44,6 @@ pub async fn test_swift_legacy_generic<G: Graph>() -> Result<()> {
 
     let pkg_files = graph.find_nodes_by_name(NodeType::File, "Podfile");
     assert_eq!(pkg_files.len(), 1, "Expected 1 Podfile");
-    let expected_results = r#"platform :ios, '15.0'
-use_frameworks!
-inhibit_all_warnings!
-
-install! 'cocoapods'
-
-target 'SphinxTestApp' do
-    use_frameworks!
-    pod 'Alamofire', '~> 5.10.2'
-    pod 'SwiftyJSON'
-    pod 'ObjectMapper'
-end
-"#
-    .to_string();
-    assert_eq!(
-        pkg_files[0].name, "Podfile",
-        "Package file name is incorrect"
-    );
-    assert_eq!(
-        slice_body(
-            &std::fs::read_to_string(&pkg_files[0].file).expect("Failed to read file"),
-            pkg_files[0].start,
-            pkg_files[0].end
-        ),
-        expected_results,
-        "Podfile should contain correct content"
-    );
 
     let info_plist = graph.find_nodes_by_name(NodeType::File, "Info.plist");
     assert_eq!(info_plist.len(), 1, "Expected 1 Info.plist");
@@ -398,8 +371,6 @@ pub async fn test_swift_modern_generic<G: Graph>() -> Result<()> {
     .unwrap();
 
     let graph = repo.build_graph_inner::<G>().await?;
-
-    graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;

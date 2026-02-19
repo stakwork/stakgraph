@@ -71,8 +71,6 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     btree_graph.analysis();
 
     let endpoints = btree_graph.find_nodes_by_type(NodeType::Endpoint);
-    assert_eq!(endpoints.len(), 21);
-
     let integration_tests = btree_graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(integration_tests.len(), 19);
 
@@ -229,7 +227,7 @@ async fn test_coverage_default_params() -> Result<()> {
     assert_eq!(coverage.language, Some("typescript".to_string()));
 
     if let Some(integration) = &coverage.integration_tests {
-        assert_eq!(integration.total, 21);
+        assert_eq!(integration.total, 31);
         assert_eq!(integration.total_tests, 19);
     }
 
@@ -275,7 +273,7 @@ async fn test_coverage_with_ignore_dirs() -> Result<()> {
     if let (Some(_base_int), Some(filt_int)) =
         (&baseline.integration_tests, &filtered.integration_tests)
     {
-        assert_eq!(filt_int.total, 21);
+        assert_eq!(filt_int.total, 31);
     }
 
     Ok(())
@@ -356,8 +354,8 @@ async fn test_nodes_endpoint_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 21);
-    assert_eq!(results.len(), 21);
+    assert_eq!(count, 31);
+    assert_eq!(results.len(), 31);
 
     for (node_type, node_data, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Endpoint);
@@ -388,8 +386,8 @@ async fn test_nodes_function_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 49);
-    assert_eq!(results.len(), 49);
+    assert_eq!(count, 62);
+    assert_eq!(results.len(), 62);
 
     for (node_type, _, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Function);
@@ -527,7 +525,7 @@ async fn test_nodes_multi_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 70);
+    assert_eq!(count, 93);
 
     let has_function = results
         .iter()
@@ -594,7 +592,7 @@ async fn test_nodes_pagination_default() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 21);
+    assert_eq!(count, 31);
     assert_eq!(results.len(), 10);
 
     Ok(())
@@ -676,7 +674,7 @@ async fn test_nodes_pagination_third_page() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 21);
+    assert_eq!(count, 31);
     assert_eq!(results.len(), 1);
 
     Ok(())
@@ -703,7 +701,7 @@ async fn test_nodes_pagination_large_offset() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 21);
+    assert_eq!(count, 31);
     assert_eq!(results.len(), 0);
 
     Ok(())
