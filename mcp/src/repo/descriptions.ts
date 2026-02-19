@@ -180,8 +180,9 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
             embeddings,
           );
           totalProcessed++;
+          const mem = process.memoryUsage();
           console.log(
-            `[describe_nodes] Processed ${name} ($${nodeCost.toFixed(6)})`,
+            `[describe_nodes] Processed ${name} ($${nodeCost.toFixed(6)}) | rss=${(mem.rss / 1024 / 1024).toFixed(1)}MB heap=${(mem.heapUsed / 1024 / 1024).toFixed(1)}/${(mem.heapTotal / 1024 / 1024).toFixed(1)}MB`,
           );
         } catch (e) {
           console.error(
