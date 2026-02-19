@@ -1,6 +1,6 @@
 {
   "name": "aieo",
-  "version": "0.1.30",
+  "version": "0.1.31",
   "main": "./dist/index.js",
   "type": "module",
   "module": "./dist/index.mjs",
@@ -14,7 +14,6 @@
     "build": "tsup",
     "test": "echo \"Error: no test specified\" && exit 1",
     "try": "ts-node ./src/test/try.ts",
-    "try-cc": "ts-node ./src/test/try-cc.ts",
     "try-anthropic": "ts-node ./src/test/try-anthropic.ts",
     "try-kimi": "ts-node ./src/test/try-kimi.ts"
   },

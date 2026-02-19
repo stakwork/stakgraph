@@ -24,8 +24,8 @@ type ModelId = string;
 
 const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   anthropic: {
-    sonnet: "claude-sonnet-4-5",
-    opus: "claude-opus-4-5",
+    sonnet: "claude-sonnet-4-6",
+    opus: "claude-opus-4-6",
     haiku: "claude-haiku-4-5",
   },
   google: {

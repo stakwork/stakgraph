@@ -22,7 +22,7 @@ async function doTheThing() {
     const provider: aieo.Provider = "anthropic";
 
     const model = aieo.getModel(provider, {
-      model: "opus",
+      // modelName: "opus",
       logger: aieo.consoleLogger("aieo"),
     });
 
