@@ -1,12 +1,16 @@
 use std::collections::HashMap;
+use std::io;
 
-use anyhow::Result;
+use console::{style, Style};
+use shared::Result;
 
 use ast::lang::graphs::EdgeType;
 use ast::lang::graphs::NodeType;
 use ast::lang::ArrayGraph;
 use ast::lang::Edge;
 use ast::lang::Node;
+
+use super::output::Output;
 
 pub fn common_ancestor(files: &[String]) -> Option<std::path::PathBuf> {
     if files.is_empty() {
@@ -79,6 +83,19 @@ fn get_language_delimiter(file: &str) -> &'static str {
     }
 }
 
+fn style_for_node_type(node_type: &NodeType) -> Style {
+    match node_type {
+        NodeType::Function => Style::new().green().bold(),
+        NodeType::Endpoint => Style::new().yellow().bold(),
+        NodeType::Request => Style::new().cyan().bold(),
+        NodeType::DataModel => Style::new().magenta().bold(),
+        NodeType::Class => Style::new().blue().bold(),
+        NodeType::Import => Style::new().dim(),
+        NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => Style::new().bright().bold(),
+        _ => Style::new().bold(),
+    }
+}
+
 fn format_function_name_with_operand(node: &Node) -> String {
     let nd = &node.node_data;
 
@@ -125,7 +142,7 @@ fn build_edge_indices(edges: &[Edge]) -> (HashMap<String, Vec<&Edge>>, HashMap<S
     (edges_by_source, edges_by_target)
 }
 
-fn print_function_edges(node: &Node, edges_by_source: &HashMap<String, Vec<&Edge>>, graph: &ArrayGraph) {
+fn print_function_edges(out: &mut Output, node: &Node, edges_by_source: &HashMap<String, Vec<&Edge>>, graph: &ArrayGraph) -> io::Result<()> {
     let source_key = ast::utils::create_node_key(node).to_lowercase();
     let source_file = &node.node_data.file;
 
@@ -170,30 +187,40 @@ fn print_function_edges(node: &Node, edges_by_source: &HashMap<String, Vec<&Edge
                 String::new()
             };
 
-            println!(
-                "  • {:?} → {} (L{}){}",
-                edge.edge,
+            let arrow = style("→").dim();
+            let line_num = style(format!("L{}", target_line + 1)).dim();
+            let file_info_styled = style(file_info).dim();
+            
+            out.writeln(format!(
+                "  {} {} ({}){}"  ,
+                arrow,
                 target_display,
-                target_line + 1,
-                file_info
-            );
+                line_num,
+                file_info_styled
+            ))?;
         }
     }
+    Ok(())
 }
 
-fn print_node_summary(node: &ast::lang::graphs::Node) {
+fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::Result<()> {
     let nd = &node.node_data;
     let name = format_function_name_with_operand(node);
     let lines = format_lines(nd.start, nd.end);
 
-    println!("{}: {} ({})", node.node_type, name, lines);
+    let node_type_styled = style_for_node_type(&node.node_type).apply_to(&node.node_type);
+    let lines_styled = style(format!("({})", lines)).dim();
+    
+    out.writeln(format!("{}: {} {}", node_type_styled, name, lines_styled))?;
 
     if let Some(docs) = &nd.docs {
-        println!("Docs: {}", first_lines(docs.as_str(), 3, 200));
+        let docs_label = style("Docs:").dim();
+        out.writeln(format!("{} {}", docs_label, first_lines(docs.as_str(), 3, 200)))?;
     }
 
     if let Some(interface) = nd.meta.get("interface") {
-        println!("```\n{}\n```", interface);
+        let fence = style("```").dim();
+        out.writeln(format!("{}\n{}\n{}", fence, interface, fence))?;
     } else {
         let body_lines = match node.node_type {
             NodeType::Function | NodeType::Endpoint | NodeType::Var => 20,
@@ -213,17 +240,20 @@ fn print_node_summary(node: &ast::lang::graphs::Node) {
                 nd.body.clone()
             };
             let body_preview = first_lines(&body, body_lines, 200);
-            println!("```\n{}\n```", body_preview);
+            let fence = style("```").dim();
+            out.writeln(format!("{}\n{}\n{}", fence, body_preview, fence))?;
         }
     }
+    Ok(())
 }
 
-pub fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> Result<()> {
+pub fn print_single_file_nodes(out: &mut Output, graph: &ArrayGraph, file_path: &str) -> Result<()> {
     let file_path = std::fs::canonicalize(file_path)?
         .to_string_lossy()
         .to_string();
 
-    println!("File: {}", file_path);
+    let file_label = style("File:").bold().cyan();
+    out.writeln(format!("{} {}", file_label, style(&file_path).cyan()))?;
 
     let mut nodes: Vec<_> = graph
         .nodes
@@ -245,13 +275,13 @@ pub fn print_single_file_nodes(graph: &ArrayGraph, file_path: &str) -> Result<()
     let (edges_by_source, _edges_by_target) = build_edge_indices(&graph.edges);
 
     for node in nodes {
-        print_node_summary(node);
+        print_node_summary(out, node)?;
 
         if matches!(node.node_type, NodeType::Function) {
-            print_function_edges(node, &edges_by_source, graph);
+            print_function_edges(out, node, &edges_by_source, graph)?;
         }
 
-        println!();
+        out.newline()?;
     }
 
     Ok(())
