@@ -5,7 +5,6 @@ use crate::lang::{
     linker::link_tests,
 };
 use crate::repo::Repo;
-use rayon::prelude::*;
 use shared::error::Result;
 use std::{any::type_name, collections::HashMap, path::Path};
 use tracing::{debug, info};
@@ -20,32 +19,20 @@ impl Repo {
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut lib_count = 0;
-        let pkg_files_res: Vec<_> = if use_parallel {
-            info!("[parallel] process_libraries: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .filter(|(f, _)| self.lang.kind.is_package_file(f))
-                .map(|(pkg_file, code)| {
-                    let mut file_data = self.prepare_file_data(pkg_file, code);
-                    file_data.meta.insert("lib".to_string(), "true".to_string());
-                    let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
-                    let libs = self.lang.get_libs::<G>(code, pkg_file)?;
-                    Ok((pkg_file, file_data, parent_type, parent_file, libs))
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .filter(|(f, _)| self.lang.kind.is_package_file(f))
-                .map(|(pkg_file, code)| {
-                    let mut file_data = self.prepare_file_data(pkg_file, code);
-                    file_data.meta.insert("lib".to_string(), "true".to_string());
-                    let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
-                    let libs = self.lang.get_libs::<G>(code, pkg_file)?;
-                    Ok((pkg_file, file_data, parent_type, parent_file, libs))
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+        
+        let pkg_files_res: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_libraries",
+            |(f, _)| self.lang.kind.is_package_file(f),
+            |(pkg_file, code)| {
+                let mut file_data = self.prepare_file_data(pkg_file, code);
+                file_data.meta.insert("lib".to_string(), "true".to_string());
+                let (parent_type, parent_file) = self.get_parent_info(Path::new(pkg_file));
+                let libs = self.lang.get_libs::<G>(code, pkg_file)?;
+                Ok((pkg_file.clone(), file_data, parent_type, parent_file, libs))
+            },
+        )?;
 
         let total_pkg_files = pkg_files_res.len();
         for (pkg_file, file_data, parent_type, parent_file, libs) in pkg_files_res {
@@ -61,7 +48,7 @@ impl Repo {
             lib_count += libs.len();
 
             for lib in libs {
-                graph.add_node_with_parent(&NodeType::Library, &lib, &NodeType::File, pkg_file);
+                graph.add_node_with_parent(&NodeType::Library, &lib, &NodeType::File, &pkg_file);
             }
         }
 
@@ -87,26 +74,17 @@ impl Repo {
         info!("=> get_imports...");
 
         let lang = &self.lang;
-        let results: Vec<_> = if use_parallel {
-            info!("[parallel] process_imports: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .map(|(filename, code)| {
-                    let imports = lang.get_imports::<G>(code, filename)?;
-                    let import_section = combine_import_sections(imports);
-                    Ok(import_section)
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .map(|(filename, code)| {
-                    let imports = lang.get_imports::<G>(code, filename)?;
-                    let import_section = combine_import_sections(imports);
-                    Ok(import_section)
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+        let results: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_imports",
+            |_| true,
+            |(filename, code)| {
+                let imports = lang.get_imports::<G>(code, filename)?;
+                let import_section = combine_import_sections(imports);
+                Ok(import_section)
+            },
+        )?;
 
         for import_section in results {
             i += 1;
@@ -146,24 +124,16 @@ impl Repo {
         info!("=> get_vars...");
 
         let lang = &self.lang;
-        let results: Vec<_> = if use_parallel {
-            info!("[parallel] process_variables: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .map(|(filename, code)| {
-                    let variables = lang.get_vars::<G>(code, filename)?;
-                    Ok(variables)
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .map(|(filename, code)| {
-                    let variables = lang.get_vars::<G>(code, filename)?;
-                    Ok(variables)
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+        let results: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_variables",
+            |_| true,
+            |(filename, code)| {
+                let variables = lang.get_vars::<G>(code, filename)?;
+                Ok(variables)
+            },
+        )?;
 
         for variables in results {
             i += 1;
@@ -205,37 +175,19 @@ impl Repo {
         info!("=> get_instances...");
 
         let lang = &self.lang;
-
-        let results: Vec<_> = if use_parallel {
-            info!("[parallel] process_instances_and_traits: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .filter(|(filename, _)| lang.kind.is_source_file(filename))
-                .map(|(filename, code)| {
-                    let q_inst = lang.lang().instance_definition_query();
-                    let instances =
-                        lang.get_query_opt::<G>(q_inst, code, filename, NodeType::Instance)?;
-
-                    let traits = lang.get_traits::<G>(code, filename)?;
-
-                    Ok((instances, traits))
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .filter(|(filename, _)| lang.kind.is_source_file(filename))
-                .map(|(filename, code)| {
-                    let q_inst = lang.lang().instance_definition_query();
-                    let instances =
-                        lang.get_query_opt::<G>(q_inst, code, filename, NodeType::Instance)?;
-
-                    let traits = lang.get_traits::<G>(code, filename)?;
-
-                    Ok((instances, traits))
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+        let results: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_instances_and_traits",
+            |(filename, _)| lang.kind.is_source_file(filename),
+            |(filename, code)| {
+                let q_inst = lang.lang().instance_definition_query();
+                let instances =
+                    lang.get_query_opt::<G>(q_inst, code, filename, NodeType::Instance)?;
+                let traits = lang.get_traits::<G>(code, filename)?;
+                Ok((instances, traits))
+            },
+        )?;
         info!("=> get_traits...");
 
         for (instances, traits) in results {
@@ -268,7 +220,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_data_models", 8);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut datamodel_count = 0;
         let total = filez.len();
@@ -279,56 +231,31 @@ impl Repo {
         let lang = &self.lang;
         let graph_ref = &*graph;
 
-        let results: Vec<_> = if use_parallel {
-            info!("[parallel] process_data_models: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .filter(|(filename, _)| {
-                    if !lang.kind.is_source_file(filename) {
+        let results: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_data_models",
+            |(filename, _)| {
+                if !lang.kind.is_source_file(filename) {
+                    return false;
+                }
+                if let Some(dmf) = lang.lang().data_model_path_filter() {
+                    if !filename.contains(&dmf) {
                         return false;
                     }
-                    if let Some(dmf) = lang.lang().data_model_path_filter() {
-                        if !filename.contains(&dmf) {
-                            return false;
-                        }
-                    }
-                    true
-                })
-                .map(|(filename, code)| {
-                    let structs = lang.get_data_models::<G>(code, filename)?;
-                    let mut all_edges = Vec::new();
-                    for dm in &structs {
-                        let edges = lang.collect_class_contains_datamodel_edge(dm, graph_ref)?;
-                        all_edges.extend(edges);
-                    }
-                    Ok((structs, all_edges))
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .filter(|(filename, _)| {
-                    if !lang.kind.is_source_file(filename) {
-                        return false;
-                    }
-                    if let Some(dmf) = lang.lang().data_model_path_filter() {
-                        if !filename.contains(&dmf) {
-                            return false;
-                        }
-                    }
-                    true
-                })
-                .map(|(filename, code)| {
-                    let structs = lang.get_data_models::<G>(code, filename)?;
-                    let mut all_edges = Vec::new();
-                    for dm in &structs {
-                        let edges = lang.collect_class_contains_datamodel_edge(dm, graph_ref)?;
-                        all_edges.extend(edges);
-                    }
-                    Ok((structs, all_edges))
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+                }
+                true
+            },
+            |(filename, code)| {
+                let structs = lang.get_data_models::<G>(code, filename)?;
+                let mut all_edges = Vec::new();
+                for dm in &structs {
+                    let edges = lang.collect_class_contains_datamodel_edge(dm, graph_ref)?;
+                    all_edges.extend(edges);
+                }
+                Ok((structs, all_edges))
+            },
+        )?;
 
         for (structs, edges) in results {
             i += 1;
@@ -360,7 +287,7 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_functions_and_tests", 9);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut function_count = 0;
         let mut test_count = 0;
@@ -372,24 +299,13 @@ impl Repo {
         let lsp_tx = &self.lsp_tx;
         let graph_ref = &*graph;
 
-        let results: Vec<_> = if use_parallel {
-            info!("[parallel] process_functions_and_tests: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .filter(|(filename, _)| lang.kind.is_source_file(filename))
-                .map(|(filename, code)| {
-                    lang.get_functions_and_tests(code, filename, graph_ref, lsp_tx)
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .filter(|(filename, _)| lang.kind.is_source_file(filename))
-                .map(|(filename, code)| {
-                    lang.get_functions_and_tests(code, filename, graph_ref, lsp_tx)
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+        let results: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_functions_and_tests",
+            |(filename, _)| lang.kind.is_source_file(filename),
+            |(filename, code)| lang.get_functions_and_tests(code, filename, graph_ref, lsp_tx),
+        )?;
 
         for (funcs, tests) in results {
             i += 1;
@@ -540,75 +456,45 @@ impl Repo {
         filez: &[(String, String)],
     ) -> Result<()> {
         self.send_status_update("process_endpoints", 11);
-        let use_parallel = !std::any::type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         info!("=> get_endpoints...");
 
         let lang = &self.lang;
         let lsp_tx = &self.lsp_tx;
         let graph_ref = &*graph;
 
-        let results: Vec<_> = if use_parallel {
-            info!("[parallel] process_endpoints: pool={} items={}", rayon::current_num_threads(), filez.len());
-            filez
-                .par_iter()
-                .map(|(filename, code)| {
-                    let mut endpoints = Vec::new();
-                    let mut endpoint_groups = Vec::new();
+        let results: Vec<_> = process_files(
+            filez,
+            use_parallel,
+            "process_endpoints",
+            |_| true,
+            |(filename, code)| {
+                let mut endpoints = Vec::new();
+                let mut endpoint_groups = Vec::new();
 
-                    if lang.kind.is_source_file(filename) {
-                        let pass_filter = if let Some(epf) = lang.lang().endpoint_path_filter() {
-                            filename.contains(&epf)
-                        } else {
-                            true
-                        };
+                if lang.kind.is_source_file(filename) {
+                    let pass_filter = if let Some(epf) = lang.lang().endpoint_path_filter() {
+                        filename.contains(&epf)
+                    } else {
+                        true
+                    };
 
-                        if pass_filter && !lang.lang().is_test_file(filename) {
-                            debug!("get_endpoints in {:?}", filename);
-                            endpoints =
-                                lang.collect_endpoints(code, filename, Some(graph_ref), lsp_tx)?;
-                        }
+                    if pass_filter && !lang.lang().is_test_file(filename) {
+                        debug!("get_endpoints in {:?}", filename);
+                        endpoints =
+                            lang.collect_endpoints(code, filename, Some(graph_ref), lsp_tx)?;
                     }
+                }
 
-                    if !lang.lang().is_test_file(filename) {
-                        let q = lang.lang().endpoint_group_find();
-                        endpoint_groups =
-                            lang.get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
-                    }
+                if !lang.lang().is_test_file(filename) {
+                    let q = lang.lang().endpoint_group_find();
+                    endpoint_groups =
+                        lang.get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
+                }
 
-                    Ok((endpoints, endpoint_groups))
-                })
-                .collect::<Result<Vec<_>>>()?
-        } else {
-            filez
-                .iter()
-                .map(|(filename, code)| {
-                    let mut endpoints = Vec::new();
-                    let mut endpoint_groups = Vec::new();
-
-                    if lang.kind.is_source_file(filename) {
-                        let pass_filter = if let Some(epf) = lang.lang().endpoint_path_filter() {
-                            filename.contains(&epf)
-                        } else {
-                            true
-                        };
-
-                        if pass_filter && !lang.lang().is_test_file(filename) {
-                            debug!("get_endpoints in {:?}", filename);
-                            endpoints =
-                                lang.collect_endpoints(code, filename, Some(graph_ref), lsp_tx)?;
-                        }
-                    }
-
-                    if !lang.lang().is_test_file(filename) {
-                        let q = lang.lang().endpoint_group_find();
-                        endpoint_groups =
-                            lang.get_query_opt::<G>(q, code, filename, NodeType::Endpoint)?;
-                    }
-
-                    Ok((endpoints, endpoint_groups))
-                })
-                .collect::<Result<Vec<_>>>()?
-        };
+                Ok((endpoints, endpoint_groups))
+            },
+        )?;
 
         info!("=> process endpoints and groups Results...");
 

@@ -5,7 +5,7 @@ use shared::error::Result;
 use std::str::FromStr;
 use test_log::test;
 
-pub async fn test_c_generic<G: Graph>() -> Result<()> {
+pub async fn test_c_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/c",
         Lang::from_str("c").unwrap(),
