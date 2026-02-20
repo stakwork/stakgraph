@@ -1,0 +1,146 @@
+name: Stakgraph Unit Test (LSP)
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  run-test-lsp:
+    runs-on: ubuntu-latest
+    name: Run unit tests with LSP
+    steps:
+      # -------------------- Docker Host --------------------
+      - name: Enable docker.host.internal for Ubuntu
+        run: |
+          pwd && sudo bash -c 'echo "172.17.0.1 host.docker.internal" >> /etc/hosts'
+
+      # -------------------- Checkout --------------------
+      - name: Checkout from Github
+        uses: actions/checkout@v4
+
+      # -------------------- Go --------------------
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.1"
+
+      - name: Verify Go Installation
+        run: go version
+
+      - name: Install gopls
+        run: |
+          export PATH="$HOME/go/bin:$PATH"
+          go install golang.org/x/tools/gopls@latest
+
+      - name: Verify gopls Installation
+        run: gopls version
+
+      # -------------------- Node / TypeScript --------------------
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify Node.js Installation
+        run: node -v
+
+      - name: Install TypeScript and TypeScript LSP
+        run: |
+          npm install -g typescript typescript-language-server
+          export PATH="$(npm bin -g):$PATH"
+          echo "$(npm bin -g)" >> $GITHUB_PATH
+
+      - name: Verify TypeScript Installation
+        run: |
+          tsc --version
+          typescript-language-server --version
+
+      # -------------------- Java / Kotlin --------------------
+      - name: Install OpenJDK 17 and jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openjdk-17-jdk jq unzip curl
+
+      - name: Set JAVA_HOME
+        run: |
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> $GITHUB_ENV
+          echo "/usr/lib/jvm/java-17-openjdk-amd64/bin" >> $GITHUB_PATH
+          java -version
+
+      - name: Install Kotlin compiler via SDKMAN
+        run: |
+          curl -s "https://get.sdkman.io" | bash
+          source "$HOME/.sdkman/bin/sdkman-init.sh"
+          sdk install kotlin
+          kotlin -version
+          echo "$HOME/.sdkman/candidates/kotlin/current/bin" >> $GITHUB_PATH
+
+      - name: Install kotlin-language-server
+        run: |
+          set -eux
+          sudo mkdir -p /opt/kotlin-language-server
+          mkdir -p /tmp/kls
+          curl -fSL --create-dirs -o /tmp/kls/kls.zip "https://github.com/fwcd/kotlin-language-server/releases/latest/download/server.zip"
+          unzip /tmp/kls/kls.zip -d /tmp/kls
+          if [ -d /tmp/kls/server ]; then
+            sudo cp -r /tmp/kls/server/* /opt/kotlin-language-server/
+          else
+            echo "ERROR: /tmp/kls/server directory not found"; ls -la /tmp/kls; exit 1
+          fi
+          if [ -f /opt/kotlin-language-server/bin/kotlin-language-server ]; then
+            sudo ln -sf /opt/kotlin-language-server/bin/kotlin-language-server /usr/local/bin/kotlin-language-server
+          elif [ -f /opt/kotlin-language-server/kotlin-language-server ]; then
+            sudo ln -sf /opt/kotlin-language-server/kotlin-language-server /usr/local/bin/kotlin-language-server
+          else
+            echo "ERROR: kotlin-language-server executable not found"; exit 1
+          fi
+          sudo chmod +x /usr/local/bin/kotlin-language-server
+          rm -rf /tmp/kls
+
+      # -------------------- Ruby --------------------
+      - name: Install Ruby and dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby-full build-essential
+
+      - name: Setup Ruby environment
+        run: |
+          # Set up GEM environment
+          export GEM_HOME="$HOME/.gem"
+          export GEM_PATH="$GEM_HOME"
+          export PATH="$GEM_HOME/bin:$PATH"
+
+          # Save to GITHUB_ENV for subsequent steps
+          echo "GEM_HOME=$GEM_HOME" >> $GITHUB_ENV
+          echo "GEM_PATH=$GEM_PATH" >> $GITHUB_ENV
+          echo "PATH=$GEM_HOME/bin:$PATH" >> $GITHUB_ENV
+
+          # Install Bundler first
+          gem install --no-document bundler -v 2.6.2
+
+          # Install Ruby LSPs
+          gem install --no-document ruby-lsp
+          gem install --no-document solargraph
+
+      - name: Verify Ruby installations
+        run: |
+          ruby --version
+          echo "Bundler version:"
+          bundle --version
+          echo "Ruby LSP version:"
+          command -v ruby-lsp && ruby-lsp --version
+          echo "Solargraph version:"
+          command -v solargraph && solargraph --version
+
+      # -------------------- Verify all LSPs --------------------
+      - name: Verify LSP installations in PATH
+        run: |
+          echo "Current PATH: $PATH"
+          which kotlin || echo "kotlin compiler not found"
+          which kotlin-language-server || echo "kotlin-language-server not found"
+          which solargraph || echo "solargraph not found"
+          which ruby-lsp || echo "ruby-lsp not found"
+
+      # -------------------- Rust full test with LSP --------------------
+      - name: Run rust test with LSP
+        run: USE_LSP=true cargo test -- --test-threads=1
