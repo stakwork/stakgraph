@@ -234,11 +234,14 @@ async fn test_demorepo() {
     .await
     .unwrap();
 
-    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-    test_demorepo_generic::<ArrayGraph>(&repos).await.unwrap();
-    test_demorepo_generic::<BTreeMapGraph>(&repos)
-        .await
-        .unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_demorepo_generic::<ArrayGraph>(&repos).await.unwrap();
+        test_demorepo_generic::<BTreeMapGraph>(&repos)
+            .await
+            .unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

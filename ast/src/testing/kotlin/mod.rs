@@ -1,4 +1,4 @@
-use crate::lang::graphs::{ArrayGraph, BTreeMapGraph, EdgeType, NodeType};
+use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
@@ -590,8 +590,12 @@ import com.kotlintestapp.db.PersonDatabase"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_kotlin() {
-    test_kotlin_generic::<ArrayGraph>().await.unwrap();
-    test_kotlin_generic::<BTreeMapGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_kotlin_generic::<ArrayGraph>().await.unwrap();
+        test_kotlin_generic::<BTreeMapGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {

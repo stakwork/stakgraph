@@ -1,7 +1,6 @@
 use crate::lang::graphs::{EdgeType, NodeType};
 use crate::lang::{Graph, Node};
 // use crate::utils::get_use_lsp;
-use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
@@ -782,8 +781,12 @@ import {{ sequelize }} from "./config.js";"#
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_typescript() {
-    test_typescript_generic::<BTreeMapGraph>().await.unwrap();
-    test_typescript_generic::<ArrayGraph>().await.unwrap();
+    #[cfg(not(feature = "neo4j"))]
+    {
+        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+        test_typescript_generic::<BTreeMapGraph>().await.unwrap();
+        test_typescript_generic::<ArrayGraph>().await.unwrap();
+    }
 
     #[cfg(feature = "neo4j")]
     {
