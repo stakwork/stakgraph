@@ -263,7 +263,7 @@ export function extractMessagesFromSteps(
           type: "tool-call",
           toolCallId: item.toolCallId,
           toolName: item.toolName,
-          args: item.input,
+          input: item.input,
         });
       }
     }
@@ -287,11 +287,16 @@ export function extractMessagesFromSteps(
           result = truncateToolResult(item.toolName, result, sessionConfig);
         }
 
+        // AI SDK v6 expects `output` as a ToolResultOutput object
+        const output = typeof result === "string"
+          ? { type: "text" as const, value: result }
+          : { type: "json" as const, value: result };
+
         toolResults.push({
           type: "tool-result",
           toolCallId: item.toolCallId,
           toolName: item.toolName,
-          result,
+          output,
         });
       }
     }
