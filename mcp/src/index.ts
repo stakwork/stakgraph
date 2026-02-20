@@ -17,6 +17,7 @@ import { test_routes } from "./eval/tests.js";
 import * as rr from "./repo/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
+import { logs_agent } from "./log/index.js";
 
 dotenv.config();
 
@@ -110,6 +111,7 @@ app.post("/pull_request", r.create_pull_request);
 app.post("/learning", r.create_learning);
 app.post("/learn_docs", learn_docs_agent);
 app.get("/docs", get_docs);
+app.post("/logs/agent", logs_agent);
 
 // Gitree routes
 app.post("/gitree/process", gitree.gitree_process);
