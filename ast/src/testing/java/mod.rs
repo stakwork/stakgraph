@@ -4,7 +4,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::Result;
 use std::str::FromStr;
 
-pub async fn test_java_generic<G: Graph>() -> Result<()> {
+pub async fn test_java_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/java",
         Lang::from_str("java").unwrap(),

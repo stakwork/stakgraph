@@ -192,10 +192,34 @@ impl Graph for ArrayGraph {
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
+        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> = HashMap::new();
+
         for (endpoint, prefix) in matches {
+            let endpoint_verb = endpoint.meta.get("verb").cloned().unwrap_or_default();
+            let key = (
+                endpoint.name.clone(),
+                endpoint.file.clone(),
+                endpoint.start,
+                endpoint_verb,
+            );
+
+            match best_matches.get(&key) {
+                Some((_existing_ep, existing_prefix)) if prefix.len() > existing_prefix.len() => {
+                    best_matches.insert(key, (endpoint, prefix));
+                }
+                None => {
+                    best_matches.insert(key, (endpoint, prefix));
+                }
+                _ => {
+                }
+            }
+        }
+        
+        for ((_, _, _, _), (endpoint, prefix)) in best_matches {
             let endpoint_name = endpoint.name.clone();
             let endpoint_file = endpoint.file.clone();
             let endpoint_start = endpoint.start;
+            let endpoint_verb = endpoint.meta.get("verb").map(|v| v.as_str()).unwrap_or("");
             let full_path = format!("{}{}", prefix, endpoint_name);
 
             for node in self.nodes.iter_mut() {
@@ -203,6 +227,13 @@ impl Graph for ArrayGraph {
                     && node.node_data.name == endpoint_name
                     && node.node_data.file == endpoint_file
                     && node.node_data.start == endpoint_start
+                    && node
+                        .node_data
+                        .meta
+                        .get("verb")
+                        .map(|v| v.as_str())
+                        .unwrap_or("")
+                        == endpoint_verb
                 {
                     node.node_data.name = full_path.clone();
                     break;
@@ -214,6 +245,7 @@ impl Graph for ArrayGraph {
                     && edge.source.node_data.name == endpoint_name
                     && edge.source.node_data.file == endpoint_file
                     && edge.source.node_data.start == endpoint_start
+                    && edge.source.node_data.verb.as_deref().unwrap_or("") == endpoint_verb
                 {
                     edge.source.node_data.name = full_path.clone();
                 }

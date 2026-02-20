@@ -3,10 +3,45 @@ use crate::lang::{Graph, Node};
 use crate::repo::Repo;
 use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
+use rayon::prelude::*;
+use shared::error::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
+
+pub fn process_files<T, F, P>(
+    filez: &[(String, String)],
+    use_parallel: bool,
+    stage_name: &str,
+    filter_fn: P,
+    process_fn: F,
+) -> Result<Vec<T>>
+where
+    F: Fn(&(String, String)) -> Result<T> + Sync,
+    P: Fn(&(String, String)) -> bool + Sync,
+    T: Send,
+{
+    if use_parallel {
+        println!(
+            "[parallel] {}: pool={} items={}",
+            stage_name,
+            rayon::current_num_threads(),
+            filez.len()
+        );
+        filez
+            .par_iter()
+            .filter(|f| filter_fn(f))
+            .map(|f| process_fn(f))
+            .collect()
+    } else {
+        filez
+            .iter()
+            .filter(|f| filter_fn(f))
+            .map(|f| process_fn(f))
+            .collect()
+    }
+}
 
 #[cfg(feature = "openssl")]
 pub fn filter_by_revs<G: Graph>(root: &str, revs: Vec<String>, graph: G, lang_kind: Language) -> G {

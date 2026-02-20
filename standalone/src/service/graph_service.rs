@@ -69,8 +69,8 @@ pub async fn ingest(
     );
 
     repos.set_status_tx(state.tx.clone()).await;
-    let streaming = body.realtime.unwrap_or(false);
-    if streaming {
+    let enable_batch_upload = body.realtime.unwrap_or(false);
+    if enable_batch_upload {
         let mut graph_ops = GraphOps::new();
         graph_ops.connect().await?;
         for repo in &repos.0 {
@@ -82,7 +82,7 @@ pub async fn ingest(
 
     let start_build = Instant::now();
     let btree_graph = repos
-        .build_graphs_btree_with_streaming(streaming)
+        .build_graphs_btree_with_streaming(enable_batch_upload)
         .await
         .map_err(|e| {
             WebError(shared::Error::Custom(format!(
@@ -93,12 +93,12 @@ pub async fn ingest(
     let build_s = start_build.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=build repos={} streaming={} s={:.2}",
-        repo_url_joined, streaming, build_s
+        repo_url_joined, enable_batch_upload, build_s
     );
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
 
-    if !streaming {
+    if !enable_batch_upload {
         for repo in &repos.0 {
             let stripped_root = strip_tmp(&repo.root).display().to_string();
             info!("Clearing old data for {}...", stripped_root);
@@ -108,7 +108,7 @@ pub async fn ingest(
 
     let start_upload = Instant::now();
 
-    let (nodes, edges) = if streaming {
+    let (nodes, edges) = if enable_batch_upload {
         graph_ops.graph.get_graph_size()
     } else {
         info!("Uploading to Neo4j...");
@@ -119,8 +119,8 @@ pub async fn ingest(
         res
     };
 
-    // Only set missing properties if not using streaming (for backward compatibility)
-    if !streaming {
+    // Only set missing properties if not using batch upload (for backward compatibility)
+    if !enable_batch_upload {
         info!("Setting Data_Bank property for nodes missing it...");
         if let Err(e) = graph_ops.set_missing_data_bank().await {
             tracing::warn!("Error setting Data_Bank property: {:?}", e);
@@ -131,7 +131,7 @@ pub async fn ingest(
             tracing::warn!("Error setting default namespace: {:?}", e);
         }
     } else {
-        info!("Skipping post-processing - properties already set during streaming");
+        info!("Skipping post-processing - properties already set during batch upload");
     }
 
     let _ = state.tx.send(ast::repo::StatusUpdate {
@@ -150,7 +150,7 @@ pub async fn ingest(
     let upload_s = start_upload.elapsed().as_secs_f64();
     info!(
         "[perf][ingest] phase=upload repos={} streaming={} s={:.2}",
-        repo_url_joined, streaming, upload_s
+        repo_url_joined, enable_batch_upload, upload_s
     );
 
     let build_upload_s = build_s + upload_s;
@@ -159,7 +159,7 @@ pub async fn ingest(
         "[perf][ingest][results] repos={} count={} streaming={} clone_s={:.2} build_s={:.2} upload_s={:.2} build_upload_s={:.2} total_s={:.2} nodes={} edges={}",
         repo_url_joined,
         repo_urls.len(),
-        streaming,
+        enable_batch_upload,
         clone_s,
         build_s,
         upload_s,

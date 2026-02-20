@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
     println!("{}", name);
 
     //let graph = repos.build_graphs_btree().await?;
-    let graph = repos.build_graphs().await?;
+    let graph = repos.build_graphs_local().await?;
 
     if std::env::var("OUTPUT_FORMAT")
         .unwrap_or_else(|_| "jsonl".to_string())

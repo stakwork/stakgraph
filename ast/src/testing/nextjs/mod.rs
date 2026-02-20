@@ -10,7 +10,7 @@ use core::panic;
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_nextjs_generic<G: Graph>() -> Result<()> {
+pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let use_lsp = get_use_lsp();
     let repo = Repo::new(
         "src/testing/nextjs",

@@ -4,7 +4,7 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_python_web_generic<G: Graph>() -> Result<()> {
+pub async fn test_python_web_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/python/web",
         Lang::from_str("python").unwrap(),
@@ -978,7 +978,7 @@ from flask_app.routes import flask_bp"#
     Ok(())
 }
 
-pub async fn test_python_data_science_generic<G: Graph>() -> Result<()> {
+pub async fn test_python_data_science_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/python/data_science",
         Lang::from_str("python").unwrap(),
@@ -1041,7 +1041,7 @@ pub async fn test_python_data_science_generic<G: Graph>() -> Result<()> {
     Ok(())
 }
 
-pub async fn test_python_cli_generic<G: Graph>() -> Result<()> {
+pub async fn test_python_cli_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/python/cli",
         Lang::from_str("python").unwrap(),

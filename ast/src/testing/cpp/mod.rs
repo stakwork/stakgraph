@@ -4,7 +4,8 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
+
+pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/cpp/web_api",
         Lang::from_str("cpp").unwrap(),
@@ -293,7 +294,7 @@ pub async fn test_cpp_web_api_generic<G: Graph>() -> Result<()> {
     Ok(())
 }
 
-pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
+pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/cpp/cuda",
         Lang::from_str("cpp").unwrap(),
@@ -515,12 +516,12 @@ pub async fn test_cpp_cuda_generic<G: Graph>() -> Result<()> {
 async fn test_cpp() {
     #[cfg(not(feature = "neo4j"))]
     {
-        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-        test_cpp_web_api_generic::<ArrayGraph>().await.unwrap();
-        test_cpp_web_api_generic::<BTreeMapGraph>().await.unwrap();
+    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
+    test_cpp_generic::<ArrayGraph>().await.unwrap();
+    test_cpp_generic::<BTreeMapGraph>().await.unwrap();
 
-        test_cpp_cuda_generic::<ArrayGraph>().await.unwrap();
-        test_cpp_cuda_generic::<BTreeMapGraph>().await.unwrap();
+    test_cpp_cuda_generic::<ArrayGraph>().await.unwrap();
+    test_cpp_cuda_generic::<BTreeMapGraph>().await.unwrap();
     }
 
     #[cfg(feature = "neo4j")]
@@ -529,7 +530,7 @@ async fn test_cpp() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
 
-        test_cpp_web_api_generic::<Neo4jGraph>().await.unwrap();
+        test_cpp_generic::<Neo4jGraph>().await.unwrap();
 
         graph.clear().await.unwrap();
 

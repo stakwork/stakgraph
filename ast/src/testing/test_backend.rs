@@ -5,13 +5,13 @@ use crate::repo::Repo;
 use shared::error::{Error, Result};
 use tracing::{error, info};
 
-pub struct BackendTester<G: Graph> {
+pub struct BackendTester<G: Graph + Sync> {
     graph: G,
     lang: Lang,
     repo: Option<String>,
 }
 
-impl<G: Graph> BackendTester<G> {
+impl<G: Graph + Sync> BackendTester<G> {
     pub async fn from_repo(lang: Lang, repo: Option<String>) -> Result<Self>
     where
         G: Default,

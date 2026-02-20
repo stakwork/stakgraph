@@ -536,13 +536,36 @@ impl Graph for BTreeMapGraph {
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
+        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> = HashMap::new();
+        for (endpoint, prefix) in matches {
+            let endpoint_verb = endpoint.meta.get("verb").cloned().unwrap_or_default();
+            let key = (
+                endpoint.name.clone(),
+                endpoint.file.clone(),
+                endpoint.start,
+                endpoint_verb,
+            );
+
+            match best_matches.get(&key) {
+                Some((_existing_ep, existing_prefix)) if prefix.len() > existing_prefix.len() => {
+                    best_matches.insert(key, (endpoint, prefix));
+                }
+                None => {
+                    best_matches.insert(key, (endpoint, prefix));
+                }
+                _ => {
+                }
+            }
+        }
+
         let mut updates = Vec::new();
-        for (endpoint, prefix) in &matches {
+        for ((_, _, _, _), (endpoint, prefix)) in best_matches {
             if let Some((key, node)) = self.nodes.iter().find(|(_, n)| {
                 n.node_type == NodeType::Endpoint
                     && n.node_data.name == endpoint.name
                     && n.node_data.file == endpoint.file
                     && n.node_data.start == endpoint.start
+                    && n.node_data.meta.get("verb") == endpoint.meta.get("verb")
             }) {
                 let full_path = format!("{}{}", prefix, endpoint.name);
                 let mut updated_node = node.clone();

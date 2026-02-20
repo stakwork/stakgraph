@@ -1,10 +1,13 @@
 use std::any::Any;
 use std::env;
+use std::future::Future;
 
 use crate::lang::graphs::{ArrayGraph, Node};
 use crate::lang::{BTreeMapGraph, Graph, NodeRef};
 use serde::Serialize;
 use shared::Result;
+use tokio::runtime::Handle;
+use tokio::task;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use tracing_subscriber::filter::LevelFilter;
@@ -222,7 +225,7 @@ pub fn print_json_vec<T: Serialize>(data: &Vec<T>, name: &str) -> Result<()> {
 pub fn sync_fn<T, F, Fut>(async_fn: F) -> T
 where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = T>,
+    Fut: Future<Output = T>,
 {
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(async_fn()))
+    task::block_in_place(||Handle::current().block_on(async_fn()))
 }

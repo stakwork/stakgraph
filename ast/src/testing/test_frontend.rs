@@ -6,7 +6,7 @@ use shared::error::Result;
 use std::collections::HashMap;
 use tracing::info;
 
-pub struct FrontendTester<G: Graph> {
+pub struct FrontendTester<G: Graph + Sync> {
     graph: G,
     lang: Lang,
     repo: Option<String>,
@@ -31,7 +31,7 @@ impl FrontendArtefact<'_> {
         }
     }
 }
-impl<G: Graph> FrontendTester<G> {
+impl<G: Graph + Sync> FrontendTester<G> {
     pub async fn from_repo(lang: Lang, repo: Option<String>) -> Result<Self>
     where
         G: Default,
