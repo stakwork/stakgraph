@@ -47,12 +47,15 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
+    assert_eq!(integration_tests.len(), 1, "Expected 1 integration test");
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 2, "Expected 2 e2e tests");
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
@@ -409,11 +412,123 @@ pub async fn test_go_generic<G: Graph>() -> Result<()> {
     Ok(())
 }
 
+pub async fn test_go_non_web_generic<G: Graph>() -> Result<()> {
+    let repo = Repo::new(
+        "src/testing/go_non_web",
+        Lang::from_str("go").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+
+    let graph = repo.build_graph_inner::<G>().await?;
+
+    let language_nodes = graph.find_nodes_by_name(NodeType::Language, "go");
+    assert_eq!(language_nodes.len(), 1, "Expected 1 language node");
+    assert_eq!(
+        language_nodes[0].file, "src/testing/go_non_web",
+        "Language node file path is incorrect"
+    );
+
+    let files = graph.find_nodes_by_type(NodeType::File);
+    assert_eq!(files.len(), 6, "Expected 6 file nodes");
+
+    let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
+    assert_eq!(endpoints.len(), 3, "Expected 3 stdlib endpoints");
+
+    let health_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/health")
+        .map(|e| Node::new(NodeType::Endpoint, e.clone()))
+        .expect("/health endpoint not found");
+
+    let ready_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/ready")
+        .map(|e| Node::new(NodeType::Endpoint, e.clone()))
+        .expect("/ready endpoint not found");
+
+    let anon_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/anon")
+        .expect("/anon endpoint not found");
+    let anon_handler = anon_endpoint
+        .meta
+        .get("handler")
+        .expect("anonymous handler missing");
+    assert!(
+        anon_handler.contains("HANDLEFUNC_anon_func_"),
+        "unexpected anonymous handler name: {}",
+        anon_handler
+    );
+
+    let health_fn = graph
+        .find_nodes_by_name(NodeType::Function, "HealthHandler")
+        .into_iter()
+        .find(|n| n.file == "src/testing/go_non_web/http_stdlib.go")
+        .map(|nd| Node::new(NodeType::Function, nd))
+        .expect("HealthHandler function not found");
+
+    let ready_fn = graph
+        .find_nodes_by_name(NodeType::Function, "ReadyHandler")
+        .into_iter()
+        .find(|n| n.file == "src/testing/go_non_web/http_stdlib.go")
+        .map(|nd| Node::new(NodeType::Function, nd))
+        .expect("ReadyHandler function not found");
+
+    assert!(
+        graph.has_edge(&health_endpoint, &health_fn, EdgeType::Handler),
+        "Expected /health endpoint to be handled by HealthHandler"
+    );
+    assert!(
+        graph.has_edge(&ready_endpoint, &ready_fn, EdgeType::Handler),
+        "Expected /ready endpoint to be handled by ReadyHandler"
+    );
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    assert_eq!(unit_tests.len(), 0, "Expected 0 unit tests in non-web suite");
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    assert_eq!(
+        integration_tests.len(),
+        1,
+        "Expected 1 integration test in non-web suite"
+    );
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    assert_eq!(e2e_tests.len(), 0, "Expected 0 e2e tests in non-web suite");
+
+    let main_fn = graph
+        .find_nodes_by_name(NodeType::Function, "main")
+        .into_iter()
+        .find(|n| n.file == "src/testing/go_non_web/main.go")
+        .map(|nd| Node::new(NodeType::Function, nd))
+        .expect("main function not found in non-web suite");
+
+    let execute_fn = graph
+        .find_nodes_by_name(NodeType::Function, "Execute")
+        .into_iter()
+        .find(|n| n.file == "src/testing/go_non_web/cli.go")
+        .map(|nd| Node::new(NodeType::Function, nd))
+        .expect("Execute function not found in non-web suite");
+
+    assert!(
+        graph.has_edge(&main_fn, &execute_fn, EdgeType::Calls),
+        "Expected main to call Execute in non-web suite"
+    );
+
+    Ok(())
+}
+
 #[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
 async fn test_go() {
     use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_go_generic::<ArrayGraph>().await.unwrap();
     test_go_generic::<BTreeMapGraph>().await.unwrap();
+
+    test_go_non_web_generic::<ArrayGraph>().await.unwrap();
+    test_go_non_web_generic::<BTreeMapGraph>().await.unwrap();
 
     #[cfg(feature = "neo4j")]
     {
@@ -421,5 +536,7 @@ async fn test_go() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         test_go_generic::<Neo4jGraph>().await.unwrap();
+        graph.clear().await.unwrap();
+        test_go_non_web_generic::<Neo4jGraph>().await.unwrap();
     }
 }
