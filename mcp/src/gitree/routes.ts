@@ -45,33 +45,26 @@ let isProcessing = false;
  */
 function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
   try {
-    // Remove trailing .git if present
-    let cleanUrl = url.replace(/\.git$/, "");
+    let cleanUrl = url.trim().replace(/\.git$/, "");
 
-    // Handle SSH format (git@host:owner/repo)
+    const ownerRepoMatch = cleanUrl.match(/^([^\/\s]+)\/([^\/\s]+)$/);
+    if (ownerRepoMatch) {
+      return { owner: ownerRepoMatch[1], repo: ownerRepoMatch[2] };
+    }
+
     const sshMatch = cleanUrl.match(/git@[^:]+:(.+)/);
     if (sshMatch) {
       cleanUrl = sshMatch[1];
+    } else {
+      cleanUrl = cleanUrl.replace(/^https?:\/\//, "");
+      cleanUrl = cleanUrl.replace(/^[^\/]+\//, "");
     }
 
-    // Remove protocol and domain (https://, http://, etc.)
-    cleanUrl = cleanUrl.replace(/^https?:\/\//, "");
-    cleanUrl = cleanUrl.replace(/^[^\/]+\//, ""); // Remove domain/host
-
-    // Extract the last two path segments (owner/repo)
     const pathParts = cleanUrl.split("/").filter((p) => p.length > 0);
-
     if (pathParts.length >= 2) {
-      // Take the last two segments as owner and repo
-      const owner = pathParts[pathParts.length - 2];
-      const repo = pathParts[pathParts.length - 1];
+      const owner = pathParts[0];
+      const repo = pathParts[1];
       return { owner, repo };
-    }
-
-    // Try simple owner/repo format
-    const simpleMatch = cleanUrl.match(/^([^\/]+)\/([^\/]+)$/);
-    if (simpleMatch) {
-      return { owner: simpleMatch[1], repo: simpleMatch[2] };
     }
 
     return null;

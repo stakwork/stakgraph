@@ -1,4 +1,5 @@
 use crate::utils::parse_node_types;
+use crate::utils::normalize_repo_filter;
 use crate::types::{
     Result, CoverageParams, Coverage, CoverageStat, MockStat,
     QueryNodesParams, QueryNodesResponse, NodesResponseItem,
@@ -13,6 +14,7 @@ use axum::{Json, extract::Query};
 pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Coverage>> {
     let mut graph_ops = GraphOps::new();
     graph_ops.connect().await?;
+    let repo_filter = normalize_repo_filter(params.repo.as_deref());
 
     let test_filters = TestFilters {
         unit_regexes: vec![],
@@ -27,7 +29,7 @@ pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Js
     };
 
     let totals = graph_ops
-        .get_coverage(params.repo.as_deref(), Some(test_filters), params.is_muted)
+        .get_coverage(repo_filter.as_deref(), Some(test_filters), params.is_muted)
         .await?;
 
     Ok(Json(Coverage {
@@ -80,6 +82,7 @@ pub async fn nodes_handler(
     let body_length = params.body_length.unwrap_or(false);
     let line_count = params.line_count.unwrap_or(false);
     let is_muted = params.is_muted;
+    let repo_filter = normalize_repo_filter(params.repo.as_deref());
 
     if let Some(coverage) = coverage_filter {
         if !matches!(coverage, "tested" | "untested" | "all") {
@@ -126,7 +129,7 @@ pub async fn nodes_handler(
             coverage_filter,
             body_length,
             line_count,
-            params.repo.as_deref(),
+            repo_filter.as_deref(),
             Some(test_filters),
             params.search.as_deref(),
             is_muted,

@@ -114,9 +114,10 @@ export async function get_services() {
 export async function get_mocks_inventory(
   search?: string,
   limit: number = 50,
-  offset: number = 0
+  offset: number = 0,
+  repo?: string
 ) {
-  let items = await db.get_mocks_inventory();
+  let items = await db.get_mocks_inventory(repo);
   if (search) {
     const s = search.toLowerCase();
     items = items.filter((m) => m.name.toLowerCase().includes(s));

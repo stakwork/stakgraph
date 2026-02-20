@@ -169,7 +169,8 @@ RETURN r
 export const GET_MOCKS_INVENTORY_QUERY = `
 MATCH (m:Mock)
 OPTIONAL MATCH (m)-[:MOCKS]->(f:File)
-WITH m, collect(f.file) as linked_files
+WITH m, [file IN collect(f.file) WHERE file IS NOT NULL AND ($repo IS NULL OR file STARTS WITH $repo)] as linked_files
+WHERE $repo IS NULL OR size(linked_files) > 0
 RETURN m.name as name, m.ref_id as ref_id, m.description as description,
        m.mocked as mocked, linked_files, size(linked_files) as file_count
 ORDER BY file_count DESC

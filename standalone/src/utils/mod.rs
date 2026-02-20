@@ -111,6 +111,28 @@ pub fn extract_repo_name(url: &str) -> Result<String> {
     Ok(gurl.name)
 }
 
+pub fn normalize_repo_filter(repo: Option<&str>) -> Option<String> {
+    let repo = repo?.trim();
+    if repo.is_empty() {
+        return Some(String::new());
+    }
+
+    if repo.starts_with("http://") || repo.starts_with("https://") || repo.starts_with("git@") {
+        if let Ok(gurl) = git_url_parse::GitUrl::parse(repo) {
+            let owner = gurl.owner.unwrap_or_default();
+            let name = gurl.name;
+            if !owner.is_empty() && !name.is_empty() {
+                return Some(format!("{}/{}", owner, name));
+            }
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+
+    Some(repo.trim_end_matches(".git").to_string())
+}
+
 pub async fn call_mcp_embed(
     repo_url: &str,
     cost_limit: f32,
