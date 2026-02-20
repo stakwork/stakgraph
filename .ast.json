@@ -1,5 +1,6 @@
 {
   "skip_dirs": [
+    "ast/examples/minimal",
     "ast/src/testing/angular",
     "ast/src/testing/c/data-structures",
     "ast/src/testing/c/embedded-iot",
