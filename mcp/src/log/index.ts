@@ -3,6 +3,7 @@ import { log_agent_context } from "./agent.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import { ModelName } from "../aieo/src/index.js";
+import { SessionConfig } from "../repo/session.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
 
 /** Convert a UI swarm name like "swarm38" or "swarmHDYF7D" to a CloudWatch log group like "/swarms/38" or "/swarms/HDYF7D" */
@@ -20,6 +21,8 @@ export async function logs_agent(req: Request, res: Response) {
   const modelName = req.body.model as ModelName | undefined;
   const logs = req.body.logs as boolean | undefined;
   const swarmName = req.body.swarmName as string | undefined;
+  const sessionId = req.body.sessionId as string | undefined;
+  const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -52,7 +55,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, logs })
+    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
@@ -61,6 +64,7 @@ export async function logs_agent(req: Request, res: Response) {
           content: result.content,
           usage: result.usage,
           logs: result.logs,
+          sessionId: result.sessionId,
         });
       })
       .catch((error) => {

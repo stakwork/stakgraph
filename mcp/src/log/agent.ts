@@ -1,12 +1,20 @@
-import { ToolLoopAgent, StopCondition, ToolSet } from "ai";
+import { ToolLoopAgent, ModelMessage } from "ai";
 import { ModelName, getModelDetails } from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
   logStep,
   extractFinalAnswer,
+  extractMessagesFromSteps,
   createHasEndMarkerCondition,
 } from "../repo/utils.js";
+import {
+  createSession as createNewSession,
+  loadSession,
+  appendMessages,
+  sessionExists,
+  SessionConfig,
+} from "../repo/session.js";
 
 const SYSTEM = `You are a log analysis agent. You have tools to fetch logs from various sources (CloudWatch, Quickwit, etc.) and write them to local files, plus a bash tool to search and analyze those files.
 
@@ -33,6 +41,8 @@ export interface LogAgentOptions {
   modelName?: ModelName;
   apiKey?: string;
   logs?: boolean;
+  sessionId?: string;
+  sessionConfig?: SessionConfig;
 }
 
 export async function log_agent_context(
@@ -40,8 +50,21 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
-  const { model, apiKey } = getModelDetails(opts.modelName, opts.apiKey);
+  const { model } = getModelDetails(opts.modelName, opts.apiKey);
   console.log("===> log_agent model", model);
+
+  // Session handling
+  let sessionId: string | undefined;
+  let previousMessages: ModelMessage[] = [];
+
+  if (opts.sessionId) {
+    if (sessionExists(opts.sessionId)) {
+      sessionId = opts.sessionId;
+      previousMessages = loadSession(sessionId);
+    } else {
+      sessionId = createNewSession(opts.sessionId);
+    }
+  }
 
   const tools = get_log_tools();
 
@@ -57,12 +80,32 @@ export async function log_agent_context(
     tools,
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
-    onStepFinish: (sf) => logStep(sf.content),
+    // onStepFinish: (sf) => logStep(sf.content), // dont log logs_agent logs!
   });
 
-  const result = await agent.generate({ prompt });
+  const userMessage: ModelMessage = { role: "user", content: prompt };
+
+  let result;
+  if (previousMessages.length > 0) {
+    result = await agent.generate({
+      messages: [...previousMessages, userMessage],
+    });
+  } else {
+    result = await agent.generate({ prompt });
+  }
 
   const { steps, totalUsage } = result;
+
+  // Save to session if enabled
+  if (sessionId) {
+    const newMessages = extractMessagesFromSteps(
+      userMessage,
+      steps,
+      opts.sessionConfig
+    );
+    appendMessages(sessionId, newMessages);
+  }
+
   const final = extractFinalAnswer(steps);
 
   const endTime = Date.now();
@@ -81,5 +124,6 @@ export async function log_agent_context(
       totalTokens: totalUsage.totalTokens || 0,
     },
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
+    sessionId,
   };
 }
