@@ -5,9 +5,9 @@ import { startTracking, endTracking } from "../busy.js";
 import { ModelName } from "../aieo/src/index.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
 
-/** Convert a UI swarm name like "swarm38" to a CloudWatch log group like "/swarms/38" */
+/** Convert a UI swarm name like "swarm38" or "swarmHDYF7D" to a CloudWatch log group like "/swarms/38" or "/swarms/HDYF7D" */
 function swarmNameToLogGroup(swarmName: string): string | null {
-  const match = swarmName.match(/^swarm(\d+)$/);
+  const match = swarmName.match(/^swarm(.+)$/);
   if (!match) return null;
   return `/swarms/${match[1]}`;
 }
