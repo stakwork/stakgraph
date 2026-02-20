@@ -1,0 +1,25 @@
+{
+  "skip_dirs": [
+    "ast/src/testing/angular",
+    "ast/src/testing/c",
+    "ast/src/testing/coverage",
+    "ast/src/testing/cpp",
+    "ast/src/testing/csharp",
+    "ast/src/testing/go",
+    "ast/src/testing/go_non_web",
+    "ast/src/testing/graphs",
+    "ast/src/testing/java",
+    "ast/src/testing/kotlin",
+    "ast/src/testing/monorepo",
+    "ast/src/testing/nextjs",
+    "ast/src/testing/php",
+    "ast/src/testing/python",
+    "ast/src/testing/react",
+    "ast/src/testing/ruby",
+    "ast/src/testing/rust",
+    "ast/src/testing/svelte",
+    "ast/src/testing/swift",
+    "ast/src/testing/typescript",
+    "ast/src/testing/vanila"
+  ]
+}
