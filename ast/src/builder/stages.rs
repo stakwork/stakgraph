@@ -1,4 +1,5 @@
 use super::utils::*;
+use crate::lang::call_finder::{parse_imports_for_file, IMPORT_CACHE};
 use crate::lang::{
     asg::{NodeData, TestRecord},
     graphs::{Graph, NodeType},
@@ -86,7 +87,7 @@ impl Repo {
             },
         )?;
 
-        for import_section in results {
+        for ((filename, _), import_section) in filez.iter().zip(results.into_iter()) {
             i += 1;
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 6);
@@ -100,6 +101,10 @@ impl Repo {
                     &NodeType::File,
                     &import.file,
                 );
+            }
+
+            if let Some(import_data) = parse_imports_for_file(filename, &self.lang, graph) {
+                IMPORT_CACHE.insert(filename.to_string(), Some(import_data));
             }
         }
 

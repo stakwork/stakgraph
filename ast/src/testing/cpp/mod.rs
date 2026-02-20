@@ -516,6 +516,7 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
 async fn test_cpp() {
     #[cfg(not(feature = "neo4j"))]
     {
+    use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
     test_cpp_generic::<ArrayGraph>().await.unwrap();
     test_cpp_generic::<BTreeMapGraph>().await.unwrap();
 

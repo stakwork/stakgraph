@@ -13,12 +13,13 @@ use crate::lang::{
 };
 use crate::lang::BTreeMapGraph;
 use crate::repo::Repo;
-use crate::lang::call_finder::{parse_imports_for_file, IMPORT_CACHE};
 
 use git_url_parse::GitUrl;
 use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
-use std::{path::PathBuf, time::Instant};
+#[cfg(feature = "neo4j")]
+use std::any::type_name;
+use std::{collections::HashMap, path::PathBuf, time::Instant};
 use std::collections::HashSet;
 use tokio::fs;
 use tracing::{debug, info, trace};
@@ -56,10 +57,10 @@ impl Repo {
         let mut graph = G::new(graph_root, self.lang.kind.clone());
         graph.set_allow_unverified_calls(self.allow_unverified_calls);
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
 
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<StreamingUploadContext> = if enable_batch_upload && std::any::type_name::<G>().contains("BTreeMapGraph") {
+        let mut streaming_ctx: Option<StreamingUploadContext> = if enable_batch_upload && type_name::<G>().contains("BTreeMapGraph") {
             let g = Neo4jGraph::default();
             let _ = g.connect().await;
             Some(StreamingUploadContext::new(g))
@@ -119,7 +120,7 @@ impl Repo {
 
         let allowed_files = filez
             .iter()
-            .filter(|(f, _)| is_allowed_file(&std::path::PathBuf::from(f), &self.lang.kind))
+            .filter(|(f, _)| is_allowed_file(&PathBuf::from(f), &self.lang.kind))
             .cloned()
             .collect::<Vec<_>>();
         let stage_start = Instant::now();
@@ -464,7 +465,7 @@ impl Repo {
             &lang_data,
         ));
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert(
             "repository".to_string(),
             if existing_repos.is_empty() { 1 } else { 0 },
@@ -524,7 +525,7 @@ impl Repo {
             }
         }
 
-        let mut stats = std::collections::HashMap::new();
+        let mut stats = HashMap::new();
         stats.insert("classes".to_string(), class_count);
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 6);
@@ -539,7 +540,7 @@ impl Repo {
         graph: &mut G,
         impl_relationships: Vec<ImplementsRelationship>,
     ) -> Result<()> {
-        use std::collections::HashMap;
+       
 
         if impl_relationships.is_empty() {
             return Ok(());
