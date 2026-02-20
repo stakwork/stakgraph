@@ -22,6 +22,7 @@ import {
   parseLimit,
   parseLimitMode,
   buildGraphMeta,
+  normalizeRepoParam,
 } from "./utils.js";
 import fs from "fs/promises";
 import * as G from "./graph.js";
@@ -1043,10 +1044,11 @@ export async function get_services(req: Request, res: Response) {
 export async function mocks_inventory(req: Request, res: Response) {
   try {
     const search = req.query.search as string | undefined;
+    const repo = normalizeRepoParam(req.query.repo as string | undefined);
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
 
-    const result = await G.get_mocks_inventory(search, limit, offset);
+    const result = await G.get_mocks_inventory(search, limit, offset, repo);
     res.json(result);
   } catch (error) {
     console.error("Error getting mocks inventory:", error);
@@ -1114,11 +1116,15 @@ export async function get_repo_map(req: Request, res: Response) {
     const name = req.query.name as string;
     const ref_id = req.query.ref_id as string;
     const node_type = req.query.node_type as NodeType;
+    const normalizedName =
+      (node_type || "Repository") === "Repository"
+        ? normalizeRepoParam(name) || name || ""
+        : name || "";
     const include_functions_and_classes =
       req.query.include_functions_and_classes === "true" ||
       req.query.include_functions_and_classes === "1";
     const html = await G.get_repo_map(
-      name || "",
+      normalizedName,
       ref_id || "",
       node_type || "Repository",
       include_functions_and_classes

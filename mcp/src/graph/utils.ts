@@ -17,6 +17,33 @@ export function isTrue(value: string): boolean {
   return value === "true" || value === "1" || value === "True";
 }
 
+export function normalizeRepoParam(value?: string): string | undefined {
+  if (!value) return undefined;
+  const input = value.trim();
+  if (!input) return undefined;
+
+  if (/^[^\s\/]+\/[^\s\/]+$/.test(input)) {
+    return input.replace(/\.git$/, "");
+  }
+
+  let clean = input.replace(/\.git$/, "");
+
+  const sshMatch = clean.match(/^git@[^:]+:(.+)$/);
+  if (sshMatch) {
+    clean = sshMatch[1];
+  } else {
+    clean = clean.replace(/^https?:\/\//, "");
+    clean = clean.replace(/^[^\/]+\//, "");
+  }
+
+  const parts = clean.split("/").filter(Boolean);
+  if (parts.length >= 2) {
+    return `${parts[0]}/${parts[1]}`;
+  }
+
+  return input;
+}
+
 export const IS_TEST = isTrue(process.env.TEST_REF_ID as string);
 
 export function rightLabel(node: Neo4jNode): NodeType {

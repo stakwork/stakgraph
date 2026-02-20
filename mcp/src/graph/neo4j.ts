@@ -641,7 +641,7 @@ class Db {
     }
   }
 
-  async get_mocks_inventory(): Promise<
+  async get_mocks_inventory(repo?: string): Promise<
     {
       name: string;
       ref_id: string;
@@ -653,7 +653,9 @@ class Db {
   > {
     const session = this.driver.session();
     try {
-      const result = await session.run(Q.GET_MOCKS_INVENTORY_QUERY);
+      const result = await session.run(Q.GET_MOCKS_INVENTORY_QUERY, {
+        repo: repo || null,
+      });
       return result.records.map((record) => {
         const linked_files: string[] = record.get("linked_files") || [];
         return {
