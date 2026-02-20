@@ -347,6 +347,11 @@ impl Repo {
         revs: Vec<String>,
         use_lsp: Option<bool>,
     ) -> Result<Repos> {
+        let ast_config = read_config_file_from_root(Path::new(root));
+        let extra_skip_dirs: Vec<String> = ast_config
+            .as_ref()
+            .and_then(|c| c.skip_dirs.clone())
+            .unwrap_or_default();
         let mut detected_langs: Vec<Language> = Vec::new();
         for l in PROGRAMMING_LANGUAGES {
             if let Ok(only_lang) = std::env::var("ONLY_LANG") {
@@ -354,9 +359,11 @@ impl Repo {
                     continue;
                 }
             }
+            let mut skip_dirs = stringy(l.skip_dirs());
+            skip_dirs.extend(extra_skip_dirs.clone());
             let conf = Config {
                 exts: stringy(l.exts()),
-                skip_dirs: stringy(l.skip_dirs()),
+                skip_dirs,
                 ..Default::default()
             };
             let source_files = walk_files(&root.into(), &conf)
@@ -405,9 +412,11 @@ impl Repo {
                         continue;
                     }
                 }
+                let mut skip_dirs = stringy(l.skip_dirs());
+                skip_dirs.extend(extra_skip_dirs.clone());
                 let conf = Config {
                     exts: stringy(l.exts()),
-                    skip_dirs: stringy(l.skip_dirs()),
+                    skip_dirs,
                     ..Default::default()
                 };
                 let source_files = walk_files(&root.into(), &conf).map_err(|e| {
@@ -581,17 +590,7 @@ impl Repo {
         Ok(dirs)
     }
     fn read_config_file(&self) -> Option<AstConfig> {
-        let config_path = self.root.join(CONF_FILE_PATH);
-        match std::fs::read_to_string(&config_path) {
-            Ok(s) => match serde_json::from_str::<AstConfig>(&s) {
-                Ok(c) => Some(c),
-                Err(_e) => {
-                    warn!("Failed to parse config file {:?}", _e);
-                    None
-                }
-            },
-            Err(_) => None,
-        }
+        read_config_file_from_root(&self.root)
     }
     pub fn collect_extra_pages(
         &self,
@@ -661,6 +660,17 @@ impl Repo {
     fn should_not_include(&self, path: &std::path::Path, relative_path: &str) -> bool {
         let conf = self.merge_config_with_lang();
         let fname = path.display().to_string();
+
+        let rel = path
+            .strip_prefix(&self.root)
+            .unwrap_or(path);
+        let rel_str = rel.display().to_string();
+        let in_skipped_dir = conf.skip_dirs.iter().any(|sd| {
+            rel_str == *sd || rel_str.starts_with(&format!("{}/", sd))
+        });
+        if in_skipped_dir {
+            return true;
+        }
 
         if !conf.only_include_files.is_empty() {
             return !only_files(path, &conf.only_include_files);
@@ -753,12 +763,29 @@ impl Repo {
     }
 }
 
+fn read_config_file_from_root(root: &Path) -> Option<AstConfig> {
+    let config_path = root.join(CONF_FILE_PATH);
+    match std::fs::read_to_string(&config_path) {
+        Ok(s) => match serde_json::from_str::<AstConfig>(&s) {
+            Ok(c) => {
+                println!("[skip_dirs] loaded .ast.json from {:?}: skip_dirs={:?}", config_path, c.skip_dirs);
+                Some(c)
+            }
+            Err(_e) => {
+                warn!("Failed to parse config file {:?}", _e);
+                None
+            }
+        },
+        Err(_) => None,
+    }
+}
+
 fn walk_dirs(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
     let mut dirs = Vec::new();
     for entry in WalkDir::new(dir)
         .min_depth(1)
         .into_iter()
-        .filter_entry(|e| !skip_dir(e, &conf.skip_dirs))
+        .filter_entry(|e| !skip_dir(e, &conf.skip_dirs, dir))
     {
         let entry = entry?;
         if entry.metadata()?.is_dir() {
@@ -781,7 +808,7 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
     for entry in WalkDir::new(dir)
         .min_depth(1)
         .into_iter()
-        .filter_entry(|e| !skip_dir(e, &conf.skip_dirs) && !is_hidden(e))
+        .filter_entry(|e| !skip_dir(e, &conf.skip_dirs, dir) && !is_hidden(e))
     {
         let entry = entry?;
         let path = entry.path();
@@ -811,15 +838,19 @@ fn walk_files(dir: &PathBuf, conf: &Config) -> Result<Vec<PathBuf>> {
     }
     Ok(source_files)
 }
-fn skip_dir(entry: &DirEntry, skip_dirs: &[String]) -> bool {
+fn skip_dir(entry: &DirEntry, skip_dirs: &[String], root: &PathBuf) -> bool {
     if is_hidden(entry) {
         return true;
     }
-    entry
-        .file_name()
-        .to_str()
-        .map(|s| skip_dirs.contains(&s.to_string()))
-        .unwrap_or(false)
+    let entry_path = entry.path();
+    let relative = entry_path
+        .strip_prefix(root)
+        .unwrap_or(entry_path);
+    let relative_str = relative.display().to_string();
+    let should_skip = skip_dirs.iter().any(|sd| {
+        relative_str == *sd || relative_str.starts_with(&format!("{}/", sd))
+    });
+    should_skip
 }
 fn only_files(path: &std::path::Path, only_include_files: &[String]) -> bool {
     if only_include_files.is_empty() {
