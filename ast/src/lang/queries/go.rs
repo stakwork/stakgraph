@@ -229,6 +229,60 @@ impl Stack for Go {
                 )
             ) @{ROUTE}"#
             ),
+            format!(
+                r#"(call_expression
+                function: (selector_expression
+                    operand: (identifier) @httpobj (#eq? @httpobj "http")
+                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(HandleFunc|handleFunc)$")
+                )
+                arguments: (argument_list
+                    (interpreted_string_literal) @{ENDPOINT}
+                    [
+                        (identifier) @{HANDLER}
+                        (selector_expression
+                            field: (field_identifier) @{HANDLER}
+                        )
+                    ]
+                )
+            ) @{ROUTE}"#
+            ),
+            format!(
+                r#"(call_expression
+                function: (selector_expression
+                    operand: (identifier) @httpobj (#eq? @httpobj "http")
+                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(HandleFunc|handleFunc)$")
+                )
+                arguments: (argument_list
+                    (interpreted_string_literal) @{ENDPOINT}
+                    (func_literal) @{ANONYMOUS_FUNCTION}
+                )
+            ) @{ROUTE}"#
+            ),
+            format!(
+                r#"(call_expression
+                function: (selector_expression
+                    operand: (identifier) @httpobj (#eq? @httpobj "http")
+                    field: (field_identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^(Handle|handle)$")
+                )
+                arguments: (argument_list
+                    (interpreted_string_literal) @{ENDPOINT}
+                    (call_expression
+                        function: (selector_expression
+                            operand: (identifier) @handlerobj (#eq? @handlerobj "http")
+                            field: (field_identifier) @handlerwrap (#eq? @handlerwrap "HandlerFunc")
+                        )
+                        arguments: (argument_list
+                            [
+                                (identifier) @{HANDLER}
+                                (selector_expression
+                                    field: (field_identifier) @{HANDLER}
+                                )
+                            ]
+                        )
+                    )
+                )
+            ) @{ROUTE}"#
+            ),
         ]
     }
 
