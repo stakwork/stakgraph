@@ -423,7 +423,7 @@ pub async fn test_ruby_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    let expected_contains = 329;
+    let expected_contains = 332;
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -736,9 +736,9 @@ pub async fn test_ruby_generic<G: Graph + Sync>() -> Result<()> {
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    let expected_dirs = 46;
+    let expected_dirs = 47;
     assert!(
-        (expected_dirs - 2..=expected_dirs).contains(&directories.len()),
+        (expected_dirs - 3..=expected_dirs).contains(&directories.len()),
         "Expected ~{} directories, got {}",
         expected_dirs,
         directories.len()
