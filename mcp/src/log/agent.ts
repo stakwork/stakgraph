@@ -3,7 +3,6 @@ import { ModelName, getModelDetails } from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
-  logStep,
   extractFinalAnswer,
   extractMessagesFromSteps,
   createHasEndMarkerCondition,
@@ -43,6 +42,9 @@ export interface LogAgentOptions {
   logs?: boolean;
   sessionId?: string;
   sessionConfig?: SessionConfig;
+  stakworkApiKey?: string;
+  logsDir: string;
+  printAgentProgress?: boolean;
 }
 
 export async function log_agent_context(
@@ -66,7 +68,10 @@ export async function log_agent_context(
     }
   }
 
-  const tools = get_log_tools();
+  const tools = get_log_tools({
+    logsDir: opts.logsDir,
+    stakworkApiKey: opts.stakworkApiKey,
+  });
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
 
@@ -80,7 +85,7 @@ export async function log_agent_context(
     tools,
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
-    // onStepFinish: (sf) => logStep(sf.content), // dont log logs_agent logs!
+    onStepFinish: (sf) => logStepMaybe(sf.content, opts.printAgentProgress), // dont log logs_agent logs!
   });
 
   const userMessage: ModelMessage = { role: "user", content: prompt };
@@ -126,4 +131,9 @@ export async function log_agent_context(
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
   };
+}
+
+export function logStepMaybe(contents: any, printAgentProgress?: boolean) {
+  if (!printAgentProgress) return;
+  console.log("===> logStep", JSON.stringify(contents, null, 2));
 }

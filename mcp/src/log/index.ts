@@ -5,6 +5,15 @@ import { startTracking, endTracking } from "../busy.js";
 import { ModelName } from "../aieo/src/index.js";
 import { SessionConfig } from "../repo/session.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
+import { createRunLogsDir, cleanupRunLogsDir } from "./utils.js";
+
+export interface StakworkRunSummary {
+  projectId: number;
+  type: string;
+  status: string;
+  feature?: string | null;
+  createdAt: string;
+}
 
 /** Convert a UI swarm name like "swarm38" or "swarmHDYF7D" to a CloudWatch log group like "/swarms/38" or "/swarms/HDYF7D" */
 function swarmNameToLogGroup(swarmName: string): string | null {
@@ -23,6 +32,9 @@ export async function logs_agent(req: Request, res: Response) {
   const swarmName = req.body.swarmName as string | undefined;
   const sessionId = req.body.sessionId as string | undefined;
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
+  const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
+  const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
+  const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -52,10 +64,24 @@ export async function logs_agent(req: Request, res: Response) {
     }
   }
 
+  if (stakworkRuns && stakworkRuns.length > 0) {
+    const runsJson = JSON.stringify(stakworkRuns, null, 2);
+    const runsContext = [
+      `\nRecent Stakwork workflow runs (use projectId with fetch_workflow_run to get logs):`,
+      runsJson,
+      `\nPick the most relevant run based on the user's question, if its about a recent workflow (like a feature architecture, hive task, etc.) Use the projectId to fetch logs.`,
+    ].join("\n");
+    finalPrompt = runsContext + `\n\n${finalPrompt}`;
+  }
+
+  // Per-run logs directory: use sessionId if present (persists across turns),
+  // otherwise generate a random one (cleaned up after the agent finishes).
+  const logsDir = createRunLogsDir(sessionId);
+
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig })
+    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig, stakworkApiKey, logsDir, printAgentProgress })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
@@ -73,6 +99,10 @@ export async function logs_agent(req: Request, res: Response) {
       })
       .finally(() => {
         endTracking(opId);
+        // Clean up logs directory for non-session runs
+        if (!sessionId) {
+          cleanupRunLogsDir(logsDir);
+        }
       });
 
     res.json({ request_id, status: "pending" });
@@ -86,10 +116,11 @@ export async function logs_agent(req: Request, res: Response) {
 
 /*
 curl -X POST -H "Content-Type: application/json" -d '{
-  "prompt": "Why is stakgraph erroring?",
+  "prompt": "How long did latest stakgraph ingest take? Only read stakgraph logs.",
   "swarmName": "swarm38",
-  "model": "sonnet"
+  "model": "haiku",
+  "printAgentProgress": true
 }' "http://localhost:3355/logs/agent"
 
-curl "http://localhost:3355/progress?request_id=<request_id>"
+curl "http://localhost:3355/progress?request_id=d3ffa3f7-6fd3-4565-b6bd-6c5c1a456c5b"
 */

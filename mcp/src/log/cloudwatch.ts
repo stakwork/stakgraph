@@ -9,8 +9,6 @@ import { fromIni } from "@aws-sdk/credential-providers";
 import * as fs from "fs";
 import * as path from "path";
 
-const LOGS_DIR = process.env.LOGS_DIR || "/tmp/logs";
-
 function getClient(): CloudWatchLogsClient {
   const opts: ConstructorParameters<typeof CloudWatchLogsClient>[0] = {
     region: process.env.AWS_REGION || "us-east-1",
@@ -19,13 +17,6 @@ function getClient(): CloudWatchLogsClient {
     opts.credentials = fromIni({ profile: process.env.AWS_PROFILE });
   }
   return new CloudWatchLogsClient(opts);
-}
-
-function ensureLogsDir(): string {
-  if (!fs.existsSync(LOGS_DIR)) {
-    fs.mkdirSync(LOGS_DIR, { recursive: true });
-  }
-  return LOGS_DIR;
 }
 
 /** Sanitize a log group name into a safe filename */
@@ -39,6 +30,7 @@ export interface FetchCloudwatchParams {
   filterPattern?: string;
   minutes?: number;
   limit?: number;
+  logsDir: string;
 }
 
 export interface FetchCloudwatchResult {
@@ -55,7 +47,7 @@ export interface FetchCloudwatchResult {
 export async function fetchCloudwatchLogs(
   params: FetchCloudwatchParams
 ): Promise<FetchCloudwatchResult> {
-  const { logGroupName, logStreamNames, filterPattern, minutes = 30, limit = 10000 } = params;
+  const { logGroupName, logStreamNames, filterPattern, minutes = 30, limit = 10000, logsDir } = params;
   const client = getClient();
 
   const endTime = Date.now();
@@ -83,10 +75,9 @@ export async function fetchCloudwatchLogs(
   } while (nextToken && allEvents.length < limit);
 
   // Write to file
-  const dir = ensureLogsDir();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = `cw-${safeFilename(logGroupName)}-${ts}.log`;
-  const filepath = path.join(dir, filename);
+  const filepath = path.join(logsDir, filename);
 
   const lines = allEvents.map((e) => {
     const time = e.timestamp
