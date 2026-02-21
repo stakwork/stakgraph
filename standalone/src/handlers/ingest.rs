@@ -12,7 +12,7 @@ use crate::types::{
     WebhookPayload,
 };
 use crate::utils::{
-    call_mcp_docs, call_mcp_embed, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo,
+    call_mcp_embed, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo,
 };
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 
@@ -140,7 +140,6 @@ pub async fn sync_async(
     );
 
     let state_for_process = state.clone();
-    let docs_param = body_clone.docs.clone();
     let mocks_param = body_clone.mocks.clone();
     let embeddings_param = body_clone.embeddings.clone();
     let embeddings_limit = body_clone.embeddings_limit.unwrap_or(50.0);
@@ -173,9 +172,6 @@ pub async fn sync_async(
                 };
                 map.insert(request_id_for_work.clone(), entry);
 
-                if should_call_mcp_for_repo(&docs_param, &repo_url) {
-                    call_mcp_docs(&repo_url, true).await;
-                }
                 if should_call_mcp_for_repo(&mocks_param, &repo_url) {
                     call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
                 }

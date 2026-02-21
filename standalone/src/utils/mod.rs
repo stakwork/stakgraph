@@ -86,6 +86,57 @@ pub async fn call_mcp_docs(repo_url: &str, sync: bool) {
     }
 }
 
+const ROOT_RULE_FILES: &[&str] = &[
+    ".windsurfrules",
+    ".cursorrules",
+    ".aiderules",
+    ".aider.conf.md",
+    ".clinerules",
+    ".continuerules",
+    "CLAUDE.md",
+    ".github/copilot-instructions.md",
+    "AGENTS.md",
+    "AI_INSTRUCTIONS.md",
+    "INSTRUCTIONS.md",
+];
+
+fn normalize_rules_path(path: &str) -> String {
+    let mut normalized = path.replace('\\', "/");
+    while normalized.starts_with("./") {
+        normalized = normalized[2..].to_string();
+    }
+    while normalized.starts_with('/') {
+        normalized = normalized[1..].to_string();
+    }
+    normalized
+}
+
+pub fn is_rules_file_path(path: &str) -> bool {
+    let normalized = normalize_rules_path(path);
+
+    if ROOT_RULE_FILES.iter().any(|entry| *entry == normalized) {
+        return true;
+    }
+
+    if normalized.starts_with(".cursor/rules/") {
+        return true;
+    }
+
+    if normalized == ".goosehints" || normalized.ends_with("/.goosehints") {
+        return true;
+    }
+
+    if normalized == "ai" || normalized.starts_with("ai/") {
+        return true;
+    }
+
+    normalized.starts_with(".ai/") || normalized.contains("/.ai/")
+}
+
+pub fn has_rules_file_changes(modified_files: &[String]) -> bool {
+    modified_files.iter().any(|path| is_rules_file_path(path))
+}
+
 pub fn parse_node_type(node_type: &str) -> Result<NodeType> {
     let mut chars: Vec<char> = node_type.chars().collect();
     if !chars.is_empty() {
