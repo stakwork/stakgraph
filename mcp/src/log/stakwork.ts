@@ -1,6 +1,5 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ensureLogsDir } from "./utils.js";
 
 export interface FetchWorkflowRunParams {
   apiKey: string;
@@ -10,6 +9,7 @@ export interface FetchWorkflowRunParams {
   include_children?: boolean;
   limit?: number;
   page?: number;
+  logsDir: string;
 }
 
 export interface WorkflowLog {
@@ -41,7 +41,7 @@ export interface FetchWorkflowRunResult {
 export async function fetchWorkflowRunLogs(
   params: FetchWorkflowRunParams
 ): Promise<FetchWorkflowRunResult> {
-  const { apiKey, projectId, step, status, include_children, limit, page } =
+  const { apiKey, projectId, step, status, include_children, limit, page, logsDir } =
     params;
 
   const qs = new URLSearchParams();
@@ -87,10 +87,9 @@ export async function fetchWorkflowRunLogs(
   const { logs, pagination } = json.data;
 
   // Write to file
-  const dir = ensureLogsDir();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = `stakwork-${projectId}-p${pagination.page}-${ts}.log`;
-  const filepath = path.join(dir, filename);
+  const filepath = path.join(logsDir, filename);
 
   const lines = logs.map((l) => {
     return `[${l.created_at}] [${l.status}] [${l.step_name || "unknown_step"}] ${l.message}`;

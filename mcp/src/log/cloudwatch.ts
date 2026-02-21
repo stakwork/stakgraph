@@ -8,7 +8,6 @@ import {
 import { fromIni } from "@aws-sdk/credential-providers";
 import * as fs from "fs";
 import * as path from "path";
-import { ensureLogsDir } from "./utils.js";
 
 function getClient(): CloudWatchLogsClient {
   const opts: ConstructorParameters<typeof CloudWatchLogsClient>[0] = {
@@ -31,6 +30,7 @@ export interface FetchCloudwatchParams {
   filterPattern?: string;
   minutes?: number;
   limit?: number;
+  logsDir: string;
 }
 
 export interface FetchCloudwatchResult {
@@ -47,7 +47,7 @@ export interface FetchCloudwatchResult {
 export async function fetchCloudwatchLogs(
   params: FetchCloudwatchParams
 ): Promise<FetchCloudwatchResult> {
-  const { logGroupName, logStreamNames, filterPattern, minutes = 30, limit = 10000 } = params;
+  const { logGroupName, logStreamNames, filterPattern, minutes = 30, limit = 10000, logsDir } = params;
   const client = getClient();
 
   const endTime = Date.now();
@@ -75,10 +75,9 @@ export async function fetchCloudwatchLogs(
   } while (nextToken && allEvents.length < limit);
 
   // Write to file
-  const dir = ensureLogsDir();
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const filename = `cw-${safeFilename(logGroupName)}-${ts}.log`;
-  const filepath = path.join(dir, filename);
+  const filepath = path.join(logsDir, filename);
 
   const lines = allEvents.map((e) => {
     const time = e.timestamp
