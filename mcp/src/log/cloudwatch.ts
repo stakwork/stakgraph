@@ -8,8 +8,7 @@ import {
 import { fromIni } from "@aws-sdk/credential-providers";
 import * as fs from "fs";
 import * as path from "path";
-
-const LOGS_DIR = process.env.LOGS_DIR || "/tmp/logs";
+import { ensureLogsDir } from "./utils.js";
 
 function getClient(): CloudWatchLogsClient {
   const opts: ConstructorParameters<typeof CloudWatchLogsClient>[0] = {
@@ -19,13 +18,6 @@ function getClient(): CloudWatchLogsClient {
     opts.credentials = fromIni({ profile: process.env.AWS_PROFILE });
   }
   return new CloudWatchLogsClient(opts);
-}
-
-function ensureLogsDir(): string {
-  if (!fs.existsSync(LOGS_DIR)) {
-    fs.mkdirSync(LOGS_DIR, { recursive: true });
-  }
-  return LOGS_DIR;
 }
 
 /** Sanitize a log group name into a safe filename */

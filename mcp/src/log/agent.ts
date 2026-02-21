@@ -43,6 +43,8 @@ export interface LogAgentOptions {
   logs?: boolean;
   sessionId?: string;
   sessionConfig?: SessionConfig;
+  stakworkApiKey?: string;
+  projectId?: string;
 }
 
 export async function log_agent_context(
@@ -66,7 +68,10 @@ export async function log_agent_context(
     }
   }
 
-  const tools = get_log_tools();
+  const tools = get_log_tools({
+    stakworkApiKey: opts.stakworkApiKey,
+    projectId: opts.projectId,
+  });
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
 

@@ -23,6 +23,8 @@ export async function logs_agent(req: Request, res: Response) {
   const swarmName = req.body.swarmName as string | undefined;
   const sessionId = req.body.sessionId as string | undefined;
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
+  const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
+  const projectId = req.body.projectId as string | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -55,7 +57,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig })
+    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig, stakworkApiKey, projectId })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,

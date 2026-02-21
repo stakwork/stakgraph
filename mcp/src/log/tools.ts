@@ -6,19 +6,19 @@ import {
   fetchCloudwatchLogs,
   listCloudwatchLogGroups,
 } from "./cloudwatch.js";
+import { fetchWorkflowRunLogs } from "./stakwork.js";
 import { searchLogs } from "../handler/logs.js";
 import { executeBashCommand } from "../repo/bash.js";
+import { ensureLogsDir } from "./utils.js";
 
-const LOGS_DIR = process.env.LOGS_DIR || "/tmp/logs";
-
-function ensureLogsDir(): string {
-  if (!fs.existsSync(LOGS_DIR)) {
-    fs.mkdirSync(LOGS_DIR, { recursive: true });
-  }
-  return LOGS_DIR;
+export interface LogToolsOptions {
+  stakworkApiKey?: string;
+  projectId?: string;
 }
 
-export function get_log_tools(): Record<string, Tool<any, any>> {
+export function get_log_tools(
+  opts?: LogToolsOptions
+): Record<string, Tool<any, any>> {
   const tools: Record<string, Tool<any, any>> = {
     fetch_cloudwatch: tool({
       description:
@@ -189,6 +189,69 @@ export function get_log_tools(): Record<string, Tool<any, any>> {
       },
     }),
   };
+
+  if (opts?.stakworkApiKey && opts?.projectId) {
+    const apiKey = opts.stakworkApiKey;
+    const projectId = opts.projectId;
+
+    tools.fetch_workflow_run = tool({
+      description:
+        "Fetch logs for a Stakwork workflow run (project). Returns logs in reverse chronological order. Supports filtering by step name, status, and pagination.",
+      inputSchema: z.object({
+        step: z
+          .string()
+          .optional()
+          .describe("Filter logs by workflow step name"),
+        status: z
+          .enum(["success", "error", "warning", "failed"])
+          .optional()
+          .describe("Filter by log status"),
+        include_children: z
+          .boolean()
+          .optional()
+          .describe(
+            "Include logs from child projects (sub-runs). Only applies to parent projects."
+          ),
+        limit: z
+          .number()
+          .optional()
+          .describe("Number of logs per page (default 50, max 100)"),
+        page: z
+          .number()
+          .optional()
+          .describe("Page number for pagination (default 1)"),
+      }),
+      execute: async ({
+        step,
+        status,
+        include_children,
+        limit,
+        page,
+      }: {
+        step?: string;
+        status?: "success" | "error" | "warning" | "failed";
+        include_children?: boolean;
+        limit?: number;
+        page?: number;
+      }) => {
+        try {
+          const result = await fetchWorkflowRunLogs({
+            apiKey,
+            projectId,
+            step,
+            status,
+            include_children,
+            limit,
+            page,
+          });
+          const { pagination } = result;
+          return `Fetched ${result.logCount} logs from Stakwork project ${projectId} (page ${pagination.page}/${pagination.pages}, total ${pagination.count}). Saved to file: ${result.file}. Use bash to search through it.`;
+        } catch (e: any) {
+          return `Failed to fetch Stakwork workflow logs: ${e.message}`;
+        }
+      },
+    });
+  }
 
   return tools;
 }
