@@ -1,5 +1,8 @@
 use crate::types::{AppState, ProcessBody, ProcessResponse, Result, WebError};
-use crate::utils::{call_mcp_docs, call_mcp_mocks, call_mcp_embed, resolve_repo, should_call_mcp_for_repo};
+use crate::utils::{
+    call_mcp_docs, call_mcp_embed, call_mcp_mocks, has_rules_file_changes, resolve_repo,
+    should_call_mcp_for_repo,
+};
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
 use ast::repo::{clone_repo, Repo, check_revs_files};
 use axum::{extract::State, Json};
@@ -215,6 +218,7 @@ pub async fn sync(
     }
 
     let use_lsp = body.use_lsp;
+    let docs_param = body.docs.clone();
     let embeddings_param = body.embeddings.clone();
     let embeddings_limit = body.embeddings_limit.unwrap_or(5.0);
 
@@ -296,9 +300,17 @@ pub async fn sync(
         total_start.elapsed()
     );
 
+    if should_call_mcp_for_repo(&docs_param, repo_url) {
+        if let Some(files) = &modified_files {
+            if has_rules_file_changes(files) {
+                call_mcp_docs(repo_url, true).await;
+            }
+        }
+    }
+
     if should_call_mcp_for_repo(&embeddings_param, repo_url) {
-        if let Some(files) = modified_files {
-            call_mcp_embed(repo_url, embeddings_limit, files, true).await;
+        if let Some(files) = &modified_files {
+            call_mcp_embed(repo_url, embeddings_limit, files.clone(), true).await;
         }
     }
 
