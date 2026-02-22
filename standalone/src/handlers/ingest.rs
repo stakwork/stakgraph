@@ -11,9 +11,7 @@ use crate::types::{
     AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebError,
     WebhookPayload,
 };
-use crate::utils::{
-    call_mcp_embed, call_mcp_mocks, resolve_repo, should_call_mcp_for_repo,
-};
+use crate::utils::resolve_repo;
 use crate::webhook::{send_with_retries, validate_callback_url_async};
 
 use crate::service::graph_service::{ingest, sync};
@@ -140,9 +138,6 @@ pub async fn sync_async(
     );
 
     let state_for_process = state.clone();
-    let mocks_param = body_clone.mocks.clone();
-    let embeddings_param = body_clone.embeddings.clone();
-    let embeddings_limit = body_clone.embeddings_limit.unwrap_or(50.0);
 
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
@@ -171,13 +166,6 @@ pub async fn sync_async(
                     }),
                 };
                 map.insert(request_id_for_work.clone(), entry);
-
-                if should_call_mcp_for_repo(&mocks_param, &repo_url) {
-                    call_mcp_mocks(&repo_url, username.as_deref(), pat.as_deref(), true).await;
-                }
-                if should_call_mcp_for_repo(&embeddings_param, &repo_url) {
-                    call_mcp_embed(&repo_url, embeddings_limit, vec![], true).await;
-                }
 
                 if let Some(url) = callback_url.clone() {
                     if let Ok(valid) = crate::webhook::validate_callback_url_async(&url).await {

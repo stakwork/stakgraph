@@ -219,6 +219,7 @@ pub async fn sync(
 
     let use_lsp = body.use_lsp;
     let docs_param = body.docs.clone();
+    let mocks_param = body.mocks.clone();
     let embeddings_param = body.embeddings.clone();
     let embeddings_limit = body.embeddings_limit.unwrap_or(5.0);
 
@@ -306,6 +307,10 @@ pub async fn sync(
                 call_mcp_docs(repo_url, true).await;
             }
         }
+    }
+
+    if should_call_mcp_for_repo(&mocks_param, repo_url) {
+        call_mcp_mocks(repo_url, username.as_deref(), pat.as_deref(), true).await;
     }
 
     if should_call_mcp_for_repo(&embeddings_param, repo_url) {
