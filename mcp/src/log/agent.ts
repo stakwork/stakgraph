@@ -14,14 +14,16 @@ import {
   sessionExists,
   SessionConfig,
 } from "../repo/session.js";
+import { StakworkRunSummary } from "./types.js";
 
 const SYSTEM = `You are a log analysis agent. You have tools to fetch logs from various sources (CloudWatch, Quickwit, etc.) and write them to local files, plus a bash tool to search and analyze those files.
 
 Your workflow:
 1. If the user mentions a specific log group or service, fetch those logs directly.
 2. If unsure which log group to use, call list_cloudwatch_groups to discover available groups.
-3. After fetching, use bash to search and analyze the log files (rg, grep, awk, sort, uniq, wc, head, tail, etc.).
-4. Synthesize your findings into a clear answer.
+3. If a Stakwork run has agentLogs, use fetch_agent_log to read the full agent log content for a specific agent.
+4. After fetching, use bash to search and analyze the log files (rg, grep, awk, sort, uniq, wc, head, tail, etc.).
+5. Synthesize your findings into a clear answer.
 
 Tips:
 - Fetch logs first, then search. Don't try to search before fetching.
@@ -43,6 +45,7 @@ export interface LogAgentOptions {
   sessionId?: string;
   sessionConfig?: SessionConfig;
   stakworkApiKey?: string;
+  stakworkRuns?: StakworkRunSummary[];
   logsDir: string;
   printAgentProgress?: boolean;
 }
@@ -71,6 +74,7 @@ export async function log_agent_context(
   const tools = get_log_tools({
     logsDir: opts.logsDir,
     stakworkApiKey: opts.stakworkApiKey,
+    stakworkRuns: opts.stakworkRuns,
   });
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
