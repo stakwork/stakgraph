@@ -830,6 +830,8 @@ export const GET_NODES_WITHOUT_DESCRIPTION_QUERY = `
 MATCH (n)
 WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel)
   AND (n.description IS NULL OR n.description = '')
+  AND n.body IS NOT NULL
+  AND n.body <> ''
   AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
   AND ($file_paths IS NULL OR size($file_paths) = 0 OR ANY(path IN $file_paths WHERE n.file ENDS WITH path))
 RETURN n, n.ref_id as ref_id, labels(n) as labels, properties(n) as properties
