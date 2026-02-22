@@ -40,11 +40,11 @@ impl Neo4jGraph {
         }
     }
 
-    pub async fn update_repository_hash(&self, repo_name: &str, new_hash: &str) -> Result<()> {
+    pub async fn update_repository_hash(&self, repo_url: &str, new_hash: &str) -> Result<()> {
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);
 
-        let (query, params) = update_repository_hash_query(repo_name, new_hash);
+        let (query, params) = update_repository_hash_query(repo_url, new_hash);
         txn_manager.add_query((query, params));
 
         txn_manager.execute().await
@@ -268,9 +268,18 @@ pub fn remove_nodes_by_file_query(file_path: &str, root: &str) -> (String, BoltM
 
     (query.to_string(), params)
 }
-pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String, BoltMap) {
+pub fn update_repository_hash_query(repo_url: &str, new_hash: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "repo_name", repo_name);
+
+    let name = if repo_url.contains('/') {
+        let parts: Vec<&str> = repo_url.split('/').collect();
+        let n = parts.last().unwrap_or(&repo_url);
+        n.trim_end_matches(".git")
+    } else {
+        repo_url
+    };
+
+    boltmap_insert_str(&mut params, "repo_name", name);
     boltmap_insert_str(&mut params, "new_hash", new_hash);
 
     let query = "MATCH (r:Repository) 
