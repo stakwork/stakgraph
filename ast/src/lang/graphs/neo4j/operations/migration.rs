@@ -270,7 +270,16 @@ pub fn remove_nodes_by_file_query(file_path: &str, root: &str) -> (String, BoltM
 }
 pub fn update_repository_hash_query(repo_name: &str, new_hash: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
-    boltmap_insert_str(&mut params, "repo_name", repo_name);
+
+    let name = if repo_name.contains('/') {
+        let parts: Vec<&str> = repo_name.split('/').collect();
+        let n = parts.last().unwrap_or(&repo_name);
+        n.trim_end_matches(".git")
+    } else {
+        repo_name
+    };
+
+    boltmap_insert_str(&mut params, "repo_name", name);
     boltmap_insert_str(&mut params, "new_hash", new_hash);
 
     let query = "MATCH (r:Repository) 
