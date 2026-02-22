@@ -51,16 +51,54 @@ impl Stack for Java {
     fn variables_query(&self) -> Option<String> {
         Some(format!(
             r#"
-            (program
-                (local_variable_declaration
-                    (modifiers)
-                    type: (_)@{VARIABLE_TYPE}
+            [
+                (field_declaration
+                    type: (_) @{VARIABLE_TYPE}
                     declarator: (variable_declarator
                         name: (identifier) @{VARIABLE_NAME}
-                        value: (_) @{VARIABLE_VALUE}
+                        value: (_)? @{VARIABLE_VALUE}
                     )
-                )@{VARIABLE_DECLARATION}
-            )
+                ) @{VARIABLE_DECLARATION}
+
+                (local_variable_declaration
+                    (modifiers)? @{ATTRIBUTES}
+                    type: (_) @{VARIABLE_TYPE}
+                    declarator: (variable_declarator
+                        name: (identifier) @{VARIABLE_NAME}
+                        value: (_)? @{VARIABLE_VALUE}
+                    )
+                ) @{VARIABLE_DECLARATION}
+            ]
+            "#
+        ))
+    }
+
+    fn trait_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (interface_declaration
+                name: (identifier) @{TRAIT_NAME}
+            ) @{TRAIT}
+            "#
+        ))
+    }
+
+    fn implements_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (class_declaration
+                name: (identifier) @{CLASS_NAME}
+                (super_interfaces
+                    (type_list
+                        [
+                            (type_identifier) @{TRAIT_NAME}
+                            (generic_type
+                                (type_identifier) @{TRAIT_NAME}
+                            )
+                        ]
+                    )
+                )
+            ) @{IMPLEMENTS}
             "#
         ))
     }
@@ -88,16 +126,29 @@ impl Stack for Java {
             r#"
             [
             (field_declaration
-                (type_identifier) @{CLASS_NAME}
-                (variable_declarator
-                    (identifier) @{INSTANCE_NAME}
+                type: [
+                    (type_identifier) @{CLASS_NAME}
+                    (scoped_type_identifier) @{CLASS_NAME}
+                    (generic_type
+                        (type_identifier) @{CLASS_NAME}
+                    )
+                ]
+                declarator: (variable_declarator
+                    name: (identifier) @{INSTANCE_NAME}
                 )
-            )(local_variable_declaration
-                type: (type_identifier)@{CLASS_NAME}
-                (variable_declarator
-                    (identifier) @{INSTANCE_NAME}
+            )
+
+            (local_variable_declaration
+                type: [
+                    (type_identifier) @{CLASS_NAME}
+                    (scoped_type_identifier) @{CLASS_NAME}
+                    (generic_type
+                        (type_identifier) @{CLASS_NAME}
+                    )
+                ]
+                declarator: (variable_declarator
+                    name: (identifier) @{INSTANCE_NAME}
                 )
-            
             )
             ]@{INSTANCE}
             "#
@@ -106,14 +157,24 @@ impl Stack for Java {
     fn function_definition_query(&self) -> String {
         format!(
             r#"
-            (method_declaration
-                (modifiers (annotation)*)? @{ATTRIBUTES}
-                type: (_) @{RETURN_TYPES}
-                name: (identifier) @{FUNCTION_NAME}                
-                (formal_parameters
-                    (formal_parameter)@{ARGUMENTS}
-                )?  
-              )@{FUNCTION_DEFINITION}
+            [
+                (method_declaration
+                    (modifiers (annotation)*)? @{ATTRIBUTES}
+                    type: (_) @{RETURN_TYPES}
+                    name: (identifier) @{FUNCTION_NAME}
+                    (formal_parameters
+                        (formal_parameter)@{ARGUMENTS}
+                    )?
+                )@{FUNCTION_DEFINITION}
+
+                (constructor_declaration
+                    (modifiers (annotation)*)? @{ATTRIBUTES}
+                    name: (identifier) @{FUNCTION_NAME}
+                    (formal_parameters
+                        (formal_parameter) @{ARGUMENTS}
+                    )?
+                )@{FUNCTION_DEFINITION}
+            ]
             "#
         )
     }
@@ -131,16 +192,50 @@ impl Stack for Java {
     fn function_call_query(&self) -> String {
         format!(
             r#"
+                [
                 (method_invocation
                     object: (_)? @{OPERAND}
                     name: (identifier) @{FUNCTION_NAME}
                     arguments: (argument_list 
                     (_)* 
                     )@{ARGUMENTS}
-                ) @function-call
+                ) @{FUNCTION_CALL}
+
+                (object_creation_expression
+                    type: [
+                        (type_identifier) @{FUNCTION_NAME}
+                        (scoped_type_identifier
+                            (type_identifier) @{FUNCTION_NAME}
+                        )
+                    ]
+                    arguments: (argument_list
+                        (_)*
+                    ) @{ARGUMENTS}
+                ) @{FUNCTION_CALL}
+                ]
                 
                 "#
         )
+    }
+
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (method_declaration
+                (modifiers
+                    [
+                        (marker_annotation
+                            name: (identifier) @test_anno (#eq? @test_anno "Test")
+                        )
+                        (annotation
+                            name: (identifier) @test_anno2 (#eq? @test_anno2 "Test")
+                        )
+                    ]
+                )
+                name: (identifier) @{FUNCTION_NAME}
+            ) @{FUNCTION_DEFINITION}
+            "#
+        ))
     }
     fn endpoint_finders(&self) -> Vec<String> {
         vec![
@@ -151,7 +246,19 @@ impl Stack for Java {
                     (annotation
                         name: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "GetMapping|PostMapping|PutMapping|DeleteMapping|RequestMapping|PatchMapping")
                         arguments: (annotation_argument_list 
-                        (string_literal) @{ENDPOINT}
+                        [
+                            (string_literal) @{ENDPOINT}
+                            (element_value_pair
+                                key: (identifier) @path_key (#match? @path_key "^path$|^value$")
+                                value: (string_literal) @{ENDPOINT}
+                            )
+                            (element_value_pair
+                                key: (identifier) @method_key (#eq? @method_key "method")
+                                value: (field_access
+                                    field: (identifier) @{ENDPOINT_VERB}
+                                )
+                            )
+                        ]*
                         )?
                     )
                     )
@@ -165,10 +272,15 @@ impl Stack for Java {
                     name: (identifier) @{ENDPOINT_VERB} (#match? @{ENDPOINT_VERB} "^GET$|^POST$|^PUT$|^DELETE$|^PATCH$")
                     arguments: (argument_list
                         (string_literal) @{ENDPOINT}
-                        (lambda_expression
-                            parameters: (_) @{ARGUMENTS}
-                            body: (_) @lambda.body
-                        ) @{ANONYMOUS_FUNCTION}
+                        [
+                            (lambda_expression
+                                parameters: (_) @{ARGUMENTS}
+                                body: (_) @lambda.body
+                            ) @{ANONYMOUS_FUNCTION}
+                            (method_reference
+                                (identifier) @{HANDLER}
+                            )
+                        ]
                     )
                 ) @{ROUTE}
                 "#
@@ -201,7 +313,13 @@ impl Stack for Java {
                     (annotation
                         name: (identifier) @{ENDPOINT_VERB} (#eq? @{ENDPOINT_VERB} "RequestMapping")
                         arguments: (annotation_argument_list 
-                            (string_literal) @{ENDPOINT}
+                            [
+                                (string_literal) @{ENDPOINT}
+                                (element_value_pair
+                                    key: (identifier) @path_key (#match? @path_key "^path$|^value$")
+                                    value: (string_literal) @{ENDPOINT}
+                                )
+                            ]*
                         )?
                     )
                 )
@@ -213,12 +331,33 @@ impl Stack for Java {
 
     fn update_endpoint(&self, nd: &mut NodeData, _call: &Option<String>) {
         if let Some(verb_annotation) = nd.meta.get("verb").cloned() {
-            let http_verb = match verb_annotation.as_str() {
+            let normalized = verb_annotation.to_uppercase();
+            let http_verb = match normalized.as_str() {
                 "GETMAPPING" => "GET",
                 "POSTMAPPING" => "POST",
                 "PUTMAPPING" => "PUT",
                 "DELETEMAPPING" => "DELETE",
                 "PATCHMAPPING" => "PATCH",
+                "GET" => "GET",
+                "POST" => "POST",
+                "PUT" => "PUT",
+                "DELETE" => "DELETE",
+                "PATCH" => "PATCH",
+                "REQUESTMAPPING" => {
+                    if nd.body.contains("RequestMethod.GET") {
+                        "GET"
+                    } else if nd.body.contains("RequestMethod.POST") {
+                        "POST"
+                    } else if nd.body.contains("RequestMethod.PUT") {
+                        "PUT"
+                    } else if nd.body.contains("RequestMethod.DELETE") {
+                        "DELETE"
+                    } else if nd.body.contains("RequestMethod.PATCH") {
+                        "PATCH"
+                    } else {
+                        "ANY"
+                    }
+                }
                 _ => "GET",
             };
 
@@ -228,6 +367,30 @@ impl Stack for Java {
         //TODO: check for the presence of the verb in the function call
         // if all else fails, default to GET
         nd.add_verb("GET");
+    }
+
+    fn is_test_file(&self, file_name: &str) -> bool {
+        let normalized = file_name.replace('\\', "/").to_lowercase();
+        normalized.contains("/src/test/")
+            || normalized.contains("/tests/")
+            || normalized.ends_with("test.java")
+    }
+
+    fn is_test(&self, func_name: &str, func_file: &str, _func_body: &str) -> bool {
+        self.is_test_file(func_file)
+            || func_name.starts_with("test")
+            || func_name.ends_with("_test")
+    }
+
+    fn classify_test(&self, _name: &str, file: &str, _body: &str) -> NodeType {
+        let f = file.replace('\\', "/").to_lowercase();
+        if f.contains("/integration/") {
+            return NodeType::IntegrationTest;
+        }
+        if f.contains("/e2e/") {
+            return NodeType::E2eTest;
+        }
+        NodeType::UnitTest
     }
     fn data_model_query(&self) -> Option<String> {
         Some(format!(

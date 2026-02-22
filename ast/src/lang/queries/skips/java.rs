@@ -52,7 +52,32 @@ const COLLECTION_METHODS: [&str; 10] = [
     "forEach",
 ];
 
-const COMMON_CLASSES: [&str; 15] = [
+const MAP_METHODS: [&str; 11] = [
+    "put",
+    "putAll",
+    "putIfAbsent",
+    "get",
+    "getOrDefault",
+    "containsKey",
+    "containsValue",
+    "remove",
+    "keySet",
+    "values",
+    "entrySet",
+];
+
+const OPTIONAL_METHODS: [&str; 8] = [
+    "isPresent",
+    "isEmpty",
+    "get",
+    "orElse",
+    "orElseGet",
+    "orElseThrow",
+    "map",
+    "ifPresent",
+];
+
+const COMMON_CLASSES: [&str; 16] = [
     "System",
     "Math",
     "String",
@@ -68,6 +93,7 @@ const COMMON_CLASSES: [&str; 15] = [
     "List",
     "Map",
     "Set",
+    "Collectors",
 ];
 
 pub fn should_skip(called: &str, operand: &Option<String>) -> bool {
@@ -79,7 +105,9 @@ pub fn should_skip(called: &str, operand: &Option<String>) -> bool {
             if first_char.is_lowercase()
                 && (STRING_METHODS.contains(&called)
                     || LIST_METHODS.contains(&called)
-                    || COLLECTION_METHODS.contains(&called))
+                    || COLLECTION_METHODS.contains(&called)
+                    || MAP_METHODS.contains(&called)
+                    || OPTIONAL_METHODS.contains(&called))
             {
                 return true;
             }
