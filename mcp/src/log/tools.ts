@@ -7,12 +7,15 @@ import {
   listCloudwatchLogGroups,
 } from "./cloudwatch.js";
 import { fetchWorkflowRunLogs } from "./stakwork.js";
+import { fetchAgentLog } from "./hive.js";
 import { searchLogs } from "../handler/logs.js";
 import { executeBashCommand } from "../repo/bash.js";
+import { StakworkRunSummary } from "./types.js";
 
 export interface LogToolsOptions {
   logsDir: string;
   stakworkApiKey?: string;
+  stakworkRuns?: StakworkRunSummary[];
 }
 
 export function get_log_tools(
@@ -189,6 +192,45 @@ export function get_log_tools(
       },
     }),
   };
+
+  if (opts?.stakworkRuns && opts.stakworkRuns.length > 0) {
+    const runs = opts.stakworkRuns;
+
+    tools.fetch_agent_log = tool({
+      description:
+        "Fetch the full log content for an agent from a Stakwork workflow run. If the run has only one agent log, the agent parameter can be omitted. The agent names and project IDs are provided in the recent runs context.",
+      inputSchema: z.object({
+        project_id: z
+          .number()
+          .describe("The Stakwork project ID (from the recent runs list)"),
+        agent: z
+          .string()
+          .optional()
+          .describe(
+            "The agent name to fetch logs for (e.g. 'architecture', 'code'). If omitted, uses the first (or only) agent log."
+          ),
+      }),
+      execute: async ({
+        project_id,
+        agent,
+      }: {
+        project_id: number;
+        agent?: string;
+      }) => {
+        try {
+          const result = await fetchAgentLog({
+            runs,
+            projectId: project_id,
+            agent,
+            logsDir,
+          });
+          return `Fetched agent log for "${result.agent}" from run ${result.projectId} (${result.lineCount} lines). Saved to file: ${result.file}. Use bash to search through it.`;
+        } catch (e: any) {
+          return `Failed to fetch agent log: ${e.message}`;
+        }
+      },
+    });
+  }
 
   if (opts?.stakworkApiKey) {
     const apiKey = opts.stakworkApiKey;

@@ -6,14 +6,9 @@ import { ModelName } from "../aieo/src/index.js";
 import { SessionConfig } from "../repo/session.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "./utils.js";
+import { StakworkRunSummary } from "./types.js";
 
-export interface StakworkRunSummary {
-  projectId: number;
-  type: string;
-  status: string;
-  feature?: string | null;
-  createdAt: string;
-}
+export type { AgentLogSummary, StakworkRunSummary } from "./types.js";
 
 /** Convert a UI swarm name like "swarm38" or "swarmHDYF7D" to a CloudWatch log group like "/swarms/38" or "/swarms/HDYF7D" */
 function swarmNameToLogGroup(swarmName: string): string | null {
@@ -69,7 +64,7 @@ export async function logs_agent(req: Request, res: Response) {
     const runsContext = [
       `\nRecent Stakwork workflow runs (use projectId with fetch_workflow_run to get logs):`,
       runsJson,
-      `\nPick the most relevant run based on the user's question, if its about a recent workflow (like a feature architecture, hive task, etc.) Use the projectId to fetch logs.`,
+      `\nPick the most relevant run based on the user's question, if its about a recent workflow (like a feature architecture, hive task, etc.) Use the projectId to fetch logs. If a run has agentLogs, you can use fetch_agent_log to read the full log content for a specific agent.`,
     ].join("\n");
     finalPrompt = runsContext + `\n\n${finalPrompt}`;
   }
@@ -81,7 +76,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig, stakworkApiKey, logsDir, printAgentProgress })
+    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
