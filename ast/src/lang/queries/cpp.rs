@@ -33,7 +33,7 @@ impl Cpp {
 }
 impl Stack for Cpp {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
-        super::skips::c::should_skip(called, operand)
+        super::skips::cpp::should_skip(called, operand)
     }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {

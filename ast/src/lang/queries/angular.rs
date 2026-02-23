@@ -19,7 +19,7 @@ impl Angular {
 
 impl Stack for Angular {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
-        super::skips::react_ts::should_skip(called, operand)
+        super::skips::angular::should_skip(called, operand)
     }
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
         Query::new(&self.0, q).unwrap()
