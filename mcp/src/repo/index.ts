@@ -36,7 +36,12 @@ export async function repo_agent(req: Request, res: Response) {
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive,https://github.com/stakwork/stakgraph", "prompt": "how do these two repos relate to each other?"}' "http://localhost:3355/repo/agent"
   // curl "http://localhost:3355/progress?request_id=5c501254-cc7b-44f4-9537-6fa18f642b5c"
-  console.log("===> repo_agent", req.body, req.body.prompt);
+  console.log("===> repo_agent", req.method, req.path, {
+    hasPat: Boolean(req.body?.pat),
+    hasUsername: Boolean(req.body?.username),
+    hasRepoUrl: Boolean(req.body?.repo_url),
+    hasPrompt: Boolean(req.body?.prompt),
+  });
   const request_id = asyncReqs.startReq();
 
   const repoUrl = req.body.repo_url as string;
@@ -111,7 +116,7 @@ export async function repo_agent(req: Request, res: Response) {
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     console.error("Error in repo_agent", error);
     res.status(500).json({ error: "Internal server error" });
@@ -132,7 +137,7 @@ export async function get_agent_tools(req: Request, res: Response) {
 
 export async function get_agent_session(req: Request, res: Response) {
   const sessionId = req.query.session_id as string || req.query.sessionId as string;
-  console.log("===> GET /repo/agent/session", sessionId);
+  console.log("===> GET /repo/agent/session", { hasSessionId: Boolean(sessionId) });
 
   if (!sessionId) {
     res.status(400).json({ error: "Missing session_id" });

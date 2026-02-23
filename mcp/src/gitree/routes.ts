@@ -108,7 +108,7 @@ function parseRepoParam(req: Request): string | undefined {
 
 // curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true&link=true&analyze_clues=true"
 export async function gitree_process(req: Request, res: Response) {
-  console.log("===> gitree_process", req.url, req.method);
+  console.log("===> gitree_process", req.path, req.method);
   const request_id = asyncReqs.startReq();
 
   let owner = req.query.owner as string;
@@ -246,7 +246,7 @@ export async function gitree_process(req: Request, res: Response) {
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     isProcessing = false;
     endTracking(opId);
@@ -564,7 +564,7 @@ export async function gitree_stats(req: Request, res: Response) {
  * GET /progress?request_id=xxx
  */
 export async function gitree_summarize_feature(req: Request, res: Response) {
-  console.log("===> gitree_summarize_feature", req.url, req.method);
+  console.log("===> gitree_summarize_feature", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
     const featureId = req.params.id as string;
@@ -591,7 +591,7 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to summarize feature" });
   }
@@ -603,7 +603,7 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
  * GET /progress?request_id=xxx
  */
 export async function gitree_summarize_all(req: Request, res: Response) {
-  console.log("===> gitree_summarize_all", req.url, req.method);
+  console.log("===> gitree_summarize_all", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
     // Summarize in background
@@ -628,7 +628,7 @@ export async function gitree_summarize_all(req: Request, res: Response) {
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to summarize all features" });
   }
@@ -640,7 +640,7 @@ export async function gitree_summarize_all(req: Request, res: Response) {
  * GET /progress?request_id=xxx
  */
 export async function gitree_link_files(req: Request, res: Response) {
-  console.log("===> gitree_link_files", req.url, req.method);
+  console.log("===> gitree_link_files", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
     const featureId = req.query.feature_id as string | undefined;
@@ -674,7 +674,7 @@ export async function gitree_link_files(req: Request, res: Response) {
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to link files" });
   }
@@ -951,7 +951,7 @@ Please analyze the user's prompt and the list of available features. Return an a
     }'
  */
 export async function gitree_create_feature(req: Request, res: Response) {
-  console.log("===> gitree_create_feature", req.url, req.method);
+  console.log("===> gitree_create_feature", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
     const { prompt, name, owner, repo, pat } = req.body;
@@ -1028,7 +1028,7 @@ export async function gitree_create_feature(req: Request, res: Response) {
 
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     res.status(500).json({ error: "Failed to create feature" });
   }

@@ -18,7 +18,11 @@ function swarmNameToLogGroup(swarmName: string): string | null {
 }
 
 export async function logs_agent(req: Request, res: Response) {
-  console.log("===> logs_agent", req.body);
+  console.log("===> logs_agent", req.method, req.path, {
+    hasPrompt: Boolean(req.body?.prompt),
+    hasStakworkApiKey: Boolean(req.body?.stakworkApiKey),
+    hasSessionId: Boolean(req.body?.sessionId),
+  });
   const request_id = asyncReqs.startReq();
 
   const prompt = req.body.prompt as string;
