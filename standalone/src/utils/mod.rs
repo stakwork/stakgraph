@@ -24,8 +24,10 @@ pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<
         url.push_str("&sync=true");
     }
     println!(
-        "[mcp_mocks] Calling MCP to discover mocks (sync={}): {}",
-        sync, url
+        "[mcp_mocks] Calling MCP to discover mocks (sync={}, has_username={}, has_pat={})",
+        sync,
+        username.is_some(),
+        pat.is_some()
     );
 
     let client = Client::new();
@@ -44,8 +46,8 @@ pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<
                 );
             }
         }
-        Err(e) => {
-            println!("[mcp_mocks] MCP mocks call failed (non-fatal): {}", e);
+        Err(_) => {
+            println!("[mcp_mocks] MCP mocks call failed (non-fatal)");
         }
     }
 }

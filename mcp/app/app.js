@@ -84,7 +84,7 @@ const App = () => {
         console.log("=>> setBaseUrl", event.data.url);
         setBaseUrl(event.data.url);
       } else if (event.data.type === "set-api-token") {
-        console.log("=>> setApiToken", event.data.token);
+        console.log("=>> setApiToken");
         setApiToken(event.data.token);
       } else if (event.data.type === "done") {
         // Remove all messages with loading: true

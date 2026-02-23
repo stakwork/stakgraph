@@ -76,9 +76,9 @@ export function schema(_req: Request, res: Response) {
 
 export function logEndpoint(req: Request, res: Response, next: NextFunction) {
   if (req.headers["x-api-token"]) {
-    console.log(`=> ${req.method} ${req.url} ${req.headers["x-api-token"]}`);
+    console.log(`=> ${req.method} ${req.path} [auth]`);
   } else {
-    console.log(`=> ${req.method} ${req.url}`);
+    console.log(`=> ${req.method} ${req.path}`);
   }
   next();
 }
