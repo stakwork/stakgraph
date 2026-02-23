@@ -7,7 +7,8 @@ FROM node:22-bookworm-slim
 WORKDIR /usr/src/app
 
 # Install dependencies
-RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq
+RUN apt update && apt install -y sed git vim tree ripgrep wget curl jq python3 && \
+    ln -s /usr/bin/python3 /usr/bin/python
 
 # install Gitleaks (supports x64 and arm64)
 RUN ARCH=$(dpkg --print-architecture) && \
