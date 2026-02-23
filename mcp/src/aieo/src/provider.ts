@@ -139,6 +139,18 @@ export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: strin
   return {model, provider, apiKey}
 }
 
+// Default timeout for API requests (10 minutes)
+const API_TIMEOUT_MS = 10 * 60 * 1000;
+
+function fetchWithTimeout(timeoutMs: number = API_TIMEOUT_MS): typeof globalThis.fetch {
+  return (input, init) => {
+    return globalThis.fetch(input, {
+      ...init,
+      signal: init?.signal ?? AbortSignal.timeout(timeoutMs),
+    });
+  };
+}
+
 export function getModel(
   provider: Provider,
   opts?: string | GetModelOptions
@@ -168,25 +180,30 @@ export function getModel(
       `Getting model for provider: ${provider}, model: ${modelId}`
     );
   }
+  const customFetch = fetchWithTimeout();
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({
         apiKey,
+        fetch: customFetch,
       });
       return anthropic(modelId);
     case "google":
       const google = createGoogleGenerativeAI({
         apiKey,
+        fetch: customFetch,
       });
       return google(modelId);
     case "openai":
       const openai = createOpenAI({
         apiKey,
+        fetch: customFetch,
       });
       return openai(modelId);
     case "openrouter":
       const openrouter = createOpenRouter({
         apiKey,
+        fetch: customFetch,
       });
       return openrouter(modelId);
     // case "claude_code":
