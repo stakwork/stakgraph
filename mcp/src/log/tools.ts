@@ -113,7 +113,7 @@ export function get_log_tools(
 
     fetch_quickwit: tool({
       description:
-        "Fetch logs from Quickwit and save them to a local file for searching. Supports Lucene query syntax.",
+        "Fetch endpoint logs from the user's actual application (such as vercel logs) and save them to a local file for searching. Supports Lucene query syntax.",
       inputSchema: z.object({
         query: z
           .string()

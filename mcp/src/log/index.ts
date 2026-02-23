@@ -30,6 +30,7 @@ export async function logs_agent(req: Request, res: Response) {
   const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
   const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
   const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
+  const workspaceSlug = req.body.workspaceSlug as string | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -67,6 +68,10 @@ export async function logs_agent(req: Request, res: Response) {
       `\nPick the most relevant run based on the user's question, if its about a recent workflow (like a feature architecture, hive task, etc.) Use the projectId to fetch logs. If a run has agentLogs, you can use fetch_agent_log to read the full log content for a specific agent.`,
     ].join("\n");
     finalPrompt = runsContext + `\n\n${finalPrompt}`;
+  }
+
+  if (workspaceSlug) {
+    finalPrompt = `If the user mentions their actual application name (e.g. "${workspaceSlug}"), use the fetch_quickwit tool to fetch logs from the actual application.`;
   }
 
   // Per-run logs directory: use sessionId if present (persists across turns),
