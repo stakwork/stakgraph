@@ -76,9 +76,9 @@ export function schema(_req: Request, res: Response) {
 
 export function logEndpoint(req: Request, res: Response, next: NextFunction) {
   if (req.headers["x-api-token"]) {
-    console.log(`=> ${req.method} ${req.url} ${req.headers["x-api-token"]}`);
+    console.log(`=> ${req.method} ${req.path} [auth]`);
   } else {
-    console.log(`=> ${req.method} ${req.url}`);
+    console.log(`=> ${req.method} ${req.path}`);
   }
   next();
 }
@@ -566,7 +566,7 @@ export async function seed_stories(req: Request, res: Response) {
 
 export async function get_nodes(req: Request, res: Response) {
   try {
-    console.log("=> get_nodes", req.query);
+    console.log("=> get_nodes", req.method, req.path);
     const node_type = req.query.node_type as NodeType;
     const concise = isTrue(req.query.concise as string);
     let ref_ids: string[] = [];
@@ -596,7 +596,7 @@ export async function get_nodes(req: Request, res: Response) {
 
 export async function post_nodes(req: Request, res: Response) {
   try {
-    console.log("=> post_nodes", req.body);
+    console.log("=> post_nodes", req.method, req.path);
     const node_type = req.body.node_type as NodeType;
     const concise = req.body.concise === true || req.body.concise === "true";
     let ref_ids: string[] = [];
@@ -728,7 +728,7 @@ interface GitSeeRequest {
 }
 */
 export async function gitsee(req: Request, res: Response) {
-  console.log("===> gitsee API request", req.url, req.method);
+  console.log("===> gitsee API request", req.path, req.method);
   if (req.method !== "POST") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -871,7 +871,7 @@ async function ingestGitSeeData(data: any): Promise<void> {
 }
 
 export async function gitseeEvents(req: Request, res: Response) {
-  console.log("===> gitsee SSE request", req.url, req.method);
+  console.log("===> gitsee SSE request", req.path, req.method);
   if (req.method !== "GET") {
     res.status(405).json({ error: "Method not allowed" });
     return;
@@ -899,7 +899,7 @@ export async function gitseeEvents(req: Request, res: Response) {
 export async function gitsee_services(req: Request, res: Response) {
   // curl "http://localhost:3355/services_agent?owner=stakwork&repo=hive"
   // curl "http://localhost:3355/progress?request_id=123"
-  console.log("===> gitsee_services", req.url, req.method);
+  console.log("===> gitsee_services", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
     const owner = req.query.owner as string;
@@ -928,7 +928,7 @@ export async function gitsee_services(req: Request, res: Response) {
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     console.error("Error getting services config:", error);
     res
@@ -940,7 +940,9 @@ export async function gitsee_services(req: Request, res: Response) {
 export async function gitsee_agent(req: Request, res: Response) {
   // curl "http://localhost:3355/agent?owner=stakwork&repo=hive&prompt=How%20do%20I%20set%20up%20this%20repo"
   // curl "http://localhost:3355/progress?request_id=51f5cce2-d5e8-4619-add3-c2f4cb37e1ba"
-  console.log("===> gitsee agent", req.url, req.method, req.query.prompt);
+  console.log("===> gitsee agent", req.path, req.method, {
+    hasPrompt: Boolean(req.query.prompt),
+  });
   const request_id = asyncReqs.startReq();
   try {
     const owner = req.query.owner as string;
@@ -980,7 +982,7 @@ export async function gitsee_agent(req: Request, res: Response) {
       });
     res.json({ request_id, status: "pending" });
   } catch (error) {
-    console.log("===> error", error);
+    console.log("===> error");
     asyncReqs.failReq(request_id, error);
     console.error("Error getting services config:", error);
     res

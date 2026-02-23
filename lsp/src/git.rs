@@ -142,20 +142,18 @@ pub async fn git_clone(
                     || error_msg.contains("403")
                     || error_msg.contains("401")
                 {
-                    tracing::error!("git clone authentication failed for {}: {}", repo_url, e);
-                    return Err(Error::Custom(format!(
-                        "Git authentication failed during clone. Please check your PAT (Personal Access Token) and username. Error: {}", 
-                        e
-                    )));
+                    tracing::error!("git clone authentication failed");
+                    return Err(Error::Custom(
+                        "Git authentication failed during clone. Please check your PAT (Personal Access Token) and username.".to_string(),
+                    ));
                 } else if error_msg.contains("repository not found") || error_msg.contains("404") {
-                    tracing::error!("git clone repository not found for {}: {}", repo_url, e);
-                    return Err(Error::Custom(format!(
-                        "Repository not found or access denied during clone. Error: {}",
-                        e
-                    )));
+                    tracing::error!("git clone repository not found or access denied");
+                    return Err(Error::Custom(
+                        "Repository not found or access denied during clone.".to_string(),
+                    ));
                 } else {
-                    tracing::error!("git clone failed for {}: {}", repo_url, e);
-                    return Err(Error::Custom(format!("Git clone failed: {}", e)));
+                    tracing::error!("git clone failed");
+                    return Err(Error::Custom("Git clone failed".to_string()));
                 }
             }
         }

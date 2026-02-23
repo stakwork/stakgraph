@@ -23,7 +23,6 @@ const App = () => {
   useEffect(() => {
     const fetchToken = async () => {
       const data = await utils.GET("/token");
-      console.log("fetchToken", data);
       if (data.token) {
         setToken(data.token);
         utils.setApiToken(data.token);
