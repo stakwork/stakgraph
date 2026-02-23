@@ -21,6 +21,9 @@ impl Php {
 }
 
 impl Stack for Php {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::php::should_skip(called, operand)
+    }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             Query::new(&tree_sitter_json::LANGUAGE.into(), q).unwrap()

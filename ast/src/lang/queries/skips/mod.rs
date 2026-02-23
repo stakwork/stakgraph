@@ -1,6 +1,8 @@
 pub mod c;
+pub mod csharp;
 pub mod go;
 pub mod java;
+pub mod php;
 pub mod python;
 pub mod react_ts;
 pub mod ruby;
