@@ -17,7 +17,7 @@ pub async fn test_swift_generic<G: Graph + Sync>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -252,6 +252,18 @@ end
     nodes_count += variables.len();
     assert_eq!(variables.len(), 2, "Expected 2 variables");
 
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 3, "Expected 3 unit tests from LegacyApp/Tests");
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes_count += integration_tests.len();
+    assert_eq!(integration_tests.len(), 0, "Expected 0 integration tests");
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 0, "Expected 0 e2e tests");
+
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
     assert_eq!(directories.len(), 20, "Expected 20 directories");
@@ -362,7 +374,7 @@ pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    graph.analysis();
+    // graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -419,7 +431,7 @@ pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests from LegacyApp/Tests");
+    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests from ModernApp/Tests");
     assert!(!unit_tests.is_empty(), "Unit tests should not be empty");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
