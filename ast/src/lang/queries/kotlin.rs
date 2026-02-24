@@ -280,8 +280,79 @@ impl Stack for Kotlin {
         ))
     }
 
-    fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
-        func_name.starts_with("test")
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (function_declaration
+                (modifiers
+                    (annotation
+                        (constructor_invocation
+                            (user_type
+                                (type_identifier) @test_annotation
+                                (#match? @test_annotation "^Test$")
+                            )
+                        )
+                    )
+                )
+                (simple_identifier) @{FUNCTION_NAME}
+            ) @{FUNCTION_DEFINITION}
+            "#
+        ))
+    }
+
+    fn integration_test_query(&self) -> Option<String> {
+        // Same as test_query - will use path-based classification
+        Some(format!(
+            r#"
+            (function_declaration
+                (modifiers
+                    (annotation
+                        (constructor_invocation
+                            (user_type
+                                (type_identifier) @test_annotation
+                                (#match? @test_annotation "^Test$")
+                            )
+                        )
+                    )
+                )
+                (simple_identifier) @{FUNCTION_NAME}
+            ) @{FUNCTION_DEFINITION}
+            "#
+        ))
+    }
+
+    fn is_test_file(&self, path: &str) -> bool {
+        let normalized = path.replace("\\", "/");
+        normalized.contains("/test/") 
+            || normalized.contains("/androidTest/")
+            || normalized.ends_with("Test.kt")
+            || normalized.ends_with("Tests.kt")
+            || normalized.ends_with("_test.kt")
+            || normalized.ends_with(".test.kt")
+    }
+
+    fn is_test(&self, func_name: &str, _func_file: &str, func_body: &str) -> bool {
+        func_name.starts_with("test") 
+            || func_body.contains("@Test") 
+            || func_body.contains("@org.junit.Test")
+    }
+
+    fn tests_are_functions(&self) -> bool {
+        true
+    }
+
+    fn classify_test(&self, _name: &str, file: &str, _body: &str) -> NodeType {
+        let normalized = file.replace("\\", "/");
+        
+        if normalized.contains("/androidTest/") {
+            return NodeType::IntegrationTest;
+        }
+
+        if normalized.contains("/test/") {
+            return NodeType::UnitTest;
+        }
+
+        NodeType::UnitTest
     }
 
     fn resolve_import_name(&self, import_name: &str) -> String {

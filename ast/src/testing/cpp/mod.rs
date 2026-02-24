@@ -51,15 +51,15 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes += files.len();
-    assert_eq!(files.len(), 7, "Expected 7 files");
+    assert_eq!(files.len(), 9, "Expected 9 files");
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes += directories.len();
-    assert_eq!(directories.len(), 0, "Expected 0 directory");
+    assert_eq!(directories.len(), 1, "Expected 1 directory");
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes += imports.len();
-    assert_eq!(imports.len(), 6, "Expected 6 imports");
+    assert_eq!(imports.len(), 8, "Expected 8 imports");
 
     let main_import_body = format!(
         r#"#include "crow.h"
@@ -137,15 +137,15 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += function_calls;
-    assert_eq!(function_calls, 3, "Expected 3 function calls");
+    assert_eq!(function_calls, 7, "Expected 7 function calls");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 30, "Expected 30 contains edges");
+    assert_eq!(contains, 47, "Expected 47 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
-    assert_eq!(of_edges, 2, "Expected 2 of edge");
+    assert_eq!(of_edges, 7, "Expected 7 of edge");
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
@@ -160,11 +160,35 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let instances = graph.find_nodes_by_type(NodeType::Instance);
     nodes += instances.len();
-    assert_eq!(instances.len(), 1, "Expected 1 instances");
+    assert_eq!(instances.len(), 6, "Expected 6 instances");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
     assert_eq!(libraries.len(), 2, "Expected 2 libraries");
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes += unit_tests.len();
+    assert_eq!(
+        unit_tests.len(),
+        4,
+        "Expected 4 unit tests in current C++ web_api fixture"
+    );
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes += integration_tests.len();
+    assert_eq!(
+        integration_tests.len(),
+        3,
+        "Expected 3 integration tests in current C++ web_api fixture"
+    );
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes += e2e_tests.len();
+    assert_eq!(
+        e2e_tests.len(),
+        0,
+        "Expected 0 e2e tests in current C++ web_api fixture"
+    );
 
     let pkg_file = files
         .iter()
@@ -323,10 +347,10 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes += files.len();
-    assert_eq!(files.len(), 28, "Expected 28 files");
+    assert_eq!(files.len(), 30, "Expected 30 files");
 
     let cu_files = files.iter().filter(|f| f.file.ends_with(".cu")).count();
-    assert_eq!(cu_files, 23, "Expected 23 .cu files");
+    assert_eq!(cu_files, 25, "Expected 25 .cu files");
 
     let h_files = files.iter().filter(|f| f.file.ends_with(".h")).count();
     assert_eq!(h_files, 2, "Expected 2 .h files");
@@ -341,8 +365,8 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
     nodes += directories.len();
     assert_eq!(
         directories.len(),
-        7,
-        "Expected 7 directories for CUDA structure"
+        8,
+        "Expected 8 directories for CUDA structure"
     );
 
     let repositories = graph.find_nodes_by_type(NodeType::Repository);
@@ -355,11 +379,35 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes += imports.len();
-    assert_eq!(imports.len(), 26, "Expected 26 imports");
+    assert_eq!(imports.len(), 28, "Expected 28 imports");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
     assert_eq!(libraries.len(), 1, "Expected 1 library node");
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes += unit_tests.len();
+    assert_eq!(
+        unit_tests.len(),
+        4,
+        "Expected 4 unit tests in current CUDA fixture"
+    );
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes += integration_tests.len();
+    assert_eq!(
+        integration_tests.len(),
+        2,
+        "Expected 2 integration tests in current CUDA fixture"
+    );
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes += e2e_tests.len();
+    assert_eq!(
+        e2e_tests.len(),
+        0,
+        "Expected 0 e2e tests in current CUDA fixture"
+    );
 
     let _vector_add = functions
         .iter()
@@ -474,11 +522,11 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls_edges;
-    assert_eq!(calls_edges, 4, "Check Calls edge count");
+    assert_eq!(calls_edges, 6, "Check Calls edge count");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains_edges;
-    assert_eq!(contains_edges, 168, "Expected 168 Contains edges");
+    assert_eq!(contains_edges, 179, "Expected 179 Contains edges");
 
     let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in_edges;
@@ -506,8 +554,8 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
         "Expected {} edges found {}",
         edges, num_edges
     );
-    assert_eq!(num_nodes as u32, 168, "Expected 168 nodes");
-    assert_eq!(num_edges as u32, 173, "Expected 173 edges");
+    assert_eq!(num_nodes as u32, 179, "Expected 179 nodes");
+    assert_eq!(num_edges as u32, 186, "Expected 186 edges");
 
     Ok(())
 }

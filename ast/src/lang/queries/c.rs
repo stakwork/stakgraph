@@ -37,6 +37,53 @@ impl Stack for C {
         Ok(parser.parse(code, None).context("failed to parse")?)
     }
 
+    fn is_test_file(&self, filename: &str) -> bool {
+        let f = filename.replace('\\', "/").to_lowercase();
+        let name = f.rsplit('/').next().unwrap_or(&f);
+
+        f.contains("/test/")
+            || f.contains("/tests/")
+            || f.contains("/integration/")
+            || f.contains("/e2e/")
+            || name.ends_with("_test.c")
+            || name.ends_with(".test.c")
+            || name.ends_with(".spec.c")
+            || name.starts_with("test_")
+    }
+
+    fn is_test(&self, func_name: &str, func_file: &str, _func_body: &str) -> bool {
+        let n = func_name.to_lowercase();
+        self.is_test_file(func_file)
+            || n.starts_with("test_")
+            || n.ends_with("_test")
+            || n.starts_with("it_")
+    }
+
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        let f = file.replace('\\', "/").to_lowercase();
+        let n = name.to_lowercase();
+        let b = body.to_lowercase();
+
+        if f.contains("/e2e/")
+            || f.contains(".e2e.")
+            || n.contains("e2e")
+            || b.contains("selenium")
+            || b.contains("playwright")
+        {
+            return NodeType::E2eTest;
+        }
+
+        if f.contains("/integration/")
+            || f.contains(".integration.")
+            || f.contains(".int.")
+            || n.contains("integration")
+        {
+            return NodeType::IntegrationTest;
+        }
+
+        NodeType::UnitTest
+    }
+
     fn lib_query(&self) -> Option<String> {
         Some(format!(
             r#"

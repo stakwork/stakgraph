@@ -31,11 +31,11 @@ pub async fn test_c_generic<G: Graph + Sync>() -> Result<()> {
 
     let dir_nodes = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += dir_nodes.len();
-    assert_eq!(dir_nodes.len(), 6, "Expected 6 Directory nodes");
+    assert_eq!(dir_nodes.len(), 9, "Expected 9 Directory nodes ");
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes_count += file_nodes.len();
-    assert_eq!(file_nodes.len(), 37, "Expected 37 File nodes");
+    assert_eq!(file_nodes.len(), 43, "Expected 43 File nodes ");
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
@@ -51,7 +51,7 @@ pub async fn test_c_generic<G: Graph + Sync>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 31, "Expected 31 Import nodes");
+    assert_eq!(imports.len(), 37, "Expected 37 Import nodes");
 
     let packages = graph.find_nodes_by_type(NodeType::Package);
     nodes_count += packages.len();
@@ -62,12 +62,19 @@ pub async fn test_c_generic<G: Graph + Sync>() -> Result<()> {
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 21, "Expected 21 unit tests");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
+    assert_eq!(
+        integration_tests.len(),
+        7,
+        "Expected 7 integration tests"
+    );
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 0, "Expected 0 e2e tests");
 
     let instances = graph.find_nodes_by_type(NodeType::Instance);
     nodes_count += instances.len();

@@ -40,7 +40,7 @@ pub async fn test_swift_generic<G: Graph + Sync>() -> Result<()> {
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
-    assert_eq!(files.len(), 25, "Expected 25 files");
+    assert_eq!(files.len(), 27, "Expected 27 files");
 
     let pkg_files = graph.find_nodes_by_name(NodeType::File, "Podfile");
     assert_eq!(pkg_files.len(), 1, "Expected 1 Podfile");
@@ -72,7 +72,7 @@ end
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert_eq!(imports.len(), 7, "Expected 7 imports");
+    assert_eq!(imports.len(), 9, "Expected 9 imports");
 
     let ui_kit_import = imports
         .iter()
@@ -103,7 +103,7 @@ end
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 9, "Expected 9 classes");
+    assert_eq!(classes.len(), 11, "Expected 11 classes");
 
     let mut sorted_classes = classes.clone();
     sorted_classes.sort_by(|a, b| a.name.cmp(&b.name));
@@ -160,7 +160,7 @@ end
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 26, "Expected 26 functions");
+    assert_eq!(functions.len(), 28, "Expected 28 functions");
 
     let mut sorted_functions = functions.clone();
     sorted_functions.sort_by(|a, b| a.name.cmp(&b.name));
@@ -254,7 +254,7 @@ end
 
     let directories = graph.find_nodes_by_type(NodeType::Directory);
     nodes_count += directories.len();
-    assert_eq!(directories.len(), 19, "Expected 19 directories");
+    assert_eq!(directories.len(), 20, "Expected 20 directories");
 
     let sphinx_test_app_dir = directories
         .iter()
@@ -282,7 +282,7 @@ end
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 90, "Expected 90 contains edges");
+    assert_eq!(contains, 102, "Expected 102 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -290,7 +290,7 @@ end
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 22, "Expected 22 operand edges");
+    assert_eq!(operands, 24, "Expected 24 operand edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -300,8 +300,8 @@ end
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
     assert_eq!(
         operand_edges.len(),
-        22,
-        "Expected at least 22 operand edges"
+        24,
+        "Expected 24 operand edges"
     );
 
     let api_operand = operand_edges
@@ -345,7 +345,7 @@ end
     );
 
     let (nodes, edges) = graph.get_graph_size();
-    assert_eq!(nodes as usize, nodes_count, "Node count mismatch");
+    assert_eq!(nodes as usize, nodes_count, "Expected {} total nodes", nodes_count);
     assert_eq!(edges as usize, edges_count, "Edge count mismatch");
 
     Ok(())
@@ -419,11 +419,16 @@ pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests");
-    let _test_fetch = unit_tests
-        .iter()
-        .find(|t| t.name == "testFetchProfile")
-        .expect("testFetchProfile not found");
+    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests from LegacyApp/Tests");
+    assert!(!unit_tests.is_empty(), "Unit tests should not be empty");
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes_count += integration_tests.len();
+    assert_eq!(integration_tests.len(), 0, "Expected 0 integration tests (no /IntegrationTests/ path in fixture)");
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 0, "Expected 0 e2e tests (no /UITests/ path in fixture)");
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();

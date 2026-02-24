@@ -150,7 +150,70 @@ impl Stack for Svelte {
         ))
     }
 
-    fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
-        func_name.starts_with("test")
+    fn test_query(&self) -> Option<String> {
+        // Svelte uses Jest/Vitest patterns like describe(), it(), test()
+        // The tree-sitter-svelte-ng doesn't support JavaScript AST directly
+        // Tests will be extracted using function heuristics from is_test()
+        None
     }
+
+    fn integration_test_query(&self) -> Option<String> {
+        None
+    }
+
+    fn e2e_test_query(&self) -> Option<String> {
+        None
+    }
+
+    fn is_test_file(&self, path: &str) -> bool {
+        let normalized = path.replace("\\", "/");
+        normalized.contains("/test/")
+            || normalized.contains("/tests/")
+            || normalized.contains("/__tests__/")
+            || normalized.ends_with(".spec.svelte")
+            || normalized.ends_with(".test.svelte")
+            || normalized.ends_with(".spec.ts")
+            || normalized.ends_with(".test.ts")
+            || normalized.ends_with(".spec.js")
+            || normalized.ends_with(".test.js")
+            || normalized.ends_with(".spec.js")
+            || normalized.ends_with(".test.js")
+    }
+
+    fn is_e2e_test_file(&self, path: &str, _code: &str) -> bool {
+        let normalized = path.replace("\\", "/");
+        normalized.contains("/e2e/")
+            || normalized.contains("/integration/")
+            || normalized.contains(".e2e.spec.")
+            || normalized.contains(".e2e.test.")
+    }
+
+    fn is_test(&self, func_name: &str, _func_file: &str, func_body: &str) -> bool {
+        func_name.starts_with("test")
+            || func_body.contains("test(")
+            || func_body.contains("it(")
+            || func_body.contains("describe(")
+    }
+
+    fn tests_are_functions(&self) -> bool {
+        true
+    }
+
+    fn classify_test(&self, _name: &str, file: &str, _body: &str) -> NodeType {
+        let normalized = file.replace("\\", "/");
+        
+        // E2E tests
+        if normalized.contains("/e2e/") 
+            || normalized.contains(".e2e.spec.") 
+            || normalized.contains(".e2e.test.") {
+            return NodeType::E2eTest;
+        }
+        
+        // Integration tests
+        if normalized.contains("/integration/") {
+            return NodeType::IntegrationTest;
+        }
+        
+        // Unit tests (default)
+        NodeType::UnitTest    }
 }

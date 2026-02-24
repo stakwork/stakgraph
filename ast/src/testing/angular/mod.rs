@@ -51,11 +51,11 @@ pub async fn test_angular_generic<G: Graph + Sync>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    assert_eq!(calls, 11, "Expected 11 call edges");
+    assert_eq!(calls, 15, "Expected 15 call edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 102, "Expected 102 contains edges");
+    assert_eq!(contains, 106, "Expected 106 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -137,6 +137,33 @@ import {{ AppComponent }} from './app/app.component';"#
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes += requests.len();
     assert_eq!(requests.len(), 10, "Expected 10 requests");
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes += unit_tests.len();
+    assert_eq!(
+        unit_tests.len(),4,
+        "Expected  4 unit tests from Angular spec files"
+    );
+    assert!(
+        unit_tests.iter().all(|t| t.file.contains(".spec.")),
+        "Expected Angular unit tests to come from spec files"
+    );
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes += integration_tests.len();
+    assert_eq!(
+        integration_tests.len(),
+        0,
+        "Expected 0 integration tests for current Angular fixture"
+    );
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes += e2e_tests.len();
+    assert_eq!(
+        e2e_tests.len(),
+        0,
+        "Expected 0 e2e tests for current Angular fixture"
+    );
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges += imported_edges;
