@@ -15,25 +15,57 @@ impl Svelte {
     pub fn new() -> Self {
         Svelte(tree_sitter_svelte_ng::LANGUAGE.into())
     }
+
+    fn extract_script_content(code: &str) -> Option<(String, usize)> {
+        let start_tag = "<script";
+        let end_tag = "</script>";
+        
+        let start_idx = code.find(start_tag)?;
+        let tag_end = code[start_idx..].find('>')? + start_idx + 1;
+        let end_idx = code.find(end_tag)?;
+        
+        if end_idx <= tag_end {
+            return None;
+        }
+        
+        let script_content = code[tag_end..end_idx].to_string();
+        let line_offset = code[..tag_end].matches('\n').count();
+        
+        Some((script_content, line_offset))
+    }
 }
 
 impl Stack for Svelte {
     fn q(&self, q: &str, nt: &NodeType) -> Query {
-        if matches!(nt, NodeType::Library) {
-            Query::new(&tree_sitter_svelte_ng::LANGUAGE.into(), q).unwrap()
-        } else {
-            Query::new(&self.0, q).unwrap()
-        }
+        let grammar = match nt {
+            NodeType::Function
+            | NodeType::UnitTest
+            | NodeType::IntegrationTest
+            | NodeType::E2eTest => tree_sitter_typescript::LANGUAGE_TSX.into(),
+            _ => self.0.clone(),
+        };
+        Query::new(&grammar, q).unwrap()
     }
 
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
-        if matches!(nt, NodeType::Library) {
-            parser.set_language(&tree_sitter_svelte_ng::LANGUAGE.into())?;
-        } else {
-            parser.set_language(&self.0)?;
-        }
-        parser.parse(code, None).context("failed to parse")
+        
+        let (parse_code, grammar): (String, Language) = match nt {
+            NodeType::Function
+            | NodeType::UnitTest
+            | NodeType::IntegrationTest
+            | NodeType::E2eTest => {
+                if let Some((script, _offset)) = Self::extract_script_content(code) {
+                    (script, tree_sitter_typescript::LANGUAGE_TSX.into())
+                } else {
+                    (code.to_string(), self.0.clone())
+                }
+            }
+            _ => (code.to_string(), self.0.clone()),
+        };
+        
+        parser.set_language(&grammar)?;
+        parser.parse(&parse_code, None).context("failed to parse")
     }
 
     fn imports_query(&self) -> Option<String> {
@@ -48,24 +80,24 @@ impl Stack for Svelte {
 
     fn class_definition_query(&self) -> String {
         format!(
-            r#"
-            (script_element
-                (_) @{CLASS_NAME}
-            )
-            "#
+            r#"(script_element) @{CLASS_DEFINITION}"#
         )
     }
 
     fn function_definition_query(&self) -> String {
         format!(
-            r#"
-            (
-                attribute
-                (expression
-                    (_) @{FUNCTION_NAME}
-                ) @{FUNCTION_DEFINITION}
-            )
-            "#
+            r#"[
+            (function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+            ) @{FUNCTION_DEFINITION}
+            
+            (lexical_declaration
+                (variable_declarator
+                    name: (identifier) @{FUNCTION_NAME}
+                    value: (arrow_function)
+                )
+            ) @{FUNCTION_DEFINITION}
+            ]"#
         )
     }
     fn comment_query(&self) -> Option<String> {
@@ -151,18 +183,30 @@ impl Stack for Svelte {
     }
 
     fn test_query(&self) -> Option<String> {
-        // Svelte uses Jest/Vitest patterns like describe(), it(), test()
-        // The tree-sitter-svelte-ng doesn't support JavaScript AST directly
-        // Tests will be extracted using function heuristics from is_test()
-        None
+        Some(format!(
+            r#"(function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^(test|it)")
+            ) @{FUNCTION_DEFINITION}"#
+        ))
     }
 
     fn integration_test_query(&self) -> Option<String> {
-        None
+        Some(format!(
+            r#"(function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^(test|it)")
+            ) @{FUNCTION_DEFINITION}"#
+        ))
     }
 
     fn e2e_test_query(&self) -> Option<String> {
-        None
+        Some(format!(
+            r#"(function_declaration
+                name: (identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^(test|it)")
+            ) @{FUNCTION_DEFINITION}"#
+        ))
     }
 
     fn is_test_file(&self, path: &str) -> bool {
