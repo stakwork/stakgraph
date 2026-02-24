@@ -169,7 +169,12 @@ export async function get_context(
 
   let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
     hasEndMarker;
-  let finalPrompt: string | ModelMessage[] = prompt;
+  // Normalize: if prompt is neither string nor array, stringify it
+  const normalizedPrompt: string | ModelMessage[] =
+    typeof prompt === "string" || Array.isArray(prompt)
+      ? prompt
+      : JSON.stringify(prompt);
+  let finalPrompt: string | ModelMessage[] = normalizedPrompt;
 
   if (toolsConfig?.ask_clarifying_questions) {
     instructions = ASK_CLARIFYING_QUESTIONS_SYSTEM;
