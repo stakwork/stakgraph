@@ -1,6 +1,6 @@
 use super::AppState;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 use axum::Json;
@@ -81,7 +81,7 @@ pub async fn basic_auth(
     let mut headers = HeaderMap::new();
     headers.insert(
         "WWW-Authenticate",
-        "Basic realm=\"Restricted\"".parse().unwrap(),
+        HeaderValue::from_static("Basic realm=\"Restricted\""),
     );
     Err((StatusCode::UNAUTHORIZED, headers))
 }

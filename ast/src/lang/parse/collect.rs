@@ -4,6 +4,7 @@ use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::Node as TreeNode;
+use tracing::warn;
 impl Lang {
     pub fn collect<G: Graph>(
         &self,
@@ -615,12 +616,13 @@ impl Lang {
 
         let mut identifiers = Vec::new();
         while let Some(m) = matches.next() {
-            Self::loop_captures(&query, m, code, |body, node, _o| {
+            if let Err(err) = Self::loop_captures(&query, m, code, |body, node, _o| {
                 let p = node.start_position();
                 identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())
-            })
-            .ok();
+            }) {
+                warn!("failed collecting var call identifiers: {err}");
+            }
         }
         identifiers.sort();
 

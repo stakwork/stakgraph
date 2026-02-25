@@ -64,10 +64,12 @@ async fn main() -> Result<()> {
 
     let name = env::var("OUTPUT_NAME").unwrap_or_else(|_| {
         repo_urls
-            .unwrap_or_else(|| repo_path.context("no REPO_PATH").unwrap())
+            .as_deref()
+            .or(repo_path.as_deref())
+            .unwrap_or("output")
             .split('/')
             .next_back()
-            .unwrap()
+            .unwrap_or("output")
             .trim_end_matches(".git")
             .to_string()
     });

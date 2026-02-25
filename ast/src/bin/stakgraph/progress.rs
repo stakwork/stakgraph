@@ -15,12 +15,11 @@ impl ProgressTracker {
         
         let bar = if !quiet && std::io::stdout().is_terminal() {
             let pb = ProgressBar::new(16);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
-                    .unwrap()
-                    .progress_chars("█▓▒░ "),
-            );
+            let style = ProgressStyle::default_bar()
+                .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
+                .map(|s| s.progress_chars("█▓▒░ "))
+                .unwrap_or_else(|_| ProgressStyle::default_bar().progress_chars("█▓▒░ "));
+            pb.set_style(style);
             pb.set_message("Initializing...");
             Some(pb)
         } else {

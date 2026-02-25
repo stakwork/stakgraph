@@ -1,5 +1,5 @@
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
-use shared::Result;
+use shared::{Error, Result};
 use std::sync::Arc;
 use tokio::sync::{Mutex, OnceCell};
 
@@ -8,15 +8,17 @@ pub const DEFAULT_CHUNK_SIZE: usize = 400;
 
 static EMBEDDER: OnceCell<Arc<Mutex<TextEmbedding>>> = OnceCell::const_new();
 
-pub async fn get_embedder() -> Arc<Mutex<TextEmbedding>> {
-    EMBEDDER
-        .get_or_init(|| async {
-            let options = InitOptions::new(EmbeddingModel::BGESmallENV15).with_max_length(512);
-            let model = TextEmbedding::try_new(options).expect("Failed to load embedding model");
-            Arc::new(Mutex::new(model))
-        })
-        .await
-        .clone()
+pub async fn get_embedder() -> Result<Arc<Mutex<TextEmbedding>>> {
+    if let Some(embedder) = EMBEDDER.get() {
+        return Ok(embedder.clone());
+    }
+
+    let options = InitOptions::new(EmbeddingModel::BGESmallENV15).with_max_length(512);
+    let model = TextEmbedding::try_new(options)
+        .map_err(|e| Error::Custom(format!("failed to load embedding model: {e}")))?;
+    let embedder = Arc::new(Mutex::new(model));
+    let _ = EMBEDDER.set(embedder.clone());
+    Ok(embedder)
 }
 fn weighted_pooling(embeddings: &[Vec<f32>], weights: &[f32]) -> Vec<f32> {
     let dim = embeddings[0].len();
@@ -74,7 +76,7 @@ pub fn chunk_code(code: &str, chunk_size: usize) -> Vec<String> {
 }
 
 pub async fn vectorize_query(query: &str) -> Result<Vec<f32>> {
-    let embedder = get_embedder().await;
+    let embedder = get_embedder().await?;
     let mut embedder = embedder.lock().await;
     let vecs = embedder.embed(vec![query], None)?;
     Ok(vecs
@@ -84,7 +86,7 @@ pub async fn vectorize_query(query: &str) -> Result<Vec<f32>> {
 }
 
 pub async fn vectorize_code_document(code: &str) -> Result<Vec<f32>> {
-    let embedder = get_embedder().await;
+    let embedder = get_embedder().await?;
     let mut embedder = embedder.lock().await;
 
     if code.len() < DEFAULT_CHUNK_SIZE {

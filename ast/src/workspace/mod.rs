@@ -186,11 +186,15 @@ fn is_actual_package(dir: &Path, lang: &Language) -> bool {
             .map(|c| c.contains("[package]"))
             .unwrap_or(false),
         Language::Typescript | Language::Angular | Language::Svelte => {
-            let has_workspaces = std::fs::read_to_string(dir.join("package.json"))
-                .ok()
-                .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-                .and_then(|j| j.get("workspaces").cloned())
-                .is_some();
+            let has_workspaces = if let Ok(content) = std::fs::read_to_string(dir.join("package.json")) {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                    json.get("workspaces").is_some()
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
             !has_workspaces
         }
         Language::Python => {

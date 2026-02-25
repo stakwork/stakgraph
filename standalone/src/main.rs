@@ -166,9 +166,10 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
     })?;
 
     tokio::spawn(async {
-        tokio::signal::ctrl_c()
-            .await
-            .ok();
+        if let Err(err) = tokio::signal::ctrl_c().await {
+            eprintln!("failed waiting for Ctrl+C signal: {}", err);
+            return;
+        }
         // for docker container
         println!("\nReceived Ctrl+C, exiting immediately...");
         std::process::exit(0);

@@ -1,12 +1,14 @@
 use ast::lang::Lang;
-use shared::Result;
+use shared::{Error, Result};
 use std::env;
 use std::str::FromStr;
 
 fn main() -> Result<()> {
     println!("Hello, world!");
     let args: Vec<String> = env::args().collect();
-    let language = &args.get(1).expect("missing language argument");
+    let language = args
+        .get(1)
+        .ok_or_else(|| Error::Custom("missing language argument".into()))?;
     let lang = Lang::from_str(language)?;
 
     println!("=======> Class query <=======");

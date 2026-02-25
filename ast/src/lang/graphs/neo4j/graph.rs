@@ -415,7 +415,10 @@ impl Neo4jGraph {
                 let name = row.get::<String>("name").unwrap_or_default();
                 let file = row.get::<String>("file").unwrap_or_default();
                 let start = row.get::<i64>("start").unwrap_or_default() as usize;
-                let verb = row.get::<String>("verb").ok();
+                let verb = match row.get::<String>("verb") {
+                    Ok(value) => Some(value),
+                    Err(_) => None,
+                };
 
                 return Some(NodeKeys {
                     name,
@@ -1010,21 +1013,43 @@ impl Neo4jGraph {
                     )> = items
                         .into_iter()
                         .filter_map(|item| {
-                            let node: neo4rs::Node = item.get("node").ok()?;
-                            let node_type = node
-                                .labels()
-                                .iter()
-                                .filter_map(|label| NodeType::from_str(label).ok())
-                                .next()?;
+                            let node: neo4rs::Node = match item.get("node") {
+                                Ok(node) => node,
+                                Err(err) => {
+                                    debug!("Missing node in combined query row: {}", err);
+                                    return None;
+                                }
+                            };
+                            let node_type = node.labels().iter().find_map(|label| {
+                                match NodeType::from_str(label) {
+                                    Ok(node_type) => Some(node_type),
+                                    Err(_) => None,
+                                }
+                            })?;
 
-                            let node_data = NodeData::try_from(&node).ok()?;
+                            let node_data = match NodeData::try_from(&node) {
+                                Ok(node_data) => node_data,
+                                Err(err) => {
+                                    debug!("Failed to convert Neo4j node to NodeData: {}", err);
+                                    return None;
+                                }
+                            };
 
-                            let usage_count: i64 = item.get("usage_count").ok().unwrap_or(0);
-                            let is_covered: bool = item.get("is_covered").ok().unwrap_or(false);
-                            let test_count: i64 = item.get("test_count").ok().unwrap_or(0);
-                            let body_length: Option<i64> = item.get("body_length").ok();
-                            let line_count: Option<i64> = item.get("line_count").ok();
-                            let is_muted: Option<bool> = item.get("is_muted").ok();
+                            let usage_count: i64 = item.get("usage_count").unwrap_or(0);
+                            let is_covered: bool = item.get("is_covered").unwrap_or(false);
+                            let test_count: i64 = item.get("test_count").unwrap_or(0);
+                            let body_length: Option<i64> = match item.get("body_length") {
+                                Ok(value) => Some(value),
+                                Err(_) => None,
+                            };
+                            let line_count: Option<i64> = match item.get("line_count") {
+                                Ok(value) => Some(value),
+                                Err(_) => None,
+                            };
+                            let is_muted: Option<bool> = match item.get("is_muted") {
+                                Ok(value) => Some(value),
+                                Err(_) => None,
+                            };
 
                             let ref_id = extract_ref_id(&node_data);
 
