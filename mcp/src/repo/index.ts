@@ -48,7 +48,6 @@ export async function repo_agent(req: Request, res: Response) {
     hasRepoUrl: Boolean(req.body?.repo_url),
     hasPrompt: Boolean(req.body?.prompt),
   });
-
   const parsed = repoAgentBodySchema.safeParse(req.body);
   if (!parsed.success) {
     sendValidationError(res, "body", parsed.error);

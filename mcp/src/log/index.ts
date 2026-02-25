@@ -25,7 +25,6 @@ export async function logs_agent(req: Request, res: Response) {
     hasStakworkApiKey: Boolean(req.body?.stakworkApiKey),
     hasSessionId: Boolean(req.body?.sessionId),
   });
-
   const parsed = logsAgentBodySchema.safeParse(req.body);
   if (!parsed.success) {
     sendValidationError(res, "body", parsed.error);
