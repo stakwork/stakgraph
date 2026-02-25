@@ -75,7 +75,7 @@ export async function logs_agent(req: Request, res: Response) {
   }
 
   if (workspaceSlug) {
-    finalPrompt = `If the user mentions their actual application name (e.g. "${workspaceSlug}"), use the fetch_quickwit tool to fetch logs from the actual application.`;
+    finalPrompt = `If the user mentions their actual application name (e.g. "${workspaceSlug}"), use the fetch_quickwit tool to fetch logs from the actual application.\n\n${finalPrompt}`;
   }
 
   // Per-run logs directory: use sessionId if present (persists across turns),
