@@ -19,13 +19,26 @@ import {
 } from "../../tools/budget.js";
 import { generate_persona_variants } from "../../tools/intelligence/persona.js";
 import { db } from "../neo4j.js";
+import {
+  parseBody,
+  parseQuery,
+} from "./validation.js";
+import {
+  exploreQuerySchema,
+  understandQuerySchema,
+  seedUnderstandingQuerySchema,
+  askQuerySchema,
+  getLearningsQuerySchema,
+  createPullRequestBodySchema,
+  createLearningBodySchema,
+  seedStoriesQuerySchema,
+  reconnectQuerySchema,
+} from "./schemas/knowledge.js";
 
 export async function explore(req: Request, res: Response) {
-  const prompt = req.query.prompt as string;
-  if (!prompt) {
-    res.status(400).json({ error: "Missing prompt" });
-    return;
-  }
+  const parsed = parseQuery(req, res, exploreQuerySchema);
+  if (!parsed) return;
+  const prompt = parsed.prompt;
   try {
     const result = await get_context_explore(prompt);
     res.json({ result: result.final, usage: result.usage });
@@ -37,14 +50,12 @@ export async function explore(req: Request, res: Response) {
 
 export async function understand(req: Request, res: Response) {
   try {
-    const question = req.query.question as string;
-    const similarityThreshold =
-      parseFloat(req.query.threshold as string) || 0.88;
-    if (!question) {
-      res.status(400).json({ error: "Missing question" });
-      return;
-    }
-    const provider = req.query.provider as string | undefined;
+    const parsed = parseQuery(req, res, understandQuerySchema);
+    if (!parsed) return;
+
+    const question = parsed.question;
+    const similarityThreshold = parsed.threshold || 0.88;
+    const provider = parsed.provider;
     const answer = await ask_question(question, similarityThreshold, provider);
     res.json(answer);
   } catch (e: any) {
@@ -55,10 +66,11 @@ export async function understand(req: Request, res: Response) {
 
 export async function seed_understanding(req: Request, res: Response) {
   try {
-    const budgetDollars = req.query.budget
-      ? parseFloat(req.query.budget as string)
-      : undefined;
-    const provider = (req.query.provider as string) || "anthropic";
+    const parsed = parseQuery(req, res, seedUnderstandingQuerySchema);
+    if (!parsed) return;
+
+    const budgetDollars = parsed.budget;
+    const provider = parsed.provider || "anthropic";
 
     const answers = [];
     let budgetTracker = createBudgetTracker(
@@ -128,27 +140,23 @@ export async function seed_understanding(req: Request, res: Response) {
 }
 
 export async function ask(req: Request, res: Response) {
-  const question = req.query.question as string;
-  if (!question) {
-    res.status(400).json({ error: "Missing question" });
-    return;
-  }
-  const similarityThreshold =
-    parseFloat(req.query.threshold as string) || undefined;
-  const provider = req.query.provider as string | undefined;
+  const parsed = parseQuery(req, res, askQuerySchema);
+  if (!parsed) return;
+
+  const question = parsed.question;
+  const similarityThreshold = parsed.threshold || undefined;
+  const provider = parsed.provider;
 
   // Parse cache control options
   const cacheControl: any = {};
-  if (req.query.maxAgeHours) {
-    cacheControl.maxAgeHours = parseFloat(req.query.maxAgeHours as string);
+  if (parsed.maxAgeHours !== undefined) {
+    cacheControl.maxAgeHours = parsed.maxAgeHours;
   }
-  if (req.query.forceRefresh) {
-    cacheControl.forceRefresh =
-      req.query.forceRefresh === "true" || req.query.forceRefresh === "1";
+  if (parsed.forceRefresh !== undefined) {
+    cacheControl.forceRefresh = parsed.forceRefresh;
   }
-  if (req.query.forceCache) {
-    cacheControl.forceCache =
-      req.query.forceCache === "true" || req.query.forceCache === "1";
+  if (parsed.forceCache !== undefined) {
+    cacheControl.forceCache = parsed.forceCache;
   }
 
   try {
@@ -167,8 +175,11 @@ export async function ask(req: Request, res: Response) {
 
 export async function get_learnings(req: Request, res: Response) {
   // curl "http://localhost:3355/learnings?question=how%20does%20auth%20work%20in%20the%20repo"
+  const parsed = parseQuery(req, res, getLearningsQuerySchema);
+  if (!parsed) return;
+
   const question =
-    (req.query.question as string) ||
+    parsed.question ||
     "What are the core user stories in this project?";
 
   try {
@@ -207,14 +218,10 @@ export async function generate_siblings(req: Request, res: Response) {
 }
 
 export async function create_pull_request(req: Request, res: Response) {
-  const { name, docs, number } = req.body;
+  const parsed = parseBody(req, res, createPullRequestBodySchema);
+  if (!parsed) return;
 
-  if (!name || !docs || !number) {
-    res.status(400).json({
-      error: "Missing required fields: name, docs, and number are required",
-    });
-    return;
-  }
+  const { name, docs, number } = parsed;
 
   try {
     // Vectorize the docs
@@ -237,26 +244,13 @@ export async function create_pull_request(req: Request, res: Response) {
 }
 
 export async function create_learning(req: Request, res: Response) {
-  const { question, answer, context, featureIds, conceptIds } = req.body;
+  const parsed = parseBody(req, res, createLearningBodySchema);
+  if (!parsed) return;
+
+  const { question, answer, context, featureIds, conceptIds } = parsed;
 
   // Accept either featureIds or conceptIds (used interchangeably on frontend)
   const ids = conceptIds || featureIds;
-
-  // Validate required fields
-  if (!question || !answer) {
-    res.status(400).json({
-      error: "Missing required fields: question and answer are required",
-    });
-    return;
-  }
-
-  // Validate either/or requirement: featureIds/conceptIds OR context
-  if (ids === undefined && !context) {
-    res.status(400).json({
-      error: "Either featureIds/conceptIds or context must be provided",
-    });
-    return;
-  }
 
   try {
     // Embed the question only
@@ -296,11 +290,12 @@ export async function create_learning(req: Request, res: Response) {
 export async function seed_stories(req: Request, res: Response) {
   const default_prompt =
     "How does this repository work? Please provide a summary of the codebase, a few key files, and 50 core user stories.";
-  const prompt = (req.query.prompt as string | undefined) || default_prompt;
-  const budgetDollars = req.query.budget
-    ? parseFloat(req.query.budget as string)
-    : undefined;
-  const provider = (req.query.provider as string) || "anthropic";
+  const parsed = parseQuery(req, res, seedStoriesQuerySchema);
+  if (!parsed) return;
+
+  const prompt = parsed.prompt || default_prompt;
+  const budgetDollars = parsed.budget;
+  const provider = parsed.provider || "anthropic";
 
   try {
     let budgetTracker = createBudgetTracker(
@@ -390,7 +385,9 @@ export async function seed_stories(req: Request, res: Response) {
 
 export async function reconnect_orphaned_hints(req: Request, res: Response) {
   try {
-    const provider = (req.query.provider as string) || "anthropic";
+    const parsed = parseQuery(req, res, reconnectQuerySchema);
+    if (!parsed) return;
+    const provider = parsed.provider || "anthropic";
     const orphanedHints = await db.get_orphaned_hints();
 
     const results = {

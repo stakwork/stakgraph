@@ -15,6 +15,14 @@ import {
   prepareIssuesNode,
 } from "../gitsee-nodes.js";
 import { db } from "../neo4j.js";
+import { parseBody, parseParams, parseQuery } from "./validation.js";
+import {
+  gitseeBodySchema,
+  gitseeEventsParamsSchema,
+  gitseeServicesQuerySchema,
+  gitseeAgentQuerySchema,
+  requestIdQuerySchema,
+} from "./schemas/gitsee.js";
 
 export const gitSeeHandler = new GitSeeHandler({
   token: process.env.GITHUB_TOKEN,
@@ -41,6 +49,9 @@ export async function gitsee(req: Request, res: Response) {
     return;
   }
   try {
+    const parsed = parseBody(req, res, gitseeBodySchema);
+    if (!parsed) return;
+
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -81,8 +92,8 @@ export async function gitsee(req: Request, res: Response) {
       return originalEnd(chunk);
     };
 
-    req.body.useCache = false;
-    await gitSeeHandler.handleJson(req.body, res);
+    const payload = { ...parsed, useCache: false };
+    await gitSeeHandler.handleJson(payload, res);
   } catch (error) {
     console.error("gitsee API error:", error);
     res.status(500).json({
@@ -184,11 +195,9 @@ export async function gitseeEvents(req: Request, res: Response) {
     return;
   }
   // Extract owner/repo from URL params
-  const { owner, repo } = req.params;
-  if (!owner || !repo) {
-    res.status(400).json({ error: "Owner and repo are required" });
-    return;
-  }
+  const params = parseParams(req, res, gitseeEventsParamsSchema);
+  if (!params) return;
+  const { owner, repo } = params;
   console.log(`📡 SSE connection for ${owner}/${repo}`);
   try {
     return await gitSeeHandler.handleEvents(
@@ -209,14 +218,13 @@ export async function gitsee_services(req: Request, res: Response) {
   console.log("===> gitsee_services", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const owner = req.query.owner as string;
-    const repo = req.query.repo as string | undefined;
-    if (!repo || !owner) {
-      res.status(400).json({ error: "Missing repo" });
-      return;
-    }
-    const username = req.query.username as string | undefined;
-    const pat = req.query.pat as string | undefined;
+    const parsed = parseQuery(req, res, gitseeServicesQuerySchema);
+    if (!parsed) return;
+
+    const owner = parsed.owner;
+    const repo = parsed.repo;
+    const username = parsed.username;
+    const pat = parsed.pat;
     clone_and_explore_parse_files(
       owner,
       repo,
@@ -252,21 +260,16 @@ export async function gitsee_agent(req: Request, res: Response) {
   });
   const request_id = asyncReqs.startReq();
   try {
-    const owner = req.query.owner as string;
-    const repo = req.query.repo as string | undefined;
-    const prompt = req.query.prompt as string | undefined;
-    const system = req.query.system as string | undefined;
-    const final_answer = req.query.final_answer as string | undefined;
-    if (!repo || !owner) {
-      res.status(400).json({ error: "Missing repo" });
-      return;
-    }
-    if (!prompt) {
-      res.status(400).json({ error: "Missing prompt" });
-      return;
-    }
-    const username = req.query.username as string | undefined;
-    const pat = req.query.pat as string | undefined;
+    const parsed = parseQuery(req, res, gitseeAgentQuerySchema);
+    if (!parsed) return;
+
+    const owner = parsed.owner;
+    const repo = parsed.repo;
+    const prompt = parsed.prompt;
+    const system = parsed.system;
+    const final_answer = parsed.final_answer;
+    const username = parsed.username;
+    const pat = parsed.pat;
     clone_and_explore(
       owner,
       repo,
@@ -301,11 +304,9 @@ export async function gitsee_agent(req: Request, res: Response) {
 export async function get_script_progress(req: Request, res: Response) {
   console.log(`===> GET /script_progress`);
   try {
-    const request_id = req.query.request_id as string;
-    if (!request_id) {
-      res.status(400).json({ error: "request_id is required" });
-      return;
-    }
+    const parsed = parseQuery(req, res, requestIdQuerySchema);
+    if (!parsed) return;
+    const request_id = parsed.request_id;
     const progress = asyncReqs.checkReq(request_id);
     if (!progress) {
       res.status(404).json({ error: "Request not found" });

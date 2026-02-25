@@ -9,17 +9,25 @@ import {
 import {
   nameFileOnly,
   toReturnNode,
-  isTrue,
-  parseNodeTypes,
-  parseRefIds,
-  parseSince,
-  parseLimit,
-  parseLimitMode,
   buildGraphMeta,
   normalizeRepoParam,
 } from "../utils.js";
 import * as G from "../graph.js";
 import { db } from "../neo4j.js";
+import { parseBody, parseQuery } from "./validation.js";
+import {
+  getNodesQuerySchema,
+  postNodesBodySchema,
+  getEdgesQuerySchema,
+  searchQuerySchema,
+  refIdQuerySchema,
+  workflowQuerySchema,
+  mapQuerySchema,
+  repoMapQuerySchema,
+  shortestPathQuerySchema,
+  graphQuerySchema,
+  MapQuery,
+} from "./schemas/graph.js";
 
 export function schema(_req: Request, res: Response) {
   const schema = node_type_descriptions();
@@ -35,14 +43,14 @@ export function schema(_req: Request, res: Response) {
 export async function get_nodes(req: Request, res: Response) {
   try {
     console.log("=> get_nodes", req.method, req.path);
-    const node_type = req.query.node_type as NodeType;
-    const concise = isTrue(req.query.concise as string);
-    let ref_ids: string[] = [];
-    if (req.query.ref_ids) {
-      ref_ids = (req.query.ref_ids as string).split(",");
-    }
-    const output = req.query.output as G.OutputFormat;
-    const language = req.query.language as string;
+    const parsed = parseQuery(req, res, getNodesQuerySchema);
+    if (!parsed) return;
+
+    const node_type = parsed.node_type;
+    const concise = parsed.concise ?? false;
+    const ref_ids = parsed.ref_ids || [];
+    const output = parsed.output;
+    const language = parsed.language;
 
     const result = await G.get_nodes(
       node_type,
@@ -65,19 +73,14 @@ export async function get_nodes(req: Request, res: Response) {
 export async function post_nodes(req: Request, res: Response) {
   try {
     console.log("=> post_nodes", req.method, req.path);
-    const node_type = req.body.node_type as NodeType;
-    const concise = req.body.concise === true || req.body.concise === "true";
-    let ref_ids: string[] = [];
-    if (req.body.ref_ids) {
-      if (Array.isArray(req.body.ref_ids)) {
-        ref_ids = req.body.ref_ids;
-      } else {
-        res.status(400).json({ error: "ref_ids must be an array" });
-        return;
-      }
-    }
-    const output = req.body.output as G.OutputFormat;
-    const language = req.body.language as string;
+    const parsed = parseBody(req, res, postNodesBodySchema);
+    if (!parsed) return;
+
+    const node_type = parsed.node_type;
+    const concise = parsed.concise ?? false;
+    const ref_ids = parsed.ref_ids || [];
+    const output = parsed.output;
+    const language = parsed.language;
 
     const result = await G.get_nodes(
       node_type,
@@ -99,14 +102,14 @@ export async function post_nodes(req: Request, res: Response) {
 
 export async function get_edges(req: Request, res: Response) {
   try {
-    const edge_type = req.query.edge_type as EdgeType;
-    const concise = isTrue(req.query.concise as string);
-    let ref_ids: string[] = [];
-    if (req.query.ref_ids) {
-      ref_ids = (req.query.ref_ids as string).split(",");
-    }
-    const output = req.query.output as G.OutputFormat;
-    const language = req.query.language as string;
+    const parsed = parseQuery(req, res, getEdgesQuerySchema);
+    if (!parsed) return;
+
+    const edge_type = parsed.edge_type as EdgeType;
+    const concise = parsed.concise ?? false;
+    const ref_ids = parsed.ref_ids || [];
+    const output = parsed.output;
+    const language = parsed.language;
 
     const result = await G.get_edges(
       edge_type,
@@ -128,20 +131,22 @@ export async function get_edges(req: Request, res: Response) {
 
 export async function search(req: Request, res: Response) {
   try {
-    const query = req.query.query as string;
-    const limit = parseInt(req.query.limit as string) || 25;
-    const concise = isTrue(req.query.concise as string);
-    let node_types: NodeType[] = [];
-    if (req.query.node_types) {
-      node_types = (req.query.node_types as string).split(",") as NodeType[];
-    } else if (req.query.node_type) {
-      node_types = [req.query.node_type as NodeType];
-    }
-    const method = req.query.method as G.SearchMethod;
-    const output = req.query.output as G.OutputFormat;
-    let tests = isTrue(req.query.tests as string);
-    const maxTokens = parseInt(req.query.max_tokens as string);
-    const language = req.query.language as string;
+    const parsed = parseQuery(req, res, searchQuerySchema);
+    if (!parsed) return;
+
+    const query = parsed.query;
+    const limit = parsed.limit && parsed.limit > 0 ? parsed.limit : 25;
+    const concise = parsed.concise ?? false;
+    const node_types = parsed.node_types
+      ? parsed.node_types
+      : parsed.node_type
+        ? [parsed.node_type]
+        : [];
+    const method = parsed.method;
+    const output = parsed.output;
+    const tests = parsed.tests ?? false;
+    const maxTokens = parsed.max_tokens && parsed.max_tokens > 0 ? parsed.max_tokens : undefined;
+    const language = parsed.language;
 
     if (maxTokens) {
       console.log("search with max tokens", maxTokens);
@@ -180,11 +185,10 @@ export async function get_rules_files(req: Request, res: Response) {
 export async function fetch_node_with_related(req: Request, res: Response) {
   // curl "http://localhost:3355/node?ref_id=bcc79e17-fae9-41d6-8932-40ea60e34b54"
   try {
-    const ref_id = req.query.ref_id as string;
-    if (!ref_id) {
-      res.status(400).json({ error: "Missing ref_id parameter" });
-      return;
-    }
+    const parsed = parseQuery(req, res, refIdQuerySchema);
+    if (!parsed) return;
+
+    const ref_id = parsed.ref_id;
 
     const result = await db.get_node_with_related(ref_id);
 
@@ -201,13 +205,11 @@ export async function fetch_workflow_published_version(
 ) {
   // curl "http://localhost:3355/workflow?ref_id=<workflow-ref-id>&concise=true"
   try {
-    const ref_id = req.query.ref_id as string;
-    if (!ref_id) {
-      res.status(400).json({ error: "Missing ref_id parameter" });
-      return;
-    }
+    const parsed = parseQuery(req, res, workflowQuerySchema);
+    if (!parsed) return;
 
-    const concise = isTrue(req.query.concise as string);
+    const ref_id = parsed.ref_id;
+    const concise = parsed.concise ?? false;
     const result = await db.get_workflow_published_version_subgraph(
       ref_id,
       concise
@@ -237,37 +239,25 @@ export interface MapParams {
   trim: string[];
 }
 
-export function mapParams(req: Request): MapParams {
-  const node_type = req.query.node_type as string;
-  const name = req.query.name as string;
-  const file = req.query.file as string;
-  const ref_id = req.query.ref_id as string;
-  const name_and_type = node_type && name;
-  const file_and_type = node_type && file;
-  if (!name_and_type && !file_and_type && !ref_id) {
-    throw new Error(
-      "either node_type+name, node_type+file, or ref_id required"
-    );
-  }
-  const direction = req.query.direction as G.Direction;
-  const tests = !(req.query.tests === "false" || req.query.tests === "0");
-  const depth = parseInt(req.query.depth as string) || DEFAULT_DEPTH;
+export function mapParams(params: MapQuery): MapParams {
   const default_direction = "both" as G.Direction;
   return {
-    node_type: node_type || "",
-    name: name || "",
-    file: file || "",
-    ref_id: ref_id || "",
-    tests,
-    depth,
-    direction: direction || default_direction,
-    trim: ((req.query.trim as string) || "").split(","),
+    node_type: params.node_type || "",
+    name: params.name || "",
+    file: params.file || "",
+    ref_id: params.ref_id || "",
+    tests: params.tests ?? true,
+    depth: params.depth && params.depth > 0 ? params.depth : DEFAULT_DEPTH,
+    direction: (params.direction as G.Direction) || default_direction,
+    trim: params.trim || [],
   };
 }
 
 export async function get_map(req: Request, res: Response) {
   try {
-    const html = await G.get_map(mapParams(req));
+    const parsed = parseQuery(req, res, mapQuerySchema);
+    if (!parsed) return;
+    const html = await G.get_map(mapParams(parsed));
     res.send(`<pre>\n${html}\n</pre>`);
   } catch (error) {
     console.error("Error:", error);
@@ -277,16 +267,18 @@ export async function get_map(req: Request, res: Response) {
 
 export async function get_repo_map(req: Request, res: Response) {
   try {
-    const name = req.query.name as string;
-    const ref_id = req.query.ref_id as string;
-    const node_type = req.query.node_type as NodeType;
+    const parsed = parseQuery(req, res, repoMapQuerySchema);
+    if (!parsed) return;
+
+    const name = parsed.name;
+    const ref_id = parsed.ref_id;
+    const node_type = parsed.node_type;
     const normalizedName =
       (node_type || "Repository") === "Repository"
         ? normalizeRepoParam(name) || name || ""
         : name || "";
     const include_functions_and_classes =
-      req.query.include_functions_and_classes === "true" ||
-      req.query.include_functions_and_classes === "1";
+      parsed.include_functions_and_classes ?? false;
     const html = await G.get_repo_map(
       normalizedName,
       ref_id || "",
@@ -302,7 +294,9 @@ export async function get_repo_map(req: Request, res: Response) {
 
 export async function get_code(req: Request, res: Response) {
   try {
-    const text = await G.get_code(mapParams(req));
+    const parsed = parseQuery(req, res, mapQuerySchema);
+    if (!parsed) return;
+    const text = await G.get_code(mapParams(parsed));
     res.send(text);
   } catch (error) {
     console.error("Error:", error);
@@ -312,11 +306,13 @@ export async function get_code(req: Request, res: Response) {
 
 export async function get_shortest_path(req: Request, res: Response) {
   try {
+    const parsed = parseQuery(req, res, shortestPathQuerySchema);
+    if (!parsed) return;
     const result = await G.get_shortest_path(
-      req.query.start_node_key as string,
-      req.query.end_node_key as string,
-      req.query.start_ref_id as string,
-      req.query.end_ref_id as string
+      parsed.start_node_key || "",
+      parsed.end_node_key || "",
+      parsed.start_ref_id || "",
+      parsed.end_ref_id || ""
     );
     res.send(result);
   } catch (error) {
@@ -327,20 +323,26 @@ export async function get_shortest_path(req: Request, res: Response) {
 
 export async function get_graph(req: Request, res: Response) {
   try {
-    const edge_type =
-      (req.query.edge_type as EdgeType) || ("CALLS" as EdgeType);
-    const concise = isTrue(req.query.concise as string);
-    const include_edges = isTrue(req.query.edges as string);
-    const language = req.query.language as string | undefined;
-    const since = parseSince(req.query);
-    const limit_param = parseLimit(req.query);
-    const limit_mode = parseLimitMode(req.query);
-    let labels = parseNodeTypes(req.query);
+    const parsed = parseQuery(req, res, graphQuerySchema);
+    if (!parsed) return;
+
+    const edge_type = parsed.edge_type || ("CALLS" as EdgeType);
+    const concise = parsed.concise ?? false;
+    const include_edges = parsed.edges ?? false;
+    const language = parsed.language;
+    const since = parsed.since;
+    const limit_param = parsed.limit;
+    const limit_mode = parsed.limit_mode || "per_type";
+    let labels = parsed.node_types
+      ? parsed.node_types
+      : parsed.node_type
+        ? [parsed.node_type]
+        : [];
     if (labels.length === 0) labels = relevant_node_types();
 
     const perTypeDefault = 100;
     let nodes: any[] = [];
-    const ref_ids = parseRefIds(req.query);
+    const ref_ids = parsed.ref_ids || [];
     if (ref_ids.length > 0) {
       nodes = await db.nodes_by_ref_ids(ref_ids, language);
     } else {

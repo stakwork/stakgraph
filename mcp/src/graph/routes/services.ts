@@ -13,14 +13,22 @@ import fs from "fs/promises";
 import * as G from "../graph.js";
 import { parseServiceFile, extractContainersFromCompose } from "../service.js";
 import * as path from "path";
+import { parseQuery } from "./validation.js";
+import {
+  getServicesQuerySchema,
+  mocksInventoryQuerySchema,
+} from "./schemas/services.js";
 
 export async function get_services(req: Request, res: Response) {
   try {
-    if (req.query.clone === "true" && req.query.repo_url) {
-      const repoUrl = req.query.repo_url as string;
-      const username = req.query.username as string | undefined;
-      const pat = req.query.pat as string | undefined;
-      const commit = req.query.commit as string | undefined;
+    const parsed = parseQuery(req, res, getServicesQuerySchema);
+    if (!parsed) return;
+
+    if (parsed.clone === true && parsed.repo_url) {
+      const repoUrl = parsed.repo_url;
+      const username = parsed.username;
+      const pat = parsed.pat;
+      const commit = parsed.commit;
 
       const repoDir = await cloneRepoToTmp(repoUrl, username, pat, commit);
       const detected = await detectLanguagesAndPkgFiles(repoDir);
@@ -68,10 +76,13 @@ export async function get_services(req: Request, res: Response) {
 
 export async function mocks_inventory(req: Request, res: Response) {
   try {
-    const search = req.query.search as string | undefined;
-    const repo = normalizeRepoParam(req.query.repo as string | undefined);
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
+    const parsed = parseQuery(req, res, mocksInventoryQuerySchema);
+    if (!parsed) return;
+
+    const search = parsed.search;
+    const repo = normalizeRepoParam(parsed.repo);
+    const limit = parsed.limit && parsed.limit > 0 ? parsed.limit : 50;
+    const offset = parsed.offset && parsed.offset >= 0 ? parsed.offset : 0;
 
     const result = await G.get_mocks_inventory(search, limit, offset, repo);
     res.json(result);
