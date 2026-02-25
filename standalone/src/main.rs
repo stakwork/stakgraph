@@ -25,10 +25,12 @@ use tower_http::trace::TraceLayer;
 use tracing::{debug_span, Span};
 use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
-    let filter = EnvFilter::builder()
+    let mut filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy()
-        .add_directive("tower_http=debug".parse().unwrap());
+        .from_env_lossy();
+    if let Ok(directive) = "tower_http=debug".parse() {
+        filter = filter.add_directive(directive);
+    }
     tracing_subscriber::fmt()
         .with_target(false)
         .with_env_filter(filter)
@@ -36,7 +38,10 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {
-        panic!("Failed to connect to graph db: {:?}", e);
+        eprintln!("Failed to connect to graph db: {:?}", e);
+        return Err(standalone::types::WebError(shared::Error::Custom(
+            format!("Failed to connect to graph database: {:?}", e),
+        )));
     }
     graph_ops.graph.create_indexes().await?;
 
@@ -153,19 +158,35 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "7799".to_string());
     let bind = format!("0.0.0.0:{}", port);
-    let listener = tokio::net::TcpListener::bind(bind).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(&bind).await.map_err(|e| {
+        eprintln!("Failed to bind to {}: {}", bind, e);
+        standalone::types::WebError(shared::Error::Custom(
+            format!("Failed to bind to {}: {}", bind, e),
+        ))
+    })?;
 
     tokio::spawn(async {
         tokio::signal::ctrl_c()
             .await
-            .expect("Failed to install Ctrl+C handler");
+            .ok();
         // for docker container
         println!("\nReceived Ctrl+C, exiting immediately...");
         std::process::exit(0);
     });
 
-    println!("=> listening on http://{}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
+    let local_addr = listener.local_addr().map_err(|e| {
+        eprintln!("Failed to get listener address: {}", e);
+        standalone::types::WebError(shared::Error::Custom(
+            format!("Failed to get listener address: {}", e),
+        ))
+    })?;
+    println!("=> listening on http://{}", local_addr);
+    axum::serve(listener, app).await.map_err(|e| {
+        eprintln!("Server error: {}", e);
+        standalone::types::WebError(shared::Error::Custom(
+            format!("Server error: {}", e),
+        ))
+    })?;
 
     println!("Server shutdown complete.");
     Ok(())

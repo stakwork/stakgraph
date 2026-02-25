@@ -299,7 +299,9 @@ pub fn resolve_repo(
             branch,
         ))
     } else {
-        let url_string = repo_url.unwrap();
+        let url_string = repo_url.ok_or_else(|| shared::Error::Custom(
+            "repo_path is None but repo_url is also None; check early validation".into(),
+        ))?;
         let urls = parse_repo_urls(&url_string);
 
         if urls.is_empty() {

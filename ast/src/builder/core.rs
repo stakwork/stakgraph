@@ -248,12 +248,8 @@ impl Repo {
             flush_stage_nodes_and_edges(ctx, &graph, "finalize").await?;
         }
 
-        let graph = filter_by_revs(
-            self.root.to_str().unwrap(),
-            self.revs.clone(),
-            graph,
-            self.lang.kind.clone(),
-        );
+        let root_str = self.root.to_string_lossy().to_string();
+        let graph = filter_by_revs(&root_str, self.revs.clone(), graph, self.lang.kind.clone());
 
         let (num_of_nodes, num_of_edges) = graph.get_graph_size();
         info!(
@@ -317,7 +313,11 @@ impl Repo {
                 (NodeType::Repository, repo_file)
             };
 
-            let dir_name = dir_no_tmp.rsplit('/').next().unwrap().to_string();
+            let dir_name = dir_no_tmp
+                .rsplit('/')
+                .next()
+                .unwrap_or_default()
+                .to_string();
             let mut dir_data = NodeData::in_file(&dir_no_tmp);
             dir_data.name = dir_name;
 
@@ -412,7 +412,8 @@ impl Repo {
     }
     async fn add_repository_and_language_nodes<G: Graph>(&self, graph: &mut G) -> Result<()> {
         info!("Root: {:?}", self.root);
-        let commit_hash = get_commit_hash(self.root.to_str().unwrap()).await?;
+        let root_str = self.root.to_string_lossy().to_string();
+        let commit_hash = get_commit_hash(&root_str).await?;
         info!("Commit(commit_hash): {:?}", commit_hash);
 
         let (org, repo_name) = if !self.url.is_empty() {
@@ -450,7 +451,14 @@ impl Repo {
                 "Repository node already exists for: {} (adding language: {})",
                 repo_file, self.lang.kind
             );
-            existing_repos.first().unwrap().clone()
+            existing_repos
+                .first()
+                .cloned()
+                .ok_or_else(|| {
+                    shared::Error::Custom(
+                        "Repository was expected to exist but was not found in graph".into(),
+                    )
+                })?
         };
 
         debug!("add language for: {}", repo_file);

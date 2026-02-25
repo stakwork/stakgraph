@@ -36,7 +36,9 @@ pub async fn clone_repo(
         let skip_reclone_env = std::env::var("SKIP_RECLONE").unwrap_or_default();
         let skip_reclone = skip_reclone_env == "true" || skip_reclone_env == "1";
         if !skip_reclone {
-            fs::remove_dir_all(path).ok();
+            if let Err(err) = fs::remove_dir_all(path) {
+                warn!("Failed to remove existing path before reclone '{}': {}", path, err);
+            }
             git_clone(url, path, username, pat, commit, branch).await?;
         } else {
             info!("=> Skipping reclone for {:?}", path);
@@ -533,7 +535,9 @@ impl Repo {
         for a in arr {
             proc.arg(a);
         }
-        let _ = proc.current_dir(root).status().ok();
+        if let Err(err) = proc.current_dir(root).status() {
+            warn!("Failed to run command '{}' in '{}': {}", cmd, root, err);
+        }
         info!("Finished running: {:?}!", cmd);
         Ok(())
     }
