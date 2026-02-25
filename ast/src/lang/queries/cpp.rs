@@ -34,9 +34,15 @@ impl Cpp {
 impl Stack for Cpp {
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
-            Query::new(&tree_sitter_bash::LANGUAGE.into(), q).unwrap()
+            match Query::new(&tree_sitter_bash::LANGUAGE.into(), q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Cpp library query '{}': {}", q, err),
+            }
         } else {
-            Query::new(&self.0, q).unwrap()
+            match Query::new(&self.0, q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Cpp query '{}': {}", q, err),
+            }
         }
     }
 

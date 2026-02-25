@@ -224,9 +224,15 @@ impl Stack for Rust {
 
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
-            Query::new(&tree_sitter_toml_ng::LANGUAGE.into(), q).unwrap()
+            match Query::new(&tree_sitter_toml_ng::LANGUAGE.into(), q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Rust library query '{}': {}", q, err),
+            }
         } else {
-            Query::new(&self.0, q).unwrap()
+            match Query::new(&self.0, q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Rust query '{}': {}", q, err),
+            }
         }
     }
 
@@ -857,7 +863,10 @@ impl Stack for Rust {
         let code = import_node.body.as_str();
 
         let imports_query = self.imports_query()?;
-        let q = tree_sitter::Query::new(&self.0, &imports_query).unwrap();
+        let q = match tree_sitter::Query::new(&self.0, &imports_query) {
+            Ok(query) => query,
+            Err(_) => return None,
+        };
 
         let tree = match self.parse(code, &NodeType::Import) {
             Ok(t) => t,

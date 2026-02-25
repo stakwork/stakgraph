@@ -24,9 +24,15 @@ impl Stack for Go {
     }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
-            Query::new(&tree_sitter_bash::LANGUAGE.into(), q).unwrap()
+            match Query::new(&tree_sitter_bash::LANGUAGE.into(), q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Go library query '{}': {}", q, err),
+            }
         } else {
-            Query::new(&self.0, q).unwrap()
+            match Query::new(&self.0, q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Go query '{}': {}", q, err),
+            }
         }
     }
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
@@ -326,10 +332,9 @@ impl Stack for Go {
         find_class: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
-        if parent_type.is_none() {
+        let Some(parent_str) = parent_type else {
             return Ok(None);
-        }
-        let parent_str = parent_type.unwrap();
+        };
         // Clean parent type: remove pointer * and generic [T]
         let cleaned_type = parent_str.trim_start_matches('*');
         let cleaned_type = if let Some(idx) = cleaned_type.find('[') {

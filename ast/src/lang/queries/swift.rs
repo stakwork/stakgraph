@@ -22,7 +22,10 @@ impl Stack for Swift {
         super::skips::java::should_skip(called, operand)
     }
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        match Query::new(&self.0, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Swift query '{}': {}", q, err),
+        }
     }
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
@@ -111,12 +114,11 @@ impl Stack for Swift {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() {
-            if parent.unwrap().kind() == "class_declaration" {
-                // found it!
+        while let Some(current) = parent {
+            if current.kind() == "class_declaration" {
                 break;
             }
-            parent = parent.unwrap().parent();
+            parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {

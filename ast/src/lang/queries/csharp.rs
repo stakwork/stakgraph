@@ -23,9 +23,15 @@ impl Stack for CSharp {
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             // .csproj files are XML
-            Query::new(&tree_sitter_html::LANGUAGE.into(), q).unwrap()
+            match Query::new(&tree_sitter_html::LANGUAGE.into(), q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile CSharp library query '{}': {}", q, err),
+            }
         } else {
-            Query::new(&self.0, q).unwrap()
+            match Query::new(&self.0, q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile CSharp query '{}': {}", q, err),
+            }
         }
     }
 
@@ -387,8 +393,11 @@ impl Stack for CSharp {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() && parent.unwrap().kind() != "class_declaration" {
-            parent = parent.unwrap().parent();
+        while let Some(current) = parent {
+            if current.kind() == "class_declaration" {
+                break;
+            }
+            parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {

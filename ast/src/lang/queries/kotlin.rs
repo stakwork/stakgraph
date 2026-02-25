@@ -26,7 +26,10 @@ impl Stack for Kotlin {
     }
 
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        match Query::new(&self.0, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Kotlin query '{}': {}", q, err),
+        }
     }
 
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
@@ -158,10 +161,9 @@ impl Stack for Kotlin {
         find_class: &dyn Fn(&str) -> Option<(NodeData, NodeType)>,
         parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
-        if parent_type.is_none() {
+        let Some(parent_type) = parent_type else {
             return Ok(None);
-        }
-        let parent_type = parent_type.unwrap();
+        };
         let nodedata = find_class(parent_type);
         Ok(match nodedata {
             Some((class, source_type)) => Some(Operand {

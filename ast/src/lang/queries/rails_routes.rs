@@ -150,8 +150,7 @@ pub fn ruby_endpoint_finders_func() -> Vec<String> {
 use crate::lang::{HandlerItemType, HandlerParams, NodeData};
 
 pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Option<String> {
-    endpoint.meta.get("handler")?;
-    let handler = endpoint.meta.get("handler").unwrap();
+    let handler = endpoint.meta.get("handler")?;
 
     // Check if this is a root route (handler contains #index or similar but no resource prefix)
     if handler.contains("#") {
@@ -200,7 +199,12 @@ pub fn generate_endpoint_path(endpoint: &NodeData, params: &HandlerParams) -> Op
         }
     } else {
         // For standard RESTful actions, also exclude the last parent if it matches our resource
-        if !params.parents.is_empty() && params.parents.last().unwrap().name == resource_name {
+        if params
+            .parents
+            .last()
+            .map(|parent| parent.name == resource_name)
+            .unwrap_or(false)
+        {
             &params.parents[..params.parents.len() - 1]
         } else {
             &params.parents[..]

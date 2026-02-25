@@ -17,7 +17,10 @@ impl Erb {
 
 impl Stack for Erb {
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        match Query::new(&self.0, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Erb query '{}': {}", q, err),
+        }
     }
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();

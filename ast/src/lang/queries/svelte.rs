@@ -44,7 +44,11 @@ impl Stack for Svelte {
             | NodeType::E2eTest => tree_sitter_typescript::LANGUAGE_TSX.into(),
             _ => self.0.clone(),
         };
-        Query::new(&grammar, q).unwrap()
+        
+        match Query::new(&grammar, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Svelte query '{}': {}", q, err),
+        }
     }
 
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
