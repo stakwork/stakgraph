@@ -29,6 +29,29 @@ import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Feature } from "./types.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
+import {
+  gitreeProcessQuerySchema,
+  gitreeRepoQuerySchema,
+  gitreeFeatureParamsSchema,
+  gitreeGetFeatureQuerySchema,
+  gitreeGetPrParamsSchema,
+  gitreeGetCommitParamsSchema,
+  gitreeFeatureFilesQuerySchema,
+  gitreeSummarizeFeatureParamsSchema,
+  gitreeLinkFilesQuerySchema,
+  gitreeAllFeaturesGraphQuerySchema,
+  gitreeRelevantFeaturesBodySchema,
+  gitreeCreateFeatureBodySchema,
+  gitreeAnalyzeCluesQuerySchema,
+  gitreeAnalyzeChangesQuerySchema,
+  gitreeListCluesQuerySchema,
+  gitreeClueParamsSchema,
+  gitreeLinkCluesQuerySchema,
+  gitreeSearchCluesBodySchema,
+  gitreeSearchCluesQuerySchema,
+  gitreeProvenanceBodySchema,
+} from "./schemas/routes.js";
+import { sendValidationError } from "../validation.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -78,8 +101,11 @@ function parseGitRepoUrl(url: string): { owner: string; repo: string } | null {
  * Accepts: owner/repo, https://github.com/owner/repo, etc.
  * Returns normalized "owner/repo" format or undefined
  */
-function parseRepoParam(req: Request): string | undefined {
-  const repoParam = req.query.repo as string | undefined;
+function parseRepoParam(reqOrRepo: Request | string | undefined): string | undefined {
+  const repoParam =
+    typeof reqOrRepo === "string" || reqOrRepo === undefined
+      ? reqOrRepo
+      : (reqOrRepo.query.repo as string | undefined);
   if (!repoParam) return undefined;
   
   // Use existing parseGitRepoUrl function
@@ -109,15 +135,20 @@ function parseRepoParam(req: Request): string | undefined {
 // curl -X POST "http://localhost:3355/gitree/process?owner=stakwork&repo=hive&summarize=true&link=true&analyze_clues=true"
 export async function gitree_process(req: Request, res: Response) {
   console.log("===> gitree_process", req.path, req.method);
+  const parsedQuery = gitreeProcessQuerySchema.safeParse(req.query);
+  if (!parsedQuery.success) {
+    sendValidationError(res, "query", parsedQuery.error);
+    return;
+  }
   const request_id = asyncReqs.startReq();
 
-  let owner = req.query.owner as string;
-  let repo = req.query.repo as string;
-  const repoUrl = req.query.repo_url as string;
-  const githubTokenQuery = req.query.token as string;
-  const shouldSummarize = req.query.summarize === "true";
-  const shouldLink = req.query.link === "true";
-  const shouldAnalyzeClues = req.query.analyze_clues === "true";
+  let owner = parsedQuery.data.owner || "";
+  let repo = parsedQuery.data.repo || "";
+  const repoUrl = parsedQuery.data.repo_url;
+  const githubTokenQuery = parsedQuery.data.token;
+  const shouldSummarize = parsedQuery.data.summarize ?? false;
+  const shouldLink = parsedQuery.data.link ?? false;
+  const shouldAnalyzeClues = parsedQuery.data.analyze_clues ?? false;
   const githubToken = githubTokenQuery || process.env.GITHUB_TOKEN;
 
 
@@ -260,7 +291,12 @@ export async function gitree_process(req: Request, res: Response) {
  */
 export async function gitree_list_features(req: Request, res: Response) {
   try {
-    const repo = parseRepoParam(req);
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const result = await listFeatures(repo);
 
     // Get checkpoint and usage - aggregated if no repo specified
@@ -292,9 +328,20 @@ export async function gitree_list_features(req: Request, res: Response) {
  */
 export async function gitree_get_feature(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
-    const include = req.query.include as string | undefined;
-    const repo = parseRepoParam(req);
+    const parsedParams = gitreeFeatureParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeGetFeatureQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const featureId = parsedParams.data.id;
+    const include = parsedQuery.data.include;
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -326,8 +373,19 @@ export async function gitree_get_feature(req: Request, res: Response) {
  */
 export async function gitree_delete_feature(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
-    const repo = parseRepoParam(req);
+    const parsedParams = gitreeFeatureParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const featureId = parsedParams.data.id;
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -358,8 +416,19 @@ export async function gitree_delete_feature(req: Request, res: Response) {
  */
 export async function gitree_get_pr(req: Request, res: Response) {
   try {
-    const prNumber = parseInt(req.params.number as string);
-    const repo = parseRepoParam(req);
+    const parsedParams = gitreeGetPrParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const prNumber = parsedParams.data.number;
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -402,8 +471,19 @@ export async function gitree_get_pr(req: Request, res: Response) {
  */
 export async function gitree_get_commit(req: Request, res: Response) {
   try {
-    const sha = req.params.sha as string;
-    const repo = parseRepoParam(req);
+    const parsedParams = gitreeGetCommitParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const sha = parsedParams.data.sha;
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -447,9 +527,20 @@ export async function gitree_get_commit(req: Request, res: Response) {
  */
 export async function gitree_get_feature_files(req: Request, res: Response) {
   try {
-    const featureId = req.params.id as string;
-    const expandParam = req.query.expand as string | undefined;
-    const outputFormat = req.query.output as string | undefined;
+    const parsedParams = gitreeFeatureParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeFeatureFilesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const featureId = parsedParams.data.id;
+    const expandParam = parsedQuery.data.expand;
+    const outputFormat = parsedQuery.data.output;
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -515,7 +606,12 @@ function formatFilesAsText(files: any[]): string {
  */
 export async function gitree_stats(req: Request, res: Response) {
   try {
-    const repo = parseRepoParam(req);
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -567,7 +663,12 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
   console.log("===> gitree_summarize_feature", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const featureId = req.params.id as string;
+    const parsedParams = gitreeSummarizeFeatureParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const featureId = parsedParams.data.id;
 
     // Summarize in background
     (async () => {
@@ -643,7 +744,12 @@ export async function gitree_link_files(req: Request, res: Response) {
   console.log("===> gitree_link_files", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const featureId = req.query.feature_id as string | undefined;
+    const parsedQuery = gitreeLinkFilesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+    const featureId = parsedQuery.data.feature_id;
 
     // Link in background
     (async () => {
@@ -705,7 +811,13 @@ function toConciseNode(node: Neo4jNode): {
  */
 export async function gitree_all_features_graph(req: Request, res: Response) {
   try {
-    const repo = parseRepoParam(req);
+    const parsedQuery = gitreeAllFeaturesGraphQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const repo = parseRepoParam(parsedQuery.data.repo);
     const storage = new GraphStorage();
     await storage.initialize();
 
@@ -713,11 +825,13 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     const data = await storage.getAllFeaturesWithFilesAndContains(repo);
 
     // Parse query parameters
-    const limit = parseLimit(req.query);
-    const requestedNodeTypes = parseNodeTypes(req.query);
-    const concise = isTrue(req.query.concise as string);
-    const depth = parseInt(req.query.depth as string) || undefined;
-    const perTypeLimitsParam = req.query.per_type_limits as string;
+    const limit = parseLimit(parsedQuery.data);
+    const requestedNodeTypes = parseNodeTypes(parsedQuery.data);
+    const concise = parsedQuery.data.concise ?? false;
+    const depth = parsedQuery.data.depth
+      ? parseInt(parsedQuery.data.depth)
+      : undefined;
+    const perTypeLimitsParam = parsedQuery.data.per_type_limits;
 
     // Parse per-type limits (e.g., "Function:50,Class:25")
     const perTypeLimits: { [nodeType: string]: number } = {};
@@ -842,13 +956,19 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
  */
 export async function gitree_relevant_features(req: Request, res: Response) {
   try {
-    const { prompt } = req.body;
-    const repo = parseRepoParam(req);
-
-    if (!prompt) {
-      res.status(400).json({ error: "Missing prompt in request body" });
+    const parsedBody = gitreeRelevantFeaturesBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      sendValidationError(res, "body", parsedBody.error);
       return;
     }
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const { prompt } = parsedBody.data;
+    const repo = parseRepoParam(parsedQuery.data.repo);
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -954,18 +1074,13 @@ export async function gitree_create_feature(req: Request, res: Response) {
   console.log("===> gitree_create_feature", req.path, req.method);
   const request_id = asyncReqs.startReq();
   try {
-    const { prompt, name, owner, repo, pat } = req.body;
-
-    if (!prompt || !name || !owner || !repo) {
-      asyncReqs.failReq(
-        request_id,
-        new Error("Missing required fields: prompt, name, owner, repo")
-      );
-      res.status(400).json({
-        error: "Missing required fields: prompt, name, owner, repo",
-      });
+    const parsedBody = gitreeCreateFeatureBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      sendValidationError(res, "body", parsedBody.error);
       return;
     }
+
+    const { prompt, name, owner, repo, pat } = parsedBody.data;
 
     // Process in background
     (async () => {
@@ -1042,17 +1157,17 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
   const request_id = asyncReqs.startReq();
 
   try {
-    const owner = req.query.owner as string;
-    const repo = req.query.repo as string;
-    const featureId = req.query.feature_id as string | undefined;
-    const force = req.query.force === "true";
-    const autoLink = req.query.auto_link !== "false"; // Default true
-    const pat = req.query.token as string | undefined;
-
-    if (!owner || !repo) {
-      asyncReqs.failReq(request_id, new Error("owner and repo are required"));
-      return res.status(400).json({ error: "owner and repo are required" });
+    const parsedQuery = gitreeAnalyzeCluesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
     }
+    const owner = parsedQuery.data.owner;
+    const repo = parsedQuery.data.repo;
+    const featureId = parsedQuery.data.feature_id;
+    const force = parsedQuery.data.force ?? false;
+    const autoLink = parsedQuery.data.auto_link ?? true;
+    const pat = parsedQuery.data.token;
 
     (async () => {
       try {
@@ -1125,15 +1240,16 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
   const request_id = asyncReqs.startReq();
 
   try {
-    const owner = req.query.owner as string;
-    const repo = req.query.repo as string;
-    const force = req.query.force === "true";
-    const pat = req.query.token as string | undefined;
-
-    if (!owner || !repo) {
-      asyncReqs.failReq(request_id, new Error("owner and repo are required"));
-      return res.status(400).json({ error: "owner and repo are required" });
+    const parsedQuery = gitreeAnalyzeChangesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
     }
+
+    const owner = parsedQuery.data.owner;
+    const repo = parsedQuery.data.repo;
+    const force = parsedQuery.data.force ?? false;
+    const pat = parsedQuery.data.token;
 
     (async () => {
       try {
@@ -1347,8 +1463,14 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
  */
 export async function gitree_list_clues(req: Request, res: Response) {
   try {
-    const featureId = req.query.feature_id as string | undefined;
-    const repo = parseRepoParam(req);
+    const parsedQuery = gitreeListCluesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const featureId = parsedQuery.data.feature_id;
+    const repo = parseRepoParam(parsedQuery.data.repo);
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1376,8 +1498,19 @@ export async function gitree_list_clues(req: Request, res: Response) {
  */
 export async function gitree_get_clue(req: Request, res: Response) {
   try {
-    const clueId = req.params.id as string;
-    const repo = parseRepoParam(req);
+    const parsedParams = gitreeClueParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const clueId = parsedParams.data.id;
+    const repo = parseRepoParam(parsedQuery.data.repo);
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1403,8 +1536,19 @@ export async function gitree_get_clue(req: Request, res: Response) {
  */
 export async function gitree_delete_clue(req: Request, res: Response) {
   try {
-    const clueId = req.params.id as string;
-    const repo = parseRepoParam(req);
+    const parsedParams = gitreeClueParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+      sendValidationError(res, "params", parsedParams.error);
+      return;
+    }
+    const parsedQuery = gitreeRepoQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const clueId = parsedParams.data.id;
+    const repo = parseRepoParam(parsedQuery.data.repo);
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1426,13 +1570,15 @@ export async function gitree_delete_clue(req: Request, res: Response) {
  */
 export async function gitree_link_clues(req: Request, res: Response) {
   try {
-    const owner = req.query.owner as string;
-    const repo = req.query.repo as string;
-    const force = req.query.force === "true";
-
-    if (!owner || !repo) {
-      return res.status(400).json({ error: "owner and repo are required" });
+    const parsedQuery = gitreeLinkCluesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
     }
+
+    const owner = parsedQuery.data.owner;
+    const repo = parsedQuery.data.repo;
+    const force = parsedQuery.data.force ?? false;
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1475,13 +1621,25 @@ export async function gitree_link_clues(req: Request, res: Response) {
  */
 export async function gitree_search_clues(req: Request, res: Response) {
   try {
-    const { query, featureId, limit = 10, similarityThreshold = 0.5, repo: bodyRepo } = req.body;
-    // Support repo from both query param and body
-    const repo = parseRepoParam(req) || bodyRepo;
-
-    if (!query || typeof query !== "string") {
-      return res.status(400).json({ error: "query is required and must be a string" });
+    const parsedBody = gitreeSearchCluesBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      sendValidationError(res, "body", parsedBody.error);
+      return;
     }
+    const parsedQuery = gitreeSearchCluesQuerySchema.safeParse(req.query);
+    if (!parsedQuery.success) {
+      sendValidationError(res, "query", parsedQuery.error);
+      return;
+    }
+
+    const {
+      query,
+      featureId,
+      limit = 10,
+      similarityThreshold = 0.5,
+      repo: bodyRepo,
+    } = parsedBody.data;
+    const repo = parseRepoParam(parsedQuery.data.repo) || bodyRepo;
 
     const storage = new GraphStorage();
     await storage.initialize();
@@ -1545,16 +1703,13 @@ export async function gitree_search_clues(req: Request, res: Response) {
  */
 export async function gitree_provenance(req: Request, res: Response) {
   try {
-    const { conceptIds } = req.body;
-
-    // Validate request body
-    if (!conceptIds || !Array.isArray(conceptIds)) {
-      res.status(400).json({
-        error:
-          "Missing or invalid conceptIds in request body. Expected array of strings.",
-      });
+    const parsedBody = gitreeProvenanceBodySchema.safeParse(req.body);
+    if (!parsedBody.success) {
+      sendValidationError(res, "body", parsedBody.error);
       return;
     }
+
+    const { conceptIds } = parsedBody.data;
 
     if (conceptIds.length === 0) {
       res.json({ concepts: [] });

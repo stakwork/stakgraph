@@ -10,6 +10,12 @@ import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
 import { SessionConfig, loadSession, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
+import {
+  repoAgentBodySchema,
+  getAgentSessionQuerySchema,
+  getLeaksQuerySchema,
+} from "./schemas/routes.js";
+import { sendValidationError } from "../validation.js";
 
 import { describe_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent };
@@ -42,29 +48,28 @@ export async function repo_agent(req: Request, res: Response) {
     hasRepoUrl: Boolean(req.body?.repo_url),
     hasPrompt: Boolean(req.body?.prompt),
   });
-  const request_id = asyncReqs.startReq();
 
-  const repoUrl = req.body.repo_url as string;
-  const username = req.body.username as string | undefined;
-  const pat = req.body.pat as string | undefined;
-  const commit = req.body.commit as string | undefined;
-  const branch = req.body.branch as string | undefined;
-  const prompt = req.body.prompt as any;
-  const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
-  const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
-  const modelName = req.body.model as ModelName | undefined;
-  const apiKey = req.body.apiKey as string | undefined;
-  const logs = req.body.logs as boolean | undefined;
-  // Session support
-  const sessionId = req.body.sessionId as string | undefined;
-  const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
-  // MCP servers
-  const mcpServers = req.body.mcpServers as McpServer[] | undefined;
-
-  if (!prompt) {
-    res.status(400).json({ error: "Missing prompt" });
+  const parsed = repoAgentBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendValidationError(res, "body", parsed.error);
     return;
   }
+
+  const request_id = asyncReqs.startReq();
+
+  const repoUrl = parsed.data.repo_url;
+  const username = parsed.data.username;
+  const pat = parsed.data.pat;
+  const commit = parsed.data.commit;
+  const branch = parsed.data.branch;
+  const prompt = parsed.data.prompt;
+  const toolsConfig = parsed.data.toolsConfig as ToolsConfig | undefined;
+  const schema = parsed.data.jsonSchema as { [key: string]: any } | undefined;
+  const modelName = parsed.data.model as ModelName | undefined;
+  const logs = parsed.data.logs;
+  const sessionId = parsed.data.sessionId;
+  const sessionConfig = parsed.data.sessionConfig as SessionConfig | undefined;
+  const mcpServers = parsed.data.mcpServers as McpServer[] | undefined;
 
 
   const opId = startTracking("repo_agent");
@@ -90,7 +95,6 @@ export async function repo_agent(req: Request, res: Response) {
           toolsConfig,
           schema,
           modelName,
-          apiKey,
           logs,
           sessionId,
           sessionConfig,
@@ -138,13 +142,14 @@ export async function get_agent_tools(req: Request, res: Response) {
 }
 
 export async function get_agent_session(req: Request, res: Response) {
-  const sessionId = req.query.session_id as string || req.query.sessionId as string;
-  console.log("===> GET /repo/agent/session", { hasSessionId: Boolean(sessionId) });
-
-  if (!sessionId) {
-    res.status(400).json({ error: "Missing session_id" });
+  const parsed = getAgentSessionQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendValidationError(res, "query", parsed.error);
     return;
   }
+
+  const sessionId = parsed.data.session_id || parsed.data.sessionId || "";
+  console.log("===> GET /repo/agent/session", { hasSessionId: Boolean(sessionId) });
 
   if (!sessionExists(sessionId)) {
     res.status(404).json({ error: "Session not found" });
@@ -178,11 +183,17 @@ export async function validate_agent_session(req: Request, res: Response) {
 }
 
 export async function get_leaks(req: Request, res: Response) {
-  const repoUrl = req.query.repo_url as string;
-  const username = req.query.username as string | undefined;
-  const pat = req.query.pat as string | undefined;
-  const commit = req.query.commit as string | undefined;
-  const ignore = req.query.ignore as string | undefined;
+  const parsed = getLeaksQuerySchema.safeParse(req.query);
+  if (!parsed.success) {
+    sendValidationError(res, "query", parsed.error);
+    return;
+  }
+
+  const repoUrl = parsed.data.repo_url;
+  const username = parsed.data.username;
+  const pat = parsed.data.pat;
+  const commit = parsed.data.commit;
+  const ignore = parsed.data.ignore;
 
   const repoDir = await cloneOrUpdateRepo(repoUrl, username, pat, commit);
 

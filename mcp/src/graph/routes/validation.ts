@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { z } from "zod";
+import { sendValidationError } from "../../validation.js";
 
 const booleanLikeValues = ["true", "false", "1", "0", "True", "False"];
 
@@ -37,15 +38,7 @@ function validationError(
   source: "query" | "body" | "params",
   error: z.ZodError
 ): null {
-  res.status(400).json({
-    error: "ValidationError",
-    message: `Invalid request ${source}`,
-    details: error.issues.map((issue) => ({
-      path: issue.path.join("."),
-      message: issue.message,
-      code: issue.code,
-    })),
-  });
+  sendValidationError(res, source, error);
   return null;
 }
 
