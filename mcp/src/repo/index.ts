@@ -53,6 +53,7 @@ export async function repo_agent(req: Request, res: Response) {
   const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
   const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
   const modelName = req.body.model as ModelName | undefined;
+  const apiKey = req.body.apiKey as string | undefined;
   const logs = req.body.logs as boolean | undefined;
   // Session support
   const sessionId = req.body.sessionId as string | undefined;
@@ -89,6 +90,7 @@ export async function repo_agent(req: Request, res: Response) {
           toolsConfig,
           schema,
           modelName,
+          apiKey,
           logs,
           sessionId,
           sessionConfig,
