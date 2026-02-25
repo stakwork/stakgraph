@@ -1035,7 +1035,9 @@ impl Lang {
         if call_name_and_point.is_none() {
             return Ok(None);
         }
-        let (called, call_point) = call_name_and_point.unwrap();
+        let Some((called, call_point)) = call_name_and_point else {
+            return Ok(None);
+        };
 
         // REMOVED: is_variable_call gate that was blocking lowercase operand calls
         // Now we'll try to resolve them via operand-based resolution
@@ -1230,7 +1232,9 @@ impl Lang {
             Ok(())
         })?;
         // unwrap is ok since we checked above
-        let lsp_tx = lsp_tx.as_ref().unwrap();
+        let Some(lsp_tx) = lsp_tx.as_ref() else {
+            return Ok(None);
+        };
         if let Some(edgy) = find_def(
             pos.clone(),
             lsp_tx,
@@ -1314,16 +1318,22 @@ impl Lang {
         if handler_name.is_none() {
             return Ok(None);
         }
-        let handler_name = handler_name.unwrap();
+        let Some(handler_name) = handler_name else {
+            return Ok(None);
+        };
         if call_position.is_none() {
             return Ok(None);
         }
-        let pos = call_position.unwrap();
+        let Some(pos) = call_position else {
+            return Ok(None);
+        };
 
         if lsp_tx.is_none() {
             return Ok(None);
         }
-        let lsp_tx = lsp_tx.as_ref().unwrap();
+        let Some(lsp_tx) = lsp_tx.as_ref() else {
+            return Ok(None);
+        };
         log_cmd(format!(
             "=> {} looking for integration test: {:?}",
             caller_name, handler_name
@@ -1360,7 +1370,9 @@ impl Lang {
         if endpoint.is_none() {
             return Ok(None);
         }
-        let endpoint = endpoint.unwrap();
+        let Some(endpoint) = endpoint else {
+            return Ok(None);
+        };
         let source = NodeKeys::new(caller_name, file, 0);
         let edge = Edge::new(
             EdgeType::Calls,

@@ -33,7 +33,10 @@ pub fn is_capitalized(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    name.chars().next().unwrap().is_uppercase()
+    name.chars()
+        .next()
+        .map(|ch| ch.is_uppercase())
+        .unwrap_or(false)
 }
 
 // FIXME also find it its in range!!! not just on the line!!!
@@ -46,11 +49,9 @@ pub fn find_def<G: Graph>(
     caller_start: usize,
     node_type: NodeType,
 ) -> Result<Option<Edge>> {
-    if pos.is_none() {
+    let Some(pos) = pos else {
         return Ok(None);
-    }
-    let pos = pos.unwrap();
-    // unwrap is ok since we checked above
+    };
     let res = LspCmd::GotoDefinition(pos).send(lsp_tx)?;
     if let LspRes::GotoDefinition(Some(gt)) = res {
         let target_file = gt.file.display().to_string();

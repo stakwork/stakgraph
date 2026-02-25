@@ -905,6 +905,8 @@ impl std::fmt::Debug for Repo {
 
 #[cfg(feature = "openssl")]
 pub fn check_revs_files(repo_path: &str, mut revs: Vec<String>) -> Option<Vec<String>> {
+    use crate::gat::get_changed_files;
+
     if revs.is_empty() {
         return None;
     }
@@ -913,7 +915,19 @@ pub fn check_revs_files(repo_path: &str, mut revs: Vec<String>) -> Option<Vec<St
     }
     let old_rev = revs.first()?;
     let new_rev = revs.get(1)?;
-    crate::gat::get_changed_files(repo_path, old_rev, new_rev).ok()
+    match get_changed_files(repo_path, old_rev, new_rev) {
+        Ok(files) => Some(files),
+        Err(err) => {
+            warn!(
+                "Failed to get changed files for repo '{}' between '{}' and '{}': {}",
+                repo_path,
+                old_rev,
+                new_rev,
+                err
+            );
+            None
+        }
+    }
 }
 
 fn walk_files_arbitrary(dir: &PathBuf, directive: impl Fn(&str) -> bool) -> Result<Vec<String>> {

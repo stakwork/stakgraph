@@ -83,7 +83,13 @@ impl Repo {
         let last_time_mutex = LAST_TIME.get_or_init(|| std::sync::Mutex::new(now));
 
         let should_send = if (current_progress as i32 - last_progress as i32).abs() >= 2 {
-            let last_time = *last_time_mutex.lock().unwrap();
+            let last_time = match last_time_mutex.lock() {
+                Ok(guard) => *guard,
+                Err(e) => {
+                    tracing::warn!("Progress mutex poisoned while reading last_time: {}", e);
+                    now
+                }
+            };
             let time_elapsed = now.duration_since(last_time).as_millis() >= 50;
             let is_complete = current_progress >= 100;
             time_elapsed || is_complete
@@ -93,7 +99,11 @@ impl Repo {
 
         if should_send {
             LAST_PROGRESS.store(current_progress, std::sync::atomic::Ordering::Relaxed);
-            *last_time_mutex.lock().unwrap() = now;
+            if let Ok(mut guard) = last_time_mutex.lock() {
+                *guard = now;
+            } else {
+                tracing::warn!("Progress mutex poisoned while updating last_time");
+            }
 
             let su = StatusUpdate {
                 total_steps: 16,

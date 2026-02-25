@@ -318,10 +318,10 @@ impl Lang {
         if self.lang.use_integration_test_finder() {
             return Ok(Vec::new());
         }
-        let q = self.q(
-            &self.lang.integration_test_query().unwrap(),
-            &NodeType::IntegrationTest,
-        );
+        let Some(integration_query) = self.lang.integration_test_query() else {
+            return Ok(Vec::new());
+        };
+        let q = self.q(&integration_query, &NodeType::IntegrationTest);
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, caller_node, code.as_bytes());
         let mut res = Vec::new();
@@ -352,10 +352,10 @@ impl Lang {
             // Skip describe promotion unless path OR filename signals integration intent
             return Ok(Vec::new());
         }
-        let q = self.q(
-            &self.lang.integration_test_query().unwrap(),
-            &NodeType::IntegrationTest,
-        );
+        let Some(integration_query) = self.lang.integration_test_query() else {
+            return Ok(Vec::new());
+        };
+        let q = self.q(&integration_query, &NodeType::IntegrationTest);
         let tree = self.lang.parse(code, &NodeType::IntegrationTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
@@ -383,7 +383,10 @@ impl Lang {
         if !self.lang.is_e2e_test_file(file, code) {
             return Ok(Vec::new());
         }
-        let q = self.q(&self.lang.e2e_test_query().unwrap(), &NodeType::E2eTest);
+        let Some(e2e_query) = self.lang.e2e_test_query() else {
+            return Ok(Vec::new());
+        };
+        let q = self.q(&e2e_query, &NodeType::E2eTest);
         let tree = self.lang.parse(code, &NodeType::E2eTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
@@ -623,7 +626,10 @@ impl Lang {
 
         for (target_name, row, col) in &identifiers {
             let absolute_line = func.start as u32 + *row;
-            let pos = Position::new(&func.file, absolute_line, *col).unwrap();
+            let pos = match Position::new(&func.file, absolute_line, *col) {
+                Ok(position) => position,
+                Err(_) => continue,
+            };
 
             let mut lsp_result = None;
             for _ in 0..2 {

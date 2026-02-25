@@ -76,8 +76,7 @@ pub fn _filenamey(f: &Path) -> String {
 
 pub fn get_page_name(path: &str) -> Option<String> {
     let parts = path.split("/").collect::<Vec<&str>>();
-    parts.last()?;
-    Some(parts.last().unwrap().to_string())
+    parts.last().map(|part| (*part).to_string())
 }
 
 pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
@@ -125,7 +124,7 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         file,
         body: combined_body,
         start: unique_nodes[0].start,
-        end: unique_nodes.last().unwrap().end,
+        end: unique_nodes.last().map(|node| node.end).unwrap_or(unique_nodes[0].end),
         ..Default::default()
     }]
 }
