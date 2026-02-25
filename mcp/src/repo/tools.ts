@@ -21,7 +21,8 @@ type ToolName =
   | "final_answer"
   | "ask_clarifying_questions"
   | "list_concepts"
-  | "learn_concept";
+  | "learn_concept"
+  | "learn_concepts";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -109,6 +110,7 @@ Rules:
     "List all high-level concepts (features) that have been learned about this codebase. Use this to discover what areas of functionality have been documented and understand the main components of the system. Returns a list of concepts with their names, descriptions, and metadata about associated PRs and commits.",
   learn_concept:
     "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
+  learn_concepts: '' // this is just for naming, to enable the above 2.
 };
 
 export function get_tools(
@@ -124,6 +126,21 @@ export function get_tools(
   // For single repo, extract owner/name from path. For multi-repo, these will be empty.
   const repoOwner = isMultiRepo ? "" : repoArr[repoArr.length - 2];
   const repoName = isMultiRepo ? "" : repoArr[repoArr.length - 1];
+  // Resolve a repo owner/name pair from an optional "owner/name" string,
+  // falling back to the single-repo values or the first entry in repos.
+  function resolveRepo(repo?: string): { owner: string; name: string } | null {
+    if (repo) {
+      const parts = repo.split("/");
+      if (parts.length === 2) return { owner: parts[0], name: parts[1] };
+    }
+    if (!isMultiRepo) return { owner: repoOwner, name: repoName };
+    if (repos && repos.length > 0) {
+      const parts = repos[0].split("/");
+      if (parts.length === 2) return { owner: parts[0], name: parts[1] };
+    }
+    return null;
+  }
+
   const web_search_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "webSearch") : undefined
   const bash_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "bash") : undefined
 
@@ -171,18 +188,20 @@ export function get_tools(
     }),
     recent_commits: tool({
       description: defaultDescriptions.recent_commits,
-      inputSchema: z.object({ limit: z.number().optional().default(10) }),
-      execute: async ({ limit }: { limit?: number }) => {
-        if (isMultiRepo) {
-          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
-        }
+      inputSchema: z.object({
+        limit: z.number().optional().default(10),
+        repo: z.string().optional().describe("Repository in 'owner/name' format. Required for multi-repo contexts."),
+      }),
+      execute: async ({ limit, repo }: { limit?: number; repo?: string }) => {
+        const resolved = resolveRepo(repo);
+        if (!resolved) return "Could not determine repository. Provide a repo in 'owner/name' format.";
         try {
           const analyzer = new RepoAnalyzer({
             githubToken: pat,
           });
           const coms = await analyzer.getRecentCommitsWithFiles(
-            repoOwner,
-            repoName,
+            resolved.owner,
+            resolved.name,
             {
               limit: limit || 10,
             }
@@ -199,18 +218,18 @@ export function get_tools(
       inputSchema: z.object({
         user: z.string(),
         limit: z.number().optional().default(5),
+        repo: z.string().optional().describe("Repository in 'owner/name' format. Required for multi-repo contexts."),
       }),
-      execute: async ({ user, limit }: { user: string; limit?: number }) => {
-        if (isMultiRepo) {
-          return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
-        }
+      execute: async ({ user, limit, repo }: { user: string; limit?: number; repo?: string }) => {
+        const resolved = resolveRepo(repo);
+        if (!resolved) return "Could not determine repository. Provide a repo in 'owner/name' format.";
         try {
           const analyzer = new RepoAnalyzer({
             githubToken: pat,
           });
           const output = await analyzer.getContributorPRs(
-            repoOwner,
-            repoName,
+            resolved.owner,
+            resolved.name,
             user,
             limit || 5
           );
@@ -315,16 +334,13 @@ export function get_tools(
       });
     }
     // concepts
-    if (toolsConfig.learn_concept || toolsConfig.list_concepts) {
+    if (toolsConfig.learn_concept || toolsConfig.list_concepts || toolsConfig.learn_concepts) {
       allTools.list_concepts = tool({
         description: defaultDescriptions.list_concepts,
         inputSchema: z.object({}),
         execute: async () => {
-          if (isMultiRepo) {
-            return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
-          }
           try {
-            const repo = `${repoOwner}/${repoName}`;
+            const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
             const result = await listFeatures(repo);
             return {
               concepts: result.features,
@@ -345,11 +361,8 @@ export function get_tools(
             .describe("The ID of the concept/feature to learn about"),
         }),
         execute: async ({ concept_id }: { concept_id: string }) => {
-          if (isMultiRepo) {
-            return "This tool is not available for multi-repository contexts. Use fulltext_search or file_summary instead.";
-          }
           try {
-            const repo = `${repoOwner}/${repoName}`;
+            const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
             const doc = await getFeatureDocumentation(concept_id, repo);
             if (!doc) {
               return { error: "Concept not found" };
