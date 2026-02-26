@@ -7,6 +7,8 @@ import { SessionConfig } from "../repo/session.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "./utils.js";
 import { StakworkRunSummary } from "./types.js";
+import { logsAgentBodySchema } from "./schemas/routes.js";
+import { sendValidationError } from "../validation.js";
 
 export type { AgentLogSummary, StakworkRunSummary } from "./types.js";
 
@@ -23,24 +25,26 @@ export async function logs_agent(req: Request, res: Response) {
     hasStakworkApiKey: Boolean(req.body?.stakworkApiKey),
     hasSessionId: Boolean(req.body?.sessionId),
   });
-  const request_id = asyncReqs.startReq();
-
-  const prompt = req.body.prompt as string;
-  const modelName = req.body.model as ModelName | undefined;
-  const apiKey = req.body.apiKey as string | undefined;
-  const logs = req.body.logs as boolean | undefined;
-  const swarmName = req.body.swarmName as string | undefined;
-  const sessionId = req.body.sessionId as string | undefined;
-  const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
-  const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
-  const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
-  const printAgentProgress = req.body.printAgentProgress as boolean | undefined;
-  const workspaceSlug = req.body.workspaceSlug as string | undefined;
-
-  if (!prompt) {
-    res.status(400).json({ error: "Missing prompt" });
+  const parsed = logsAgentBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendValidationError(res, "body", parsed.error);
     return;
   }
+
+  const request_id = asyncReqs.startReq();
+
+  const prompt = parsed.data.prompt;
+  const modelName = parsed.data.model as ModelName | undefined;
+  const logs = parsed.data.logs;
+  const swarmName = parsed.data.swarmName;
+  const sessionId = parsed.data.sessionId;
+  const sessionConfig = parsed.data.sessionConfig as SessionConfig | undefined;
+  const stakworkApiKey = parsed.data.stakworkApiKey;
+  const stakworkRuns = parsed.data.stakworkRuns as
+    | StakworkRunSummary[]
+    | undefined;
+  const printAgentProgress = parsed.data.printAgentProgress;
+  const workspaceSlug = parsed.data.workspaceSlug;
 
   let finalPrompt = prompt;
   if (swarmName) {
@@ -86,7 +90,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, apiKey, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress })
+    log_agent_context(finalPrompt, { modelName, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,

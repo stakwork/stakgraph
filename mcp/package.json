@@ -28,6 +28,7 @@
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
     "test": "playwright test",
+    "test:validation": "NO_DB=1 tsx --test src/__tests__/validation/**/*.unit.test.ts",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
     "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",
