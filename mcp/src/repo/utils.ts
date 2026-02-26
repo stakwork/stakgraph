@@ -256,15 +256,46 @@ export function extractMessagesFromSteps(
       }
     }
 
-    // Extract tool calls
+    // Extract tool calls (preserve providerExecuted flag for server tools)
     for (const item of step.content) {
       if (item.type === "tool-call") {
-        assistantContent.push({
+        const toolCall: any = {
           type: "tool-call",
           toolCallId: item.toolCallId,
           toolName: item.toolName,
           input: item.input,
-        });
+        };
+        if ((item as any).providerExecuted) {
+          toolCall.providerExecuted = true;
+        }
+        if ((item as any).providerMetadata) {
+          toolCall.providerOptions = (item as any).providerMetadata;
+        }
+        assistantContent.push(toolCall);
+      }
+    }
+
+    // Provider-executed tool results (e.g. web_search, code_execution) belong
+    // in the assistant message alongside their tool-call, not in the tool message.
+    // The Anthropic API requires server_tool_use and its result in the same
+    // assistant turn; placing the result in a user/tool message causes the
+    // "tool_use ids found without tool_result blocks" error on session replay.
+    for (const item of step.content) {
+      if (item.type === "tool-result" && (item as any).providerExecuted) {
+        let result = (item as any).output;
+        const output = typeof result === "string"
+          ? { type: "text" as const, value: result }
+          : { type: "json" as const, value: result };
+        const toolResult: any = {
+          type: "tool-result",
+          toolCallId: item.toolCallId,
+          toolName: item.toolName,
+          output,
+        };
+        if ((item as any).providerMetadata) {
+          toolResult.providerOptions = (item as any).providerMetadata;
+        }
+        assistantContent.push(toolResult);
       }
     }
 
@@ -276,10 +307,11 @@ export function extractMessagesFromSteps(
       });
     }
 
-    // Extract tool results into tool message
+    // Extract client-executed tool results into tool message
+    // (skip provider-executed results — they are in the assistant message above)
     const toolResults: any[] = [];
     for (const item of step.content) {
-      if (item.type === "tool-result") {
+      if (item.type === "tool-result" && !(item as any).providerExecuted) {
         let result = item.output;
 
         // Truncate if config provided
