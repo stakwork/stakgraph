@@ -206,7 +206,74 @@ impl Stack for Swift {
         ))
     }
 
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (function_declaration
+                name: (simple_identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^test")
+            ) @{FUNCTION_DEFINITION}
+            "#
+        ))
+    }
+
+    fn integration_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (function_declaration
+                name: (simple_identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^test")
+            ) @{FUNCTION_DEFINITION}
+            "#
+        ))
+    }
+
+    fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (function_declaration
+                name: (simple_identifier) @{FUNCTION_NAME}
+                (#match? @{FUNCTION_NAME} "^test")
+            ) @{FUNCTION_DEFINITION}
+            "#
+        ))
+    }
+
+    fn is_test_file(&self, path: &str) -> bool {
+        let normalized = path.replace("\\", "/");
+        normalized.contains("/Tests/")
+            || normalized.contains("/UITests/")
+            || normalized.ends_with("Tests.swift")
+            || normalized.ends_with("Test.swift")
+    }
+
+    fn is_e2e_test_file(&self, path: &str, code: &str) -> bool {
+        let normalized = path.replace("\\", "/");
+        normalized.contains("/UITests/") 
+            || code.contains("import XCUITest")
+            || code.contains("XCUIApplication")
+    }
+
     fn is_test(&self, func_name: &str, _func_file: &str, _func_body: &str) -> bool {
         func_name.starts_with("test")
     }
+
+    fn tests_are_functions(&self) -> bool {
+        true
+    }
+
+    fn classify_test(&self, _name: &str, file: &str, body: &str) -> NodeType {
+        let normalized = file.replace("\\", "/");
+        
+        if normalized.contains("/UITests/") 
+            || body.contains("import XCUITest")
+            || body.contains("XCUIApplication") {
+            return NodeType::E2eTest;
+        }
+        
+        if normalized.contains("/IntegrationTests/") {
+            return NodeType::IntegrationTest;
+        }
+        
+        NodeType::UnitTest    }
 }

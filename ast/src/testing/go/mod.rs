@@ -432,7 +432,7 @@ pub async fn test_go_non_web_generic<G: Graph + Sync>() -> Result<()> {
     );
 
     let files = graph.find_nodes_by_type(NodeType::File);
-    assert_eq!(files.len(), 6, "Expected 6 file nodes");
+    assert_eq!(files.len(), 8, "Expected 8 file nodes");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     assert_eq!(endpoints.len(), 3, "Expected 3 stdlib endpoints");
@@ -487,7 +487,7 @@ pub async fn test_go_non_web_generic<G: Graph + Sync>() -> Result<()> {
     );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
-    assert_eq!(unit_tests.len(), 0, "Expected 0 unit tests in non-web suite");
+    assert_eq!(unit_tests.len(), 4, "Expected 4 unit tests in non-web suite)");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(

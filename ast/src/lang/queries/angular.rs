@@ -239,6 +239,170 @@ impl Stack for Angular {
             )"#
         ))
     }
+
+    fn classify_test(&self, name: &str, file: &str, body: &str) -> NodeType {
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+
+        let is_e2e_dir = f.contains("/tests/e2e/")
+            || f.contains("/test/e2e")
+            || f.contains("/e2e/")
+            || f.contains("/__e2e__/")
+            || f.contains(".e2e.test")
+            || f.contains(".e2e.spec");
+        if is_e2e_dir
+            || fname.starts_with("e2e.")
+            || fname.starts_with("e2e-")
+            || fname.starts_with("e2e_")
+            || fname.contains(".e2e.")
+        {
+            return NodeType::E2eTest;
+        }
+
+        if f.contains("/integration/") || f.contains(".int.") || f.contains(".integration.") {
+            return NodeType::IntegrationTest;
+        }
+
+        let lower_name = name.to_lowercase();
+        if lower_name.contains("e2e") {
+            return NodeType::E2eTest;
+        }
+        if lower_name.contains("integration") {
+            return NodeType::IntegrationTest;
+        }
+
+        let body_l = body.to_lowercase();
+        let has_playwright = body_l.contains("@playwright/test")
+            || body_l.contains("from '@playwright/test'")
+            || body_l.contains("from \"@playwright/test\"");
+        let has_cypress = body_l.contains("from 'cypress'")
+            || body_l.contains("from \"cypress\"")
+            || body_l.contains("require('cypress')")
+            || body_l.contains("require(\"cypress\")");
+        if has_playwright || has_cypress {
+            return NodeType::E2eTest;
+        }
+
+        if body_l.contains("fetch(")
+            || body_l.contains("axios.")
+            || body_l.contains("supertest(")
+            || body_l.contains("/api/")
+            || body_l.contains("http://")
+            || body_l.contains("https://")
+        {
+            return NodeType::IntegrationTest;
+        }
+
+        NodeType::UnitTest
+    }
+
+    fn test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"[
+                    (call_expression
+                        function: (identifier) @desc (#eq? @desc "describe")
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                    )@{FUNCTION_DEFINITION}
+                    (call_expression
+                        function: (member_expression
+                            object: (identifier) @desc2 (#eq? @desc2 "describe")
+                            property: (property_identifier) @mod (#match? @mod "^(only|skip|todo)$")
+                        )
+                        arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                    )@{FUNCTION_DEFINITION}
+                    (program
+                        (expression_statement
+                            (call_expression
+                                function: (identifier) @test (#match? @test "^(describe|test|it)$")
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
+                    (program
+                        (expression_statement
+                            (call_expression
+                                function: (member_expression
+                                    object: (identifier) @obj (#match? @obj "^(test|it)$")
+                                    property: (property_identifier) @prop (#match? @prop "^(skip|only|todo)$")
+                                )
+                                arguments: (arguments [ (string) (template_string) ] @{FUNCTION_NAME})
+                            ) @{FUNCTION_DEFINITION}
+                        )
+                    )
+                ]"#
+        ))
+    }
+
+    fn e2e_test_query(&self) -> Option<String> {
+        Some(format!(
+            r#"
+            (program
+                (expression_statement
+                    (call_expression
+                        function: [
+                            (identifier) @func
+                            (member_expression
+                                property: (property_identifier) @func
+                            )
+                        ]
+                        (#match? @func "^(describe|test|it)$")
+                        arguments: (arguments
+                            [ (string) (template_string) ] @{E2E_TEST_NAME}
+                            (_)
+                        )
+                    ) @{E2E_TEST}
+                )
+            )
+        "#
+        ))
+    }
+
+    fn is_test_file(&self, file_name: &str) -> bool {
+        file_name.ends_with(".test.ts")
+            || file_name.ends_with(".test.tsx")
+            || file_name.ends_with(".test.js")
+            || file_name.ends_with(".test.jsx")
+            || file_name.ends_with(".spec.ts")
+            || file_name.ends_with(".spec.tsx")
+            || file_name.ends_with(".spec.js")
+            || file_name.ends_with(".spec.jsx")
+            || file_name.ends_with(".e2e.ts")
+            || file_name.ends_with(".e2e.js")
+            || file_name.contains("/__tests__/")
+            || file_name.contains("/tests/")
+            || file_name.contains("/test/")
+            || file_name.contains(".spec.")
+            || file_name.contains(".test.")
+    }
+
+    fn is_e2e_test_file(&self, file: &str, code: &str) -> bool {
+        let f = file.replace('\\', "/");
+        let fname = f.rsplit('/').next().unwrap_or(&f).to_lowercase();
+        let lower_code = code.to_lowercase();
+
+        f.contains("/tests/e2e/")
+            || f.contains("/test/e2e")
+            || f.contains("/e2e/")
+            || f.contains("/__e2e__/")
+            || f.contains(".e2e.test")
+            || f.contains(".e2e.spec")
+            || fname.starts_with("e2e.")
+            || fname.starts_with("e2e-")
+            || fname.starts_with("e2e_")
+            || fname.contains(".e2e.")
+            || lower_code.contains("@playwright/test")
+            || lower_code.contains("from 'cypress'")
+            || lower_code.contains("from \"cypress\"")
+    }
+
+    fn is_test(&self, _func_name: &str, func_file: &str, _func_body: &str) -> bool {
+        self.is_test_file(func_file)
+    }
+
+    fn tests_are_functions(&self) -> bool {
+        false
+    }
+
     fn resolve_import_path(&self, import_path: &str, _current_file: &str) -> String {
         let mut path = import_path.trim().to_string();
         if path.starts_with("./") || path.starts_with(".\\") {

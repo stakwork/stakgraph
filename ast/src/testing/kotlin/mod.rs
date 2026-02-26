@@ -106,7 +106,7 @@ import com.kotlintestapp.db.PersonDatabase"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        let expected = 32;
+        let expected = 30;
         assert!(
             (expected - 1..=expected).contains(&functions.len()),
             "Expected {} functions with LSP (±1), got {}",
@@ -114,8 +114,20 @@ import com.kotlintestapp.db.PersonDatabase"#
             functions.len()
         );
     } else {
-        assert_eq!(functions.len(), 31, "Expected 31 functions without LSP");
+        assert_eq!(functions.len(), 29, "Expected 29 functions without LSP");
     }
+
+    let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
+    nodes_count += unit_tests.len();
+    assert_eq!(unit_tests.len(), 1, "Expected 1 unit test (addition_isCorrect in test/ directory)");
+
+    let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
+    nodes_count += integration_tests.len();
+    assert_eq!(integration_tests.len(), 1, "Expected 1 integration test (useAppContext in androidTest/ directory)");
+
+    let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
+    nodes_count += e2e_tests.len();
+    assert_eq!(e2e_tests.len(), 0, "Expected 0 e2e tests");
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -125,11 +137,19 @@ import com.kotlintestapp.db.PersonDatabase"#
     nodes_count += requests.len();
     assert_eq!(requests.len(), 5, "Expected 5 requests");
 
-    let function_names: Vec<&str> = functions.iter().map(|f| f.name.as_str()).collect();
+    let unit_test_names: Vec<&str> = unit_tests.iter().map(|t| t.name.as_str()).collect();
     assert!(
-        function_names.contains(&"useAppContext"),
-        "Should contain useAppContext function"
+        unit_test_names.contains(&"addition_isCorrect"),
+        "Should contain addition_isCorrect unit test"
     );
+
+    let integration_test_names: Vec<&str> = integration_tests.iter().map(|t| t.name.as_str()).collect();
+    assert!(
+        integration_test_names.contains(&"useAppContext"),
+        "Should contain useAppContext integration test"
+    );
+
+    let function_names: Vec<&str> = functions.iter().map(|f| f.name.as_str()).collect();
     assert!(
         function_names.contains(&"onCreate"),
         "Should contain onCreate function"
@@ -149,10 +169,6 @@ import com.kotlintestapp.db.PersonDatabase"#
     assert!(
         function_names.contains(&"fetchPeople"),
         "Should contain fetchPeople function"
-    );
-    assert!(
-        function_names.contains(&"addition_isCorrect"),
-        "Should contain addition_isCorrect function"
     );
 
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
@@ -188,7 +204,7 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let operand_edges_count = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operand_edges_count;
-    assert_eq!(operand_edges_count, 20, "Expected 20 operand edges");
+    assert_eq!(operand_edges_count, 18, "Expected 18 operand edges)");
 
     let parentof = graph.count_edges_of_type(EdgeType::ParentOf);
     edges_count += parentof;
@@ -344,21 +360,22 @@ import com.kotlintestapp.db.PersonDatabase"#
         "onCreate should have @SuppressLint annotation"
     );
 
-    let use_app_context_fn = functions
+    // Verify test node bodies contain expected content
+    let use_app_context_test = integration_tests
         .iter()
-        .find(|f| f.name == "useAppContext")
-        .expect("useAppContext function not found");
+        .find(|t| t.name == "useAppContext")
+        .expect("useAppContext integration test not found");
     assert!(
-        use_app_context_fn.body.contains("InstrumentationRegistry"),
+        use_app_context_test.body.contains("InstrumentationRegistry"),
         "useAppContext should use InstrumentationRegistry"
     );
 
-    let addition_is_correct_fn = functions
+    let addition_is_correct_test = unit_tests
         .iter()
-        .find(|f| f.name == "addition_isCorrect")
-        .expect("addition_isCorrect function not found");
+        .find(|t| t.name == "addition_isCorrect")
+        .expect("addition_isCorrect unit test not found");
     assert!(
-        addition_is_correct_fn.body.contains("assertEquals"),
+        addition_is_correct_test.body.contains("assertEquals"),
         "addition_isCorrect should use assertEquals"
     );
 
