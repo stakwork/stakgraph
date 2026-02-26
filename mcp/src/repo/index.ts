@@ -60,6 +60,7 @@ export async function repo_agent(req: Request, res: Response) {
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   // MCP servers
   const mcpServers = req.body.mcpServers as McpServer[] | undefined;
+  const systemOverride = req.body.systemOverride as string | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -96,6 +97,7 @@ export async function repo_agent(req: Request, res: Response) {
           sessionConfig,
           mcpServers,
           repos: repoList.length > 1 ? repoList : undefined,
+          systemOverride,
         });
       })
       .then((result) => {
