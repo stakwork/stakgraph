@@ -18,6 +18,7 @@ import * as rr from "./repo/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
+import { pruneExpiredSessions } from "./repo/session.js";
 
 dotenv.config();
 
@@ -147,6 +148,10 @@ app.post("/_cache/clear", (_req: Request, res: Response): void => {
 const port = process.env.PORT || 3355;
 app.listen(port, () => {
   console.log(`Server started at http://localhost:${port}`);
+
+  // Prune expired sessions on startup, then every 6 hours
+  pruneExpiredSessions();
+  setInterval(pruneExpiredSessions, 6 * 60 * 60 * 1000);
 });
 
 //

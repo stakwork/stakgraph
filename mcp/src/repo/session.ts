@@ -4,6 +4,8 @@ import {
   mkdirSync,
   appendFileSync,
   readFileSync,
+  readdirSync,
+  statSync,
   unlinkSync,
 } from "fs";
 import { randomUUID } from "crypto";
@@ -89,6 +91,39 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(filePath)) {
     unlinkSync(filePath);
   }
+}
+
+const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+/**
+ * Delete session files older than SESSION_MAX_AGE_MS.
+ * Call this on startup or periodically.
+ */
+export function pruneExpiredSessions(): number {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) return 0;
+
+  const now = Date.now();
+  let pruned = 0;
+  for (const file of readdirSync(sessionDir)) {
+    if (!file.endsWith(".jsonl")) continue;
+    const filePath = path.join(sessionDir, file);
+    try {
+      const { mtimeMs } = statSync(filePath);
+      if (now - mtimeMs > SESSION_MAX_AGE_MS) {
+        unlinkSync(filePath);
+        pruned++;
+      }
+    } catch {
+      // ignore stat/unlink errors for individual files
+    }
+  }
+  if (pruned > 0) {
+    console.log(`[sessions] pruned ${pruned} expired session(s)`);
+  }
+  return pruned;
 }
 
 /**
