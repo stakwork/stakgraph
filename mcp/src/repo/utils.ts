@@ -245,99 +245,43 @@ export function extractMessagesFromSteps(
 ): ModelMessage[] {
   const messages: ModelMessage[] = [userMessage];
 
-  for (const step of steps) {
-    // Build assistant message content
-    const assistantContent: any[] = [];
+  // Use the SDK's own accumulated response messages from the last step.
+  // These are produced by toResponseMessages() which correctly handles
+  // provider-executed tools (web_search, code_execution, etc.) by keeping
+  // their tool-results in the assistant message and client-executed
+  // tool-results in the tool message. Manually reconstructing from
+  // step.content loses providerExecuted flags and deferred result ordering,
+  // causing "tool_use ids found without tool_result blocks" errors on
+  // session replay with the Anthropic API.
+  const lastStep = steps[steps.length - 1];
+  if (!lastStep) return messages;
 
-    // Extract text parts
-    for (const item of step.content) {
-      if (item.type === "text" && item.text) {
-        assistantContent.push({ type: "text", text: item.text });
-      }
-    }
-
-    // Extract tool calls (preserve providerExecuted flag for server tools)
-    for (const item of step.content) {
-      if (item.type === "tool-call") {
-        const toolCall: any = {
-          type: "tool-call",
-          toolCallId: item.toolCallId,
-          toolName: item.toolName,
-          input: item.input,
-        };
-        if ((item as any).providerExecuted) {
-          toolCall.providerExecuted = true;
+  const responseMessages = lastStep.response.messages as ModelMessage[];
+  for (const msg of responseMessages) {
+    if (sessionConfig?.truncateToolResults && msg.role === "tool") {
+      // Truncate client-executed tool results for storage efficiency
+      const truncatedContent = (msg.content as any[]).map((part: any) => {
+        if (part.type === "tool-result" && part.output) {
+          const output = part.output;
+          if (output.type === "text" && typeof output.value === "string") {
+            return {
+              ...part,
+              output: {
+                ...output,
+                value: truncateToolResult(
+                  part.toolName,
+                  output.value,
+                  sessionConfig
+                ),
+              },
+            };
+          }
         }
-        if ((item as any).providerMetadata) {
-          toolCall.providerOptions = (item as any).providerMetadata;
-        }
-        assistantContent.push(toolCall);
-      }
-    }
-
-    // Provider-executed tool results (e.g. web_search, code_execution) belong
-    // in the assistant message alongside their tool-call, not in the tool message.
-    // The Anthropic API requires server_tool_use and its result in the same
-    // assistant turn; placing the result in a user/tool message causes the
-    // "tool_use ids found without tool_result blocks" error on session replay.
-    for (const item of step.content) {
-      if (item.type === "tool-result" && (item as any).providerExecuted) {
-        let result = (item as any).output;
-        const output = typeof result === "string"
-          ? { type: "text" as const, value: result }
-          : { type: "json" as const, value: result };
-        const toolResult: any = {
-          type: "tool-result",
-          toolCallId: item.toolCallId,
-          toolName: item.toolName,
-          output,
-        };
-        if ((item as any).providerMetadata) {
-          toolResult.providerOptions = (item as any).providerMetadata;
-        }
-        assistantContent.push(toolResult);
-      }
-    }
-
-    // Add assistant message if there's content
-    if (assistantContent.length > 0) {
-      messages.push({
-        role: "assistant",
-        content: assistantContent,
+        return part;
       });
-    }
-
-    // Extract client-executed tool results into tool message
-    // (skip provider-executed results — they are in the assistant message above)
-    const toolResults: any[] = [];
-    for (const item of step.content) {
-      if (item.type === "tool-result" && !(item as any).providerExecuted) {
-        let result = item.output;
-
-        // Truncate if config provided
-        if (sessionConfig?.truncateToolResults && typeof result === "string") {
-          result = truncateToolResult(item.toolName, result, sessionConfig);
-        }
-
-        // AI SDK v6 expects `output` as a ToolResultOutput object
-        const output = typeof result === "string"
-          ? { type: "text" as const, value: result }
-          : { type: "json" as const, value: result };
-
-        toolResults.push({
-          type: "tool-result",
-          toolCallId: item.toolCallId,
-          toolName: item.toolName,
-          output,
-        });
-      }
-    }
-
-    if (toolResults.length > 0) {
-      messages.push({
-        role: "tool",
-        content: toolResults,
-      });
+      messages.push({ ...msg, content: truncatedContent } as ModelMessage);
+    } else {
+      messages.push(msg);
     }
   }
 
