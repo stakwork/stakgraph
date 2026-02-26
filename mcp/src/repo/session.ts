@@ -26,7 +26,9 @@ export interface SessionConfig {
  * Get the file path for a session
  */
 function getSessionFile(sessionId: string): string {
-  const sessionDir = path.join(process.cwd(), SESSIONS_DIR);
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
   if (!existsSync(sessionDir)) {
     mkdirSync(sessionDir, { recursive: true });
   }
