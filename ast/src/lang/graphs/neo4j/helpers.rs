@@ -8,7 +8,8 @@ pub const DATA_BANK: &str = "Data_Bank";
 pub const BATCH_SIZE: usize = 4096;
 
 lazy_static! {
-    static ref TOKENIZER: CoreBPE = get_bpe_from_model("gpt-4").unwrap();
+    static ref TOKENIZER: std::result::Result<CoreBPE, String> =
+        get_bpe_from_model("gpt-4").map_err(|e| e.to_string());
 }
 
 #[derive(Debug, Clone)]
@@ -58,7 +59,9 @@ pub fn boltmap_insert_bool(map: &mut BoltMap, key: &str, value: bool) {
 }
 
 pub fn calculate_token_count(body: &str) -> Result<i64> {
-    let bpe = &TOKENIZER;
+    let bpe = TOKENIZER
+        .as_ref()
+        .map_err(|e| shared::Error::Custom(format!("failed to initialize tokenizer: {e}")))?;
     let token_count = bpe.encode_with_special_tokens(body).len() as i64;
     Ok(token_count)
 }

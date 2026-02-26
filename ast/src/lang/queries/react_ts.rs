@@ -28,7 +28,10 @@ impl TypeScriptReact {
 
 impl Stack for TypeScriptReact {
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.tsx, q).unwrap()
+        match Query::new(&self.tsx, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile TypeScriptReact query '{}': {}", q, err),
+        }
     }
 
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
@@ -219,7 +222,11 @@ impl Stack for TypeScriptReact {
         if func_name.is_empty() {
             return false;
         }
-        func_name.chars().next().unwrap().is_uppercase()
+        func_name
+            .chars()
+            .next()
+            .map(|ch| ch.is_uppercase())
+            .unwrap_or(false)
     }
 
     // MERGED: class_definition_query (TypeScript version has PARENT_NAME for implements)
@@ -1111,16 +1118,16 @@ impl Stack for TypeScriptReact {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() {
-            if parent.unwrap().kind() == "method_definition" {
+        while let Some(current) = parent {
+            if current.kind() == "method_definition" {
                 // this is not a method, but a function defined within a method!!! skip it
                 return Ok(None);
             }
-            if parent.unwrap().kind() == "class_declaration" {
+            if current.kind() == "class_declaration" {
                 // found it!
                 break;
             }
-            parent = parent.unwrap().parent();
+            parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {
@@ -1380,7 +1387,10 @@ impl Stack for TypeScriptReact {
         let code = import_node.body.as_str();
 
         let imports_query = self.imports_query()?;
-        let q = tree_sitter::Query::new(&self.tsx, &imports_query).unwrap();
+        let q = match tree_sitter::Query::new(&self.tsx, &imports_query) {
+            Ok(query) => query,
+            Err(_) => return None,
+        };
 
         let tree = match self.parse(code, &NodeType::Import) {
             Ok(t) => t,

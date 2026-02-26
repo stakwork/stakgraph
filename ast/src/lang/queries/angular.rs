@@ -19,7 +19,10 @@ impl Angular {
 
 impl Stack for Angular {
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        match Query::new(&self.0, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Angular query '{}': {}", q, err),
+        }
     }
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
@@ -532,7 +535,9 @@ impl Stack for Angular {
 
                 if let (Some(sel), Some(tmpl)) = (selector, template_url) {
                     let resolved_template = self.resolve_import_path(&tmpl, filename);
-                    let base = std::path::Path::new(filename).parent().unwrap();
+                    let Some(base) = std::path::Path::new(filename).parent() else {
+                        continue;
+                    };
                     let full_template_path =
                         base.join(&resolved_template).to_string_lossy().to_string();
                     map.insert(sel, full_template_path);

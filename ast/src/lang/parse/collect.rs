@@ -4,6 +4,7 @@ use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::Node as TreeNode;
+use tracing::warn;
 impl Lang {
     pub fn collect<G: Graph>(
         &self,
@@ -318,10 +319,10 @@ impl Lang {
         if self.lang.use_integration_test_finder() {
             return Ok(Vec::new());
         }
-        let q = self.q(
-            &self.lang.integration_test_query().unwrap(),
-            &NodeType::IntegrationTest,
-        );
+        let Some(integration_query) = self.lang.integration_test_query() else {
+            return Ok(Vec::new());
+        };
+        let q = self.q(&integration_query, &NodeType::IntegrationTest);
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, caller_node, code.as_bytes());
         let mut res = Vec::new();
@@ -352,10 +353,10 @@ impl Lang {
             // Skip describe promotion unless path OR filename signals integration intent
             return Ok(Vec::new());
         }
-        let q = self.q(
-            &self.lang.integration_test_query().unwrap(),
-            &NodeType::IntegrationTest,
-        );
+        let Some(integration_query) = self.lang.integration_test_query() else {
+            return Ok(Vec::new());
+        };
+        let q = self.q(&integration_query, &NodeType::IntegrationTest);
         let tree = self.lang.parse(code, &NodeType::IntegrationTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
@@ -383,7 +384,10 @@ impl Lang {
         if !self.lang.is_e2e_test_file(file, code) {
             return Ok(Vec::new());
         }
-        let q = self.q(&self.lang.e2e_test_query().unwrap(), &NodeType::E2eTest);
+        let Some(e2e_query) = self.lang.e2e_test_query() else {
+            return Ok(Vec::new());
+        };
+        let q = self.q(&e2e_query, &NodeType::E2eTest);
         let tree = self.lang.parse(code, &NodeType::E2eTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
@@ -612,18 +616,22 @@ impl Lang {
 
         let mut identifiers = Vec::new();
         while let Some(m) = matches.next() {
-            Self::loop_captures(&query, m, code, |body, node, _o| {
+            if let Err(err) = Self::loop_captures(&query, m, code, |body, node, _o| {
                 let p = node.start_position();
                 identifiers.push((body, p.row as u32, p.column as u32));
                 Ok(())
-            })
-            .ok();
+            }) {
+                warn!("failed collecting var call identifiers: {err}");
+            }
         }
         identifiers.sort();
 
         for (target_name, row, col) in &identifiers {
             let absolute_line = func.start as u32 + *row;
-            let pos = Position::new(&func.file, absolute_line, *col).unwrap();
+            let pos = match Position::new(&func.file, absolute_line, *col) {
+                Ok(position) => position,
+                Err(_) => continue,
+            };
 
             let mut lsp_result = None;
             for _ in 0..2 {

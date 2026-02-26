@@ -19,7 +19,10 @@ impl Toml {
 
 impl Stack for Toml {
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+    match Query::new(&self.0, q) {
+      Ok(query) => query,
+      Err(err) => panic!("Failed to compile Toml query '{}': {}", q, err),
+    }
     }
 
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {

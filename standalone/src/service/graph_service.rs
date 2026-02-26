@@ -137,7 +137,7 @@ pub async fn ingest(
         info!("Skipping post-processing - properties already set during batch upload");
     }
 
-    let _ = state.tx.send(ast::repo::StatusUpdate {
+    if let Err(send_err) = state.tx.send(ast::repo::StatusUpdate {
         status: "Complete".to_string(),
         message: "Graph building completed successfully".to_string(),
         step: 16,
@@ -148,7 +148,9 @@ pub async fn ingest(
             ("total_edges".to_string(), edges as usize),
         ])),
         step_description: Some("Graph building completed".to_string()),
-    });
+    }) {
+        tracing::warn!("No status subscribers available for completion update: {:?}", send_err);
+    }
 
     let upload_s = start_upload.elapsed().as_secs_f64();
     info!(

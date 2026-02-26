@@ -44,7 +44,11 @@ impl Stack for Svelte {
             | NodeType::E2eTest => tree_sitter_typescript::LANGUAGE_TSX.into(),
             _ => self.0.clone(),
         };
-        Query::new(&grammar, q).unwrap()
+        
+        match Query::new(&grammar, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Svelte query '{}': {}", q, err),
+        }
     }
 
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
@@ -122,12 +126,11 @@ impl Stack for Svelte {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() {
-            if parent.unwrap().kind() == "class_declaration" {
-                // found it!
+        while let Some(current) = parent {
+            if current.kind() == "class_declaration" {
                 break;
             }
-            parent = parent.unwrap().parent();
+            parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {

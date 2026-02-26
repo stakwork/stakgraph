@@ -23,9 +23,15 @@ impl Stack for Python {
     }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
-            Query::new(&tree_sitter_bash::LANGUAGE.into(), q).unwrap()
+            match Query::new(&tree_sitter_bash::LANGUAGE.into(), q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Python library query '{}': {}", q, err),
+            }
         } else {
-            Query::new(&self.0, q).unwrap()
+            match Query::new(&self.0, q) {
+                Ok(query) => query,
+                Err(err) => panic!("Failed to compile Python query '{}': {}", q, err),
+            }
         }
     }
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
@@ -230,8 +236,11 @@ impl Stack for Python {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() && parent.unwrap().kind() != "class_definition" {
-            parent = parent.unwrap().parent();
+        while let Some(current) = parent {
+            if current.kind() == "class_definition" {
+                break;
+            }
+            parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {

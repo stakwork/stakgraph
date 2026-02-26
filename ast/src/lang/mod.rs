@@ -131,7 +131,9 @@ impl Lang {
                         break;
                     }
                 } else {
-                    let last = block.last().unwrap();
+                    let Some(last) = block.last() else {
+                        break;
+                    };
                     if last.start > 0 && last.start.saturating_sub(c.end) <= 2 {
                         block.push(c);
                     } else {
@@ -467,11 +469,10 @@ impl Lang {
     ) -> Result<Option<String>> {
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&query, node, code.as_bytes());
-        let first = matches.next();
-        if first.is_none() {
+        let Some(first) = matches.next() else {
             return Ok(None);
-        }
-        let mut cs = first.unwrap().captures.iter().into_streaming_iter_ref();
+        };
+        let mut cs = first.captures.iter().into_streaming_iter_ref();
         let name_node = cs.next().context("no name_node")?;
         let name = name_node.node.utf8_text(code.as_bytes())?;
         Ok(Some(name.to_string()))
@@ -901,11 +902,10 @@ pub fn vecy(args: &[&str]) -> Vec<String> {
 pub fn query_to_ident(query: Query, node: TreeNode, code: &str) -> Result<Option<String>> {
     let mut cursor = QueryCursor::new();
     let mut matches = cursor.matches(&query, node, code.as_bytes());
-    let first = matches.next();
-    if first.is_none() {
+    let Some(first) = matches.next() else {
         return Ok(None);
-    }
-    let mut cs = first.unwrap().captures.iter().into_streaming_iter_ref();
+    };
+    let mut cs = first.captures.iter().into_streaming_iter_ref();
     let name_node = cs.next().context("no name_node")?;
     let name = name_node.node.utf8_text(code.as_bytes())?;
     Ok(Some(name.to_string()))

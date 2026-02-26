@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::busy::BusyGuard;
 use crate::types::{
-    AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebError,
+    AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse,
     WebhookPayload,
 };
 use crate::utils::resolve_repo;
@@ -184,13 +184,25 @@ pub async fn sync_async(
                         };
                         let client = Client::new();
 
-                        let _ = crate::webhook::send_with_retries(
+                        if let Err(webhook_err) = crate::webhook::send_with_retries(
                             &client,
                             &request_id_for_work.to_string(),
                             &valid,
                             &payload,
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to send sync_async completion webhook for request {}: {:?}",
+                                request_id_for_work,
+                                webhook_err
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Invalid callback URL for sync_async completion webhook, request {}",
+                            request_id_for_work
+                        );
                     }
                 }
             }
@@ -223,13 +235,25 @@ pub async fn sync_async(
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
                         };
                         let client = Client::new();
-                        let _ = crate::webhook::send_with_retries(
+                        if let Err(webhook_err) = crate::webhook::send_with_retries(
                             &client,
                             &request_id_for_work.to_string(),
                             &valid,
                             &payload,
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::error!(
+                                "Failed to send sync_async failure webhook for request {}: {:?}",
+                                request_id_for_work,
+                                webhook_err
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Invalid callback URL for sync_async failure webhook, request {}",
+                            request_id_for_work
+                        );
                     }
                 }
             }
@@ -392,15 +416,20 @@ pub async fn ingest_async(
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
                         };
                         let client = Client::new();
-                        let _ = send_with_retries(&client, &request_id_clone, &valid, &payload)
-                            .await
-                            .map_err(|e| {
-                                tracing::error!("Error sending webhook: {:?}", e);
-                                WebError(shared::Error::Custom(format!(
-                                    "Error sending webhook: {:?}",
-                                    e
-                                )))
-                            });
+                        if let Err(webhook_err) =
+                            send_with_retries(&client, &request_id_clone, &valid, &payload).await
+                        {
+                            tracing::error!(
+                                "Failed to send ingest_async completion webhook for request {}: {:?}",
+                                request_id_clone,
+                                webhook_err
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Invalid callback URL for ingest_async completion webhook, request {}",
+                            request_id_clone
+                        );
                     }
                 }
             }
@@ -433,15 +462,20 @@ pub async fn ingest_async(
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
                         };
                         let client = Client::new();
-                        let _ = send_with_retries(&client, &request_id_clone, &valid, &payload)
-                            .await
-                            .map_err(|e| {
-                                tracing::error!("Error sending webhook: {:?}", e);
-                                WebError(shared::Error::Custom(format!(
-                                    "Error sending webhook: {:?}",
-                                    e
-                                )))
-                            });
+                        if let Err(webhook_err) =
+                            send_with_retries(&client, &request_id_clone, &valid, &payload).await
+                        {
+                            tracing::error!(
+                                "Failed to send ingest_async failure webhook for request {}: {:?}",
+                                request_id_clone,
+                                webhook_err
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Invalid callback URL for ingest_async failure webhook, request {}",
+                            request_id_clone
+                        );
                     }
                 }
             }

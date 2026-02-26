@@ -185,7 +185,9 @@ impl GraphOps{
             if target.is_none() {
                 return Ok(false);
             }
-            let t = target.unwrap();
+            let Some(t) = target else {
+                return Ok(false);
+            };
             if !in_scope(&t) {
                 return Ok(false);
             }

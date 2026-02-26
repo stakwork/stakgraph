@@ -42,8 +42,8 @@ pub async fn sse_handler(State(app_state): State<Arc<AppState>>) -> impl IntoRes
                     let data = msg.as_json_str();
                     let millis = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis();
+                        .map(|d| d.as_millis())
+                        .unwrap_or(0);
                     let event = Event::default().data(data).id(format!("{}", millis));
                     return Some((Ok::<Event, Infallible>(event), rx));
                 }

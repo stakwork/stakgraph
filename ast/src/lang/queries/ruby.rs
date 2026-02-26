@@ -30,7 +30,10 @@ impl Ruby {
 
 impl Stack for Ruby {
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        match Query::new(&self.0, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Ruby query '{}': {}", q, err),
+        }
     }
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
@@ -197,8 +200,11 @@ impl Stack for Ruby {
         _parent_type: Option<&str>,
     ) -> Result<Option<Operand>> {
         let mut parent = node.parent();
-        while parent.is_some() && parent.unwrap().kind() != "class" {
-            parent = parent.unwrap().parent();
+        while let Some(current) = parent {
+            if current.kind() == "class" {
+                break;
+            }
+            parent = current.parent();
         }
         let parent_of = match parent {
             Some(p) => {
@@ -534,11 +540,9 @@ impl Stack for Ruby {
         find_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
         params: HandlerParams,
     ) -> Vec<(NodeData, Option<Edge>)> {
-        if !endpoint.meta.contains_key("handler") {
+        let Some(handler_string) = endpoint.meta.get("handler") else {
             return Vec::new();
-        }
-
-        let handler_string = endpoint.meta.get("handler").unwrap();
+        };
         // tracing::info!("handler_finder: {} {:?}", handler_string, params);
         let mut explicit_path = false;
         // intermediate nodes (src/target)
@@ -664,8 +668,7 @@ impl Stack for Ruby {
         let mut parents = Vec::new();
         let mut parent = node.parent();
 
-        while parent.is_some() {
-            let parent_node = parent.unwrap();
+        while let Some(parent_node) = parent {
             if parent_node.kind() == "call" {
                 // Check if this is a namespace, scope, or resources call
                 if let Some(method_node) = parent_node.child_by_field_name("method") {
@@ -744,9 +747,7 @@ impl Stack for Ruby {
         find_fn: &dyn Fn(&str, &str) -> Option<NodeData>,
         _find_all_fns_in: &dyn Fn(&str) -> Vec<NodeData>,
     ) -> Option<(NodeData, Option<Edge>)> {
-        let pagename = get_page_name(file_path);
-        pagename.as_ref()?;
-        let pagename = pagename.unwrap();
+        let pagename = get_page_name(file_path)?;
         let page = NodeData::name_file(&pagename, file_path);
         // get the handler name
         let p = std::path::Path::new(file_path);

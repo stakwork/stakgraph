@@ -108,11 +108,9 @@ pub fn link_integration_tests<G: Graph>(graph: &mut G) -> Result<()> {
                 get_requests_from_helper(&all_functions, &all_requests, &edge_index, helper);
 
             for request in &requests_in_helper {
-                let normalized_request_path = normalize_frontend_path(&request.name);
-                if normalized_request_path.is_none() {
+                let Some(req_path) = normalize_frontend_path(&request.name) else {
                     continue;
-                }
-                let req_path = normalized_request_path.unwrap();
+                };
 
                 if let Some(req_verb) = request.meta.get("verb") {
                     let key = (req_path, req_verb.to_uppercase());
@@ -302,10 +300,10 @@ pub fn infer_lang(nd: &NodeData) -> Result<Language> {
 }
 
 pub fn extract_test_ids(content: &str, lang: &Language) -> Result<Vec<String>> {
-    if lang.test_id_regex().is_none() {
+    let Some(test_id_regex) = lang.test_id_regex() else {
         return Ok(Vec::new());
-    }
-    let re = Regex::new(lang.test_id_regex().unwrap())?;
+    };
+    let re = Regex::new(test_id_regex)?;
     let mut test_ids = Vec::new();
     for capture in re.captures_iter(content) {
         if let Some(test_id) = capture.get(1) {
@@ -426,27 +424,26 @@ pub fn normalize_frontend_path(path: &str) -> Option<String> {
 }
 
 pub fn normalize_backend_path(path: &str) -> Option<String> {
-    // Handle various backend parameter formats:
     let re_patterns = [
-        // Flask/FastAPI "<type:param>" or "<param>" style - needs to come first
-        (Regex::new(r"<[^>]*:?[^>]+>").unwrap(), ":param"),
-        // Express/Rails ":param" style
-        (Regex::new(r":[^/]+").unwrap(), ":param"),
-        // Go/Rust "{param}" style
-        (Regex::new(r"\{[^}]+\}").unwrap(), ":param"),
-        // Optional parameters
-        (Regex::new(r"\([^)]+\)").unwrap(), ":param"),
-        // Optional parameters with curly braces
-        (Regex::new(r"\{[^}]+\?\}").unwrap(), ":param"),
-        // Next.js catch-all "[...param]" style
-        (Regex::new(r"\[\.\.\.[^\]]+\]").unwrap(), ":param"),
-        // Next.js "[param]" style
-        (Regex::new(r"\[[^\]]+\]").unwrap(), ":param"),
+        (r"<[^>]*:?[^>]+>", ":param"),
+        (r":[^/]+", ":param"),
+        (r"\{[^}]+\}", ":param"),
+        (r"\([^)]+\)", ":param"),
+        (r"\{[^}]+\?\}", ":param"),
+        (r"\[\.\.\.[^\]]+\]", ":param"),
+        (r"\[[^\]]+\]", ":param"),
     ];
 
     let mut normalized = path.to_string();
-    for (re, replacement) in re_patterns.iter() {
-        normalized = re.replace_all(&normalized, *replacement).to_string();
+    for (pattern, replacement) in re_patterns.iter() {
+        match Regex::new(pattern) {
+            Ok(re) => {
+                normalized = re.replace_all(&normalized, *replacement).to_string();
+            }
+            Err(err) => {
+                tracing::warn!("Failed to compile backend path regex '{}': {}", pattern, err);
+            }
+        }
     }
 
     // Remove trailing slashes except for root path

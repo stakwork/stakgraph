@@ -110,9 +110,9 @@ impl Position {
                 let locs_no_mocks: Vec<&Location> =
                     locs.iter().filter(|loc| non_mock_location(loc)).collect();
                 let theloc = if locs_no_mocks.len() == 1 {
-                    locs_no_mocks.first().unwrap()
+                    locs_no_mocks.first()?
                 } else {
-                    locs.first().unwrap()
+                    locs.first()?
                 };
                 Some(Self::from_range(
                     theloc.uri.path(),
@@ -125,7 +125,7 @@ impl Position {
                 if links.is_empty() {
                     return None;
                 }
-                let link = links.first().unwrap();
+                let link = links.first()?;
                 Some(Self::from_range(
                     link.target_uri.path(),
                     link.target_selection_range,
@@ -214,9 +214,12 @@ async fn spawn_inner(
 
     info!("start {:?} LSP client", lang);
     let (mut conn, mainloop, indexed_rx) = client::LspClient::new(root_dir_abs, root_dir_rel, lang);
+    let lang_for_task = lang.clone();
 
     let mainloop_task = tokio::spawn(async move {
-        mainloop.run_buffered(stdout, stdin).await.unwrap();
+        if let Err(e) = mainloop.run_buffered(stdout, stdin).await {
+            error!("LSP mainloop error for {:?}: {:?}", lang_for_task, e);
+        }
     });
 
     info!("initializing {:?}...", lang);
@@ -257,11 +260,15 @@ async fn spawn_inner(
                 if let Res::Stopping = res {
                     break;
                 }
-                let _ = res_tx.send(res);
+                if let Err(send_err) = res_tx.send(res) {
+                    error!("failed to send LSP response to caller: {:?}", send_err);
+                }
             }
             Err(e) => {
                 // error!("error handling cmd: {:?}", e);
-                let _ = res_tx.send(Res::Fail(e.to_string()));
+                if let Err(send_err) = res_tx.send(Res::Fail(e.to_string())) {
+                    error!("failed to send LSP error response to caller: {:?}", send_err);
+                }
             }
         }
     }

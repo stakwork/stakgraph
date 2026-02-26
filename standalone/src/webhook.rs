@@ -27,11 +27,12 @@ pub async fn validate_callback_url_async(raw: &str) -> Result<Url, shared::Error
     Ok(url)
 }
 
-fn hmac_signature_hex(secret: &[u8], body: &[u8]) -> String {
-    let mut mac = HmacSha256::new_from_slice(secret).expect("HMAC can take key of any size");
+fn hmac_signature_hex(secret: &[u8], body: &[u8]) -> Result<String, shared::Error> {
+    let mut mac = HmacSha256::new_from_slice(secret)
+        .map_err(|e| shared::Error::Custom(format!("failed to initialize HMAC: {e}")))?;
     mac.update(body);
     let result = mac.finalize().into_bytes();
-    hex::encode(result)
+    Ok(hex::encode(result))
 }
 
 pub async fn send_with_retries<T: serde::Serialize + ?Sized + std::fmt::Debug>(
@@ -42,20 +43,20 @@ pub async fn send_with_retries<T: serde::Serialize + ?Sized + std::fmt::Debug>(
 ) -> Result<(), shared::Error> {
     let secret = std::env::var("WEBHOOK_SECRET")
         .map_err(|_| shared::Error::Custom("WEBHOOK_SECRET not set".into()))?;
-    let max_retries: u32 = std::env::var("WEBHOOK_MAX_RETRIES")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(3);
-    let timeout_ms: u64 = std::env::var("WEBHOOK_TIMEOUT_MS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(8000);
+    let max_retries: u32 = match std::env::var("WEBHOOK_MAX_RETRIES") {
+        Ok(v) => v.parse().unwrap_or(3),
+        Err(_) => 3,
+    };
+    let timeout_ms: u64 = match std::env::var("WEBHOOK_TIMEOUT_MS") {
+        Ok(v) => v.parse().unwrap_or(8000),
+        Err(_) => 8000,
+    };
 
     info!("STAKGRAPH WEBHOOK PAYLOAD {:?}", payload);
 
     let body_bytes = serde_json::to_vec(payload)
         .map_err(|e| shared::Error::Custom(format!("serialize payload: {e}")))?;
-    let sig = hmac_signature_hex(secret.as_bytes(), &body_bytes);
+    let sig = hmac_signature_hex(secret.as_bytes(), &body_bytes)?;
     let sig_header = format!("sha256={}", sig);
 
     let mut attempt: u32 = 0;

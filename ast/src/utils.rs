@@ -10,6 +10,7 @@ use tokio::runtime::Handle;
 use tokio::task;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use tracing::warn;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -124,7 +125,9 @@ pub fn create_node_key(node: &Node) -> String {
 pub fn get_use_lsp() -> bool {
     unsafe { env::set_var("LSP_SKIP_POST_CLONE", "true") };
 
-    delete_react_testing_node_modules().ok();
+    if let Err(err) = delete_react_testing_node_modules() {
+        warn!("failed to clean test node_modules: {err}");
+    }
     let lsp = env::var("USE_LSP").unwrap_or_else(|_| "false".to_string());
     if lsp == "true" || lsp == "1" {
         return true;

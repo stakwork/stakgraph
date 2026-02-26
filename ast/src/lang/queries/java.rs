@@ -22,7 +22,10 @@ impl Stack for Java {
         super::skips::java::should_skip(called, operand)
     }
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
-        Query::new(&self.0, q).unwrap()
+        match Query::new(&self.0, q) {
+            Ok(query) => query,
+            Err(err) => panic!("Failed to compile Java query '{}': {}", q, err),
+        }
     }
 
     fn parse(&self, code: &str, _nt: &NodeType) -> Result<Tree> {
