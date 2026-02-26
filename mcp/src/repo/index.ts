@@ -169,12 +169,8 @@ export async function validate_agent_session(req: Request, res: Response) {
     return;
   }
 
-  if (!sessionExists(sessionId)) {
-    res.status(404).json({ error: "Session not found" });
-    return;
-  }
-
-  res.json({ exists: true, valid: true });
+  const exists = sessionExists(sessionId);
+  res.json({ exists, valid: exists });
 }
 
 export async function get_leaks(req: Request, res: Response) {
