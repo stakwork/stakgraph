@@ -105,6 +105,7 @@ app.get("/leaks", rr.get_leaks);
 app.post("/repo/agent", rr.repo_agent);
 app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/repo/agent/session", rr.get_agent_session);
+app.get("/repo/agent/validate_session", rr.validate_agent_session);
 app.post("/repo/describe", rr.describe_nodes_agent);
 app.get("/reattach", r.reconnect_orphaned_hints);
 app.post("/pull_request", r.create_pull_request);

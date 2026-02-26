@@ -160,6 +160,23 @@ export async function get_agent_session(req: Request, res: Response) {
   }
 }
 
+export async function validate_agent_session(req: Request, res: Response) {
+  const sessionId = req.query.session_id as string || req.query.sessionId as string;
+  console.log("===> GET /repo/agent/validate_session", { hasSessionId: Boolean(sessionId) });
+
+  if (!sessionId) {
+    res.status(400).json({ error: "Missing session_id" });
+    return;
+  }
+
+  if (!sessionExists(sessionId)) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+
+  res.json({ exists: true, valid: true });
+}
+
 export async function get_leaks(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
   const username = req.query.username as string | undefined;
