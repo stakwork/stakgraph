@@ -30,8 +30,8 @@ RUN ARCH=$(dpkg --print-architecture) && \
         echo "Skipping gitleaks install: unsupported architecture $ARCH"; \
     fi
 
-# Install stakgraph CLI
-RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/main/install.sh | STAKGRAPH_BIN_DIR=/usr/local/bin bash
+# Install stakgraph CLI (bump version after new CLI release)
+RUN curl -fsSL https://raw.githubusercontent.com/stakwork/stakgraph/refs/heads/main/install.sh | STAKGRAPH_VERSION=v0.3.93 STAKGRAPH_BIN_DIR=/usr/local/bin bash
 
 RUN npx -y playwright install-deps
 RUN npx -y playwright install
