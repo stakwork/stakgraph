@@ -32,6 +32,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           # no-cache: true
+          network: host
           tags: |
             ghcr.io/stakwork/stakgraph-mcp:${{ github.ref_name }}
             ghcr.io/stakwork/stakgraph-mcp:latest
