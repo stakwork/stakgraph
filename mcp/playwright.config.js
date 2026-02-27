@@ -41,11 +41,5 @@ export default defineConfig({
     },
   ],
 
-  /* Run your local dev server before starting the tests */
-  webServer: {
-    command: 'node --loader ts-node/esm src/index.ts',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 30000,
-  },
+  /* Note: Tests use inline HTML via page.setContent(), no web server needed */
 });

@@ -1,3 +1,18 @@
+// Global console patch - add ISO 8601 timestamps to all console output
+const _ts = () => new Date().toISOString();
+const _log = console.log.bind(console);
+const _warn = console.warn.bind(console);
+const _error = console.error.bind(console);
+const _debug = console.debug.bind(console);
+const _info = console.info.bind(console);
+const _trace = console.trace.bind(console);
+console.log   = (...a: unknown[]) => _log(_ts(), ...a);
+console.warn  = (...a: unknown[]) => _warn(_ts(), ...a);
+console.error = (...a: unknown[]) => _error(_ts(), ...a);
+console.debug = (...a: unknown[]) => _debug(_ts(), ...a);
+console.info  = (...a: unknown[]) => _info(_ts(), ...a);
+console.trace = (...a: unknown[]) => _trace(_ts(), ...a);
+
 import express, { Request, Response } from "express";
 import { graph_mcp_routes } from "./tools/server.js";
 import { graph_sse_routes } from "./tools/sse.js";
@@ -145,9 +160,10 @@ app.post("/_cache/clear", (_req: Request, res: Response): void => {
   res.json({ message: "Cache cleared" });
 });
 
-const port = process.env.PORT || 3355;
-app.listen(port, () => {
-  console.log(`Server started at http://localhost:${port}`);
+const port = parseInt(process.env.PORT || '3355', 10);
+const host = process.env.HOST || '0.0.0.0';
+app.listen(port, host, () => {
+  console.log(`Server started at http://${host}:${port}`);
 
   // Prune expired sessions on startup, then every 6 hours
   pruneExpiredSessions();
