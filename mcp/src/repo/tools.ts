@@ -9,6 +9,7 @@ import {
 import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
+import { createBashTool } from "bash-tool";
 
 type ToolName =
   | "repo_overview"
@@ -113,7 +114,7 @@ Rules:
   learn_concepts: '' // this is just for naming, to enable the above 2.
 };
 
-export function get_tools(
+export async function get_tools(
   repoPath: string,
   apiKey: string,
   pat: string | undefined,
@@ -143,6 +144,18 @@ export function get_tools(
 
   const web_search_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "webSearch") : undefined
   const bash_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "bash") : undefined
+
+  let vercel_bash_tool: Tool<any, any> | undefined;
+  if (provider !== "anthropic") {
+    try {
+      const { tools: bashTools } = await createBashTool({
+        uploadDirectory: { source: repoPath },
+      });
+      vercel_bash_tool = bashTools.bash as Tool<any, any>;
+    } catch (e) {
+      console.error("Failed to initialise bash-tool:", e);
+    }
+  }
 
   console.log("===> web_search_tool type:", web_search_tool?.type);
   console.log(
@@ -289,6 +302,9 @@ export function get_tools(
         }
       },
     });
+  } else if (vercel_bash_tool) {
+    // All other providers — bash-tool / just-bash
+    allTools.bash = vercel_bash_tool;
   }
 
   // If no config, return all tools
