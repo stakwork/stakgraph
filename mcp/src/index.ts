@@ -134,6 +134,7 @@ app.post("/logs/agent", logs_agent);
 app.post("/gitree/process", gitree.gitree_process);
 app.get("/gitree/features", gitree.gitree_list_features);
 app.get("/gitree/features/:id", gitree.gitree_get_feature);
+app.put("/gitree/features/:id/documentation", gitree.gitree_update_feature_documentation);
 app.delete("/gitree/features/:id", gitree.gitree_delete_feature);
 app.get("/gitree/features/:id/files", gitree.gitree_get_feature_files);
 app.get("/gitree/prs/:number", gitree.gitree_get_pr);

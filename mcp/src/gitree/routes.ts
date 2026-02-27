@@ -321,6 +321,39 @@ export async function gitree_get_feature(req: Request, res: Response) {
 }
 
 /**
+ * Update documentation for a specific feature
+ * PUT /gitree/features/:id/documentation
+ * Body: { documentation: string }
+ */
+export async function gitree_update_feature_documentation(req: Request, res: Response) {
+  try {
+    const featureId = req.params.id as string;
+    const { documentation } = req.body;
+
+    if (typeof documentation !== "string") {
+      res.status(400).json({ error: "documentation field is required and must be a string" });
+      return;
+    }
+
+    const storage = new GraphStorage();
+    await storage.initialize();
+
+    const feature = await storage.getFeature(featureId);
+    if (!feature) {
+      res.status(404).json({ error: "Feature not found" });
+      return;
+    }
+
+    await storage.saveDocumentation(featureId, documentation);
+
+    res.json({ success: true, featureId, documentation });
+  } catch (error: any) {
+    console.error("Error updating feature documentation:", error);
+    res.status(500).json({ error: error.message || "Failed to update feature documentation" });
+  }
+}
+
+/**
  * Delete a specific feature
  * DELETE /gitree/features/:id?repo=owner/repo (repo optional)
  */
