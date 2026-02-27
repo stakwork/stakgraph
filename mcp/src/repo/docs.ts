@@ -107,6 +107,48 @@ export async function learn_docs_agent(req: Request, res: Response) {
   }
 }
 
+/**
+ * Update main docs per repo
+ * PUT /docs
+ * Body: { repo: string, documentation: string }
+ */
+export async function update_docs(req: Request, res: Response) {
+  const { repo, documentation } = req.body;
+  if (!repo || !documentation) {
+    res.status(400).json({ error: "Missing repo or documentation" });
+    return;
+  }
+  try {
+    const allRepos = await db.get_repositories();
+    const shortName = repo.split("/").pop()?.replace(".git", "") || "";
+    const match = allRepos.find((r) => {
+      const name = r.properties.name || "";
+      return (
+        r.properties.source_link === repo ||
+        name === repo ||
+        name.endsWith(`/${shortName}`) ||
+        name === shortName
+      );
+    });
+    if (!match) {
+      res.status(404).json({ error: "Repository not found" });
+      return;
+    }
+    if (!match.properties.ref_id) {
+      res.status(500).json({ error: "Repository missing ref_id" });
+      return;
+    }
+    await db.update_repository_documentation(
+      match.properties.ref_id,
+      documentation,
+    );
+    res.json({ message: "Documentation updated", repo: match.properties.name });
+  } catch (error) {
+    console.error("[update_docs] Error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+}
+
 export async function get_docs(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
   try {

@@ -25,7 +25,7 @@ import { fileURLToPath } from "url";
 import cors from "cors";
 import { App as SageApp } from "./sage/src/app.js";
 import dotenv from "dotenv";
-import { learn_docs_agent, get_docs } from "./repo/docs.js";
+import { learn_docs_agent, get_docs, update_docs } from "./repo/docs.js";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
@@ -128,6 +128,7 @@ app.post("/pull_request", r.create_pull_request);
 app.post("/learning", r.create_learning);
 app.post("/learn_docs", learn_docs_agent);
 app.get("/docs", get_docs);
+app.put("/docs", update_docs);
 app.post("/logs/agent", logs_agent);
 
 // Gitree routes
