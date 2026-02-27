@@ -3,6 +3,7 @@ use shared::{Error, Result};
 
 #[derive(Debug, Parser)]
 #[command(name = "stakgraph")]
+#[command(version)]
 #[command(about = "Parse files and print a graph-oriented summary")]
 pub struct CliArgs {
     /// Include unverified function calls in the graph

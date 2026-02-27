@@ -47,6 +47,12 @@ jobs:
       - name: Add target
         run: rustup target add ${{ matrix.target }}
 
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" ast/Cargo.toml
+
       - name: Build (native)
         if: ${{ !matrix.use-cross }}
         run: cargo build --release --target ${{ matrix.target }} --bin stakgraph --package ast --no-default-features
