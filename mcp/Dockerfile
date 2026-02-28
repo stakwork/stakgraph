@@ -77,6 +77,10 @@ COPY ./tests/hooks.js ./tests/hooks.js
 # Build the application
 RUN yarn build
 
+# Install agent skills
+RUN npx skills add https://github.com/anthropics/skills --skill frontend-design -y -g
+RUN npx skills add https://github.com/getsentry/skills --skill code-simplifier -y -g
+
 # Download fastembed models (~128MB) - only on amd64
 RUN ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "amd64" ]; then \

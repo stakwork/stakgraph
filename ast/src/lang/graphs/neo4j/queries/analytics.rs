@@ -1,4 +1,7 @@
-use crate::lang::{helpers::{boltmap_insert_int, boltmap_insert_str}, EdgeType, NodeType, NodeData};
+use crate::lang::{
+    helpers::{boltmap_insert_int, boltmap_insert_str},
+    EdgeType, NodeData, NodeType,
+};
 use neo4rs::BoltMap;
 
 pub fn count_nodes_edges_query() -> String {
@@ -103,7 +106,6 @@ pub fn all_nodes_and_edges_query() -> (String, String) {
     (node_query.to_string(), edge_query.to_string())
 }
 
-
 pub fn class_inherits_query() -> String {
     "MATCH (c:Class)
     WHERE c.parent IS NOT NULL
@@ -128,13 +130,15 @@ pub fn endpoint_group_same_file_query() -> String {
        AND NOT e.name CONTAINS '/:' 
        AND e.object = $object
      SET e.name = $prefix + e.name
-     RETURN e.name as updated_name".to_string()
+     RETURN e.name as updated_name"
+        .to_string()
 }
 
 pub fn endpoint_group_check_local_query() -> String {
     "MATCH (e:Endpoint)
      WHERE e.file = $file AND e.object = $object
-     RETURN count(e) > 0 as is_local".to_string()
+     RETURN count(e) > 0 as is_local"
+        .to_string()
 }
 
 pub fn endpoint_group_cross_file_query() -> String {
@@ -142,7 +146,8 @@ pub fn endpoint_group_cross_file_query() -> String {
      WHERE e.file CONTAINS $resolved_source
        AND NOT e.name STARTS WITH $prefix
      SET e.name = $prefix + e.name
-     RETURN e.name as updated_name".to_string()
+     RETURN e.name as updated_name"
+        .to_string()
 }
 
 pub fn find_endpoint_query(name: &str, file: &str, verb: &str) -> (String, BoltMap) {

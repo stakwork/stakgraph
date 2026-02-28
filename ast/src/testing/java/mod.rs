@@ -161,10 +161,16 @@ import java.util.Optional;"#
             .any(|e| e.name == path && e.meta.get("verb") == Some(&verb.to_string()))
     };
 
-    assert!(has_endpoint("/person/{id}", "GET"), "Missing GET /person/{{id}}");
+    assert!(
+        has_endpoint("/person/{id}", "GET"),
+        "Missing GET /person/{{id}}"
+    );
     assert!(has_endpoint("/person", "POST"), "Missing POST /person");
     assert!(has_endpoint("/anon-get", "GET"), "Missing GET /anon-get");
-    assert!(has_endpoint("/anon-post", "POST"), "Missing POST /anon-post");
+    assert!(
+        has_endpoint("/anon-post", "POST"),
+        "Missing POST /anon-post"
+    );
     assert!(has_endpoint("/fn-get", "GET"), "Missing GET /fn-get");
     assert!(has_endpoint("/fn-post", "POST"), "Missing POST /fn-post");
     assert!(has_endpoint("/fn-put", "PUT"), "Missing PUT /fn-put");
@@ -217,7 +223,11 @@ import java.util.Optional;"#
     nodes_count += unit_tests.len();
     nodes_count += integration_tests.len();
     assert_eq!(unit_tests.len(), 1, "Expected 1 unit test node");
-    assert_eq!(integration_tests.len(), 1, "Expected 1 integration test node");
+    assert_eq!(
+        integration_tests.len(),
+        1,
+        "Expected 1 integration test node"
+    );
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
@@ -251,7 +261,10 @@ import java.util.Optional;"#
     edges_count += renders_edges;
     assert_eq!(renders_edges, 0, "Expected 0 Renders edges");
     assert!(unit_tests.len() >= 1, "Expected unit test nodes");
-    assert!(integration_tests.len() >= 1, "Expected integration test nodes");
+    assert!(
+        integration_tests.len() >= 1,
+        "Expected integration test nodes"
+    );
 
     let anon_get_endpoint = requests
         .iter()

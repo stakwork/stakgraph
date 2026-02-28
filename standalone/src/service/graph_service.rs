@@ -4,7 +4,7 @@ use crate::utils::{
     should_call_mcp_for_repo,
 };
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
-use ast::repo::{clone_repo, Repo, check_revs_files};
+use ast::repo::{check_revs_files, clone_repo, Repo};
 use axum::{extract::State, Json};
 use lsp::{git::get_commit_hash, git::validate_git_credentials, strip_tmp};
 use std::sync::Arc;
@@ -149,7 +149,10 @@ pub async fn ingest(
         ])),
         step_description: Some("Graph building completed".to_string()),
     }) {
-        tracing::warn!("No status subscribers available for completion update: {:?}", send_err);
+        tracing::warn!(
+            "No status subscribers available for completion update: {:?}",
+            send_err
+        );
     }
 
     let upload_s = start_upload.elapsed().as_secs_f64();

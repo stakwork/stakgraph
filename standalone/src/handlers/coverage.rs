@@ -1,14 +1,15 @@
-use crate::utils::parse_node_types;
-use crate::utils::normalize_repo_filter;
 use crate::types::{
-    Result, CoverageParams, Coverage, CoverageStat, MockStat,
-    QueryNodesParams, QueryNodesResponse, NodesResponseItem,
-    NodeConcise, Node, HasParams, HasResponse,
-    WebError,
+    Coverage, CoverageParams, CoverageStat, HasParams, HasResponse, MockStat, Node, NodeConcise,
+    NodesResponseItem, QueryNodesParams, QueryNodesResponse, Result, WebError,
 };
+use crate::utils::normalize_repo_filter;
+use crate::utils::parse_node_types;
+use ast::lang::{
+    graphs::{graph_ops::GraphOps, TestFilters},
+    NodeType,
+};
+use axum::{extract::Query, Json};
 use shared::Error;
-use ast::lang::{graphs::{graph_ops::GraphOps, TestFilters}, NodeType};
-use axum::{Json, extract::Query};
 
 #[axum::debug_handler]
 pub async fn coverage_handler(Query(params): Query<CoverageParams>) -> Result<Json<Coverage>> {
@@ -119,8 +120,7 @@ pub async fn nodes_handler(
             .unwrap_or_default(),
     };
 
-
-   let (total_count, results) = graph_ops
+    let (total_count, results) = graph_ops
         .query_nodes_with_count(
             &node_types,
             offset,
@@ -136,46 +136,58 @@ pub async fn nodes_handler(
         )
         .await?;
 
-         let items: Vec<NodesResponseItem> = results
+    let items: Vec<NodesResponseItem> = results
         .into_iter()
-        .map(|(node_type,  node_data, usage_count, covered, test_count, ref_id, body_len, line_cnt, is_muted)| {
-            let verb = if node_type == NodeType::Endpoint {
-                node_data.meta.get("verb").cloned()
-            } else {
-                None
-            };
+        .map(
+            |(
+                node_type,
+                node_data,
+                usage_count,
+                covered,
+                test_count,
+                ref_id,
+                body_len,
+                line_cnt,
+                is_muted,
+            )| {
+                let verb = if node_type == NodeType::Endpoint {
+                    node_data.meta.get("verb").cloned()
+                } else {
+                    None
+                };
 
-            if concise {
-                NodesResponseItem::Concise(NodeConcise {
-                    node_type: node_type.to_string(),
-                    name: node_data.name.clone(),
-                    file: node_data.file.clone(),
-                    ref_id,
-                    weight: usage_count,
-                    test_count,
-                    covered,
-                    body_length: body_len,
-                    line_count: line_cnt,
-                    verb,
-                    start: node_data.start,
-                    end: node_data.end,
-                    meta: node_data.meta,
-                    is_muted,
-                })
-            } else {
-                NodesResponseItem::Full(Node {
-                    node_type: node_type.to_string(),
-                    ref_id,
-                    weight: usage_count,
-                    test_count,
-                    covered,
-                    properties: node_data,
-                    body_length: body_len,
-                    line_count: line_cnt,
-                    is_muted,
-                })
-            }
-        })
+                if concise {
+                    NodesResponseItem::Concise(NodeConcise {
+                        node_type: node_type.to_string(),
+                        name: node_data.name.clone(),
+                        file: node_data.file.clone(),
+                        ref_id,
+                        weight: usage_count,
+                        test_count,
+                        covered,
+                        body_length: body_len,
+                        line_count: line_cnt,
+                        verb,
+                        start: node_data.start,
+                        end: node_data.end,
+                        meta: node_data.meta,
+                        is_muted,
+                    })
+                } else {
+                    NodesResponseItem::Full(Node {
+                        node_type: node_type.to_string(),
+                        ref_id,
+                        weight: usage_count,
+                        test_count,
+                        covered,
+                        properties: node_data,
+                        body_length: body_len,
+                        line_count: line_cnt,
+                        is_muted,
+                    })
+                }
+            },
+        )
         .collect();
 
     let total_returned = items.len();
@@ -220,5 +232,3 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
         .await?;
     Ok(Json(HasResponse { covered }))
 }
-
-

@@ -124,7 +124,10 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         file,
         body: combined_body,
         start: unique_nodes[0].start,
-        end: unique_nodes.last().map(|node| node.end).unwrap_or(unique_nodes[0].end),
+        end: unique_nodes
+            .last()
+            .map(|node| node.end)
+            .unwrap_or(unique_nodes[0].end),
         ..Default::default()
     }]
 }

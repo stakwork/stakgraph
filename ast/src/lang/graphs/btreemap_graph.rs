@@ -536,7 +536,8 @@ impl Graph for BTreeMapGraph {
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
-        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> = HashMap::new();
+        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> =
+            HashMap::new();
         for (endpoint, prefix) in matches {
             let endpoint_verb = endpoint.meta.get("verb").cloned().unwrap_or_default();
             let key = (
@@ -553,8 +554,7 @@ impl Graph for BTreeMapGraph {
                 None => {
                     best_matches.insert(key, (endpoint, prefix));
                 }
-                _ => {
-                }
+                _ => {}
             }
         }
 

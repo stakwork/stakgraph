@@ -1,10 +1,9 @@
 use standalone::types::Result;
 #[cfg(feature = "neo4j")]
 use standalone::{
+    auth, busy,
     handlers::*,
-    service::{graph_service::*, repo_service::*}, 
-    auth, 
-    busy,
+    service::{graph_service::*, repo_service::*},
     types::AppState,
 };
 
@@ -15,15 +14,15 @@ use tower_http::services::ServeFile;
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<()> {
     use axum::extract::Request;
-use axum::middleware;
-use axum::{routing::get, routing::post, Router};
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-use tokio::sync::{broadcast, Mutex};
-use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
-use tracing::{debug_span, Span};
-use tracing_subscriber::{filter::LevelFilter, EnvFilter};
+    use axum::middleware;
+    use axum::{routing::get, routing::post, Router};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use tokio::sync::{broadcast, Mutex};
+    use tower_http::cors::CorsLayer;
+    use tower_http::trace::TraceLayer;
+    use tracing::{debug_span, Span};
+    use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
     let mut filter = EnvFilter::builder()
         .with_default_directive(LevelFilter::INFO.into())
@@ -39,9 +38,10 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {
         eprintln!("Failed to connect to graph db: {:?}", e);
-        return Err(standalone::types::WebError(shared::Error::Custom(
-            format!("Failed to connect to graph database: {:?}", e),
-        )));
+        return Err(standalone::types::WebError(shared::Error::Custom(format!(
+            "Failed to connect to graph database: {:?}",
+            e
+        ))));
     }
     graph_ops.graph.create_indexes().await?;
 
@@ -160,9 +160,10 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
     let bind = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&bind).await.map_err(|e| {
         eprintln!("Failed to bind to {}: {}", bind, e);
-        standalone::types::WebError(shared::Error::Custom(
-            format!("Failed to bind to {}: {}", bind, e),
-        ))
+        standalone::types::WebError(shared::Error::Custom(format!(
+            "Failed to bind to {}: {}",
+            bind, e
+        )))
     })?;
 
     tokio::spawn(async {
@@ -177,16 +178,15 @@ use tracing_subscriber::{filter::LevelFilter, EnvFilter};
 
     let local_addr = listener.local_addr().map_err(|e| {
         eprintln!("Failed to get listener address: {}", e);
-        standalone::types::WebError(shared::Error::Custom(
-            format!("Failed to get listener address: {}", e),
-        ))
+        standalone::types::WebError(shared::Error::Custom(format!(
+            "Failed to get listener address: {}",
+            e
+        )))
     })?;
     println!("=> listening on http://{}", local_addr);
     axum::serve(listener, app).await.map_err(|e| {
         eprintln!("Server error: {}", e);
-        standalone::types::WebError(shared::Error::Custom(
-            format!("Server error: {}", e),
-        ))
+        standalone::types::WebError(shared::Error::Custom(format!("Server error: {}", e)))
     })?;
 
     println!("Server shutdown complete.");

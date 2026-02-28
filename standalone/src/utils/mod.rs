@@ -186,12 +186,7 @@ pub fn normalize_repo_filter(repo: Option<&str>) -> Option<String> {
     Some(repo.trim_end_matches(".git").to_string())
 }
 
-pub async fn call_mcp_embed(
-    repo_url: &str,
-    cost_limit: f32,
-    file_paths: Vec<String>,
-    sync: bool,
-) {
+pub async fn call_mcp_embed(repo_url: &str, cost_limit: f32, file_paths: Vec<String>, sync: bool) {
     let mcp_url =
         std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
 
@@ -299,9 +294,11 @@ pub fn resolve_repo(
             branch,
         ))
     } else {
-        let url_string = repo_url.ok_or_else(|| shared::Error::Custom(
-            "repo_path is None but repo_url is also None; check early validation".into(),
-        ))?;
+        let url_string = repo_url.ok_or_else(|| {
+            shared::Error::Custom(
+                "repo_path is None but repo_url is also None; check early validation".into(),
+            )
+        })?;
         let urls = parse_repo_urls(&url_string);
 
         if urls.is_empty() {

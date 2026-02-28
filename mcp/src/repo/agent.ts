@@ -10,7 +10,7 @@ import {
   ModelName,
   getModelDetails,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
   appendTextToPrompt,
@@ -115,6 +115,8 @@ export interface GetContextOptions {
   mcpServers?: McpServer[]; // External MCP servers to load tools from
   // Multi-repo support: list of "owner/repo" strings
   repos?: string[];
+  // Skills support
+  skills?: SkillsConfig;
 }
 
 export async function get_context(
@@ -133,6 +135,7 @@ export async function get_context(
     mcpServers,
     apiKey: apiKeyIn,
     repos,
+    skills,
   } = opts;
   const startTime = Date.now();
   const { model, apiKey, provider } = getModelDetails(modelName, apiKeyIn);
@@ -163,6 +166,23 @@ export async function get_context(
   }
 
   let instructions = systemOverride || DEFAULT_SYSTEM;
+
+  // Append skills instructions if any skills are active
+  const activeSkills = Object.entries(skills || {})
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+
+  if (activeSkills.length > 0) {
+    const skillsBlock = `
+
+SKILLS INSTRUCTIONS:
+Before starting your main task, use the bash tool to load your active skills into context:
+${activeSkills
+    .map(name => `  - Run: ls ~/.agents/skills/${name}/\n  - Then: cat ~/.agents/skills/${name}/SKILL.md`)
+    .join('\n')}
+Apply the guidance from each skill throughout your response.`;
+    instructions += skillsBlock;
+  }
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
   const hasAskQuestions = createHasAskQuestionsCondition<typeof tools>();

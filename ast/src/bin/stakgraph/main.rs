@@ -76,7 +76,12 @@ async fn run() -> Result<()> {
             None => {
                 let contents = std::fs::read_to_string(file_path)?;
                 let file_label = style("File:").bold().cyan();
-                let msg = format!("{}  {}\n{}\n", file_label, style(file_path).cyan(), first_lines(&contents, 40, 200));
+                let msg = format!(
+                    "{}  {}\n{}\n",
+                    file_label,
+                    style(file_path).cyan(),
+                    first_lines(&contents, 40, 200)
+                );
                 out.writeln(msg)?;
             }
         }
@@ -114,7 +119,7 @@ async fn run() -> Result<()> {
 
     let mut repos = Repos(repos_vec);
     repos.set_status_tx(status_tx).await;
-    
+
     let graph = repos.build_graphs_array().await?;
 
     drop(repos);

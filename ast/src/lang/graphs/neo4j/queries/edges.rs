@@ -1,7 +1,9 @@
-use crate::lang::graphs::{Graph, Edge, EdgeType, NodeRef, NodeType, NodeData, Node, Calls, queries::add_node_query};
-use crate::lang::{helpers::{boltmap_insert_str, boltmap_insert_list_of_maps},};
+use crate::lang::graphs::{
+    queries::add_node_query, Calls, Edge, EdgeType, Graph, Node, NodeData, NodeRef, NodeType,
+};
+use crate::lang::helpers::{boltmap_insert_list_of_maps, boltmap_insert_str};
+use crate::utils::create_node_key_from_ref;
 use neo4rs::BoltMap;
-use crate::utils::{create_node_key_from_ref};
 
 pub struct EdgeQueryBuilder {
     edge: Edge,

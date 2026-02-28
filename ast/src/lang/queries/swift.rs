@@ -251,7 +251,7 @@ impl Stack for Swift {
 
     fn is_e2e_test_file(&self, path: &str, code: &str) -> bool {
         let normalized = path.replace("\\", "/");
-        normalized.contains("/UITests/") 
+        normalized.contains("/UITests/")
             || code.contains("import XCUITest")
             || code.contains("XCUIApplication")
     }
@@ -266,16 +266,18 @@ impl Stack for Swift {
 
     fn classify_test(&self, _name: &str, file: &str, body: &str) -> NodeType {
         let normalized = file.replace("\\", "/");
-        
-        if normalized.contains("/UITests/") 
+
+        if normalized.contains("/UITests/")
             || body.contains("import XCUITest")
-            || body.contains("XCUIApplication") {
+            || body.contains("XCUIApplication")
+        {
             return NodeType::E2eTest;
         }
-        
+
         if normalized.contains("/IntegrationTests/") {
             return NodeType::IntegrationTest;
         }
-        
-        NodeType::UnitTest    }
+
+        NodeType::UnitTest
+    }
 }

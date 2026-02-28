@@ -19,18 +19,18 @@ impl Svelte {
     fn extract_script_content(code: &str) -> Option<(String, usize)> {
         let start_tag = "<script";
         let end_tag = "</script>";
-        
+
         let start_idx = code.find(start_tag)?;
         let tag_end = code[start_idx..].find('>')? + start_idx + 1;
         let end_idx = code.find(end_tag)?;
-        
+
         if end_idx <= tag_end {
             return None;
         }
-        
+
         let script_content = code[tag_end..end_idx].to_string();
         let line_offset = code[..tag_end].matches('\n').count();
-        
+
         Some((script_content, line_offset))
     }
 }
@@ -44,7 +44,7 @@ impl Stack for Svelte {
             | NodeType::E2eTest => tree_sitter_typescript::LANGUAGE_TSX.into(),
             _ => self.0.clone(),
         };
-        
+
         match Query::new(&grammar, q) {
             Ok(query) => query,
             Err(err) => panic!("Failed to compile Svelte query '{}': {}", q, err),
@@ -53,7 +53,7 @@ impl Stack for Svelte {
 
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
-        
+
         let (parse_code, grammar): (String, Language) = match nt {
             NodeType::Function
             | NodeType::UnitTest
@@ -67,7 +67,7 @@ impl Stack for Svelte {
             }
             _ => (code.to_string(), self.0.clone()),
         };
-        
+
         parser.set_language(&grammar)?;
         parser.parse(&parse_code, None).context("failed to parse")
     }
@@ -83,9 +83,7 @@ impl Stack for Svelte {
     }
 
     fn class_definition_query(&self) -> String {
-        format!(
-            r#"(script_element) @{CLASS_DEFINITION}"#
-        )
+        format!(r#"(script_element) @{CLASS_DEFINITION}"#)
     }
 
     fn function_definition_query(&self) -> String {
@@ -113,7 +111,8 @@ impl Stack for Svelte {
             (expression
                 (_) @args
             ) @FUNCTION_CALL
-            "#.to_string()
+            "#
+        .to_string()
     }
 
     fn find_function_parent(
@@ -136,10 +135,10 @@ impl Stack for Svelte {
             Some(p) => {
                 let query = self.q("(type_identifier) @class_name", &NodeType::Class);
                 query_to_ident(query, p, code)?.map(|parent_name| Operand {
-                        source: NodeKeys::new(&parent_name, file, p.start_position().row),
-                        target: NodeKeys::new(func_name, file, node.start_position().row),
-                        source_type: NodeType::Class,
-                    })
+                    source: NodeKeys::new(&parent_name, file, p.start_position().row),
+                    target: NodeKeys::new(func_name, file, node.start_position().row),
+                    source_type: NodeType::Class,
+                })
             }
             None => None,
         };
@@ -248,19 +247,21 @@ impl Stack for Svelte {
 
     fn classify_test(&self, _name: &str, file: &str, _body: &str) -> NodeType {
         let normalized = file.replace("\\", "/");
-        
+
         // E2E tests
-        if normalized.contains("/e2e/") 
-            || normalized.contains(".e2e.spec.") 
-            || normalized.contains(".e2e.test.") {
+        if normalized.contains("/e2e/")
+            || normalized.contains(".e2e.spec.")
+            || normalized.contains(".e2e.test.")
+        {
             return NodeType::E2eTest;
         }
-        
+
         // Integration tests
         if normalized.contains("/integration/") {
             return NodeType::IntegrationTest;
         }
-        
+
         // Unit tests (default)
-        NodeType::UnitTest    }
+        NodeType::UnitTest
+    }
 }

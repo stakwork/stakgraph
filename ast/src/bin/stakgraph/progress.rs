@@ -12,7 +12,7 @@ pub struct ProgressTracker {
 impl ProgressTracker {
     pub fn new(quiet: bool) -> (Self, broadcast::Sender<StatusUpdate>) {
         let (tx, rx) = broadcast::channel(100);
-        
+
         let bar = if !quiet && std::io::stdout().is_terminal() {
             let pb = ProgressBar::new(16);
             let style = ProgressStyle::default_bar()
@@ -37,7 +37,7 @@ impl ProgressTracker {
                         if update.step > 0 {
                             bar.set_position(update.step as u64);
                         }
-                        
+
                         if let Some(desc) = update.step_description {
                             bar.set_message(desc);
                         } else if !update.message.is_empty() {

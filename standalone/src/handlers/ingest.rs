@@ -8,8 +8,7 @@ use uuid::Uuid;
 
 use crate::busy::BusyGuard;
 use crate::types::{
-    AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse,
-    WebhookPayload,
+    AppState, AsyncRequestStatus, AsyncStatus, ProcessBody, ProcessResponse, WebhookPayload,
 };
 use crate::utils::resolve_repo;
 use crate::webhook::{send_with_retries, validate_callback_url_async};

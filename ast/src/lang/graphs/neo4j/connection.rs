@@ -1,7 +1,10 @@
-use neo4rs::{query,Graph as Neo4jConnection, ConfigBuilder, BoltMap};
+use neo4rs::{query, BoltMap, ConfigBuilder, Graph as Neo4jConnection};
 use shared::{Error, Result};
 
-use crate::lang::graphs::{migration::clear_graph_query, executor::{execute_batch, execute_queries_simple}};
+use crate::lang::graphs::{
+    executor::{execute_batch, execute_queries_simple},
+    migration::clear_graph_query,
+};
 
 use crate::lang::Neo4jGraph;
 pub struct Neo4jConnectionManager;
@@ -32,10 +35,8 @@ impl Neo4jConnectionManager {
     }
 }
 
-
-impl Neo4jGraph{
-
-        pub async fn create_indexes(&self) -> Result<()> {
+impl Neo4jGraph {
+    pub async fn create_indexes(&self) -> Result<()> {
         let connection: Neo4jConnection = self.ensure_connected().await?;
         let queries = vec![
             "CREATE INDEX data_bank_node_key_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.node_key)",
@@ -75,10 +76,8 @@ impl Neo4jGraph{
         execute_batch(&connection, queries).await
     }
 
-        pub async fn execute_simple(&self, queries: Vec<(String, BoltMap)>) -> Result<()> {
+    pub async fn execute_simple(&self, queries: Vec<(String, BoltMap)>) -> Result<()> {
         let connection = self.ensure_connected().await?;
         execute_queries_simple(&connection, queries).await
     }
-
-
 }

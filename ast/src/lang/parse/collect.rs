@@ -3,8 +3,8 @@ use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
 use streaming_iterator::StreamingIterator;
-use tree_sitter::Node as TreeNode;
 use tracing::warn;
+use tree_sitter::Node as TreeNode;
 impl Lang {
     pub fn collect<G: Graph>(
         &self,

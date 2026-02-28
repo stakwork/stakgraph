@@ -182,8 +182,13 @@ pub fn should_skip(called: &str, operand: &Option<String>) -> bool {
             return true;
         }
         // Skip Path/PathBuf/DirEntry types
-        if op == "Path" || op == "PathBuf" || op == "DirEntry" 
-            || op.ends_with("::Path") || op.ends_with("::PathBuf") || op.ends_with("::DirEntry") {
+        if op == "Path"
+            || op == "PathBuf"
+            || op == "DirEntry"
+            || op.ends_with("::Path")
+            || op.ends_with("::PathBuf")
+            || op.ends_with("::DirEntry")
+        {
             return true;
         }
     }

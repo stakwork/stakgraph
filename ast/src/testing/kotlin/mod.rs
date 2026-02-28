@@ -119,11 +119,19 @@ import com.kotlintestapp.db.PersonDatabase"#
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 1, "Expected 1 unit test (addition_isCorrect in test/ directory)");
+    assert_eq!(
+        unit_tests.len(),
+        1,
+        "Expected 1 unit test (addition_isCorrect in test/ directory)"
+    );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
-    assert_eq!(integration_tests.len(), 1, "Expected 1 integration test (useAppContext in androidTest/ directory)");
+    assert_eq!(
+        integration_tests.len(),
+        1,
+        "Expected 1 integration test (useAppContext in androidTest/ directory)"
+    );
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
@@ -143,7 +151,8 @@ import com.kotlintestapp.db.PersonDatabase"#
         "Should contain addition_isCorrect unit test"
     );
 
-    let integration_test_names: Vec<&str> = integration_tests.iter().map(|t| t.name.as_str()).collect();
+    let integration_test_names: Vec<&str> =
+        integration_tests.iter().map(|t| t.name.as_str()).collect();
     assert!(
         integration_test_names.contains(&"useAppContext"),
         "Should contain useAppContext integration test"
@@ -366,7 +375,9 @@ import com.kotlintestapp.db.PersonDatabase"#
         .find(|t| t.name == "useAppContext")
         .expect("useAppContext integration test not found");
     assert!(
-        use_app_context_test.body.contains("InstrumentationRegistry"),
+        use_app_context_test
+            .body
+            .contains("InstrumentationRegistry"),
         "useAppContext should use InstrumentationRegistry"
     );
 

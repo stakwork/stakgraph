@@ -40,15 +40,7 @@ const LIST_METHODS: [&str; 15] = [
 ];
 
 const COLLECTION_METHODS: [&str; 10] = [
-    "size",
-    "isEmpty",
-    "contains",
-    "iterator",
-    "toArray",
-    "add",
-    "remove",
-    "clear",
-    "stream",
+    "size", "isEmpty", "contains", "iterator", "toArray", "add", "remove", "clear", "stream",
     "forEach",
 ];
 

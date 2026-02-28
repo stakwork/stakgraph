@@ -683,11 +683,7 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn process_endpoint_groups_async(
-        &self,
-        eg: &[NodeData],
-        lang: &Lang,
-    ) -> Result<()> {
+    pub async fn process_endpoint_groups_async(&self, eg: &[NodeData], lang: &Lang) -> Result<()> {
         if eg.is_empty() {
             return Ok(());
         }
@@ -705,7 +701,8 @@ impl Neo4jGraph {
         let matches = lang
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
-        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> = HashMap::new();
+        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> =
+            HashMap::new();
 
         for (endpoint, prefix) in matches {
             let endpoint_verb = endpoint.meta.get("verb").cloned().unwrap_or_default();
@@ -723,8 +720,7 @@ impl Neo4jGraph {
                 None => {
                     best_matches.insert(key, (endpoint, prefix));
                 }
-                _ => {
-                }
+                _ => {}
             }
         }
 
@@ -1020,12 +1016,13 @@ impl Neo4jGraph {
                                     return None;
                                 }
                             };
-                            let node_type = node.labels().iter().find_map(|label| {
-                                match NodeType::from_str(label) {
-                                    Ok(node_type) => Some(node_type),
-                                    Err(_) => None,
-                                }
-                            })?;
+                            let node_type =
+                                node.labels()
+                                    .iter()
+                                    .find_map(|label| match NodeType::from_str(label) {
+                                        Ok(node_type) => Some(node_type),
+                                        Err(_) => None,
+                                    })?;
 
                             let node_data = match NodeData::try_from(&node) {
                                 Ok(node_data) => node_data,
@@ -1210,12 +1207,7 @@ impl Graph for Neo4jGraph {
     }
     fn add_tests(&mut self, tests: &[TestRecord]) {
         for tr in tests {
-            self.add_node_with_parent(
-                &tr.kind,
-                &tr.node,
-                &NodeType::File,
-                &tr.node.file,
-            );
+            self.add_node_with_parent(&tr.kind, &tr.node, &NodeType::File, &tr.node.file);
             for e in &tr.edges {
                 self.add_edge(e);
             }

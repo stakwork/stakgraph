@@ -6,10 +6,10 @@ use crate::lang::graphs::{ArrayGraph, Node};
 use crate::lang::{BTreeMapGraph, Graph, NodeRef};
 use serde::Serialize;
 use shared::Result;
-use tokio::runtime::Handle;
-use tokio::task;
 use std::fs::File;
 use std::io::{BufWriter, Write};
+use tokio::runtime::Handle;
+use tokio::task;
 use tracing::warn;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::EnvFilter;
@@ -230,5 +230,5 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = T>,
 {
-    task::block_in_place(||Handle::current().block_on(async_fn()))
+    task::block_in_place(|| Handle::current().block_on(async_fn()))
 }
