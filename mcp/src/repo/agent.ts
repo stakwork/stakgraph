@@ -153,7 +153,7 @@ export async function get_context(
     }
   }
 
-  let tools = get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos);
+  let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos);
 
   // Load and merge MCP server tools if configured
   if (mcpServers && mcpServers.length > 0) {

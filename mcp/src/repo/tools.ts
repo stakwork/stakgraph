@@ -9,6 +9,8 @@ import {
 import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
+import { createBashTool } from "bash-tool";
+import { Bash } from "just-bash";
 
 type ToolName =
   | "repo_overview"
@@ -113,7 +115,7 @@ Rules:
   learn_concepts: '' // this is just for naming, to enable the above 2.
 };
 
-export function get_tools(
+export async function get_tools(
   repoPath: string,
   apiKey: string,
   pat: string | undefined,
@@ -274,8 +276,9 @@ export function get_tools(
     // Provider tools need to be added differently
   }
 
-  // Implement bash tool using our executeBashCommand
+  // Implement bash tool
   if (bash_tool) {
+    // Anthropic: keep existing native tool wiring (unchanged)
     allTools.bash = tool({
       description: bash_tool.description || defaultDescriptions.bash,
       inputSchema: z.object({
@@ -289,6 +292,11 @@ export function get_tools(
         }
       },
     });
+  } else if (provider !== "anthropic") {
+    // Non-Anthropic: use bash-tool with just-bash sandbox rooted at repoPath
+    const sandbox = new Bash({ cwd: repoPath });
+    const { tools: bashTools } = await createBashTool({ sandbox, destination: repoPath });
+    allTools.bash = bashTools.bash as unknown as Tool<any, any>;
   }
 
   // If no config, return all tools
