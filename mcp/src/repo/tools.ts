@@ -276,10 +276,26 @@ export function get_tools(
     // Provider tools need to be added differently
   }
 
-  // Implement bash tool using our executeBashCommand
+  // Always register bash tool — Anthropic uses native provider tool, others use executeBashCommand
   if (bash_tool) {
+    // Anthropic: use native provider tool (existing behaviour)
     allTools.bash = tool({
       description: bash_tool.description || defaultDescriptions.bash,
+      inputSchema: z.object({
+        command: z.string().describe("The bash command to execute"),
+      }),
+      execute: async ({ command }: { command: string }) => {
+        try {
+          return await executeBashCommand(command, repoPath);
+        } catch (e) {
+          return `Command execution failed: ${e}`;
+        }
+      },
+    });
+  } else {
+    // Non-Anthropic: use executeBashCommand directly
+    allTools.bash = tool({
+      description: defaultDescriptions.bash,
       inputSchema: z.object({
         command: z.string().describe("The bash command to execute"),
       }),
