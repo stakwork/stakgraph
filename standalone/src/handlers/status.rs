@@ -1,9 +1,16 @@
 use crate::types::AppState;
-use axum::{extract::{Path, State}, response::{IntoResponse, sse::{Event, KeepAlive, Sse}}, Json, http::StatusCode};
-use std::{sync::Arc, convert::Infallible, time::Duration};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse,
+    },
+    Json,
+};
 use futures::stream;
+use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast::error::RecvError;
-
 
 #[axum::debug_handler]
 pub async fn busy_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {

@@ -1,7 +1,6 @@
-use crate::types::{Result, EmbedCodeParams};
+use crate::types::{EmbedCodeParams, Result};
 use ast::lang::graphs::graph_ops::GraphOps;
-use axum::{Json, extract::Query};
-
+use axum::{extract::Query, Json};
 
 pub async fn embed_code_handler(
     Query(params): Query<EmbedCodeParams>,

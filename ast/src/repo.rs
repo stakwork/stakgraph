@@ -37,7 +37,10 @@ pub async fn clone_repo(
         let skip_reclone = skip_reclone_env == "true" || skip_reclone_env == "1";
         if !skip_reclone {
             if let Err(err) = fs::remove_dir_all(path) {
-                warn!("Failed to remove existing path before reclone '{}': {}", path, err);
+                warn!(
+                    "Failed to remove existing path before reclone '{}': {}",
+                    path, err
+                );
             }
             git_clone(url, path, username, pat, commit, branch).await?;
         } else {
@@ -96,7 +99,10 @@ impl Repos {
         self.build_graphs_inner_impl::<BTreeMapGraph>(streaming)
             .await
     }
-    async fn build_graphs_inner_impl<G: Graph + Sync>(&self, enable_batch_upload: bool) -> Result<G> {
+    async fn build_graphs_inner_impl<G: Graph + Sync>(
+        &self,
+        enable_batch_upload: bool,
+    ) -> Result<G> {
         if self.0.is_empty() {
             return Err(Error::Custom("Language is not supported".into()));
         }
@@ -109,15 +115,18 @@ impl Repos {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> = if enable_batch_upload && std::any::type_name::<G>().contains("BTreeMapGraph") {
-            let neo = Neo4jGraph::default();
-            let _ = neo.connect().await;
-            Some((neo, GraphStreamingUploader::new()))
-        } else {
-            None
-        };
+        let mut streaming_ctx: Option<(Neo4jGraph, GraphStreamingUploader)> =
+            if enable_batch_upload && std::any::type_name::<G>().contains("BTreeMapGraph") {
+                let neo = Neo4jGraph::default();
+                let _ = neo.connect().await;
+                Some((neo, GraphStreamingUploader::new()))
+            } else {
+                None
+            };
         for repo in &self.0 {
-            let subgraph = repo.build_graph_inner_with_streaming(enable_batch_upload).await?;
+            let subgraph = repo
+                .build_graph_inner_with_streaming(enable_batch_upload)
+                .await?;
             graph.extend_graph(subgraph);
             memory::log_memory("repo_done");
 
@@ -665,13 +674,12 @@ impl Repo {
         let conf = self.merge_config_with_lang();
         let fname = path.display().to_string();
 
-        let rel = path
-            .strip_prefix(&self.root)
-            .unwrap_or(path);
+        let rel = path.strip_prefix(&self.root).unwrap_or(path);
         let rel_str = rel.display().to_string();
-        let in_skipped_dir = conf.skip_dirs.iter().any(|sd| {
-            rel_str == *sd || rel_str.starts_with(&format!("{}/", sd))
-        });
+        let in_skipped_dir = conf
+            .skip_dirs
+            .iter()
+            .any(|sd| rel_str == *sd || rel_str.starts_with(&format!("{}/", sd)));
         if in_skipped_dir {
             return true;
         }
@@ -772,7 +780,10 @@ fn read_config_file_from_root(root: &Path) -> Option<AstConfig> {
     match std::fs::read_to_string(&config_path) {
         Ok(s) => match serde_json::from_str::<AstConfig>(&s) {
             Ok(c) => {
-                println!("[skip_dirs] loaded .ast.json from {:?}: skip_dirs={:?}", config_path, c.skip_dirs);
+                println!(
+                    "[skip_dirs] loaded .ast.json from {:?}: skip_dirs={:?}",
+                    config_path, c.skip_dirs
+                );
                 Some(c)
             }
             Err(_e) => {
@@ -847,13 +858,11 @@ fn skip_dir(entry: &DirEntry, skip_dirs: &[String], root: &PathBuf) -> bool {
         return true;
     }
     let entry_path = entry.path();
-    let relative = entry_path
-        .strip_prefix(root)
-        .unwrap_or(entry_path);
+    let relative = entry_path.strip_prefix(root).unwrap_or(entry_path);
     let relative_str = relative.display().to_string();
-    let should_skip = skip_dirs.iter().any(|sd| {
-        relative_str == *sd || relative_str.starts_with(&format!("{}/", sd))
-    });
+    let should_skip = skip_dirs
+        .iter()
+        .any(|sd| relative_str == *sd || relative_str.starts_with(&format!("{}/", sd)));
     should_skip
 }
 fn only_files(path: &std::path::Path, only_include_files: &[String]) -> bool {
@@ -920,10 +929,7 @@ pub fn check_revs_files(repo_path: &str, mut revs: Vec<String>) -> Option<Vec<St
         Err(err) => {
             warn!(
                 "Failed to get changed files for repo '{}' between '{}' and '{}': {}",
-                repo_path,
-                old_rev,
-                new_rev,
-                err
+                repo_path, old_rev, new_rev, err
             );
             None
         }

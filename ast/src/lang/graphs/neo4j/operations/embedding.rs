@@ -1,6 +1,8 @@
-use crate::lang::graphs::{helpers::{boltmap_insert_int, boltmap_insert_float, boltmap_insert_str, boltmap_insert_list},};
-use neo4rs::{BoltMap, BoltFloat, BoltType, BoltString};
+use crate::lang::graphs::helpers::{
+    boltmap_insert_float, boltmap_insert_int, boltmap_insert_list, boltmap_insert_str,
+};
 use lsp::Language;
+use neo4rs::{BoltFloat, BoltMap, BoltString, BoltType};
 use std::str::FromStr;
 
 pub fn data_bank_bodies_query_no_embeddings(

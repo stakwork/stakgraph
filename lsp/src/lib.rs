@@ -230,7 +230,7 @@ async fn spawn_inner(
 
     info!("waiting.... {:?}", lang);
     sleep(500).await;
-    
+
     let timeout_duration = Duration::from_secs(15);
     match time::timeout(timeout_duration, indexed_rx).await {
         Ok(Ok(())) => {
@@ -267,7 +267,10 @@ async fn spawn_inner(
             Err(e) => {
                 // error!("error handling cmd: {:?}", e);
                 if let Err(send_err) = res_tx.send(Res::Fail(e.to_string())) {
-                    error!("failed to send LSP error response to caller: {:?}", send_err);
+                    error!(
+                        "failed to send LSP error response to caller: {:?}",
+                        send_err
+                    );
                 }
             }
         }

@@ -46,7 +46,7 @@ impl Stack for Cpp {
         }
     }
 
-     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
+    fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
         if matches!(nt, NodeType::Library) {
             parser.set_language(&tree_sitter_bash::LANGUAGE.into())?;

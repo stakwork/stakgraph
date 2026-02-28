@@ -1,21 +1,21 @@
 const LIST_METHODS: [&str; 12] = [
-    "append",
-    "extend",
-    "pop",
-    "remove",
-    "sort",
-    "reverse",
-    "clear",
-    "copy",
-    "count",
-    "index",
-    "insert",
-    "len",
+    "append", "extend", "pop", "remove", "sort", "reverse", "clear", "copy", "count", "index",
+    "insert", "len",
 ];
 
 const DICT_METHODS: [&str; 12] = [
-    "keys", "values", "items", "get", "pop", "update", "clear", "copy", "setdefault",
-    "fromkeys", "popitem", "len",
+    "keys",
+    "values",
+    "items",
+    "get",
+    "pop",
+    "update",
+    "clear",
+    "copy",
+    "setdefault",
+    "fromkeys",
+    "popitem",
+    "len",
 ];
 
 const STRING_METHODS: [&str; 20] = [

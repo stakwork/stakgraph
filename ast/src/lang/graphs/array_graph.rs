@@ -192,7 +192,8 @@ impl Graph for ArrayGraph {
             .lang()
             .match_endpoint_groups(&eg, &endpoints, &find_import_node);
 
-        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> = HashMap::new();
+        let mut best_matches: HashMap<(String, String, usize, String), (NodeData, String)> =
+            HashMap::new();
 
         for (endpoint, prefix) in matches {
             let endpoint_verb = endpoint.meta.get("verb").cloned().unwrap_or_default();
@@ -210,11 +211,10 @@ impl Graph for ArrayGraph {
                 None => {
                     best_matches.insert(key, (endpoint, prefix));
                 }
-                _ => {
-                }
+                _ => {}
             }
         }
-        
+
         for ((_, _, _, _), (endpoint, prefix)) in best_matches {
             let endpoint_name = endpoint.name.clone();
             let endpoint_file = endpoint.file.clone();
@@ -390,12 +390,7 @@ impl Graph for ArrayGraph {
     }
     fn add_tests(&mut self, tests: &[TestRecord]) {
         for tr in tests {
-            self.add_node_with_parent(
-                &tr.kind,
-                &tr.node,
-                &NodeType::File,
-                &tr.node.file,
-            );
+            self.add_node_with_parent(&tr.kind, &tr.node, &NodeType::File, &tr.node.file);
             for e in &tr.edges {
                 self.add_edge(e);
             }
@@ -405,12 +400,7 @@ impl Graph for ArrayGraph {
     //Add calls between function definitions not calls
     fn add_calls(
         &mut self,
-        (funcs, tests, int_tests, extras): (
-            &[FunctionCall],
-            &[FunctionCall],
-            &[Edge],
-            &[Edge],
-        ),
+        (funcs, tests, int_tests, extras): (&[FunctionCall], &[FunctionCall], &[Edge], &[Edge]),
         lang: &Lang,
     ) {
         let disable_test_class_edges = std::env::var("DISABLE_TEST_CLASS_CALLS").is_ok();

@@ -66,11 +66,7 @@ pub async fn test_c_generic<G: Graph + Sync>() -> Result<()> {
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
-    assert_eq!(
-        integration_tests.len(),
-        7,
-        "Expected 7 integration tests"
-    );
+    assert_eq!(integration_tests.len(), 7, "Expected 7 integration tests");
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();

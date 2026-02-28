@@ -89,7 +89,9 @@ pub async fn flush_stage_nodes<G: Graph>(
     stage: &str,
 ) -> Result<()> {
     let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
-    ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
+    ctx.uploader
+        .flush_stage(&ctx.neo, stage, &bolt_nodes)
+        .await?;
     Ok(())
 }
 
@@ -99,8 +101,12 @@ pub async fn flush_stage_nodes_and_edges<G: Graph>(
     stage: &str,
 ) -> Result<()> {
     let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
-    ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
+    ctx.uploader
+        .flush_stage(&ctx.neo, stage, &bolt_nodes)
+        .await?;
     let edges = graph.get_edge_keys();
-    ctx.uploader.flush_edges_stage(&ctx.neo, stage, &edges).await?;
+    ctx.uploader
+        .flush_edges_stage(&ctx.neo, stage, &edges)
+        .await?;
     Ok(())
 }

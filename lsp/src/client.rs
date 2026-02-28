@@ -60,7 +60,8 @@ impl LspClient {
             f = f.strip_prefix(&self.relative_root).unwrap_or(f);
         }
         let file = root_dir.join(f);
-        Url::from_file_path(file).map_err(|_| Error::Custom("Failed to convert path to file URL".to_string()))
+        Url::from_file_path(file)
+            .map_err(|_| Error::Custom("Failed to convert path to file URL".to_string()))
     }
     pub async fn handle(&mut self, cmd: Cmd) -> Result<Res> {
         trace!("handle: {:?}", cmd);
@@ -108,7 +109,9 @@ impl LspClient {
             .server
             .initialize(InitializeParams {
                 workspace_folders: Some(vec![WorkspaceFolder {
-                    uri: Url::from_file_path(&self.root).map_err(|_| Error::Custom(format!("Invalid root path for LSP: {:?}", self.root)))?,
+                    uri: Url::from_file_path(&self.root).map_err(|_| {
+                        Error::Custom(format!("Invalid root path for LSP: {:?}", self.root))
+                    })?,
                     name: "root".into(),
                 }]),
                 capabilities: ClientCapabilities {
@@ -187,10 +190,10 @@ impl LspClient {
 pub fn strip_tmp(f: &Path) -> PathBuf {
     // Handle both /tmp/ and /private/tmp/ (macOS symlinks /tmp to /private/tmp)
     if f.starts_with("/private/tmp/") {
-            let endpart = f.strip_prefix("/private/tmp/").unwrap_or(f);
+        let endpart = f.strip_prefix("/private/tmp/").unwrap_or(f);
         endpart.into()
     } else if f.starts_with("/tmp/") {
-            let endpart = f.strip_prefix("/tmp/").unwrap_or(f);
+        let endpart = f.strip_prefix("/tmp/").unwrap_or(f);
         endpart.into()
     } else {
         f.into()

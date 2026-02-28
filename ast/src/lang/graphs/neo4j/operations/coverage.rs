@@ -1,10 +1,16 @@
-use std::collections::HashSet;
 use shared::Result;
+use std::collections::HashSet;
 
-use crate::lang::{EdgeType, Neo4jGraph, Node, NodeData, NodeType, TestFilters, coverage::CoverageLanguage, executor::*, graph_ops::GraphOps, helpers::{MutedNodeIdentifier, *}, graphs::queries::*};
-use crate::lang::graphs::utils::{tests_sources};
+use crate::lang::graphs::utils::tests_sources;
+use crate::lang::{
+    coverage::CoverageLanguage,
+    executor::*,
+    graph_ops::GraphOps,
+    graphs::queries::*,
+    helpers::{MutedNodeIdentifier, *},
+    EdgeType, Neo4jGraph, Node, NodeData, NodeType, TestFilters,
+};
 use crate::utils::create_node_key;
-
 
 #[derive(Debug, Clone)]
 pub struct GraphCoverage {
@@ -33,10 +39,11 @@ pub struct MockStat {
     pub percent: f64,
 }
 
-
-
-impl Neo4jGraph{
-        pub async fn get_muted_nodes_for_files_async(&self, files: &[String]) -> Result<Vec<MutedNodeIdentifier>> {
+impl Neo4jGraph {
+    pub async fn get_muted_nodes_for_files_async(
+        &self,
+        files: &[String],
+    ) -> Result<Vec<MutedNodeIdentifier>> {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
             Err(e) => {
@@ -49,7 +56,10 @@ impl Neo4jGraph{
         Ok(execute_muted_nodes_query(&conn, query_str, params).await)
     }
 
-    pub async fn restore_muted_nodes_async(&self, identifiers: &[MutedNodeIdentifier]) -> Result<usize> {
+    pub async fn restore_muted_nodes_async(
+        &self,
+        identifiers: &[MutedNodeIdentifier],
+    ) -> Result<usize> {
         if identifiers.is_empty() {
             return Ok(0);
         }
@@ -66,7 +76,13 @@ impl Neo4jGraph{
         Ok(execute_count_query(&conn, query_str, params).await)
     }
 
-    pub async fn set_node_muted_async(&self, node_type: &NodeType, name: &str, file: &str, is_muted: bool) -> Result<usize> {
+    pub async fn set_node_muted_async(
+        &self,
+        node_type: &NodeType,
+        name: &str,
+        file: &str,
+        is_muted: bool,
+    ) -> Result<usize> {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
             Err(_) => {
@@ -79,7 +95,12 @@ impl Neo4jGraph{
         Ok(result)
     }
 
-    pub async fn is_node_muted_async(&self, node_type: &NodeType, name: &str, file: &str) -> Result<bool> {
+    pub async fn is_node_muted_async(
+        &self,
+        node_type: &NodeType,
+        name: &str,
+        file: &str,
+    ) -> Result<bool> {
         let conn = match self.ensure_connected().await {
             Ok(conn) => conn,
             Err(_) => {
@@ -90,11 +111,10 @@ impl Neo4jGraph{
         let is_muted = execute_boolean_query(&conn, query_str, params).await;
         Ok(is_muted)
     }
-
 }
 
-impl GraphOps{
-      pub async fn get_coverage(
+impl GraphOps {
+    pub async fn get_coverage(
         &mut self,
         repo: Option<&str>,
         test_filters: Option<TestFilters>,
@@ -135,8 +155,14 @@ impl GraphOps{
                 true
             };
             let is_muted_match = match is_muted {
-                Some(true) => n.meta.get("is_muted").map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
-                Some(false) => !n.meta.get("is_muted").map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
+                Some(true) => n
+                    .meta
+                    .get("is_muted")
+                    .map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
+                Some(false) => !n
+                    .meta
+                    .get("is_muted")
+                    .map_or(false, |v| v == "true" || v == "True" || v == "TRUE"),
                 None => true,
             };
             repo_match && not_ignored && regex_match && is_muted_match
@@ -144,7 +170,6 @@ impl GraphOps{
 
         coverage_lang.get_coverage(&self.graph, in_scope).await
     }
-
 
     pub async fn has_coverage(
         &mut self,

@@ -26,6 +26,8 @@ type ToolName =
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
+export type SkillsConfig = Partial<Record<string, boolean>>;
+
 const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
   repo_overview:
     "Get a high-level view of the codebase architecture and structure. Use this to understand the project layout and identify where specific functionality might be located. Call this when you need to: 1) Orient yourself in an unfamiliar codebase, 2) Locate which directories/files might contain relevant code for a user's question, 3) Understand the overall project structure before diving deeper. Don't call this if you already know which specific files you need to examine.",

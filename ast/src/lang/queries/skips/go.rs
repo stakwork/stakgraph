@@ -1,24 +1,6 @@
 const STDLIB_PACKAGES: [&str; 20] = [
-    "fmt",
-    "log",
-    "errors",
-    "strings",
-    "strconv",
-    "time",
-    "math",
-    "os",
-    "io",
-    "bufio",
-    "bytes",
-    "sync",
-    "json",
-    "http",
-    "net",
-    "context",
-    "regexp",
-    "sort",
-    "path",
-    "filepath",
+    "fmt", "log", "errors", "strings", "strconv", "time", "math", "os", "io", "bufio", "bytes",
+    "sync", "json", "http", "net", "context", "regexp", "sort", "path", "filepath",
 ];
 
 const BUILTIN_FUNCTIONS: [&str; 10] = [

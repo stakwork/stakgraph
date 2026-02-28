@@ -4,7 +4,6 @@ use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
 
-
 pub async fn test_swift_generic<G: Graph + Sync>() -> Result<()> {
     let repo = Repo::new(
         "src/testing/swift/LegacyApp",
@@ -254,7 +253,11 @@ end
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 3, "Expected 3 unit tests from LegacyApp/Tests");
+    assert_eq!(
+        unit_tests.len(),
+        3,
+        "Expected 3 unit tests from LegacyApp/Tests"
+    );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
@@ -310,11 +313,7 @@ end
 
     let operand_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(
-        operand_edges.len(),
-        24,
-        "Expected 24 operand edges"
-    );
+    assert_eq!(operand_edges.len(), 24, "Expected 24 operand edges");
 
     let api_operand = operand_edges
         .iter()
@@ -357,7 +356,11 @@ end
     );
 
     let (nodes, edges) = graph.get_graph_size();
-    assert_eq!(nodes as usize, nodes_count, "Expected {} total nodes", nodes_count);
+    assert_eq!(
+        nodes as usize, nodes_count,
+        "Expected {} total nodes",
+        nodes_count
+    );
     assert_eq!(edges as usize, edges_count, "Edge count mismatch");
 
     Ok(())
@@ -431,16 +434,28 @@ pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert_eq!(unit_tests.len(), 2, "Expected 2 unit tests from ModernApp/Tests");
+    assert_eq!(
+        unit_tests.len(),
+        2,
+        "Expected 2 unit tests from ModernApp/Tests"
+    );
     assert!(!unit_tests.is_empty(), "Unit tests should not be empty");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
-    assert_eq!(integration_tests.len(), 0, "Expected 0 integration tests (no /IntegrationTests/ path in fixture)");
+    assert_eq!(
+        integration_tests.len(),
+        0,
+        "Expected 0 integration tests (no /IntegrationTests/ path in fixture)"
+    );
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert_eq!(e2e_tests.len(), 0, "Expected 0 e2e tests (no /UITests/ path in fixture)");
+    assert_eq!(
+        e2e_tests.len(),
+        0,
+        "Expected 0 e2e tests (no /UITests/ path in fixture)"
+    );
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes_count += files.len();
@@ -507,5 +522,4 @@ async fn test_swift() {
         graph.clear().await.unwrap();
         test_swift_modern_generic::<Neo4jGraph>().await.unwrap();
     }
-
 }

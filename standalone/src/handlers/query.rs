@@ -1,7 +1,6 @@
 use crate::types::{Result, VectorSearchParams, VectorSearchResult};
-use axum::{Json, extract::Query};
 use ast::lang::graphs::graph_ops::GraphOps;
-
+use axum::{extract::Query, Json};
 
 pub async fn vector_search_handler(
     Query(params): Query<VectorSearchParams>,

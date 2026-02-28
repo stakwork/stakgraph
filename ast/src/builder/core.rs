@@ -3,15 +3,10 @@ use super::streaming::{flush_stage_nodes, flush_stage_nodes_and_edges, Streaming
 use super::utils::*;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
-use crate::lang::{
-    graphs::{Edge, Graph},
-};
+use crate::lang::graphs::{Edge, Graph};
 
-use crate::lang::{
-    asg::NodeData,
-    graphs::NodeType,
-};
 use crate::lang::BTreeMapGraph;
+use crate::lang::{asg::NodeData, graphs::NodeType};
 use crate::repo::Repo;
 
 use git_url_parse::GitUrl;
@@ -19,8 +14,8 @@ use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
 #[cfg(feature = "neo4j")]
 use std::any::type_name;
-use std::{collections::HashMap, path::PathBuf, time::Instant};
 use std::collections::HashSet;
+use std::{collections::HashMap, path::PathBuf, time::Instant};
 use tokio::fs;
 use tracing::{debug, info, trace};
 
@@ -45,13 +40,13 @@ impl Repo {
     }
     pub async fn build_graph_inner<G: Graph + Sync>(&self) -> Result<G> {
         let enable_batch_upload = std::env::var("STREAM_UPLOAD").is_ok();
-        self.build_graph_inner_with_streaming(enable_batch_upload).await
+        self.build_graph_inner_with_streaming(enable_batch_upload)
+            .await
     }
     #[allow(unused)]
     pub async fn build_graph_inner_with_streaming<G: Graph + Sync>(
         &self,
-        #[cfg_attr(not(feature = "neo4j"), allow(unused))]
-        enable_batch_upload: bool,
+        #[cfg_attr(not(feature = "neo4j"), allow(unused))] enable_batch_upload: bool,
     ) -> Result<G> {
         let graph_root = strip_tmp(&self.root).display().to_string();
         let mut graph = G::new(graph_root, self.lang.kind.clone());
@@ -60,13 +55,14 @@ impl Repo {
         let mut stats = HashMap::new();
 
         #[cfg(feature = "neo4j")]
-        let mut streaming_ctx: Option<StreamingUploadContext> = if enable_batch_upload && type_name::<G>().contains("BTreeMapGraph") {
-            let g = Neo4jGraph::default();
-            let _ = g.connect().await;
-            Some(StreamingUploadContext::new(g))
-        } else {
-            None
-        };
+        let mut streaming_ctx: Option<StreamingUploadContext> =
+            if enable_batch_upload && type_name::<G>().contains("BTreeMapGraph") {
+                let g = Neo4jGraph::default();
+                let _ = g.connect().await;
+                Some(StreamingUploadContext::new(g))
+            } else {
+                None
+            };
 
         self.send_status_update("initialization", 1);
         memory::log_memory("init");
@@ -451,14 +447,11 @@ impl Repo {
                 "Repository node already exists for: {} (adding language: {})",
                 repo_file, self.lang.kind
             );
-            existing_repos
-                .first()
-                .cloned()
-                .ok_or_else(|| {
-                    shared::Error::Custom(
-                        "Repository was expected to exist but was not found in graph".into(),
-                    )
-                })?
+            existing_repos.first().cloned().ok_or_else(|| {
+                shared::Error::Custom(
+                    "Repository was expected to exist but was not found in graph".into(),
+                )
+            })?
         };
 
         debug!("add language for: {}", repo_file);
@@ -548,8 +541,6 @@ impl Repo {
         graph: &mut G,
         impl_relationships: Vec<ImplementsRelationship>,
     ) -> Result<()> {
-       
-
         if impl_relationships.is_empty() {
             return Ok(());
         }

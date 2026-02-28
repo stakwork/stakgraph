@@ -1,20 +1,15 @@
-pub mod types;
-pub mod utils;
 pub mod auth;
 pub mod busy;
+pub mod types;
+pub mod utils;
 pub mod webhook;
 
 #[cfg(feature = "neo4j")]
-pub mod service; 
-#[cfg(feature = "neo4j")]
 pub mod handlers;
+#[cfg(feature = "neo4j")]
+pub mod service;
 
-pub use self::{
-    utils::*,
-    types::*,
-    webhook::*,
-    busy::*,
-};
+pub use self::{busy::*, types::*, utils::*, webhook::*};
 
 // Add handlers to exports so main.rs can use handlers::*
 #[cfg(feature = "neo4j")]

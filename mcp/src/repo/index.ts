@@ -1,6 +1,6 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { ToolsConfig, getDefaultToolDescriptions } from "./tools.js";
+import { ToolsConfig, SkillsConfig, getDefaultToolDescriptions } from "./tools.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
@@ -61,6 +61,8 @@ export async function repo_agent(req: Request, res: Response) {
   // MCP servers
   const mcpServers = req.body.mcpServers as McpServer[] | undefined;
   const systemOverride = req.body.systemOverride as string | undefined;
+  // Skills support
+  const skills = req.body.skills as SkillsConfig | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -98,6 +100,7 @@ export async function repo_agent(req: Request, res: Response) {
           mcpServers,
           repos: repoList.length > 1 ? repoList : undefined,
           systemOverride,
+          skills,
         });
       })
       .then((result) => {

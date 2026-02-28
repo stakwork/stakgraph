@@ -49,11 +49,19 @@ pub async fn test_svelte_generic<G: Graph + Sync>() -> Result<()> {
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes_count += classes.len();
-    assert_eq!(classes.len(), 4, "Expected 4 classes extracted from script blocks");
+    assert_eq!(
+        classes.len(),
+        4,
+        "Expected 4 classes extracted from script blocks"
+    );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 13, "Expected 13 functions extracted from script blocks");
+    assert_eq!(
+        functions.len(),
+        13,
+        "Expected 13 functions extracted from script blocks"
+    );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
@@ -77,7 +85,11 @@ pub async fn test_svelte_generic<G: Graph + Sync>() -> Result<()> {
 
     let requests = graph.find_nodes_by_type(NodeType::Request);
     nodes_count += requests.len();
-    assert_eq!(requests.len(), 46, "Expected 46 request nodes from TypeScript extraction");
+    assert_eq!(
+        requests.len(),
+        46,
+        "Expected 46 request nodes from TypeScript extraction"
+    );
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -117,11 +129,13 @@ pub async fn test_svelte_generic<G: Graph + Sync>() -> Result<()> {
 
     assert_eq!(
         num_nodes as usize, nodes_count,
-        "Expected {} total nodes", nodes_count
+        "Expected {} total nodes",
+        nodes_count
     );
     assert_eq!(
         num_edges as usize, edges_count,
-        "Expected {} total edges", edges_count
+        "Expected {} total edges",
+        edges_count
     );
 
     Ok(())

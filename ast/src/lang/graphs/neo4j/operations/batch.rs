@@ -81,10 +81,7 @@ impl Neo4jGraph {
         }
         txn_manager.execute().await
     }
-    pub async fn add_endpoints_async(
-        &self,
-        endpoints: &[(NodeData, Option<Edge>)],
-    ) -> Result<()> {
+    pub async fn add_endpoints_async(&self, endpoints: &[(NodeData, Option<Edge>)]) -> Result<()> {
         use std::collections::HashSet;
         let connection = self.ensure_connected().await?;
         let mut txn_manager = TransactionManager::new(&connection);

@@ -400,8 +400,7 @@ pub fn normalize_frontend_path(path: &str) -> Option<String> {
         return None;
     }
 
-    let path_stripped = path
-        .replace("http://localhost:3000", "");
+    let path_stripped = path.replace("http://localhost:3000", "");
 
     let path_part = if path_stripped.starts_with("${") {
         if let Some(close_brace) = path_stripped.find('}') {
@@ -441,7 +440,11 @@ pub fn normalize_backend_path(path: &str) -> Option<String> {
                 normalized = re.replace_all(&normalized, *replacement).to_string();
             }
             Err(err) => {
-                tracing::warn!("Failed to compile backend path regex '{}': {}", pattern, err);
+                tracing::warn!(
+                    "Failed to compile backend path regex '{}': {}",
+                    pattern,
+                    err
+                );
             }
         }
     }

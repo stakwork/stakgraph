@@ -487,7 +487,11 @@ pub async fn test_go_non_web_generic<G: Graph + Sync>() -> Result<()> {
     );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
-    assert_eq!(unit_tests.len(), 4, "Expected 4 unit tests in non-web suite)");
+    assert_eq!(
+        unit_tests.len(),
+        4,
+        "Expected 4 unit tests in non-web suite)"
+    );
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     assert_eq!(
@@ -532,7 +536,7 @@ async fn test_go() {
         test_go_non_web_generic::<ArrayGraph>().await.unwrap();
         test_go_non_web_generic::<BTreeMapGraph>().await.unwrap();
     }
-    
+
     #[cfg(feature = "neo4j")]
     {
         use crate::lang::graphs::Neo4jGraph;

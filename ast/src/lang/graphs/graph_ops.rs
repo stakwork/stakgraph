@@ -1,18 +1,15 @@
-
-use std::time::Duration;
 use neo4rs::BoltMap;
 use shared::error::{Error, Result};
+use std::time::Duration;
 use tokio::sync::broadcast::Sender;
 use tracing::{debug, error, info};
 
-
 use crate::lang::embedding::{vectorize_code_document, vectorize_query};
-use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier };
-use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
 use crate::lang::graphs::neo4j::{add_node_query, build_batch_edge_queries};
+use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier};
+use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo, StatusUpdate};
-
 
 #[derive(Debug, Clone)]
 pub struct GraphOps {
@@ -291,8 +288,6 @@ impl GraphOps {
         Ok(self.graph.get_graph_size_async().await?)
     }
 
-  
-
     pub async fn upload_btreemap_to_neo4j(
         &mut self,
         btree_graph: &BTreeMapGraph,
@@ -458,44 +453,73 @@ impl GraphOps {
             )
             .await)
     }
-    pub async fn collect_muted_nodes_for_files(&self, files: &[String]) -> Result<Vec<MutedNodeIdentifier>> {
+    pub async fn collect_muted_nodes_for_files(
+        &self,
+        files: &[String],
+    ) -> Result<Vec<MutedNodeIdentifier>> {
         if files.is_empty() {
             return Ok(vec![]);
         }
 
         println!("collect_muted_nodes_for_files - input files: {:?}", files);
         let muted_nodes = self.graph.get_muted_nodes_for_files_async(files).await?;
-        
+
         if muted_nodes.is_empty() {
             println!("No muted nodes found in {} files", files.len());
         } else {
-            println!("Found {} muted nodes in {} files to preserve", muted_nodes.len(), files.len());
+            println!(
+                "Found {} muted nodes in {} files to preserve",
+                muted_nodes.len(),
+                files.len()
+            );
         }
-        
+
         Ok(muted_nodes)
     }
 
-    pub async fn restore_muted_nodes(&self, identifiers: Vec<MutedNodeIdentifier>) -> Result<usize> {
+    pub async fn restore_muted_nodes(
+        &self,
+        identifiers: Vec<MutedNodeIdentifier>,
+    ) -> Result<usize> {
         if identifiers.is_empty() {
             return Ok(0);
         }
 
         let restored_count = self.graph.restore_muted_nodes_async(&identifiers).await?;
-        
+
         if restored_count > 0 {
-            println!("Successfully restored muted status for {} nodes after rebuild", restored_count);
+            println!(
+                "Successfully restored muted status for {} nodes after rebuild",
+                restored_count
+            );
         } else {
-            println!("No nodes matched for muted status restoration ({} identifiers provided)", identifiers.len());
+            println!(
+                "No nodes matched for muted status restoration ({} identifiers provided)",
+                identifiers.len()
+            );
         }
-        
+
         Ok(restored_count)
     }
 
-    pub async fn set_node_muted(&self, node_type: &NodeType, name: &str, file: &str, is_muted: bool) -> Result<usize> {
-        self.graph.set_node_muted_async(node_type, name, file, is_muted).await
+    pub async fn set_node_muted(
+        &self,
+        node_type: &NodeType,
+        name: &str,
+        file: &str,
+        is_muted: bool,
+    ) -> Result<usize> {
+        self.graph
+            .set_node_muted_async(node_type, name, file, is_muted)
+            .await
     }
 
-    pub async fn is_node_muted(&self, node_type: &NodeType, name: &str, file: &str) -> Result<bool> {
+    pub async fn is_node_muted(
+        &self,
+        node_type: &NodeType,
+        name: &str,
+        file: &str,
+    ) -> Result<bool> {
         self.graph.is_node_muted_async(node_type, name, file).await
     }
 }

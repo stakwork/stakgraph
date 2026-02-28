@@ -20,7 +20,7 @@ impl Repo {
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
         let mut lib_count = 0;
-        
+
         let pkg_files_res: Vec<_> = process_files(
             filez,
             use_parallel,

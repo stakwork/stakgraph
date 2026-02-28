@@ -23,26 +23,8 @@ const TEST_FRAMEWORK_METHODS: [&str; 21] = [
 ];
 
 const ARRAY_METHODS: [&str; 20] = [
-    "push",
-    "pop",
-    "shift",
-    "unshift",
-    "map",
-    "select",
-    "reject",
-    "each",
-    "compact",
-    "flatten",
-    "uniq",
-    "sort",
-    "reverse",
-    "first",
-    "last",
-    "size",
-    "length",
-    "empty?",
-    "include?",
-    "join",
+    "push", "pop", "shift", "unshift", "map", "select", "reject", "each", "compact", "flatten",
+    "uniq", "sort", "reverse", "first", "last", "size", "length", "empty?", "include?", "join",
 ];
 
 const STRING_METHODS: [&str; 15] = [
@@ -64,31 +46,12 @@ const STRING_METHODS: [&str; 15] = [
 ];
 
 const HASH_METHODS: [&str; 12] = [
-    "keys",
-    "values",
-    "merge",
-    "fetch",
-    "dig",
-    "each",
-    "map",
-    "select",
-    "reject",
-    "empty?",
-    "size",
+    "keys", "values", "merge", "fetch", "dig", "each", "map", "select", "reject", "empty?", "size",
     "length",
 ];
 
 const ENUMERABLE_METHODS: [&str; 10] = [
-    "find",
-    "inject",
-    "reduce",
-    "zip",
-    "any?",
-    "all?",
-    "none?",
-    "one?",
-    "min",
-    "max",
+    "find", "inject", "reduce", "zip", "any?", "all?", "none?", "one?", "min", "max",
 ];
 
 pub fn should_skip(called: &str, operand: &Option<String>) -> bool {
@@ -100,7 +63,9 @@ pub fn should_skip(called: &str, operand: &Option<String>) -> bool {
         }
     }
 
-    TEST_FRAMEWORK_METHODS.iter().any(|&m| called.starts_with(m))
+    TEST_FRAMEWORK_METHODS
+        .iter()
+        .any(|&m| called.starts_with(m))
         || ARRAY_METHODS.contains(&called)
         || STRING_METHODS.contains(&called)
         || HASH_METHODS.contains(&called)

@@ -325,7 +325,7 @@ impl Stack for Kotlin {
 
     fn is_test_file(&self, path: &str) -> bool {
         let normalized = path.replace("\\", "/");
-        normalized.contains("/test/") 
+        normalized.contains("/test/")
             || normalized.contains("/androidTest/")
             || normalized.ends_with("Test.kt")
             || normalized.ends_with("Tests.kt")
@@ -334,8 +334,8 @@ impl Stack for Kotlin {
     }
 
     fn is_test(&self, func_name: &str, _func_file: &str, func_body: &str) -> bool {
-        func_name.starts_with("test") 
-            || func_body.contains("@Test") 
+        func_name.starts_with("test")
+            || func_body.contains("@Test")
             || func_body.contains("@org.junit.Test")
     }
 
@@ -345,7 +345,7 @@ impl Stack for Kotlin {
 
     fn classify_test(&self, _name: &str, file: &str, _body: &str) -> NodeType {
         let normalized = file.replace("\\", "/");
-        
+
         if normalized.contains("/androidTest/") {
             return NodeType::IntegrationTest;
         }

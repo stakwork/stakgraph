@@ -141,7 +141,8 @@ import {{ AppComponent }} from './app/app.component';"#
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes += unit_tests.len();
     assert_eq!(
-        unit_tests.len(),4,
+        unit_tests.len(),
+        4,
         "Expected  4 unit tests from Angular spec files"
     );
     assert!(
