@@ -18,6 +18,9 @@ impl Angular {
 }
 
 impl Stack for Angular {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::angular::should_skip(called, operand)
+    }
     fn q(&self, q: &str, _nt: &NodeType) -> Query {
         match Query::new(&self.0, q) {
             Ok(query) => query,
