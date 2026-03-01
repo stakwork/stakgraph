@@ -91,7 +91,7 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
-    let (progress_tracker, status_tx) = ProgressTracker::new(cli.quiet);
+    let (progress_tracker, status_tx) = ProgressTracker::new(cli.verbose || cli.perf);
     let progress_handle = tokio::spawn(progress_tracker.run());
 
     let mut repos_vec: Vec<Repo> = Vec::new();

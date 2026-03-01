@@ -23,7 +23,7 @@ where
     T: Send,
 {
     if use_parallel {
-        println!(
+        tracing::debug!(
             "[parallel] {}: pool={} items={}",
             stage_name,
             rayon::current_num_threads(),

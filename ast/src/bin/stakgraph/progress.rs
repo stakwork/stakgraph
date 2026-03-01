@@ -10,10 +10,10 @@ pub struct ProgressTracker {
 }
 
 impl ProgressTracker {
-    pub fn new(quiet: bool) -> (Self, broadcast::Sender<StatusUpdate>) {
+    pub fn new(verbose: bool) -> (Self, broadcast::Sender<StatusUpdate>) {
         let (tx, rx) = broadcast::channel(100);
 
-        let bar = if !quiet && std::io::stdout().is_terminal() {
+        let bar = if verbose && std::io::stdout().is_terminal() {
             let pb = ProgressBar::new(16);
             let style = ProgressStyle::default_bar()
                 .template("{spinner:.cyan} [{bar:40.cyan/blue}] {pos}/{len} {msg}")
