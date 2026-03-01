@@ -36,9 +36,70 @@ const parser = new XMLParser({
   trimValues: true,
 });
 
+const ignoredNodeKeys = new Set([
+  "index",
+  "package",
+  "class",
+  "text",
+  "resource-id",
+  "content-desc",
+  "checkable",
+  "checked",
+  "clickable",
+  "enabled",
+  "focusable",
+  "focused",
+  "long-clickable",
+  "password",
+  "scrollable",
+  "selected",
+  "bounds",
+  "displayed",
+  "a11y-important",
+  "screen-reader-focusable",
+  "drawing-order",
+  "showing-hint",
+  "text-entry-key",
+  "dismissable",
+  "a11y-focused",
+  "heading",
+  "live-region",
+  "context-clickable",
+  "content-invalid",
+  "window-id",
+]);
+
 function toArray<T>(value: T | T[] | undefined): T[] {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+function collectChildNodes(
+  node: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const children: Record<string, unknown>[] = [];
+
+  for (const key of Object.keys(node)) {
+    if (ignoredNodeKeys.has(key)) {
+      continue;
+    }
+
+    const value = node[key];
+    if (Array.isArray(value)) {
+      for (const child of value) {
+        if (child && typeof child === "object") {
+          children.push(child as Record<string, unknown>);
+        }
+      }
+      continue;
+    }
+
+    if (value && typeof value === "object") {
+      children.push(value as Record<string, unknown>);
+    }
+  }
+
+  return children;
 }
 
 function parseBounds(raw?: string): ParsedBounds | undefined {
@@ -125,7 +186,7 @@ function walkNodes(
     });
   }
 
-  const children = toArray(node.node as Record<string, unknown> | Record<string, unknown>[] | undefined);
+  const children = collectChildNodes(node);
   for (const child of children) {
     walkNodes(child, collector);
   }
@@ -133,12 +194,12 @@ function walkNodes(
 
 export function parseAccessibilityTree(xmlSource: string): AccessibilityTreeResult {
   const xmlObject = parser.parse(xmlSource) as {
-    hierarchy?: {
-      node?: Record<string, unknown> | Record<string, unknown>[];
-    };
+    hierarchy?: Record<string, unknown>;
   };
 
-  const roots = toArray(xmlObject.hierarchy?.node);
+  const roots = xmlObject.hierarchy
+    ? collectChildNodes(xmlObject.hierarchy)
+    : [];
   const elements: AndroidTreeElement[] = [];
 
   for (const root of roots) {
