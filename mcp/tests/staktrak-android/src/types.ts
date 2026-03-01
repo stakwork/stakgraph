@@ -17,6 +17,18 @@ export type AppiumSessionMeta = {
   deviceName: string;
 };
 
+export type AppiumConnectionStatus =
+  | "disconnected"
+  | "reconnecting"
+  | "connected";
+
+export type AppiumConnectionState = {
+  status: AppiumConnectionStatus;
+  lastError?: string;
+  lastConnectedAt?: number;
+  target?: StartSessionInput;
+};
+
 export type RecordedAction =
   | {
       type: "tap";

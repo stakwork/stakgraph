@@ -1,6 +1,8 @@
 import express from "express";
 import { z, ZodError } from "zod";
 import {
+  ensureSession,
+  getConnectionState,
   getPageSource,
   getSessionMeta,
   pressBack,
@@ -87,6 +89,12 @@ const sessionStartBodySchema = z
     package: z.string().min(1).optional(),
     activity: z.string().min(1).optional(),
     deviceName: z.string().min(1).optional(),
+  })
+  .strict();
+
+const sessionStopBodySchema = z
+  .object({
+    teardown: z.boolean().optional(),
   })
   .strict();
 
@@ -209,6 +217,15 @@ function sendSse(event: ReplayEvent): void {
   }
 }
 
+async function ensureReadySession(context: string): Promise<void> {
+  try {
+    await ensureSession();
+  } catch (error) {
+    logError(`${context}.ensure_session_failed`, error);
+    throw error;
+  }
+}
+
 function resolveStartConfig(body: Record<string, unknown>) {
   const packageName =
     (typeof body.package === "string" ? body.package : undefined) ||
@@ -249,11 +266,18 @@ app.get("/events", (req, res) => {
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  const connection = getConnectionState();
+  res.json({
+    ok: true,
+    connection,
+    session: getSessionMeta(),
+    recording: recorder.isActive(),
+  });
 });
 
 app.get("/tree", async (_req, res) => {
   try {
+    await ensureReadySession("tree");
     const xml = await getPageSource();
     const parsed = parseAccessibilityTree(xml);
     logInfo("tree.fetched", { elements: parsed.elements.length });
@@ -266,6 +290,7 @@ app.get("/tree", async (_req, res) => {
 
 app.post("/tap", async (req, res) => {
   try {
+    await ensureReadySession("tap");
     const { selector, x, y } = parseBody(tapBodySchema, req.body);
 
     if (selector) {
@@ -290,6 +315,7 @@ app.post("/tap", async (req, res) => {
 
 app.post("/type", async (req, res) => {
   try {
+    await ensureReadySession("type");
     const { selector, text, replace } = parseBody(typeBodySchema, req.body);
 
     const shouldReplace = replace !== false;
@@ -303,6 +329,7 @@ app.post("/type", async (req, res) => {
 
 app.post("/swipe", async (req, res) => {
   try {
+    await ensureReadySession("swipe");
     const { startX, startY, endX, endY, durationMs } = parseBody(swipeBodySchema, req.body);
 
     const duration = typeof durationMs === "number" ? durationMs : 400;
@@ -316,6 +343,7 @@ app.post("/swipe", async (req, res) => {
 
 app.post("/screenshot", async (_req, res) => {
   try {
+    await ensureReadySession("screenshot");
     const screenshot = await takeScreenshot();
     res.json({ screenshot });
   } catch (error) {
@@ -326,6 +354,7 @@ app.post("/screenshot", async (_req, res) => {
 
 app.post("/back", async (_req, res) => {
   try {
+    await ensureReadySession("back");
     await pressBack();
     recorder.record({ type: "back" });
     res.json({ ok: true });
@@ -337,6 +366,7 @@ app.post("/back", async (_req, res) => {
 
 app.post("/home", async (_req, res) => {
   try {
+    await ensureReadySession("home");
     await pressHome();
     recorder.record({ type: "home" });
     res.json({ ok: true });
@@ -349,23 +379,46 @@ app.post("/home", async (_req, res) => {
 app.post("/session/start", async (req, res) => {
   try {
     const body = parseBody(sessionStartBodySchema, req.body || {});
-    const config = resolveStartConfig(body);
-    logInfo("session.starting", {
-      packageName: config.packageName,
-      activity: config.activity,
-      deviceName: config.deviceName,
-    });
-    const session = await startSession(config);
+    const hasExplicitTarget =
+      typeof body.package === "string" ||
+      typeof body.activity === "string" ||
+      typeof body.deviceName === "string";
+    let ensured: { sessionId: string; reused: boolean };
+
+    if (hasExplicitTarget) {
+      const config = resolveStartConfig(body);
+      logInfo("session.starting", {
+        packageName: config.packageName,
+        activity: config.activity,
+        deviceName: config.deviceName,
+      });
+      const started = await startSession(config);
+      ensured = { sessionId: started.sessionId, reused: false };
+    } else {
+      ensured = await ensureSession();
+    }
+
+    const session = getSessionMeta();
+    if (!session) {
+      throw new Error("Failed to initialize session.");
+    }
 
     recorder.start({
-      packageName: config.packageName,
-      activity: config.activity,
-      deviceName: config.deviceName,
+      packageName: session.packageName,
+      activity: session.activity,
+      deviceName: session.deviceName,
     });
 
-    logInfo("session.started", { sessionId: session.sessionId });
+    logInfo("session.started", {
+      sessionId: ensured.sessionId,
+      reused: ensured.reused,
+      packageName: session.packageName,
+      activity: session.activity,
+      deviceName: session.deviceName,
+      recording: true,
+    });
 
-    res.json({ ok: true, sessionId: session.sessionId, config });
+    res.json({ ok: true, session, recording: true });
   } catch (error) {
     if (error instanceof RequestValidationError) {
       logError("session.start.validation_failed", error);
@@ -377,18 +430,27 @@ app.post("/session/start", async (req, res) => {
   }
 });
 
-app.post("/session/stop", async (_req, res) => {
+app.post("/session/stop", async (req, res) => {
   try {
+    const { teardown } = parseBody(sessionStopBodySchema, req.body || {});
     const stopped = recorder.stop();
-    logInfo("session.stopping", { actions: stopped.actions.length });
+    const shouldTeardown = teardown === true;
+    logInfo("session.stopping", {
+      actions: stopped.actions.length,
+      teardown: shouldTeardown,
+    });
     const script = generateAppiumScript(stopped.actions, stopped.context);
 
-    await stopSession();
+    if (shouldTeardown) {
+      await stopSession();
+      logInfo("session.driver_torn_down");
+    }
 
     logInfo("session.stopped", {
       actions: stopped.actions.length,
       startedAt: stopped.startedAt,
       stoppedAt: stopped.stoppedAt,
+      teardown: shouldTeardown,
     });
 
     res.json({
@@ -397,6 +459,8 @@ app.post("/session/stop", async (_req, res) => {
       startedAt: stopped.startedAt,
       stoppedAt: stopped.stoppedAt,
       script,
+      teardown: shouldTeardown,
+      session: getSessionMeta(),
     });
   } catch (error) {
     logError("session.stop.failed", error);
@@ -406,6 +470,7 @@ app.post("/session/stop", async (_req, res) => {
 
 app.post("/session/replay", async (req, res) => {
   try {
+    await ensureReadySession("replay");
     const body = parseBody(sessionReplayBodySchema, req.body);
 
     const actionsFromBody = Array.isArray(body.actions)
@@ -447,4 +512,15 @@ app.get("/session", (_req, res) => {
 
 app.listen(PORT, () => {
   logInfo("server.started", { url: `http://localhost:${PORT}` });
+
+  ensureSession()
+    .then((session) => {
+      logInfo("session.autostarted", {
+        sessionId: session.sessionId,
+        reused: session.reused,
+      });
+    })
+    .catch((error) => {
+      logError("session.autostart_failed", error);
+    });
 });
