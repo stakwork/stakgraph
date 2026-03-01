@@ -1,7 +1,7 @@
 export * as first_pass from "./first_pass.js";
 export * as features from "./features.js";
 export * as services from "./services.js";
-
+export * as android from "./android.js";
 const generic = {
   FILE_LINES: 80,
   EXPLORER: `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.`,
