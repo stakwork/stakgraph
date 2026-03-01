@@ -1,5 +1,4 @@
 import {
-  AndroidSelector,
   pressBack,
   pressHome,
   swipe,
@@ -8,32 +7,12 @@ import {
   tapBySelector,
   typeIntoElement,
 } from "./appium";
-import { RecordedAction } from "./recorder";
-
-export type ReplayEvent =
-  | { type: "started"; total: number }
-  | {
-      type: "progress";
-      current: number;
-      total: number;
-      action: RecordedAction;
-      screenshot: string;
-    }
-  | {
-      type: "error";
-      current: number;
-      total: number;
-      action: RecordedAction;
-      error: string;
-      screenshot?: string;
-    }
-  | { type: "completed"; total: number; errors: number };
-
-type ReplaySummary = {
-  total: number;
-  completed: number;
-  errors: Array<{ index: number; message: string }>;
-};
+import {
+  AndroidSelector,
+  RecordedAction,
+  ReplayEvent,
+  ReplaySummary,
+} from "./types";
 
 async function runAction(action: RecordedAction): Promise<void> {
   switch (action.type) {

@@ -1,7 +1,6 @@
 import express from "express";
 import { z, ZodError } from "zod";
 import {
-  AndroidSelector,
   getPageSource,
   getSessionMeta,
   pressBack,
@@ -15,9 +14,11 @@ import {
   typeIntoElement,
 } from "./appium";
 import { generateAppiumScript, parseActionsFromScript } from "./generator";
-import { recorder, RecordedAction } from "./recorder";
-import { replayActions, ReplayEvent } from "./replayer";
+import { recorder } from "./recorder";
+import { replayActions } from "./replayer";
 import { parseAccessibilityTree } from "./tree";
+import { AndroidSelector, RecordedAction, ReplayEvent } from "./types";
+import { logError, logInfo } from "./utils";
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -172,7 +173,14 @@ function parseBody<T>(schema: z.ZodType<T>, input: unknown): T {
   }
 }
 
-function sendError(res: express.Response, error: unknown, fallbackMessage: string): void {
+function sendError(
+  res: express.Response,
+  error: unknown,
+  fallbackMessage: string,
+  context: string
+): void {
+  logError(context, error);
+
   if (error instanceof RequestValidationError) {
     res.status(400).json({ error: error.message, details: error.details });
     return;
@@ -182,6 +190,18 @@ function sendError(res: express.Response, error: unknown, fallbackMessage: strin
 }
 
 function sendSse(event: ReplayEvent): void {
+  if (event.type === "started") {
+    logInfo("replay.started", { total: event.total });
+  } else if (event.type === "error") {
+    logError("replay.step_failed", event.error, {
+      current: event.current,
+      total: event.total,
+      actionType: event.action.type,
+    });
+  } else if (event.type === "completed") {
+    logInfo("replay.completed", { total: event.total, errors: event.errors });
+  }
+
   const payload = JSON.stringify(event);
   for (const response of sseClients) {
     response.write(`event: replay\n`);
@@ -236,8 +256,10 @@ app.get("/tree", async (_req, res) => {
   try {
     const xml = await getPageSource();
     const parsed = parseAccessibilityTree(xml);
+    logInfo("tree.fetched", { elements: parsed.elements.length });
     res.json({ xml, tree: parsed });
   } catch (error) {
+    logError("tree.failed", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to get tree" });
   }
 });
@@ -262,7 +284,7 @@ app.post("/tap", async (req, res) => {
 
     res.status(400).json({ error: "Provide selector or x/y coordinates." });
   } catch (error) {
-    sendError(res, error, "Tap failed");
+    sendError(res, error, "Tap failed", "tap.failed");
   }
 });
 
@@ -275,7 +297,7 @@ app.post("/type", async (req, res) => {
     recorder.record({ type: "type", selector, text, replace: shouldReplace });
     res.json({ ok: true });
   } catch (error) {
-    sendError(res, error, "Type failed");
+    sendError(res, error, "Type failed", "type.failed");
   }
 });
 
@@ -288,7 +310,7 @@ app.post("/swipe", async (req, res) => {
     recorder.record({ type: "swipe", startX, startY, endX, endY, durationMs: duration });
     res.json({ ok: true });
   } catch (error) {
-    sendError(res, error, "Swipe failed");
+    sendError(res, error, "Swipe failed", "swipe.failed");
   }
 });
 
@@ -297,6 +319,7 @@ app.post("/screenshot", async (_req, res) => {
     const screenshot = await takeScreenshot();
     res.json({ screenshot });
   } catch (error) {
+    logError("screenshot.failed", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Screenshot failed" });
   }
 });
@@ -307,6 +330,7 @@ app.post("/back", async (_req, res) => {
     recorder.record({ type: "back" });
     res.json({ ok: true });
   } catch (error) {
+    logError("back.failed", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Back failed" });
   }
 });
@@ -317,6 +341,7 @@ app.post("/home", async (_req, res) => {
     recorder.record({ type: "home" });
     res.json({ ok: true });
   } catch (error) {
+    logError("home.failed", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Home failed" });
   }
 });
@@ -325,6 +350,11 @@ app.post("/session/start", async (req, res) => {
   try {
     const body = parseBody(sessionStartBodySchema, req.body || {});
     const config = resolveStartConfig(body);
+    logInfo("session.starting", {
+      packageName: config.packageName,
+      activity: config.activity,
+      deviceName: config.deviceName,
+    });
     const session = await startSession(config);
 
     recorder.start({
@@ -333,12 +363,16 @@ app.post("/session/start", async (req, res) => {
       deviceName: config.deviceName,
     });
 
+    logInfo("session.started", { sessionId: session.sessionId });
+
     res.json({ ok: true, sessionId: session.sessionId, config });
   } catch (error) {
     if (error instanceof RequestValidationError) {
+      logError("session.start.validation_failed", error);
       res.status(400).json({ error: error.message, details: error.details });
       return;
     }
+    logError("session.start.failed", error);
     res.status(400).json({ error: error instanceof Error ? error.message : "Failed to start session" });
   }
 });
@@ -346,9 +380,16 @@ app.post("/session/start", async (req, res) => {
 app.post("/session/stop", async (_req, res) => {
   try {
     const stopped = recorder.stop();
+    logInfo("session.stopping", { actions: stopped.actions.length });
     const script = generateAppiumScript(stopped.actions, stopped.context);
 
     await stopSession();
+
+    logInfo("session.stopped", {
+      actions: stopped.actions.length,
+      startedAt: stopped.startedAt,
+      stoppedAt: stopped.stoppedAt,
+    });
 
     res.json({
       ok: true,
@@ -358,6 +399,7 @@ app.post("/session/stop", async (_req, res) => {
       script,
     });
   } catch (error) {
+    logError("session.stop.failed", error);
     res.status(500).json({ error: error instanceof Error ? error.message : "Failed to stop session" });
   }
 });
@@ -375,16 +417,23 @@ app.post("/session/replay", async (req, res) => {
     const actions = actionsFromBody || actionsFromScript;
 
     if (!actions || actions.length === 0) {
+      logError("replay.invalid_input", "No actions/script provided");
       res
         .status(400)
         .json({ error: "Provide non-empty actions array or script generated by /session/stop." });
       return;
     }
 
+    logInfo("replay.starting", { total: actions.length });
     const summary = await replayActions(actions, sendSse);
+    logInfo("replay.finished", {
+      total: summary.total,
+      completed: summary.completed,
+      errors: summary.errors.length,
+    });
     res.json({ ok: true, ...summary });
   } catch (error) {
-    sendError(res, error, "Replay failed");
+    sendError(res, error, "Replay failed", "replay.failed");
   }
 });
 
@@ -397,5 +446,5 @@ app.get("/session", (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`staktrak-android server listening on http://localhost:${PORT}`);
+  logInfo("server.started", { url: `http://localhost:${PORT}` });
 });

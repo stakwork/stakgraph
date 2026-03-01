@@ -1,71 +1,8 @@
-import { AndroidSelector } from "./appium";
-
-export type RecordedAction =
-  | {
-      type: "tap";
-      timestamp: number;
-      selector?: AndroidSelector;
-      x?: number;
-      y?: number;
-    }
-  | {
-      type: "type";
-      timestamp: number;
-      selector: AndroidSelector;
-      text: string;
-      replace: boolean;
-    }
-  | {
-      type: "swipe";
-      timestamp: number;
-      startX: number;
-      startY: number;
-      endX: number;
-      endY: number;
-      durationMs: number;
-    }
-  | {
-      type: "back";
-      timestamp: number;
-    }
-  | {
-      type: "home";
-      timestamp: number;
-    };
-
-export type RecordedActionInput =
-  | {
-      type: "tap";
-      selector?: AndroidSelector;
-      x?: number;
-      y?: number;
-    }
-  | {
-      type: "type";
-      selector: AndroidSelector;
-      text: string;
-      replace: boolean;
-    }
-  | {
-      type: "swipe";
-      startX: number;
-      startY: number;
-      endX: number;
-      endY: number;
-      durationMs: number;
-    }
-  | {
-      type: "back";
-    }
-  | {
-      type: "home";
-    };
-
-export type RecordingContext = {
-  packageName: string;
-  activity?: string;
-  deviceName: string;
-};
+import {
+  RecordedAction,
+  RecordedActionInput,
+  RecordingContext,
+} from "./types";
 
 class Recorder {
   private active = false;

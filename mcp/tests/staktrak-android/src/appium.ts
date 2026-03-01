@@ -1,24 +1,10 @@
 import { remote } from "webdriverio";
 import type { ChainablePromiseElement } from "webdriverio";
-
-export type AndroidSelector = {
-  resourceId?: string;
-  accessibilityId?: string;
-  text?: string;
-  xpath?: string;
-};
-
-export type StartSessionInput = {
-  packageName: string;
-  activity?: string;
-  deviceName: string;
-};
-
-type AppiumSessionMeta = {
-  packageName: string;
-  activity?: string;
-  deviceName: string;
-};
+import {
+  AndroidSelector,
+  AppiumSessionMeta,
+  StartSessionInput,
+} from "./types";
 
 let driver: WebdriverIO.Browser | null = null;
 let sessionMeta: AppiumSessionMeta | null = null;

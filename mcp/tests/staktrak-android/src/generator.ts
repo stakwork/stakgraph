@@ -1,4 +1,4 @@
-import { RecordedAction, RecordingContext } from "./recorder";
+import { RecordedAction, RecordingContext } from "./types";
 
 const METADATA_PREFIX = "// STAKTRAK_ANDROID_ACTIONS_BASE64:";
 
