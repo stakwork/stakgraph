@@ -89,18 +89,21 @@ function walkNodes(
   collector: AndroidTreeElement[]
 ): void {
   const isClickable = String(node.clickable || "false") === "true";
-  const text = typeof node.text === "string" ? node.text : undefined;
+  const rawText = typeof node.text === "string" ? node.text : undefined;
+  const text = rawText && rawText.trim() !== "" ? rawText : undefined;
+  const rawContentDesc =
+    typeof node["content-desc"] === "string" ? node["content-desc"] : undefined;
+  const contentDesc =
+    rawContentDesc && rawContentDesc.trim() !== "" ? rawContentDesc : undefined;
+  const isA11yImportant = String(node["a11y-important"] || "false") === "true";
 
-  if (isClickable || text) {
+  if (isClickable || text || contentDesc || isA11yImportant) {
     const resourceId =
       typeof node["resource-id"] === "string" && node["resource-id"] !== ""
         ? node["resource-id"]
         : undefined;
 
-    const accessibilityId =
-      typeof node["content-desc"] === "string" && node["content-desc"] !== ""
-        ? node["content-desc"]
-        : undefined;
+    const accessibilityId = contentDesc;
 
     const boundsRaw = typeof node.bounds === "string" ? node.bounds : undefined;
 
