@@ -20,6 +20,7 @@ import {
   createHasAskQuestionsCondition,
   ensureAdditionalPropertiesFalse,
   extractMessagesFromSteps,
+  deepParseJsonStrings,
 } from "./utils.js";
 import { LanguageModel } from "ai";
 import {
@@ -97,7 +98,7 @@ async function structureFinalAnswer(
     schema: jsonSchema(normalizedSchema),
   });
 
-  return structured.object;
+  return deepParseJsonStrings(structured.object);
 }
 
 export interface GetContextOptions {
