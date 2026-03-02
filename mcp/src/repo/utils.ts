@@ -288,27 +288,50 @@ export function extractMessagesFromSteps(
   return messages;
 }
 
+/**
+ * Strip trailing garbage characters after the last matching bracket.
+ * LLMs sometimes append extra chars like `\n"` after valid JSON.
+ */
+function stripTrailingGarbage(s: string): string {
+  if (s.startsWith("[")) {
+    const lastBracket = s.lastIndexOf("]");
+    if (lastBracket > 0) return s.substring(0, lastBracket + 1);
+  } else if (s.startsWith("{")) {
+    const lastBrace = s.lastIndexOf("}");
+    if (lastBrace > 0) return s.substring(0, lastBrace + 1);
+  }
+  return s;
+}
+
 export function deepParseJsonStrings(value: any): any {
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if (
-      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
-      (trimmed.startsWith("[") && trimmed.endsWith("]"))
-    ) {
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+      // Try parsing as-is first
       try {
         const parsed = JSON.parse(trimmed);
-        // Only replace if the result is an object or array, never primitives
         if (typeof parsed === "object" && parsed !== null) {
           return deepParseJsonStrings(parsed);
         }
       } catch {
-        // Not valid JSON — leave as-is
+        // Try again after stripping trailing garbage (e.g. `\n"`)
+        const cleaned = stripTrailingGarbage(trimmed);
+        if (cleaned !== trimmed) {
+          try {
+            const parsed = JSON.parse(cleaned);
+            if (typeof parsed === "object" && parsed !== null) {
+              return deepParseJsonStrings(parsed);
+            }
+          } catch {
+            // Still not valid JSON — leave as-is
+          }
+        }
       }
     }
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map(deepParseJsonStrings);
+    return value.map((v: any) => deepParseJsonStrings(v));
   }
   if (typeof value === "object" && value !== null) {
     return Object.fromEntries(

@@ -1,5 +1,6 @@
 import {
-  generateObject,
+  generateText,
+  Output,
   ToolLoopAgent,
   ModelMessage,
   StopCondition,
@@ -92,13 +93,13 @@ async function structureFinalAnswer(
 
   const normalizedSchema = ensureAdditionalPropertiesFalse(schema);
 
-  const structured = await generateObject({
+  const { output } = await generateText({
     model,
     prompt: msgs,
-    schema: jsonSchema(normalizedSchema),
+    output: Output.object({ schema: jsonSchema(normalizedSchema) }),
   });
 
-  return deepParseJsonStrings(structured.object);
+  return deepParseJsonStrings(output ?? {});
 }
 
 export interface GetContextOptions {
