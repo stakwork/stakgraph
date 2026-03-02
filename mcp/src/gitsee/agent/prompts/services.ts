@@ -145,4 +145,32 @@ volumes:
   postgres_data:
 \`\`\`
 
+# ANDROID PM2 EXAMPLE:
+
+FILENAME: pm2.config.js
+
+\`\`\`js
+module.exports = {
+  apps: [
+    {
+      name: "frontend",
+      script: "bash -c 'adb wait-for-device && ./gradlew assembleDebug && adb install -r app/build/outputs/apk/debug/app-debug.apk && adb shell am start -n com.example.app/.MainActivity'",
+      cwd: "/workspaces/MY_REPO_NAME",
+      instances: 1,
+      autorestart: false,
+      watch: false,
+      max_memory_restart: "1G",
+      env: {
+        PORT: "8000",
+        INSTALL_COMMAND: "./gradlew dependencies",
+        BUILD_COMMAND: "./gradlew assembleDebug",
+        POST_RUN_COMMAND: "adb install -r app/build/outputs/apk/debug/app-debug.apk && adb shell am start -n com.example.app/.MainActivity",
+        RESTART: "true",
+        REBUILD_COMMAND: "./gradlew assembleDebug",
+      }
+    }
+  ],
+};
+\`\`\`
+
 `;
