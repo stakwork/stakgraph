@@ -9,6 +9,7 @@ import {
 import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
+import { db } from "../graph/neo4j.js";
 
 type ToolName =
   | "repo_overview"
@@ -22,7 +23,10 @@ type ToolName =
   | "ask_clarifying_questions"
   | "list_concepts"
   | "learn_concept"
-  | "learn_concepts";
+  | "learn_concepts"
+  | "list_workflows"
+  | "learn_workflow"
+  | "read_workflow_json";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -112,10 +116,13 @@ Rules:
     "List all high-level concepts (features) that have been learned about this codebase. Use this to discover what areas of functionality have been documented and understand the main components of the system. Returns a list of concepts with their names, descriptions, and metadata about associated PRs and commits.",
   learn_concept:
     "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
-  learn_concepts: '' // this is just for naming, to enable the above 2.
+  learn_concepts: '', // this is just for naming, to enable the above 2.
+  list_workflows: 'List all Workflow nodes in the graph, returning workflow_name and node_key for each.',
+  learn_workflow: 'Get the generated documentation for a specific workflow by its node_key.',
+  read_workflow_json: 'Read the raw workflow_json property of a Workflow node by its node_key.',
 };
 
-export function get_tools(
+export async function get_tools(
   repoPath: string,
   apiKey: string,
   pat: string | undefined,
@@ -392,6 +399,39 @@ export function get_tools(
           }
         },
       })
+    }
+  }
+
+  // Conditionally register workflow tools if Workflow nodes exist
+  if (db) {
+    const workflowCount = await db.count_workflow_nodes();
+    if (workflowCount > 0) {
+      allTools.list_workflows = tool({
+        description: defaultDescriptions.list_workflows,
+        inputSchema: z.object({}),
+        execute: async () => {
+          const workflows = await db.get_all_workflows();
+          return workflows.map(w => ({ workflow_name: w.workflow_name, node_key: w.node_key }));
+        },
+      });
+      allTools.learn_workflow = tool({
+        description: defaultDescriptions.learn_workflow,
+        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
+        execute: async ({ node_key }) => {
+          const doc = await db.get_workflow_documentation(node_key);
+          if (!doc) return { error: 'No documentation found for this workflow' };
+          return { body: doc.body };
+        },
+      });
+      allTools.read_workflow_json = tool({
+        description: defaultDescriptions.read_workflow_json,
+        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
+        execute: async ({ node_key }) => {
+          const workflow = await db.get_workflow_by_key(node_key);
+          if (!workflow) return { error: 'Workflow not found' };
+          return { workflow_json: workflow.workflow_json };
+        },
+      });
     }
   }
 

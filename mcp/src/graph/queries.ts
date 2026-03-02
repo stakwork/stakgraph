@@ -842,6 +842,28 @@ export const UPDATE_NODE_DESCRIPTION_AND_EMBEDDINGS_QUERY = `
 MATCH (n {ref_id: $ref_id})
 SET n.description = $description, n.embeddings = $embeddings
 `;
+
+export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
+
+export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
+
+export const GET_WORKFLOW_BY_KEY_QUERY = `MATCH (w:Workflow {node_key: $node_key}) RETURN w`;
+
+export const GET_WORKFLOW_BY_REF_ID_QUERY = `MATCH (w:Workflow {ref_id: $ref_id}) RETURN w`;
+
+export const GET_WORKFLOW_DOCUMENTATION_QUERY = `
+MATCH (w:Workflow {node_key: $node_key})<-[:DOCUMENTS]-(d:Workflow_documentation)
+RETURN d
+`;
+
+export const UPSERT_WORKFLOW_DOCUMENTATION_QUERY = `
+MATCH (w:Workflow {ref_id: $workflow_ref_id})
+MERGE (d:Workflow_documentation {node_key: $node_key})
+ON CREATE SET d.ref_id = randomUUID(), d.date_added_to_graph = $ts, d.namespace = 'default'
+SET d.name = $name, d.body = $body, d.date_added_to_graph = $ts, d.namespace = 'default'
+MERGE (d)-[:DOCUMENTS]->(w)
+RETURN d.ref_id AS ref_id
+`;
 /*
 
 CALL db.index.fulltext.queryNodes('nameIndex', 'bounty') YIELD node, score
