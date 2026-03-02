@@ -287,3 +287,33 @@ export function extractMessagesFromSteps(
 
   return messages;
 }
+
+export function deepParseJsonStrings(value: any): any {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        // Only replace if the result is an object or array, never primitives
+        if (typeof parsed === "object" && parsed !== null) {
+          return deepParseJsonStrings(parsed);
+        }
+      } catch {
+        // Not valid JSON — leave as-is
+      }
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(deepParseJsonStrings);
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, deepParseJsonStrings(v)])
+    );
+  }
+  return value;
+}
