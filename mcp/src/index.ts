@@ -26,6 +26,7 @@ import cors from "cors";
 import { App as SageApp } from "./sage/src/app.js";
 import dotenv from "dotenv";
 import { learn_docs_agent, get_docs, update_docs } from "./repo/docs.js";
+import { document_workflow, document_workflows } from "./repo/workflows.js";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
@@ -156,6 +157,9 @@ app.get("/gitree/clues/:id", gitree.gitree_get_clue);
 app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
 app.post("/gitree/provenance", gitree.gitree_provenance);
+
+app.post("/document_workflow", document_workflow);
+app.post("/document_workflows", document_workflows);
 
 app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {

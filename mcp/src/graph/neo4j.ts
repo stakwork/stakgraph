@@ -1184,6 +1184,53 @@ class Db {
     }
   }
 
+  async count_workflow_nodes(): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.COUNT_WORKFLOWS_QUERY);
+      return r.records[0].get('c').toNumber();
+    } finally { await session.close(); }
+  }
+
+  async get_all_workflows(): Promise<any[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_ALL_WORKFLOWS_QUERY);
+      return r.records.map(rec => rec.get('w').properties);
+    } finally { await session.close(); }
+  }
+
+  async get_workflow_by_key(node_key: string, ref_id?: string): Promise<any | null> {
+    const session = this.driver.session();
+    try {
+      let r = await session.run(Q.GET_WORKFLOW_BY_KEY_QUERY, { node_key });
+      if (r.records.length === 0 && ref_id) {
+        r = await session.run(Q.GET_WORKFLOW_BY_REF_ID_QUERY, { ref_id });
+      }
+      return r.records.length > 0 ? r.records[0].get('w').properties : null;
+    } finally { await session.close(); }
+  }
+
+  async get_workflow_documentation(node_key: string): Promise<any | null> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_WORKFLOW_DOCUMENTATION_QUERY, { node_key });
+      return r.records.length > 0 ? r.records[0].get('d').properties : null;
+    } finally { await session.close(); }
+  }
+
+  async upsert_workflow_documentation(workflow_ref_id: string, name: string, body: string): Promise<string> {
+    const session = this.driver.session();
+    try {
+      const node_key = `workflow_documentation_${workflow_ref_id}`;
+      const ts = Date.now();
+      const r = await session.run(Q.UPSERT_WORKFLOW_DOCUMENTATION_QUERY, {
+        workflow_ref_id, node_key, name, body, ts
+      });
+      return r.records[0].get('ref_id');
+    } finally { await session.close(); }
+  }
+
   async close() {
     await this.driver.close();
     console.log("===> driver closed");
