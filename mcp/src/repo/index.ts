@@ -10,6 +10,8 @@ import { mocks_agent } from "./mocks.js";
 import { ModelName } from "../aieo/src/index.js";
 import { SessionConfig, loadSession, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
+import { existsSync } from "fs";
+import path from "path";
 
 import { describe_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent };
@@ -197,4 +199,21 @@ export async function get_leaks(req: Request, res: Response) {
     console.error("Error running gitleaks:", e);
     res.status(500).json({ error: "Error running gitleaks" });
   }
+}
+
+export async function get_agent_file(req: Request, res: Response) {
+  const filePath = req.query.path as string;
+  console.log("===> GET /repo/agent/file", { filePath });
+
+  if (!filePath) {
+    res.status(400).json({ error: "Missing path" });
+    return;
+  }
+
+  if (!existsSync(filePath)) {
+    res.status(404).json({ error: "File not found" });
+    return;
+  }
+
+  res.sendFile(path.resolve(filePath));
 }
