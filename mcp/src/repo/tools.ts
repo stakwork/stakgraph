@@ -316,6 +316,44 @@ export async function get_tools(
     });
   }
 
+  // Conditionally register workflow tools if Workflow nodes exist
+  if (db) {
+    const workflowCount = await db.count_workflow_nodes();
+    if (workflowCount > 0) {
+      console.log("===> workflow nodes found, registering workflow tools");
+      allTools.list_workflows = tool({
+        description: defaultDescriptions.list_workflows,
+        inputSchema: z.object({}),
+        execute: async () => {
+          const workflows = await db.get_all_workflows();
+          return workflows.map(w => ({ workflow_name: w.workflow_name, node_key: w.node_key }));
+        },
+      });
+      allTools.learn_workflow = tool({
+        description: defaultDescriptions.learn_workflow,
+        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
+        execute: async ({ node_key }) => {
+          const doc = await db.get_workflow_documentation(node_key);
+          if (!doc) return { error: 'No documentation found for this workflow' };
+          return { body: doc.body };
+        },
+      });
+      allTools.read_workflow_json = tool({
+        description: defaultDescriptions.read_workflow_json,
+        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
+        execute: async ({ node_key }) => {
+          const workflow = await db.get_workflow_by_key(node_key);
+          if (!workflow) return { error: 'Workflow not found' };
+          return { workflow_json: workflow.workflow_json };
+        },
+      });
+    } else {
+      console.log("===> no workflow nodes found, skipping workflow tools");
+    }
+  } else {
+    console.log("===> no db found, skipping workflow tools");
+  }
+
   // If no config, return all tools
   if (!toolsConfig) {
     return allTools;
@@ -399,39 +437,6 @@ export async function get_tools(
           }
         },
       })
-    }
-  }
-
-  // Conditionally register workflow tools if Workflow nodes exist
-  if (db) {
-    const workflowCount = await db.count_workflow_nodes();
-    if (workflowCount > 0) {
-      allTools.list_workflows = tool({
-        description: defaultDescriptions.list_workflows,
-        inputSchema: z.object({}),
-        execute: async () => {
-          const workflows = await db.get_all_workflows();
-          return workflows.map(w => ({ workflow_name: w.workflow_name, node_key: w.node_key }));
-        },
-      });
-      allTools.learn_workflow = tool({
-        description: defaultDescriptions.learn_workflow,
-        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
-        execute: async ({ node_key }) => {
-          const doc = await db.get_workflow_documentation(node_key);
-          if (!doc) return { error: 'No documentation found for this workflow' };
-          return { body: doc.body };
-        },
-      });
-      allTools.read_workflow_json = tool({
-        description: defaultDescriptions.read_workflow_json,
-        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
-        execute: async ({ node_key }) => {
-          const workflow = await db.get_workflow_by_key(node_key);
-          if (!workflow) return { error: 'Workflow not found' };
-          return { workflow_json: workflow.workflow_json };
-        },
-      });
     }
   }
 
