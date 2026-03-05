@@ -26,8 +26,25 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = Number(process.env.PORT || 4724);
+const SSE_HEARTBEAT_MS = 15000;
+const AUTOSTART_BACKOFF_MS = [1000, 2000, 5000, 10000];
 
 const sseClients = new Set<express.Response>();
+const sseHeartbeats = new Map<express.Response, NodeJS.Timeout>();
+
+const autostartState: {
+  retrying: boolean;
+  attempts: number;
+  lastError?: string;
+  nextRetryInMs: number;
+} = {
+  retrying: false,
+  attempts: 0,
+  nextRetryInMs: 0,
+};
+
+let autostartTimer: NodeJS.Timeout | null = null;
+let autostartMonitor: NodeJS.Timeout | null = null;
 
 class RequestValidationError extends Error {
   public readonly details: Array<{ path: string; message: string }>;
@@ -197,23 +214,81 @@ function sendError(
   res.status(500).json({ error: error instanceof Error ? error.message : fallbackMessage });
 }
 
-function sendSse(event: ReplayEvent): void {
+function sendSse(replayId: string, event: ReplayEvent): void {
   if (event.type === "started") {
-    logInfo("replay.started", { total: event.total });
+    logInfo("replay.started", { replayId, total: event.total });
   } else if (event.type === "error") {
     logError("replay.step_failed", event.error, {
+      replayId,
       current: event.current,
       total: event.total,
       actionType: event.action.type,
     });
   } else if (event.type === "completed") {
-    logInfo("replay.completed", { total: event.total, errors: event.errors });
+    logInfo("replay.completed", { replayId, total: event.total, errors: event.errors });
   }
 
-  const payload = JSON.stringify(event);
+  const payload = JSON.stringify({ replayId, ...event });
   for (const response of sseClients) {
     response.write(`event: replay\n`);
     response.write(`data: ${payload}\n\n`);
+  }
+}
+
+function toErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function clearAutostartTimer(): void {
+  if (!autostartTimer) {
+    return;
+  }
+  clearTimeout(autostartTimer);
+  autostartTimer = null;
+}
+
+function markAutostartConnected(): void {
+  clearAutostartTimer();
+  autostartState.retrying = false;
+  autostartState.lastError = undefined;
+  autostartState.nextRetryInMs = 0;
+}
+
+function scheduleAutostart(delayMs: number): void {
+  clearAutostartTimer();
+  autostartState.retrying = true;
+  autostartState.nextRetryInMs = delayMs;
+
+  autostartTimer = setTimeout(() => {
+    void runAutostartAttempt();
+  }, delayMs);
+}
+
+function getAutostartBackoffMs(attempt: number): number {
+  const index = Math.min(Math.max(attempt - 1, 0), AUTOSTART_BACKOFF_MS.length - 1);
+  return AUTOSTART_BACKOFF_MS[index];
+}
+
+async function runAutostartAttempt(): Promise<void> {
+  autostartTimer = null;
+  autostartState.attempts += 1;
+
+  try {
+    const session = await ensureSession();
+    markAutostartConnected();
+    logInfo("session.autostarted", {
+      sessionId: session.sessionId,
+      reused: session.reused,
+      attempt: autostartState.attempts,
+    });
+  } catch (error) {
+    const retryInMs = getAutostartBackoffMs(autostartState.attempts);
+    autostartState.lastError = toErrorMessage(error);
+    logError("session.autostart_failed", error, {
+      attempt: autostartState.attempts,
+      retryInMs,
+    });
+    scheduleAutostart(retryInMs);
   }
 }
 
@@ -258,10 +333,20 @@ app.get("/events", (req, res) => {
   res.flushHeaders();
 
   sseClients.add(res);
+  const heartbeat = setInterval(() => {
+    res.write(`event: heartbeat\n`);
+    res.write(`data: ${JSON.stringify({ ts: Date.now() })}\n\n`);
+  }, SSE_HEARTBEAT_MS);
+  sseHeartbeats.set(res, heartbeat);
   res.write(`event: connected\ndata: ${JSON.stringify({ ok: true })}\n\n`);
 
   req.on("close", () => {
     sseClients.delete(res);
+    const timer = sseHeartbeats.get(res);
+    if (timer) {
+      clearInterval(timer);
+      sseHeartbeats.delete(res);
+    }
   });
 });
 
@@ -272,6 +357,12 @@ app.get("/health", (_req, res) => {
     connection,
     session: getSessionMeta(),
     recording: recorder.isActive(),
+    autostart: {
+      retrying: autostartState.retrying,
+      attempts: autostartState.attempts,
+      nextRetryInMs: autostartState.nextRetryInMs,
+      lastError: autostartState.lastError,
+    },
   });
 });
 
@@ -417,6 +508,7 @@ app.post("/session/start", async (req, res) => {
       deviceName: session.deviceName,
       recording: true,
     });
+    markAutostartConnected();
 
     res.json({ ok: true, session, recording: true });
   } catch (error) {
@@ -489,14 +581,16 @@ app.post("/session/replay", async (req, res) => {
       return;
     }
 
-    logInfo("replay.starting", { total: actions.length });
-    const summary = await replayActions(actions, sendSse);
+    const replayId = `replay-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    logInfo("replay.starting", { replayId, total: actions.length });
+    const summary = await replayActions(actions, (event) => sendSse(replayId, event));
     logInfo("replay.finished", {
+      replayId,
       total: summary.total,
       completed: summary.completed,
       errors: summary.errors.length,
     });
-    res.json({ ok: true, ...summary });
+    res.json({ ok: true, replayId, ...summary });
   } catch (error) {
     sendError(res, error, "Replay failed", "replay.failed");
   }
@@ -512,15 +606,16 @@ app.get("/session", (_req, res) => {
 
 app.listen(PORT, () => {
   logInfo("server.started", { url: `http://localhost:${PORT}` });
+  scheduleAutostart(0);
 
-  ensureSession()
-    .then((session) => {
-      logInfo("session.autostarted", {
-        sessionId: session.sessionId,
-        reused: session.reused,
-      });
-    })
-    .catch((error) => {
-      logError("session.autostart_failed", error);
-    });
+  autostartMonitor = setInterval(() => {
+    const connection = getConnectionState();
+    if (connection.status !== "disconnected") {
+      return;
+    }
+    if (autostartTimer) {
+      return;
+    }
+    scheduleAutostart(getAutostartBackoffMs(autostartState.attempts + 1));
+  }, 10000);
 });
