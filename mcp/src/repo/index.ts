@@ -1,6 +1,7 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, getDefaultToolDescriptions } from "./tools.js";
+import { type SubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
@@ -65,6 +66,8 @@ export async function repo_agent(req: Request, res: Response) {
   const systemOverride = req.body.systemOverride as string | undefined;
   // Skills support
   const skills = req.body.skills as SkillsConfig | undefined;
+  // Sub-agents
+  const subAgents = req.body.subAgents as SubAgent[] | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -103,6 +106,7 @@ export async function repo_agent(req: Request, res: Response) {
           repos: repoList.length > 1 ? repoList : undefined,
           systemOverride,
           skills,
+          subAgents,
         });
       })
       .then((result) => {

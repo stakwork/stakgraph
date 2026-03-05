@@ -10,6 +10,7 @@ import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
+import { callRemoteAgent, type SubAgent } from "./subagent.js";
 
 type ToolName =
   | "repo_overview"
@@ -128,7 +129,8 @@ export async function get_tools(
   pat: string | undefined,
   toolsConfig?: ToolsConfig,
   provider?: Provider,
-  repos?: string[]
+  repos?: string[],
+  subAgents?: SubAgent[]
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -352,6 +354,60 @@ export async function get_tools(
     }
   } else {
     console.log("===> no db found, skipping workflow tools");
+  }
+
+  // Register sub-agent tools (remote agent delegation)
+  if (subAgents && subAgents.length > 0) {
+    for (const subAgent of subAgents) {
+      // Validate required fields
+      if (!subAgent.name || !subAgent.url || !subAgent.apiToken) {
+        console.warn(
+          `[sub-agent] Skipping invalid sub-agent config: missing name, url, or apiToken`,
+          { name: subAgent.name, hasUrl: !!subAgent.url, hasToken: !!subAgent.apiToken }
+        );
+        continue;
+      }
+      // Validate name is a safe tool identifier (alphanumeric + underscores)
+      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(subAgent.name)) {
+        console.warn(
+          `[sub-agent] Skipping sub-agent with invalid name "${subAgent.name}" — must be alphanumeric/underscores starting with a letter`
+        );
+        continue;
+      }
+      // Validate URL is parseable
+      try {
+        new URL(subAgent.url);
+      } catch {
+        console.warn(
+          `[sub-agent] Skipping sub-agent "${subAgent.name}" with invalid URL: ${subAgent.url}`
+        );
+        continue;
+      }
+
+      const description =
+        subAgent.description ||
+        `Ask the "${subAgent.name}" sub-agent a question. This delegates to a separate agent instance that may have different codebase context.`;
+
+      // Capture subAgent in closure
+      const sa = subAgent;
+      allTools[sa.name] = tool({
+        description,
+        inputSchema: z.object({
+          prompt: z
+            .string()
+            .describe(
+              "A focused, specific question or task to delegate to the sub-agent"
+            ),
+        }),
+        execute: async ({ prompt }: { prompt: string }) => {
+          console.log(
+            `[sub-agent:${sa.name}] Executing with prompt: ${prompt.slice(0, 200)}...`
+          );
+          return await callRemoteAgent(sa, prompt);
+        },
+      });
+      console.log(`===> registered sub-agent tool: ${sa.name}`);
+    }
   }
 
   // If no config, return all tools

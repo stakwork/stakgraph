@@ -12,6 +12,7 @@ import {
   getModelDetails,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig } from "./tools.js";
+import { type SubAgent } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
   appendTextToPrompt,
@@ -119,6 +120,8 @@ export interface GetContextOptions {
   repos?: string[];
   // Skills support
   skills?: SkillsConfig;
+  // Sub-agents: remote agent instances this agent can delegate to
+  subAgents?: SubAgent[];
 }
 
 export async function get_context(
@@ -138,6 +141,7 @@ export async function get_context(
     apiKey: apiKeyIn,
     repos,
     skills,
+    subAgents,
   } = opts;
   const startTime = Date.now();
   const { model, apiKey, provider } = getModelDetails(modelName, apiKeyIn);
@@ -158,7 +162,7 @@ export async function get_context(
     }
   }
 
-  let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos);
+  let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos, subAgents);
 
   // Load and merge MCP server tools if configured
   if (mcpServers && mcpServers.length > 0) {
