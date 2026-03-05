@@ -388,9 +388,10 @@ export async function get_tools(
         subAgent.description ||
         `Ask the "${subAgent.name}" sub-agent a question. This delegates to a separate agent instance that may have different codebase context.`;
 
-      // Capture subAgent in closure
+      // Capture subAgent in closure (name is guaranteed non-empty after validation above)
       const sa = subAgent;
-      allTools[sa.name] = tool({
+      const saName = sa.name!;
+      allTools[saName] = tool({
         description,
         inputSchema: z.object({
           prompt: z

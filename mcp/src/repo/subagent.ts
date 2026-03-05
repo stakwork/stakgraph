@@ -1,10 +1,10 @@
 import { type ToolsConfig } from "./tools.js";
 
 export interface SubAgent {
-  /** Tool name exposed to the LLM, e.g. "backend_agent" */
-  name: string;
-  /** Description shown to the LLM so it knows when to call this tool */
-  description: string;
+  /** Tool name exposed to the LLM, e.g. "backend_agent" (optional, derived from url hostname if omitted) */
+  name?: string;
+  /** Description shown to the LLM so it knows when to call this tool (optional, auto-generated from name if omitted) */
+  description?: string;
   /** Base URL of the remote server (e.g. "https://other:3355" or "https://other:3355/repo/agent") */
   url: string;
   /** Auth token for the remote server (sent as x-api-token header). Also accepts "apiKey". */
@@ -19,6 +19,26 @@ export interface SubAgent {
   timeoutSeconds?: number;
 }
 
+/** Derive a tool-safe name from a URL (e.g. "https://swarm3345.sphinx.chat" → "swarm3345") */
+function nameFromUrl(url: string): string | undefined {
+  try {
+    const hostname = new URL(url).hostname; // e.g. "swarm3345.sphinx.chat"
+    const first = hostname.split(".")[0];    // e.g. "swarm3345"
+    // Must be a valid tool identifier: starts with letter, alphanumeric/underscores
+    if (first && /^[a-zA-Z][a-zA-Z0-9_]*$/.test(first)) {
+      return first;
+    }
+    // Replace invalid chars with underscores and ensure it starts with a letter
+    const sanitized = first.replace(/[^a-zA-Z0-9_]/g, "_");
+    if (sanitized && /^[a-zA-Z]/.test(sanitized)) {
+      return sanitized;
+    }
+    return `agent_${sanitized}`;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Normalize a raw sub-agent object so callers can use alternate field names. */
 export function normalizeSubAgent(raw: Record<string, unknown>): Record<string, unknown> {
   // apiKey -> apiToken
@@ -30,6 +50,10 @@ export function normalizeSubAgent(raw: Record<string, unknown>): Record<string, 
   if (!raw.repoUrl && raw.repoUrls) {
     raw.repoUrl = raw.repoUrls;
     delete raw.repoUrls;
+  }
+  // Derive name from url if missing
+  if (!raw.name && typeof raw.url === "string") {
+    raw.name = nameFromUrl(raw.url);
   }
   return raw;
 }
