@@ -11,7 +11,8 @@ import {
   ModelName,
   getModelDetails,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig, SubAgent } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig } from "./tools.js";
+import { type SubAgent } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
   appendTextToPrompt,

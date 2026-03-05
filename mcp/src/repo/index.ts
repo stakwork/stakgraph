@@ -1,6 +1,7 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { ToolsConfig, SkillsConfig, SubAgent, getDefaultToolDescriptions } from "./tools.js";
+import { ToolsConfig, SkillsConfig, getDefaultToolDescriptions } from "./tools.js";
+import { type SubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
