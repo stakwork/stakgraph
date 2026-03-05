@@ -3,16 +3,54 @@ use shared::error::{Context, Error, Result};
 use std::path::Path;
 use tracing::{debug, info};
 
+fn required(username: &Option<String>, pat: &Option<String>) -> Result<()> {
+    match (username.as_ref(), pat.as_ref()) {
+        (Some(_), None) | (None, Some(_)) => Err(Error::Custom(
+            "Both username and PAT must be provided together, or neither".to_string(),
+        )),
+        _ => Ok(()),
+    }
+}
+
+fn build_auth(repo: &str, username: &str, pat: &str) -> Result<String> {
+    if !repo.starts_with("https://") {
+        return Err(Error::Custom(format!(
+            "Authenticated clones require an https:// URL, got: {}",
+            &repo[..repo.len().min(32)]
+        )));
+    }
+    let rest = &repo["https://".len()..];
+    Ok(format!("https://{}:{}@{}", username, pat, rest))
+}
+
+fn classify_git_error(e: &Error) -> Error {
+    let msg = e.to_string().to_lowercase();
+    if msg.contains("authentication failed")
+        || msg.contains("invalid username or password")
+        || msg.contains("bad credentials")
+        || msg.contains("access denied")
+        || msg.contains("unauthorized")
+        || msg.contains("403")
+        || msg.contains("401")
+    {
+        Error::Custom(
+            "Git authentication failed. Please check your PAT and username.".to_string(),
+        )
+    } else if msg.contains("repository not found") || msg.contains("404") {
+        Error::Custom("Repository not found or access denied.".to_string())
+    } else {
+        Error::Custom(format!("Git operation failed: {}", e))
+    }
+}
+
 pub async fn validate_git_credentials(
     repo: &str,
     username: Option<String>,
     pat: Option<String>,
 ) -> Result<()> {
+    required(&username, &pat)?;
     let repo_url = match (username.as_ref(), pat.as_ref()) {
-        (Some(username), Some(pat)) => {
-            let repo_end = &repo.to_string()[8..];
-            format!("https://{}:{}@{}", username, pat, repo_end)
-        }
+        (Some(u), Some(p)) => build_auth(repo, u, p)?,
         _ => repo.to_string(),
     };
     debug!("Validating git credentials for repository");
@@ -22,34 +60,7 @@ pub async fn validate_git_credentials(
             debug!("Git credentials validation successful");
             Ok(())
         }
-        Err(e) => {
-            let error_msg = e.to_string().to_lowercase();
-
-            // Check for common authentication error patterns
-            if error_msg.contains("authentication failed")
-                || error_msg.contains("invalid username or password")
-                || error_msg.contains("bad credentials")
-                || error_msg.contains("access denied")
-                || error_msg.contains("unauthorized")
-                || error_msg.contains("403")
-                || error_msg.contains("401")
-            {
-                Err(Error::Custom(format!(
-                    "Git authentication failed. Please check your PAT and username. Error: {}",
-                    e
-                )))
-            } else if error_msg.contains("repository not found") || error_msg.contains("404") {
-                Err(Error::Custom(format!(
-                    "Repository not found or access denied. Error: {}",
-                    e
-                )))
-            } else {
-                Err(Error::Custom(format!(
-                    "Failed to validate git credentials: {}",
-                    e
-                )))
-            }
-        }
+        Err(e) => Err(classify_git_error(&e)),
     }
 }
 
@@ -84,11 +95,9 @@ pub async fn git_clone(
     commit: Option<&str>,
     branch: Option<&str>,
 ) -> Result<()> {
+    required(&username, &pat)?;
     let repo_url = match (username.as_ref(), pat.as_ref()) {
-        (Some(username), Some(pat)) => {
-            let repo_end = &repo.to_string()[8..];
-            format!("https://{}:{}@{}", username, pat, repo_end)
-        }
+        (Some(u), Some(p)) => build_auth(repo, u, p)?,
         _ => repo.to_string(),
     };
     let repo_path = Path::new(path);
@@ -100,16 +109,6 @@ pub async fn git_clone(
         info!("Repository doesn't exist at {}, cloning it", path);
         remove_dir(path)?;
 
-        // Configure git to use HTTPS with authentication instead of SSH for GitHub submodules
-        // if let (Some(username), Some(pat)) = (username.as_ref(), pat.as_ref()) {
-        //     let insteadof_key = format!("url.https://{}:{}@github.com/.insteadOf", username, pat);
-        //     run(
-        //         "git",
-        //         &["config", "--global", &insteadof_key, "git@github.com:"],
-        //     )
-        //     .await?;
-        // }
-
         let mut clone_args = vec![
             "clone",
             &repo_url,
@@ -120,43 +119,10 @@ pub async fn git_clone(
             clone_args.extend(&["--branch", branch]);
         }
         clone_args.push(path);
-        let output = run("git", &clone_args).await;
-        match output {
-            Ok(_) => {
-                tracing::info!("Cloned repo to {}", path);
-                // Clean up global config with credentials
-                // if let (Some(username), Some(pat)) = (username.as_ref(), pat.as_ref()) {
-                //     let insteadof_key =
-                //         format!("url.https://{}:{}@github.com/.insteadOf", username, pat);
-                //     let _ = run("git", &["config", "--global", "--unset", &insteadof_key]).await;
-                // }
-            }
-            Err(e) => {
-                let error_msg = e.to_string().to_lowercase();
-
-                if error_msg.contains("authentication failed")
-                    || error_msg.contains("invalid username or password")
-                    || error_msg.contains("bad credentials")
-                    || error_msg.contains("access denied")
-                    || error_msg.contains("unauthorized")
-                    || error_msg.contains("403")
-                    || error_msg.contains("401")
-                {
-                    tracing::error!("git clone authentication failed");
-                    return Err(Error::Custom(
-                        "Git authentication failed during clone. Please check your PAT (Personal Access Token) and username.".to_string(),
-                    ));
-                } else if error_msg.contains("repository not found") || error_msg.contains("404") {
-                    tracing::error!("git clone repository not found or access denied");
-                    return Err(Error::Custom(
-                        "Repository not found or access denied during clone.".to_string(),
-                    ));
-                } else {
-                    tracing::error!("git clone failed");
-                    return Err(Error::Custom("Git clone failed".to_string()));
-                }
-            }
-        }
+        run("git", &clone_args)
+            .await
+            .map_err(|e| classify_git_error(&e))?;
+        tracing::info!("Cloned repo to {}", path);
     }
     if let Some(commit) = commit {
         checkout_commit(path, commit)
