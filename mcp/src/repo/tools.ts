@@ -362,7 +362,7 @@ export async function get_tools(
       // Validate required fields
       if (!subAgent.name || !subAgent.url || !subAgent.apiToken) {
         console.warn(
-          `[sub-agent] Skipping invalid sub-agent config: missing name, url, or apiToken`,
+          `[sub-agent] Skipping invalid sub-agent config: missing name, url, or apiToken/apiKey`,
           { name: subAgent.name, hasUrl: !!subAgent.url, hasToken: !!subAgent.apiToken }
         );
         continue;

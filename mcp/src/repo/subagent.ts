@@ -7,9 +7,9 @@ export interface SubAgent {
   description: string;
   /** Base URL of the remote server (e.g. "https://other:3355" or "https://other:3355/repo/agent") */
   url: string;
-  /** Auth token for the remote server (sent as x-api-token header) */
+  /** Auth token for the remote server (sent as x-api-token header). Also accepts "apiKey". */
   apiToken: string;
-  /** Repo URL for the remote agent to operate on */
+  /** Repo URL for the remote agent to operate on. Also accepts "repoUrls". */
   repoUrl?: string;
   /** Model to use on the remote agent */
   model?: string;
@@ -17,6 +17,21 @@ export interface SubAgent {
   toolsConfig?: ToolsConfig;
   /** Max seconds to wait for the remote agent to finish (default: 300) */
   timeoutSeconds?: number;
+}
+
+/** Normalize a raw sub-agent object so callers can use alternate field names. */
+export function normalizeSubAgent(raw: Record<string, unknown>): Record<string, unknown> {
+  // apiKey -> apiToken
+  if (!raw.apiToken && raw.apiKey) {
+    raw.apiToken = raw.apiKey;
+    delete raw.apiKey;
+  }
+  // repoUrls -> repoUrl
+  if (!raw.repoUrl && raw.repoUrls) {
+    raw.repoUrl = raw.repoUrls;
+    delete raw.repoUrls;
+  }
+  return raw;
 }
 
 /** Resolve a SubAgent URL to the /repo/agent endpoint and the base origin for /progress */
