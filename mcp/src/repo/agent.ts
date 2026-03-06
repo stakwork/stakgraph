@@ -173,6 +173,21 @@ export async function get_context(
 
   let instructions = systemOverride || DEFAULT_SYSTEM;
 
+  // Append sub-agent instructions if any sub-agents are registered
+  if (subAgents && subAgents.length > 0) {
+    const validSubAgents = subAgents.filter(sa => sa.name && sa.url && sa.apiToken);
+    if (validSubAgents.length > 0) {
+      const agentList = validSubAgents
+        .map(sa => `  - @${sa.name}: ${sa.description || `Delegates to the "${sa.name}" sub-agent`}`)
+        .join('\n');
+      const subAgentBlock = `\n\nSUB-AGENTS:
+You have access to the following sub-agents as tools:
+${agentList}
+If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAgents[0].name}"), use that sub-agent tool to handle the relevant part of the request. Pass it a focused, specific question or task based on the user's prompt.`;
+      instructions += subAgentBlock;
+    }
+  }
+
   // Append skills instructions if any skills are active
   const activeSkills = Object.entries(skills || {})
     .filter(([, enabled]) => enabled)
