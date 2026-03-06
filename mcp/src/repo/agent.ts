@@ -23,6 +23,7 @@ import {
   ensureAdditionalPropertiesFalse,
   extractMessagesFromSteps,
   deepParseJsonStrings,
+  truncateOldToolResults,
 } from "./utils.js";
 import { LanguageModel } from "ai";
 import {
@@ -144,8 +145,8 @@ export async function get_context(
     subAgents,
   } = opts;
   const startTime = Date.now();
-  const { model, apiKey, provider } = getModelDetails(modelName, apiKeyIn);
-  console.log("===> model", model);
+  const { model, apiKey, provider, contextLimit } = getModelDetails(modelName, apiKeyIn);
+  console.log("===> model", model, "contextLimit", contextLimit);
 
   // Session handling: if sessionId provided, use existing or create new with that ID
   let sessionId: string | undefined;
@@ -235,6 +236,15 @@ Apply the guidance from each skill throughout your response.`;
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => logStep(sf.content),
+    prepareStep: ({ steps, messages }) => {
+      // Use real input token count from the last step if available,
+      // otherwise 0 to trigger estimation from the messages themselves
+      const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
+      const inputTokens = lastStep?.usage?.inputTokens ?? 0;
+      const truncated = truncateOldToolResults(messages, inputTokens, contextLimit);
+      if (truncated === messages) return undefined;
+      return { messages: truncated };
+    },
   });
 
   // Build the user message for session storage
