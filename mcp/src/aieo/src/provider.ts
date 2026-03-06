@@ -253,11 +253,14 @@ const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
   openrouter: 128_000,
 };
 
+// Conservative fallback if both model and provider lookups miss
+const FALLBACK_CONTEXT_LIMIT = 128_000;
+
 /**
  * Get the context window size (max input tokens) for a given model.
  */
 export function getContextLimit(modelId: string, provider: Provider): number {
-  return MODEL_CONTEXT_LIMITS[modelId] ?? DEFAULT_CONTEXT_LIMITS[provider];
+  return MODEL_CONTEXT_LIMITS[modelId] ?? DEFAULT_CONTEXT_LIMITS[provider] ?? FALLBACK_CONTEXT_LIMIT;
 }
 
 const TOKEN_PRICING: Record<Provider, TokenPricing> = {
