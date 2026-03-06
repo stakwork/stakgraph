@@ -926,59 +926,130 @@ class Db {
     }
   }
 
-  async create_learning(
-    question: string,
-    answer: string,
+  // === New Learning + Scope system ===
+
+  async upsert_learning(
+    id: string,
+    rule: string,
     embeddings: number[],
-    context?: string,
-  ) {
+    reason?: string,
+  ): Promise<{ ref_id: string; node_key: string }> {
     const session = this.driver.session();
-    const name = question.slice(0, 80);
     const node_key = create_node_key({
       node_type: "Learning",
       node_data: {
-        name,
+        name: id,
         file: "learning://generated",
         start: 0,
       },
     } as Node);
     try {
-      await session.run(Q.CREATE_LEARNING_QUERY, {
+      const result = await session.run(Q.UPSERT_LEARNING_QUERY, {
+        id,
         node_key,
-        name,
-        file: "learning://generated",
-        body: answer,
-        question,
-        context: context || null,
+        rule,
+        reason: reason || null,
         embeddings,
         ts: Date.now() / 1000,
       });
-      const r = await session.run(Q.GET_LEARNING_QUERY, { node_key });
-      const record = r.records[0];
-      const n = record.get("n");
+      const n = result.records[0].get("n");
       return { ref_id: n.properties.ref_id, node_key };
     } finally {
       await session.close();
     }
   }
 
-  async create_learning_about_edges(
-    learning_ref_id: string,
-    feature_ids: string[],
-  ): Promise<{ linked_features: string[] }> {
+  async upsert_scope(
+    name: string,
+    embeddings: number[],
+  ): Promise<{ ref_id: string }> {
+    const session = this.driver.session();
+    const node_key = create_node_key({
+      node_type: "Scope",
+      node_data: {
+        name,
+        file: "scope://generated",
+        start: 0,
+      },
+    } as Node);
+    try {
+      const result = await session.run(Q.UPSERT_SCOPE_QUERY, {
+        name,
+        node_key,
+        embeddings,
+        ts: Date.now() / 1000,
+      });
+      const s = result.records[0].get("s");
+      return { ref_id: s.properties.ref_id };
+    } finally {
+      await session.close();
+    }
+  }
+
+  async create_has_scope_edge(
+    learning_id: string,
+    scope_name: string,
+  ): Promise<void> {
     const session = this.driver.session();
     try {
-      const result = await session.run(Q.CREATE_LEARNING_ABOUT_FEATURES_QUERY, {
-        learning_ref_id,
-        feature_ids,
+      await session.run(Q.CREATE_HAS_SCOPE_EDGE_QUERY, {
+        learning_id,
+        scope_name,
       });
+    } finally {
+      await session.close();
+    }
+  }
 
-      if (result.records.length > 0) {
-        const linkedFeatures = result.records[0].get("linked_features") || [];
-        return { linked_features: linkedFeatures };
-      }
+  async get_all_learnings_with_scopes(): Promise<
+    { id: string; rule: string; reason: string | null; scopes: string[] }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_ALL_LEARNINGS_WITH_SCOPES_QUERY);
+      return result.records.map((record) => {
+        const n = record.get("l");
+        const scopes: string[] = record.get("scopes") || [];
+        return {
+          id: n.properties.id,
+          rule: n.properties.rule,
+          reason: n.properties.reason || null,
+          scopes,
+        };
+      });
+    } finally {
+      await session.close();
+    }
+  }
 
-      return { linked_features: [] };
+  async get_all_scopes(): Promise<string[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_ALL_SCOPES_QUERY);
+      return result.records.map((record) => record.get("name") as string);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_learnings_by_scopes(
+    scope_names: string[],
+  ): Promise<{ id: string; rule: string; reason: string | null; scopes: string[] }[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_LEARNINGS_BY_SCOPES_QUERY, {
+        scope_names,
+      });
+      return result.records.map((record) => {
+        const n = record.get("l");
+        const scopes: string[] = record.get("scopes") || [];
+        return {
+          id: n.properties.id,
+          rule: n.properties.rule,
+          reason: n.properties.reason || null,
+          scopes,
+        };
+      });
     } finally {
       await session.close();
     }

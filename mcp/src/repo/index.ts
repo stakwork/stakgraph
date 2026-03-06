@@ -1,6 +1,6 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { ToolsConfig, SkillsConfig, getDefaultToolDescriptions } from "./tools.js";
+import { ToolsConfig, SkillsConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
@@ -53,7 +53,7 @@ export async function repo_agent(req: Request, res: Response) {
   const commit = req.body.commit as string | undefined;
   const branch = req.body.branch as string | undefined;
   const prompt = req.body.prompt as any;
-  const toolsConfig = req.body.toolsConfig as ToolsConfig | undefined;
+  const toolsConfig = normalizeToolsConfig(req.body.toolsConfig);
   const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
   const modelName = req.body.model as ModelName | undefined;
   const apiKey = req.body.apiKey as string | undefined;

@@ -127,7 +127,8 @@ function getModelForProvider(provider: Provider, modelName: ModelName): string {
 interface ModelDetails {
   provider: Provider,
   apiKey: string,
-  model: LanguageModel
+  model: LanguageModel,
+  contextLimit: number,
 }
 export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string): ModelDetails {
   const provider = getProviderForModel(modelName);
@@ -136,7 +137,22 @@ export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: strin
     modelName,
     apiKey,
   });
-  return {model, provider, apiKey}
+  // Resolve the actual modelId to look up context limit
+  let modelId: string;
+  if (modelName && modelName.includes("/")) {
+    const parts = modelName.split("/");
+    if (PROVIDERS.includes(parts[0] as Provider)) {
+      modelId = parts.slice(1).join("/");
+    } else {
+      modelId = modelName;
+    }
+  } else if (modelName) {
+    modelId = MODELS[provider][modelName as ModelName] || DEFAULT_MODELS[provider];
+  } else {
+    modelId = DEFAULT_MODELS[provider];
+  }
+  const contextLimit = getContextLimit(modelId, provider);
+  return { model, provider, apiKey, contextLimit }
 }
 
 export function getModel(
@@ -213,6 +229,38 @@ export function getModel(
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
+}
+
+// Context window sizes (input token limits) per model.
+// For models not listed here, falls back to provider default.
+const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  // Anthropic
+  "claude-sonnet-4-6": 200_000,
+  "claude-opus-4-6": 200_000,
+  "claude-haiku-4-5": 200_000,
+  // Google
+  "gemini-3-pro-preview": 1_000_000,
+  // OpenAI
+  "gpt-5": 128_000,
+  // OpenRouter
+  "moonshotai/kimi-k2.5": 128_000,
+};
+
+const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
+  anthropic: 200_000,
+  google: 1_000_000,
+  openai: 128_000,
+  openrouter: 128_000,
+};
+
+// Conservative fallback if both model and provider lookups miss
+const FALLBACK_CONTEXT_LIMIT = 128_000;
+
+/**
+ * Get the context window size (max input tokens) for a given model.
+ */
+export function getContextLimit(modelId: string, provider: Provider): number {
+  return MODEL_CONTEXT_LIMITS[modelId] ?? DEFAULT_CONTEXT_LIMITS[provider] ?? FALLBACK_CONTEXT_LIMIT;
 }
 
 const TOKEN_PRICING: Record<Provider, TokenPricing> = {

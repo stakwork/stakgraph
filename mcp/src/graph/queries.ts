@@ -122,24 +122,50 @@ export const GET_PULL_REQUEST_QUERY = `
 MATCH (n:PullRequest {node_key: $node_key}) RETURN n
 `;
 
-export const CREATE_LEARNING_QUERY = `
-MERGE (n:Learning:${Data_Bank} {node_key: $node_key})
-ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default'
-SET n.name = $name, n.file = $file, n.body = $body, n.start = 0, n.end = 0, n.question = $question, n.context = $context, n.embeddings = $embeddings, n.namespace = 'default'
+// === New Learning + Scope system ===
+
+export const UPSERT_LEARNING_QUERY = `
+MERGE (n:Learning:${Data_Bank} {id: $id})
+ON CREATE SET n.ref_id = randomUUID(), n.node_key = $node_key, n.date_added_to_graph = $ts, n.namespace = 'default',
+  n.name = $id, n.file = 'learning://generated', n.start = 0, n.end = 0
+SET n.rule = $rule, n.body = $rule, n.reason = $reason, n.embeddings = $embeddings
 RETURN n
 `;
 
-export const GET_LEARNING_QUERY = `
-MATCH (n:Learning {node_key: $node_key}) RETURN n
+export const UPSERT_SCOPE_QUERY = `
+MERGE (s:Scope:${Data_Bank} {name: $name})
+ON CREATE SET s.ref_id = randomUUID(), s.node_key = $node_key, s.date_added_to_graph = $ts, s.namespace = 'default',
+  s.file = 'scope://generated', s.start = 0, s.end = 0, s.body = $name, s.embeddings = $embeddings
+RETURN s
 `;
 
-export const CREATE_LEARNING_ABOUT_FEATURES_QUERY = `
-MATCH (l:Learning {ref_id: $learning_ref_id})
-UNWIND $feature_ids AS feature_id
-MATCH (f:Feature {id: feature_id})
-MERGE (l)-[r:ABOUT]->(f)
+export const CREATE_HAS_SCOPE_EDGE_QUERY = `
+MATCH (l:Learning {id: $learning_id})
+MATCH (s:Scope {name: $scope_name})
+MERGE (l)-[r:HAS_SCOPE]->(s)
 ON CREATE SET r.ref_id = randomUUID()
-RETURN collect(distinct f.id) as linked_features
+RETURN r
+`;
+
+export const GET_ALL_LEARNINGS_WITH_SCOPES_QUERY = `
+MATCH (l:Learning)
+OPTIONAL MATCH (l)-[:HAS_SCOPE]->(s:Scope)
+WITH l, collect(s.name) AS scopes
+RETURN l, scopes
+ORDER BY l.date_added_to_graph DESC
+`;
+
+export const GET_ALL_SCOPES_QUERY = `
+MATCH (s:Scope) RETURN s.name AS name
+`;
+
+export const GET_LEARNINGS_BY_SCOPES_QUERY = `
+MATCH (l:Learning)-[:HAS_SCOPE]->(s:Scope)
+WHERE s.name IN $scope_names
+WITH DISTINCT l
+OPTIONAL MATCH (l)-[:HAS_SCOPE]->(s2:Scope)
+WITH l, collect(s2.name) AS scopes
+RETURN l, scopes
 `;
 
 export const CREATE_MOCK_QUERY = `

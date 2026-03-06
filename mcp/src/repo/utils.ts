@@ -1,6 +1,9 @@
 import { ModelMessage, ToolSet, StepResult, StopCondition } from "ai";
 import { SessionConfig, truncateToolResult } from "./session.js";
 
+const TRUNCATED = "<TRUNCATED>";
+const CONTEXT_THRESHOLD = 0.9;
+
 export function createHasEndMarkerCondition<
   T extends ToolSet
 >(): StopCondition<T> {
@@ -301,6 +304,162 @@ function stripTrailingGarbage(s: string): string {
     if (lastBrace > 0) return s.substring(0, lastBrace + 1);
   }
   return s;
+}
+
+/**
+ * Estimate token count for a string (rough: ~4 chars per token).
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Estimate the total tokens in a tool-result message part's output.
+ */
+function getToolResultSize(part: any): number {
+  if (!part?.output) return 0;
+  if (part.output.type === "text" && typeof part.output.value === "string") {
+    return estimateTokens(part.output.value);
+  }
+  if (part.output.type === "json") {
+    return estimateTokens(JSON.stringify(part.output.value));
+  }
+  return 0;
+}
+
+/**
+ * Check if a tool result part is already truncated.
+ */
+function isAlreadyTruncated(part: any): boolean {
+  if (part?.output?.type === "text" && part.output.value === TRUNCATED) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Estimate total tokens in a messages array by serializing all content.
+ */
+export function estimateMessagesTokens(messages: ModelMessage[]): number {
+  let total = 0;
+  for (const msg of messages) {
+    const m = msg as any;
+    if (typeof m.content === "string") {
+      total += estimateTokens(m.content);
+    } else if (Array.isArray(m.content)) {
+      for (const part of m.content) {
+        if (part.type === "text" && typeof part.text === "string") {
+          total += estimateTokens(part.text);
+        } else if (part.type === "tool-result") {
+          total += getToolResultSize(part);
+        } else if (part.type === "tool-call") {
+          total += estimateTokens(JSON.stringify(part.input ?? ""));
+        } else {
+          total += estimateTokens(JSON.stringify(part));
+        }
+      }
+    }
+  }
+  return total;
+}
+
+/**
+ * Truncate old tool results from the beginning of a messages array
+ * to bring token usage under the context limit threshold (90%).
+ *
+ * @param messages - The full messages array about to be sent to the model.
+ * @param inputTokens - Actual input tokens from the provider (from the last step),
+ *                       or 0 if unavailable (in which case we estimate from messages).
+ * @param contextLimit - The model's context window size.
+ *
+ * Returns a new messages array (or the original if no truncation needed).
+ * Tool results are replaced with "<TRUNCATED>" starting from the earliest
+ * messages, skipping the most recent tool results.
+ */
+export function truncateOldToolResults(
+  messages: ModelMessage[],
+  inputTokens: number,
+  contextLimit: number
+): ModelMessage[] {
+  // Use provider-reported tokens if available, otherwise estimate
+  const lastInputTokens = inputTokens > 0
+    ? inputTokens
+    : estimateMessagesTokens(messages);
+  const threshold = contextLimit * CONTEXT_THRESHOLD;
+  if (lastInputTokens < threshold) {
+    return messages;
+  }
+
+  const excess = lastInputTokens - threshold;
+  let tokensToFree = excess;
+
+  console.log(
+    `[truncate] Input tokens ${lastInputTokens} >= ${Math.round(threshold)} (90% of ${contextLimit}). ` +
+    `Need to free ~${Math.round(tokensToFree)} tokens.`
+  );
+
+  // Collect all truncatable tool-result locations (earliest first).
+  // Each entry: { msgIdx, partIdx, tokens }
+  const candidates: { msgIdx: number; partIdx: number; tokens: number }[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i] as any;
+    if (msg.role !== "tool") continue;
+    if (!Array.isArray(msg.content)) continue;
+    for (let j = 0; j < msg.content.length; j++) {
+      const part = msg.content[j];
+      if (part.type === "tool-result" && !isAlreadyTruncated(part)) {
+        const tokens = getToolResultSize(part);
+        if (tokens > 0) {
+          candidates.push({ msgIdx: i, partIdx: j, tokens });
+        }
+      }
+    }
+  }
+
+  if (candidates.length === 0) {
+    return messages;
+  }
+
+  // Deep copy only the messages we need to modify
+  const result = [...messages];
+  let freedTokens = 0;
+
+  // Truncate from the beginning (oldest tool results first)
+  for (const { msgIdx, partIdx, tokens } of candidates) {
+    if (freedTokens >= tokensToFree) break;
+
+    // Lazy deep-copy the message on first mutation
+    if (result[msgIdx] === messages[msgIdx]) {
+      const msg = messages[msgIdx] as any;
+      result[msgIdx] = {
+        ...msg,
+        content: [...msg.content],
+      } as ModelMessage;
+    }
+    const msgContent = (result[msgIdx] as any).content;
+    const part = msgContent[partIdx];
+    // Replace with truncated marker
+    msgContent[partIdx] = {
+      ...part,
+      output: { type: "text" as const, value: TRUNCATED },
+    };
+
+    freedTokens += tokens;
+  }
+
+  let truncatedCount = 0;
+  let sum = 0;
+  for (const c of candidates) {
+    if (sum >= tokensToFree) break;
+    sum += c.tokens;
+    truncatedCount++;
+  }
+
+  console.log(
+    `[truncate] Freed ~${Math.round(freedTokens)} estimated tokens by truncating ${truncatedCount} tool result(s).`
+  );
+
+  return result;
 }
 
 export function deepParseJsonStrings(value: any): any {
