@@ -68,6 +68,7 @@ export type NodeType =
   | "Feature"
   | "Mock"
   | "Learning"
+  | "Scope"
   | "UserObjective";
 
 export type EdgeType =
@@ -89,7 +90,8 @@ export type EdgeType =
   | "ABOUT"
   | "TOUCHES"
   | "MODIFIES"
-  | "REFERENCES";
+  | "REFERENCES"
+  | "HAS_SCOPE";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
@@ -188,6 +190,7 @@ export function all_node_types(): NodeType[] {
     "Feature",
     "Mock",
     "Learning",
+    "Scope",
     "UserObjective",
   ];
 }
@@ -267,7 +270,8 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Feature:
       "A specific capability or functionality within the application or codebase.",
     Mock: "A 3rd party integration mock representing external HTTP services or SDK methods that need to be mocked for testing or development.",
-    Learning: "A manually-created question-answer pair capturing knowledge about the codebase, optionally linked to specific features.",
+    Learning: "A rule or guideline capturing knowledge about the codebase, linked to scopes that define where it applies.",
+    Scope: "A scope label that groups related learnings, such as a technology, pattern, or area of the codebase.",
     UserObjective: "A specific goal or objective that a user wants to achieve within the application.",
   };
 }

@@ -266,13 +266,13 @@ export async function ask(req: Request, res: Response) {
 }
 
 export async function get_learnings_og(req: Request, res: Response) {
-  // curl "http://localhost:3355/learnings?question=how%20does%20auth%20work%20in%20the%20repo"
+  // curl "http://localhost:3355/learnings_og?question=how%20does%20auth%20work%20in%20the%20repo"
   const question =
     (req.query.question as string) ||
     "What are the core user stories in this project?";
 
   try {
-    // Fetch top 25 Prompt nodes using vector search
+    // Fetch top 25 Prompt nodes using vector search (legacy)
     const { prompts, hints } = await learnings(question);
 
     res.json({
@@ -408,63 +408,6 @@ export async function create_pull_request(req: Request, res: Response) {
     });
   } catch (error) {
     console.error("Create PullRequest Error:", error);
-    res.status(500).json({ error: "Internal Server Error" });
-  }
-}
-
-export async function create_learning_og(req: Request, res: Response) {
-  const { question, answer, context, featureIds, conceptIds } = req.body;
-
-  // Accept either featureIds or conceptIds (used interchangeably on frontend)
-  const ids = conceptIds || featureIds;
-
-  // Validate required fields
-  if (!question || !answer) {
-    res.status(400).json({
-      error: "Missing required fields: question and answer are required",
-    });
-    return;
-  }
-
-  // Validate either/or requirement: featureIds/conceptIds OR context
-  if (ids === undefined && !context) {
-    res.status(400).json({
-      error: "Either featureIds/conceptIds or context must be provided",
-    });
-    return;
-  }
-
-  try {
-    // Embed the question only
-    const { vectorizeQuery } = await import("../vector/index.js");
-    const embeddings = await vectorizeQuery(question);
-
-    // Create the Learning node
-    const result = await db.create_learning(
-      question,
-      answer,
-      embeddings,
-      context
-    );
-
-    // Create ABOUT edges to Feature nodes if ids provided
-    let linkedFeatures: string[] = [];
-    if (ids && Array.isArray(ids) && ids.length > 0) {
-      const edgeResult = await db.create_learning_about_edges(
-        result.ref_id,
-        ids
-      );
-      linkedFeatures = edgeResult.linked_features;
-    }
-
-    res.json({
-      success: true,
-      ref_id: result.ref_id,
-      node_key: result.node_key,
-      linked_features: linkedFeatures,
-    });
-  } catch (error) {
-    console.error("Create Learning Error:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 }
