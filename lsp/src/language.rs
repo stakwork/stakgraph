@@ -59,7 +59,7 @@ impl Language {
             Self::Swift => vec!["Package.swift", "Podfile", "Cartfile"],
             Self::Java => vec!["pom.xml", "build.gradle", "build.gradle.kts"],
             Self::Bash => vec![],
-            Self::Toml => vec![],
+            Self::Toml => vec!["Cargo.toml", "pyproject.toml"],
             Self::Svelte => vec!["package.json"],
             Self::Angular => vec!["package.json"],
             Self::C => vec!["CMakeLists.txt", "Makefile", "meson.build"],
