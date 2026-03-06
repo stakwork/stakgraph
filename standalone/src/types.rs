@@ -241,6 +241,12 @@ pub struct HasResponse {
 impl IntoResponse for WebError {
     fn into_response(self) -> Response {
         let status = match &self.0 {
+            shared::Error::Auth(_) => StatusCode::UNAUTHORIZED,
+            shared::Error::Validation(_) | shared::Error::Regex(_) => StatusCode::BAD_REQUEST,
+            shared::Error::NotFound(_) => StatusCode::NOT_FOUND,
+            shared::Error::Dependency(_) => StatusCode::SERVICE_UNAVAILABLE,
+            shared::Error::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+
             shared::Error::Io(_)
             | shared::Error::SerdeJson(_)
             | shared::Error::Env(_)
@@ -253,15 +259,7 @@ impl IntoResponse for WebError {
             | shared::Error::Walkdir(_)
             | shared::Error::Other(_)
             | shared::Error::TreeSitterLanguage(_) => StatusCode::INTERNAL_SERVER_ERROR,
-
-            shared::Error::Regex(_) => StatusCode::BAD_REQUEST,
-            shared::Error::Custom(msg) => {
-                if msg.contains("not found") {
-                    StatusCode::NOT_FOUND
-                } else {
-                    StatusCode::BAD_REQUEST
-                }
-            }
+            shared::Error::Custom(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
         tracing::error!("Handler error: {:?}", self.0);
         let resp = ErrorResponse {

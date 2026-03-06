@@ -60,7 +60,7 @@ async fn run() -> Result<()> {
 
     for file_path in &files {
         if !Path::new(&file_path).exists() {
-            return Err(Error::Custom(format!("File does not exist: {}", file_path)));
+            return Err(Error::not_found(format!("File does not exist: {}", file_path)));
         }
 
         let language = Language::from_path(file_path);

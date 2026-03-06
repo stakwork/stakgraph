@@ -290,7 +290,7 @@ impl FromStr for NodeType {
             "UnitTest" => Ok(NodeType::UnitTest),
             "IntegrationTest" => Ok(NodeType::IntegrationTest),
             "E2etest" => Ok(NodeType::E2eTest),
-            _ => Err(Error::Custom(format!("Invalid NodeType string: {}", s))),
+            _ => Err(Error::validation(format!("Invalid NodeType string: {}", s))),
         }
     }
 }
@@ -330,7 +330,7 @@ impl FromStr for UniqueKey {
     fn from_str(s: &str) -> Result<Self> {
         let arr = s.split(SEP).collect::<Vec<&str>>();
         if arr.len() != 3 && arr.len() != 4 {
-            return Err(Error::Custom(format!("Invalid UniqueKey string: {}", s)));
+            return Err(Error::validation(format!("Invalid UniqueKey string: {}", s)));
         }
         let kind = NodeType::from_str(arr[0])?;
         Ok(UniqueKey {

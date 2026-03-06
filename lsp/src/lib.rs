@@ -43,7 +43,7 @@ impl Cmd {
         let result = sync_fn(|| async {
             tx.send((self, res_tx))
                 .await
-                .map_err(|e| Error::Custom(e.to_string()))?;
+                .map_err(|e| Error::internal(e.to_string()))?;
             Ok(res_rx.await?)
         });
         result
@@ -207,7 +207,7 @@ async fn spawn_inner(
     }
     let child = child_config
         .spawn()
-        .map_err(|e| Error::Custom(format!("spawn error: {:?}, {:#?}", e, child_config)))?;
+        .map_err(|e| Error::dependency(format!("spawn error: {:?}, {:#?}", e, child_config)))?;
     info!("child process started");
     let stdout = child.stdout.context("no stdout")?;
     let stdin = child.stdin.context("no stdin")?;
@@ -238,7 +238,7 @@ async fn spawn_inner(
         }
         Ok(Err(e)) => {
             error!("LSP indexing failed for {:?}: {:?}", lang, e);
-            return Err(Error::Custom(format!("LSP indexing failed: {:?}", e)));
+            return Err(Error::dependency(format!("LSP indexing failed: {:?}", e)));
         }
         Err(_) => {
             error!(
@@ -246,7 +246,7 @@ async fn spawn_inner(
                 timeout_duration.as_secs(),
                 lang
             );
-            return Err(Error::Custom(format!(
+            return Err(Error::dependency(format!(
                 "LSP initialization timeout after {}s",
                 timeout_duration.as_secs()
             )));

@@ -47,7 +47,7 @@ impl CliArgs {
             .collect();
 
         if args.files.is_empty() {
-            return Err(Error::Custom("No file path provided".into()));
+            return Err(Error::validation("No file path provided"));
         }
 
         Ok(args)

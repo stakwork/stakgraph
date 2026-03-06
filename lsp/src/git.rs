@@ -34,17 +34,17 @@ pub async fn validate_git_credentials(
                 || error_msg.contains("403")
                 || error_msg.contains("401")
             {
-                Err(Error::Custom(format!(
+                Err(Error::auth(format!(
                     "Git authentication failed. Please check your PAT and username. Error: {}",
                     e
                 )))
             } else if error_msg.contains("repository not found") || error_msg.contains("404") {
-                Err(Error::Custom(format!(
+                Err(Error::not_found(format!(
                     "Repository not found or access denied. Error: {}",
                     e
                 )))
             } else {
-                Err(Error::Custom(format!(
+                Err(Error::dependency(format!(
                     "Failed to validate git credentials: {}",
                     e
                 )))
@@ -67,7 +67,7 @@ pub async fn validate_git_credentials_multi(
     }
 
     if !errors.is_empty() {
-        return Err(Error::Custom(format!(
+        return Err(Error::validation(format!(
             "Git validation failed for {} repository(ies):\n{}",
             errors.len(),
             errors.join("\n")
@@ -143,17 +143,17 @@ pub async fn git_clone(
                     || error_msg.contains("401")
                 {
                     tracing::error!("git clone authentication failed");
-                    return Err(Error::Custom(
+                    return Err(Error::auth(
                         "Git authentication failed during clone. Please check your PAT (Personal Access Token) and username.".to_string(),
                     ));
                 } else if error_msg.contains("repository not found") || error_msg.contains("404") {
                     tracing::error!("git clone repository not found or access denied");
-                    return Err(Error::Custom(
+                    return Err(Error::not_found(
                         "Repository not found or access denied during clone.".to_string(),
                     ));
                 } else {
                     tracing::error!("git clone failed");
-                    return Err(Error::Custom("Git clone failed".to_string()));
+                    return Err(Error::dependency("Git clone failed"));
                 }
             }
         }
@@ -172,17 +172,17 @@ pub async fn get_commit_hash(dir: &str) -> Result<String> {
         .map_err(|e| {
             let error_msg = e.to_string().to_lowercase();
             if error_msg.contains("no such file or directory") {
-                Error::Custom(format!(
+                Error::not_found(format!(
                     "Repository directory '{}' not found or incomplete. Error: {}",
                     dir, e
                 ))
             } else if error_msg.contains("not a git repository") {
-                Error::Custom(format!(
+                Error::validation(format!(
                     "Directory '{}' is not a valid git repository. Error: {}",
                     dir, e
                 ))
             } else {
-                Error::Custom(format!("Failed to get commit hash from '{}': {}", dir, e))
+                Error::dependency(format!("Failed to get commit hash from '{}': {}", dir, e))
             }
         })?;
     let hash = log

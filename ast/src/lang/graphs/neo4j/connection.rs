@@ -30,7 +30,7 @@ impl Neo4jConnectionManager {
                 // *conn_guard = Some(Arc::new(connection));
                 Ok(connection)
             }
-            Err(_) => Err(Error::Custom("Failed to connect to Neo4j : {e}".into())),
+            Err(e) => Err(Error::dependency(format!("Failed to connect to Neo4j: {e}"))),
         }
     }
 }
@@ -64,7 +64,7 @@ impl Neo4jGraph {
         if let Err(e) = txn.run(query_obj).await {
             eprintln!("Error clearing stakgraph nodes: {:?}", e);
             txn.rollback().await?;
-            return Err(Error::Custom(format!("Neo4j clear graph error: {}", e)));
+            return Err(Error::internal(format!("Neo4j clear graph error: {}", e)));
         }
 
         txn.commit().await?;

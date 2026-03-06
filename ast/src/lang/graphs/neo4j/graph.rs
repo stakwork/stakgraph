@@ -897,10 +897,10 @@ impl Neo4jGraph {
         while let Some(row) = result.next().await? {
             let node: neo4rs::Node = row
                 .get("node")
-                .map_err(|e| Error::Custom(format!("Failed to get node {e}")))?;
+                .map_err(|e| Error::internal(format!("Failed to get node {e}")))?;
             let score: f64 = row
                 .get("score")
-                .map_err(|e| Error::Custom(format!("Failed to get score {e}")))?;
+                .map_err(|e| Error::internal(format!("Failed to get score {e}")))?;
 
             if let Ok(node_data) = NodeData::try_from(&node) {
                 nodes.push((node_data, score));

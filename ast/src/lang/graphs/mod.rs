@@ -373,7 +373,7 @@ impl FromStr for EdgeType {
             "PARENT_OF" => Ok(EdgeType::ParentOf),
             "IMPLEMENTS" => Ok(EdgeType::Implements),
             "NESTED_IN" => Ok(EdgeType::NestedIn),
-            _ => Err(Error::Custom(format!("Invalid EdgeType: {}", s))),
+            _ => Err(Error::validation(format!("Invalid EdgeType: {}", s))),
         }
     }
 }

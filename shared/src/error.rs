@@ -38,6 +38,21 @@ pub enum Error {
     #[error("Tree-sitter language error: {0}")]
     TreeSitterLanguage(#[from] tree_sitter::LanguageError),
 
+    #[error("Auth error: {0}")]
+    Auth(String),
+
+    #[error("Validation error: {0}")]
+    Validation(String),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Dependency error: {0}")]
+    Dependency(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
+
     #[error("Error : {0}")]
     Custom(String),
 
@@ -49,6 +64,26 @@ impl Error {
     pub fn custom<S: Into<String>>(msg: S) -> Self {
         Error::Custom(msg.into())
     }
+
+    pub fn auth<S: Into<String>>(msg: S) -> Self {
+        Error::Auth(msg.into())
+    }
+
+    pub fn validation<S: Into<String>>(msg: S) -> Self {
+        Error::Validation(msg.into())
+    }
+
+    pub fn not_found<S: Into<String>>(msg: S) -> Self {
+        Error::NotFound(msg.into())
+    }
+
+    pub fn dependency<S: Into<String>>(msg: S) -> Self {
+        Error::Dependency(msg.into())
+    }
+
+    pub fn internal<S: Into<String>>(msg: S) -> Self {
+        Error::Internal(msg.into())
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -58,12 +93,12 @@ pub trait Context<T> {
 
 impl<T> Context<T> for Option<T> {
     fn context(self, msg: &str) -> Result<T> {
-        self.ok_or_else(|| Error::Custom(msg.to_string()))
+        self.ok_or_else(|| Error::Internal(msg.to_string()))
     }
 }
 
 impl<T, E: std::fmt::Display> Context<T> for std::result::Result<T, E> {
     fn context(self, msg: &str) -> Result<T> {
-        self.map_err(|e| Error::Custom(format!("{msg}: {e}")))
+        self.map_err(|e| Error::Internal(format!("{msg}: {e}")))
     }
 }

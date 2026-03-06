@@ -8,7 +8,7 @@ fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
     let language = args
         .get(1)
-        .ok_or_else(|| Error::Custom("missing language argument".into()))?;
+        .ok_or_else(|| Error::validation("missing language argument"))?;
     let lang = Lang::from_str(language)?;
 
     println!("=======> Class query <=======");

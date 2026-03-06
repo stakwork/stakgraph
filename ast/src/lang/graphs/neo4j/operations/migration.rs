@@ -18,7 +18,7 @@ impl Neo4jGraph {
         if let Some(row) = result.next().await? {
             Ok(row.get::<String>("hash").unwrap_or_default())
         } else {
-            Err(Error::Custom(format!(
+            Err(Error::not_found(format!(
                 "No hash found for REPO {}",
                 repo_url
             )))
@@ -102,7 +102,7 @@ impl Neo4jGraph {
         }
         if let Err(e) = txn.run(query_obj).await {
             txn.rollback().await?;
-            return Err(Error::Custom(format!(
+            return Err(Error::internal(format!(
                 "Neo4j clear existing graph error: {}",
                 e
             )));

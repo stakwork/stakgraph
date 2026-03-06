@@ -15,7 +15,7 @@ pub async fn get_embedder() -> Result<Arc<Mutex<TextEmbedding>>> {
 
     let options = InitOptions::new(EmbeddingModel::BGESmallENV15).with_max_length(512);
     let model = TextEmbedding::try_new(options)
-        .map_err(|e| Error::Custom(format!("failed to load embedding model: {e}")))?;
+        .map_err(|e| Error::dependency(format!("failed to load embedding model: {e}")))?;
     let embedder = Arc::new(Mutex::new(model));
     let _ = EMBEDDER.set(embedder.clone());
     Ok(embedder)
