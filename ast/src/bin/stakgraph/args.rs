@@ -26,7 +26,8 @@ pub struct CliArgs {
     #[arg(long, action = ArgAction::SetTrue, conflicts_with = "quiet")]
     pub perf: bool,
 
-    #[arg(value_name = "FILE", required = true, num_args = 1..)]
+    /// Input files or directories (comma-separated or multiple args)
+    #[arg(value_name = "FILE_OR_DIR", required = true, num_args = 1..)]
     pub files: Vec<String>,
 }
 

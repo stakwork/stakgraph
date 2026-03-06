@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::io::ErrorKind;
 use std::path::Path;
 
@@ -7,6 +8,7 @@ use console::style;
 use lsp::Language;
 use shared::{Error, Result};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
+use walkdir::WalkDir;
 
 mod args;
 mod output;
@@ -31,6 +33,34 @@ async fn main() {
     }
 }
 
+fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
+    let mut expanded: Vec<String> = Vec::new();
+    let mut dir_files: HashSet<String> = HashSet::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for input in inputs {
+        let path = Path::new(input);
+        if path.is_dir() {
+            for entry in WalkDir::new(path) {
+                let entry = entry?;
+                if entry.file_type().is_file() {
+                    let p = entry.path().to_string_lossy().to_string();
+                    if Language::from_path(&p).is_some() && seen.insert(p.clone()) {
+                        expanded.push(p.clone());
+                        dir_files.insert(p);
+                    }
+                }
+            }
+        } else {
+            if seen.insert(input.clone()) {
+                expanded.push(input.clone());
+            }
+        }
+    }
+
+    Ok((expanded, dir_files))
+}
+
 async fn run() -> Result<()> {
     let cli = CliArgs::parse_and_expand()?;
 
@@ -50,7 +80,7 @@ async fn run() -> Result<()> {
         .with_env_filter(filter)
         .init();
 
-    let files = cli.files;
+    let (files, dir_files) = expand_dirs(&cli.files)?;
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
 
@@ -59,8 +89,8 @@ async fn run() -> Result<()> {
     let mut files_to_print: Vec<String> = Vec::new();
 
     for file_path in &files {
-        if !Path::new(&file_path).exists() {
-            return Err(Error::not_found(format!("File does not exist: {}", file_path)));
+        if !dir_files.contains(file_path) && !Path::new(file_path).exists() {
+            return Err(Error::Custom(format!("File does not exist: {}", file_path)));
         }
 
         let language = Language::from_path(file_path);
@@ -74,15 +104,18 @@ async fn run() -> Result<()> {
                 files_to_print.push(file_path.clone());
             }
             None => {
-                let contents = std::fs::read_to_string(file_path)?;
-                let file_label = style("File:").bold().cyan();
-                let msg = format!(
-                    "{}  {}\n{}\n",
-                    file_label,
-                    style(file_path).cyan(),
-                    first_lines(&contents, 40, 200)
-                );
-                out.writeln(msg)?;
+
+                if !dir_files.contains(file_path) {
+                    let contents = std::fs::read_to_string(file_path)?;
+                    let file_label = style("File:").bold().cyan();
+                    let msg = format!(
+                        "{}  {}\n{}\n",
+                        file_label,
+                        style(file_path).cyan(),
+                        first_lines(&contents, 40, 200)
+                    );
+                    out.writeln(msg)?;
+                }
             }
         }
     }
