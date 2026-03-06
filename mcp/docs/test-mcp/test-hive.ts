@@ -51,14 +51,24 @@ async function testMcpServerDirect() {
       console.log("read_feature result:", JSON.stringify(result, null, 2));
     }
 
-    const create_feature = toolNames.find((name) =>
-      name.toLowerCase().includes("create_feature")
+    // const create_feature = toolNames.find((name) =>
+    //   name.toLowerCase().includes("create_feature")
+    // );
+    // if (create_feature) {
+    //   console.log(`Testing tool: ${create_feature}`);
+    //   const tool = tools[create_feature];
+    //   const result = await tool.execute({title: "asdfasdf", brief: "Test Feature", requirements: "Test Description"}, {toolCallId: "3", messages: []});
+    //   console.log("create_feature result:", JSON.stringify(result, null, 2));
+    // }
+
+    const check_status = toolNames.find((name) =>
+      name.toLowerCase().includes("check_status")
     );
-    if (create_feature) {
-      console.log(`Testing tool: ${create_feature}`);
-      const tool = tools[create_feature];
-      const result = await tool.execute({title: "asdfasdf", brief: "Test Feature", requirements: "Test Description"}, {toolCallId: "3", messages: []});
-      console.log("create_feature result:", JSON.stringify(result, null, 2));
+    if (check_status) {
+      console.log(`Testing tool: ${check_status}`);
+      const tool = tools[check_status];
+      const result = await tool.execute({}, {toolCallId: "4", messages: []});
+      console.log("check_status result:", JSON.stringify(result, null, 2));
     }
 
     await mcpClient.close();

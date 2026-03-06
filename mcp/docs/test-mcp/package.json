@@ -15,8 +15,8 @@
     "test-lru": "ts-node test-lru.ts",
     "stak": "ts-node stak.ts",
     "test-stak": "ts-node test-stak.ts",
-    "test-mcp": "ts-node test-mcp.ts",
-    "test-hive": "ts-node test-hive.ts"
+    "test-mcp": "node --env-file=.env --loader ts-node/esm test-mcp.ts",
+    "test-hive": "node --env-file=.env --loader ts-node/esm test-hive.ts"
   },
   "dependencies": {
     "@ai-sdk/mcp": "^1.0.19",
