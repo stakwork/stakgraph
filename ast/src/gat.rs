@@ -4,7 +4,7 @@ use shared::error::{Context, Error, Result};
 pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Result<Vec<String>> {
     // Open the repository
     let repo = Repository::open(repo_path)
-        .map_err(|e| Error::Custom(format!("Failed to open git repository: {}", e)))?;
+        .map_err(|e| Error::not_found(format!("Failed to open git repository: {}", e)))?;
 
     // Look up the two commits
     let old_commit = repo
@@ -51,7 +51,7 @@ pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Resul
         None,
         None,
     )
-    .map_err(|e| shared::Error::Custom(format!("Failed to iterate diff deltas: {e}")))?;
+    .map_err(|e| shared::Error::internal(format!("Failed to iterate diff deltas: {e}")))?;
 
     Ok(changed_files)
 }

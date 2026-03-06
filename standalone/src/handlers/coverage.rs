@@ -87,8 +87,8 @@ pub async fn nodes_handler(
 
     if let Some(coverage) = coverage_filter {
         if !matches!(coverage, "tested" | "untested" | "all") {
-            return Err(WebError(shared::Error::Custom(
-                "Invalid coverage parameter. Must be 'tested', 'untested', or 'all'".into(),
+            return Err(WebError(shared::Error::validation(
+                "Invalid coverage parameter. Must be 'tested', 'untested', or 'all'",
             )));
         }
     }
@@ -214,7 +214,7 @@ pub async fn has_handler(Query(params): Query<HasParams>) -> Result<Json<HasResp
     let node_type = match params.node_type.to_lowercase().as_str() {
         "function" => NodeType::Function,
         "endpoint" => NodeType::Endpoint,
-        _ => return Err(WebError(Error::Custom("invalid node_type".into()))),
+        _ => return Err(WebError(Error::validation("invalid node_type"))),
     };
     println!(
         "[/tests/has] node_type={:?} name={:?} file={:?} start={:?} root={:?} tests={:?}",

@@ -448,8 +448,8 @@ impl Repo {
                 repo_file, self.lang.kind
             );
             existing_repos.first().cloned().ok_or_else(|| {
-                shared::Error::Custom(
-                    "Repository was expected to exist but was not found in graph".into(),
+                shared::Error::internal(
+                    "Repository was expected to exist but was not found in graph",
                 )
             })?
         };

@@ -38,7 +38,7 @@ async fn main() -> Result<()> {
     let mut graph_ops = ast::lang::graphs::graph_ops::GraphOps::new();
     if let Err(e) = graph_ops.check_connection().await {
         eprintln!("Failed to connect to graph db: {:?}", e);
-        return Err(standalone::types::WebError(shared::Error::Custom(format!(
+        return Err(standalone::types::WebError(shared::Error::internal(format!(
             "Failed to connect to graph database: {:?}",
             e
         ))));
@@ -160,7 +160,7 @@ async fn main() -> Result<()> {
     let bind = format!("0.0.0.0:{}", port);
     let listener = tokio::net::TcpListener::bind(&bind).await.map_err(|e| {
         eprintln!("Failed to bind to {}: {}", bind, e);
-        standalone::types::WebError(shared::Error::Custom(format!(
+        standalone::types::WebError(shared::Error::internal(format!(
             "Failed to bind to {}: {}",
             bind, e
         )))
@@ -178,7 +178,7 @@ async fn main() -> Result<()> {
 
     let local_addr = listener.local_addr().map_err(|e| {
         eprintln!("Failed to get listener address: {}", e);
-        standalone::types::WebError(shared::Error::Custom(format!(
+        standalone::types::WebError(shared::Error::internal(format!(
             "Failed to get listener address: {}",
             e
         )))
@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
     println!("=> listening on http://{}", local_addr);
     axum::serve(listener, app).await.map_err(|e| {
         eprintln!("Server error: {}", e);
-        standalone::types::WebError(shared::Error::Custom(format!("Server error: {}", e)))
+        standalone::types::WebError(shared::Error::internal(format!("Server error: {}", e)))
     })?;
 
     println!("Server shutdown complete.");

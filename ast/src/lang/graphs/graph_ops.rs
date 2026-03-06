@@ -60,7 +60,7 @@ impl GraphOps {
                     check_timeout.as_secs()
                 );
                 error!("{}", err_msg);
-                Err(Error::Custom(err_msg))
+                Err(Error::dependency(err_msg))
             }
         }
     }
@@ -78,7 +78,7 @@ impl GraphOps {
             .find_nodes_by_name_async(NodeType::Repository, repo_name)
             .await;
         if repo.is_empty() {
-            return Err(Error::Custom("Repo not found".into()));
+            return Err(Error::not_found("Repo not found"));
         }
         Ok(repo[0].clone())
     }

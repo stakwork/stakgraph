@@ -132,8 +132,9 @@ pub async fn sync_async(
     });
 
     info!(
-        "/sync with Request ID: {} and callback_url:  {:?}",
-        request_id_for_work, callback_url
+        "/sync with Request ID: {} callback_url_present={}",
+        request_id_for_work,
+        callback_url.is_some()
     );
 
     let state_for_process = state.clone();
@@ -228,7 +229,7 @@ pub async fn sync_async(
                             status: "Failed".to_string(),
                             progress: 0,
                             result: None,
-                            error: Some(format!("{:?}", e)),
+                            error: Some("Request processing failed".to_string()),
                             started_at: started_at.to_rfc3339(),
                             completed_at: Utc::now().to_rfc3339(),
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
@@ -455,7 +456,7 @@ pub async fn ingest_async(
                             status: "Failed".to_string(),
                             progress: 0,
                             result: None,
-                            error: Some(format!("{:?}", e)),
+                            error: Some("Request processing failed".to_string()),
                             started_at: started_at.to_rfc3339(),
                             completed_at: Utc::now().to_rfc3339(),
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,

@@ -12,7 +12,7 @@ pub async fn run(cmd: &str, args: &[&str]) -> Result<String> {
         .await?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(Error::Custom(format!("{} failed: {}", cmd, stderr)));
+        return Err(Error::dependency(format!("{} failed: {}", cmd, stderr)));
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -26,7 +26,7 @@ pub async fn run_res_in_dir(cmd: &str, args: &[&str], dir: &str) -> Result<Strin
         .await?;
     if !res.status.success() {
         let err = String::from_utf8_lossy(&res.stderr).to_string();
-        return Err(Error::Custom(format!("err : {}", err)));
+        return Err(Error::dependency(format!("err : {}", err)));
     }
     Ok(String::from_utf8_lossy(&res.stdout).to_string())
 }

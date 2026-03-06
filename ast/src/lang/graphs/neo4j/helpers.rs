@@ -61,7 +61,7 @@ pub fn boltmap_insert_bool(map: &mut BoltMap, key: &str, value: bool) {
 pub fn calculate_token_count(body: &str) -> Result<i64> {
     let bpe = TOKENIZER
         .as_ref()
-        .map_err(|e| shared::Error::Custom(format!("failed to initialize tokenizer: {e}")))?;
+        .map_err(|e| shared::Error::dependency(format!("failed to initialize tokenizer: {e}")))?;
     let token_count = bpe.encode_with_special_tokens(body).len() as i64;
     Ok(token_count)
 }

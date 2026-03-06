@@ -39,7 +39,7 @@ pub async fn ingest(
         )
         .await
         .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
+            WebError(shared::Error::internal(format!(
                 "Repo detection Failed: {}",
                 e
             )))
@@ -57,7 +57,7 @@ pub async fn ingest(
         )
         .await
         .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
+            WebError(shared::Error::internal(format!(
                 "Repo detection Failed: {}",
                 e
             )))
@@ -88,7 +88,7 @@ pub async fn ingest(
         .build_graphs_btree_with_streaming(enable_batch_upload)
         .await
         .map_err(|e| {
-            WebError(shared::Error::Custom(format!(
+            WebError(shared::Error::internal(format!(
                 "Failed to build graphs: {}",
                 e
             )))
@@ -210,8 +210,8 @@ pub async fn sync(
     let (repo_paths, repo_urls, username, pat, _, branch) = resolve_repo(&body)?;
 
     if repo_urls.len() > 1 {
-        return Err(WebError(shared::Error::Custom(
-            "sync only supports a single repository. Use ingest for multiple repositories.".into(),
+        return Err(WebError(shared::Error::validation(
+            "sync only supports a single repository. Use ingest for multiple repositories.",
         )));
     }
 
@@ -246,7 +246,7 @@ pub async fn sync(
     let current_hash = match get_commit_hash(&repo_path).await {
         Ok(hash) => hash,
         Err(e) => {
-            return Err(WebError(shared::Error::Custom(format!(
+            return Err(WebError(shared::Error::internal(format!(
                 "Could not get current hash: {e}"
             ))));
         }

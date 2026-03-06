@@ -104,7 +104,7 @@ impl Repos {
         enable_batch_upload: bool,
     ) -> Result<G> {
         if self.0.is_empty() {
-            return Err(Error::Custom("Language is not supported".into()));
+            return Err(Error::validation("Language is not supported"));
         }
 
         memory::log_memory("repos_init");
@@ -309,7 +309,7 @@ impl Repo {
             .collect::<Vec<String>>();
         // Validate revs count - it should be empty or a multiple of urls count
         if !revs.is_empty() && !revs.len().is_multiple_of(urls.len()) {
-            return Err(Error::Custom(format!(
+            return Err(Error::validation(format!(
                 "Number of revisions ({}) must be a multiple of the number of repositories ({})",
                 revs.len(),
                 urls.len()
@@ -324,7 +324,7 @@ impl Repo {
         let mut repos: Vec<Repo> = Vec::new();
         for (i, url) in urls.iter().enumerate() {
             let gurl = GitUrl::parse(url).map_err(|e| {
-                Error::Custom(format!("Failed to parse Git URL for {}: {}", url, e))
+                Error::validation(format!("Failed to parse Git URL for {}: {}", url, e))
             })?;
             let root = format!("/tmp/{}", gurl.fullname);
             println!(
@@ -378,7 +378,7 @@ impl Repo {
                 ..Default::default()
             };
             let source_files = walk_files(&root.into(), &conf)
-                .map_err(|e| Error::Custom(format!("Failed to walk files at {}: {}", root, e)))?;
+                .map_err(|e| Error::internal(format!("Failed to walk files at {}: {}", root, e)))?;
             let has_pkg_file = if l.pkg_files().is_empty() {
                 !source_files.is_empty()
             } else {
@@ -431,7 +431,7 @@ impl Repo {
                     ..Default::default()
                 };
                 let source_files = walk_files(&root.into(), &conf).map_err(|e| {
-                    Error::Custom(format!("Failed to walk files at {}: {}", root, e))
+                    Error::internal(format!("Failed to walk files at {}: {}", root, e))
                 })?;
 
                 if !source_files.is_empty() {
@@ -463,7 +463,7 @@ impl Repo {
                     .iter()
                     .flat_map(|l| l.pkg_files())
                     .collect();
-                return Err(Error::Custom(format!(
+                return Err(Error::validation(format!(
                     "No supported language detected in '{}'. Expected one of these package files: {:?}",
                     root, supported_pkg_files
                 )));
@@ -479,11 +479,11 @@ impl Repo {
             // Run post-clone commands
             for cmd in thelang.kind.post_clone_cmd(lsp_enabled) {
                 Self::run_cmd(cmd, root).map_err(|e| {
-                    Error::Custom(format!("Failed to cmd {} in {}: {}", cmd, root, e))
+                    Error::dependency(format!("Failed to cmd {} in {}: {}", cmd, root, e))
                 })?;
             }
             let lsp_tx = Self::start_lsp(root, &thelang, lsp_enabled)
-                .map_err(|e| Error::Custom(format!("Failed to start LSP: {}", e)))?;
+                .map_err(|e| Error::dependency(format!("Failed to start LSP: {}", e)))?;
             repos.push(Repo {
                 url: url.clone().unwrap_or_default(),
                 root: root.into(),
@@ -537,7 +537,7 @@ impl Repo {
         info!("Running cmd: {:?}", cmd);
         let mut arr = cmd.split(" ").collect::<Vec<&str>>();
         if arr.is_empty() {
-            return Err(Error::Custom("empty cmd".into()));
+            return Err(Error::validation("empty cmd"));
         }
         let first = arr.remove(0);
         let mut proc = std::process::Command::new(first);
@@ -631,7 +631,7 @@ impl Repo {
         commits.reverse();
 
         if commits.is_empty() {
-            return Err(Error::Custom("No commits found in repository".into()));
+            return Err(Error::not_found("No commits found in repository"));
         }
 
         Ok(commits)
@@ -759,7 +759,7 @@ impl Repo {
         let root = std::path::Path::new(file_path)
             .parent()
             .map(|p| p.to_path_buf())
-            .ok_or_else(|| Error::Custom("Invalid file path".into()))?;
+            .ok_or_else(|| Error::validation("Invalid file path"))?;
         let files_filter = vec![file_path.to_string()];
         Ok(Self {
             url: String::new(),

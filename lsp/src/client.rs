@@ -61,7 +61,7 @@ impl LspClient {
         }
         let file = root_dir.join(f);
         Url::from_file_path(file)
-            .map_err(|_| Error::Custom("Failed to convert path to file URL".to_string()))
+            .map_err(|_| Error::validation("Failed to convert path to file URL"))
     }
     pub async fn handle(&mut self, cmd: Cmd) -> Result<Res> {
         trace!("handle: {:?}", cmd);
@@ -110,7 +110,7 @@ impl LspClient {
             .initialize(InitializeParams {
                 workspace_folders: Some(vec![WorkspaceFolder {
                     uri: Url::from_file_path(&self.root).map_err(|_| {
-                        Error::Custom(format!("Invalid root path for LSP: {:?}", self.root))
+                        Error::validation(format!("Invalid root path for LSP: {:?}", self.root))
                     })?,
                     name: "root".into(),
                 }]),

@@ -279,8 +279,8 @@ pub fn resolve_repo(
     let branch = body.branch.clone();
 
     if repo_path.is_none() && repo_url.is_none() {
-        return Err(shared::Error::Custom(
-            "Neither REPO_PATH nor REPO_URL is set in the body or environment".into(),
+        return Err(shared::Error::validation(
+            "Neither REPO_PATH nor REPO_URL is set in the body or environment",
         ));
     }
 
@@ -295,16 +295,14 @@ pub fn resolve_repo(
         ))
     } else {
         let url_string = repo_url.ok_or_else(|| {
-            shared::Error::Custom(
-                "repo_path is None but repo_url is also None; check early validation".into(),
+            shared::Error::validation(
+                "repo_path is None but repo_url is also None; check early validation",
             )
         })?;
         let urls = parse_repo_urls(&url_string);
 
         if urls.is_empty() {
-            return Err(shared::Error::Custom(
-                "REPO_URL is empty after parsing".into(),
-            ));
+            return Err(shared::Error::validation("REPO_URL is empty after parsing"));
         }
 
         let mut paths = Vec::new();

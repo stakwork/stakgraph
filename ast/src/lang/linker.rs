@@ -293,7 +293,7 @@ pub fn infer_lang(nd: &NodeData) -> Result<Language> {
             return Ok(lang);
         }
     }
-    Err(Error::Custom(format!(
+    Err(Error::validation(format!(
         "could not infer language for file {}",
         nd.file
     )))

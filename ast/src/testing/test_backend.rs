@@ -104,7 +104,7 @@ impl<G: Graph + Sync> BackendTester<G> {
             Ok(())
         } else {
             error!("Data model {} not found", name);
-            Err(Error::Custom(format!("Data model {} not found", name)))
+            Err(Error::not_found(format!("Data model {} not found", name)))
         }
     }
 
@@ -123,7 +123,7 @@ impl<G: Graph + Sync> BackendTester<G> {
                 info!("✓ Found endpoint {} {}", method, path);
             } else {
                 error!("Endpoint {} {} not found", method, path);
-                return Err(Error::Custom(format!(
+                return Err(Error::not_found(format!(
                     "Endpoint {} {} not found",
                     method, path
                 )));
@@ -146,7 +146,7 @@ impl<G: Graph + Sync> BackendTester<G> {
                     .find_resource_nodes(NodeType::Endpoint, verb, &normalized_path);
             if matching_endpoints.is_empty() {
                 error!("No endpoint found for {} {}", verb, path);
-                return Err(Error::Custom(format!(
+                return Err(Error::not_found(format!(
                     "No endpoint found for {} {}",
                     verb, path
                 )));

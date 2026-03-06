@@ -31,7 +31,7 @@ impl Lang {
                     .collect(),
                 NodeType::DataModel => vec![self.format_data_model(m, code, file, q)?],
                 NodeType::Var => self.format_variables(m, code, file, q)?,
-                _ => return Err(Error::Custom(format!("collect: {nt:?} not implemented"))),
+                _ => return Err(Error::validation(format!("collect: {nt:?} not implemented"))),
             };
             res.extend(another);
         }

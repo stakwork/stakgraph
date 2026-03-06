@@ -403,7 +403,7 @@ impl FromStr for Language {
             "c#" => Ok(Language::CSharp),
             "C#" => Ok(Language::CSharp),
 
-            _ => Err(Error::Custom("unsupported language".to_string())),
+            _ => Err(Error::validation("unsupported language")),
         }
     }
 }
