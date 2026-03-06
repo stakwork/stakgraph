@@ -31,6 +31,13 @@ type ToolName =
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
+const TOOL_NAMES: Set<string> = new Set<string>([
+  "repo_overview", "file_summary", "recent_commits", "recent_contributions",
+  "fulltext_search", "web_search", "bash", "final_answer",
+  "ask_clarifying_questions", "list_concepts", "learn_concept",
+  "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
+]);
+
 export type SkillsConfig = Partial<Record<string, boolean>>;
 
 const DEFAULT_DESCRIPTIONS: Record<ToolName, string> = {
@@ -528,4 +535,42 @@ export async function get_tools(
 
 export function getDefaultToolDescriptions(): ToolsConfig {
   return DEFAULT_DESCRIPTIONS;
+}
+
+/** Accept ToolsConfig as an object or as a flat string like "key1 true key2 true" */
+export function normalizeToolsConfig(
+  raw: unknown
+): ToolsConfig | undefined {
+  if (raw == null) return undefined;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw as ToolsConfig;
+  if (typeof raw === "string") {
+    const tokens = raw.trim().split(/\s+/);
+    const config: ToolsConfig = {};
+    let i = 0;
+    while (i < tokens.length) {
+      const key = tokens[i];
+      if (!TOOL_NAMES.has(key)) { i++; continue; }
+      const next = tokens[i + 1];
+      if (next === "true") {
+        (config as any)[key] = true;
+        i += 2;
+      } else if (next === "false") {
+        (config as any)[key] = false;
+        i += 2;
+      } else if (next === "null") {
+        (config as any)[key] = null;
+        i += 2;
+      } else if (next !== undefined && !TOOL_NAMES.has(next)) {
+        // treat as a custom string value
+        (config as any)[key] = next;
+        i += 2;
+      } else {
+        // no value follows, default to true
+        (config as any)[key] = true;
+        i++;
+      }
+    }
+    return Object.keys(config).length > 0 ? config : undefined;
+  }
+  return undefined;
 }
