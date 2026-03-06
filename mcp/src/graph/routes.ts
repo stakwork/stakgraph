@@ -265,7 +265,7 @@ export async function ask(req: Request, res: Response) {
   }
 }
 
-export async function get_learnings(req: Request, res: Response) {
+export async function get_learnings_og(req: Request, res: Response) {
   // curl "http://localhost:3355/learnings?question=how%20does%20auth%20work%20in%20the%20repo"
   const question =
     (req.query.question as string) ||
@@ -412,7 +412,7 @@ export async function create_pull_request(req: Request, res: Response) {
   }
 }
 
-export async function create_learning(req: Request, res: Response) {
+export async function create_learning_og(req: Request, res: Response) {
   const { question, answer, context, featureIds, conceptIds } = req.body;
 
   // Accept either featureIds or conceptIds (used interchangeably on frontend)
