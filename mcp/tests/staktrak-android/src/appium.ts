@@ -193,6 +193,22 @@ function findElement(selector: AndroidSelector): ChainablePromiseElement {
   throw new Error("Selector is required (resourceId/accessibilityId/text/xpath).");
 }
 
+type MobilePressKeyArg = {
+  keycode: number;
+};
+
+type MobilePressKeyExecutor = {
+  execute(command: "mobile: pressKey", args: MobilePressKeyArg[]): Promise<unknown>;
+};
+
+async function executeMobilePressKey(
+  currentDriver: WebdriverIO.Browser,
+  keycode: number,
+): Promise<void> {
+  const mobileDriver = currentDriver as WebdriverIO.Browser & MobilePressKeyExecutor;
+  await mobileDriver.execute("mobile: pressKey", [{ keycode }]);
+}
+
 export async function startSession(input: StartSessionInput): Promise<{ sessionId: string }> {
   const session = await ensureSession(input, { forceRestart: true });
   return { sessionId: session.sessionId };
@@ -355,12 +371,12 @@ export async function swipe(
 
 export async function pressBack(): Promise<void> {
   await executeWithAutoReconnect(async (currentDriver) => {
-    await (currentDriver as any).execute("mobile: pressKey", [{ keycode: 4 }]);
+    await executeMobilePressKey(currentDriver, 4);
   });
 }
 
 export async function pressHome(): Promise<void> {
   await executeWithAutoReconnect(async (currentDriver) => {
-    await (currentDriver as any).execute("mobile: pressKey", [{ keycode: 3 }]);
+    await executeMobilePressKey(currentDriver, 3);
   });
 }
