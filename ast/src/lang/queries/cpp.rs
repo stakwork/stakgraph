@@ -32,6 +32,9 @@ impl Cpp {
     }
 }
 impl Stack for Cpp {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::cpp::should_skip(called, operand)
+    }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             match Query::new(&tree_sitter_bash::LANGUAGE.into(), q) {

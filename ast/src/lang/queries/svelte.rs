@@ -36,6 +36,9 @@ impl Svelte {
 }
 
 impl Stack for Svelte {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::svelte::should_skip(called, operand)
+    }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         let grammar = match nt {
             NodeType::Function

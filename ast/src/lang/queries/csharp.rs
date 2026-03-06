@@ -20,6 +20,9 @@ impl CSharp {
 }
 
 impl Stack for CSharp {
+    fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
+        super::skips::csharp::should_skip(called, operand)
+    }
     fn q(&self, q: &str, nt: &NodeType) -> Query {
         if matches!(nt, NodeType::Library) {
             // .csproj files are XML

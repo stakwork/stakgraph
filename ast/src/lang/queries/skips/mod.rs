@@ -1,7 +1,12 @@
+pub mod angular;
 pub mod c;
+pub mod cpp;
+pub mod csharp;
 pub mod go;
 pub mod java;
+pub mod php;
 pub mod python;
 pub mod react_ts;
 pub mod ruby;
 pub mod rust;
+pub mod svelte;
