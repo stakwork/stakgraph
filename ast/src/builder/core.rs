@@ -14,8 +14,7 @@ use lsp::{git::get_commit_hash, strip_tmp, Cmd as LspCmd, DidOpen};
 use shared::error::Result;
 #[cfg(feature = "neo4j")]
 use std::any::type_name;
-use std::collections::HashSet;
-use std::{collections::HashMap, path::PathBuf, time::Instant};
+use std::{collections::{HashMap, HashSet}, path::PathBuf, time::Instant};
 use tokio::fs;
 use tracing::{debug, info, trace};
 
@@ -245,7 +244,7 @@ impl Repo {
         }
 
         let root_str = self.root.to_string_lossy().to_string();
-        let graph = filter_by_revs(&root_str, self.revs.clone(), graph, self.lang.kind.clone());
+        let mut graph = filter_by_revs(&root_str, self.revs.clone(), graph, self.lang.kind.clone());
 
         let (num_of_nodes, num_of_edges) = graph.get_graph_size();
         info!(
@@ -260,6 +259,7 @@ impl Repo {
 
         Ok(graph)
     }
+
 }
 
 impl Repo {

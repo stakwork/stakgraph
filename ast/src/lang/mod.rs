@@ -258,6 +258,31 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
+    pub fn filter_nested_datamodels(&self, code: &str, data_models: Vec<NodeData>) -> Vec<NodeData> {
+        let Some(scope_query_str) = self.lang.nested_scope_query() else {
+            return data_models;
+        };
+        let q = self.q(&scope_query_str, &NodeType::DataModel);
+        let Ok(tree) = self.lang.parse(code, &NodeType::DataModel) else {
+            return data_models;
+        };
+        let mut cursor = QueryCursor::new();
+        let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
+        let mut scopes: Vec<(usize, usize)> = Vec::new();
+        while let Some(m) = matches.next() {
+            for cap in m.captures {
+                scopes.push((cap.node.start_position().row, cap.node.end_position().row));
+            }
+        }
+        if scopes.is_empty() {
+            return data_models;
+        }
+        data_models
+            .into_iter()
+            .filter(|dm| !scopes.iter().any(|(s, e)| dm.start > *s && dm.end < *e))
+            .collect()
+    }
+
     pub fn get_libs<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.lib_query() {
             let qo = self.q(&qo, &NodeType::Library);

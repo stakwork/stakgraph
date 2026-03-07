@@ -130,6 +130,9 @@ pub trait Stack {
     fn data_model_query(&self) -> Option<String> {
         None
     }
+    fn nested_scope_query(&self) -> Option<String> {
+        None
+    }
     // data model CONTAINS edge within a function
     fn data_model_within_query(&self) -> Option<String> {
         None

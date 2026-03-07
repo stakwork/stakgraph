@@ -3,8 +3,19 @@ use crate::repo::Repo;
 
 use shared::error::Result;
 use std::path::Path;
+use std::sync::OnceLock;
+use tokio::sync::{Mutex, MutexGuard};
 
 const MONOREPO_TEST_DIR: &str = "src/testing/monorepo";
+
+static REMOTE_MONOREPO_TEST_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+async fn remote_monorepo_test_lock() -> MutexGuard<'static, ()> {
+    REMOTE_MONOREPO_TEST_MUTEX
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .await
+}
 
 #[test]
 fn test_monorepo_rust_structure() {
@@ -317,6 +328,8 @@ async fn test_monorepo_root_files_in_graph() -> Result<()> {
 async fn test_remote_monorepo_root_detection() -> Result<()> {
     use crate::repo::Repo;
 
+    let _guard = remote_monorepo_test_lock().await;
+
     let repo_url = "https://github.com/fayekelmith/test-monorepo";
 
     // Clone and detect workspace
@@ -408,6 +421,8 @@ async fn test_remote_monorepo_root_detection() -> Result<()> {
 #[tokio::test]
 async fn test_remote_monorepo_comprehensive_graph() -> Result<()> {
     use crate::repo::Repo;
+
+    let _guard = remote_monorepo_test_lock().await;
 
     let repo_url = "https://github.com/fayekelmith/test-monorepo";
 
@@ -552,6 +567,8 @@ async fn test_remote_monorepo_comprehensive_graph() -> Result<()> {
 #[tokio::test]
 async fn test_polyglot_monorepo() -> Result<()> {
     use crate::repo::Repo;
+
+    let _guard = remote_monorepo_test_lock().await;
 
     let repo_url = "https://github.com/fayekelmith/polyglot-monorepo";
 

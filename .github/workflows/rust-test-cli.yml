@@ -1,0 +1,20 @@
+name: Stakgraph CLI Test
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  run-cli-test:
+    runs-on: ubuntu-latest
+    name: Run CLI integration tests
+    steps:
+      - name: Enable docker.host.internal for Ubuntu
+        run: |
+          pwd && sudo bash -c 'echo "172.17.0.1 host.docker.internal" >> /etc/hosts'
+
+      - name: Checkout from Github
+        uses: actions/checkout@v4
+
+      - name: Run CLI integration suite
+        run: cargo test -p ast --test cli
