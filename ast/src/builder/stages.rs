@@ -7,7 +7,7 @@ use crate::lang::{
 };
 use crate::repo::Repo;
 use shared::error::Result;
-use std::{any::type_name, collections::HashMap, path::Path};
+use std::{any::type_name, collections::{HashMap, HashSet}, path::Path};
 use tracing::{debug, info};
 
 impl Repo {
@@ -236,6 +236,7 @@ impl Repo {
         let lang = &self.lang;
         let graph_ref = &*graph;
 
+        let no_nested = self.no_nested;
         let results: Vec<_> = process_files(
             filez,
             use_parallel,
@@ -252,7 +253,10 @@ impl Repo {
                 true
             },
             |(filename, code)| {
-                let structs = lang.get_data_models::<G>(code, filename)?;
+                let mut structs = lang.get_data_models::<G>(code, filename)?;
+                if no_nested {
+                    structs = lang.filter_nested_datamodels(code, structs);
+                }
                 let mut all_edges = Vec::new();
                 for dm in &structs {
                     let edges = lang.collect_class_contains_datamodel_edge(dm, graph_ref)?;
@@ -267,6 +271,24 @@ impl Repo {
             if i % 20 == 0 || i == total {
                 self.send_status_progress(i, total, 10);
             }
+
+            let structs = if self.no_nested {
+                let containers: Vec<NodeData> = graph
+                    .find_nodes_by_type(NodeType::Trait)
+                    .into_iter()
+                    .chain(graph.find_nodes_by_type(NodeType::Class))
+                    .collect();
+                structs
+                    .into_iter()
+                    .filter(|dm| {
+                        !containers
+                            .iter()
+                            .any(|c| c.file == dm.file && dm.start > c.start && dm.end < c.end)
+                    })
+                    .collect()
+            } else {
+                structs
+            };
 
             datamodel_count += structs.len();
 
@@ -317,6 +339,26 @@ impl Repo {
             if i % 10 == 0 || i == total {
                 self.send_status_progress(i, total, 11);
             }
+
+            let funcs = if self.no_nested {
+                let nested: HashSet<(String, usize, usize)> = funcs
+                    .iter()
+                    .filter(|(child, ..)| {
+                        funcs.iter().any(|(parent, ..)| {
+                            child.file == parent.file
+                                && child.start > parent.start
+                                && child.end < parent.end
+                        })
+                    })
+                    .map(|(nd, ..)| (nd.file.clone(), nd.start, nd.end))
+                    .collect();
+                funcs
+                    .into_iter()
+                    .filter(|(nd, ..)| !nested.contains(&(nd.file.clone(), nd.start, nd.end)))
+                    .collect()
+            } else {
+                funcs
+            };
 
             function_count += funcs.len();
             graph.add_functions(&funcs);

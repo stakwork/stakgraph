@@ -83,6 +83,7 @@ async fn run() -> Result<()> {
     let (files, dir_files) = expand_dirs(&cli.files)?;
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
+    let no_nested = cli.no_nested;
 
     let mut out = Output::new();
     let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
@@ -134,7 +135,14 @@ async fn run() -> Result<()> {
         if let Some(root) = common_ancestor(file_list) {
             let file_refs: Vec<&str> = file_list.iter().map(|s| s.as_str()).collect();
             let repo =
-                Repo::from_files(&file_refs, root, lang, allow_unverified_calls, skip_calls)?;
+                Repo::from_files(
+                    &file_refs,
+                    root,
+                    lang,
+                    allow_unverified_calls,
+                    skip_calls,
+                    no_nested,
+                )?;
             repos_vec.push(repo);
         } else {
             for file_path in file_list {
@@ -144,6 +152,7 @@ async fn run() -> Result<()> {
                     file_lang,
                     allow_unverified_calls,
                     skip_calls,
+                    no_nested,
                 )?;
                 repos_vec.push(repo);
             }
