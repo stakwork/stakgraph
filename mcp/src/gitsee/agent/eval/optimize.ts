@@ -242,6 +242,10 @@ export async function optimize(
   if (verbose) console.log(`\n>>> Generation 0: Evaluating seed candidate...`);
   const seedResult = await evaluateBatch(trainset, seed, verbose);
   totalEvalCalls += trainset.length;
+
+  // Store full EvalResults alongside history for reflection (avoids re-running)
+  let lastEvalResults = seedResult.results;
+
   history.push({
     candidate: seed,
     scores: seedResult.results.map((r) => r.score.total),
@@ -270,16 +274,11 @@ export async function optimize(
         `\n>>> Generation ${generation}: Reflecting with Opus...`
       );
 
-    // 1. Build reflection dataset from the most recent evaluation
-    const latestResults = history[history.length - 1];
-    const latestBatch = await evaluateBatch(
-      trainset,
-      latestResults.candidate,
-      false
-    );
+    // 1. Build reflection dataset from the LAST evaluation (no re-run!)
+    const latestCandidate = history[history.length - 1].candidate;
     const reflectionDataset = makeReflectionDataset(
-      latestBatch.results,
-      latestResults.candidate,
+      lastEvalResults,
+      latestCandidate,
       pastAttempts
     );
 
@@ -291,6 +290,9 @@ export async function optimize(
         system: REFLECTION_SYSTEM,
         prompt: reflectionDataset,
       });
+      if (verbose) {
+        console.log(`Reflection output (first 200 chars): ${text.substring(0, 200)}`);
+      }
       newCandidate = parseReflectionOutput(text);
     } catch (error) {
       console.error("Reflection failed:", error);
@@ -301,10 +303,27 @@ export async function optimize(
       continue;
     }
 
+    // Check if Opus actually changed anything
+    if (
+      newCandidate.explorer === latestCandidate.explorer &&
+      newCandidate.final_answer === latestCandidate.final_answer
+    ) {
+      if (verbose) console.log("Opus returned identical prompts, skipping...");
+      continue;
+    }
+
+    if (verbose) {
+      // Show what changed
+      const explorerChanged = newCandidate.explorer !== latestCandidate.explorer;
+      const fadChanged = newCandidate.final_answer !== latestCandidate.final_answer;
+      console.log(`  Explorer changed: ${explorerChanged}, Final answer changed: ${fadChanged}`);
+    }
+
     // 3. Evaluate the new candidate (Sonnet runs the agent)
     if (verbose) console.log(`Evaluating reflected candidate with Sonnet...`);
     const newResult = await evaluateBatch(trainset, newCandidate, verbose);
     totalEvalCalls += trainset.length;
+    lastEvalResults = newResult.results;
     history.push({
       candidate: newCandidate,
       scores: newResult.results.map((r) => r.score.total),
