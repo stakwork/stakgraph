@@ -30,6 +30,8 @@ export interface ScoreResult {
   total: number;
   /** What went right/wrong (shown to Opus for reflection) */
   reason: string;
+  /** One-sentence suggestion for how to improve the prompt */
+  insight?: string;
 }
 
 /** Result from a single evaluation run */

@@ -2,11 +2,8 @@
  * Scoring via Opus-as-judge.
  *
  * Shows Opus the expected output and the generated output,
- * asks it to score 0 / 0.5 / 1 and explain why.
- *
- * Catches things regex can't: internal consistency (passwords match
- * between docker-compose and pm2 env), semantic equivalence
- * (different port number but correctly wired), etc.
+ * asks it to score 0 / 0.5 / 1, explain why, and suggest
+ * one prompt improvement.
  */
 
 import { generateText } from "ai";
@@ -28,7 +25,8 @@ Score the generated output:
 
 You MUST respond in exactly this format:
 SCORE: <0 or 0.5 or 1>
-REASON: <1-3 sentences explaining why>`;
+REASON: <1-3 sentences explaining what's right or wrong>
+INSIGHT: <1 sentence: what should the prompt tell the agent to do differently?>`;
 
 let _judgeModel: ReturnType<typeof getModel> | null = null;
 
@@ -84,7 +82,6 @@ export async function score(
     return parseJudgeResponse(text);
   } catch (error) {
     console.warn("Judge LLM failed, falling back to basic check:", error);
-    // Fallback: at least some files were produced
     const produced = expectedNames.filter(
       (name) => (generatedFiles[name]?.trim().length || 0) > 10
     );
@@ -98,19 +95,27 @@ export async function score(
 
 function parseJudgeResponse(text: string): ScoreResult {
   const scoreMatch = text.match(/SCORE:\s*(0\.5|0|1)/);
-  const reasonMatch = text.match(/REASON:\s*(.+)/s);
+  const reasonMatch = text.match(/REASON:\s*(.+?)(?=\nINSIGHT:|$)/s);
+  const insightMatch = text.match(/INSIGHT:\s*(.+)/s);
 
   const total = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
   const reason = reasonMatch
-    ? reasonMatch[1].trim().split("\n")[0] // first line only
+    ? reasonMatch[1].trim().split("\n")[0]
     : "Could not parse judge response";
+  const insight = insightMatch
+    ? insightMatch[1].trim().split("\n")[0]
+    : undefined;
 
-  return { total, reason };
+  return { total, reason, insight };
 }
 
 /** One-line summary */
 export function formatScore(s: ScoreResult): string {
   const label =
     s.total === 1 ? "PASS" : s.total === 0.5 ? "PARTIAL" : "FAIL";
-  return `${label} (${s.total}) — ${s.reason}`;
+  let out = `${label} (${s.total}) — ${s.reason}`;
+  if (s.insight) {
+    out += `\n  Insight: ${s.insight}`;
+  }
+  return out;
 }
