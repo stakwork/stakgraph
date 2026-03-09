@@ -16,7 +16,11 @@ import {
   type Provider,
   type ModelName,
 } from "../../../aieo/src/index.js";
-import { evaluateBatch, makeReflectionDataset } from "./adapter.js";
+import {
+  evaluateBatch,
+  makeReflectionDataset,
+  type PastAttempt,
+} from "./adapter.js";
 import { loadPrompts } from "./train-data.js";
 import type {
   TrainingExample,
@@ -208,6 +212,9 @@ export async function optimize(
   const topCandidates: Array<{ candidate: CandidatePrompts; score: number }> =
     [];
 
+  // Accumulated memory of all past attempts (so Opus doesn't repeat itself)
+  const pastAttempts: PastAttempt[] = [];
+
   if (verbose) {
     console.log("=== GEPA Optimization for Services Agent ===");
     console.log(`Reflection model: ${reflectionModelName} (generates better prompts)`);
@@ -232,6 +239,11 @@ export async function optimize(
   });
   bestScore = seedResult.aggregate;
   topCandidates.push({ candidate: seed, score: seedResult.aggregate });
+  pastAttempts.push({
+    generation: 0,
+    aggregate: seedResult.aggregate,
+    explorer_preview: seed.explorer.substring(0, 150),
+  });
 
   if (verbose) {
     console.log(`Seed score: ${(bestScore * 100).toFixed(1)}%`);
@@ -254,7 +266,8 @@ export async function optimize(
     );
     const reflectionDataset = makeReflectionDataset(
       latestBatch.results,
-      latestResults.candidate
+      latestResults.candidate,
+      pastAttempts
     );
 
     // 2. Ask Opus to generate improved prompts
@@ -284,6 +297,13 @@ export async function optimize(
       scores: newResult.results.map((r) => r.score.total),
       aggregate: newResult.aggregate,
       generation,
+    });
+
+    // Remember this attempt so Opus doesn't repeat it
+    pastAttempts.push({
+      generation,
+      aggregate: newResult.aggregate,
+      explorer_preview: newCandidate.explorer.substring(0, 150),
     });
 
     // Track top candidates

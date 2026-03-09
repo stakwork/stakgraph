@@ -149,22 +149,51 @@ export async function evaluateBatch(
 // Build the reflection dataset for GEPA
 // ---------------------------------------------------------------------------
 
+/** Summary of a previous attempt, for Opus's memory */
+export interface PastAttempt {
+  generation: number;
+  aggregate: number;
+  /** Short description of what changed in the explorer prompt */
+  explorer_preview: string;
+}
+
 /**
  * Creates a structured dataset that the reflection LLM uses to understand
  * what went wrong and generate improved prompts.
+ *
+ * Includes history of all previous attempts so Opus doesn't repeat itself.
  */
 export function makeReflectionDataset(
   results: EvalResult[],
-  candidate: CandidatePrompts
+  candidate: CandidatePrompts,
+  pastAttempts: PastAttempt[] = []
 ): string {
   const sections: string[] = [];
 
+  // -- History of past attempts (so Opus doesn't go in circles) --
+  if (pastAttempts.length > 0) {
+    sections.push(`# Previous Attempts (DO NOT repeat these)\n`);
+    for (const attempt of pastAttempts) {
+      sections.push(
+        `- Gen ${attempt.generation}: scored ${(attempt.aggregate * 100).toFixed(1)}% — explorer started with: "${attempt.explorer_preview}"`
+      );
+    }
+    sections.push("");
+    sections.push(
+      `You have already tried ${pastAttempts.length} variations. ` +
+        `Do NOT regenerate a prompt similar to any of the above. ` +
+        `Try a meaningfully different approach.\n`
+    );
+  }
+
+  // -- Current prompts --
   sections.push(`# Current Prompts Being Evaluated\n`);
   sections.push(`## EXPLORER (system prompt):\n\`\`\`\n${candidate.explorer}\n\`\`\`\n`);
   sections.push(
     `## FINAL_ANSWER (tool description):\n\`\`\`\n${candidate.final_answer.substring(0, 2000)}...\n\`\`\`\n`
   );
 
+  // -- Eval results --
   sections.push(`# Evaluation Results\n`);
 
   for (const result of results) {

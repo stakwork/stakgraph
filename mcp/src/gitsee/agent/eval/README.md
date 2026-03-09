@@ -114,3 +114,28 @@ Deterministic, no LLM. Parses generated configs and compares against gold:
 ```
 ANTHROPIC_API_KEY=sk-...
 ```
+
+## Future: per-flag prompts
+
+Currently the prompts are one big blob covering all project types (web, Android, Ruby, etc). Plan is to split into flag-based variants:
+
+```
+eval/
+  prompts/
+    base/                    <-- shared core (always included)
+      explorer.md
+      final_answer.md
+    react/                   <-- appended when flag="react"
+      explorer.md
+      final_answer.md
+    android/                 <-- appended when flag="android"
+      explorer.md
+      final_answer.md
+  train/
+    react/                   <-- training repos per flag
+      stakwork--hive/
+    android/
+      someorg--myapp/
+```
+
+Each flag gets its own GEPA evolution track: `--optimize --flag react`. The base prompt can be frozen or co-evolved. This keeps each variant simpler and lets the scoring focus on repos of that type only.
