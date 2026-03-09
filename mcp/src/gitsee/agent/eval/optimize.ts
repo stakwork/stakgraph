@@ -53,6 +53,13 @@ export interface OptimizeConfig {
   reflectionModel?: ModelName | string;
   /** Seed prompt overrides (defaults to eval/prompts/ files) */
   seedCandidate?: CandidatePrompts;
+  /** Called after each generation with the current best. Use for incremental saving. */
+  onGeneration?: (state: {
+    generation: number;
+    bestCandidate: CandidatePrompts;
+    bestScore: number;
+    history: OptimizationResult["history"];
+  }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +256,8 @@ export async function optimize(
     console.log(`Seed score: ${(bestScore * 100).toFixed(1)}%`);
   }
 
+  config.onGeneration?.({ generation: 0, bestCandidate: bestCandidate, bestScore, history });
+
   // ------- Evolution loop -------
   while (totalEvalCalls < maxEvalCalls && bestScore < perfectScore) {
     generation++;
@@ -328,6 +337,8 @@ export async function optimize(
           `No improvement: ${(newResult.aggregate * 100).toFixed(1)}% vs best ${(bestScore * 100).toFixed(1)}%`
         );
     }
+
+    config.onGeneration?.({ generation, bestCandidate, bestScore, history });
 
     // 4. Optional merge step (also uses Opus)
     if (useMerge && topCandidates.length >= 2 && totalEvalCalls < maxEvalCalls) {

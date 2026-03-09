@@ -48,13 +48,16 @@ const MODE = flags.has("--optimize")
 
 function saveRun(
   result: Awaited<ReturnType<typeof optimize>>,
-  trainset: typeof TRAIN_SET
+  trainset: typeof TRAIN_SET,
+  runDir?: string
 ) {
   const ts = new Date()
     .toISOString()
     .replace(/[T:]/g, "-")
     .replace(/\..+/, "");
-  const runDir = path.join(RUNS_DIR, ts);
+  if (!runDir) {
+    runDir = path.join(RUNS_DIR, ts);
+  }
   fs.mkdirSync(runDir, { recursive: true });
 
   // Save prompts as readable files
@@ -262,6 +265,15 @@ Models:
     const useMerge = flags.has("--merge");
     const reflectionModel = getArg("--reflection-model") || "opus";
 
+    // Create run dir upfront so we can save incrementally
+    const ts = new Date()
+      .toISOString()
+      .replace(/[T:]/g, "-")
+      .replace(/\..+/, "");
+    const runDir = path.join(RUNS_DIR, ts);
+    fs.mkdirSync(runDir, { recursive: true });
+    console.log(`Saving to: eval/runs/${ts}/\n`);
+
     const result = await optimize({
       trainset,
       valset,
@@ -270,10 +282,38 @@ Models:
       verbose,
       seedCandidate: prompts,
       reflectionModel,
+      onGeneration: ({ generation, bestCandidate, bestScore, history }) => {
+        // Save best prompts after every generation
+        fs.writeFileSync(
+          path.join(runDir, "explorer.md"),
+          bestCandidate.explorer
+        );
+        fs.writeFileSync(
+          path.join(runDir, "final_answer.md"),
+          bestCandidate.final_answer
+        );
+        fs.writeFileSync(
+          path.join(runDir, "summary.txt"),
+          [
+            `Score: ${(bestScore * 100).toFixed(1)}%`,
+            `Generation: ${generation}`,
+            `Training repos:`,
+            ...trainset.map((t) => `  ${t.owner}/${t.repo}`),
+            "",
+            "Per-generation scores:",
+            ...history.map(
+              (h) => `  gen ${h.generation}: ${(h.aggregate * 100).toFixed(1)}%`
+            ),
+          ].join("\n")
+        );
+        if (verbose) {
+          console.log(`  [saved gen ${generation} to eval/runs/${ts}/]`);
+        }
+      },
     });
 
-    // Save run
-    const { runDir, ts } = saveRun(result, trainset);
+    // Final save with complete stats
+    saveRun(result, trainset, runDir);
 
     console.log(`\nRun saved to: eval/runs/${ts}/`);
     console.log(`  explorer.md       - evolved system prompt`);
