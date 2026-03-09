@@ -45,3 +45,6 @@ mod cli_react;
 
 #[path = "cli/angular.rs"]
 mod cli_angular;
+
+#[path = "cli/unsupported.rs"]
+mod cli_unsupported;

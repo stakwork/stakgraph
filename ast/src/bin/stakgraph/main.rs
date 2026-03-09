@@ -18,7 +18,7 @@ mod render;
 use args::CliArgs;
 use output::Output;
 use progress::ProgressTracker;
-use render::{common_ancestor, first_lines, print_single_file_nodes};
+use render::{common_ancestor, print_single_file_nodes, read_text_preview};
 
 #[tokio::main]
 async fn main() {
@@ -105,16 +105,21 @@ async fn run() -> Result<()> {
                 files_to_print.push(file_path.clone());
             }
             None => {
-
                 if !dir_files.contains(file_path) {
-                    let contents = std::fs::read_to_string(file_path)?;
                     let file_label = style("File:").bold().cyan();
-                    let msg = format!(
-                        "{}  {}\n{}\n",
-                        file_label,
-                        style(file_path).cyan(),
-                        first_lines(&contents, 40, 200)
-                    );
+                    let msg = match read_text_preview(file_path) {
+                        Some(preview) => format!(
+                            "{}  {}\n{}\n",
+                            file_label,
+                            style(file_path).cyan(),
+                            preview
+                        ),
+                        None => format!(
+                            "{}  {}\n[binary or unprintable content skipped]\n",
+                            file_label,
+                            style(file_path).cyan()
+                        ),
+                    };
                     out.writeln(msg)?;
                 }
             }

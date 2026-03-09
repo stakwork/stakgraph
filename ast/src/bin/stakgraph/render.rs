@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io;
+use std::io::Read;
 
 use console::{style, Style};
 use shared::Result;
@@ -50,6 +51,47 @@ pub fn common_ancestor(files: &[String]) -> Option<std::path::PathBuf> {
         None
     } else {
         Some(common)
+    }
+}
+
+const PREVIEW_BYTES: usize = 40_960;
+const PREVIEW_CHARS: usize = 10_000;
+
+pub fn read_text_preview(file_path: &str) -> Option<String> {
+    if let Some(ext) = std::path::Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
+        if lsp::language::common_binary_exts().contains(&ext) {
+            return None;
+        }
+    }
+
+    let mut buf = vec![0u8; PREVIEW_BYTES];
+    let n = {
+        let mut f = std::fs::File::open(file_path).ok()?;
+        f.read(&mut buf).ok()?
+    };
+    let bytes = &buf[..n];
+
+    if bytes.contains(&0u8) {
+        return None;
+    }
+
+    let text = String::from_utf8(bytes.to_vec()).ok()?;
+    if text.chars().count() <= PREVIEW_CHARS {
+        Some(text)
+    } else {
+        let mut end = 0;
+        let mut count = 0;
+        for c in text.chars() {
+            if count >= PREVIEW_CHARS {
+                break;
+            }
+            end += c.len_utf8();
+            count += 1;
+        }
+        Some(text[..end].to_string())
     }
 }
 
