@@ -12,6 +12,7 @@ import {
   getModelDetails,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig } from "./tools.js";
+import { SKILLS } from "./skills.js";
 import { type SubAgent } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -195,15 +196,25 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     .map(([name]) => name);
 
   if (activeSkills.length > 0) {
-    const skillsBlock = `
+    const inlineSkills = activeSkills.filter(name => !name.includes("/") && SKILLS[name]);
+    const pathSkills = activeSkills.filter(name => name.includes("/") || !SKILLS[name]);
 
-SKILLS INSTRUCTIONS:
+    // Inline built-in skills directly into the prompt
+    if (inlineSkills.length > 0) {
+      const inlineBlock = inlineSkills.map(name => SKILLS[name]).join('\n\n');
+      instructions += `\n\n${inlineBlock}`;
+    }
+
+    // Path-based skills: use bash to load from disk
+    if (pathSkills.length > 0) {
+      const pathBlock = `\n\nSKILLS INSTRUCTIONS:
 Before starting your main task, use the bash tool to load your active skills into context:
-${activeSkills
+${pathSkills
     .map(name => `  - Run: ls ~/.agents/skills/${name}/\n  - Then: cat ~/.agents/skills/${name}/SKILL.md`)
     .join('\n')}
 Apply the guidance from each skill throughout your response.`;
-    instructions += skillsBlock;
+      instructions += pathBlock;
+    }
   }
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
