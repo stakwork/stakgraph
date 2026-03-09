@@ -1,8 +1,7 @@
 /**
- * Types for the GEPA eval harness for the services agent.
+ * Types for the GEPA eval harness.
  *
- * A TrainingExample pairs a GitHub repo with its known-good
- * pm2.config.js and docker-compose.yml outputs.
+ * A TrainingExample pairs a GitHub repo with its known-good output files.
  */
 
 /** A single training/validation example */
@@ -11,10 +10,8 @@ export interface TrainingExample {
   owner: string;
   /** e.g. "hive" */
   repo: string;
-  /** Gold-standard pm2.config.js content */
-  gold_pm2: string;
-  /** Gold-standard docker-compose.yml content */
-  gold_docker_compose: string;
+  /** Map of filename -> expected content */
+  expected_files: Record<string, string>;
   /** Optional notes about what matters most in this example */
   notes?: string;
 }
@@ -28,31 +25,19 @@ export interface CandidatePrompts {
 }
 
 /** Result of scoring a single generated output against a gold standard */
-export interface ScoreBreakdown {
-  /** 0-1: Did it produce both files? */
-  format_score: number;
-  /** 0-1: Are pm2 service names/structure correct? */
-  pm2_structure_score: number;
-  /** 0-1: Are docker-compose services correct? */
-  docker_structure_score: number;
-  /** 0-1: Are env vars / ports / commands correct? */
-  env_vars_score: number;
-  /** 0-1: Does the app service match exactly? */
-  app_service_score: number;
-  /** 0-1: Are cwds correct? */
-  cwd_score: number;
-  /** 0-1: Has a "frontend" named service? */
-  frontend_naming_score: number;
-  /** Weighted aggregate 0-1 */
+export interface ScoreResult {
+  /** 0 = wrong, 0.5 = partial, 1 = pass */
   total: number;
+  /** What went right/wrong (shown to Opus for reflection) */
+  reason: string;
 }
 
 /** Result from a single evaluation run */
 export interface EvalResult {
   example: TrainingExample;
-  generated_pm2: string;
-  generated_docker_compose: string;
-  score: ScoreBreakdown;
+  /** Map of filename -> generated content */
+  generated_files: Record<string, string>;
+  score: ScoreResult;
   /** Raw LLM output before parsing */
   raw_output: string;
   /** Time taken in ms */

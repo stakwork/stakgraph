@@ -1,7 +1,7 @@
 export type {
   TrainingExample,
   CandidatePrompts,
-  ScoreBreakdown,
+  ScoreResult,
   EvalResult,
   OptimizationResult,
 } from "./types.js";

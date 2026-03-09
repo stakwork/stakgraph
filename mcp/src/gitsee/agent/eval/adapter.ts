@@ -1,12 +1,10 @@
 /**
  * GEPA adapter for the services agent.
  *
- * This wraps `gitsee_context` so that GEPA can:
+ * Wraps `gitsee_context` so that GEPA can:
  * 1. Inject evolved EXPLORER + FINAL_ANSWER prompts
  * 2. Run the agent against a repo
  * 3. Score the output against gold standards
- *
- * The adapter handles cloning, running, parsing, and scoring.
  */
 
 import { gitsee_context } from "../explore.js";
@@ -17,7 +15,6 @@ import type {
   TrainingExample,
   CandidatePrompts,
   EvalResult,
-  ScoreBreakdown,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -27,7 +24,7 @@ const SERVICES_PROMPT =
   "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend.";
 
 // ---------------------------------------------------------------------------
-// Evaluate a single example with a candidate prompt set
+// Evaluate a single example
 // ---------------------------------------------------------------------------
 
 export async function evaluateExample(
@@ -58,8 +55,6 @@ export async function evaluateExample(
   );
 
   // 3. Run the agent with overridden prompts
-  //    We pass the evolved system prompt and final_answer via overrides.
-  //    The prompt itself stays the same (it's the user's question).
   const prompt = SERVICES_PROMPT + "\n" + final_answer;
   const raw_output = await gitsee_context(prompt, repoPath, "services", {
     system_prompt: candidate.explorer,
@@ -67,12 +62,10 @@ export async function evaluateExample(
   });
 
   // 4. Parse the output into files
-  const files = parse_files_contents(raw_output);
-  const generated_pm2 = files["pm2.config.js"] || "";
-  const generated_docker_compose = files["docker-compose.yml"] || "";
+  const generated_files = parse_files_contents(raw_output);
 
   // 5. Score against gold standard
-  const scoreResult = score(generated_pm2, generated_docker_compose, example);
+  const scoreResult = score(generated_files, example);
 
   const duration_ms = Date.now() - startTime;
 
@@ -84,8 +77,7 @@ export async function evaluateExample(
 
   return {
     example,
-    generated_pm2,
-    generated_docker_compose,
+    generated_files,
     score: scoreResult,
     raw_output,
     duration_ms,
@@ -112,21 +104,10 @@ export async function evaluateBatch(
         `Error evaluating ${example.owner}/${example.repo}:`,
         error
       );
-      // Push a zero-score result on failure
       results.push({
         example,
-        generated_pm2: "",
-        generated_docker_compose: "",
-        score: {
-          format_score: 0,
-          pm2_structure_score: 0,
-          docker_structure_score: 0,
-          env_vars_score: 0,
-          app_service_score: 0,
-          cwd_score: 0,
-          frontend_naming_score: 0,
-          total: 0,
-        },
+        generated_files: {},
+        score: { total: 0, reason: `ERROR: ${error}` },
         raw_output: `ERROR: ${error}`,
         duration_ms: 0,
       });
@@ -139,7 +120,9 @@ export async function evaluateBatch(
       : 0;
 
   if (verbose) {
-    console.log(`\n========== Aggregate score: ${(aggregate * 100).toFixed(1)}% ==========\n`);
+    console.log(
+      `\n========== Aggregate score: ${(aggregate * 100).toFixed(1)}% ==========\n`
+    );
   }
 
   return { results, aggregate };
@@ -170,7 +153,7 @@ export function makeReflectionDataset(
 ): string {
   const sections: string[] = [];
 
-  // -- History of past attempts (so Opus doesn't go in circles) --
+  // -- History of past attempts --
   if (pastAttempts.length > 0) {
     sections.push(`# Previous Attempts (DO NOT repeat these)\n`);
     for (const attempt of pastAttempts) {
@@ -188,47 +171,32 @@ export function makeReflectionDataset(
 
   // -- Current prompts --
   sections.push(`# Current Prompts Being Evaluated\n`);
-  sections.push(`## EXPLORER (system prompt):\n\`\`\`\n${candidate.explorer}\n\`\`\`\n`);
+  sections.push(
+    `## EXPLORER (system prompt):\n\`\`\`\n${candidate.explorer}\n\`\`\`\n`
+  );
   sections.push(
     `## FINAL_ANSWER (tool description):\n\`\`\`\n${candidate.final_answer.substring(0, 2000)}...\n\`\`\`\n`
   );
 
-  // -- Eval results --
+  // -- Eval results: just show generated vs expected --
   sections.push(`# Evaluation Results\n`);
 
   for (const result of results) {
     const ex = result.example;
-    const s = result.score;
     sections.push(`## ${ex.owner}/${ex.repo}`);
     if (ex.notes) sections.push(`Notes: ${ex.notes}`);
-    sections.push(`Score: ${(s.total * 100).toFixed(1)}%`);
-    sections.push(`Breakdown:`);
-    sections.push(`  format: ${(s.format_score * 100).toFixed(0)}%`);
-    sections.push(`  pm2_structure: ${(s.pm2_structure_score * 100).toFixed(0)}%`);
-    sections.push(`  docker_structure: ${(s.docker_structure_score * 100).toFixed(0)}%`);
-    sections.push(`  env_vars: ${(s.env_vars_score * 100).toFixed(0)}%`);
-    sections.push(`  app_service: ${(s.app_service_score * 100).toFixed(0)}%`);
-    sections.push(`  cwd: ${(s.cwd_score * 100).toFixed(0)}%`);
-    sections.push(`  frontend_naming: ${(s.frontend_naming_score * 100).toFixed(0)}%`);
+    sections.push(`Score: ${result.score.reason}`);
 
-    // Show what was generated vs expected (truncated)
-    if (s.total < 0.9) {
-      sections.push(`\n### Generated pm2.config.js (first 500 chars):`);
-      sections.push(
-        `\`\`\`\n${result.generated_pm2.substring(0, 500)}\n\`\`\``
-      );
-      sections.push(`### Expected pm2.config.js (first 500 chars):`);
-      sections.push(
-        `\`\`\`\n${ex.gold_pm2.substring(0, 500)}\n\`\`\``
-      );
-      sections.push(`\n### Generated docker-compose.yml (first 500 chars):`);
-      sections.push(
-        `\`\`\`\n${result.generated_docker_compose.substring(0, 500)}\n\`\`\``
-      );
-      sections.push(`### Expected docker-compose.yml (first 500 chars):`);
-      sections.push(
-        `\`\`\`\n${ex.gold_docker_compose.substring(0, 500)}\n\`\`\``
-      );
+    // Show generated vs expected for each file
+    for (const filename of Object.keys(ex.expected_files)) {
+      const expected = ex.expected_files[filename] || "";
+      const generated = result.generated_files[filename] || "(not produced)";
+
+      sections.push(`\n### ${filename}`);
+      sections.push(`**Generated:**`);
+      sections.push(`\`\`\`\n${generated.substring(0, 800)}\n\`\`\``);
+      sections.push(`**Expected:**`);
+      sections.push(`\`\`\`\n${expected.substring(0, 800)}\n\`\`\``);
     }
     sections.push("");
   }

@@ -3,14 +3,17 @@
  *
  * Training examples:
  *   eval/train/{owner}--{repo}/
- *     pm2.config.js
+ *     pm2.config.js           (or any expected output files)
  *     docker-compose.yml
- *     notes.txt             (optional)
+ *     notes.txt               (optional)
  *
  * Prompts (what GEPA evolves):
  *   eval/prompts/
- *     explorer.md           system prompt
- *     final_answer.md       tool description
+ *     explorer.md             system prompt
+ *     final_answer.md         tool description
+ *
+ * Any file in the repo dir that isn't notes.txt is treated
+ * as an expected output file.
  */
 
 import * as fs from "fs";
@@ -19,6 +22,8 @@ import { fileURLToPath } from "url";
 import type { TrainingExample, CandidatePrompts } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const IGNORED_FILES = new Set(["notes.txt"]);
 
 // ---------------------------------------------------------------------------
 // Load training/validation examples
@@ -42,14 +47,19 @@ function loadExamplesFromDir(dir: string): TrainingExample[] {
     const [owner, repo] = parts;
     const exDir = path.join(dir, entry.name);
 
-    const pm2Path = path.join(exDir, "pm2.config.js");
-    const dockerPath = path.join(exDir, "docker-compose.yml");
+    // Load all files in the directory as expected outputs
+    const files = fs.readdirSync(exDir).filter(
+      (f) => !IGNORED_FILES.has(f) && fs.statSync(path.join(exDir, f)).isFile()
+    );
 
-    if (!fs.existsSync(pm2Path) || !fs.existsSync(dockerPath)) {
-      console.warn(
-        `Skipping ${entry.name}: missing pm2.config.js or docker-compose.yml`
-      );
+    if (files.length === 0) {
+      console.warn(`Skipping ${entry.name}: no expected output files`);
       continue;
+    }
+
+    const expected_files: Record<string, string> = {};
+    for (const file of files) {
+      expected_files[file] = fs.readFileSync(path.join(exDir, file), "utf-8");
     }
 
     const notesPath = path.join(exDir, "notes.txt");
@@ -57,13 +67,7 @@ function loadExamplesFromDir(dir: string): TrainingExample[] {
       ? fs.readFileSync(notesPath, "utf-8").trim()
       : undefined;
 
-    examples.push({
-      owner,
-      repo,
-      gold_pm2: fs.readFileSync(pm2Path, "utf-8"),
-      gold_docker_compose: fs.readFileSync(dockerPath, "utf-8"),
-      notes,
-    });
+    examples.push({ owner, repo, expected_files, notes });
   }
 
   return examples;
