@@ -59,6 +59,8 @@ export interface OptimizeConfig {
     bestCandidate: CandidatePrompts;
     bestScore: number;
     history: OptimizationResult["history"];
+    /** Eval results from this generation (includes insights) */
+    evalResults: import("./types.js").EvalResult[];
   }) => void;
 }
 
@@ -264,7 +266,7 @@ export async function optimize(
     console.log(`Seed score: ${(bestScore * 100).toFixed(1)}%`);
   }
 
-  config.onGeneration?.({ generation: 0, bestCandidate: bestCandidate, bestScore, history });
+  config.onGeneration?.({ generation: 0, bestCandidate: bestCandidate, bestScore, history, evalResults: seedResult.results });
 
   // ------- Evolution loop -------
   while (totalEvalCalls < maxEvalCalls && bestScore < perfectScore) {
@@ -361,7 +363,7 @@ export async function optimize(
         );
     }
 
-    config.onGeneration?.({ generation, bestCandidate, bestScore, history });
+    config.onGeneration?.({ generation, bestCandidate, bestScore, history, evalResults: newResult.results });
 
     // 4. Optional merge step (also uses Opus)
     if (useMerge && topCandidates.length >= 2 && totalEvalCalls < maxEvalCalls) {

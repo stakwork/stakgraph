@@ -282,8 +282,8 @@ Models:
       verbose,
       seedCandidate: prompts,
       reflectionModel,
-      onGeneration: ({ generation, bestCandidate, bestScore, history }) => {
-        // Save best prompts after every generation
+      onGeneration: ({ generation, bestCandidate, bestScore, history, evalResults }) => {
+        // Save best prompts at top level
         fs.writeFileSync(
           path.join(runDir, "explorer.md"),
           bestCandidate.explorer
@@ -292,10 +292,37 @@ Models:
           path.join(runDir, "final_answer.md"),
           bestCandidate.final_answer
         );
+
+        // Save EVERY generation's prompts in a subdirectory
+        const latest = history[history.length - 1];
+        if (latest) {
+          const genDir = path.join(runDir, `gen-${generation}`);
+          fs.mkdirSync(genDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(genDir, "explorer.md"),
+            latest.candidate.explorer
+          );
+          fs.writeFileSync(
+            path.join(genDir, "final_answer.md"),
+            latest.candidate.final_answer
+          );
+          const scoreLines = [`${(latest.aggregate * 100).toFixed(1)}%`];
+          for (const r of evalResults) {
+            scoreLines.push(`\n${r.example.owner}/${r.example.repo}: ${r.score.reason}`);
+            if (r.score.insight) {
+              scoreLines.push(`  Insight: ${r.score.insight}`);
+            }
+          }
+          fs.writeFileSync(
+            path.join(genDir, "score.txt"),
+            scoreLines.join("\n")
+          );
+        }
+
         fs.writeFileSync(
           path.join(runDir, "summary.txt"),
           [
-            `Score: ${(bestScore * 100).toFixed(1)}%`,
+            `Best score: ${(bestScore * 100).toFixed(1)}%`,
             `Generation: ${generation}`,
             `Training repos:`,
             ...trainset.map((t) => `  ${t.owner}/${t.repo}`),
