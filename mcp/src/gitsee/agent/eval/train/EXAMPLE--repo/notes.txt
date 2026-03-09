@@ -1,3 +1,0 @@
-Delete this directory and replace with real repos.
-Directory name: {owner}--{repo}
-Put any expected output files in here (pm2.config.js, docker-compose.yml, etc).

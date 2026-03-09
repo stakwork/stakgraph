@@ -64,8 +64,8 @@ export async function evaluateExample(
   // 4. Parse the output into files
   const generated_files = parse_files_contents(raw_output);
 
-  // 5. Score against gold standard
-  const scoreResult = score(generated_files, example);
+  // 5. Score against gold standard (Opus as judge)
+  const scoreResult = await score(generated_files, example);
 
   const duration_ms = Date.now() - startTime;
 

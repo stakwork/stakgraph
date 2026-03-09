@@ -11,20 +11,20 @@ Evolve the services agent prompts using GEPA (Gradient-free Evolution of Prompts
                   └──────┬──────┘
                          │ new prompts
                          v
-  ┌──────────┐    ┌─────────────┐    ┌──────────────┐
-  │ training │───>│  Sonnet     │───>│ deterministic │──> score
-  │ repos    │    │  runs agent │    │ scoring       │
-  └──────────┘    └─────────────┘    └──────────────┘
+  ┌──────────┐    ┌─────────────┐    ┌─────────────┐
+  │ training │───>│  Sonnet     │───>│  Opus       │──> score
+  │ repos    │    │  runs agent │    │  judges     │
+  └──────────┘    └─────────────┘    └─────────────┘
                          │
                     repeat until
                     budget exhausted
 ```
 
 **Two LLMs are used:**
-- **Opus** -- reflection + merge (analyzes failures, generates better prompts)
+- **Opus** -- scoring (judges generated vs expected), reflection + merge (generates better prompts)
 - **Sonnet** -- runs the agent itself (cheaper, one call per repo per generation)
 
-**Scoring is fully deterministic** -- no LLM involved. It parses the generated configs and compares structurally against your gold standards (service names, env vars, ports, paths).
+Opus-as-judge catches things regex can't: internally consistent passwords, correct port wiring, semantic equivalence.
 
 ## File layout
 
@@ -97,17 +97,13 @@ This writes the evolved prompts back into `prompts/services.ts`.
 
 ## Scoring
 
-Deterministic, no LLM. Parses generated configs and compares against gold:
+Opus-as-judge. Each generated output is compared to the gold standard by Opus:
 
-| Dimension | Weight | What |
-|-----------|--------|------|
-| format | 10% | Both files produced? |
-| pm2_structure | 20% | Service count + names match |
-| docker_structure | 20% | Docker services match |
-| env_vars | 15% | Required env vars present + critical values |
-| app_service | 15% | App service has exact required structure |
-| cwd | 10% | Working directories correct |
-| frontend_naming | 10% | Has a service named "frontend" |
+- **1** = would work. Correct services, ports, env vars, commands. Passwords don't need to match gold but must be internally consistent.
+- **0.5** = partially correct. Structure right but has issues that would cause failures.
+- **0** = wrong or missing.
+
+No regex heuristics. Opus catches things like mismatched credentials between docker-compose and pm2 env vars, wrong port wiring, missing services, etc.
 
 ## Env vars
 

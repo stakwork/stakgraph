@@ -1,0 +1,36 @@
+version: "3.8"
+networks:
+  app_network:
+    driver: bridge
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    networks:
+      - app_network
+    extra_hosts:
+      - "localhost:172.17.0.1"
+      - "host.docker.internal:host-gateway"
+  postgres:
+    image: postgres:15-alpine
+    container_name: hive-postgres-dev
+    environment:
+      POSTGRES_DB: hive_db
+      POSTGRES_USER: hive_user
+      POSTGRES_PASSWORD: hive_password
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive_user -d hive_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data_dev:
