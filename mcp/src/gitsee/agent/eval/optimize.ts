@@ -93,17 +93,15 @@ IMPORTANT CONSTRAINTS:
   Example: FILENAME: pm2.config.js followed by a fenced code block.
   If you remove this format, the output will fail to parse!
 
-Return your answer in this exact format:
+Return your answer in this exact format. Use ===EXPLORER=== and ===FINAL_ANSWER=== as delimiters (NOT backticks, since the prompts themselves contain backtick code blocks):
 
-EXPLORER:
-\`\`\`
+===EXPLORER===
 <your improved explorer prompt>
-\`\`\`
+===END EXPLORER===
 
-FINAL_ANSWER:
-\`\`\`
+===FINAL_ANSWER===
 <your improved final_answer prompt>
-\`\`\``;
+===END FINAL_ANSWER===`;
 
 // ---------------------------------------------------------------------------
 // Parse reflection output
@@ -111,10 +109,10 @@ FINAL_ANSWER:
 
 function parseReflectionOutput(output: string): CandidatePrompts | null {
   const explorerMatch = output.match(
-    /EXPLORER:\s*```\s*\n?([\s\S]*?)```/
+    /===EXPLORER===\s*\n([\s\S]*?)===END EXPLORER===/
   );
   const finalAnswerMatch = output.match(
-    /FINAL_ANSWER:\s*```\s*\n?([\s\S]*?)```/
+    /===FINAL_ANSWER===\s*\n([\s\S]*?)===END FINAL_ANSWER===/
   );
 
   if (!explorerMatch || !finalAnswerMatch) {
@@ -140,36 +138,34 @@ async function mergeCandidates(
   const mergePrompt = `You are merging two prompt variants that both performed well for a code exploration agent.
 
 VARIANT A - EXPLORER:
-\`\`\`
+===EXPLORER===
 ${a.explorer}
-\`\`\`
+===END EXPLORER===
 
 VARIANT A - FINAL_ANSWER:
-\`\`\`
+===FINAL_ANSWER===
 ${a.final_answer.substring(0, 2000)}
-\`\`\`
+===END FINAL_ANSWER===
 
 VARIANT B - EXPLORER:
-\`\`\`
+===EXPLORER===
 ${b.explorer}
-\`\`\`
+===END EXPLORER===
 
 VARIANT B - FINAL_ANSWER:
-\`\`\`
+===FINAL_ANSWER===
 ${b.final_answer.substring(0, 2000)}
-\`\`\`
+===END FINAL_ANSWER===
 
 Create a MERGED version that combines the strengths of both. Return in this exact format:
 
-EXPLORER:
-\`\`\`
+===EXPLORER===
 <merged explorer prompt>
-\`\`\`
+===END EXPLORER===
 
-FINAL_ANSWER:
-\`\`\`
+===FINAL_ANSWER===
 <merged final_answer prompt>
-\`\`\``;
+===END FINAL_ANSWER===`;
 
   try {
     const { text } = await generateText({
