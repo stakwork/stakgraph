@@ -55,7 +55,11 @@ export async function evaluateExample(
   );
 
   // 3. Run the agent with overridden prompts
-  const prompt = SERVICES_PROMPT + "\n" + final_answer;
+  //    Pass both system_prompt and final_answer_description as overrides.
+  //    makeFad() will prepend a short generic "call this tool" instruction,
+  //    which is fine. The final_answer_description becomes the tool description
+  //    for the final_answer tool.
+  const prompt = SERVICES_PROMPT;
   const raw_output = await gitsee_context(prompt, repoPath, "services", {
     system_prompt: candidate.explorer,
     final_answer_description: final_answer,
@@ -63,6 +67,11 @@ export async function evaluateExample(
 
   // 4. Parse the output into files
   const generated_files = parse_files_contents(raw_output);
+
+  if (Object.keys(generated_files).length === 0) {
+    console.log(`  [WARNING] No files parsed. Raw output (first 500 chars):`);
+    console.log(`  ${raw_output.substring(0, 500)}`);
+  }
 
   // 5. Score against gold standard (Opus as judge)
   const scoreResult = await score(generated_files, example);

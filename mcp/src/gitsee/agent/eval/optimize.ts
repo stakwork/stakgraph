@@ -86,6 +86,10 @@ IMPORTANT CONSTRAINTS:
 - Keep the MY_REPO_NAME placeholder (it gets replaced at runtime)
 - The prompts must remain general enough to work across different repo types
 - Do NOT add repo-specific instructions
+- The FINAL_ANSWER prompt MUST keep this output format instruction (the parser depends on it):
+  For each file, put "FILENAME: " followed by the filename, then the content in backticks.
+  Example: FILENAME: pm2.config.js followed by a fenced code block.
+  If you remove this format, the output will fail to parse!
 
 Return your answer in this exact format:
 
