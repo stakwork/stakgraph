@@ -40,6 +40,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
     const allRulesFiles = await db.get_rules_files();
 
     const summaries: Record<string, string> = {};
+    let totalInputTokens = 0, totalOutputTokens = 0;
 
     for (const repo of reposToProcess) {
       const repoName = repo.properties.name;
@@ -82,6 +83,8 @@ export async function learn_docs_agent(req: Request, res: Response) {
           model,
           prompt,
         });
+        totalInputTokens += result.usage?.inputTokens || 0;
+        totalOutputTokens += result.usage?.outputTokens || 0;
 
         const summary = result.text;
 
@@ -100,7 +103,15 @@ export async function learn_docs_agent(req: Request, res: Response) {
       }
     }
 
-    res.json({ message: "Documentation learned", summaries });
+    res.json({
+      message: "Documentation learned",
+      summaries,
+      usage: {
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        totalTokens: totalInputTokens + totalOutputTokens,
+      },
+    });
   } catch (error) {
     console.error(`[learn_docs] Error:`, error);
     res.status(500).json({ error: "Internal server error" });

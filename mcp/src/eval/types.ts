@@ -73,6 +73,11 @@ export interface TestResult {
   status: "PASS" | "FAIL";
   description: string;
   failedCriteria?: string[];
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
 }
 
 export interface TestSuiteResult {

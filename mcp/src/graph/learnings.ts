@@ -188,6 +188,11 @@ Given the user's prompt, pick the most relevant learnings from the list. Return 
       learnings: relevantLearnings,
       prompt,
       scopes: relevantScopes,
+      usage: {
+        inputTokens: (scopeResult.usage?.inputTokens || 0) + (learningResult.usage?.inputTokens || 0),
+        outputTokens: (scopeResult.usage?.outputTokens || 0) + (learningResult.usage?.outputTokens || 0),
+        totalTokens: (scopeResult.usage?.totalTokens || 0) + (learningResult.usage?.totalTokens || 0),
+      },
     });
   } catch (error: any) {
     console.error("POST relevant-learnings error:", error);

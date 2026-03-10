@@ -70,12 +70,17 @@ export interface Overrides {
   final_answer_description?: string;
 }
 
+export interface GitseeContextResult {
+  result: string;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+}
+
 export async function gitsee_context(
   prompt: string | ModelMessage[],
   repoPath: string,
   mode: RepoContextMode = "features",
   overrides?: Overrides
-): Promise<string> {
+): Promise<GitseeContextResult> {
   const startTime = Date.now();
   const CONF = getConfig(mode);
   const provider = process.env.LLM_PROVIDER || "anthropic";
@@ -145,7 +150,7 @@ export async function gitsee_context(
   if (mode === "first_pass") {
     delete (tools as Record<string, any>).fulltext_search;
   }
-  const { steps } = await generateText({
+  const { steps, totalUsage } = await generateText({
     model,
     tools,
     prompt,
@@ -187,7 +192,14 @@ export async function gitsee_context(
     )}s)`
   );
 
-  return final;
+  return {
+    result: final,
+    usage: {
+      inputTokens: totalUsage.inputTokens || 0,
+      outputTokens: totalUsage.outputTokens || 0,
+      totalTokens: totalUsage.totalTokens || 0,
+    },
+  };
 }
 
 // infra, dependencies/integratins, user stories, pages

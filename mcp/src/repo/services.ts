@@ -30,11 +30,11 @@ export async function services_agent(req: Request, res: Response) {
           pat,
           systemOverride: SERVICES_SYSTEM,
         });
-        return text_of_files.content;
+        return { content: text_of_files.content, usage: text_of_files.usage };
       })
       .then((result) => {
-        const files = parse_files_contents(result);
-        asyncReqs.finishReq(request_id, files);
+        const files = parse_files_contents(result.content);
+        asyncReqs.finishReq(request_id, { ...files, usage: result.usage });
       })
       .catch((error) => {
         console.error("[repo_agent] Background work failed with error:", error);

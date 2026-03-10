@@ -3,6 +3,7 @@ import {
   RepoContextMode,
   FeaturesContextResult,
   FirstPassContextResult,
+  GitseeContextResult,
 } from "./explore.js";
 
 export type ExplorationResult =
@@ -20,7 +21,7 @@ export async function explore(
 
   try {
     // Get raw JSON string from get_context
-    const jsonString = await gitsee_context(prompt, repoPath, mode);
+    const { result: jsonString } = await gitsee_context(prompt, repoPath, mode);
     console.log(
       `📋 Raw exploration result:`,
       jsonString.substring(0, 200) + "..."

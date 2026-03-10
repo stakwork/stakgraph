@@ -83,9 +83,9 @@ export async function mocks_agent(req: Request, res: Response) {
           systemOverride: MOCKS_SYSTEM,
           schema,
         });
-        return { mocksResult: result.content as MocksResult, minimalMocks };
+        return { mocksResult: result.content as MocksResult, minimalMocks, usage: result.usage };
       })
-      .then(async ({ mocksResult, minimalMocks }) => {
+      .then(async ({ mocksResult, minimalMocks, usage }) => {
         console.log(
           `[mocks_agent] Agent returned ${mocksResult.mocks.length} mocks`
         );
@@ -120,7 +120,7 @@ export async function mocks_agent(req: Request, res: Response) {
         }
 
         await persistMocksToGraph(mocksResult, minimalMocks, sync);
-        asyncReqs.finishReq(request_id, mocksResult);
+        asyncReqs.finishReq(request_id, { ...mocksResult, usage });
       })
       .catch((error) => {
         console.error(
