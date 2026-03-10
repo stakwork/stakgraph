@@ -29,8 +29,8 @@ export async function clone_and_explore(
     throw new Error("Failed to clone repo");
   }
   const localPath = cloneResult.localPath;
-  const result = await gitsee_context(prompt, localPath, mode, overrides);
-  return result;
+  const contextResult = await gitsee_context(prompt, localPath, mode, overrides);
+  return contextResult.result;
 }
 
 export async function clone_and_explore_parse_files(

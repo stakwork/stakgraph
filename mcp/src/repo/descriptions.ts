@@ -198,6 +198,11 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
       processed: totalProcessed,
       total_cost: totalCost,
       total_tokens: totalTokens,
+      usage: {
+        inputTokens: totalTokens.input,
+        outputTokens: totalTokens.output,
+        totalTokens: totalTokens.input + totalTokens.output,
+      },
     };
 
     console.log(`[describe_nodes] Finished. ${JSON.stringify(result)}`);

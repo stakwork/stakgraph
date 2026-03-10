@@ -155,6 +155,7 @@ export class SimpleEvaluator {
   ): Promise<{
     steps: Step[];
     testCriteria: string[];
+    usage: { inputTokens: number; outputTokens: number; totalTokens: number };
   }> {
     const userMessage = `Please create Stagehand test steps for this prompt:\n\n${prompt}\n\nBase URL: ${baseUrl}`;
 
@@ -200,6 +201,11 @@ export class SimpleEvaluator {
         return {
           steps: (result.object as any).steps as Step[],
           testCriteria: (result.object as any).testCriteria,
+          usage: {
+            inputTokens: result.usage?.inputTokens || 0,
+            outputTokens: result.usage?.outputTokens || 0,
+            totalTokens: result.usage?.totalTokens || 0,
+          },
         };
       } catch (error: any) {
         lastError = error;
@@ -260,6 +266,11 @@ export class SimpleEvaluator {
         return {
           steps: (fallbackResult.object as any).steps as Step[],
           testCriteria: (fallbackResult.object as any).testCriteria,
+          usage: {
+            inputTokens: fallbackResult.usage?.inputTokens || 0,
+            outputTokens: fallbackResult.usage?.outputTokens || 0,
+            totalTokens: fallbackResult.usage?.totalTokens || 0,
+          },
         };
       } catch (fallbackError: any) {
         console.error(
@@ -580,7 +591,7 @@ export class SimpleEvaluator {
 
   async runTest(prompt: string, baseUrl: string): Promise<TestResult> {
     console.log("🔍 Generating test steps...");
-    const { steps, testCriteria } = await this.generateSteps(prompt, baseUrl);
+    const { steps, testCriteria, usage } = await this.generateSteps(prompt, baseUrl);
 
     console.log("📋 Generated test criteria:", testCriteria);
     console.log("🔧 Generated steps:", steps.length);
@@ -591,6 +602,6 @@ export class SimpleEvaluator {
     console.log("📊 Evaluating results...");
     const result = await this.evaluateResults(stepResults, steps, testCriteria);
 
-    return result;
+    return { ...result, usage };
   }
 }
