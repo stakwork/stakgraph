@@ -120,6 +120,36 @@ fn collect_source_files(root: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+fn collect_md_files(root: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<(usize, PathBuf)> = WalkDir::new(root)
+        .min_depth(1)
+        .into_iter()
+        .filter_entry(|e| {
+            let name = e.file_name().to_str().unwrap_or("");
+            if e.file_type().is_dir() {
+                !should_skip_dir(name)
+            } else {
+                true
+            }
+        })
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.file_type().is_file()
+                && e.path()
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .map(|x| x.eq_ignore_ascii_case("md"))
+                    .unwrap_or(false)
+        })
+        .map(|e| {
+            let depth = e.depth();
+            (depth, e.path().to_path_buf())
+        })
+        .collect();
+    files.sort_by_key(|(depth, path)| (*depth, path.clone()));
+    files.into_iter().map(|(_, p)| p).collect()
+}
+
 async fn render_file_summary(file_path: &Path) -> Option<String> {
     let lang = Language::from_path(file_path.to_str()?)?;
     let ast_lang = Lang::from_language(lang);
@@ -241,6 +271,47 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
                 .dim()
                 .to_string(),
         )?;
+    }
+
+    // ── Markdown Documentation ─────────────────────────────────────────
+    let md_files = collect_md_files(&root);
+    if !md_files.is_empty() && tokens_used < max_tokens {
+        out.newline()?;
+        let section = style("Documentation").bold().underlined().to_string();
+        out.writeln(&section)?;
+        tokens_used += count_tokens(&bpe, &section);
+
+        'md: for md_path in &md_files {
+            if tokens_used >= max_tokens {
+                break;
+            }
+            let Ok(content) = std::fs::read_to_string(md_path) else {
+                continue;
+            };
+            let name = md_path
+                .strip_prefix(&root)
+                .unwrap_or(md_path)
+                .display()
+                .to_string();
+            let header = style(format!("Docs: {}", name)).bold().magenta().to_string();
+            let header_tok = count_tokens(&bpe, &header);
+            if tokens_used + header_tok > max_tokens {
+                break;
+            }
+            out.writeln(&header)?;
+            tokens_used += header_tok;
+
+            for line in content.lines() {
+                let line_tok = count_tokens(&bpe, line) + 1; // +1 for newline
+                if tokens_used + line_tok > max_tokens {
+                    out.writeln(style("...").dim().to_string())?;
+                    break 'md;
+                }
+                out.writeln(line)?;
+                tokens_used += line_tok;
+            }
+            out.newline()?;
+        }
     }
 
     out.newline()?;
