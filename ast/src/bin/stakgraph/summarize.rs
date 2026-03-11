@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use console::style;
+use ignore::WalkBuilder;
 use shared::{Error, Result};
 use tiktoken_rs::cl100k_base;
-use walkdir::WalkDir;
 
 use ast::lang::graphs::NodeType;
 use ast::repo::{Repo, Repos};
@@ -93,23 +93,35 @@ fn collect_tree_lines(dir: &Path, depth: usize, max_depth: usize, lines: &mut Ve
 }
 
 fn collect_source_files(root: &Path) -> Vec<PathBuf> {
-    WalkDir::new(root)
-        .min_depth(1)
-        .into_iter()
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .hidden(true)
+        .parents(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .ignore(true)
         .filter_entry(|e| {
             let name = e.file_name().to_str().unwrap_or("");
-            if e.file_type().is_dir() {
+            if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                 !should_skip_dir(name)
             } else {
                 true
             }
-        })
+        });
+
+    builder
+        .build()
+        .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            if !e.file_type().is_file() {
+            if !e.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                 return false;
             }
             let path = e.path();
+            if path == root {
+                return false;
+            }
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             !is_junk_file(name)
                 && !is_test_file(name)
@@ -121,20 +133,30 @@ fn collect_source_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn collect_md_files(root: &Path) -> Vec<PathBuf> {
-    let mut files: Vec<(usize, PathBuf)> = WalkDir::new(root)
-        .min_depth(1)
-        .into_iter()
+    let mut builder = WalkBuilder::new(root);
+    builder
+        .hidden(true)
+        .parents(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .ignore(true)
         .filter_entry(|e| {
             let name = e.file_name().to_str().unwrap_or("");
-            if e.file_type().is_dir() {
+            if e.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
                 !should_skip_dir(name)
             } else {
                 true
             }
-        })
+        });
+
+    let mut files: Vec<(usize, PathBuf)> = builder
+        .build()
+        .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.file_type().is_file()
+            e.file_type().map(|ft| ft.is_file()).unwrap_or(false)
+                && e.path() != root
                 && e.path()
                     .extension()
                     .and_then(|x| x.to_str())
