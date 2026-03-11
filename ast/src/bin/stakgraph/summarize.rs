@@ -189,7 +189,12 @@ async fn render_file_summary(file_path: &Path) -> Option<String> {
     let rendered = render_file_nodes_filtered(&graph, file_path.to_str()?, SUMMARY_ALLOWED_TYPES)
         .ok()?;
 
-    if rendered.trim().is_empty() {
+    // Skip files whose rendered output is only the File: header (no actual nodes)
+    let has_nodes = console::strip_ansi_codes(&rendered)
+        .lines()
+        .skip(1)
+        .any(|l| !l.trim().is_empty());
+    if !has_nodes {
         None
     } else {
         Some(rendered)
@@ -268,9 +273,11 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
     source_files.sort_by(|a, b| score_file(b, &root).cmp(&score_file(a, &root)));
 
     let mut any_printed = false;
+    let mut files_skipped = 0usize;
     for file_path in &source_files {
         if tokens_used >= max_tokens {
-            break;
+            files_skipped += 1;
+            continue;
         }
 
         let Some(rendered) = render_file_summary(file_path).await else {
@@ -279,7 +286,8 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
 
         let tok = count_tokens(&bpe, &rendered);
         if tokens_used + tok > max_tokens {
-            break;
+            files_skipped += 1;
+            continue;
         }
 
         out.writeln(&rendered)?;
@@ -320,10 +328,21 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
             if tokens_used + header_tok > max_tokens {
                 break;
             }
+            let lines: Vec<&str> = content.lines().collect();
+            if lines.len() < 10 {
+                let total: usize = lines
+                    .iter()
+                    .map(|l| count_tokens(&bpe, l) + 1)
+                    .sum();
+                if tokens_used + header_tok + total > max_tokens {
+                    continue;
+                }
+            }
+
             out.writeln(&header)?;
             tokens_used += header_tok;
 
-            for line in content.lines() {
+            for line in &lines {
                 let line_tok = count_tokens(&bpe, line) + 1; // +1 for newline
                 if tokens_used + line_tok > max_tokens {
                     out.writeln(style("...").dim().to_string())?;
@@ -337,7 +356,17 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
     }
 
     out.newline()?;
-    let footer = format!("[{}/{} tokens used]", tokens_used, max_tokens);
+    let footer = if files_skipped > 0 {
+        format!(
+            "[{}/{} tokens used — {} file{} not shown]",
+            tokens_used,
+            max_tokens,
+            files_skipped,
+            if files_skipped == 1 { "" } else { "s" }
+        )
+    } else {
+        format!("[{}/{} tokens used]", tokens_used, max_tokens)
+    };
     out.writeln(style(footer).dim().to_string())?;
 
     Ok(())
