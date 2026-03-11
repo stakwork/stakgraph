@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io;
 use std::io::Read;
 
@@ -98,13 +99,7 @@ pub fn read_text_preview(file_path: &str) -> Option<String> {
 pub fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
     text.lines()
         .take(n)
-        .map(|line| {
-            if line.len() > max_line_len {
-                &line[..max_line_len]
-            } else {
-                line
-            }
-        })
+        .map(|line| line.chars().take(max_line_len).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -275,8 +270,9 @@ fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::R
         out.writeln(format!("{}\n{}\n{}", fence, interface, fence))?;
     } else {
         let body_lines = match node.node_type {
-            NodeType::Function | NodeType::Endpoint | NodeType::Var => 20,
-            NodeType::DataModel | NodeType::Import | NodeType::Request => 100,
+            NodeType::Function | NodeType::Var => 20,
+            NodeType::Endpoint | NodeType::Request => 0,
+            NodeType::DataModel | NodeType::Import => 100,
             NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => 0,
             _ => 0,
         };
@@ -328,9 +324,19 @@ pub fn print_single_file_nodes(
 
     nodes.sort_by_key(|node| node.node_data.start);
 
+    let endpoint_lines: HashSet<usize> = nodes
+        .iter()
+        .filter(|n| matches!(n.node_type, NodeType::Endpoint))
+        .map(|n| n.node_data.start)
+        .collect();
     let (edges_by_source, _edges_by_target) = build_edge_indices(&graph.edges);
 
     for node in nodes {
+        if matches!(node.node_type, NodeType::Request)
+            && endpoint_lines.contains(&node.node_data.start)
+        {
+            continue;
+        }
         print_node_summary(out, node)?;
 
         if matches!(node.node_type, NodeType::Function) {
