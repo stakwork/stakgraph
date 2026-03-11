@@ -295,10 +295,11 @@ fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::R
     Ok(())
 }
 
-pub fn print_single_file_nodes(
+fn print_file_nodes_inner(
     out: &mut Output,
     graph: &ArrayGraph,
     file_path: &str,
+    allowed_types: Option<&[NodeType]>,
 ) -> Result<()> {
     let file_path = std::fs::canonicalize(file_path)?
         .to_string_lossy()
@@ -313,6 +314,11 @@ pub fn print_single_file_nodes(
         .filter(|node| {
             if matches!(node.node_type, NodeType::File | NodeType::Directory) {
                 return false;
+            }
+            if let Some(types) = allowed_types {
+                if !types.contains(&node.node_type) {
+                    return false;
+                }
             }
             let node_file = std::fs::canonicalize(&node.node_data.file)
                 .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
@@ -347,4 +353,22 @@ pub fn print_single_file_nodes(
     }
 
     Ok(())
+}
+
+pub fn print_single_file_nodes(
+    out: &mut Output,
+    graph: &ArrayGraph,
+    file_path: &str,
+) -> Result<()> {
+    print_file_nodes_inner(out, graph, file_path, None)
+}
+
+pub fn render_file_nodes_filtered(
+    graph: &ArrayGraph,
+    file_path: &str,
+    allowed_types: &[NodeType],
+) -> Result<String> {
+    let mut out = Output::new_buffer();
+    print_file_nodes_inner(&mut out, graph, file_path, Some(allowed_types))?;
+    Ok(out.into_string())
 }
