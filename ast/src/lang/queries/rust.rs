@@ -651,6 +651,10 @@ impl Stack for Rust {
         ))
     }
 
+    fn nested_scope_query(&self) -> Option<String> {
+        Some("[(impl_item) @scope (function_item) @scope]".to_string())
+    }
+
     fn data_model_query(&self) -> Option<String> {
         Some(format!(
             r#"

@@ -927,3 +927,50 @@ async fn test_rust() {
         test_rust_generic::<Neo4jGraph>().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_rust_no_nested_removes_nested_nodes() {
+    use crate::lang::graphs::ArrayGraph;
+
+    let mut repo = Repo::new(
+        "src/testing/rust",
+        Lang::from_str("rust").unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+    repo.no_nested = true;
+
+    let graph = repo.build_graph_inner::<ArrayGraph>().await.unwrap();
+
+    let data_models = graph.find_nodes_by_type(NodeType::DataModel);
+    let nested_item_aliases = data_models
+        .iter()
+        .filter(|dm| dm.name == "Item" && dm.file.ends_with("src/testing/rust/src/traits.rs"))
+        .count();
+
+    let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
+
+    println!(
+        "[test-no-nested] datamodels={} item_aliases={} nested_in_edges={}",
+        data_models.len(),
+        nested_item_aliases,
+        nested_in_edges
+    );
+
+    assert_eq!(
+        nested_item_aliases, 0,
+        "Expected nested associated type aliases to be removed when no_nested is enabled"
+    );
+    assert_eq!(
+        nested_in_edges, 0,
+        "Expected no NestedIn edges when no_nested is enabled"
+    );
+    assert!(
+        data_models
+            .iter()
+            .any(|dm| dm.name == "Commands" && dm.file.ends_with("src/cli/args.rs")),
+        "Expected top-level data models to remain"
+    );
+}
