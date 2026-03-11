@@ -252,6 +252,18 @@ impl Lang {
             lang: Box::new(csharp::CSharp::new()),
         }
     }
+    pub fn new_bash() -> Self {
+        Self {
+            kind: Language::Bash,
+            lang: Box::new(bash::Bash::new()),
+        }
+    }
+    pub fn new_toml() -> Self {
+        Self {
+            kind: Language::Toml,
+            lang: Box::new(toml::Toml::new()),
+        }
+    }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
@@ -893,8 +905,8 @@ impl Lang {
             Language::Go => Lang::new_go(),
             Language::Typescript => Lang::new_typescript(),
             Language::Ruby => Lang::new_ruby(),
-            Language::Bash => unimplemented!(),
-            Language::Toml => unimplemented!(),
+            Language::Bash => Lang::new_bash(),
+            Language::Toml => Lang::new_toml(),
             Language::Kotlin => Lang::new_kotlin(),
             Language::Swift => Lang::new_swift(),
             Language::Java => Lang::new_java(),

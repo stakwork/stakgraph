@@ -33,26 +33,21 @@ impl Stack for Toml {
 
     fn lib_query(&self) -> Option<String> {
         Some(format!(
-            r#"(document
-          (table 
-            (bare_key) @section (#eq? @section "dependencies")
-            (pair 
-              (bare_key) @{LIBRARY_NAME}
-              [
-                ; Simple version string: package = "1.0.0"
+            r#"[
+              (pair
+                (bare_key) @{LIBRARY_NAME}
                 (string) @{LIBRARY_VERSION}
-                
-                ; Table with version: package = {{ version = "1.0.0", ... }}
+              ) @{LIBRARY}
+              (pair
+                (bare_key) @{LIBRARY_NAME}
                 (inline_table
                   (pair
                     (bare_key) @version_key (#eq? @version_key "version")
                     (string) @{LIBRARY_VERSION}
                   )
                 )
-              ]
-            )*
-          )
-        ) @{LIBRARY}"#
+              ) @{LIBRARY}
+            ]"#
         ))
     }
     fn class_definition_query(&self) -> String {
@@ -69,6 +64,9 @@ impl Stack for Toml {
               )
             ) @{CLASS_DEFINITION}"#
         )
+    }
+    fn identifier_query(&self) -> String {
+        "(bare_key) @identifier".to_string()
     }
     fn function_definition_query(&self) -> String {
         format!(

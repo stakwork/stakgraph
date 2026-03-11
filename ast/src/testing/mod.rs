@@ -5,6 +5,7 @@ use std::str::FromStr;
 // use tracing_test::traced_test;
 
 pub mod angular;
+pub mod bash_toml;
 
 pub mod c;
 #[cfg(test)]
