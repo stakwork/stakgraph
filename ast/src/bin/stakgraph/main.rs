@@ -14,8 +14,9 @@ mod args;
 mod output;
 mod progress;
 mod render;
+mod summarize;
 
-use args::CliArgs;
+use args::{CliArgs, Commands};
 use output::Output;
 use progress::ProgressTracker;
 use render::{common_ancestor, print_single_file_nodes, read_text_preview};
@@ -79,6 +80,11 @@ async fn run() -> Result<()> {
         .with_target(false)
         .with_env_filter(filter)
         .init();
+
+    if let Some(Commands::Summarize(ref sum_args)) = cli.command {
+        let mut out = Output::new();
+        return summarize::run_summarize(sum_args, &mut out).await;
+    }
 
     let (files, dir_files) = expand_dirs(&cli.files)?;
     let allow_unverified_calls = cli.allow;
