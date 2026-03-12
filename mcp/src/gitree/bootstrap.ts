@@ -2,6 +2,7 @@ import { Storage } from "./store/index.js";
 import { Feature, Usage } from "./types.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { get_context } from "../repo/agent.js";
+import { DOC_GUIDELINES } from "./llm.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -128,17 +129,9 @@ For each feature provide:
 - **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this feature's CURRENT state
 
 **Summary requirements** — focus on what developers need to know to work on this feature:
-- Brief overview (2-3 sentences max)
-- List the 5-15 core files (just paths and 1-line purposes)
-- Key concepts/components (high-level only)
-- Main API endpoints/functions (names only, no implementations)
-- Core data models (names only, brief purpose)
+${DOC_GUIDELINES.include}
 
-**What to AVOID in summaries**:
-- Code snippets or implementation details
-- Long explanations of how things work internally
-- Detailed API documentation
-- Step-by-step flows unless absolutely essential
+${DOC_GUIDELINES.avoid}
 
 Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two.`;
 }
@@ -280,18 +273,9 @@ export async function exploreNewFeature(
 
 Description: ${feature.description}
 
-**What to include**:
-- Brief overview (2-3 sentences max)
-- List the 5-15 core files (just paths and 1-line purposes)
-- Key concepts/components (high-level only)
-- Main API endpoints/functions (names only, no implementations)
-- Core data models (names only, brief purpose)
+${DOC_GUIDELINES.include}
 
-**What to AVOID**:
-- Code snippets or implementation details
-- Long explanations of how things work internally
-- Detailed API documentation
-- Step-by-step flows unless absolutely essential
+${DOC_GUIDELINES.avoid}
 
 Target length: 30-80 lines of markdown.`,
     repoPath,

@@ -2,6 +2,7 @@ import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
+import { DOC_GUIDELINES } from "./llm.js";
 
 /**
  * Generates comprehensive documentation for features based on their PR and commit history
@@ -241,19 +242,9 @@ ${taskDescription}
 4. **Actionable** - What developers need to know to work on this feature
 5. **Focus on CURRENT state** - Ignore historical implementation details
 
-**What to include**:
-- Brief overview (2-3 sentences max)
-- List the 5-15 core files (just paths and 1-line purposes)
-- Key concepts/components (high-level only)
-- Main API endpoints/functions (names only, no implementations)
-- Core data models (names only, brief purpose)
+${DOC_GUIDELINES.include}
 
-**What to AVOID**:
-- Long explanations of how things work internally
-- Code snippets or implementation details
-- Historical information about how it evolved
-- Detailed API documentation
-- Step-by-step flows unless absolutely essential
+${DOC_GUIDELINES.avoid}
 
 Generate the documentation in markdown format:`;
   }
