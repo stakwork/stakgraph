@@ -1,8 +1,36 @@
 import { ModelMessage, ToolSet, StepResult, StopCondition } from "ai";
 import { SessionConfig, truncateToolResult } from "./session.js";
+import { createByModelName, TikTokenizer } from "@microsoft/tiktokenizer";
 
 const TRUNCATED = "<TRUNCATED>";
 const CONTEXT_THRESHOLD = 0.9;
+
+// Singleton tokenizer instance (lazy-initialized)
+let _tokenizer: TikTokenizer | null = null;
+let _tokenizerPromise: Promise<TikTokenizer> | null = null;
+
+async function getTokenizer(): Promise<TikTokenizer> {
+  if (_tokenizer) return _tokenizer;
+  if (!_tokenizerPromise) {
+    _tokenizerPromise = createByModelName("gpt-4").then((t) => {
+      _tokenizer = t;
+      return t;
+    });
+  }
+  return _tokenizerPromise;
+}
+
+/**
+ * Count tokens using the real tokenizer (sync, after init).
+ * Falls back to a conservative estimate if tokenizer isn't ready yet.
+ */
+function countTokens(text: string): number {
+  if (_tokenizer) {
+    return _tokenizer.encode(text).length;
+  }
+  // Conservative fallback: ~3 chars per token (errs on the side of overcounting)
+  return Math.ceil(text.length / 3);
+}
 
 export function createHasEndMarkerCondition<
   T extends ToolSet
@@ -307,10 +335,10 @@ function stripTrailingGarbage(s: string): string {
 }
 
 /**
- * Estimate token count for a string (rough: ~4 chars per token).
+ * Estimate token count for a string using real tokenizer or conservative fallback.
  */
 function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return countTokens(text);
 }
 
 /**
@@ -376,22 +404,29 @@ export function estimateMessagesTokens(messages: ModelMessage[]): number {
  * Tool results are replaced with "<TRUNCATED>" starting from the earliest
  * messages, skipping the most recent tool results.
  */
-export function truncateOldToolResults(
+export async function truncateOldToolResults(
   messages: ModelMessage[],
   inputTokens: number,
   contextLimit: number
-): ModelMessage[] {
+): Promise<ModelMessage[]> {
+  // Eagerly initialize the tokenizer so countTokens() is accurate
+  await getTokenizer().catch(() => {});
+
   // Use provider-reported tokens if available, otherwise estimate
+  const estimated = estimateMessagesTokens(messages);
   const lastInputTokens = inputTokens > 0
     ? inputTokens
-    : estimateMessagesTokens(messages);
+    : estimated;
   const threshold = contextLimit * CONTEXT_THRESHOLD;
-  if (lastInputTokens < threshold) {
+  // Also check our own estimate in case the provider count is stale
+  if (lastInputTokens < threshold && estimated < threshold) {
     return messages;
   }
 
-  const excess = lastInputTokens - threshold;
-  let tokensToFree = excess;
+  const worstCase = Math.max(lastInputTokens, estimated);
+  const excess = worstCase - threshold;
+  // Add 10% safety margin to account for estimation inaccuracy
+  let tokensToFree = Math.ceil(excess * 1.1);
 
   console.log(
     `[truncate] Input tokens ${lastInputTokens} >= ${Math.round(threshold)} (90% of ${contextLimit}). ` +

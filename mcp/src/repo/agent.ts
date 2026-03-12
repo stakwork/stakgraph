@@ -247,12 +247,12 @@ Apply the guidance from each skill throughout your response.`;
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => logStep(sf.content),
-    prepareStep: ({ steps, messages }) => {
+    prepareStep: async ({ steps, messages }) => {
       // Use real input token count from the last step if available,
       // otherwise 0 to trigger estimation from the messages themselves
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
-      const truncated = truncateOldToolResults(messages, inputTokens, contextLimit);
+      const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
       if (truncated === messages) return undefined;
       return { messages: truncated };
     },
