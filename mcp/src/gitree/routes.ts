@@ -29,6 +29,7 @@ import { cloneOrUpdateRepo } from "../repo/clone.js";
 import { Feature } from "./types.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
+import { bootstrapFeatures } from "./bootstrap.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -156,14 +157,26 @@ export async function gitree_process(req: Request, res: Response) {
         const storage = new GraphStorage();
         await storage.initialize();
 
-        // Get repoPath if clue analysis is enabled
+        // Check if this is a brand-new repo (no features yet)
+        const repoId = `${owner}/${repo}`;
+        const existingFeatures = await storage.getAllFeatures(repoId);
+        const isNewRepo = existingFeatures.length === 0;
+
+        // Clone repo if needed for bootstrap or clue analysis
         let repoPath: string | undefined;
-        if (shouldAnalyzeClues) {
+        if (isNewRepo || shouldAnalyzeClues) {
           repoPath = await cloneOrUpdateRepo(
             `https://github.com/${owner}/${repo}`,
             undefined,
             githubToken
           );
+        }
+
+        // Bootstrap: seed initial features by exploring the codebase
+        let bootstrapUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        if (isNewRepo && repoPath) {
+          const bootstrapResult = await bootstrapFeatures(owner, repo, repoPath, storage);
+          bootstrapUsage = bootstrapResult.usage;
         }
 
         const octokit = new Octokit({ auth: githubToken });
@@ -206,18 +219,18 @@ export async function gitree_process(req: Request, res: Response) {
 
         const totalUsage = {
           inputTokens:
+            bootstrapUsage.inputTokens +
             processUsage.inputTokens +
             (summarizeUsage?.inputTokens || 0),
           outputTokens:
+            bootstrapUsage.outputTokens +
             processUsage.outputTokens +
             (summarizeUsage?.outputTokens || 0),
           totalTokens:
+            bootstrapUsage.totalTokens +
             processUsage.totalTokens +
             (summarizeUsage?.totalTokens || 0),
         };
-
-        // Add this run's usage to the cumulative total in metadata
-        const repoId = `${owner}/${repo}`;
         await storage.addToTotalUsage(repoId, totalUsage);
         
         // Get the new cumulative total
