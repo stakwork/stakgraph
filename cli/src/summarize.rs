@@ -189,7 +189,6 @@ async fn render_file_summary(file_path: &Path) -> Option<String> {
     let rendered = render_file_nodes_filtered(&graph, file_path.to_str()?, SUMMARY_ALLOWED_TYPES)
         .ok()?;
 
-    // Skip files whose rendered output is only the File: header (no actual nodes)
     let has_nodes = console::strip_ansi_codes(&rendered)
         .lines()
         .skip(1)
@@ -359,7 +358,7 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
             tokens_used += header_tok;
 
             for line in &lines {
-                let line_tok = count_tokens(&bpe, line) + 1; // +1 for newline
+                let line_tok = count_tokens(&bpe, line) + 1;
                 if tokens_used + line_tok > max_tokens {
                     out.writeln(style("...").dim().to_string())?;
                     break 'md;
@@ -387,4 +386,3 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
 
     Ok(())
 }
-

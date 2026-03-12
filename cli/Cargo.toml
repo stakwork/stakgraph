@@ -1,0 +1,26 @@
+[workspace]
+
+[package]
+name = "stakgraph"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "stakgraph"
+path = "src/main.rs"
+
+[dependencies]
+ast = { path = "../ast", default-features = false }
+lsp = { path = "../lsp" }
+shared = { path = "../shared" }
+tokio = { version = "1.27.0", features = ["full"] }
+clap = { version = "4.5.31", features = ["derive"] }
+clap_complete = "4"
+console = "0.16"
+indicatif = "0.18"
+walkdir = "2.3"
+ignore = "0.4.23"
+tiktoken-rs = "0.9.1"
+tempfile = "3"
+tracing = "0.1.37"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }

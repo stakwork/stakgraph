@@ -51,15 +51,15 @@ jobs:
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" ast/Cargo.toml
+          sed -i.bak "s/^version = \".*\"/version = \"$VERSION\"/" cli/Cargo.toml
 
       - name: Build (native)
         if: ${{ !matrix.use-cross }}
-        run: cargo build --release --target ${{ matrix.target }} --bin stakgraph --package ast --no-default-features
+        run: cargo build --release --target ${{ matrix.target }} --bin stakgraph --manifest-path cli/Cargo.toml
 
       - name: Build with cross
         if: matrix.use-cross
-        run: cross build --release --target ${{ matrix.target }} --bin stakgraph --package ast --no-default-features
+        run: cross build --release --target ${{ matrix.target }} --bin stakgraph --manifest-path cli/Cargo.toml
 
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'

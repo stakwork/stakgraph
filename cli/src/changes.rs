@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use ast::gat::{
+use super::git::{
     filter_paths_by_scope, get_changed_files, get_staged_changes, get_working_tree_changes,
     list_commits_for_paths, read_file_at_rev,
 };
@@ -19,7 +19,6 @@ use super::utils::common_ancestor;
 pub async fn run(args: &ChangesArgs, out: &mut Output) -> Result<()> {
     let repo_path = std::env::current_dir()
         .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
-
     let repo_str = repo_path.to_string_lossy().to_string();
 
     match &args.command {
@@ -162,7 +161,6 @@ async fn run_diff(
     // Build "before" graph from git blobs written to a temp directory
     let tmp_dir = tempfile::tempdir()
         .map_err(|e| Error::internal(format!("Failed to create temp dir: {}", e)))?;
-
     let mut before_files: Vec<String> = Vec::new();
     for rel_path in &scoped_files {
         if Language::from_path(rel_path).is_none() {

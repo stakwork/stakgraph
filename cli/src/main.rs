@@ -6,6 +6,7 @@ use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 mod args;
 mod changes;
 mod completions;
+mod git;
 mod output;
 mod parse;
 mod progress;
