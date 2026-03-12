@@ -811,13 +811,14 @@ ${DECISION_GUIDELINES}`;
       }
     }
 
-    // Update feature descriptions
+    // Update feature descriptions (and attach the PR/commit that caused the update)
     if (decision.updateFeatures && decision.updateFeatures.length > 0) {
       for (const update of decision.updateFeatures) {
         const feature = await this.storage.getFeature(update.featureId, this.repo);
         if (feature) {
           feature.description = update.newDescription;
           feature.lastUpdated = config.changeDate;
+          await config.addToFeature(feature);
           await this.storage.saveFeature(feature);
           modifiedFeatureIds.add(feature.id);
           console.log(`   🔄 Updated feature description: ${feature.name}`);

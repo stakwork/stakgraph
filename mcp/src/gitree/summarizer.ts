@@ -71,7 +71,13 @@ export class Summarizer {
       prompt,
     });
 
-    const documentation = result.text;
+    const documentation = result.text.trim();
+
+    // LLM responded "OK" — existing docs are still accurate, no update needed
+    if (documentation.toUpperCase() === "OK" || documentation.toUpperCase() === "\`OK\`") {
+      console.log(`   ⏭️  No doc update needed (existing docs are current)`);
+      return result.usage;
+    }
 
     // Save documentation and usage to feature
     feature.documentation = documentation;
@@ -217,7 +223,9 @@ export class Summarizer {
       : '';
 
     const taskDescription = hasExistingDocs
-      ? `**Your task**: UPDATE the existing documentation based on the new changes below. Preserve the structure and content that is still accurate. Integrate new information naturally — don't append a changelog, rewrite the relevant sections to reflect the current state.`
+      ? `**Your task**: UPDATE the existing documentation based on the new changes below. Preserve the structure and content that is still accurate. Integrate new information naturally — don't append a changelog, rewrite the relevant sections to reflect the current state.
+
+If the new changes are minor (bug fixes, small tweaks, refactors) and the existing documentation already accurately describes the feature, respond with exactly \`OK\` and nothing else.`
       : `**Your task**: Generate HIGH-LEVEL documentation for the CURRENT state of this feature.`;
 
     return `You are generating SUCCINCT documentation for a software feature to help developers quickly understand and continue working on it.
