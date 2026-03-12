@@ -210,6 +210,22 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
         .canonicalize()
         .map_err(|e| Error::Custom(e.to_string()))?;
 
+    if root.is_file() {
+        let header = format!(
+            "{} {}",
+            style("Summary:").bold(),
+            style(root.display().to_string()).bold().cyan(),
+        );
+        out.writeln(&header)?;
+        out.newline()?;
+        if let Some(rendered) = render_file_summary(&root).await {
+            out.writeln(&rendered)?;
+        } else {
+            out.writeln(style("(no summary — file not parseable or contains no relevant nodes)").dim().to_string())?;
+        }
+        return Ok(());
+    }
+
     if !root.is_dir() {
         return Err(Error::Custom(format!(
             "{} is not a directory",

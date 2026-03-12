@@ -1,4 +1,5 @@
 use clap::{ArgAction, Args, Parser, Subcommand};
+use clap_complete::Shell;
 use shared::{Error, Result};
 
 #[derive(Debug, Parser)]
@@ -42,6 +43,8 @@ pub struct CliArgs {
 pub enum Commands {
     /// Print a token-budget-aware high-level summary of a directory
     Summarize(SummarizeArgs),
+    /// Generate shell completions
+    Completions(CompletionsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -57,6 +60,13 @@ pub struct SummarizeArgs {
     /// Path to summarize (default: current directory)
     #[arg(value_name = "PATH", default_value = ".")]
     pub path: String,
+}
+
+#[derive(Debug, Args)]
+pub struct CompletionsArgs {
+    /// Shell to generate completions for
+    #[arg(value_enum)]
+    pub shell: Shell,
 }
 
 impl CliArgs {
@@ -77,6 +87,10 @@ impl CliArgs {
 
         if args.command.is_none() && args.files.is_empty() {
             return Err(Error::validation("No file path provided"));
+        }
+
+        if let Some(Commands::Completions(_)) = &args.command {
+            return Ok(args);
         }
 
         Ok(args)
