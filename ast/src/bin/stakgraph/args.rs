@@ -51,8 +51,8 @@ pub enum Commands {
 
 #[derive(Debug, Args)]
 pub struct SummarizeArgs {
-    /// Token budget for the output (default: 2000)
-    #[arg(long, default_value = "2000")]
+    /// Token budget for the output (default: 5000)
+    #[arg(long, default_value = "5000")]
     pub max_tokens: usize,
 
     /// Maximum directory depth to display (default: adaptive, starts at 1)

@@ -188,8 +188,15 @@ async fn run_diff(
     let before_graph = build_graph_for_files(&before_files).await?;
 
     // Compute delta using a normalized key (node_type + name + relative_file)
-    let after_by_key = index_graph_by_norm_key(&after_graph, repo_path);
-    let before_by_key = index_graph_by_norm_key(&before_graph, tmp_dir.path().to_str().unwrap_or(""));
+    // Canonicalize both roots to resolve symlinks (e.g., macOS /var -> /private/var)
+    let canon_repo = std::fs::canonicalize(repo_path)
+        .unwrap_or_else(|_| std::path::PathBuf::from(repo_path));
+    let canon_tmp = tmp_dir
+        .path()
+        .canonicalize()
+        .unwrap_or_else(|_| tmp_dir.path().to_path_buf());
+    let after_by_key = index_graph_by_norm_key(&after_graph, canon_repo.to_str().unwrap_or(repo_path));
+    let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp.to_str().unwrap_or(""));
 
     let after_keys: HashSet<String> = after_by_key.keys().cloned().collect();
     let before_keys: HashSet<String> = before_by_key.keys().cloned().collect();
