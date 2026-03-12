@@ -366,27 +366,14 @@ function isAlreadyTruncated(part: any): boolean {
 }
 
 /**
- * Estimate total tokens in a messages array by serializing all content.
+ * Estimate total tokens in a messages array by serializing the entire message.
+ * We JSON.stringify each message to capture all structural overhead (role markers,
+ * tool IDs, tool names, content part framing, etc.) — not just the text payloads.
  */
 export function estimateMessagesTokens(messages: ModelMessage[]): number {
   let total = 0;
   for (const msg of messages) {
-    const m = msg as any;
-    if (typeof m.content === "string") {
-      total += estimateTokens(m.content);
-    } else if (Array.isArray(m.content)) {
-      for (const part of m.content) {
-        if (part.type === "text" && typeof part.text === "string") {
-          total += estimateTokens(part.text);
-        } else if (part.type === "tool-result") {
-          total += getToolResultSize(part);
-        } else if (part.type === "tool-call") {
-          total += estimateTokens(JSON.stringify(part.input ?? ""));
-        } else {
-          total += estimateTokens(JSON.stringify(part));
-        }
-      }
-    }
+    total += estimateTokens(JSON.stringify(msg));
   }
   return total;
 }
@@ -418,7 +405,12 @@ export async function truncateOldToolResults(
     ? inputTokens
     : estimated;
   const threshold = contextLimit * CONTEXT_THRESHOLD;
-  // Also check our own estimate in case the provider count is stale
+
+  console.log(
+    `[truncate] providerTokens=${inputTokens} estimated=${estimated} threshold=${Math.round(threshold)} contextLimit=${contextLimit} messages=${messages.length} tokenizer=${_tokenizer ? 'real' : 'fallback'}`
+  );
+
+  // Check both provider-reported and our own estimate
   if (lastInputTokens < threshold && estimated < threshold) {
     return messages;
   }
@@ -429,8 +421,7 @@ export async function truncateOldToolResults(
   let tokensToFree = Math.ceil(excess * 1.1);
 
   console.log(
-    `[truncate] Input tokens ${lastInputTokens} >= ${Math.round(threshold)} (90% of ${contextLimit}). ` +
-    `Need to free ~${Math.round(tokensToFree)} tokens.`
+    `[truncate] OVER LIMIT. worstCase=${worstCase} excess=${excess} tokensToFree=${tokensToFree}`
   );
 
   // Collect all truncatable tool-result locations (earliest first).
@@ -451,13 +442,20 @@ export async function truncateOldToolResults(
     }
   }
 
+  const totalFreeable = candidates.reduce((sum, c) => sum + c.tokens, 0);
+  console.log(
+    `[truncate] Found ${candidates.length} truncatable tool results, totalFreeable=${totalFreeable}`
+  );
+
   if (candidates.length === 0) {
+    console.log(`[truncate] WARNING: over limit but no tool results to truncate!`);
     return messages;
   }
 
   // Deep copy only the messages we need to modify
   const result = [...messages];
   let freedTokens = 0;
+  let truncatedCount = 0;
 
   // Truncate from the beginning (oldest tool results first)
   for (const { msgIdx, partIdx, tokens } of candidates) {
@@ -480,18 +478,12 @@ export async function truncateOldToolResults(
     };
 
     freedTokens += tokens;
-  }
-
-  let truncatedCount = 0;
-  let sum = 0;
-  for (const c of candidates) {
-    if (sum >= tokensToFree) break;
-    sum += c.tokens;
     truncatedCount++;
   }
 
+  const estimatedAfter = estimateMessagesTokens(result);
   console.log(
-    `[truncate] Freed ~${Math.round(freedTokens)} estimated tokens by truncating ${truncatedCount} tool result(s).`
+    `[truncate] Freed ~${Math.round(freedTokens)} tokens by truncating ${truncatedCount} tool result(s). estimatedAfter=${estimatedAfter}`
   );
 
   return result;
