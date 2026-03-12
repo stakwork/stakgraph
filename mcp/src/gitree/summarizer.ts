@@ -209,20 +209,30 @@ export class Summarizer {
     const prs = selected.filter(c => c.type === 'pr');
     const commits = selected.filter(c => c.type === 'commit');
 
+    const hasExistingDocs = feature.documentation && feature.documentation.trim().length > 0;
+
+    const existingDocsSection = hasExistingDocs
+      ? `\n## Existing Documentation\n\nThe following documentation already exists for this feature. Use it as your starting point — preserve what is still accurate, update what has changed, and add any new information from the changes below.\n\n${feature.documentation}\n\n---\n`
+      : '';
+
+    const taskDescription = hasExistingDocs
+      ? `**Your task**: UPDATE the existing documentation based on the new changes below. Preserve the structure and content that is still accurate. Integrate new information naturally — don't append a changelog, rewrite the relevant sections to reflect the current state.`
+      : `**Your task**: Generate HIGH-LEVEL documentation for the CURRENT state of this feature.`;
+
     return `You are generating SUCCINCT documentation for a software feature to help developers quickly understand and continue working on it.
 
 **Feature**: ${feature.name}
 **ID**: ${feature.id}
 **Description**: ${feature.description}
 **Total changes in history**: ${totalChanges} (${prs.length} PRs, ${commits.length} commits)
-
+${existingDocsSection}
 Below is ${isBookended ? 'the FOUNDATIONAL (first 8) and RECENT (last 100) changes' : 'the COMPLETE chronological history'} (PRs and commits) that built this feature (from oldest to newest):
 ${isBookended ? '\n**NOTE**: The first 8 changes show initial architecture/foundation. After a gap, the remaining changes show the recent state.\n' : ''}
 ${changesText}
 
 ---
 
-**Your task**: Generate HIGH-LEVEL documentation for the CURRENT state of this feature.
+${taskDescription}
 
 **CRITICAL REQUIREMENTS**:
 1. **Be SUCCINCT** - Target length: 100-200 lines MAXIMUM
