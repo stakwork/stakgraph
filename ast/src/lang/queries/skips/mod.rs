@@ -9,4 +9,5 @@ pub mod python;
 pub mod react_ts;
 pub mod ruby;
 pub mod rust;
+pub mod summary;
 pub mod svelte;
