@@ -4,6 +4,7 @@ use shared::{Error, Result};
 use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 
 mod args;
+mod changes;
 mod completions;
 mod output;
 mod parse;
@@ -57,6 +58,9 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Summarize(args)) => {
             summarize::run_summarize(args, &mut Output::new()).await
+        }
+        Some(Commands::Changes(args)) => {
+            changes::run(args, &mut Output::new()).await
         }
         None => parse::run(&cli, &mut Output::new()).await,
     }

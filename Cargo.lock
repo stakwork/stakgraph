@@ -172,6 +172,7 @@ dependencies = [
  "sha256",
  "shared",
  "streaming-iterator",
+ "tempfile",
  "test-log",
  "tiktoken-rs",
  "tokio",

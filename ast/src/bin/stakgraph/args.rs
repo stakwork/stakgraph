@@ -45,6 +45,8 @@ pub enum Commands {
     Summarize(SummarizeArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
+    /// Explore git changes scoped to specific files or directories
+    Changes(ChangesArgs),
 }
 
 #[derive(Debug, Args)]
@@ -69,6 +71,54 @@ pub struct CompletionsArgs {
     pub shell: Shell,
 }
 
+#[derive(Debug, Args)]
+pub struct ChangesArgs {
+    #[command(subcommand)]
+    pub command: ChangesCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ChangesCommand {
+    /// List commits that touched the scoped paths
+    List(ListArgs),
+    /// Compute graph delta between two points (default: working tree vs HEAD)
+    Diff(DiffArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ListArgs {
+    /// Maximum number of commits to show (default: 20)
+    #[arg(long, default_value = "20")]
+    pub max: usize,
+
+    /// Files or directories to scope the changes to
+    #[arg(value_name = "PATH", required = true, num_args = 1..)]
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DiffArgs {
+    /// Compare staged changes only
+    #[arg(long, conflicts_with_all = &["last", "since", "range"])]
+    pub staged: bool,
+
+    /// Compare HEAD~n..HEAD
+    #[arg(long, conflicts_with_all = &["staged", "since", "range"])]
+    pub last: Option<usize>,
+
+    /// Compare <ref>..HEAD
+    #[arg(long, conflicts_with_all = &["staged", "last", "range"])]
+    pub since: Option<String>,
+
+    /// Compare explicit range <a>..<b>
+    #[arg(long, conflicts_with_all = &["staged", "last", "since"])]
+    pub range: Option<String>,
+
+    /// Files or directories to scope the changes to
+    #[arg(value_name = "PATH", required = true, num_args = 1..)]
+    pub paths: Vec<String>,
+}
+
 impl CliArgs {
     pub fn parse_and_expand() -> Result<Self> {
         let mut args = Self::parse();
@@ -90,6 +140,10 @@ impl CliArgs {
         }
 
         if let Some(Commands::Completions(_)) = &args.command {
+            return Ok(args);
+        }
+
+        if let Some(Commands::Changes(_)) = &args.command {
             return Ok(args);
         }
 

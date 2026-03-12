@@ -1,6 +1,6 @@
 mod builder;
 #[cfg(feature = "openssl")]
-mod gat;
+pub mod gat;
 pub mod lang;
 pub mod repo;
 pub mod utils;
