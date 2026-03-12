@@ -29,16 +29,14 @@ export async function learn_docs_agent(req: Request, res: Response) {
       }
     }
 
-    // Filter out repos that already have documentation
-    const undocumented = reposToProcess.filter(
-      (r) => !r.properties.documentation,
+    const hasDocumentation = reposToProcess.find(
+      (r) => r.properties.documentation,
     );
-    if (undocumented.length === 0) {
-      console.log(`[learn_docs] Documentation already exists for all repos, skipping`);
+    if (hasDocumentation) {
+      console.log(`[learn_docs] Documentation already exists, skipping`);
       res.json({ message: "Documentation already exists" });
       return;
     }
-    reposToProcess = undocumented;
 
     const allRulesFiles = await db.get_rules_files();
 
