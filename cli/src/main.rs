@@ -58,10 +58,10 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Some(Commands::Summarize(args)) => {
-            summarize::run_summarize(args, &mut Output::new()).await
+            summarize::run_summarize(args, &mut Output::new(), cli.verbose || cli.perf).await
         }
         Some(Commands::Changes(args)) => {
-            changes::run(args, &mut Output::new()).await
+            changes::run(args, &mut Output::new(), cli.verbose || cli.perf).await
         }
         None => parse::run(&cli, &mut Output::new()).await,
     }

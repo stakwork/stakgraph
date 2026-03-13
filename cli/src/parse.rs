@@ -149,10 +149,10 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
 
     let goal_phrase = parse_goal_phrase(&filter_types, cli.stats);
 
-    let spinner = if cli.quiet || cli.verbose || cli.perf {
-        None
-    } else {
+    let spinner = if cli.verbose || cli.perf {
         Some(CliSpinner::new(&format!("Preparing {} summary...", goal_phrase)))
+    } else {
+        None
     };
 
     let (progress_tracker, status_tx) = ProgressTracker::new(cli.verbose || cli.perf);

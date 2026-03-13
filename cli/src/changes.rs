@@ -17,17 +17,25 @@ use super::output::Output;
 use super::progress::CliSpinner;
 use super::utils::common_ancestor;
 
-pub async fn run(args: &ChangesArgs, out: &mut Output) -> Result<()> {
+pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
     let repo_path = std::env::current_dir()
         .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
     let repo_str = repo_path.to_string_lossy().to_string();
 
     match &args.command {
         ChangesCommand::List(list_args) => {
-            run_list_commits(&repo_str, &list_args.paths, list_args.max, out).await
+            run_list_commits(&repo_str, &list_args.paths, list_args.max, out, show_progress).await
         }
         ChangesCommand::Diff(diff_args) => {
-            run_diff(&repo_str, &diff_args.paths, &diff_args.types, diff_args, out).await
+            run_diff(
+                &repo_str,
+                &diff_args.paths,
+                &diff_args.types,
+                diff_args,
+                out,
+                show_progress,
+            )
+            .await
         }
     }
 }
@@ -37,10 +45,17 @@ async fn run_list_commits(
     paths: &[String],
     max: usize,
     out: &mut Output,
+    show_progress: bool,
 ) -> Result<()> {
-    let spinner = CliSpinner::new("Scanning commit history...");
+    let spinner = if show_progress {
+        Some(CliSpinner::new("Scanning commit history..."))
+    } else {
+        None
+    };
     let commits = list_commits_for_paths(repo_path, paths, Some(max))?;
-    spinner.finish_and_clear();
+    if let Some(sp) = &spinner {
+        sp.finish_and_clear();
+    }
 
     if commits.is_empty() {
         out.writeln(format!("{}", style("No commits found for the specified paths").yellow()))?;
@@ -87,6 +102,7 @@ async fn run_diff(
     types: &[String],
     args: &DiffArgs,
     out: &mut Output,
+    show_progress: bool,
 ) -> Result<()> {
     let mode_description = if args.staged {
         "staged changes".to_string()
@@ -106,13 +122,19 @@ async fn run_diff(
         format!("{}", types.join(", "))
     };
 
-    let spinner = CliSpinner::new(&format!(
-        "Preparing {} summary for {}...",
-        mode_description, type_scope
-    ));
+    let spinner = if show_progress {
+        Some(CliSpinner::new(&format!(
+            "Preparing {} summary for {}...",
+            mode_description, type_scope
+        )))
+    } else {
+        None
+    };
 
     // before_rev: the "old" snapshot; after_rev: Some(rev) means read from git, None means read from disk
-    spinner.set_message("Collecting changed files...");
+    if let Some(sp) = &spinner {
+        sp.set_message("Collecting changed files...");
+    }
     let (changed_files, before_rev, after_rev) = if args.staged {
         (get_staged_changes(repo_path)?, "HEAD".to_string(), None)
     } else if let Some(last_n) = args.last {
@@ -196,7 +218,9 @@ async fn run_diff(
         .map_err(|e| Error::internal(format!("Failed to create temp dir: {}", e)))?;
 
     // Build "after" snapshot: from disk when after_rev is None (HEAD), from git blobs otherwise
-    spinner.set_message("Loading current snapshot files...");
+    if let Some(sp) = &spinner {
+        sp.set_message("Loading current snapshot files...");
+    }
     let after_files: Vec<String> = if let Some(ref rev) = after_rev {
         let mut files = Vec::new();
         for rel in &scoped_files {
@@ -228,14 +252,18 @@ async fn run_diff(
             .collect()
     };
 
-    spinner.set_message("Building current snapshot graph...");
+    if let Some(sp) = &spinner {
+        sp.set_message("Building current snapshot graph...");
+    }
     let after_graph = build_graph_for_files(&after_files).await?;
 
     // Build "before" graph from git blobs written to a temp directory
     let tmp_dir = tempfile::tempdir()
         .map_err(|e| Error::internal(format!("Failed to create temp dir: {}", e)))?;
     let mut before_files: Vec<String> = Vec::new();
-    spinner.set_message("Loading previous snapshot files...");
+    if let Some(sp) = &spinner {
+        sp.set_message("Loading previous snapshot files...");
+    }
     for rel_path in &scoped_files {
         if Language::from_path(rel_path).is_none() {
             continue;
@@ -257,10 +285,14 @@ async fn run_diff(
         }
     }
 
-    spinner.set_message("Building previous snapshot graph...");
+    if let Some(sp) = &spinner {
+        sp.set_message("Building previous snapshot graph...");
+    }
     let before_graph = build_graph_for_files(&before_files).await?;
 
-    spinner.set_message(format!("Computing {} delta...", type_scope));
+    if let Some(sp) = &spinner {
+        sp.set_message(format!("Computing {} delta...", type_scope));
+    }
 
     // Canonicalize roots to resolve symlinks (e.g., macOS /var -> /private/var)
     let canon_repo = std::fs::canonicalize(repo_path)
@@ -331,7 +363,9 @@ async fn run_diff(
         .collect();
 
     if added.is_empty() && removed.is_empty() && modified.is_empty() {
-        spinner.finish_with_message("No graph-level changes found");
+        if let Some(sp) = &spinner {
+            sp.finish_with_message("No graph-level changes found");
+        }
         out.writeln(format!(
             "{}",
             style("No graph-level changes detected in the scoped files").dim()
@@ -339,9 +373,13 @@ async fn run_diff(
         return Ok(());
     }
 
-    spinner.set_message("Rendering graph change summary...");
+    if let Some(sp) = &spinner {
+        sp.set_message("Rendering graph change summary...");
+    }
     print_delta(out, &added, &removed, &modified, canon_repo_str, &canon_after_root, canon_tmp_str)?;
-    spinner.finish_with_message("Graph change summary ready");
+    if let Some(sp) = &spinner {
+        sp.finish_with_message("Graph change summary ready");
+    }
 
     Ok(())
 }
