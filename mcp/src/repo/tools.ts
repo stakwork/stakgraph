@@ -27,7 +27,8 @@ type ToolName =
   | "learn_concepts"
   | "list_workflows"
   | "learn_workflow"
-  | "read_workflow_json";
+  | "read_workflow_json"
+  | "vector_search";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -36,6 +37,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "fulltext_search", "web_search", "bash", "final_answer",
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
+  "vector_search",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -128,6 +130,7 @@ Rules:
   list_workflows: 'List all Workflow nodes in the graph, returning workflow_name and node_key for each.',
   learn_workflow: 'Get the generated documentation for a specific workflow by its node_key.',
   read_workflow_json: 'Read the raw workflow_json property of a Workflow node by its node_key.',
+  vector_search: 'Search for code nodes by semantic similarity using vector embeddings. Use this when you want to find code related to a concept or description, even if the exact terms are not present in the code. Returns the node name, type, filename, and line number for each match.',
 };
 
 export async function get_tools(
@@ -361,6 +364,40 @@ export async function get_tools(
     }
   } else {
     console.log("===> no db found, skipping workflow tools");
+  }
+
+  // Conditionally register vector_search tool if embeddings exist
+  if (db) {
+    const embeddingsCount = await db.count_nodes_with_embeddings();
+    if (embeddingsCount > 0) {
+      console.log(`===> ${embeddingsCount} nodes with embeddings found, registering vector_search tool`);
+      allTools.vector_search = tool({
+        description: defaultDescriptions.vector_search,
+        inputSchema: z.object({
+          query: z.string().describe("A natural language description of the code you are looking for"),
+          limit: z.number().optional().default(10).describe("Maximum number of results to return"),
+        }),
+        execute: async ({ query, limit }: { query: string; limit?: number }) => {
+          try {
+            const results = await db.vectorSearch(query, limit || 10, [], 0.7);
+            return results.map((node) => ({
+              name: node.properties.name,
+              node_type: node.labels.find(l => l !== "Data_Bank") || node.labels[0],
+              file: node.properties.file,
+              line: node.properties.start,
+              score: node.score,
+            }));
+          } catch (e) {
+            console.error("Error in vector_search:", e);
+            return `Vector search failed: ${e}`;
+          }
+        },
+      });
+    } else {
+      console.log("===> no nodes with embeddings found, skipping vector_search tool");
+    }
+  } else {
+    console.log("===> no db found, skipping vector_search tool");
   }
 
   // Register sub-agent tools (remote agent delegation)

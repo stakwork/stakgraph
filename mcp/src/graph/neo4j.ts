@@ -1255,6 +1255,14 @@ class Db {
     }
   }
 
+  async count_nodes_with_embeddings(): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.COUNT_NODES_WITH_EMBEDDINGS_QUERY);
+      return r.records[0].get('c').toNumber();
+    } finally { await session.close(); }
+  }
+
   async count_workflow_nodes(): Promise<number> {
     const session = this.driver.session();
     try {
