@@ -1,6 +1,6 @@
 use clap::{ArgAction, Args, Parser, Subcommand};
 use clap_complete::Shell;
-use shared::{Error, Result};
+use shared::Result;
 
 #[derive(Debug, Parser)]
 #[command(name = "stakgraph")]
@@ -148,7 +148,8 @@ impl CliArgs {
             .collect();
 
         if args.command.is_none() && args.files.is_empty() {
-            return Err(Error::validation("No file path provided"));
+            eprintln!("Error: no file path provided. Run with --help for usage.");
+            std::process::exit(0);
         }
 
         if let Some(Commands::Completions(_)) = &args.command {

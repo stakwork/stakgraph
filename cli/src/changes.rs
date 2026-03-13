@@ -147,7 +147,14 @@ async fn run_diff(
     } else if let Some(ref range) = args.range {
         let parts: Vec<&str> = range.split("..").collect();
         if parts.len() != 2 {
-            return Err(Error::validation("Range must be in format <a>..<b>"));
+            if let Some(sp) = &spinner {
+                sp.finish_and_clear();
+            }
+            out.writeln(format!(
+                "{}",
+                style("Error: range must be in format <a>..<b> (e.g. HEAD~3..HEAD)").red()
+            ))?;
+            return Ok(());
         }
         let files = get_changed_files(repo_path, parts[0], parts[1])?;
         (files, parts[0].to_string(), Some(parts[1].to_string()))

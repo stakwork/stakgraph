@@ -38,7 +38,7 @@ fn invalid_filter_type_fails() {
     let traits = fixture_path("src/testing/rust/src/traits.rs");
     let out = run_stakgraph(&["--filter", "NotAType", &traits]);
 
-    assert_eq!(out.exit_code, 1);
+    assert_eq!(out.exit_code, 0);
     assert!(out.stderr.contains("Unknown node type"));
 }
 

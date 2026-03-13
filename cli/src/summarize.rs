@@ -215,9 +215,20 @@ pub async fn run_summarize(
     let mut tokens_used = 0usize;
     let max_tokens = args.max_tokens;
 
-    let root = PathBuf::from(&args.path)
-        .canonicalize()
-        .map_err(|e| Error::Custom(e.to_string()))?;
+    let raw_root = PathBuf::from(&args.path);
+    let root = match raw_root.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            if let Some(sp) = &spinner {
+                sp.finish_and_clear();
+            }
+            out.writeln(format!(
+                "{}",
+                style(format!("Error: path does not exist: {}", raw_root.display())).red()
+            ))?;
+            return Ok(());
+        }
+    };
 
     if root.is_file() {
         if let Some(sp) = &spinner {
@@ -242,10 +253,11 @@ pub async fn run_summarize(
     }
 
     if !root.is_dir() {
-        return Err(Error::Custom(format!(
-            "{} is not a directory",
-            root.display()
-        )));
+        out.writeln(format!(
+            "{}",
+            style(format!("Error: {} is not a directory", root.display())).red()
+        ))?;
+        return Ok(());
     }
 
     // ── Header ────────────────────────────────────────────────────────

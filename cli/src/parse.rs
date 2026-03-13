@@ -98,14 +98,24 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
     let no_nested = cli.no_nested;
-    let filter_types = parse_filter_types(&cli.filter)?;
+    let filter_types = match parse_filter_types(&cli.filter) {
+        Ok(types) => types,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return Ok(());
+        }
+    };
 
     let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
     let mut files_to_print: Vec<String> = Vec::new();
 
     for file_path in &files {
         if !dir_files.contains(file_path) && !Path::new(file_path).exists() {
-            return Err(Error::Custom(format!("File does not exist: {}", file_path)));
+            out.writeln(format!(
+                "{}",
+                style(format!("Error: file does not exist: {}", file_path)).red()
+            ))?;
+            return Ok(());
         }
 
         let canonical_path = std::fs::canonicalize(file_path)
