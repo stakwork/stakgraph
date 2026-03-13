@@ -76,12 +76,6 @@ async function processFiles(requestId: string, node_file: any, edge_file: any) {
   jobStatus.set(requestId, { status: "completed" });
 }
 
-export async function embed_code(req: Request, res: Response) {
-  const do_files = isTrue(req.query.files as string);
-  await db.embed_data_bank_bodies(do_files);
-  res.json({ status: "completed" });
-}
-
 export async function update_token_counts(req: Request, res: Response) {
   await db.update_all_token_counts();
   res.json({ status: "completed" });
