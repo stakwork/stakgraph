@@ -38,6 +38,26 @@ import { McpServer, getMcpTools } from "./mcpServers.js";
 
 const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
+The bash tool is available to you.
+
+### Viewing files
+- Full file: \`cat -n path/to/file\`
+- Line range (e.g. 50-75): \`sed -n '50,75p' path/to/file\`
+
+### Searching
+- Recursive search: \`rg -n "pattern" path/to/dir\`
+- Filenames only: \`rg -l "pattern" path/to/dir\`
+- By language: \`rg -n -t py "pattern" path/to/dir\`
+- With context: \`rg -n -C5 "pattern" path/to/file\`
+- Whole word match: \`rg -nw "pattern" path/to/dir\`
+- Exclude paths: \`rg -n -g "!*.test.*" "pattern" path/to/dir\`
+- Limit results: \`rg -n -m3 "pattern" path/to/dir\`
+- Find files by name: \`find path/to/dir -name "*.py" -type f\`
+- Directory overview: \`tree -L 2 path/to/dir\`
+
+### Workflow
+Use \`rg -l\` or \`rg -n\` to find relevant files and line numbers, then \`sed -n 'X,Yp'\` to view sections in detail.
+
 CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
 
 Example format:
