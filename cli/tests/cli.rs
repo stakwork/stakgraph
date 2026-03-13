@@ -48,3 +48,15 @@ mod cli_angular;
 
 #[path = "cli/unsupported.rs"]
 mod cli_unsupported;
+
+#[path = "cli/flags.rs"]
+mod cli_flags;
+
+#[path = "cli/summarize_cmd.rs"]
+mod cli_summarize_cmd;
+
+#[path = "cli/completions_cmd.rs"]
+mod cli_completions_cmd;
+
+#[path = "cli/changes_cmd.rs"]
+mod cli_changes_cmd;
