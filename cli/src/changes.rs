@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::IsTerminal;
 use std::path::Path;
 
 use super::git::{
@@ -26,7 +27,7 @@ pub async fn run(args: &ChangesArgs, out: &mut Output) -> Result<()> {
             run_list_commits(&repo_str, &list_args.paths, list_args.max, out).await
         }
         ChangesCommand::Diff(diff_args) => {
-            run_diff(&repo_str, &diff_args.paths, diff_args, out).await
+            run_diff(&repo_str, &diff_args.paths, &diff_args.types, diff_args, out).await
         }
     }
 }
@@ -81,6 +82,7 @@ async fn run_list_commits(
 async fn run_diff(
     repo_path: &str,
     paths: &[String],
+    types: &[String],
     args: &DiffArgs,
     out: &mut Output,
 ) -> Result<()> {
@@ -154,15 +156,27 @@ async fn run_diff(
     ))?;
     out.newline()?;
 
+    let parseable_count = scoped_files
+        .iter()
+        .filter(|file| Language::from_path(file).is_some())
+        .count();
+    let mut printed_file_list = false;
+
     for file in &scoped_files {
         let parseable = Language::from_path(file).is_some();
         if parseable {
-            out.writeln(format!("  {}", style(file).cyan()))?;
+            if parseable_count > 5 {
+                out.writeln(format!("  {}", style(file).cyan()))?;
+                printed_file_list = true;
+            }
         } else {
             out.writeln(format!("  {} {}", style(file).cyan(), style("(not parsed)").dim()))?;
+            printed_file_list = true;
         }
     }
-    out.newline()?;
+    if printed_file_list {
+        out.newline()?;
+    }
 
     let tmp_after_dir = tempfile::tempdir()
         .map_err(|e| Error::internal(format!("Failed to create temp dir: {}", e)))?;
@@ -199,6 +213,22 @@ async fn run_diff(
             .collect()
     };
 
+    let spinner = if std::io::stderr().is_terminal() {
+        use indicatif::{ProgressBar, ProgressStyle};
+        use std::time::Duration;
+        let pb = ProgressBar::new_spinner();
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+        );
+        pb.set_message("Summarizing Changes...");
+        pb.enable_steady_tick(Duration::from_millis(80));
+        Some(pb)
+    } else {
+        None
+    };
+
     let after_graph = build_graph_for_files(&after_files).await?;
 
     // Build "before" graph from git blobs written to a temp directory
@@ -227,6 +257,10 @@ async fn run_diff(
     }
 
     let before_graph = build_graph_for_files(&before_files).await?;
+
+    if let Some(pb) = spinner {
+        pb.finish_and_clear();
+    }
 
     // Canonicalize roots to resolve symlinks (e.g., macOS /var -> /private/var)
     let canon_repo = std::fs::canonicalize(repo_path)
@@ -282,6 +316,19 @@ async fn run_diff(
             }
         }
     }
+
+    // Apply --types filter
+    let type_filter: Vec<String> = types.iter().map(|t| t.to_lowercase()).collect();
+    let filter_node = |n: &&Node| -> bool {
+        type_filter.is_empty()
+            || type_filter.contains(&n.node_type.to_string().to_lowercase())
+    };
+    let added: Vec<&Node> = added.into_iter().filter(filter_node).collect();
+    let removed: Vec<&Node> = removed.into_iter().filter(filter_node).collect();
+    let modified: Vec<(&Node, &Node)> = modified
+        .into_iter()
+        .filter(|(a, _)| filter_node(&a))
+        .collect();
 
     if added.is_empty() && removed.is_empty() && modified.is_empty() {
         out.writeln(format!(
@@ -339,6 +386,21 @@ async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
 
     let repos = Repos(repos_vec);
     repos.build_graphs_array().await
+}
+
+const MAX_SIG: usize = 100;
+
+fn signature_line(body: &str) -> Option<String> {
+    body.lines()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| {
+            let s = l.trim_end();
+            if s.chars().count() > MAX_SIG {
+                format!("{}…", s.chars().take(MAX_SIG).collect::<String>())
+            } else {
+                s.to_string()
+            }
+        })
 }
 
 fn norm_key(node: &Node, root: &str) -> String {
@@ -439,6 +501,8 @@ fn print_delta(
         .collect();
     all_files.sort();
 
+    let total_file_count = all_files.len();
+
     for file in &all_files {
         let has_added = file_added.contains_key(file);
         let has_removed = file_removed.contains_key(file);
@@ -453,23 +517,39 @@ fn print_delta(
             style("[Removed]".to_string()).bold().red()
         };
 
+        let node_count = file_added.get(file).map(|v| v.len()).unwrap_or(0)
+            + file_removed.get(file).map(|v| v.len()).unwrap_or(0)
+            + file_modified.get(file).map(|v| v.len()).unwrap_or(0);
+
         out.writeln(format!(
-            "{}  {}",
+            "{}  {}  {}",
             style(file).bold(),
-            file_status
+            file_status,
+            style(format!("({} node{})", node_count, if node_count == 1 { "" } else { "s" })).dim()
         ))?;
 
         // Modified nodes (show with ~)
         if let Some(nodes) = file_modified.get(file) {
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|(a, _)| a.node_data.start);
-            for (after_node, _before_node) in sorted {
+            for (after_node, before_node) in sorted {
+                let line_range = style(format!("L{}-L{}", after_node.node_data.start, after_node.node_data.end)).dim();
                 out.writeln(format!(
-                    "  {} {} {}",
+                    "  {} {} {}  {}",
                     style("~").yellow().bold(),
                     style(after_node.node_type.to_string()).yellow(),
-                    style(&after_node.node_data.name).bold()
+                    style(&after_node.node_data.name).bold(),
+                    line_range
                 ))?;
+                let before_sig = signature_line(&before_node.node_data.body);
+                let after_sig = signature_line(&after_node.node_data.body);
+                match (before_sig, after_sig) {
+                    (Some(b), Some(a)) if b != a => {
+                        out.writeln(format!("    {} {}", style("-").red(), style(&b).red().bright()))?;
+                        out.writeln(format!("    {} {}", style("+").green(), style(&a).green().bright()))?;
+                    }
+                    _ => {}
+                }
             }
         }
 
@@ -478,12 +558,17 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|n| n.node_data.start);
             for node in sorted {
+                let location = style(format!("L{}", node.node_data.start)).dim();
                 out.writeln(format!(
-                    "  {} {} {}",
+                    "  {} {} {}  {}",
                     style("+").green().bold(),
                     style(node.node_type.to_string()).green(),
-                    style(&node.node_data.name).bold()
+                    style(&node.node_data.name).bold(),
+                    location
                 ))?;
+                if let Some(sig) = signature_line(&node.node_data.body) {
+                    out.writeln(format!("    {}", style(sig).dim()))?;
+                }
             }
         }
 
@@ -492,17 +577,30 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|n| n.node_data.start);
             for node in sorted {
+                let location = style(format!("L{}", node.node_data.start)).dim();
                 out.writeln(format!(
-                    "  {} {} {}",
+                    "  {} {} {}  {}",
                     style("-").red().bold(),
                     style(node.node_type.to_string()).red(),
-                    style(&node.node_data.name).bold()
+                    style(&node.node_data.name).bold(),
+                    location
                 ))?;
+                if let Some(sig) = signature_line(&node.node_data.body) {
+                    out.writeln(format!("    {}", style(sig).dim()))?;
+                }
             }
         }
 
         out.newline()?;
     }
+
+    out.writeln(format!(
+        "{}  {}  {}  {}",
+        style(format!("{} file{}", total_file_count, if total_file_count == 1 { "" } else { "s" })).bold(),
+        style(format!("{} added", added.len())).green(),
+        style(format!("{} removed", removed.len())).red(),
+        style(format!("{} modified", modified.len())).yellow()
+    ))?;
 
     Ok(())
 }

@@ -114,6 +114,10 @@ pub struct DiffArgs {
     #[arg(long, conflicts_with_all = &["staged", "last", "since"])]
     pub range: Option<String>,
 
+    /// Only show nodes of these types, comma-separated (e.g. Function,Endpoint)
+    #[arg(long, value_delimiter = ',')]
+    pub types: Vec<String>,
+
     /// Files or directories to scope the changes to (default: all files)
     #[arg(value_name = "PATH", num_args = 0..)]
     pub paths: Vec<String>,
