@@ -107,6 +107,18 @@ async fn run_diff(
     let scoped_files = filter_paths_by_scope(changed_files, paths);
 
     if scoped_files.is_empty() {
+        if !paths.is_empty() {
+            for p in paths {
+                let abs = Path::new(repo_path).join(p);
+                if !abs.exists() {
+                    out.writeln(format!(
+                        "{}",
+                        style(format!("warning: '{}' does not exist in this repository", p))
+                            .yellow()
+                    ))?;
+                }
+            }
+        }
         out.writeln(format!(
             "{}",
             style("No changes found in the specified scope").yellow()
@@ -185,7 +197,6 @@ async fn run_diff(
 
     let before_graph = build_graph_for_files(&before_files).await?;
 
-    // Compute delta using a normalized key (node_type + name + relative_file)
     // Canonicalize both roots to resolve symlinks (e.g., macOS /var -> /private/var)
     let canon_repo = std::fs::canonicalize(repo_path)
         .unwrap_or_else(|_| std::path::PathBuf::from(repo_path));
@@ -193,8 +204,23 @@ async fn run_diff(
         .path()
         .canonicalize()
         .unwrap_or_else(|_| tmp_dir.path().to_path_buf());
-    let after_by_key = index_graph_by_norm_key(&after_graph, canon_repo.to_str().unwrap_or(repo_path));
-    let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp.to_str().unwrap_or(""));
+
+    let canon_repo_str = canon_repo.to_str().unwrap_or(repo_path);
+    let canon_tmp_str = canon_tmp.to_str().unwrap_or("");
+
+    let changed_abs: HashSet<String> = after_files
+        .iter()
+        .filter_map(|f| std::fs::canonicalize(f).ok())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+    let changed_tmp: HashSet<String> = before_files
+        .iter()
+        .filter_map(|f| std::fs::canonicalize(f).ok())
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
+    let after_by_key = index_graph_by_norm_key(&after_graph, canon_repo_str, &changed_abs);
+    let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp_str, &changed_tmp);
 
     let after_keys: HashSet<String> = after_by_key.keys().cloned().collect();
     let before_keys: HashSet<String> = before_by_key.keys().cloned().collect();
@@ -224,7 +250,7 @@ async fn run_diff(
         return Ok(());
     }
 
-    print_delta(out, &added, &removed, &modified)?;
+    print_delta(out, &added, &removed, &modified, canon_repo_str)?;
 
     Ok(())
 }
@@ -286,14 +312,31 @@ fn norm_key(node: &Node, root: &str) -> String {
     format!("{}-{}-{}", node.node_type, node.node_data.name, rel_file)
 }
 
-fn index_graph_by_norm_key<'a>(graph: &'a ArrayGraph, root: &str) -> HashMap<String, &'a Node> {
+fn index_graph_by_norm_key<'a>(
+    graph: &'a ArrayGraph,
+    root: &str,
+    allowed_files: &HashSet<String>,
+) -> HashMap<String, &'a Node> {
     let mut map = HashMap::new();
     for node in &graph.nodes {
         if matches!(
             node.node_type,
-            NodeType::Repository | NodeType::File | NodeType::Directory | NodeType::Import
+            NodeType::Repository
+                | NodeType::File
+                | NodeType::Directory
+                | NodeType::Import
+                | NodeType::Language
+                | NodeType::Package
         ) {
             continue;
+        }
+        if !allowed_files.is_empty() {
+            let canon = std::fs::canonicalize(&node.node_data.file)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !allowed_files.contains(&canon) {
+                continue;
+            }
         }
         let key = norm_key(node, root);
         map.entry(key).or_insert(node);
@@ -301,90 +344,118 @@ fn index_graph_by_norm_key<'a>(graph: &'a ArrayGraph, root: &str) -> HashMap<Str
     map
 }
 
+fn rel_path(file: &str, root: &str) -> String {
+    Path::new(file)
+        .strip_prefix(root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| {
+            Path::new(file)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(file)
+                .to_string()
+        })
+}
+
 fn print_delta(
     out: &mut Output,
     added: &[&Node],
     removed: &[&Node],
     modified: &[(&Node, &Node)],
+    root: &str,
 ) -> Result<()> {
-    if !added.is_empty() {
-        out.writeln(format!(
-            "{} ({}):",
-            style("Added").bold().green(),
-            added.len()
-        ))?;
-        let mut sorted = added.to_vec();
-        sorted.sort_by_key(|n| (&n.node_data.file, n.node_data.start));
-        for node in sorted {
-            out.writeln(format!(
-                "  {} {} {}",
-                style("+").green().bold(),
-                style(node.node_type.to_string()).green(),
-                style(&node.node_data.name).bold()
-            ))?;
-            let filename = Path::new(&node.node_data.file)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&node.node_data.file);
-            out.writeln(format!(
-                "    {}",
-                style(format!("{}:{}", filename, node.node_data.start + 1)).dim()
-            ))?;
-        }
-        out.newline()?;
+    // Collect per-file node lists
+    // Key: relative file path
+    let mut file_added: HashMap<String, Vec<&Node>> = HashMap::new();
+    let mut file_removed: HashMap<String, Vec<&Node>> = HashMap::new();
+    let mut file_modified: HashMap<String, Vec<(&Node, &Node)>> = HashMap::new();
+
+    for node in added {
+        let rp = rel_path(&node.node_data.file, root);
+        file_added.entry(rp).or_default().push(node);
+    }
+    for node in removed {
+        let rp = rel_path(&node.node_data.file, root);
+        file_removed.entry(rp).or_default().push(node);
+    }
+    for (after_node, before_node) in modified {
+        let rp = rel_path(&after_node.node_data.file, root);
+        file_modified.entry(rp).or_default().push((after_node, before_node));
     }
 
-    if !removed.is_empty() {
-        out.writeln(format!(
-            "{} ({}):",
-            style("Removed").bold().red(),
-            removed.len()
-        ))?;
-        let mut sorted = removed.to_vec();
-        sorted.sort_by_key(|n| (&n.node_data.file, n.node_data.start));
-        for node in sorted {
-            out.writeln(format!(
-                "  {} {} {}",
-                style("-").red().bold(),
-                style(node.node_type.to_string()).red(),
-                style(&node.node_data.name).bold()
-            ))?;
-            let filename = Path::new(&node.node_data.file)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&node.node_data.file);
-            out.writeln(format!(
-                "    {}",
-                style(format!("{}:{}", filename, node.node_data.start + 1)).dim()
-            ))?;
-        }
-        out.newline()?;
-    }
+    // Collect all unique files and determine file-level status
+    let mut all_files: Vec<String> = file_added
+        .keys()
+        .chain(file_removed.keys())
+        .chain(file_modified.keys())
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    all_files.sort();
 
-    if !modified.is_empty() {
+    for file in &all_files {
+        let has_added = file_added.contains_key(file);
+        let has_removed = file_removed.contains_key(file);
+        let has_modified = file_modified.contains_key(file);
+
+        // File-level status: Added if only in added, Removed if only in removed, else Modified
+        let file_status = if has_modified || (has_added && has_removed) {
+            style("[Modified]".to_string()).bold().yellow()
+        } else if has_added {
+            style("[Added]".to_string()).bold().green()
+        } else {
+            style("[Removed]".to_string()).bold().red()
+        };
+
         out.writeln(format!(
-            "{} ({}):",
-            style("Modified").bold().yellow(),
-            modified.len()
+            "{}  {}",
+            style(file).bold(),
+            file_status
         ))?;
-        let mut sorted = modified.to_vec();
-        sorted.sort_by_key(|(a, _)| (&a.node_data.file, a.node_data.start));
-        for (after_node, _before_node) in sorted {
-            out.writeln(format!(
-                "  {} {} {}",
-                style("~").yellow().bold(),
-                style(after_node.node_type.to_string()).yellow(),
-                style(&after_node.node_data.name).bold()
-            ))?;
-            let filename = Path::new(&after_node.node_data.file)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or(&after_node.node_data.file);
-            out.writeln(format!(
-                "    {}",
-                style(format!("{}:{}", filename, after_node.node_data.start + 1)).dim()
-            ))?;
+
+        // Modified nodes (show with ~)
+        if let Some(nodes) = file_modified.get(file) {
+            let mut sorted = nodes.clone();
+            sorted.sort_by_key(|(a, _)| a.node_data.start);
+            for (after_node, _before_node) in sorted {
+                out.writeln(format!(
+                    "  {} {} {}",
+                    style("~").yellow().bold(),
+                    style(after_node.node_type.to_string()).yellow(),
+                    style(&after_node.node_data.name).bold()
+                ))?;
+            }
         }
+
+        // Added nodes (show with +)
+        if let Some(nodes) = file_added.get(file) {
+            let mut sorted = nodes.clone();
+            sorted.sort_by_key(|n| n.node_data.start);
+            for node in sorted {
+                out.writeln(format!(
+                    "  {} {} {}",
+                    style("+").green().bold(),
+                    style(node.node_type.to_string()).green(),
+                    style(&node.node_data.name).bold()
+                ))?;
+            }
+        }
+
+        // Removed nodes (show with -)
+        if let Some(nodes) = file_removed.get(file) {
+            let mut sorted = nodes.clone();
+            sorted.sort_by_key(|n| n.node_data.start);
+            for node in sorted {
+                out.writeln(format!(
+                    "  {} {} {}",
+                    style("-").red().bold(),
+                    style(node.node_type.to_string()).red(),
+                    style(&node.node_data.name).bold()
+                ))?;
+            }
+        }
+
         out.newline()?;
     }
 

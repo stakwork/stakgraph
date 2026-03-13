@@ -91,8 +91,8 @@ pub struct ListArgs {
     #[arg(long, default_value = "20")]
     pub max: usize,
 
-    /// Files or directories to scope the changes to
-    #[arg(value_name = "PATH", required = true, num_args = 1..)]
+    /// Files or directories to scope the changes to (default: all files)
+    #[arg(value_name = "PATH", num_args = 0..)]
     pub paths: Vec<String>,
 }
 
@@ -114,8 +114,8 @@ pub struct DiffArgs {
     #[arg(long, conflicts_with_all = &["staged", "last", "since"])]
     pub range: Option<String>,
 
-    /// Files or directories to scope the changes to
-    #[arg(value_name = "PATH", required = true, num_args = 1..)]
+    /// Files or directories to scope the changes to (default: all files)
+    #[arg(value_name = "PATH", num_args = 0..)]
     pub paths: Vec<String>,
 }
 
