@@ -13,6 +13,7 @@ import {
 import { fetchPullRequestContent } from "./pr.js";
 import { fetchCommitContent } from "./commit.js";
 import {ClueAnalyzer} from "./clueAnalyzer.js";
+import { exploreNewFeature } from "./bootstrap.js";
 
 /**
  * Main class for building the feature knowledge base from PRs and commits
@@ -800,18 +801,24 @@ ${DECISION_GUIDELINES}`;
             await this.storage.saveFeature(newFeature);
             modifiedFeatureIds.add(newFeature.id);
             console.log(`   ✨ Created new feature: ${newFeature.name}`);
+
+            // Explore codebase to generate initial docs (only if we have a local clone)
+            if (this.repoPath) {
+              await exploreNewFeature(newFeature, this.repoPath, this.storage);
+            }
           }
         }
       }
     }
 
-    // Update feature descriptions
+    // Update feature descriptions (and attach the PR/commit that caused the update)
     if (decision.updateFeatures && decision.updateFeatures.length > 0) {
       for (const update of decision.updateFeatures) {
         const feature = await this.storage.getFeature(update.featureId, this.repo);
         if (feature) {
           feature.description = update.newDescription;
           feature.lastUpdated = config.changeDate;
+          await config.addToFeature(feature);
           await this.storage.saveFeature(feature);
           modifiedFeatureIds.add(feature.id);
           console.log(`   🔄 Updated feature description: ${feature.name}`);

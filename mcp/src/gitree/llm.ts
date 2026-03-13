@@ -4,6 +4,26 @@ import { Provider } from "../aieo/src/provider.js";
 import { LLMDecision, Usage } from "./types.js";
 
 /**
+ * Shared documentation guidelines used by bootstrap, summarizer, and exploreNewFeature
+ */
+export const DOC_GUIDELINES = {
+  include: `**What to include**:
+- Brief overview (just a few sentences)
+- List the 5-15 core files (just paths and 1-line purposes)
+- Key concepts/components (high-level only)
+- Main API endpoints/functions (names only, no implementations)
+- Core data models (names only, brief purpose)
+- Essential patterns and gotchas (briefly, if any)`,
+
+  avoid: `**What to AVOID**:
+- Code snippets or implementation details
+- Long explanations of how things work internally
+- Historical information about how it evolved
+- Detailed API documentation
+- Step-by-step flows unless absolutely essential`,
+};
+
+/**
  * Schema for LLM decision using Zod
  */
 const LLMDecisionSchema = z.object({

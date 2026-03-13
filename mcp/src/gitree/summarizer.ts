@@ -2,6 +2,7 @@ import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
+import { DOC_GUIDELINES } from "./llm.js";
 
 /**
  * Generates comprehensive documentation for features based on their PR and commit history
@@ -70,7 +71,13 @@ export class Summarizer {
       prompt,
     });
 
-    const documentation = result.text;
+    const documentation = result.text.trim();
+
+    // LLM responded "OK" — existing docs are still accurate, no update needed
+    if (documentation.toUpperCase() === "OK" || documentation.toUpperCase() === "\`OK\`") {
+      console.log(`   ⏭️  No doc update needed (existing docs are current)`);
+      return result.usage;
+    }
 
     // Save documentation and usage to feature
     feature.documentation = documentation;
@@ -209,20 +216,32 @@ export class Summarizer {
     const prs = selected.filter(c => c.type === 'pr');
     const commits = selected.filter(c => c.type === 'commit');
 
+    const hasExistingDocs = feature.documentation && feature.documentation.trim().length > 0;
+
+    const existingDocsSection = hasExistingDocs
+      ? `\n## Existing Documentation\n\nThe following documentation already exists for this feature. Use it as your starting point — preserve what is still accurate, update what has changed, and add any new information from the changes below.\n\n${feature.documentation}\n\n---\n`
+      : '';
+
+    const taskDescription = hasExistingDocs
+      ? `**Your task**: UPDATE the existing documentation based on the new changes below. Preserve the structure and content that is still accurate. Integrate new information naturally — don't append a changelog, rewrite the relevant sections to reflect the current state.
+
+If the new changes are minor (bug fixes, small tweaks, refactors) and the existing documentation already accurately describes the feature, respond with exactly \`OK\` and nothing else.`
+      : `**Your task**: Generate HIGH-LEVEL documentation for the CURRENT state of this feature.`;
+
     return `You are generating SUCCINCT documentation for a software feature to help developers quickly understand and continue working on it.
 
 **Feature**: ${feature.name}
 **ID**: ${feature.id}
 **Description**: ${feature.description}
 **Total changes in history**: ${totalChanges} (${prs.length} PRs, ${commits.length} commits)
-
+${existingDocsSection}
 Below is ${isBookended ? 'the FOUNDATIONAL (first 8) and RECENT (last 100) changes' : 'the COMPLETE chronological history'} (PRs and commits) that built this feature (from oldest to newest):
 ${isBookended ? '\n**NOTE**: The first 8 changes show initial architecture/foundation. After a gap, the remaining changes show the recent state.\n' : ''}
 ${changesText}
 
 ---
 
-**Your task**: Generate HIGH-LEVEL documentation for the CURRENT state of this feature.
+${taskDescription}
 
 **CRITICAL REQUIREMENTS**:
 1. **Be SUCCINCT** - Target length: 100-200 lines MAXIMUM
@@ -231,19 +250,9 @@ ${changesText}
 4. **Actionable** - What developers need to know to work on this feature
 5. **Focus on CURRENT state** - Ignore historical implementation details
 
-**What to include**:
-- Brief overview (2-3 sentences max)
-- List the 5-15 core files (just paths and 1-line purposes)
-- Key concepts/components (high-level only)
-- Main API endpoints/functions (names only, no implementations)
-- Core data models (names only, brief purpose)
+${DOC_GUIDELINES.include}
 
-**What to AVOID**:
-- Long explanations of how things work internally
-- Code snippets or implementation details
-- Historical information about how it evolved
-- Detailed API documentation
-- Step-by-step flows unless absolutely essential
+${DOC_GUIDELINES.avoid}
 
 Generate the documentation in markdown format:`;
   }

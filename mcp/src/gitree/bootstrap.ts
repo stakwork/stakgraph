@@ -2,6 +2,7 @@ import { Storage } from "./store/index.js";
 import { Feature, Usage } from "./types.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { get_context } from "../repo/agent.js";
+import { DOC_GUIDELINES } from "./llm.js";
 import * as fs from "fs";
 import * as path from "path";
 
@@ -128,17 +129,9 @@ For each feature provide:
 - **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this feature's CURRENT state
 
 **Summary requirements** — focus on what developers need to know to work on this feature:
-- Brief overview (2-3 sentences max)
-- List the 5-15 core files (just paths and 1-line purposes)
-- Key concepts/components (high-level only)
-- Main API endpoints/functions (names only, no implementations)
-- Core data models (names only, brief purpose)
+${DOC_GUIDELINES.include}
 
-**What to AVOID in summaries**:
-- Code snippets or implementation details
-- Long explanations of how things work internally
-- Detailed API documentation
-- Step-by-step flows unless absolutely essential
+${DOC_GUIDELINES.avoid}
 
 Prefer fewer, broader features over many granular ones. Two closely related capabilities should be one feature, not two.`;
 }
@@ -257,4 +250,49 @@ export async function bootstrapFeatures(
     features,
     usage: result.usage,
   };
+}
+
+/**
+ * Explore a newly created feature to generate initial documentation.
+ * Called when the incremental flow discovers a feature not in the bootstrap set.
+ * Only runs if the feature has no existing documentation.
+ */
+export async function exploreNewFeature(
+  feature: Feature,
+  repoPath: string,
+  storage: Storage
+): Promise<Usage> {
+  if (feature.documentation && feature.documentation.trim().length > 0) {
+    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  }
+
+  console.log(`   🔍 Exploring codebase for new feature: ${feature.name}...`);
+
+  const result = await get_context(
+    `Generate SUCCINCT documentation for the "${feature.name}" feature in this codebase.
+
+Description: ${feature.description}
+
+${DOC_GUIDELINES.include}
+
+${DOC_GUIDELINES.avoid}
+
+Target length: 30-80 lines of markdown.`,
+    repoPath,
+    {
+      systemOverride: `You are a software architect generating concise feature documentation. Use the provided tools to explore the repository and find the key files, components, and patterns related to this feature. Be thorough but focused.`,
+    }
+  );
+
+  const documentation = typeof result.content === "string"
+    ? result.content
+    : result.final;
+
+  feature.documentation = documentation;
+  await storage.saveFeature(feature);
+  await storage.saveDocumentation(feature.id, documentation);
+
+  console.log(`   ✅ Documentation generated for: ${feature.name}`);
+
+  return result.usage;
 }
