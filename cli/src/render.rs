@@ -166,6 +166,13 @@ fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::R
 
     out.writeln(format!("{}: {} {}", node_type_styled, name, lines_styled))?;
 
+    if matches!(node.node_type, NodeType::Endpoint) {
+        if let Some(handler) = nd.meta.get("handler") {
+            let handler_label = style("Handler:").dim();
+            out.writeln(format!("  {} {}", handler_label, style(handler).green()))?;
+        }
+    }
+
     if let Some(docs) = &nd.docs {
         let docs_label = style("Docs:").dim();
         out.writeln(format!(
@@ -271,6 +278,15 @@ pub fn print_single_file_nodes(
     file_path: &str,
 ) -> Result<()> {
     print_file_nodes_inner(out, graph, file_path, None)
+}
+
+pub fn print_single_file_nodes_filtered(
+    out: &mut Output,
+    graph: &ArrayGraph,
+    file_path: &str,
+    allowed_types: &[NodeType],
+) -> Result<()> {
+    print_file_nodes_inner(out, graph, file_path, Some(allowed_types))
 }
 
 pub fn render_file_nodes_filtered(
