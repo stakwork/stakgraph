@@ -854,7 +854,7 @@ LIMIT toInteger($limit)
 
 export const GET_NODES_WITHOUT_DESCRIPTION_QUERY = `
 MATCH (n)
-WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel)
+WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
   AND (n.description IS NULL OR n.description = '')
   AND n.body IS NOT NULL
   AND n.body <> ''
@@ -873,7 +873,12 @@ export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
 
 export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
 
-export const COUNT_NODES_WITH_EMBEDDINGS_QUERY = `MATCH (n:${Data_Bank}) WHERE n.embeddings IS NOT NULL RETURN count(n) AS c`;
+export const COUNT_NODES_WITH_EMBEDDINGS_QUERY = `
+MATCH (n:${Data_Bank})
+WHERE n.embeddings IS NOT NULL
+  AND ANY(label IN labels(n) WHERE label IN ['Function', 'Class', 'Endpoint', 'Datamodel', 'Request', 'Page', 'Trait', 'Var'])
+RETURN count(n) AS c
+`;
 
 export const GET_WORKFLOW_BY_KEY_QUERY = `MATCH (w:Workflow {node_key: $node_key}) RETURN w`;
 

@@ -127,6 +127,9 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
                 "Request",
                 "Function",
                 "Datamodel",
+                "Page",
+                "Trait",
+                "Var",
               ].includes(l),
             ) || "Node";
           const content = node.properties.body || "";
