@@ -4,6 +4,7 @@ pub struct CommitInfo {
     pub hash: String,
     pub message: String,
     pub author: String,
+    pub date: String,
 }
 
 fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
@@ -53,7 +54,7 @@ pub fn list_commits_for_paths(
     max: Option<usize>,
 ) -> Result<Vec<CommitInfo>> {
     let limit = max.unwrap_or(20).to_string();
-    let mut args = vec!["log", "--format=%H%x00%s%x00%an", "-n", &limit, "--"];
+    let mut args = vec!["log", "--format=%H%x00%s%x00%an%x00%ar", "-n", &limit, "--"];
     let path_refs: Vec<&str> = paths.iter().map(|s| s.as_str()).collect();
     args.extend_from_slice(&path_refs);
 
@@ -63,7 +64,7 @@ pub fn list_commits_for_paths(
         .lines()
         .filter(|l| !l.is_empty())
         .filter_map(|line| {
-            let parts: Vec<&str> = line.splitn(3, '\x00').collect();
+            let parts: Vec<&str> = line.splitn(4, '\x00').collect();
             if parts.len() < 3 {
                 return None;
             }
@@ -71,6 +72,7 @@ pub fn list_commits_for_paths(
                 hash: parts[0].to_string(),
                 message: parts[1].to_string(),
                 author: parts[2].to_string(),
+                date: parts.get(3).unwrap_or(&"").to_string(),
             })
         })
         .collect();

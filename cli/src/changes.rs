@@ -65,7 +65,7 @@ async fn run_list_commits(
         out.writeln(format!(
             "{} {} {}",
             style(short_hash).yellow(),
-            style("(timestamp hidden)").dim(),
+            style(&commit.date).dim(),
             style(message_line).white()
         ))?;
         out.writeln(format!(
