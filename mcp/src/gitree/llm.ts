@@ -8,7 +8,7 @@ import { LLMDecision, Usage } from "./types.js";
  */
 export const DOC_GUIDELINES = {
   include: `**What to include**:
-- Brief overview (just a few sentences)
+- Brief overview (just a few sentences, including any major integrations or dependencies)
 - List the 5-15 core files (just paths and 1-line purposes)
 - Key concepts/components (high-level only)
 - Main API endpoints/functions (names only, no implementations)
