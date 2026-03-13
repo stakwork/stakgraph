@@ -52,7 +52,7 @@ pub async fn call_mcp_mocks(repo_url: &str, username: Option<&str>, pat: Option<
     }
 }
 
-pub async fn call_mcp_docs(repo_url: &str, sync: bool) {
+pub async fn call_mcp_docs(repo_url: &str, sync: bool, force: bool) {
     let mcp_url =
         std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
 
@@ -61,9 +61,12 @@ pub async fn call_mcp_docs(repo_url: &str, sync: bool) {
     if sync {
         url.push_str("&sync=true");
     }
+    if force {
+        url.push_str("&force=true");
+    }
     println!(
-        "[mcp_docs] Calling MCP to learn docs (sync={}): {}",
-        sync, url
+        "[mcp_docs] Calling MCP to learn docs (sync={}, force={}): {}",
+        sync, force, url
     );
 
     let client = Client::new();
