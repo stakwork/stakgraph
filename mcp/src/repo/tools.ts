@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   getRepoMap,
   getFileSummary,
+  runStakgraph,
   fulltextSearch,
   executeBashCommand,
 } from "./bash.js";
@@ -201,9 +202,14 @@ export async function get_tools(
       }),
       execute: async ({ file_path }: { file_path: string }) => {
         try {
-          return getFileSummary(file_path, repoPath, 75);
+          return await runStakgraph(file_path, repoPath);
         } catch (e) {
-          return "Bad file path";
+          // stakgraph CLI not available or failed, fall back to reading first lines
+          try {
+            return getFileSummary(file_path, repoPath, 75);
+          } catch (e) {
+            return "Bad file path";
+          }
         }
       },
     }),

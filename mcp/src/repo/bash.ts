@@ -205,6 +205,14 @@ export async function getRepoMap(repoPath: string, repos?: string[]): Promise<st
   }
 }
 
+// Run the stakgraph CLI on a file path
+export async function runStakgraph(
+  filePath: string,
+  repoPath: string
+): Promise<string> {
+  return execShellCommand(`stakgraph "${filePath}"`, repoPath, 15000);
+}
+
 // Get file summary by reading first 40 lines
 export function getFileSummary(
   filePath: string,

@@ -400,8 +400,8 @@ curl -X POST \
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
-    "repo_url": "https://github.com/stakwork/hive",
-    "prompt": "i want to build a sub-account feature."
+    "repo_url": "https://github.com/stakwork/stakgraph",
+    "prompt": "use the file_summary tool to find out what mcp/src/repo/agent.ts does"
   }' \
   "http://localhost:3355/repo/agent"
 
