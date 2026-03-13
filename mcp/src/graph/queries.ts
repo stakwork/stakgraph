@@ -873,6 +873,8 @@ export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
 
 export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
 
+export const COUNT_NODES_WITH_EMBEDDINGS_QUERY = `MATCH (n:${Data_Bank}) WHERE n.embeddings IS NOT NULL RETURN count(n) AS c`;
+
 export const GET_WORKFLOW_BY_KEY_QUERY = `MATCH (w:Workflow {node_key: $node_key}) RETURN w`;
 
 export const GET_WORKFLOW_BY_REF_ID_QUERY = `MATCH (w:Workflow {ref_id: $ref_id}) RETURN w`;
