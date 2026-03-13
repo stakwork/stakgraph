@@ -56,15 +56,18 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
             return Err(Error::Custom(format!("File does not exist: {}", file_path)));
         }
 
+        let canonical_path = std::fs::canonicalize(file_path)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| file_path.clone());
         let language = Language::from_path(file_path);
         match language {
             Some(lang) => {
                 if let Some((_, file_list)) = files_by_lang.iter_mut().find(|(l, _)| *l == lang) {
-                    file_list.push(file_path.clone());
+                    file_list.push(canonical_path.clone());
                 } else {
-                    files_by_lang.push((lang, vec![file_path.clone()]));
+                    files_by_lang.push((lang, vec![canonical_path.clone()]));
                 }
-                files_to_print.push(file_path.clone());
+                files_to_print.push(canonical_path);
             }
             None => {
                 if !dir_files.contains(file_path) {

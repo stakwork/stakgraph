@@ -15,8 +15,8 @@ lsp = { path = "../lsp" }
 shared = { path = "../shared" }
 tokio = { version = "1.27.0", features = ["full"] }
 clap = { version = "4.5.31", features = ["derive"] }
-clap_complete = "4"
-console = "0.16"
+clap_complete = "4.6.0"
+console = "0.16.3"
 indicatif = "0.18"
 walkdir = "2.3"
 ignore = "0.4.23"
