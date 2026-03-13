@@ -788,10 +788,6 @@ fn read_config_file_from_root(root: &Path) -> Option<AstConfig> {
     match std::fs::read_to_string(&config_path) {
         Ok(s) => match serde_json::from_str::<AstConfig>(&s) {
             Ok(c) => {
-                println!(
-                    "[skip_dirs] loaded .ast.json from {:?}: skip_dirs={:?}",
-                    config_path, c.skip_dirs
-                );
                 Some(c)
             }
             Err(_e) => {

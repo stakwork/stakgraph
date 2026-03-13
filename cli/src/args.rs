@@ -45,7 +45,7 @@ pub enum Commands {
     Summarize(SummarizeArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
-    /// Explore git changes scoped to specific files or directories
+    /// Explore git changes summaries scoped to specific files or directories
     Changes(ChangesArgs),
 }
 

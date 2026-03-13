@@ -84,24 +84,25 @@ async fn run_diff(
     args: &DiffArgs,
     out: &mut Output,
 ) -> Result<()> {
-    let (changed_files, before_rev) = if args.staged {
-        (get_staged_changes(repo_path)?, "HEAD".to_string())
+    // before_rev: the "old" snapshot; after_rev: Some(rev) means read from git, None means read from disk
+    let (changed_files, before_rev, after_rev) = if args.staged {
+        (get_staged_changes(repo_path)?, "HEAD".to_string(), None)
     } else if let Some(last_n) = args.last {
         let old_rev = format!("HEAD~{}", last_n);
         let files = get_changed_files(repo_path, &old_rev, "HEAD")?;
-        (files, old_rev)
+        (files, old_rev, None)
     } else if let Some(ref since_ref) = args.since {
         let files = get_changed_files(repo_path, since_ref, "HEAD")?;
-        (files, since_ref.clone())
+        (files, since_ref.clone(), None)
     } else if let Some(ref range) = args.range {
         let parts: Vec<&str> = range.split("..").collect();
         if parts.len() != 2 {
             return Err(Error::validation("Range must be in format <a>..<b>"));
         }
         let files = get_changed_files(repo_path, parts[0], parts[1])?;
-        (files, parts[0].to_string())
+        (files, parts[0].to_string(), Some(parts[1].to_string()))
     } else {
-        (get_working_tree_changes(repo_path)?, "HEAD".to_string())
+        (get_working_tree_changes(repo_path)?, "HEAD".to_string(), None)
     };
 
     let scoped_files = filter_paths_by_scope(changed_files, paths);
@@ -154,19 +155,49 @@ async fn run_diff(
     out.newline()?;
 
     for file in &scoped_files {
-        out.writeln(format!("  {}", style(file).cyan()))?;
+        let parseable = Language::from_path(file).is_some();
+        if parseable {
+            out.writeln(format!("  {}", style(file).cyan()))?;
+        } else {
+            out.writeln(format!("  {} {}", style(file).cyan(), style("(not parsed)").dim()))?;
+        }
     }
     out.newline()?;
 
-    // Build "after" graph from current files on disk (only parseable files)
-    let after_files: Vec<String> = scoped_files
-        .iter()
-        .filter(|f| {
-            let abs = Path::new(repo_path).join(f);
-            abs.exists() && Language::from_path(f).is_some()
-        })
-        .map(|f| Path::new(repo_path).join(f).to_string_lossy().to_string())
-        .collect();
+    let tmp_after_dir = tempfile::tempdir()
+        .map_err(|e| Error::internal(format!("Failed to create temp dir: {}", e)))?;
+
+    // Build "after" snapshot: from disk when after_rev is None (HEAD), from git blobs otherwise
+    let after_files: Vec<String> = if let Some(ref rev) = after_rev {
+        let mut files = Vec::new();
+        for rel in &scoped_files {
+            if Language::from_path(rel).is_none() {
+                continue;
+            }
+            if let Some(content) = read_file_at_rev(repo_path, rev, rel)? {
+                let dest = tmp_after_dir.path().join(rel);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        Error::internal(format!("Failed to create temp dir structure: {}", e))
+                    })?;
+                }
+                std::fs::write(&dest, &content).map_err(|e| {
+                    Error::internal(format!("Failed to write temp file: {}", e))
+                })?;
+                files.push(dest.to_string_lossy().to_string());
+            }
+        }
+        files
+    } else {
+        scoped_files
+            .iter()
+            .filter(|f| {
+                let abs = Path::new(repo_path).join(f);
+                abs.exists() && Language::from_path(f).is_some()
+            })
+            .map(|f| Path::new(repo_path).join(f).to_string_lossy().to_string())
+            .collect()
+    };
 
     let after_graph = build_graph_for_files(&after_files).await?;
 
@@ -197,16 +228,26 @@ async fn run_diff(
 
     let before_graph = build_graph_for_files(&before_files).await?;
 
-    // Canonicalize both roots to resolve symlinks (e.g., macOS /var -> /private/var)
+    // Canonicalize roots to resolve symlinks (e.g., macOS /var -> /private/var)
     let canon_repo = std::fs::canonicalize(repo_path)
         .unwrap_or_else(|_| std::path::PathBuf::from(repo_path));
     let canon_tmp = tmp_dir
         .path()
         .canonicalize()
         .unwrap_or_else(|_| tmp_dir.path().to_path_buf());
+    let canon_tmp_after = tmp_after_dir
+        .path()
+        .canonicalize()
+        .unwrap_or_else(|_| tmp_after_dir.path().to_path_buf());
 
     let canon_repo_str = canon_repo.to_str().unwrap_or(repo_path);
     let canon_tmp_str = canon_tmp.to_str().unwrap_or("");
+    // For "after": use the git-blob temp dir root when reading from a rev, else the repo root
+    let canon_after_root = if after_rev.is_some() {
+        canon_tmp_after.to_str().unwrap_or("").to_string()
+    } else {
+        canon_repo_str.to_string()
+    };
 
     let changed_abs: HashSet<String> = after_files
         .iter()
@@ -219,7 +260,7 @@ async fn run_diff(
         .map(|p| p.to_string_lossy().to_string())
         .collect();
 
-    let after_by_key = index_graph_by_norm_key(&after_graph, canon_repo_str, &changed_abs);
+    let after_by_key = index_graph_by_norm_key(&after_graph, &canon_after_root, &changed_abs);
     let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp_str, &changed_tmp);
 
     let after_keys: HashSet<String> = after_by_key.keys().cloned().collect();
@@ -250,7 +291,7 @@ async fn run_diff(
         return Ok(());
     }
 
-    print_delta(out, &added, &removed, &modified, canon_repo_str)?;
+    print_delta(out, &added, &removed, &modified, canon_repo_str, &canon_after_root, canon_tmp_str)?;
 
     Ok(())
 }
@@ -362,26 +403,30 @@ fn print_delta(
     added: &[&Node],
     removed: &[&Node],
     modified: &[(&Node, &Node)],
-    root: &str,
+    repo_root: &str,
+    after_root: &str,
+    before_root: &str,
 ) -> Result<()> {
-    // Collect per-file node lists
-    // Key: relative file path
+    // Collect per-file node lists keyed by repo-relative path
     let mut file_added: HashMap<String, Vec<&Node>> = HashMap::new();
     let mut file_removed: HashMap<String, Vec<&Node>> = HashMap::new();
     let mut file_modified: HashMap<String, Vec<(&Node, &Node)>> = HashMap::new();
 
     for node in added {
-        let rp = rel_path(&node.node_data.file, root);
+        // Added nodes may live in tmp_after_dir (--range) or repo dir (HEAD-based)
+        let rp = rel_path(&node.node_data.file, after_root);
         file_added.entry(rp).or_default().push(node);
     }
     for node in removed {
-        let rp = rel_path(&node.node_data.file, root);
+        // Removed nodes always live in tmp (before) dir
+        let rp = rel_path(&node.node_data.file, before_root);
         file_removed.entry(rp).or_default().push(node);
     }
     for (after_node, before_node) in modified {
-        let rp = rel_path(&after_node.node_data.file, root);
+        let rp = rel_path(&after_node.node_data.file, after_root);
         file_modified.entry(rp).or_default().push((after_node, before_node));
     }
+    let _ = repo_root; // kept for future use
 
     // Collect all unique files and determine file-level status
     let mut all_files: Vec<String> = file_added
