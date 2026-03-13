@@ -64,20 +64,20 @@ jobs:
       - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
         run: |
-          cd target/${{ matrix.target }}/release
+          cd cli/target/${{ matrix.target }}/release
           tar czf stakgraph-${{ matrix.target }}.tar.gz stakgraph
 
       - name: Package (Windows)
         if: matrix.archive == 'zip'
         shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
+          cd cli/target/${{ matrix.target }}/release
           7z a stakgraph-${{ matrix.target }}.zip stakgraph.exe
 
       - uses: actions/upload-artifact@v4
         with:
           name: stakgraph-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/stakgraph-${{ matrix.target }}.${{ matrix.archive }}
+          path: cli/target/${{ matrix.target }}/release/stakgraph-${{ matrix.target }}.${{ matrix.archive }}
 
   release:
     needs: build-cli
