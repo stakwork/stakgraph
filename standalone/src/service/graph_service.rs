@@ -189,7 +189,7 @@ pub async fn ingest(
 
     for repo_url in &repo_urls {
         if should_call_mcp_for_repo(&docs_param, repo_url) {
-            call_mcp_docs(repo_url, false).await;
+            call_mcp_docs(repo_url, false, false).await;
         }
         if should_call_mcp_for_repo(&mocks_param, repo_url) {
             call_mcp_mocks(repo_url, username.as_deref(), pat.as_deref(), false).await;
@@ -307,11 +307,11 @@ pub async fn sync(
     );
 
     if should_call_mcp_for_repo(&docs_param, repo_url) {
-        if let Some(files) = &modified_files {
-            if has_rules_file_changes(files) {
-                call_mcp_docs(repo_url, true).await;
-            }
-        }
+        let force = modified_files
+            .as_ref()
+            .map(|files| has_rules_file_changes(files))
+            .unwrap_or(false);
+        call_mcp_docs(repo_url, true, force).await;
     }
 
     if should_call_mcp_for_repo(&mocks_param, repo_url) {

@@ -5,8 +5,9 @@ import { getModel, Provider } from "../aieo/src/index.js";
 
 export async function learn_docs_agent(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
+  const force = req.query.force === "true";
 
-  console.log("===> learn_docs_agent", repoUrl);
+  console.log("===> learn_docs_agent", repoUrl, "force:", force);
   // Resolve AI model
   const provider = (process.env.LLM_PROVIDER || "anthropic") as Provider;
   const model = getModel(provider);
@@ -29,15 +30,6 @@ export async function learn_docs_agent(req: Request, res: Response) {
       }
     }
 
-    const hasDocumentation = reposToProcess.find(
-      (r) => r.properties.documentation,
-    );
-    if (hasDocumentation) {
-      console.log(`[learn_docs] Documentation already exists, skipping`);
-      res.json({ message: "Documentation already exists" });
-      return;
-    }
-
     const allRulesFiles = await db.get_rules_files();
 
     const summaries: Record<string, string> = {};
@@ -46,6 +38,12 @@ export async function learn_docs_agent(req: Request, res: Response) {
     for (const repo of reposToProcess) {
       const repoName = repo.properties.name;
       const repoRoot = repo.properties.file;
+
+      if (repo.properties.documentation && !force) {
+        console.log(`[learn_docs] Documentation already exists for ${repoName}, skipping`);
+        continue;
+      }
+
       console.log(`[learn_docs] Processing ${repoName} ${repoRoot}`);
 
       try {
