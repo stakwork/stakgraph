@@ -230,11 +230,18 @@ fn print_file_nodes_inner(
                     return false;
                 }
             }
-            let node_file = std::fs::canonicalize(&node.node_data.file)
-                .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
-                .to_string_lossy()
-                .to_string();
-            node_file == file_path
+            let node_file_str = &node.node_data.file;
+            // Try canonicalize first (works when node stores an absolute/resolvable path)
+            let node_file = std::fs::canonicalize(node_file_str)
+                .map(|p| p.to_string_lossy().to_string());
+            if let Ok(ref nf) = node_file {
+                if *nf == file_path {
+                    return true;
+                }
+            }
+            // Fallback: node file may be a strip_tmp-ed relative path (e.g. "owner/repo/src/foo.ts")
+            // that the canonical file_path ends with
+            file_path.ends_with(node_file_str)
         })
         .collect();
 
