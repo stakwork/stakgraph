@@ -17,4 +17,4 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run CLI integration suite
-        run: cargo test -p ast --test cli
+        run: cargo test --manifest-path cli/Cargo.toml --test cli

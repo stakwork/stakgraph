@@ -13,7 +13,8 @@ fn manifest_dir() -> PathBuf {
 }
 
 pub fn fixture_path(relative: &str) -> String {
-    manifest_dir().join(relative).to_string_lossy().to_string()
+    let p = manifest_dir().join("..").join("ast").join(relative);
+    std::fs::canonicalize(&p).unwrap_or(p).to_string_lossy().to_string()
 }
 
 pub fn run_stakgraph(args: &[&str]) -> CliOutput {

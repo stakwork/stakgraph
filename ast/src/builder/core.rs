@@ -409,7 +409,7 @@ impl Repo {
     async fn add_repository_and_language_nodes<G: Graph>(&self, graph: &mut G) -> Result<()> {
         info!("Root: {:?}", self.root);
         let root_str = self.root.to_string_lossy().to_string();
-        let commit_hash = get_commit_hash(&root_str).await?;
+        let commit_hash = get_commit_hash(&root_str).await.unwrap_or_default();
         info!("Commit(commit_hash): {:?}", commit_hash);
 
         let (org, repo_name) = if !self.url.is_empty() {

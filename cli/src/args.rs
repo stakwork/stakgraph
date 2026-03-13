@@ -45,12 +45,14 @@ pub enum Commands {
     Summarize(SummarizeArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
+    /// Explore git changes summaries scoped to specific files or directories
+    Changes(ChangesArgs),
 }
 
 #[derive(Debug, Args)]
 pub struct SummarizeArgs {
-    /// Token budget for the output (default: 2000)
-    #[arg(long, default_value = "2000")]
+    /// Token budget for the output (default: 5000)
+    #[arg(long, default_value = "5000")]
     pub max_tokens: usize,
 
     /// Maximum directory depth to display (default: adaptive, starts at 1)
@@ -67,6 +69,58 @@ pub struct CompletionsArgs {
     /// Shell to generate completions for
     #[arg(value_enum)]
     pub shell: Shell,
+}
+
+#[derive(Debug, Args)]
+pub struct ChangesArgs {
+    #[command(subcommand)]
+    pub command: ChangesCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ChangesCommand {
+    /// List commits that touched the scoped paths
+    List(ListArgs),
+    /// Compute graph delta between two points (default: working tree vs HEAD)
+    Diff(DiffArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ListArgs {
+    /// Maximum number of commits to show (default: 20)
+    #[arg(long, default_value = "20")]
+    pub max: usize,
+
+    /// Files or directories to scope the changes to (default: all files)
+    #[arg(value_name = "PATH", num_args = 0..)]
+    pub paths: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct DiffArgs {
+    /// Compare staged changes only
+    #[arg(long, conflicts_with_all = &["last", "since", "range"])]
+    pub staged: bool,
+
+    /// Compare HEAD~n..HEAD
+    #[arg(long, conflicts_with_all = &["staged", "since", "range"])]
+    pub last: Option<usize>,
+
+    /// Compare <ref>..HEAD
+    #[arg(long, conflicts_with_all = &["staged", "last", "range"])]
+    pub since: Option<String>,
+
+    /// Compare explicit range <a>..<b>
+    #[arg(long, conflicts_with_all = &["staged", "last", "since"])]
+    pub range: Option<String>,
+
+    /// Only show nodes of these types, comma-separated (e.g. Function,Endpoint)
+    #[arg(long, value_delimiter = ',')]
+    pub types: Vec<String>,
+
+    /// Files or directories to scope the changes to (default: all files)
+    #[arg(value_name = "PATH", num_args = 0..)]
+    pub paths: Vec<String>,
 }
 
 impl CliArgs {
@@ -90,6 +144,10 @@ impl CliArgs {
         }
 
         if let Some(Commands::Completions(_)) = &args.command {
+            return Ok(args);
+        }
+
+        if let Some(Commands::Changes(_)) = &args.command {
             return Ok(args);
         }
 
