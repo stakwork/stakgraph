@@ -5,3 +5,5 @@ pub mod lib_core;
 pub mod systems;
 pub mod traits;
 pub mod types;
+
+pub use types::UserId;

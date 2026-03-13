@@ -420,18 +420,35 @@ impl Lang {
         while let Some(m) = matches.next() {
             let mut import_names = Vec::new();
             let mut import_source = None;
+            let mut is_reexport = false;
 
             Self::loop_captures_multi(q, m, code, |body, _node, o| {
                 if o == IMPORTS_NAME {
                     import_names.push(body);
                 } else if o == IMPORTS_FROM {
                     import_source = Some(trim_quotes(&body).to_string());
+                } else if o == IMPORTS_REEXPORT {
+                    is_reexport = true;
                 }
                 Ok(())
             })?;
 
             if let Some(source_path) = import_source {
                 let resolved_path = self.lang.resolve_import_path(&source_path, file);
+
+                if is_reexport && import_names.is_empty() {
+                    let file_nodes = graph.find_nodes_by_file_ends_with(NodeType::File, file);
+                    let file_node = file_nodes
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| NodeData::in_file(file));
+                    let target_files =
+                        graph.find_nodes_by_file_ends_with(NodeType::File, &resolved_path);
+                    if let Some(target_file) = target_files.first() {
+                        edges.push(Edge::file_imports(&file_node, NodeType::File, target_file));
+                    }
+                    continue;
+                }
 
                 for import_name in &import_names {
                     for nt in [

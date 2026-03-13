@@ -59,6 +59,25 @@ pub async fn test_typescript_generic<G: Graph + Sync>() -> Result<()> {
     nodes_count += imports.len();
     assert_eq!(imports.len(), 19, "Expected 19 imports");
 
+    let ts_reexports: Vec<_> = imports
+        .iter()
+        .filter(|i| {
+            i.file
+                .ends_with("src/testing/typescript/src/types-and-imports.ts")
+                && i.meta.get("is_reexport").map(|v| v == "true").unwrap_or(false)
+        })
+        .collect();
+    assert_eq!(
+        ts_reexports.len(),
+        1,
+        "Expected exactly 1 combined re-export import node in types-and-imports.ts"
+    );
+    assert_eq!(
+        ts_reexports[0].meta.get("is_reexport"),
+        Some(&"true".to_string()),
+        "Expected is_reexport meta to be true for combined types-and-imports import node"
+    );
+
     let model_import_body = format!(
         r#"import DataTypes, {{ Model }} from "sequelize";
 import {{ Entity, Column, PrimaryGeneratedColumn }} from "typeorm";

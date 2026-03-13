@@ -5,6 +5,9 @@ import { SequelizePerson as SP, TypeOrmPerson as TP } from "./service";
 // Side-effect import
 import "./config";
 
+export * from "./model";
+export { PersonService } from "./service";
+
 // 1. Type Aliases
 export type ID = string | number;
 

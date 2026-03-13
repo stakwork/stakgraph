@@ -305,6 +305,29 @@ impl Stack for Rust {
                     )?
                 )@{IMPORTS}
 
+            (use_declaration
+                (visibility_modifier)
+                argument: (scoped_identifier
+                    path: (identifier) @{IMPORTS_FROM}
+                    name: (identifier) @{IMPORTS_NAME}
+                )
+            )@{IMPORTS} @{IMPORTS_REEXPORT}
+
+            (use_declaration
+                (visibility_modifier)
+                argument: (scoped_use_list
+                    path: (identifier) @{IMPORTS_FROM}
+                    list: (use_list
+                        (identifier) @{IMPORTS_NAME}
+                    )
+                )
+            )@{IMPORTS} @{IMPORTS_REEXPORT}
+
+            (mod_item
+                (visibility_modifier)
+                name: (identifier) @{IMPORTS_NAME}
+            )@{IMPORTS} @{IMPORTS_REEXPORT}
+
         "#
         ))
     }

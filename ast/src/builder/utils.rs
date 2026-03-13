@@ -5,7 +5,7 @@ use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
 use rayon::prelude::*;
 use shared::error::Result;
-use std::collections::HashSet;
+use std::collections::{HashSet, BTreeMap};
 use std::path::{Path, PathBuf};
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
@@ -84,6 +84,9 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         return Vec::new();
     }
     let import_name = create_node_key(&Node::new(NodeType::Import, nodes[0].clone()));
+    let has_reexport = nodes
+        .iter()
+        .any(|node| node.meta.get("is_reexport").map(|v| v == "true").unwrap_or(false));
 
     let mut seen_starts = HashSet::new();
     let mut unique_nodes = Vec::new();
@@ -119,6 +122,11 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
         String::new()
     };
 
+    let mut meta = BTreeMap::new();
+    if has_reexport {
+        meta.insert("is_reexport".to_string(), "true".to_string());
+    }
+
     vec![NodeData {
         name: import_name,
         file,
@@ -128,6 +136,7 @@ pub fn combine_import_sections(nodes: Vec<NodeData>) -> Vec<NodeData> {
             .last()
             .map(|node| node.end)
             .unwrap_or(unique_nodes[0].end),
+        meta,
         ..Default::default()
     }]
 }
