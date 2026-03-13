@@ -6,6 +6,8 @@ import { DOC_GUIDELINES } from "./llm.js";
 import * as fs from "fs";
 import * as path from "path";
 
+const BOOTSTRAP_LOOKBACK_DAYS = 10;
+
 /**
  * Bootstrap result returned to the caller
  */
@@ -236,11 +238,14 @@ export async function bootstrapFeatures(
     console.log(`   ✅ Created feature: ${f.name} (${featureId})`);
   }
 
-  // 4. Set checkpoint to now so processRepo skips historical replay
+  // 4. Set checkpoint to N days ago so processRepo replays recent changes
+  //    This captures recent activity (e.g. someone forked a repo and added a few PRs)
+  const lookback = new Date(now.getTime() - BOOTSTRAP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
   await storage.setChronologicalCheckpoint(repoId, {
-    lastProcessedTimestamp: now.toISOString(),
+    lastProcessedTimestamp: lookback.toISOString(),
     processedAtTimestamp: [],
   });
+  console.log(`   📌 Checkpoint set to ${BOOTSTRAP_LOOKBACK_DAYS} days ago — processRepo will pick up recent changes`);
 
   console.log(
     `\n🎯 Bootstrap complete: created ${features.length} features for ${repoId}`
