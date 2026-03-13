@@ -125,6 +125,7 @@ impl Lang {
         q: &Query,
     ) -> Result<Vec<NodeData>> {
         let mut res = Vec::new();
+        let mut is_reexport = false;
         Self::loop_captures_multi(q, m, code, |body, node, o| {
             let mut impy = NodeData::in_file(file);
             if o == IMPORTS {
@@ -133,10 +134,17 @@ impl Lang {
                 impy.start = node.start_position().row;
                 impy.end = node.end_position().row;
                 res.push(impy);
+            } else if o == IMPORTS_REEXPORT {
+                is_reexport = true;
             }
 
             Ok(())
         })?;
+        if is_reexport {
+            for node in res.iter_mut() {
+                node.add_reexport();
+            }
+        }
         Ok(res)
     }
     pub fn format_variables(

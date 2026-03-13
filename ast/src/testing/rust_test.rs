@@ -78,7 +78,31 @@ pub async fn test_rust_generic<G: Graph + Sync>() -> Result<()> {
 
     let imports = graph.find_nodes_by_type(NodeType::Import);
     nodes_count += imports.len();
-    assert!(imports.len() >= 14, "Expected at least 14 imports");
+    assert_eq!(imports.len(), 24, "Expected exactly 24 imports");
+
+    let lib_reexports: Vec<_> = imports
+        .iter()
+        .filter(|i| {
+            i.file.ends_with("src/testing/rust/src/lib.rs")
+                && i.meta.get("is_reexport").map(|v| v == "true").unwrap_or(false)
+        })
+        .collect();
+    assert_eq!(
+        lib_reexports.len(),
+        1,
+        "Expected exactly 1 combined re-export import node in lib.rs, got {}",
+        lib_reexports.len()
+    );
+
+    let pub_use_reexport = imports.iter().find(|i| {
+        i.file.ends_with("src/testing/rust/src/lib.rs")
+            && i.meta.get("is_reexport").map(|v| v == "true").unwrap_or(false)
+            && i.body.contains("pub use types::UserId")
+    });
+    assert!(
+        pub_use_reexport.is_some(),
+        "Expected pub use types::UserId re-export in lib.rs"
+    );
 
     let traits = graph.find_nodes_by_type(NodeType::Trait);
     nodes_count += traits.len();

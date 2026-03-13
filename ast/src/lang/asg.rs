@@ -222,6 +222,9 @@ impl NodeData {
         self.meta
             .insert("middleware".to_string(), middleware.to_string());
     }
+    pub fn add_reexport(&mut self) {
+        self.meta.insert("is_reexport".to_string(), "true".to_string());
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
