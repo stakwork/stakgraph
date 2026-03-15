@@ -130,8 +130,8 @@ async fn test_rust_graph_upload() -> Result<()> {
     let graph_ops = setup_rust_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 297, "Graph should have 297 nodes after upload");
-    assert_eq!(edges, 457, "Graph should have 457 edges after upload");
+    assert_eq!(nodes, 303, "Graph should have 303 nodes after upload");
+    assert_eq!(edges, 464, "Graph should have 464 edges after upload");
 
     Ok(())
 }

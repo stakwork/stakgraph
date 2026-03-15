@@ -166,6 +166,13 @@ fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::R
 
     out.writeln(format!("{}: {} {}", node_type_styled, name, lines_styled))?;
 
+    if matches!(node.node_type, NodeType::Endpoint) {
+        if let Some(handler) = nd.meta.get("handler") {
+            let handler_label = style("Handler:").dim();
+            out.writeln(format!("  {} {}", handler_label, style(handler).green()))?;
+        }
+    }
+
     if let Some(docs) = &nd.docs {
         let docs_label = style("Docs:").dim();
         out.writeln(format!(
@@ -272,12 +279,143 @@ fn print_file_nodes_inner(
     Ok(())
 }
 
+pub fn print_named_node(
+    out: &mut Output,
+    graph: &ArrayGraph,
+    file_path: &str,
+    node_name: &str,
+    type_filter: Option<&[NodeType]>,
+) -> Result<()> {
+    let file_path = std::fs::canonicalize(file_path)?
+        .to_string_lossy()
+        .to_string();
+
+    let mut matches: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            if matches!(node.node_type, NodeType::File | NodeType::Directory) {
+                return false;
+            }
+            if let Some(types) = type_filter {
+                if !types.contains(&node.node_type) {
+                    return false;
+                }
+            }
+            let node_file_str = &node.node_data.file;
+            let node_file = std::fs::canonicalize(node_file_str)
+                .map(|p| p.to_string_lossy().to_string());
+            let in_file = if let Ok(ref nf) = node_file {
+                *nf == file_path
+            } else {
+                file_path.ends_with(node_file_str)
+            };
+            if !in_file {
+                return false;
+            }
+            node.node_data.name == node_name
+        })
+        .collect();
+
+    matches.sort_by_key(|node| node.node_data.start);
+
+    if matches.is_empty() {
+        let type_hint = type_filter
+            .map(|t| {
+                let names: Vec<_> = t.iter().map(|nt| nt.to_string()).collect();
+                format!(" (type: {})", names.join(", "))
+            })
+            .unwrap_or_default();
+        out.writeln(format!(
+            "{}",
+            style(format!(
+                "No node named '{}'{} found in {}",
+                node_name, type_hint, file_path
+            ))
+            .yellow()
+        ))?;
+        return Ok(());
+    }
+
+    if matches.len() > 1 {
+        out.writeln(format!(
+            "{}",
+            style(format!(
+                "Multiple nodes named '{}' found — use --type to disambiguate:",
+                node_name
+            ))
+            .yellow()
+        ))?;
+        for node in &matches {
+            let lines = format_lines(node.node_data.start, node.node_data.end);
+            out.writeln(format!(
+                "  {} ({}) at line {}",
+                style(&node.node_type).bold(),
+                node.node_data.name,
+                lines
+            ))?;
+        }
+        return Ok(());
+    }
+
+    let node = matches[0];
+    let nd = &node.node_data;
+    let name = format_function_name_with_operand(node);
+    let lines = format_lines(nd.start, nd.end);
+
+    let node_type_styled = style_for_node_type(&node.node_type).apply_to(&node.node_type);
+    let lines_styled = style(format!("({})", lines)).dim();
+    out.writeln(format!("{}: {} {}", node_type_styled, name, lines_styled))?;
+
+    if matches!(node.node_type, NodeType::Endpoint) {
+        if let Some(handler) = nd.meta.get("handler") {
+            let handler_label = style("Handler:").dim();
+            out.writeln(format!("  {} {}", handler_label, style(handler).green()))?;
+        }
+    }
+
+    if let Some(docs) = &nd.docs {
+        let docs_label = style("Docs:").dim();
+        out.writeln(format!("{} {}", docs_label, docs))?;
+    }
+
+    if !nd.body.is_empty() {
+        let body = if matches!(node.node_type, NodeType::Import) {
+            nd.body
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            nd.body.clone()
+        };
+        let fence = style("```").dim();
+        out.writeln(format!("{}\n{}\n{}", fence, body, fence))?;
+    }
+
+    let (edges_by_source, _) = build_edge_indices(&graph.edges);
+    if matches!(node.node_type, NodeType::Function) {
+        print_function_edges(out, node, &edges_by_source, graph)?;
+    }
+
+    Ok(())
+}
+
 pub fn print_single_file_nodes(
     out: &mut Output,
     graph: &ArrayGraph,
     file_path: &str,
 ) -> Result<()> {
     print_file_nodes_inner(out, graph, file_path, None)
+}
+
+pub fn print_single_file_nodes_filtered(
+    out: &mut Output,
+    graph: &ArrayGraph,
+    file_path: &str,
+    allowed_types: &[NodeType],
+) -> Result<()> {
+    print_file_nodes_inner(out, graph, file_path, Some(allowed_types))
 }
 
 pub fn render_file_nodes_filtered(

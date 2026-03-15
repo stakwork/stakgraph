@@ -2,7 +2,49 @@ use ast::repo::StatusUpdate;
 use console::style;
 use indicatif::{ProgressBar, ProgressStyle};
 use std::io::IsTerminal;
+use std::time::Duration;
 use tokio::sync::broadcast;
+
+pub struct CliSpinner {
+    spinner: Option<ProgressBar>,
+}
+
+impl CliSpinner {
+    pub fn new(message: &str) -> Self {
+        let spinner = if std::io::stderr().is_terminal() {
+            let pb = ProgressBar::new_spinner();
+            let style = ProgressStyle::default_spinner()
+                .template("{spinner:.cyan} {msg}")
+                .unwrap_or_else(|_| ProgressStyle::default_spinner());
+            pb.set_style(style);
+            pb.set_message(message.to_string());
+            pb.enable_steady_tick(Duration::from_millis(80));
+            Some(pb)
+        } else {
+            None
+        };
+
+        Self { spinner }
+    }
+
+    pub fn set_message(&self, message: impl Into<String>) {
+        if let Some(pb) = &self.spinner {
+            pb.set_message(message.into());
+        }
+    }
+
+    pub fn finish_and_clear(&self) {
+        if let Some(pb) = &self.spinner {
+            pb.finish_and_clear();
+        }
+    }
+
+    pub fn finish_with_message(&self, message: &str) {
+        if let Some(pb) = &self.spinner {
+            pb.finish_with_message(style(message).green().to_string());
+        }
+    }
+}
 
 pub struct ProgressTracker {
     bar: Option<ProgressBar>,

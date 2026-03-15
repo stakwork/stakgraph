@@ -16,6 +16,7 @@ use ast::lang::queries::skips::summary::{
 
 use super::args::SummarizeArgs;
 use super::output::Output;
+use super::progress::CliSpinner;
 use super::render::render_file_nodes_filtered;
 
 const SUMMARY_ALLOWED_TYPES: &[NodeType] = &[
@@ -200,16 +201,39 @@ async fn render_file_summary(file_path: &Path) -> Option<String> {
     }
 }
 
-pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()> {
+pub async fn run_summarize(
+    args: &SummarizeArgs,
+    out: &mut Output,
+    show_progress: bool,
+) -> Result<()> {
+    let spinner = if show_progress {
+        Some(CliSpinner::new("Preparing project summary..."))
+    } else {
+        None
+    };
     let bpe = cl100k_base().map_err(|e| Error::Custom(e.to_string()))?;
     let mut tokens_used = 0usize;
     let max_tokens = args.max_tokens;
 
-    let root = PathBuf::from(&args.path)
-        .canonicalize()
-        .map_err(|e| Error::Custom(e.to_string()))?;
+    let raw_root = PathBuf::from(&args.path);
+    let root = match raw_root.canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            if let Some(sp) = &spinner {
+                sp.finish_and_clear();
+            }
+            out.writeln(format!(
+                "{}",
+                style(format!("Error: path does not exist: {}", raw_root.display())).red()
+            ))?;
+            return Ok(());
+        }
+    };
 
     if root.is_file() {
+        if let Some(sp) = &spinner {
+            sp.set_message("Summarizing file structure and key nodes...");
+        }
         let header = format!(
             "{} {}",
             style("Summary:").bold(),
@@ -222,14 +246,18 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
         } else {
             out.writeln(style("(no summary — file not parseable or contains no relevant nodes)").dim().to_string())?;
         }
+        if let Some(sp) = &spinner {
+            sp.finish_with_message("File summary ready");
+        }
         return Ok(());
     }
 
     if !root.is_dir() {
-        return Err(Error::Custom(format!(
-            "{} is not a directory",
-            root.display()
-        )));
+        out.writeln(format!(
+            "{}",
+            style(format!("Error: {} is not a directory", root.display())).red()
+        ))?;
+        return Ok(());
     }
 
     // ── Header ────────────────────────────────────────────────────────
@@ -244,6 +272,9 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
     tokens_used += count_tokens(&bpe, &header);
 
     // ── Directory Tree (adaptive depth) ───────────────────────────────
+    if let Some(sp) = &spinner {
+        sp.set_message("Building directory map...");
+    }
     let section = style("Directory Structure").bold().underlined().to_string();
     out.writeln(&section)?;
     tokens_used += count_tokens(&bpe, &section);
@@ -271,6 +302,9 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
     out.newline()?;
 
     if tokens_used >= max_tokens {
+        if let Some(sp) = &spinner {
+            sp.finish_with_message("Summary ready (budget reached)");
+        }
         let footer = format!(
             "[{}/{} tokens — budget exhausted at directory tree]",
             tokens_used, max_tokens
@@ -280,6 +314,9 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
     }
 
     // ── File Summaries ────────────────────────────────────────────────
+    if let Some(sp) = &spinner {
+        sp.set_message("Summarizing source files...");
+    }
     let section = style("File Summaries").bold().underlined().to_string();
     out.writeln(&section)?;
     tokens_used += count_tokens(&bpe, &section);
@@ -289,7 +326,19 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
 
     let mut any_printed = false;
     let mut files_skipped = 0usize;
-    for file_path in &source_files {
+    for (idx, file_path) in source_files.iter().enumerate() {
+        let file_name = file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("file");
+        if let Some(sp) = &spinner {
+            sp.set_message(format!(
+                "Summarizing source files ({}/{}) — {}",
+                idx + 1,
+                source_files.len(),
+                file_name
+            ));
+        }
         if tokens_used >= max_tokens {
             files_skipped += 1;
             continue;
@@ -321,6 +370,9 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
     // ── Markdown Documentation ─────────────────────────────────────────
     let md_files = collect_md_files(&root);
     if !md_files.is_empty() && tokens_used < max_tokens {
+        if let Some(sp) = &spinner {
+            sp.set_message("Adding documentation context...");
+        }
         out.newline()?;
         let section = style("Documentation").bold().underlined().to_string();
         out.writeln(&section)?;
@@ -383,6 +435,9 @@ pub async fn run_summarize(args: &SummarizeArgs, out: &mut Output) -> Result<()>
         format!("[{}/{} tokens used]", tokens_used, max_tokens)
     };
     out.writeln(style(footer).dim().to_string())?;
+    if let Some(sp) = &spinner {
+        sp.finish_with_message("Project summary ready");
+    }
 
     Ok(())
 }

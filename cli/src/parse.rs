@@ -1,6 +1,8 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
+use std::str::FromStr;
 
+use ast::lang::graphs::NodeType;
 use ast::repo::{Repo, Repos};
 use ast::Lang;
 use console::style;
@@ -10,8 +12,8 @@ use walkdir::WalkDir;
 
 use super::args::CliArgs;
 use super::output::Output;
-use super::progress::ProgressTracker;
-use super::render::print_single_file_nodes;
+use super::progress::{CliSpinner, ProgressTracker};
+use super::render::{print_named_node, print_single_file_nodes, print_single_file_nodes_filtered};
 use super::utils::{common_ancestor, read_text_preview};
 
 fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
@@ -42,18 +44,78 @@ fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
     Ok((expanded, dir_files))
 }
 
+fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
+    let mut types = Vec::new();
+    for s in raw {
+        let normalized = match s.to_lowercase().as_str() {
+            "repository" => "Repository",
+            "package" => "Package",
+            "language" => "Language",
+            "directory" => "Directory",
+            "file" => "File",
+            "import" => "Import",
+            "library" => "Library",
+            "class" => "Class",
+            "trait" => "Trait",
+            "instance" => "Instance",
+            "function" => "Function",
+            "endpoint" => "Endpoint",
+            "request" => "Request",
+            "datamodel" => "Datamodel",
+            "feature" => "Feature",
+            "page" => "Page",
+            "var" => "Var",
+            "unittest" => "UnitTest",
+            "integrationtest" => "IntegrationTest",
+            "e2etest" => "E2etest",
+            "mock" => "Mock",
+            other => {
+                return Err(Error::validation(format!("Unknown node type: '{}'", other)));
+            }
+        };
+        types.push(NodeType::from_str(normalized).map_err(|e| Error::validation(e.to_string()))?);
+    }
+    Ok(types)
+}
+
+fn parse_goal_phrase(node_types: &[NodeType], stats: bool) -> String {
+    let focus = if node_types.is_empty() {
+        "all node types".to_string()
+    } else {
+        let names: Vec<String> = node_types.iter().map(ToString::to_string).collect();
+        format!("{}", names.join(", "))
+    };
+
+    if stats {
+        format!("{} and node counts", focus)
+    } else {
+        focus
+    }
+}
+
 pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
     let (files, dir_files) = expand_dirs(&cli.files)?;
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
     let no_nested = cli.no_nested;
+    let node_types = match parse_node_types(&cli.r#type) {
+        Ok(types) => types,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return Ok(());
+        }
+    };
 
     let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
     let mut files_to_print: Vec<String> = Vec::new();
 
     for file_path in &files {
         if !dir_files.contains(file_path) && !Path::new(file_path).exists() {
-            return Err(Error::Custom(format!("File does not exist: {}", file_path)));
+            out.writeln(format!(
+                "{}",
+                style(format!("Error: file does not exist: {}", file_path)).red()
+            ))?;
+            return Ok(());
         }
 
         let canonical_path = std::fs::canonicalize(file_path)
@@ -95,6 +157,14 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
         return Ok(());
     }
 
+    let goal_phrase = parse_goal_phrase(&node_types, cli.stats);
+
+    let spinner = if cli.verbose || cli.perf {
+        Some(CliSpinner::new(&format!("Preparing {} summary...", goal_phrase)))
+    } else {
+        None
+    };
+
     let (progress_tracker, status_tx) = ProgressTracker::new(cli.verbose || cli.perf);
     let progress_handle = tokio::spawn(progress_tracker.run());
 
@@ -131,13 +201,57 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
     let mut repos = Repos(repos_vec);
     repos.set_status_tx(status_tx).await;
 
+    if let Some(sp) = &spinner {
+        sp.set_message(format!("Building graph for {}...", goal_phrase));
+    }
+
     let graph = repos.build_graphs_array().await?;
 
     drop(repos);
     let _ = progress_handle.await;
 
-    for file_path in &files_to_print {
-        print_single_file_nodes(out, &graph, file_path)?;
+    if let Some(sp) = &spinner {
+        sp.set_message(format!("Rendering {} output...", goal_phrase));
+    }
+
+    if let Some(node_name) = &cli.name {
+        let type_filter = if node_types.is_empty() { None } else { Some(node_types.as_slice()) };
+        for file_path in &files_to_print {
+            print_named_node(out, &graph, file_path, node_name, type_filter)?;
+        }
+    } else if node_types.is_empty() {
+        for file_path in &files_to_print {
+            print_single_file_nodes(out, &graph, file_path)?;
+        }
+    } else {
+        for file_path in &files_to_print {
+            print_single_file_nodes_filtered(out, &graph, file_path, &node_types)?;
+        }
+    }
+
+    if cli.stats {
+        let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+        for node in &graph.nodes {
+            if matches!(node.node_type, NodeType::File | NodeType::Directory) {
+                continue;
+            }
+            let file_path = std::fs::canonicalize(&node.node_data.file)
+                .unwrap_or_else(|_| std::path::PathBuf::from(&node.node_data.file))
+                .to_string_lossy()
+                .to_string();
+            if !files_to_print.iter().any(|f| *f == file_path) {
+                continue;
+            }
+            *counts.entry(node.node_type.to_string()).or_insert(0) += 1;
+        }
+        out.writeln(style("\n--- Node type counts ---").bold().to_string())?;
+        for (type_name, count) in &counts {
+            out.writeln(format!("  {:<20} {}", type_name, count))?;
+        }
+    }
+
+    if let Some(sp) = &spinner {
+        sp.finish_with_message("Node summary ready");
     }
 
     Ok(())

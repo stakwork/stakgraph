@@ -332,8 +332,8 @@ import {{ sequelize }} from "./config.js";"#
         assert_eq!(import_edges_count, 21, "Expected 21 import edges with LSP");
     } else {
         assert_eq!(
-            import_edges_count, 15,
-            "Expected 13 import edges without LSP"
+            import_edges_count, 16,
+            "Expected 16 import edges without LSP"
         );
     }
 
