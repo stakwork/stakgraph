@@ -5,7 +5,7 @@ use common::{fixture_path, run_stakgraph, workspace_path};
 #[test]
 fn filter_is_case_insensitive() {
     let routes = fixture_path("src/testing/typescript/src/routes.ts");
-    let out = run_stakgraph(&["--filter", "endpoint,FUNCTION", &routes]);
+    let out = run_stakgraph(&["--type", "endpoint,FUNCTION", &routes]);
 
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("Endpoint:"));
@@ -26,7 +26,7 @@ fn stats_prints_summary_table() {
 #[test]
 fn endpoint_output_includes_handler_metadata() {
     let index_ts = workspace_path("mcp/src/index.ts");
-    let out = run_stakgraph(&["--filter", "endpoint", &index_ts]);
+    let out = run_stakgraph(&["--type", "endpoint", &index_ts]);
 
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("Endpoint:"));
@@ -36,7 +36,7 @@ fn endpoint_output_includes_handler_metadata() {
 #[test]
 fn invalid_filter_type_fails() {
     let traits = fixture_path("src/testing/rust/src/traits.rs");
-    let out = run_stakgraph(&["--filter", "NotAType", &traits]);
+    let out = run_stakgraph(&["--type", "NotAType", &traits]);
 
     assert_eq!(out.exit_code, 0);
     assert!(out.stderr.contains("Unknown node type"));

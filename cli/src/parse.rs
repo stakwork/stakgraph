@@ -13,7 +13,7 @@ use walkdir::WalkDir;
 use super::args::CliArgs;
 use super::output::Output;
 use super::progress::{CliSpinner, ProgressTracker};
-use super::render::{print_single_file_nodes, print_single_file_nodes_filtered};
+use super::render::{print_named_node, print_single_file_nodes, print_single_file_nodes_filtered};
 use super::utils::{common_ancestor, read_text_preview};
 
 fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
@@ -44,7 +44,7 @@ fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
     Ok((expanded, dir_files))
 }
 
-fn parse_filter_types(raw: &[String]) -> Result<Vec<NodeType>> {
+fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
     let mut types = Vec::new();
     for s in raw {
         let normalized = match s.to_lowercase().as_str() {
@@ -78,11 +78,11 @@ fn parse_filter_types(raw: &[String]) -> Result<Vec<NodeType>> {
     Ok(types)
 }
 
-fn parse_goal_phrase(filter_types: &[NodeType], stats: bool) -> String {
-    let focus = if filter_types.is_empty() {
+fn parse_goal_phrase(node_types: &[NodeType], stats: bool) -> String {
+    let focus = if node_types.is_empty() {
         "all node types".to_string()
     } else {
-        let names: Vec<String> = filter_types.iter().map(ToString::to_string).collect();
+        let names: Vec<String> = node_types.iter().map(ToString::to_string).collect();
         format!("{}", names.join(", "))
     };
 
@@ -98,7 +98,7 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
     let no_nested = cli.no_nested;
-    let filter_types = match parse_filter_types(&cli.filter) {
+    let node_types = match parse_node_types(&cli.r#type) {
         Ok(types) => types,
         Err(e) => {
             eprintln!("Error: {}", e);
@@ -157,7 +157,7 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
         return Ok(());
     }
 
-    let goal_phrase = parse_goal_phrase(&filter_types, cli.stats);
+    let goal_phrase = parse_goal_phrase(&node_types, cli.stats);
 
     let spinner = if cli.verbose || cli.perf {
         Some(CliSpinner::new(&format!("Preparing {} summary...", goal_phrase)))
@@ -214,13 +214,18 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
         sp.set_message(format!("Rendering {} output...", goal_phrase));
     }
 
-    if filter_types.is_empty() {
+    if let Some(node_name) = &cli.name {
+        let type_filter = if node_types.is_empty() { None } else { Some(node_types.as_slice()) };
+        for file_path in &files_to_print {
+            print_named_node(out, &graph, file_path, node_name, type_filter)?;
+        }
+    } else if node_types.is_empty() {
         for file_path in &files_to_print {
             print_single_file_nodes(out, &graph, file_path)?;
         }
     } else {
         for file_path in &files_to_print {
-            print_single_file_nodes_filtered(out, &graph, file_path, &filter_types)?;
+            print_single_file_nodes_filtered(out, &graph, file_path, &node_types)?;
         }
     }
 

@@ -34,9 +34,13 @@ pub struct CliArgs {
     #[arg(long, action = ArgAction::SetTrue, conflicts_with = "quiet")]
     pub perf: bool,
 
-    /// Only emit certain node types, comma-separated (e.g. --filter Endpoint,Request)
+    /// Only emit certain node types, comma-separated (e.g. --type Endpoint,Request)
     #[arg(long, value_delimiter = ',')]
-    pub filter: Vec<String>,
+    pub r#type: Vec<String>,
+
+    /// Print only the named node (use with a single file; optional --type to disambiguate)
+    #[arg(long)]
+    pub name: Option<String>,
 
     /// Print counts by node type as a summary table
     #[arg(long, action = ArgAction::SetTrue)]
