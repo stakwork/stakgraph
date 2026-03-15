@@ -1,6 +1,6 @@
 use clap::{ArgAction, Args, Parser, Subcommand};
 use clap_complete::Shell;
-use shared::{Error, Result};
+use shared::Result;
 
 #[derive(Debug, Parser)]
 #[command(name = "stakgraph")]
@@ -33,6 +33,18 @@ pub struct CliArgs {
     /// Show [perf][memory] logs (implies verbose)
     #[arg(long, action = ArgAction::SetTrue, conflicts_with = "quiet")]
     pub perf: bool,
+
+    /// Only emit certain node types, comma-separated (e.g. --type Endpoint,Request)
+    #[arg(long, value_delimiter = ',')]
+    pub r#type: Vec<String>,
+
+    /// Print only the named node (use with a single file; optional --type to disambiguate)
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// Print counts by node type as a summary table
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub stats: bool,
 
     /// Input files or directories (comma-separated or multiple args)
     #[arg(value_name = "FILE_OR_DIR", num_args = 0..)]
@@ -140,7 +152,8 @@ impl CliArgs {
             .collect();
 
         if args.command.is_none() && args.files.is_empty() {
-            return Err(Error::validation("No file path provided"));
+            eprintln!("Error: no file path provided. Run with --help for usage.");
+            std::process::exit(0);
         }
 
         if let Some(Commands::Completions(_)) = &args.command {
