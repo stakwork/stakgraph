@@ -66,3 +66,62 @@ fn quiet_conflicts_with_verbose_and_perf() {
     let qp = run_stakgraph(&["-q", "--perf", &routes]);
     assert_ne!(qp.exit_code, 0);
 }
+
+#[test]
+fn name_lookup_returns_named_function_with_body() {
+    let routes = fixture_path("src/testing/typescript/src/routes.ts");
+    let out = run_stakgraph(&["--name", "getPerson", &routes]);
+
+    assert_eq!(out.exit_code, 0);
+    assert!(out.stdout.contains("Function: getPerson"));
+    assert!(out.stdout.contains("const { id } = req.params;"));
+}
+
+#[test]
+fn name_lookup_with_type_filters_named_node() {
+    let routes = fixture_path("src/testing/typescript/src/routes.ts");
+    let out = run_stakgraph(&["--name", "getPerson", "--type", "Function", &routes]);
+
+    assert_eq!(out.exit_code, 0);
+    assert!(out.stdout.contains("Function: getPerson"));
+    assert!(!out.stdout.contains("Endpoint:"));
+}
+
+#[test]
+fn name_lookup_not_found_reports_clear_message() {
+    let traits = fixture_path("src/testing/rust/src/traits.rs");
+    let out = run_stakgraph(&["--name", "definitely_not_real_node", &traits]);
+
+    assert_eq!(out.exit_code, 0);
+    assert!(out.stdout.contains("No node named 'definitely_not_real_node'"));
+}
+
+#[test]
+fn name_lookup_runs_per_file_when_multiple_files_are_passed() {
+    let traits = fixture_path("src/testing/rust/src/traits.rs");
+    let routes = fixture_path("src/testing/typescript/src/routes.ts");
+    let out = run_stakgraph(&["--name", "getPerson", &traits, &routes]);
+
+    assert_eq!(out.exit_code, 0);
+    assert!(out.stdout.contains("No node named 'getPerson'"));
+    assert!(out.stdout.contains("Function: getPerson"));
+}
+
+#[test]
+fn invalid_type_with_name_fails_validation() {
+    let routes = fixture_path("src/testing/typescript/src/routes.ts");
+    let out = run_stakgraph(&["--name", "getPerson", "--type", "NotAType", &routes]);
+
+    assert_eq!(out.exit_code, 0);
+    assert!(out.stderr.contains("Unknown node type"));
+}
+
+#[test]
+fn type_and_stats_can_be_used_together() {
+    let traits = fixture_path("src/testing/rust/src/traits.rs");
+    let out = run_stakgraph(&["--type", "Function", "--stats", &traits]);
+
+    assert_eq!(out.exit_code, 0);
+    assert!(out.stdout.contains("Function:"));
+    assert!(out.stdout.contains("--- Node type counts ---"));
+}
