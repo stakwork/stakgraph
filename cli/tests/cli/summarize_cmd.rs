@@ -35,6 +35,6 @@ fn summarize_token_budget_footer_present() {
 fn summarize_invalid_path_fails() {
     let out = run_stakgraph(&["summarize", "./definitely-not-a-real-path-xyz"]);
 
-    assert_eq!(out.exit_code, 0);
-    assert!(out.stdout.contains("Error:"));
+    assert_ne!(out.exit_code, 0);
+    assert!(out.stderr.contains("path does not exist"));
 }

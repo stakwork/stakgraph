@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::git::{
-    filter_paths_by_scope, get_changed_files, get_staged_changes, get_working_tree_changes,
-    list_commits_for_paths, read_file_at_rev,
+    filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
+    get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
 };
 use ast::lang::graphs::{ArrayGraph, Node, NodeType};
 use ast::lang::Lang;
@@ -15,12 +15,13 @@ use shared::{Error, Result};
 use super::args::{ChangesArgs, ChangesCommand, DiffArgs};
 use super::output::Output;
 use super::progress::CliSpinner;
-use super::utils::common_ancestor;
+use super::utils::{common_ancestor, parse_node_types};
 
 pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
-    let repo_path = std::env::current_dir()
+    let cwd = std::env::current_dir()
         .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
-    let repo_str = repo_path.to_string_lossy().to_string();
+    let cwd_str = cwd.to_string_lossy().to_string();
+    let repo_str = get_repo_root(&cwd_str).unwrap_or(cwd_str);
 
     match &args.command {
         ChangesCommand::List(list_args) => {
@@ -104,6 +105,9 @@ async fn run_diff(
     out: &mut Output,
     show_progress: bool,
 ) -> Result<()> {
+
+    let validated_types = parse_node_types(types)?;
+
     let mode_description = if args.staged {
         "staged changes".to_string()
     } else if let Some(n) = args.last {
@@ -150,11 +154,9 @@ async fn run_diff(
             if let Some(sp) = &spinner {
                 sp.finish_and_clear();
             }
-            out.writeln(format!(
-                "{}",
-                style("Error: range must be in format <a>..<b> (e.g. HEAD~3..HEAD)").red()
-            ))?;
-            return Ok(());
+            return Err(Error::validation(
+                "range must be in format <a>..<b> (e.g. HEAD~3..HEAD)",
+            ));
         }
         let files = get_changed_files(repo_path, parts[0], parts[1])?;
         (files, parts[0].to_string(), Some(parts[1].to_string()))
@@ -356,11 +358,8 @@ async fn run_diff(
         }
     }
 
-    // Apply --types filter
-    let type_filter: Vec<String> = types.iter().map(|t| t.to_lowercase()).collect();
     let filter_node = |n: &&Node| -> bool {
-        type_filter.is_empty()
-            || type_filter.contains(&n.node_type.to_string().to_lowercase())
+        validated_types.is_empty() || validated_types.contains(&n.node_type)
     };
     let added: Vec<&Node> = added.into_iter().filter(filter_node).collect();
     let removed: Vec<&Node> = removed.into_iter().filter(filter_node).collect();
@@ -581,7 +580,7 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|(a, _)| a.node_data.start);
             for (after_node, before_node) in sorted {
-                let line_range = style(format!("L{}-L{}", after_node.node_data.start, after_node.node_data.end)).dim();
+                let line_range = style(format!("L{}-L{}", after_node.node_data.start + 1, after_node.node_data.end + 1)).dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("~").yellow().bold(),
@@ -606,7 +605,7 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|n| n.node_data.start);
             for node in sorted {
-                let location = style(format!("L{}", node.node_data.start)).dim();
+                let location = style(format!("L{}", node.node_data.start + 1)).dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("+").green().bold(),
@@ -625,7 +624,7 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|n| n.node_data.start);
             for node in sorted {
-                let location = style(format!("L{}", node.node_data.start)).dim();
+                let location = style(format!("L{}", node.node_data.start + 1)).dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("-").red().bold(),

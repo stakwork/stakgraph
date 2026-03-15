@@ -135,8 +135,8 @@ fn changes_diff_invalid_range_fails() {
     let cwd = repo.path().to_string_lossy().to_string();
     let out = run_stakgraph_in_cwd(&cwd, &["changes", "diff", "--range", "invalid"]);
 
-    assert_eq!(out.exit_code, 0);
-    assert!(out.stdout.contains("range must be in format"));
+    assert_ne!(out.exit_code, 0);
+    assert!(out.stderr.contains("range must be in format"));
 }
 
 #[test]

@@ -43,8 +43,8 @@ fn traits_rs_contains_exact_named_nodes() {
 fn invalid_path_exits_nonzero_with_exact_error() {
     let out = run_stakgraph(&["nonexistent_file.rs"]);
 
-    assert_eq!(out.exit_code, 0);
-    assert!(out.stdout.contains("file does not exist"));
+    assert_ne!(out.exit_code, 0);
+    assert!(out.stderr.contains("file does not exist"));
 }
 
 #[test]
