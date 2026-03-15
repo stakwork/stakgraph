@@ -162,10 +162,6 @@ impl Stack for TypeScriptReact {
                 )
                 source: (string) @{IMPORTS_FROM}
             )@{IMPORTS} @{IMPORTS_REEXPORT}
-            (export_statement
-                (export_clause)
-                source: (string) @{IMPORTS_FROM}
-            )@{IMPORTS} @{IMPORTS_REEXPORT}
             "#,
         ))
     }
