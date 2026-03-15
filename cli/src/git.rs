@@ -1,5 +1,19 @@
 use shared::{Error, Result};
 
+pub fn get_repo_root(start_dir: &str) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(start_dir)
+        .output()
+        .map_err(|e| Error::internal(format!("Failed to run git: {}", e)))?;
+    if !output.status.success() {
+        return Err(Error::internal(
+            String::from_utf8_lossy(&output.stderr).to_string(),
+        ));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 pub struct CommitInfo {
     pub hash: String,
     pub message: String,

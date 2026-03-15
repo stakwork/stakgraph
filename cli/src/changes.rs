@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::git::{
-    filter_paths_by_scope, get_changed_files, get_staged_changes, get_working_tree_changes,
-    list_commits_for_paths, read_file_at_rev,
+    filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
+    get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
 };
 use ast::lang::graphs::{ArrayGraph, Node, NodeType};
 use ast::lang::Lang;
@@ -18,9 +18,10 @@ use super::progress::CliSpinner;
 use super::utils::common_ancestor;
 
 pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
-    let repo_path = std::env::current_dir()
+    let cwd = std::env::current_dir()
         .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
-    let repo_str = repo_path.to_string_lossy().to_string();
+    let cwd_str = cwd.to_string_lossy().to_string();
+    let repo_str = get_repo_root(&cwd_str).unwrap_or(cwd_str);
 
     match &args.command {
         ChangesCommand::List(list_args) => {
