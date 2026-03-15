@@ -15,7 +15,7 @@ use shared::{Error, Result};
 use super::args::{ChangesArgs, ChangesCommand, DiffArgs};
 use super::output::Output;
 use super::progress::CliSpinner;
-use super::utils::common_ancestor;
+use super::utils::{common_ancestor, parse_node_types};
 
 pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
     let cwd = std::env::current_dir()
@@ -105,6 +105,9 @@ async fn run_diff(
     out: &mut Output,
     show_progress: bool,
 ) -> Result<()> {
+
+    let validated_types = parse_node_types(types)?;
+
     let mode_description = if args.staged {
         "staged changes".to_string()
     } else if let Some(n) = args.last {
@@ -151,11 +154,9 @@ async fn run_diff(
             if let Some(sp) = &spinner {
                 sp.finish_and_clear();
             }
-            out.writeln(format!(
-                "{}",
-                style("Error: range must be in format <a>..<b> (e.g. HEAD~3..HEAD)").red()
-            ))?;
-            return Ok(());
+            return Err(Error::validation(
+                "range must be in format <a>..<b> (e.g. HEAD~3..HEAD)",
+            ));
         }
         let files = get_changed_files(repo_path, parts[0], parts[1])?;
         (files, parts[0].to_string(), Some(parts[1].to_string()))
@@ -357,11 +358,8 @@ async fn run_diff(
         }
     }
 
-    // Apply --types filter
-    let type_filter: Vec<String> = types.iter().map(|t| t.to_lowercase()).collect();
     let filter_node = |n: &&Node| -> bool {
-        type_filter.is_empty()
-            || type_filter.contains(&n.node_type.to_string().to_lowercase())
+        validated_types.is_empty() || validated_types.contains(&n.node_type)
     };
     let added: Vec<&Node> = added.into_iter().filter(filter_node).collect();
     let removed: Vec<&Node> = removed.into_iter().filter(filter_node).collect();
@@ -582,7 +580,7 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|(a, _)| a.node_data.start);
             for (after_node, before_node) in sorted {
-                let line_range = style(format!("L{}-L{}", after_node.node_data.start, after_node.node_data.end)).dim();
+                let line_range = style(format!("L{}-L{}", after_node.node_data.start + 1, after_node.node_data.end + 1)).dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("~").yellow().bold(),
@@ -607,7 +605,7 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|n| n.node_data.start);
             for node in sorted {
-                let location = style(format!("L{}", node.node_data.start)).dim();
+                let location = style(format!("L{}", node.node_data.start + 1)).dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("+").green().bold(),
@@ -626,7 +624,7 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|n| n.node_data.start);
             for node in sorted {
-                let location = style(format!("L{}", node.node_data.start)).dim();
+                let location = style(format!("L{}", node.node_data.start + 1)).dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("-").red().bold(),

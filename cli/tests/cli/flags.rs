@@ -38,7 +38,7 @@ fn invalid_filter_type_fails() {
     let traits = fixture_path("src/testing/rust/src/traits.rs");
     let out = run_stakgraph(&["--type", "NotAType", &traits]);
 
-    assert_eq!(out.exit_code, 0);
+    assert_ne!(out.exit_code, 0);
     assert!(out.stderr.contains("Unknown node type"));
 }
 
@@ -112,7 +112,7 @@ fn invalid_type_with_name_fails_validation() {
     let routes = fixture_path("src/testing/typescript/src/routes.ts");
     let out = run_stakgraph(&["--name", "getPerson", "--type", "NotAType", &routes]);
 
-    assert_eq!(out.exit_code, 0);
+    assert_ne!(out.exit_code, 0);
     assert!(out.stderr.contains("Unknown node type"));
 }
 

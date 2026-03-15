@@ -153,7 +153,7 @@ impl CliArgs {
 
         if args.command.is_none() && args.files.is_empty() {
             eprintln!("Error: no file path provided. Run with --help for usage.");
-            std::process::exit(0);
+            std::process::exit(1);
         }
 
         if let Some(Commands::Completions(_)) = &args.command {

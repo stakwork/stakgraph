@@ -1,4 +1,42 @@
 use std::io::Read;
+use std::str::FromStr;
+
+use ast::lang::graphs::NodeType;
+use shared::{Error, Result};
+
+pub fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
+    let mut types = Vec::new();
+    for s in raw {
+        let normalized = match s.to_lowercase().as_str() {
+            "repository" => "Repository",
+            "package" => "Package",
+            "language" => "Language",
+            "directory" => "Directory",
+            "file" => "File",
+            "import" => "Import",
+            "library" => "Library",
+            "class" => "Class",
+            "trait" => "Trait",
+            "instance" => "Instance",
+            "function" => "Function",
+            "endpoint" => "Endpoint",
+            "request" => "Request",
+            "datamodel" => "Datamodel",
+            "feature" => "Feature",
+            "page" => "Page",
+            "var" => "Var",
+            "unittest" => "UnitTest",
+            "integrationtest" => "IntegrationTest",
+            "e2etest" => "E2etest",
+            "mock" => "Mock",
+            other => {
+                return Err(Error::validation(format!("Unknown node type: '{}'", other)));
+            }
+        };
+        types.push(NodeType::from_str(normalized).map_err(|e| Error::validation(e.to_string()))?);
+    }
+    Ok(types)
+}
 
 pub fn common_ancestor(files: &[String]) -> Option<std::path::PathBuf> {
     if files.is_empty() {

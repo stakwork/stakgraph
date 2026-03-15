@@ -222,11 +222,10 @@ pub async fn run_summarize(
             if let Some(sp) = &spinner {
                 sp.finish_and_clear();
             }
-            out.writeln(format!(
-                "{}",
-                style(format!("Error: path does not exist: {}", raw_root.display())).red()
-            ))?;
-            return Ok(());
+            return Err(Error::validation(format!(
+                "path does not exist: {}",
+                raw_root.display()
+            )));
         }
     };
 

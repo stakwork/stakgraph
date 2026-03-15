@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
-use std::str::FromStr;
 
 use ast::lang::graphs::NodeType;
 use ast::repo::{Repo, Repos};
@@ -14,7 +13,7 @@ use super::args::CliArgs;
 use super::output::Output;
 use super::progress::{CliSpinner, ProgressTracker};
 use super::render::{print_named_node, print_single_file_nodes, print_single_file_nodes_filtered};
-use super::utils::{common_ancestor, read_text_preview};
+use super::utils::{common_ancestor, parse_node_types, read_text_preview};
 
 fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
     let mut expanded: Vec<String> = Vec::new();
@@ -44,40 +43,6 @@ fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
     Ok((expanded, dir_files))
 }
 
-fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
-    let mut types = Vec::new();
-    for s in raw {
-        let normalized = match s.to_lowercase().as_str() {
-            "repository" => "Repository",
-            "package" => "Package",
-            "language" => "Language",
-            "directory" => "Directory",
-            "file" => "File",
-            "import" => "Import",
-            "library" => "Library",
-            "class" => "Class",
-            "trait" => "Trait",
-            "instance" => "Instance",
-            "function" => "Function",
-            "endpoint" => "Endpoint",
-            "request" => "Request",
-            "datamodel" => "Datamodel",
-            "feature" => "Feature",
-            "page" => "Page",
-            "var" => "Var",
-            "unittest" => "UnitTest",
-            "integrationtest" => "IntegrationTest",
-            "e2etest" => "E2etest",
-            "mock" => "Mock",
-            other => {
-                return Err(Error::validation(format!("Unknown node type: '{}'", other)));
-            }
-        };
-        types.push(NodeType::from_str(normalized).map_err(|e| Error::validation(e.to_string()))?);
-    }
-    Ok(types)
-}
-
 fn parse_goal_phrase(node_types: &[NodeType], stats: bool) -> String {
     let focus = if node_types.is_empty() {
         "all node types".to_string()
@@ -98,24 +63,14 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
     let no_nested = cli.no_nested;
-    let node_types = match parse_node_types(&cli.r#type) {
-        Ok(types) => types,
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            return Ok(());
-        }
-    };
+    let node_types = parse_node_types(&cli.r#type)?;
 
     let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
     let mut files_to_print: Vec<String> = Vec::new();
 
     for file_path in &files {
         if !dir_files.contains(file_path) && !Path::new(file_path).exists() {
-            out.writeln(format!(
-                "{}",
-                style(format!("Error: file does not exist: {}", file_path)).red()
-            ))?;
-            return Ok(());
+            return Err(Error::validation(format!("file does not exist: {}", file_path)));
         }
 
         let canonical_path = std::fs::canonicalize(file_path)
