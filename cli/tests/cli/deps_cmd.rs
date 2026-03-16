@@ -94,3 +94,29 @@ fn deps_allow_false_prefers_verified_python_calls() {
         out.stdout
     );
 }
+
+#[test]
+fn deps_skips_ts_test_framework_calls() {
+    let out = run_stakgraph(&["deps", "structureFinalAnswer", "../mcp/src/repo"]);
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(
+        !out.stdout.contains("expect  [unverified]"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("test  [unverified]"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("describe  [unverified]"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert!(
+        !out.stdout.contains("│   │   "),
+        "stdout: {}",
+        out.stdout
+    );
+}

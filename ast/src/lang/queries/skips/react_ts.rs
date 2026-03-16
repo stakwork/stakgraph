@@ -84,6 +84,39 @@ const OBJECT_METHODS: [&str; 15] = [
 
 const ASYNC_METHODS: [&str; 6] = ["then", "catch", "finally", "all", "race", "allSettled"];
 
+// Schema type constructors — skip when operand is a short lowercase identifier
+// (e.g. `z` from zod, `t` from typebox, etc.)
+const SCHEMA_BUILDER_NAMES: [&str; 21] = [
+    "string",
+    "number",
+    "boolean",
+    "object",
+    "array",
+    "enum",
+    "optional",
+    "nullable",
+    "union",
+    "intersection",
+    "literal",
+    "tuple",
+    "record",
+    "any",
+    "unknown",
+    "never",
+    "void",
+    "null",
+    "undefined",
+    "tool",
+    "describe",
+];
+
+// Schema chaining methods — skip when called on ANY lowercase operand because
+// these method names only exist on schema/validator builder objects.
+const SCHEMA_CHAIN_METHODS: [&str; 2] = [
+    "optional",
+    "nullable",
+];
+
 const DOM_METHODS: [&str; 20] = [
     "addEventListener",
     "removeEventListener",
@@ -105,6 +138,22 @@ const DOM_METHODS: [&str; 20] = [
     "blur",
     "click",
     "submit",
+];
+
+const TEST_FRAMEWORK_METHODS: [&str; 13] = [
+    "describe",
+    "it",
+    "test",
+    "expect",
+    "beforeEach",
+    "afterEach",
+    "beforeAll",
+    "afterAll",
+    "vi",
+    "jest",
+    "suite",
+    "specify",
+    "assert",
 ];
 
 const JSX_HTML_ELEMENTS: [&str; 134] = [
@@ -290,24 +339,41 @@ const JS_BUILTIN_OBJECTS: [&str; 42] = [
 ];
 
 pub fn should_skip(called: &str, operand: &Option<String>) -> bool {
+    if TEST_FRAMEWORK_METHODS.contains(&called) {
+        return true;
+    }
+
     if let Some(op) = operand {
         if JS_BUILTIN_OBJECTS.contains(&op.as_str()) {
             return true;
         }
         if let Some(first_char) = op.chars().next() {
-            if first_char.is_lowercase()
-                && (ARRAY_METHODS.contains(&called)
+            if first_char.is_lowercase() {
+                if ARRAY_METHODS.contains(&called)
                     || STRING_METHODS.contains(&called)
                     || OBJECT_METHODS.contains(&called)
                     || ASYNC_METHODS.contains(&called)
-                    || DOM_METHODS.contains(&called))
-            {
-                return true;
+                    || DOM_METHODS.contains(&called)
+                {
+                    return true;
+                }
+                if op.len() <= 2 && op.chars().all(|c| c.is_lowercase()) && SCHEMA_BUILDER_NAMES.contains(&called) {
+                    return true;
+                }
+                // Skip schema chaining methods (optional, nullable) on any lowercase
+                // operand — these only exist on schema/validator builder objects
+                if SCHEMA_CHAIN_METHODS.contains(&called) {
+                    return true;
+                }
             }
         }
     }
 
     if JSX_HTML_ELEMENTS.contains(&called) {
+        return true;
+    }
+
+    if operand.is_none() && SCHEMA_BUILDER_NAMES.contains(&called) {
         return true;
     }
 
