@@ -5,9 +5,13 @@ use super::git::{
     filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
     get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
 };
+<<<<<<< HEAD
 use ast::lang::graphs::{ArrayGraph, Edge, EdgeType, Node, NodeType};
 use ast::lang::Lang;
 use ast::repo::{Repo, Repos};
+=======
+use ast::lang::graphs::{ArrayGraph, Node, NodeType};
+>>>>>>> 73d2d523 (feat: adding a dependency map feature to cli)
 use console::style;
 use lsp::Language;
 use shared::{Error, Result};
@@ -15,7 +19,7 @@ use shared::{Error, Result};
 use super::args::{ChangesArgs, ChangesCommand, DiffArgs};
 use super::output::Output;
 use super::progress::CliSpinner;
-use super::utils::{common_ancestor, parse_node_types};
+use super::utils::{build_graph_for_files, parse_node_types};
 
 pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
     let cwd = std::env::current_dir()
@@ -421,6 +425,7 @@ async fn run_diff(
     Ok(())
 }
 
+<<<<<<< HEAD
 async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
     if files.is_empty() {
         return Ok(ArrayGraph::default());
@@ -467,6 +472,9 @@ async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
 }
 
 const MAX_SIG: usize = 120;
+=======
+const MAX_SIG: usize = 100;
+>>>>>>> 73d2d523 (feat: adding a dependency map feature to cli)
 
 fn node_signature(node: &Node) -> Option<String> {
     let raw = if let Some(iface) = node.node_data.meta.get("interface") {
