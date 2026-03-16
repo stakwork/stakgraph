@@ -125,11 +125,23 @@ pub fn filter_paths_by_scope(files: Vec<String>, scope: &[String]) -> Vec<String
     if scope.is_empty() {
         return files;
     }
+
+    let normalized_scope: Vec<String> = scope
+        .iter()
+        .map(|s| s.trim_start_matches("./").trim_end_matches('/').to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    if normalized_scope.is_empty() {
+        return files;
+    }
+
     files
         .into_iter()
         .filter(|f| {
-            scope.iter().any(|s| {
-                f == s || f.starts_with(&format!("{}/", s)) || f.starts_with(s.as_str())
+            let file = f.trim_start_matches("./");
+            normalized_scope.iter().any(|s| {
+                file == s || file.strip_prefix(s).is_some_and(|rest| rest.starts_with('/'))
             })
         })
         .collect()
