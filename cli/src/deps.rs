@@ -1,4 +1,4 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use ast::lang::graphs::EdgeType;
 use console::style;
@@ -136,6 +136,9 @@ pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Resu
             let max_depth = args.depth;
             if (max_depth == 0 || item.depth < max_depth) && !visited.contains(&key) {
                 visited.insert(key);
+                if item.file == "unverified" {
+                    continue;
+                }
                 let child_callees = direct_callees(&graph, &item.name, &item.file, args.allow);
                 let child_prefix = format!(
                     "{}{}",
@@ -169,20 +172,34 @@ fn direct_callees(
     file: &str,
     allow_unverified: bool,
 ) -> Vec<(String, String)> {
-    graph
-        .edges
-        .iter()
-        .filter(|e| {
-            e.edge == EdgeType::Calls
-                && e.source.node_data.name == name
-                && (file == "unverified" || e.source.node_data.file == file)
-        })
-        .filter(|e| allow_unverified || e.target.node_data.file != "unverified")
-        .map(|e| {
-            (
-                e.target.node_data.name.clone(),
-                e.target.node_data.file.clone(),
-            )
-        })
-        .collect()
+    // Group all call targets by callee name, collecting all unique files
+    let mut by_name: HashMap<String, HashSet<String>> = HashMap::new();
+    for e in graph.edges.iter().filter(|e| {
+        e.edge == EdgeType::Calls
+            && e.source.node_data.name == name
+            && (file == "unverified" || e.source.node_data.file == file)
+    }) {
+        let callee_file = e.target.node_data.file.clone();
+        if !allow_unverified && callee_file == "unverified" {
+            continue;
+        }
+        by_name
+            .entry(e.target.node_data.name.clone())
+            .or_default()
+            .insert(callee_file);
+    }
+    // For each callee name: if any verified resolution exists, emit only the verified ones;
+    // otherwise emit a single unverified entry.
+    let mut result = Vec::new();
+    for (callee_name, files) in by_name {
+        let verified: Vec<_> = files.iter().filter(|f| *f != "unverified").cloned().collect();
+        if !verified.is_empty() {
+            for f in verified {
+                result.push((callee_name.clone(), f));
+            }
+        } else if allow_unverified {
+            result.push((callee_name, "unverified".to_string()));
+        }
+    }
+    result
 }
