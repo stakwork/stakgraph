@@ -1145,11 +1145,6 @@ impl Lang {
             }
         // } else if let Some(tf) = func_target_file_finder(&body, &fc.operand, graph) {
         // fc.target = NodeKeys::new(&body, &tf);
-        } else if allow_unverified {
-            if self.lang.should_skip_function_call(&called, &fc.operand) {
-                return Ok(None);
-            }
-            fc.target = NodeKeys::new(&called, "unverified", call_point.row);
         } else {
             // FALLBACK to find?
             let import_names = get_imports_for_file(file, self, graph);
@@ -1186,6 +1181,13 @@ impl Lang {
                     ));
                     fc.target = base_func.into();
                 }
+            }
+
+            if fc.target.is_empty() && allow_unverified {
+                if self.lang.should_skip_function_call(&called, &fc.operand) {
+                    return Ok(None);
+                }
+                fc.target = NodeKeys::new(&called, "unverified", call_point.row);
             }
         }
 

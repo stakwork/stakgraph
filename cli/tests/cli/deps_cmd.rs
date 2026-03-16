@@ -61,12 +61,17 @@ fn deps_depth_zero_unlimited() {
 }
 
 #[test]
-fn deps_allow_true_includes_unverified_python_calls() {
+fn deps_allow_true_includes_verified_and_unverified_python_calls() {
     let file = fixture_path("src/testing/python/web/main.py");
     let out = run_stakgraph(&["deps", "run_servers", "--allow", "true", &file]);
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(
-        out.stdout.contains("cleanup  [unverified]"),
+        out.stdout.contains("cleanup  [") && out.stdout.contains("main.py:37"),
+        "stdout: {}",
+        out.stdout
+    );
+    assert!(
+        out.stdout.contains("chdir  [unverified]"),
         "stdout: {}",
         out.stdout
     );
