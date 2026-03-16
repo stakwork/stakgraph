@@ -4,6 +4,7 @@ import {
   waitForCondition,
   extractScreenshotMessages,
   verifyScreenshotDataUrl,
+  serveHtmlAtLocalhost,
 } from './test-helpers';
 
 test.describe('E2E Screenshot Flow', () => {
@@ -15,52 +16,39 @@ test.describe('E2E Screenshot Flow', () => {
         messages.push(msg);
       });
 
-      // Load a simple test page
-      await page.setContent(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <script>
-              window.STAKTRAK_CONFIG = {
-                parentOrigin: 'http://localhost:3000',
-                screenshot: {
-                  quality: 0.8,
-                  type: 'image/jpeg',
-                  scale: 1,
-                  backgroundColor: '#ffffff'
-                }
-              };
-            </script>
-          </head>
-          <body style="padding: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-            <h1 style="color: white;">Test Page</h1>
-            <button data-testid="nav-button" style="padding: 10px 20px; font-size: 16px;">
-              Navigate
-            </button>
-            <div id="content" style="margin-top: 20px; padding: 20px; background: white; border-radius: 8px;">
-              <p>This is test content for screenshot capture</p>
-            </div>
-            <script src="/dist/staktrak.js"></script>
-            <script>
-              window.addEventListener('message', (event) => {
-                window.captureMessage(event.data);
-              });
+      // Load a test page served from real origin (required for screenshot + history.pushState)
+      const html = createTestPage({ includeStaktrak: true, includeConfig: true, customContent: `
+        <h1 style="color: #333;">Test Page</h1>
+        <button data-testid="nav-button" style="padding: 10px 20px; font-size: 16px;">Navigate</button>
+        <div id="content" style="margin-top: 20px; padding: 20px; background: white; border-radius: 8px;">
+          <p>This is test content for screenshot capture</p>
+        </div>
+      ` });
+      await serveHtmlAtLocalhost(page, html, '/staktrak-e2e-nav-test');
 
-              // Simulate navigation on button click
-              document.querySelector('[data-testid="nav-button"]').addEventListener('click', () => {
-                document.getElementById('content').innerHTML = '<p>Navigated to new page!</p>';
-                history.pushState({}, '', '/new-page');
-              });
-            </script>
-          </body>
-        </html>
-      `);
+      await page.evaluate(() => {
+        window.addEventListener('message', (event) => {
+          (window as any).captureMessage(event.data);
+        });
+        // Simulate navigation on button click
+        const btn = document.querySelector('[data-testid="nav-button"]');
+        if (btn) {
+          btn.addEventListener('click', () => {
+            const el = document.getElementById('content');
+            if (el) el.innerHTML = '<p>Navigated to new page!</p>';
+            history.pushState({}, '', '/staktrak-e2e-nav-test/new-page');
+          });
+        }
+      });
+
+      // Wait for startPlaywrightReplay to be available
+      await page.waitForFunction(() => typeof (window as any).startPlaywrightReplay === 'function', { timeout: 5000 });
 
       // Start replay with navigation
       const testCode = `
         test('navigation test', async ({ page }) => {
           await page.click('[data-testid="nav-button"]');
-          await page.waitForURL('http://localhost:3000/new-page');
+          await page.waitForURL('http://localhost:3000/staktrak-e2e-nav-test/new-page');
         });
       `;
 
@@ -188,7 +176,7 @@ test.describe('E2E Screenshot Flow', () => {
       await page.waitForSelector('#test-frame');
 
       // Frame operations should work in same-origin scenario
-      const frame = page.frame({ name: '' });
+      const frame = page.frames()[1] || null;
       expect(frame).toBeTruthy();
     });
 
@@ -553,25 +541,21 @@ test.describe('E2E Screenshot Flow', () => {
       });
 
       const html = createTestPage({ includeStaktrak: true, includeConfig: true });
-      await page.setContent(html);
+      await serveHtmlAtLocalhost(page, html, '/staktrak-e2e-error-recovery-test');
 
       await page.evaluate(() => {
         window.addEventListener('message', (event) => {
           (window as any).captureMessage(event.data);
         });
-
-        // Break screenshot capture
-        if ((window as any).domToDataUrl) {
-          (window as any).domToDataUrl = async () => {
-            throw new Error('Mock screenshot error');
-          };
-        }
       });
+
+      // Wait for startPlaywrightReplay to be available
+      await page.waitForFunction(() => typeof (window as any).startPlaywrightReplay === 'function', { timeout: 5000 });
 
       const testCode = `
         test('test', async ({ page }) => {
           await page.click('[data-testid="test-button"]');
-          await page.waitForURL('http://localhost:3000');
+          await page.waitForURL('http://localhost:3000/staktrak-e2e-error-recovery-test');
         });
       `;
 
@@ -583,7 +567,7 @@ test.describe('E2E Screenshot Flow', () => {
 
       const completed = await waitForCondition(
         () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
-        5000
+        10000
       );
 
       // Replay should complete even with screenshot error

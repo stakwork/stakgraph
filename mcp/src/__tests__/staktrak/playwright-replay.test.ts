@@ -4,6 +4,7 @@ import {
   waitForCondition,
   extractScreenshotMessages,
   validateScreenshotMessage,
+  serveHtmlAtLocalhost,
 } from './test-helpers';
 
 test.describe('Playwright Replay Integration', () => {
@@ -133,7 +134,7 @@ test.describe('Playwright Replay Integration', () => {
 
     test('should capture screenshots during replay with waitForURL', async ({ page }) => {
       const html = createTestPage({ includeStaktrak: true, includeConfig: true });
-      await page.setContent(html);
+      await serveHtmlAtLocalhost(page, html, '/staktrak-replay-screenshot-test');
 
       await page.evaluate(() => {
         window.addEventListener('message', (event) => {
@@ -143,10 +144,13 @@ test.describe('Playwright Replay Integration', () => {
 
       const testCode = `
         test('test', async ({ page }) => {
-          await page.goto('http://localhost:3000');
-          await page.waitForURL('http://localhost:3000');
+          await page.goto('http://localhost:3000/staktrak-replay-screenshot-test');
+          await page.waitForURL('http://localhost:3000/staktrak-replay-screenshot-test');
         });
       `;
+
+      // Wait for startPlaywrightReplay to be available
+      await page.waitForFunction(() => typeof (window as any).startPlaywrightReplay === 'function', { timeout: 5000 });
 
       await page.evaluate((code) => {
         if ((window as any).startPlaywrightReplay) {
@@ -297,7 +301,7 @@ test.describe('Playwright Replay Integration', () => {
 
     test('should only capture screenshots after waitForURL actions', async ({ page }) => {
       const html = createTestPage({ includeStaktrak: true, includeConfig: true });
-      await page.setContent(html);
+      await serveHtmlAtLocalhost(page, html, '/staktrak-replay-only-screenshots-test');
 
       await page.evaluate(() => {
         window.addEventListener('message', (event) => {
@@ -371,7 +375,7 @@ test.describe('Playwright Replay Integration', () => {
 
       const completed = await waitForCondition(
         () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
-        5000
+        12000 // allow time for waitForElement timeout (5s) per action
       );
 
       // Should complete despite error
@@ -405,7 +409,7 @@ test.describe('Playwright Replay Integration', () => {
 
       await waitForCondition(
         () => messages.some(m => m.type === 'staktrak-playwright-replay-error'),
-        3000
+        12000 // allow time for waitForElement timeout (5s)
       );
 
       const errorMsgs = messages.filter(m => m.type === 'staktrak-playwright-replay-error');
@@ -418,7 +422,7 @@ test.describe('Playwright Replay Integration', () => {
 
     test('should continue capturing screenshots after action errors', async ({ page }) => {
       const html = createTestPage({ includeStaktrak: true, includeConfig: true });
-      await page.setContent(html);
+      await serveHtmlAtLocalhost(page, html, '/staktrak-replay-error-screenshot-test');
 
       await page.evaluate(() => {
         window.addEventListener('message', (event) => {
@@ -429,9 +433,12 @@ test.describe('Playwright Replay Integration', () => {
       const testCode = `
         test('test', async ({ page }) => {
           await page.click('[data-testid="nonexistent"]');
-          await page.waitForURL('http://localhost:3000');
+          await page.waitForURL('http://localhost:3000/staktrak-replay-error-screenshot-test');
         });
       `;
+
+      // Wait for startPlaywrightReplay to be available
+      await page.waitForFunction(() => typeof (window as any).startPlaywrightReplay === 'function', { timeout: 5000 });
 
       await page.evaluate((code) => {
         if ((window as any).startPlaywrightReplay) {
@@ -441,7 +448,7 @@ test.describe('Playwright Replay Integration', () => {
 
       await waitForCondition(
         () => messages.some(m => m.type === 'staktrak-playwright-replay-completed'),
-        8000
+        15000 // allow time for waitForElement timeout (5s) per action
       );
 
       const screenshotMsgs = extractScreenshotMessages(messages.map(m => ({ data: m })));

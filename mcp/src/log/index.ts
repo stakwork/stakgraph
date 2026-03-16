@@ -65,6 +65,26 @@ export async function logs_agent(req: Request, res: Response) {
     }
   }
 
+  if (workspaceSlug === "stakwork") {
+    const prodLogGroup = "/stakwork/production";
+    const context: string[] = [];
+    context.push(`The CloudWatch log group for Stakwork production is "${prodLogGroup}". Use this log group when fetching production logs.`);
+    try {
+      const streams = await listCloudwatchLogStreams(prodLogGroup);
+      if (streams.length > 0) {
+        context.push(`\nAvailable log streams (services) in this log group:`);
+        for (const s of streams) {
+          const serviceName = s.name.replace(/\.sphinx$/, "");
+          context.push(`  - "${s.name}" (service: ${serviceName}${s.lastEventTime ? ", last event: " + s.lastEventTime : ""})`);
+        }
+        context.push(`\nIf the user mentions a specific service, use the log_stream_names parameter to filter to that stream. If no specific service is mentioned, fetch all streams.`);
+      }
+    } catch (e) {
+      console.warn("Failed to list log streams for /stakwork/production:", e);
+    }
+    finalPrompt = context.join("\n") + `\n\n${finalPrompt}`;
+  }
+
   if (stakworkRuns && stakworkRuns.length > 0) {
     const runsJson = JSON.stringify(stakworkRuns, null, 2);
     const runsContext = [

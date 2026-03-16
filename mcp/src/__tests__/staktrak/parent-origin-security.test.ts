@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { createTestPage, waitForCondition } from './test-helpers';
+import { createTestPage, waitForCondition, serveHtmlAtLocalhost } from './test-helpers';
 
 test.describe('Parent Origin Security', () => {
   test.describe('Parent Origin Capture', () => {
@@ -11,7 +11,7 @@ test.describe('Parent Origin Security', () => {
       });
 
       const html = createTestPage({ includeStaktrak: true, includeConfig: false });
-      await page.setContent(html);
+      await serveHtmlAtLocalhost(page, html, '/staktrak-origin-test');
 
       // Inject message capture and test postMessage
       await page.evaluate(() => {
@@ -268,7 +268,7 @@ test.describe('Parent Origin Security', () => {
 
       await page.waitForSelector('#test-frame');
 
-      const frameOrigin = await page.frame({ name: '' })?.evaluate(() => {
+      const frameOrigin = await page.frames()[1]?.evaluate(() => {
         return (window as any).testOrigin;
       });
 
@@ -349,8 +349,8 @@ test.describe('Parent Origin Security', () => {
                 }
               });
 
-              // Simulate receiving message
-              window.postMessage({ type: 'test-ping' }, window.location.origin);
+              // Simulate receiving message (use '*' since page may have null origin in test context)
+              window.postMessage({ type: 'test-ping' }, '*');
             </script>
           </body>
         </html>
@@ -366,7 +366,7 @@ test.describe('Parent Origin Security', () => {
     });
 
     test('should filter out null origins', async ({ page }) => {
-      await page.setContent(`
+      const html = `
         <!DOCTYPE html>
         <html>
           <body>
@@ -384,10 +384,12 @@ test.describe('Parent Origin Security', () => {
               });
 
               // Simulate messages with different origins
-              window.postMessage({ type: 'test1' }, 'null');
+              setTimeout(() => {
+                window.postMessage({ type: 'test1' }, window.location.origin);
+              }, 50);
               setTimeout(() => {
                 window.postMessage({ type: 'test2' }, window.location.origin);
-              }, 100);
+              }, 150);
 
               window.getResults = () => ({
                 originHistory,
@@ -396,7 +398,8 @@ test.describe('Parent Origin Security', () => {
             </script>
           </body>
         </html>
-      `);
+      `;
+      await serveHtmlAtLocalhost(page, html, '/staktrak-origin-filter-test');
 
       await page.waitForTimeout(300);
 
@@ -501,7 +504,10 @@ test.describe('Parent Origin Security', () => {
       });
 
       const html = createTestPage({ includeStaktrak: true, includeConfig: true, parentOrigin: 'http://test-origin.com' });
-      await page.setContent(html);
+      await serveHtmlAtLocalhost(page, html, '/staktrak-replay-origin-test');
+
+      // Wait for startPlaywrightReplay to be exposed by initPlaywrightReplay
+      await page.waitForFunction(() => typeof (window as any).startPlaywrightReplay === 'function', { timeout: 5000 });
 
       await page.evaluate(() => {
         // Intercept postMessage calls

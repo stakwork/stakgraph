@@ -1,5 +1,5 @@
 "use strict";
-var userBehaviour = (() => {
+var _staktrakModule = (() => {
   var __defProp = Object.defineProperty;
   var __defProps = Object.defineProperties;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -4498,6 +4498,11 @@ var userBehaviour = (() => {
           break;
       }
     });
+    window.startPlaywrightReplay = startPlaywrightReplay;
+    window.pausePlaywrightReplay = pausePlaywrightReplay;
+    window.resumePlaywrightReplay = resumePlaywrightReplay;
+    window.stopPlaywrightReplay = stopPlaywrightReplay;
+    window.getPlaywrightReplayState = getPlaywrightReplayState;
   }
 
   // src/messages.ts
@@ -5748,7 +5753,10 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
       this.cleanup();
       this.processResults();
       this.isRunning = false;
-      sessionStorage.removeItem("stakTrakActiveRecording");
+      try {
+        sessionStorage.removeItem("stakTrakActiveRecording");
+      } catch (e) {
+      }
       return this;
     }
     result() {
@@ -5797,13 +5805,22 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
             this.verifyEventListeners();
             window.parent.postMessage({ type: "staktrak-replay-ready" }, "*");
           } else {
-            sessionStorage.removeItem("stakTrakActiveRecording");
+            try {
+              sessionStorage.removeItem("stakTrakActiveRecording");
+            } catch (e) {
+            }
           }
         } else {
-          sessionStorage.removeItem("stakTrakActiveRecording");
+          try {
+            sessionStorage.removeItem("stakTrakActiveRecording");
+          } catch (e) {
+          }
         }
       } catch (error) {
-        sessionStorage.removeItem("stakTrakActiveRecording");
+        try {
+          sessionStorage.removeItem("stakTrakActiveRecording");
+        } catch (e) {
+        }
       }
     }
     verifyEventListeners() {
@@ -5837,6 +5854,9 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
     }).listen();
     userBehaviour.attemptSessionRestoration();
     initPlaywrightReplay();
+    if (typeof window !== "undefined") {
+      window.userBehaviour = userBehaviour;
+    }
   };
   document.readyState === "loading" ? document.addEventListener("DOMContentLoaded", initializeStakTrak) : initializeStakTrak();
   userBehaviour.createClickDetail = createClickDetail;
@@ -5872,6 +5892,9 @@ ${initialGoto}${body.split("\n").filter((l) => l.trim()).map((l) => l).join("\n"
       return sel.scores;
     return [];
   };
+  if (typeof window !== "undefined") {
+    window.userBehaviour = userBehaviour;
+  }
   var src_default = userBehaviour;
   return __toCommonJS(src_exports);
 })();

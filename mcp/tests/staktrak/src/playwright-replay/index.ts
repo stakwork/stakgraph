@@ -352,4 +352,11 @@ export function initPlaywrightReplay(): void {
         break;
     }
   });
+
+  // Expose replay functions on window for direct test access
+  (window as any).startPlaywrightReplay = startPlaywrightReplay;
+  (window as any).pausePlaywrightReplay = pausePlaywrightReplay;
+  (window as any).resumePlaywrightReplay = resumePlaywrightReplay;
+  (window as any).stopPlaywrightReplay = stopPlaywrightReplay;
+  (window as any).getPlaywrightReplayState = getPlaywrightReplayState;
 }

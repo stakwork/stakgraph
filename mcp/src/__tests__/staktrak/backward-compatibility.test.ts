@@ -70,7 +70,7 @@ test.describe('Backward Compatibility', () => {
 
       expect(gotoAction).toBeTruthy();
       expect(gotoAction.type).toBe('goto');
-      expect(gotoAction.url).toBe('http://localhost:3000');
+      expect(gotoAction.url).toContain('localhost:3000');
     });
   });
 

@@ -939,7 +939,7 @@ class UserBehaviorTracker {
     this.isRunning = false;
 
     // Clear persisted state after successful stop
-    sessionStorage.removeItem("stakTrakActiveRecording");
+    try { sessionStorage.removeItem("stakTrakActiveRecording"); } catch {}
 
     return this;
   }
@@ -1009,14 +1009,14 @@ class UserBehaviorTracker {
           // Notify parent that recording is active again
           window.parent.postMessage({ type: "staktrak-replay-ready" }, "*");
         } else {
-          sessionStorage.removeItem("stakTrakActiveRecording");
+          try { sessionStorage.removeItem("stakTrakActiveRecording"); } catch {}
         }
       } else {
         // Invalid session data, starting fresh
-        sessionStorage.removeItem("stakTrakActiveRecording");
+        try { sessionStorage.removeItem("stakTrakActiveRecording"); } catch {}
       }
     } catch (error) {
-      sessionStorage.removeItem("stakTrakActiveRecording");
+      try { sessionStorage.removeItem("stakTrakActiveRecording"); } catch {}
     }
   }
 
@@ -1072,6 +1072,11 @@ const initializeStakTrak = () => {
   userBehaviour.attemptSessionRestoration();
 
   initPlaywrightReplay();
+
+  // Ensure window.userBehaviour is the tracker instance after IIFE assignment
+  if (typeof window !== 'undefined') {
+    (window as any).userBehaviour = userBehaviour;
+  }
 };
 
 document.readyState === "loading"
@@ -1112,5 +1117,10 @@ document.readyState === "loading"
   if (sel && sel.scores) return sel.scores;
   return [];
 };
+
+// Expose on window for browser/IIFE usage
+if (typeof window !== 'undefined') {
+  (window as any).userBehaviour = userBehaviour;
+}
 
 export default userBehaviour;

@@ -98,15 +98,26 @@ export function createTestPage(options: {
 /**
  * Load staktrak in a page and wait for it to be ready
  */
+/**
+ * Serve arbitrary HTML at a real localhost origin (enables history.pushState with absolute URLs)
+ */
+export async function serveHtmlAtLocalhost(page: Page, html: string, path = '/staktrak-test'): Promise<void> {
+  const url = `http://localhost:3000${path}`;
+  await page.route(url, route => {
+    route.fulfill({ contentType: 'text/html', body: html });
+  });
+  await page.goto(url);
+}
+
 export async function loadStaktrakInPage(page: Page, options: {
   includeConfig?: boolean;
   parentOrigin?: string;
   customContent?: string;
 } = {}): Promise<void> {
   const html = createTestPage({ includeStaktrak: true, ...options });
-  const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 
-  await page.goto(dataUrl);
+  // Serve the HTML at a real origin so history.pushState works with absolute URLs
+  await serveHtmlAtLocalhost(page, html);
 
   // Wait for staktrak to be fully initialized
   await page.waitForFunction(() => {
@@ -246,10 +257,9 @@ export function validateAction(action: any): boolean {
 }
 
 /**
- * Wait for condition with timeout (page context)
+ * Wait for condition with timeout
  */
 export async function waitForCondition(
-  page: Page,
   condition: () => boolean | Promise<boolean>,
   timeout: number = 5000,
   interval: number = 100
