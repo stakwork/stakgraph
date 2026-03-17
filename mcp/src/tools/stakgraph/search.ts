@@ -10,11 +10,11 @@ export const SearchSchema = z.object({
     .min(1, "Query is required.")
     .describe("Search query to match against snippet names and content."),
   method: z
-    .enum(["fulltext", "vector"])
+    .enum(["fulltext", "vector", "hybrid"])
     .optional()
     .default("fulltext")
     .describe(
-      "Search method. Fulltext search for exact matches, vector for semantic similarity."
+      "fulltext: keyword/exact matches. vector: semantic similarity. hybrid: combines both using rank fusion for best results."
     ),
   concise: z
     .boolean()
@@ -47,7 +47,8 @@ export const SearchSchema = z.object({
 
 export const SearchTool: Tool = {
   name: "stakgraph_search",
-  description: "Search for exact matches.",
+  description:
+    "Search the code graph by keyword (fulltext), semantic meaning (vector), or both combined (hybrid). Use hybrid for best recall.",
   inputSchema: parseSchema(SearchSchema),
 };
 

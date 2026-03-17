@@ -511,23 +511,26 @@ ${NODE_TYPES}
 `;
 
 export const VECTOR_SEARCH_QUERY = `
-MATCH (node)
+CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($limit), $embeddings)
+YIELD node, score
+WITH node, score
 WHERE
   CASE
     WHEN $node_types IS NULL OR size($node_types) = 0 THEN true
     ELSE ANY(label IN labels(node) WHERE label IN $node_types)
   END
-  AND node.embeddings IS NOT NULL
+  AND
+  CASE
+    WHEN $skip_node_types IS NULL OR size($skip_node_types) = 0 THEN true
+    ELSE NOT ANY(label IN labels(node) WHERE label IN $skip_node_types)
+  END
   AND
   CASE
     WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
     ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
   END
-WITH node, gds.similarity.cosine(node.embeddings, $embeddings) AS score
-WHERE score >= $similarityThreshold
 RETURN node, score
 ORDER BY score DESC
-LIMIT toInteger($limit)
 `;
 
 export const SUBGRAPH_QUERY = `
