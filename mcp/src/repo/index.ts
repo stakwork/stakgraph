@@ -1,6 +1,6 @@
 import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
-import { ToolsConfig, SkillsConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
+import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
@@ -69,6 +69,8 @@ export async function repo_agent(req: Request, res: Response) {
   // Sub-agents
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
+  // GGNN
+  const ggnn = req.body.ggnn as GgnnConfig | undefined;
 
   if (!prompt) {
     res.status(400).json({ error: "Missing prompt" });
@@ -108,6 +110,7 @@ export async function repo_agent(req: Request, res: Response) {
           systemOverride,
           skills,
           subAgents,
+          ggnn,
         });
       })
       .then((result) => {

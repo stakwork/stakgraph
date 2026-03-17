@@ -11,7 +11,7 @@ import {
   ModelName,
   getModelDetails,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef } from "./tools.js";
 import { SKILLS } from "./skills.js";
 import { type SubAgent } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
@@ -144,6 +144,8 @@ export interface GetContextOptions {
   skills?: SkillsConfig;
   // Sub-agents: remote agent instances this agent can delegate to
   subAgents?: SubAgent[];
+  // GGNN integration
+  ggnn?: GgnnConfig;
 }
 
 export async function get_context(
@@ -164,6 +166,7 @@ export async function get_context(
     repos,
     skills,
     subAgents,
+    ggnn,
   } = opts;
   const startTime = Date.now();
   const { model, apiKey, provider, contextLimit } = getModelDetails(modelName, apiKeyIn);
@@ -184,7 +187,8 @@ export async function get_context(
     }
   }
 
-  let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos, subAgents);
+  const messagesRef: MessagesRef = { current: [] };
+  let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos, subAgents, ggnn, messagesRef);
 
   // Load and merge MCP server tools if configured
   if (mcpServers && mcpServers.length > 0) {
@@ -268,6 +272,8 @@ Apply the guidance from each skill throughout your response.`;
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => logStep(sf.content),
     prepareStep: async ({ steps, messages }) => {
+      // Keep messagesRef up to date so ggnn tools can read the current trace
+      messagesRef.current = messages as ModelMessage[];
       // Use real input token count from the last step if available,
       // otherwise 0 to trigger estimation from the messages themselves
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
