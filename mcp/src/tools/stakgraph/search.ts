@@ -12,7 +12,7 @@ export const SearchSchema = z.object({
   method: z
     .enum(["fulltext", "vector", "hybrid"])
     .optional()
-    .default("fulltext")
+    .default("hybrid")
     .describe(
       "fulltext: keyword/exact matches. vector: semantic similarity. hybrid: combines both using rank fusion for best results."
     ),
@@ -53,14 +53,14 @@ export const SearchTool: Tool = {
 };
 
 export async function search(args: z.infer<typeof SearchSchema>) {
-  console.log("=> Running fulltext search tool with args:", args);
+  console.log("=> Running stakgraph search tool with args:", args);
   const result = await G.search(
     args.query,
     args.limit ?? 25,
     (args.node_types as NodeType[]) ?? [],
     args.concise ?? false,
     args.max_tokens ?? 100000,
-    args.method ?? "fulltext",
+    args.method ?? "hybrid",
     "snippet",
     false,
     args.language
