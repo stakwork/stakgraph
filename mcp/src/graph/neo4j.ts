@@ -394,7 +394,8 @@ class Db {
     query: string,
     limit: number,
     node_types: NodeType[],
-    similarityThreshold: number = 0.7,
+    skip_node_types: NodeType[] = [],
+    maxTokens: number = 0,
     language?: string,
   ): Promise<Neo4jNode[]> {
     let session: Session | null = null;
@@ -402,16 +403,20 @@ class Db {
       session = this.driver.session();
       const embeddings = await vectorizeQuery(query);
 
+      if (!skip_node_types.includes("Import")) {
+        skip_node_types.push("Import");
+      }
+
       const extensions = language ? getExtensionsForLanguage(language) : [];
 
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
         limit,
         node_types,
-        similarityThreshold,
+        skip_node_types,
         extensions,
       });
-      return result.records.map((record) => {
+      const nodes = result.records.map((record) => {
         const node: Neo4jNode = deser_node(record, "node");
         return {
           properties: node.properties,
@@ -419,6 +424,23 @@ class Db {
           score: record.get("score"),
         };
       });
+      if (!maxTokens) {
+        return nodes;
+      }
+      let totalTokens = 0;
+      const filteredNodes: Neo4jNode[] = [];
+      for (const node of nodes) {
+        const tokenCount = node.properties.token_count
+          ? parseInt(node.properties.token_count.toString(), 10)
+          : 0;
+        if (totalTokens + tokenCount <= maxTokens) {
+          totalTokens += tokenCount;
+          filteredNodes.push(node);
+        } else {
+          break;
+        }
+      }
+      return filteredNodes;
     } catch (error) {
       console.error("Error vector searching:", error);
       throw error;

@@ -409,7 +409,7 @@ export async function get_tools(
               "Function", "Class", "Endpoint", "Datamodel", "Request", "Page",
               "Trait", "Var",
             ];
-            const results = await db.vectorSearch(query, limit || 10, codeNodeTypes as any, 0.7);
+            const results = await db.vectorSearch(query, limit || 10, codeNodeTypes as any);
             return results.map((node) => ({
               name: node.properties.name,
               node_type: node.labels.find(l => l !== "Data_Bank") || node.labels[0],
