@@ -1,4 +1,4 @@
-import { tool, Tool } from "ai";
+import { tool, Tool, ModelMessage } from "ai";
 import { z } from "zod";
 import {
   getRepoMap,
@@ -12,6 +12,24 @@ import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, type SubAgent } from "./subagent.js";
+
+export interface GgnnTool {
+  name: string;          // tool name, e.g. "ggnn_check"
+  endpoint: string;      // e.g. "/check", "/predict", "/score-plan"
+  description: string;   // tool description for the LLM
+  bodyType: "predict" | "check" | "score-plan";
+}
+
+export interface GgnnConfig {
+  url: string;           // base URL, e.g. "https://ggnn.sphinx.chat"
+  apiKey: string;        // bearer token
+  languages?: string[];  // e.g. ["typescript"]
+  tools: GgnnTool[];
+}
+
+export interface MessagesRef {
+  current: ModelMessage[];
+}
 
 type ToolName =
   | "repo_overview"
@@ -141,7 +159,9 @@ export async function get_tools(
   toolsConfig?: ToolsConfig,
   provider?: Provider,
   repos?: string[],
-  subAgents?: SubAgent[]
+  subAgents?: SubAgent[],
+  ggnn?: GgnnConfig,
+  messagesRef?: MessagesRef
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -462,6 +482,85 @@ export async function get_tools(
         },
       });
       console.log(`===> registered sub-agent tool: ${sa.name}`);
+    }
+  }
+
+  // Register GGNN tools if configured
+  if (ggnn && ggnn.tools && ggnn.tools.length > 0) {
+    const ggnnApiKey = ggnn.apiKey;
+    const languages = ggnn.languages ?? [];
+    const ggnnHeaders = {
+      Authorization: `Bearer ${ggnnApiKey}`,
+      "Content-Type": "application/json",
+    };
+
+    for (const gt of ggnn.tools) {
+      if (!gt.name || !gt.endpoint) continue;
+      const url = `${ggnn.url.replace(/\/$/, "")}${gt.endpoint}`;
+
+      if (gt.bodyType === "predict") {
+        // /predict — call before task starts: { task_description, languages }
+        allTools[gt.name] = tool({
+          description: gt.description,
+          inputSchema: z.object({
+            task_description: z.string().describe("Description of the task about to be executed"),
+          }),
+          execute: async ({ task_description }: { task_description: string }) => {
+            console.log(`[ggnn:${gt.name}] POST ${url}`);
+            const res = await fetch(url, {
+              method: "POST",
+              headers: ggnnHeaders,
+              body: JSON.stringify({ task_description, languages }),
+            });
+            const data = await res.json();
+            console.log(`[ggnn:${gt.name}] response:`, JSON.stringify(data, null, 2));
+            return data;
+          },
+        });
+      } else if (gt.bodyType === "check") {
+        // /check — call mid-execution: { task_description, languages, trace_so_far }
+        allTools[gt.name] = tool({
+          description: gt.description,
+          inputSchema: z.object({
+            task_description: z.string().describe("Description of the current task"),
+          }),
+          execute: async ({ task_description }: { task_description: string }) => {
+            const trace = messagesRef?.current ?? [];
+            console.log(`[ggnn:${gt.name}] POST ${url} (${trace.length} messages in trace)`);
+            const res = await fetch(url, {
+              method: "POST",
+              headers: ggnnHeaders,
+              body: JSON.stringify({ task_description, languages, trace_so_far: trace }),
+            });
+            const data = await res.json();
+            // Strip node_assessments to reduce token noise
+            const { node_assessments, ...summary } = data;
+            console.log(`[ggnn:${gt.name}] response:`, JSON.stringify(summary, null, 2));
+            return summary;
+          },
+        });
+      } else if (gt.bodyType === "score-plan") {
+        // /score-plan — call after planning: { task_description, languages, plan }
+        allTools[gt.name] = tool({
+          description: gt.description,
+          inputSchema: z.object({
+            task_description: z.string().describe("Description of the task"),
+            plan: z.string().describe("The step-by-step plan to score"),
+          }),
+          execute: async ({ task_description, plan }: { task_description: string; plan: string }) => {
+            console.log(`[ggnn:${gt.name}] POST ${url}`);
+            const res = await fetch(url, {
+              method: "POST",
+              headers: ggnnHeaders,
+              body: JSON.stringify({ task_description, languages, plan }),
+            });
+            const data = await res.json();
+            console.log(`[ggnn:${gt.name}] response:`, JSON.stringify(data, null, 2));
+            return data;
+          },
+        });
+      }
+      console.log(`===> registered ggnn tool: ${gt.name} -> ${url}`);
     }
   }
 
