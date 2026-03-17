@@ -1,28 +1,3 @@
-Makes sense. For the custom tool you just need three things exposed as config:
-
-- GGNN_URL — the base URL (https://ggnn.sphinx.chat)
-- GGNN_API_KEY — the bearer token
-- which endpoints to enable (probably just /check to start, /predict before task begins)
-  The tool call for /check would be something like:
-
-```ts
-async function checkExecution(taskDescription: string, traceSoFar: Message[]) {
-  const res = await fetch(`${GGNN_URL}/check`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${GGNN_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      task_description: taskDescription,
-      languages: ["typescript"],
-      trace_so_far: traceSoFar,
-    }),
-  });
-  return res.json();
-}
-```
-
 ### 1. Before a task: `/predict`
 
 Call this when you know what the agent needs to do but hasn't started yet.
@@ -84,6 +59,13 @@ curl -X POST http://localhost:8000/score-plan \
     "plan": "1. Find existing webhook handlers\n2. Read the pattern\n3. Create new endpoint\n4. Add signature verification\n5. Write tests"
   }'
 ```
+
+Returns:
+
+- **plan_score** — 0.0 to 1.0
+- **predicted_efficiency** — based on similar past executions
+- **warnings** — e.g. "plan has 2 steps but similar tasks averaged 6"
+- **similar_successful_plans** — what worked before
 
 ---
 
