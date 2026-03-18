@@ -1237,6 +1237,82 @@ class Db {
     } finally { await session.close(); }
   }
 
+  async count_cluster_nodes(): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.COUNT_CLUSTERS_QUERY);
+      return r.records[0].get('c').toNumber();
+    } finally { await session.close(); }
+  }
+
+  async get_cluster_graph_data(): Promise<{ nodes: { ref_id: string; name: string; file: string; label: string }[]; edges: { source: string; target: string; edge_type: string }[] }> {
+    const session = this.driver.session();
+    try {
+      const nodesResult = await session.run(Q.CLUSTER_GRAPH_DATA_QUERY);
+      const nodes = nodesResult.records.map((r) => ({
+        ref_id: r.get("ref_id"),
+        name: r.get("name"),
+        file: r.get("file") || "",
+        label: r.get("label"),
+      }));
+
+      const edgesResult = await session.run(Q.CLUSTER_EDGES_QUERY);
+      const edges = edgesResult.records.map((r) => ({
+        source: r.get("source"),
+        target: r.get("target"),
+        edge_type: r.get("edge_type"),
+      }));
+
+      return { nodes, edges };
+    } finally { await session.close(); }
+  }
+
+  async clear_clusters(): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.CLEAR_CLUSTERS_QUERY);
+    } finally { await session.close(); }
+  }
+
+  async upsert_cluster(cluster_id: string, label: string, cohesion: number, symbol_count: number): Promise<void> {
+    const session = this.driver.session();
+    const node_key = create_node_key({
+      node_type: "Cluster",
+      node_data: { name: label, file: "cluster://generated", start: 0 },
+    } as Node);
+    try {
+      await session.run(Q.UPSERT_CLUSTER_QUERY, { cluster_id, label, cohesion, symbol_count, node_key, ts: Date.now() / 1000 });
+    } finally { await session.close(); }
+  }
+
+  async create_member_of(ref_id: string, cluster_id: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.CREATE_MEMBER_OF_QUERY, { ref_id, cluster_id });
+    } finally { await session.close(); }
+  }
+
+  async get_all_clusters(): Promise<Neo4jNode[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_ALL_CLUSTERS_QUERY);
+      return r.records.map((rec) => rec.get("c") as Neo4jNode);
+    } finally { await session.close(); }
+  }
+
+  async get_cluster_members(cluster_id: string, limit: number): Promise<{ ref_id: string; name: string; file: string; label: string }[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_CLUSTER_MEMBERS_QUERY, { cluster_id, limit: neo4j.int(limit) });
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        name: rec.get("name"),
+        file: rec.get("file") || "",
+        label: rec.get("label"),
+      }));
+    } finally { await session.close(); }
+  }
+
   async close() {
     await this.driver.close();
     console.log("===> driver closed");
