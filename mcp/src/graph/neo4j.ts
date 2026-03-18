@@ -9,6 +9,7 @@ import {
   EdgeType,
   Node,
   Edge,
+  toNum,
 } from "./types.js";
 import {
   create_node_key,
@@ -1296,7 +1297,17 @@ class Db {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.GET_ALL_CLUSTERS_QUERY);
-      return r.records.map((rec) => rec.get("c") as Neo4jNode);
+      return r.records.map((rec) => {
+        const node = rec.get("c") as Neo4jNode;
+        const props = node.properties as any;
+        props.start = toNum(props.start);
+        props.end = toNum(props.end);
+        return {
+          ...node,
+          identity: node.identity !== undefined ? toNum(node.identity) : undefined,
+          properties: props,
+        };
+      });
     } finally { await session.close(); }
   }
 
