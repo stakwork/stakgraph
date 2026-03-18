@@ -9,9 +9,27 @@ Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF 
 
 Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in backticks. YOU MUST RETURN BOTH FILES!!!
 
-- pm2.config.js: the actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. Each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, PRE_START_COMMAND, and POST_START_COMMAND if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). Please name one of the services "frontend" no matter what!!! The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the frontend is within an "app" sub-directory in the repo, the cwd should be "/workspaces/MY_REPO_NAME/app". If the project is only a backend api, its fine to use the api service as the "frontend"... the "frontend" service is really just used to help our system identify whether things are running smoothly. IMPORTANT: if no frontend is found in this repo at all, add a dummy frontend service with "npx -y hell0-w0rld"! That is a simple hello world server that will run on port 3000, and will help the system check to see things are up and running. IMPORTANT: include other environment variables needed to run the project in the "env" section of the service!
+# pm2.config.js
 
-  If the project is Android:
+The actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. Each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, PRE_START_COMMAND, and POST_START_COMMAND if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). Please name one of the services "frontend" no matter what!!!
+
+The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the frontend is within an "app" sub-directory in the repo, the cwd should be "/workspaces/MY_REPO_NAME/app". If the project is only a backend api, its fine to use the api service as the "frontend"... the "frontend" service is really just used to help our system identify whether things are running smoothly. IMPORTANT: if no frontend is found in this repo at all, add a dummy frontend service with "npx -y hell0-w0rld"! That is a simple hello world server that will run on port 3000, and will help the system check to see things are up and running. IMPORTANT: include other environment variables needed to run the project in the "env" section of the service!
+
+### Other reminders for pm2.config.js:
+
+1. **name MUST be "frontend"** — always use "frontend" as the app name, regardless of the repo name.
+
+2. **Host binding** — the dev server MUST bind to 0.0.0.0:
+  - Next.js: append "-- -H 0.0.0.0" to the dev command
+  - Vite: append "-- --host 0.0.0.0" to the dev command
+
+3. **Environment variables**:
+  - For empty/placeholder values, generate realistic dev defaults
+  - For secrets: "dev-secret-key-change-in-production-12345678901234567890"
+  - For hex encryption keys: "bb54aa41a75298418586c5443f264338013520b3bad612fce9ac2fc32ed19882"
+  - Database URLs must match the credentials in docker-compose.yml
+
+### If the project is Android:
   - The "frontend" service script should just be a placeholder echo — all real work happens via the env commands.
   - PORT should be "8000" (the Android screen stream port via ws-scrcpy).
   - PRE_START_COMMAND: ensure adb is ready (e.g. "adb wait-for-device").
@@ -22,9 +40,11 @@ Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FI
   - RESTART: always "true" for Android so code changes trigger a rebuild + reinstall.
   - Find the correct package name and main activity from AndroidManifest.xml or build.gradle.
 
-- docker-compose.yml: the auxiliary services needed to run the project, such as databases, caches, queues, etc.
+# docker-compose.yml
 
-  If this is NOT Android, there is a special "app" service in the docker-compose.yml that you MUST include! It is the service in which the codebase is mounted. Here is the EXACT content that it should have:
+The auxiliary services needed to run the project, such as databases, caches, queues, etc.
+
+If this is NOT Android, there is a special "app" service in the docker-compose.yml that you MUST include! It is the service in which the codebase is mounted. Here is the EXACT content that it should have:
 \`\`\`
   app:
     build:
@@ -40,7 +60,7 @@ Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FI
       - "host.docker.internal:host-gateway"
 \`\`\`
 
-  If this IS Android, the docker-compose.yml has a fixed structure that MUST be followed exactly. The "app" and "redroid" services are mandatory and must not be modified. You may add extra services (postgres, redis, etc.) only if the Android app explicitly requires them.
+If this IS Android, the docker-compose.yml has a fixed structure that MUST be followed exactly. The "app" and "redroid" services are mandatory and must not be modified. You may add extra services (postgres, redis, etc.) only if the Android app explicitly requires them.
 
 \`\`\`yaml
 services:
@@ -72,7 +92,7 @@ services:
       - androidboot.redroid_height=1920
       - androidboot.redroid_fps=30
 
-  # Add other services here only if the app requires them (postgres, redis, etc.)
+### Add other services here only if the app requires them (postgres, redis, etc.)
 
 networks:
   app_network:
