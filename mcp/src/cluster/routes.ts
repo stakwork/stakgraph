@@ -39,7 +39,7 @@ export async function get_cluster_members_route(req: Request, res: Response) {
     const cluster_id = req.params.cluster_id;
     const limit = parseInt(req.query.limit as string) || 50;
     const members = await db.get_cluster_members(cluster_id, limit);
-    res.json({ cluster_id, members, total: members.length });
+    res.json({ cluster_id, members, total_members: members.length });
   } catch (e: any) {
     console.error("[clusters] members error:", e);
     res.status(500).json({ error: e.message });
