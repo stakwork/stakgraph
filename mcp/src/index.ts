@@ -32,6 +32,7 @@ import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
 import * as rr from "./repo/index.js";
+import * as cluster from "./cluster/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
@@ -201,6 +202,11 @@ app.get("/gitree/clues/:id", gitree.gitree_get_clue);
 app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
 app.post("/gitree/provenance", gitree.gitree_provenance);
+
+app.get("/clusters", cluster.list_clusters);
+app.post("/clusters/detect", cluster.detect_clusters);
+app.delete("/clusters", cluster.clear_clusters_route);
+app.get("/clusters/:cluster_id/members", cluster.get_cluster_members_route);
 
 app.post("/document_workflow", document_workflow);
 app.post("/document_workflows", document_workflows);
