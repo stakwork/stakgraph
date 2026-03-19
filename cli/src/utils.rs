@@ -1,8 +1,14 @@
+use std::collections::HashSet;
 use std::io::Read;
+use std::path::Path;
 use std::str::FromStr;
 
-use ast::lang::graphs::NodeType;
+use ast::lang::graphs::{ArrayGraph, NodeType};
+use ast::lang::Lang;
+use ast::repo::{Repo, Repos};
+use lsp::Language;
 use shared::{Error, Result};
+use walkdir::WalkDir;
 
 pub fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
     let mut types = Vec::new();
@@ -36,6 +42,95 @@ pub fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
         types.push(NodeType::from_str(normalized).map_err(|e| Error::validation(e.to_string()))?);
     }
     Ok(types)
+}
+
+pub fn expand_dirs_for_parse(inputs: &[String]) -> Vec<String> {
+    let mut expanded: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    for input in inputs {
+        let path = Path::new(input);
+        if path.is_dir() {
+            for entry in WalkDir::new(path).into_iter().flatten() {
+                if entry.file_type().is_file() {
+                    let raw = entry.path().to_string_lossy().to_string();
+                    let p = std::fs::canonicalize(&raw)
+                        .map(|c| c.to_string_lossy().to_string())
+                        .unwrap_or(raw);
+                    if Language::from_path(&p).is_some() && seen.insert(p.clone()) {
+                        expanded.push(p);
+                    }
+                }
+            }
+        } else {
+            let p = std::fs::canonicalize(input)
+                .map(|c| c.to_string_lossy().to_string())
+                .unwrap_or_else(|_| input.clone());
+            if seen.insert(p.clone()) {
+                expanded.push(p);
+            }
+        }
+    }
+
+    expanded
+}
+
+pub async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
+    build_graph_for_files_with_options(files, true).await
+}
+
+pub async fn build_graph_for_files_with_options(
+    files: &[String],
+    allow_unverified_calls: bool,
+) -> Result<ArrayGraph> {
+    if files.is_empty() {
+        return Ok(ArrayGraph::default());
+    }
+
+    let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
+    for file_path in files {
+        if let Some(lang) = Language::from_path(file_path) {
+            if let Some((_, list)) = files_by_lang.iter_mut().find(|(l, _)| *l == lang) {
+                list.push(file_path.clone());
+            } else {
+                files_by_lang.push((lang, vec![file_path.clone()]));
+            }
+        }
+    }
+
+    let mut repos_vec: Vec<Repo> = Vec::new();
+    for (language, file_list) in &files_by_lang {
+        let lang = Lang::from_language(language.clone());
+        if let Some(root) = common_ancestor(file_list) {
+            let file_refs: Vec<&str> = file_list.iter().map(|s| s.as_str()).collect();
+            repos_vec.push(Repo::from_files(
+                &file_refs,
+                root,
+                lang,
+                allow_unverified_calls,
+                false,
+                false,
+            )?);
+        } else {
+            for file_path in file_list {
+                let file_lang = Lang::from_language(language.clone());
+                repos_vec.push(Repo::from_single_file(
+                    file_path,
+                    file_lang,
+                    allow_unverified_calls,
+                    false,
+                    false,
+                )?);
+            }
+        }
+    }
+
+    if repos_vec.is_empty() {
+        return Ok(ArrayGraph::default());
+    }
+
+    let repos = Repos(repos_vec);
+    repos.build_graphs_array().await
 }
 
 pub fn common_ancestor(files: &[String]) -> Option<std::path::PathBuf> {
