@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { db } from '../graph/neo4j.js';
+import { generateLabel, detectLang } from "./lang/index.js";
 
 // graphology is CJS; under Node16 module resolution the default import
 // is the namespace object, not the constructor directly.
@@ -56,13 +57,24 @@ export async function runClusterDetection(): Promise<ClusterDetectionResult> {
     communityMembers.get(commNum)!.push(nodeId);
   }
 
+  const allFiles = nodes.map((n) => n.file || "");
+  const lang = detectLang(allFiles);
+  const usedLabels = new Set<string>();
+
   const MERGE_SIZE_THRESHOLD = 10;
   type CommunityEntry = { commNum: number; memberIds: string[]; label: string };
 
   const qualified: CommunityEntry[] = [];
   for (const [commNum, memberIds] of communityMembers) {
     if (memberIds.length < 3) continue;
-    qualified.push({ commNum, memberIds, label: generateLabel(memberIds, graph, commNum) });
+    const files = memberIds.map(
+      (id) => (graph.getNodeAttribute(id, "file") as string) || "",
+    );
+    qualified.push({
+      commNum,
+      memberIds,
+      label: generateLabel(files, commNum, usedLabels, lang),
+    });
   }
 
   // Merge small clusters that share the same label
@@ -107,32 +119,6 @@ export async function runClusterDetection(): Promise<ClusterDetectionResult> {
     modularity: details.modularity,
     nodesProcessed: graph.order,
   };
-}
-
-const GENERIC_FOLDERS = new Set([
-  'src', 'lib', 'core', 'utils', 'common', 'shared', 'helpers',
-  'queries', 'mutations', 'hooks', 'components', 'pages', 'views',
-  'services', 'store', 'stores', 'api', 'types', 'interfaces',
-]);
-
-function generateLabel(memberIds: string[], graph: GraphInstance, commNum: number): string {
-  const counts = new Map<string, number>();
-  for (const nodeId of memberIds) {
-    const file: string = graph.getNodeAttribute(nodeId, 'file') || '';
-    const parts = file.split('/').filter(Boolean);
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const segment = parts[i].replace(/\.[^.]+$/, '');
-      if (!GENERIC_FOLDERS.has(segment.toLowerCase()) && segment.length > 1) {
-        counts.set(segment, (counts.get(segment) || 0) + 1);
-        break;
-      }
-    }
-  }
-  if (counts.size > 0) {
-    const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return best.charAt(0).toUpperCase() + best.slice(1);
-  }
-  return `Cluster_${commNum}`;
 }
 
 function calculateCohesion(memberIds: string[], graph: GraphInstance): number {

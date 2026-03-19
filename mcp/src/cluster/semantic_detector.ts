@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { db } from '../graph/neo4j.js';
 import { ClusterDetectionResult } from './detector.js';
+import { generateLabel, detectLang } from './lang/index.js';
 
 const Graph = (GraphModule as any).default ?? GraphModule;
 type GraphInstance = InstanceType<typeof Graph>;
@@ -19,39 +20,6 @@ const KNN_TOP_K = 10;
 const KNN_SAMPLE_RATE = 0.5;
 const KNN_SIMILARITY_CUTOFF = 0.62;
 const MIN_COMMUNITY_SIZE = 3;
-
-const GENERIC_FOLDERS = new Set([
-  'src', 'lib', 'core', 'utils', 'common', 'shared', 'helpers',
-  'queries', 'mutations', 'hooks', 'components', 'pages', 'views',
-  'services', 'store', 'stores', 'api', 'types', 'interfaces',
-]);
-
-const GENERIC_FILENAMES = new Set([
-  'route', 'page', 'index', 'layout', 'loading', 'error', 'not-found',
-  'middleware', 'handler', 'mod', 'main', 'app',
-]);
-
-function generateSemanticLabel(members: { file: string }[], commNum: number): string {
-  const counts = new Map<string, number>();
-  for (const { file } of members) {
-    const parts = file.split('/').filter(Boolean);
-    for (let i = parts.length - 1; i >= 0; i--) {
-      const raw = parts[i].replace(/\.[^.]+$/, '');
-      const segment = raw.replace(/\.[^.]+$/, ''); // strip double ext e.g. .test.ts
-      const lower = segment.toLowerCase();
-      if (GENERIC_FILENAMES.has(lower) || GENERIC_FOLDERS.has(lower) || segment.length <= 1) {
-        continue;
-      }
-      counts.set(segment, (counts.get(segment) || 0) + 1);
-      break;
-    }
-  }
-  if (counts.size > 0) {
-    const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0];
-    return best.charAt(0).toUpperCase() + best.slice(1);
-  }
-  return `SemanticCluster_${commNum}`;
-}
 
 export async function runSemanticClusterDetection(): Promise<ClusterDetectionResult> {
   try {
@@ -97,10 +65,14 @@ export async function runSemanticClusterDetection(): Promise<ClusterDetectionRes
       communityMembers.get(commNum)!.push({ ref_id, name: attrs.name, file: attrs.file });
     }
 
+    const allFiles = [...communityMembers.values()].flat().map(m => m.file);
+    const lang = detectLang(allFiles);
+    const usedLabels = new Set<string>();
     const finalClusters: { clusterId: string; label: string; memberIds: string[] }[] = [];
     for (const [commNum, members] of communityMembers) {
       if (members.length < MIN_COMMUNITY_SIZE) continue;
-      const label = generateSemanticLabel(members, commNum);
+      const files = members.map(m => m.file);
+      const label = generateLabel(files, commNum, usedLabels, lang, 'SemanticCluster');
       finalClusters.push({
         clusterId: `semantic_${commNum}`,
         label,
