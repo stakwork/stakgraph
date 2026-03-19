@@ -435,19 +435,24 @@ async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
     repos.build_graphs_array().await
 }
 
-const MAX_SIG: usize = 100;
+const MAX_SIG: usize = 120;
 
-fn signature_line(body: &str) -> Option<String> {
-    body.lines()
-        .find(|l| !l.trim().is_empty())
-        .map(|l| {
-            let s = l.trim_end();
-            if s.chars().count() > MAX_SIG {
-                format!("{}…", s.chars().take(MAX_SIG).collect::<String>())
-            } else {
-                s.to_string()
-            }
-        })
+fn node_signature(node: &Node) -> Option<String> {
+    let raw = if let Some(iface) = node.node_data.meta.get("interface") {
+        iface.as_str()
+    } else {
+        node.node_data.body.lines().find(|l| !l.trim().is_empty())?
+    };
+    let sig: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let sig = sig.trim().to_string();
+    if sig.is_empty() {
+        return None;
+    }
+    Some(if sig.chars().count() > MAX_SIG {
+        format!("{}…", sig.chars().take(MAX_SIG).collect::<String>())
+    } else {
+        sig
+    })
 }
 
 fn norm_key(node: &Node, root: &str) -> String {
@@ -588,8 +593,8 @@ fn print_delta(
                     style(&after_node.node_data.name).bold(),
                     line_range
                 ))?;
-                let before_sig = signature_line(&before_node.node_data.body);
-                let after_sig = signature_line(&after_node.node_data.body);
+                let before_sig = node_signature(&before_node);
+                let after_sig = node_signature(&after_node);
                 match (before_sig, after_sig) {
                     (Some(b), Some(a)) if b != a => {
                         out.writeln(format!("    {} {}", style("-").red(), style(&b).red().bright()))?;
@@ -613,7 +618,7 @@ fn print_delta(
                     style(&node.node_data.name).bold(),
                     location
                 ))?;
-                if let Some(sig) = signature_line(&node.node_data.body) {
+                if let Some(sig) = node_signature(&node) {
                     out.writeln(format!("    {}", style(sig).dim()))?;
                 }
             }
@@ -632,7 +637,7 @@ fn print_delta(
                     style(&node.node_data.name).bold(),
                     location
                 ))?;
-                if let Some(sig) = signature_line(&node.node_data.body) {
+                if let Some(sig) = node_signature(&node) {
                     out.writeln(format!("    {}", style(sig).dim()))?;
                 }
             }
