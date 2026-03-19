@@ -1185,6 +1185,77 @@ class Db {
     }
   }
 
+  async update_node_description_only(ref_id: string, description: string) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.UPDATE_NODE_DESCRIPTION_ONLY_QUERY, {
+        ref_id,
+        description,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_nodes_with_description_without_embeddings(
+    limit: number,
+    repo_paths: string[] | null,
+    file_paths: string[],
+  ): Promise<{ ref_id: string; description: string }[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        Q.GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY,
+        {
+          limit: neo4j.int(limit),
+          repo_paths: repo_paths || [],
+          file_paths,
+        },
+      );
+      return result.records.map((record) => ({
+        ref_id: record.get("ref_id"),
+        description: record.get("description"),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_embeddings(
+    batch: { ref_id: string; embeddings: number[] }[],
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_descriptions(
+    batch: { ref_id: string; description: string }[],
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_descriptions_and_embeddings(
+    batch: { ref_id: string; description: string; embeddings: number[] }[],
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY, {
+        batch,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
   async count_nodes_with_embeddings(): Promise<number> {
     const session = this.driver.session();
     try {
@@ -1340,6 +1411,42 @@ class Db {
     const session = this.driver.session();
     try {
       await session.run(Q.CREATE_MEMBER_OF_QUERY, { ref_id, cluster_id });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_upsert_clusters(
+    clusters: {
+      cluster_id: string;
+      label: string;
+      cohesion: number;
+      symbol_count: number;
+    }[],
+  ): Promise<void> {
+    const ts = Date.now() / 1000;
+    const batch = clusters.map((c) => ({
+      ...c,
+      node_key: create_node_key({
+        node_type: "Cluster",
+        node_data: { name: c.label, file: "cluster://generated", start: 0 },
+      } as Node),
+      ts,
+    }));
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPSERT_CLUSTERS_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_create_member_of(
+    edges: { ref_id: string; cluster_id: string }[],
+  ): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_CREATE_MEMBER_OF_QUERY, { batch: edges });
     } finally {
       await session.close();
     }

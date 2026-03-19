@@ -171,6 +171,7 @@ app.get("/repo/agent/session", rr.get_agent_session);
 app.get("/repo/agent/validate_session", rr.validate_agent_session);
 app.get("/repo/agent/file", rr.get_agent_file);
 app.post("/repo/describe", rr.describe_nodes_agent);
+app.post("/repo/embed", rr.embed_nodes_agent);
 app.get("/reattach", r.reconnect_orphaned_hints);
 app.post("/pull_request", r.create_pull_request);
 app.post("/learn_docs", learn_docs_agent);
