@@ -205,6 +205,7 @@ app.post("/gitree/provenance", gitree.gitree_provenance);
 
 app.get("/clusters", cluster.list_clusters);
 app.post("/clusters/detect", cluster.detect_clusters);
+app.post("/clusters/semantic/detect", cluster.detect_semantic_clusters);
 app.delete("/clusters", cluster.clear_clusters_route);
 app.get("/clusters/:cluster_id/members", cluster.get_cluster_members_route);
 

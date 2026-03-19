@@ -974,3 +974,42 @@ RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
 ORDER BY n.name
 LIMIT $limit
 `;
+
+export const SEMANTIC_GRAPH_PROJECT_QUERY = `
+MATCH (n:Data_Bank)
+WHERE n.embeddings IS NOT NULL
+  AND ANY(label IN labels(n) WHERE label IN
+    ['Function','Class','Endpoint','Datamodel','Request','Page','Trait','Var'])
+WITH gds.graph.project($graphName, n, null,
+  { sourceNodeProperties: n { .embeddings }, targetNodeProperties: NULL }
+) AS g
+RETURN g.nodeCount AS nodeCount
+`;
+
+export const SEMANTIC_KNN_STREAM_QUERY = `
+CALL gds.knn.stream($graphName, {
+  nodeProperties: { embeddings: 'COSINE' },
+  topK: $topK,
+  sampleRate: $sampleRate,
+  deltaThreshold: 0.001,
+  similarityCutoff: $similarityCutoff
+})
+YIELD node1, node2, similarity
+MATCH (n1) WHERE id(n1) = node1
+MATCH (n2) WHERE id(n2) = node2
+RETURN n1.ref_id AS source,
+       n1.name AS sourceName,
+       n1.file AS sourceFile,
+       labels(n1) AS sourceLabels,
+       n2.ref_id AS target,
+       similarity
+`;
+
+export const SEMANTIC_GRAPH_DROP_QUERY = `
+CALL gds.graph.drop($graphName, false)
+YIELD graphName
+`;
+
+export const CLEAR_SEMANTIC_CLUSTERS_QUERY = `
+MATCH (c:Cluster) WHERE c.cluster_id STARTS WITH 'semantic_' DETACH DELETE c
+`;
