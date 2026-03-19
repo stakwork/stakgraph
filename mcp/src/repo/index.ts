@@ -13,6 +13,7 @@ import { SessionConfig, loadSession, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
+import { createBus, filterStepContent, signEventsToken } from "./events.js";
 
 import { describe_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent };
@@ -80,6 +81,17 @@ export async function repo_agent(req: Request, res: Response) {
 
   const opId = startTracking("repo_agent");
 
+  // Create an event bus for real-time SSE streaming of this request
+  const bus = createBus(request_id);
+
+  // Generate a short-lived JWT scoped to this request_id (only if API_TOKEN is set)
+  let events_token: string | undefined;
+  try {
+    events_token = signEventsToken(request_id);
+  } catch (_) {
+    // API_TOKEN not set — SSE auth via JWT won't be available
+  }
+
   try {
     // Extract owner/repo from each URL for multi-repo filtering
     const repoList = repoUrl
@@ -111,6 +123,10 @@ export async function repo_agent(req: Request, res: Response) {
           skills,
           subAgents,
           ggnn,
+          onStepEvent: (content) => {
+            const events = filterStepContent(content);
+            for (const ev of events) bus.emit(ev);
+          },
         });
       })
       .then((result) => {
@@ -123,15 +139,25 @@ export async function repo_agent(req: Request, res: Response) {
           logs: result.logs,
           sessionId: result.sessionId,
         });
+        bus.emit({
+          type: "done",
+          result: { final_answer: result.final, usage: result.usage },
+          timestamp: new Date().toISOString(),
+        });
       })
       .catch((error) => {
         console.error("[repo_agent] Background work failed with error:", error);
         asyncReqs.failReq(request_id, error.message || error.toString());
+        bus.emit({
+          type: "error",
+          error: error.message || error.toString(),
+          timestamp: new Date().toISOString(),
+        });
       })
       .finally(() => {
         endTracking(opId);
       });
-    res.json({ request_id, status: "pending" });
+    res.json({ request_id, status: "pending", ...(events_token && { events_token }) });
   } catch (error) {
     console.log("===> error");
     asyncReqs.failReq(request_id, error);

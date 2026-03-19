@@ -36,6 +36,7 @@ import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
+import { getBus, verifyEventsToken, pipeToSSE } from "./repo/events.js";
 
 dotenv.config();
 
@@ -51,6 +52,47 @@ app.use(cors());
 
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
+
+// Real-time agent step events via SSE
+// Auth: JWT query param (?token=xxx) scoped to the request_id, OR x-api-token header
+app.get("/events/:request_id", (req: Request, res: Response) => {
+  const request_id = req.params.request_id as string;
+  const jwtToken = req.query.token as string | undefined;
+  const apiToken = process.env.API_TOKEN;
+  const headerToken = req.header("x-api-token");
+
+  // Auth check: require either a valid JWT or a matching x-api-token
+  let authorized = false;
+
+  if (jwtToken) {
+    try {
+      const payload = verifyEventsToken(jwtToken);
+      if (payload.request_id === request_id) authorized = true;
+    } catch (_) {
+      // invalid/expired JWT
+    }
+  }
+
+  if (!authorized && apiToken && headerToken === apiToken) {
+    authorized = true;
+  }
+
+  // If no API_TOKEN is set (dev mode), allow unauthenticated access
+  if (!apiToken) authorized = true;
+
+  if (!authorized) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const bus = getBus(request_id);
+  if (!bus) {
+    res.status(404).json({ error: "No active event stream for this request_id" });
+    return;
+  }
+
+  pipeToSSE(bus, res);
+});
 
 app.use(express.json({ limit: "50mb" }));
 

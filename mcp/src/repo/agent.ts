@@ -146,6 +146,8 @@ export interface GetContextOptions {
   subAgents?: SubAgent[];
   // GGNN integration
   ggnn?: GgnnConfig;
+  // Real-time step event callback (for SSE streaming)
+  onStepEvent?: (content: any[]) => void;
 }
 
 export async function get_context(
@@ -167,6 +169,7 @@ export async function get_context(
     skills,
     subAgents,
     ggnn,
+    onStepEvent,
   } = opts;
   const startTime = Date.now();
   const { model, apiKey, provider, contextLimit } = getModelDetails(modelName, apiKeyIn);
@@ -270,7 +273,12 @@ Apply the guidance from each skill throughout your response.`;
     tools,
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
-    onStepFinish: (sf) => logStep(sf.content),
+    onStepFinish: (sf) => {
+      logStep(sf.content);
+      if (onStepEvent) {
+        try { onStepEvent(sf.content); } catch (_) {}
+      }
+    },
     prepareStep: async ({ steps, messages }) => {
       // Keep messagesRef up to date so ggnn tools can read the current trace
       messagesRef.current = messages as ModelMessage[];
