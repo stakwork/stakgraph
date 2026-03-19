@@ -15,8 +15,8 @@ import { existsSync } from "fs";
 import path from "path";
 import { createBus, filterStepContent, signEventsToken } from "./events.js";
 
-import { describe_nodes_agent } from "./descriptions.js";
-export { services_agent, mocks_agent, describe_nodes_agent };
+import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
+export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
 
 function prependRepoInfo(prompt: any, repoList: string[]): any {
   if (repoList.length <= 1) return prompt;
