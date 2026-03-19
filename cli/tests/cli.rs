@@ -58,5 +58,8 @@ mod cli_summarize_cmd;
 #[path = "cli/completions_cmd.rs"]
 mod cli_completions_cmd;
 
+#[path = "cli/deps_cmd.rs"]
+mod cli_deps_cmd;
+
 #[path = "cli/changes_cmd.rs"]
 mod cli_changes_cmd;

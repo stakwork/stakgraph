@@ -6,6 +6,7 @@ use tracing_subscriber::filter::{EnvFilter, LevelFilter};
 mod args;
 mod changes;
 mod completions;
+mod deps;
 mod git;
 mod output;
 mod parse;
@@ -62,6 +63,9 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Changes(args)) => {
             changes::run(args, &mut Output::new(), cli.verbose || cli.perf).await
+        }
+        Some(Commands::Deps(args)) => {
+            deps::run(args, &mut Output::new(), cli.verbose || cli.perf).await
         }
         None => parse::run(&cli, &mut Output::new()).await,
     }
