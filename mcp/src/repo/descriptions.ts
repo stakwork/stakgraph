@@ -37,7 +37,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const request_id = asyncReqs.startReq();
 
   const cost_limit = parseFloat(req.body.cost_limit || "0.5");
-  const batch_size = parseInt(req.body.batch_size || "25");
+  const batch_size = parseInt(req.body.batch_size || "50");
   const concurrency = parseInt(req.body.concurrency || "5");
   const repo_url = req.body.repo_url as string | undefined;
   const file_paths = (req.body.file_paths || []) as string[];
