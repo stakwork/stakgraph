@@ -962,7 +962,9 @@ class Db {
 
   async get_learnings_by_scopes(
     scope_names: string[],
-  ): Promise<{ id: string; rule: string; reason: string | null; scopes: string[] }[]> {
+  ): Promise<
+    { id: string; rule: string; reason: string | null; scopes: string[] }[]
+  > {
     const session = this.driver.session();
     try {
       const result = await session.run(Q.GET_LEARNINGS_BY_SCOPES_QUERY, {
@@ -1187,66 +1189,96 @@ class Db {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.COUNT_NODES_WITH_EMBEDDINGS_QUERY);
-      return r.records[0].get('c').toNumber();
-    } finally { await session.close(); }
+      return r.records[0].get("c").toNumber();
+    } finally {
+      await session.close();
+    }
   }
 
   async count_workflow_nodes(): Promise<number> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.COUNT_WORKFLOWS_QUERY);
-      return r.records[0].get('c').toNumber();
-    } finally { await session.close(); }
+      return r.records[0].get("c").toNumber();
+    } finally {
+      await session.close();
+    }
   }
 
   async get_all_workflows(): Promise<any[]> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.GET_ALL_WORKFLOWS_QUERY);
-      return r.records.map(rec => rec.get('w').properties);
-    } finally { await session.close(); }
+      return r.records.map((rec) => rec.get("w").properties);
+    } finally {
+      await session.close();
+    }
   }
 
-  async get_workflow_by_key(node_key: string, ref_id?: string): Promise<any | null> {
+  async get_workflow_by_key(
+    node_key: string,
+    ref_id?: string,
+  ): Promise<any | null> {
     const session = this.driver.session();
     try {
       let r = await session.run(Q.GET_WORKFLOW_BY_KEY_QUERY, { node_key });
       if (r.records.length === 0 && ref_id) {
         r = await session.run(Q.GET_WORKFLOW_BY_REF_ID_QUERY, { ref_id });
       }
-      return r.records.length > 0 ? r.records[0].get('w').properties : null;
-    } finally { await session.close(); }
+      return r.records.length > 0 ? r.records[0].get("w").properties : null;
+    } finally {
+      await session.close();
+    }
   }
 
   async get_workflow_documentation(node_key: string): Promise<any | null> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.GET_WORKFLOW_DOCUMENTATION_QUERY, { node_key });
-      return r.records.length > 0 ? r.records[0].get('d').properties : null;
-    } finally { await session.close(); }
+      const r = await session.run(Q.GET_WORKFLOW_DOCUMENTATION_QUERY, {
+        node_key,
+      });
+      return r.records.length > 0 ? r.records[0].get("d").properties : null;
+    } finally {
+      await session.close();
+    }
   }
 
-  async upsert_workflow_documentation(workflow_ref_id: string, name: string, body: string): Promise<string> {
+  async upsert_workflow_documentation(
+    workflow_ref_id: string,
+    name: string,
+    body: string,
+  ): Promise<string> {
     const session = this.driver.session();
     try {
       const node_key = `workflow_documentation_${workflow_ref_id}`;
       const ts = Date.now();
       const r = await session.run(Q.UPSERT_WORKFLOW_DOCUMENTATION_QUERY, {
-        workflow_ref_id, node_key, name, body, ts
+        workflow_ref_id,
+        node_key,
+        name,
+        body,
+        ts,
       });
-      return r.records[0].get('ref_id');
-    } finally { await session.close(); }
+      return r.records[0].get("ref_id");
+    } finally {
+      await session.close();
+    }
   }
 
   async count_cluster_nodes(): Promise<number> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.COUNT_CLUSTERS_QUERY);
-      return r.records[0].get('c').toNumber();
-    } finally { await session.close(); }
+      return r.records[0].get("c").toNumber();
+    } finally {
+      await session.close();
+    }
   }
 
-  async get_cluster_graph_data(): Promise<{ nodes: { ref_id: string; name: string; file: string; label: string }[]; edges: { source: string; target: string; edge_type: string }[] }> {
+  async get_cluster_graph_data(): Promise<{
+    nodes: { ref_id: string; name: string; file: string; label: string }[];
+    edges: { source: string; target: string; edge_type: string }[];
+  }> {
     const session = this.driver.session();
     try {
       const nodesResult = await session.run(Q.CLUSTER_GRAPH_DATA_QUERY);
@@ -1265,32 +1297,52 @@ class Db {
       }));
 
       return { nodes, edges };
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
   }
 
   async clear_clusters(): Promise<void> {
     const session = this.driver.session();
     try {
       await session.run(Q.CLEAR_CLUSTERS_QUERY);
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
   }
 
-  async upsert_cluster(cluster_id: string, label: string, cohesion: number, symbol_count: number): Promise<void> {
+  async upsert_cluster(
+    cluster_id: string,
+    label: string,
+    cohesion: number,
+    symbol_count: number,
+  ): Promise<void> {
     const session = this.driver.session();
     const node_key = create_node_key({
       node_type: "Cluster",
       node_data: { name: label, file: "cluster://generated", start: 0 },
     } as Node);
     try {
-      await session.run(Q.UPSERT_CLUSTER_QUERY, { cluster_id, label, cohesion, symbol_count, node_key, ts: Date.now() / 1000 });
-    } finally { await session.close(); }
+      await session.run(Q.UPSERT_CLUSTER_QUERY, {
+        cluster_id,
+        label,
+        cohesion,
+        symbol_count,
+        node_key,
+        ts: Date.now() / 1000,
+      });
+    } finally {
+      await session.close();
+    }
   }
 
   async create_member_of(ref_id: string, cluster_id: string): Promise<void> {
     const session = this.driver.session();
     try {
       await session.run(Q.CREATE_MEMBER_OF_QUERY, { ref_id, cluster_id });
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
   }
 
   async get_all_clusters(): Promise<Neo4jNode[]> {
@@ -1304,24 +1356,101 @@ class Db {
         props.end = toNum(props.end);
         return {
           ...node,
-          identity: node.identity !== undefined ? toNum(node.identity) : undefined,
+          identity:
+            node.identity !== undefined ? toNum(node.identity) : undefined,
           properties: props,
         };
       });
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
   }
 
-  async get_cluster_members(cluster_id: string, limit: number): Promise<{ ref_id: string; name: string; file: string; label: string }[]> {
+  async get_cluster_members(
+    cluster_id: string,
+    limit: number,
+  ): Promise<{ ref_id: string; name: string; file: string; label: string }[]> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.GET_CLUSTER_MEMBERS_QUERY, { cluster_id, limit: neo4j.int(limit) });
+      const r = await session.run(Q.GET_CLUSTER_MEMBERS_QUERY, {
+        cluster_id,
+        limit: neo4j.int(limit),
+      });
       return r.records.map((rec) => ({
         ref_id: rec.get("ref_id"),
         name: rec.get("name"),
         file: rec.get("file") || "",
         label: rec.get("label"),
       }));
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
+  }
+
+  async clear_semantic_clusters(): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.CLEAR_SEMANTIC_CLUSTERS_QUERY);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async project_semantic_graph(graphName: string): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.SEMANTIC_GRAPH_PROJECT_QUERY, {
+        graphName,
+      });
+      return toNum(r.records[0]?.get("nodeCount") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async stream_semantic_knn(
+    graphName: string,
+    topK: number,
+    sampleRate: number,
+    similarityCutoff: number,
+  ): Promise<
+    {
+      source: string;
+      sourceName: string;
+      sourceFile: string;
+      sourceLabels: string[];
+      target: string;
+      similarity: number;
+    }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.SEMANTIC_KNN_STREAM_QUERY, {
+        graphName,
+        topK: neo4j.int(topK),
+        sampleRate,
+        similarityCutoff,
+      });
+      return r.records.map((rec) => ({
+        source: rec.get("source"),
+        sourceName: rec.get("sourceName"),
+        sourceFile: rec.get("sourceFile") || "",
+        sourceLabels: rec.get("sourceLabels") as string[],
+        target: rec.get("target"),
+        similarity: toNum(rec.get("similarity")),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async drop_semantic_graph(graphName: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.SEMANTIC_GRAPH_DROP_QUERY, { graphName });
+    } finally {
+      await session.close();
+    }
   }
 
   async close() {

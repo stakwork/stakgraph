@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { runClusterDetection } from "./detector.js";
+import { runSemanticClusterDetection } from "./semantic_detector.js";
 
 export async function list_clusters(_req: Request, res: Response) {
   try {
@@ -30,6 +31,18 @@ export async function clear_clusters_route(_req: Request, res: Response) {
     res.json({ success: true });
   } catch (e: any) {
     console.error("[clusters] clear error:", e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function detect_semantic_clusters(_req: Request, res: Response) {
+  try {
+    console.log("[semantic-clusters] Starting semantic cluster detection...");
+    const result = await runSemanticClusterDetection();
+    console.log(`[semantic-clusters] Done: ${result.clusterCount} clusters, ${result.nodesProcessed} nodes`);
+    res.json(result);
+  } catch (e: any) {
+    console.error("[semantic-clusters] detect error:", e);
     res.status(500).json({ error: e.message });
   }
 }
