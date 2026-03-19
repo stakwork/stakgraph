@@ -872,6 +872,41 @@ MATCH (n {ref_id: $ref_id})
 SET n.description = $description, n.embeddings = $embeddings
 `;
 
+export const UPDATE_NODE_DESCRIPTION_ONLY_QUERY = `
+MATCH (n {ref_id: $ref_id})
+SET n.description = $description
+`;
+
+export const GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY = `
+MATCH (n)
+WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
+  AND n.description IS NOT NULL
+  AND n.description <> ''
+  AND (n.embeddings IS NULL)
+  AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
+  AND ($file_paths IS NULL OR size($file_paths) = 0 OR ANY(path IN $file_paths WHERE n.file ENDS WITH path))
+RETURN n.ref_id as ref_id, n.description as description
+LIMIT toInteger($limit)
+`;
+
+export const BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.embeddings = item.embeddings
+`;
+
+export const BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.description = item.description
+`;
+
+export const BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.description = item.description, n.embeddings = item.embeddings
+`;
+
 export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
 
 export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
@@ -956,6 +991,21 @@ RETURN c
 export const CREATE_MEMBER_OF_QUERY = `
 MATCH (n {ref_id: $ref_id})
 MATCH (c:Cluster {cluster_id: $cluster_id})
+MERGE (n)-[:MEMBER_OF]->(c)
+`;
+
+export const BULK_UPSERT_CLUSTERS_QUERY = `
+UNWIND $batch AS item
+MERGE (c:Cluster:${Data_Bank} {cluster_id: item.cluster_id})
+ON CREATE SET c.ref_id = randomUUID(), c.node_key = item.node_key, c.date_added_to_graph = item.ts, c.namespace = 'default',
+  c.name = item.label, c.file = 'cluster://generated', c.start = 0, c.end = 0
+SET c.label = item.label, c.body = item.label, c.cohesion = item.cohesion, c.symbol_count = item.symbol_count
+`;
+
+export const BULK_CREATE_MEMBER_OF_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+MATCH (c:Cluster {cluster_id: item.cluster_id})
 MERGE (n)-[:MEMBER_OF]->(c)
 `;
 

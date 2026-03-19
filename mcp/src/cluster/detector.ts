@@ -88,13 +88,18 @@ export async function runClusterDetection(): Promise<ClusterDetectionResult> {
 
   await db.clear_clusters();
 
-  for (const { clusterId, label, memberIds } of finalClusters) {
-    const cohesion = calculateCohesion(memberIds, graph);
-    await db.upsert_cluster(clusterId, label, cohesion, memberIds.length);
-    for (const refId of memberIds) {
-      await db.create_member_of(refId, clusterId);
-    }
-  }
+  const clusterRows = finalClusters.map(({ clusterId, label, memberIds }) => ({
+    cluster_id: clusterId,
+    label,
+    cohesion: calculateCohesion(memberIds, graph),
+    symbol_count: memberIds.length,
+  }));
+  await db.bulk_upsert_clusters(clusterRows);
+
+  const memberEdges = finalClusters.flatMap(({ clusterId, memberIds }) =>
+    memberIds.map((refId) => ({ ref_id: refId, cluster_id: clusterId })),
+  );
+  await db.bulk_create_member_of(memberEdges);
 
   console.log(`[clusters] done: ${finalClusters.length} clusters, ${graph.order} nodes`);
   return {

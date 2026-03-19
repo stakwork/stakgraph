@@ -110,12 +110,19 @@ export async function runSemanticClusterDetection(): Promise<ClusterDetectionRes
 
     await db.clear_semantic_clusters();
 
-    for (const { clusterId, label, memberIds } of finalClusters) {
-      await db.upsert_cluster(clusterId, label, 0, memberIds.length);
-      for (const refId of memberIds) {
-        await db.create_member_of(refId, clusterId);
-      }
-    }
+    await db.bulk_upsert_clusters(
+      finalClusters.map(({ clusterId, label, memberIds }) => ({
+        cluster_id: clusterId,
+        label,
+        cohesion: 0,
+        symbol_count: memberIds.length,
+      }))
+    );
+
+    const memberEdges = finalClusters.flatMap(({ clusterId, memberIds }) =>
+      memberIds.map((refId) => ({ ref_id: refId, cluster_id: clusterId }))
+    );
+    await db.bulk_create_member_of(memberEdges);
 
     console.log(`[semantic-clusters] done: ${finalClusters.length} clusters`);
     return { clusterCount: finalClusters.length, modularity: details.modularity, nodesProcessed: graph.order };
