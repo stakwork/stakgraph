@@ -210,6 +210,9 @@ app.post("/clusters/semantic/detect", cluster.detect_semantic_clusters);
 app.delete("/clusters", cluster.clear_clusters_route);
 app.get("/clusters/:cluster_id/members", cluster.get_cluster_members_route);
 
+app.post("/importance/score", cluster.score_importance);
+app.get("/importance/top", cluster.get_top_importance);
+
 app.post("/document_workflow", document_workflow);
 app.post("/document_workflows", document_workflows);
 
