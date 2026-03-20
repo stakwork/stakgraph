@@ -1,6 +1,7 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import fs from "fs";
 import readline from "readline";
+import { ImportanceTag, ImportanceTopNode, TaggedNode } from "../cluster/types.js";
 import {
   NodeType,
   all_node_types,
@@ -1588,13 +1589,14 @@ class Db {
   }
 
   async get_degree_counts(): Promise<
-    { ref_id: string; in_degree: number; out_degree: number }[]
+    { ref_id: string; node_type: string; in_degree: number; out_degree: number }[]
   > {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.IMPORTANCE_DEGREE_QUERY);
       return r.records.map((rec) => ({
         ref_id: rec.get("ref_id"),
+        node_type: rec.get("node_type") ?? "",
         in_degree: toNum(rec.get("in_degree")),
         out_degree: toNum(rec.get("out_degree")),
       }));
@@ -1603,17 +1605,7 @@ class Db {
     }
   }
 
-  async bulk_update_importance(
-    batch: {
-      ref_id: string;
-      pagerank: number;
-      in_degree: number;
-      out_degree: number;
-      entry_score: number;
-      utility_score: number;
-      hub_score: number;
-    }[],
-  ): Promise<void> {
+  async bulk_update_importance(batch: TaggedNode[]): Promise<void> {
     const session = this.driver.session();
     try {
       await session.run(Q.BULK_UPDATE_IMPORTANCE_QUERY, { batch });
@@ -1631,20 +1623,7 @@ class Db {
     }
   }
 
-  async get_top_nodes_by_importance(limit: number): Promise<
-    {
-      ref_id: string;
-      name: string;
-      file: string;
-      label: string;
-      pagerank: number;
-      in_degree: number;
-      out_degree: number;
-      entry_score: number;
-      utility_score: number;
-      hub_score: number;
-    }[]
-  > {
+  async get_top_nodes_by_importance(limit: number): Promise<ImportanceTopNode[]> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.GET_TOP_NODES_BY_IMPORTANCE_QUERY, {
@@ -1661,6 +1640,35 @@ class Db {
         entry_score: toNum(rec.get("entry_score")),
         utility_score: toNum(rec.get("utility_score")),
         hub_score: toNum(rec.get("hub_score")),
+        importance_tag: (rec.get("importance_tag") as ImportanceTag) ?? null,
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_nodes_by_importance_tag(
+    tag: ImportanceTag,
+    limit: number,
+  ): Promise<ImportanceTopNode[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_NODES_BY_IMPORTANCE_TAG_QUERY, {
+        tag,
+        limit: neo4j.int(limit),
+      });
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        name: rec.get("name"),
+        file: rec.get("file") || "",
+        label: rec.get("label"),
+        pagerank: toNum(rec.get("pagerank")),
+        in_degree: toNum(rec.get("in_degree")),
+        out_degree: toNum(rec.get("out_degree")),
+        entry_score: toNum(rec.get("entry_score")),
+        utility_score: toNum(rec.get("utility_score")),
+        hub_score: toNum(rec.get("hub_score")),
+        importance_tag: rec.get("importance_tag") as ImportanceTag,
       }));
     } finally {
       await session.close();
