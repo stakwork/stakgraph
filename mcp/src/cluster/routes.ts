@@ -61,6 +61,37 @@ export async function get_cluster_members_route(req: Request, res: Response) {
   }
 }
 
+export async function get_semantic_hierarchy(_req: Request, res: Response) {
+  try {
+    const hierarchy = await db.get_semantic_hierarchy();
+    res.json({ hierarchy, total_domains: hierarchy.length });
+  } catch (e: any) {
+    console.error("[semantic-clusters] hierarchy error:", e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function get_semantic_domains(_req: Request, res: Response) {
+  try {
+    const domains = await db.get_semantic_domains();
+    res.json({ domains, total: domains.length });
+  } catch (e: any) {
+    console.error("[semantic-clusters] domains error:", e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function get_domain_cluster_members_route(req: Request, res: Response) {
+  try {
+    const cluster_id = req.params.domain_id;
+    const members = await db.get_domain_cluster_members(cluster_id);
+    res.json({ cluster_id, members, total: members.length });
+  } catch (e: any) {
+    console.error("[semantic-clusters] domain members error:", e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
 export async function score_importance(_req: Request, res: Response) {
   try {
     console.log("[importance] Starting importance scoring...");
