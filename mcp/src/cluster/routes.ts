@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { runClusterDetection } from "./detector.js";
 import { runSemanticClusterDetection } from "./semantic_detector.js";
+import { runImportanceScoring } from "./importance_detector.js";
 
 export async function list_clusters(_req: Request, res: Response) {
   try {
@@ -55,6 +56,29 @@ export async function get_cluster_members_route(req: Request, res: Response) {
     res.json({ cluster_id, members, total_members: members.length });
   } catch (e: any) {
     console.error("[clusters] members error:", e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function score_importance(_req: Request, res: Response) {
+  try {
+    console.log("[importance] Starting importance scoring...");
+    const result = await runImportanceScoring();
+    console.log(`[importance] Done: ${result.nodesScored} nodes scored`);
+    res.json(result);
+  } catch (e: any) {
+    console.error("[importance] score error:", e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+export async function get_top_importance(req: Request, res: Response) {
+  try {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const nodes = await db.get_top_nodes_by_importance(limit);
+    res.json({ nodes, total: nodes.length });
+  } catch (e: any) {
+    console.error("[importance] top error:", e);
     res.status(500).json({ error: e.message });
   }
 }

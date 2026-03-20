@@ -1063,3 +1063,72 @@ YIELD graphName
 export const CLEAR_SEMANTIC_CLUSTERS_QUERY = `
 MATCH (c:Cluster) WHERE c.cluster_id STARTS WITH 'semantic_' DETACH DELETE c
 `;
+
+export const IMPORTANCE_GRAPH_PROJECT_QUERY = `
+MATCH (n)
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel
+WITH collect(n) AS nodes
+UNWIND nodes AS n
+OPTIONAL MATCH (n)-[r:CALLS|HANDLER]->(m)
+WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:DataModel
+WITH gds.graph.project(
+  $graphName,
+  n,
+  m,
+  { relationshipType: type(r) }
+) AS g
+RETURN g.nodeCount AS nodeCount
+`;
+
+export const IMPORTANCE_PAGERANK_QUERY = `
+CALL gds.pageRank.stream($graphName, {
+  maxIterations: 20,
+  dampingFactor: 0.85
+})
+YIELD nodeId, score
+MATCH (n) WHERE id(n) = nodeId
+RETURN n.ref_id AS ref_id, score
+`;
+
+export const IMPORTANCE_DEGREE_QUERY = `
+MATCH (n)
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel
+OPTIONAL MATCH (caller)-[:CALLS|HANDLER]->(n)
+WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:DataModel
+WITH n, count(DISTINCT caller) AS in_degree
+OPTIONAL MATCH (n)-[:CALLS|HANDLER]->(callee)
+WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:DataModel
+RETURN n.ref_id AS ref_id, in_degree, count(DISTINCT callee) AS out_degree
+`;
+
+export const BULK_UPDATE_IMPORTANCE_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.pagerank     = item.pagerank,
+    n.in_degree    = item.in_degree,
+    n.out_degree   = item.out_degree,
+    n.entry_score  = item.entry_score,
+    n.utility_score = item.utility_score,
+    n.hub_score    = item.hub_score
+`;
+
+export const IMPORTANCE_GRAPH_DROP_QUERY = `
+CALL gds.graph.drop($graphName, false)
+YIELD graphName
+`;
+
+export const GET_TOP_NODES_BY_IMPORTANCE_QUERY = `
+MATCH (n)
+WHERE n.pagerank IS NOT NULL
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel)
+RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
+       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+       n.pagerank AS pagerank,
+       n.in_degree AS in_degree,
+       n.out_degree AS out_degree,
+       n.entry_score AS entry_score,
+       n.utility_score AS utility_score,
+       n.hub_score AS hub_score
+ORDER BY n.pagerank DESC
+LIMIT toInteger($limit)
+`;

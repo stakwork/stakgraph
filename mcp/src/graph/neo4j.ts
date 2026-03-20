@@ -1560,80 +1560,111 @@ class Db {
     }
   }
 
-  async count_cluster_nodes(): Promise<number> {
+  async project_importance_graph(graphName: string): Promise<number> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.COUNT_CLUSTERS_QUERY);
-      return r.records[0].get('c').toNumber();
-    } finally { await session.close(); }
+      const r = await session.run(Q.IMPORTANCE_GRAPH_PROJECT_QUERY, {
+        graphName,
+      });
+      return toNum(r.records[0]?.get("nodeCount") ?? 0);
+    } finally {
+      await session.close();
+    }
   }
 
-  async get_cluster_graph_data(): Promise<{ nodes: { ref_id: string; name: string; file: string; label: string }[]; edges: { source: string; target: string; edge_type: string }[] }> {
+  async stream_pagerank(
+    graphName: string,
+  ): Promise<{ ref_id: string; score: number }[]> {
     const session = this.driver.session();
     try {
-      const nodesResult = await session.run(Q.CLUSTER_GRAPH_DATA_QUERY);
-      const nodes = nodesResult.records.map((r) => ({
-        ref_id: r.get("ref_id"),
-        name: r.get("name"),
-        file: r.get("file") || "",
-        label: r.get("label"),
+      const r = await session.run(Q.IMPORTANCE_PAGERANK_QUERY, { graphName });
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        score: toNum(rec.get("score")),
       }));
+    } finally {
+      await session.close();
+    }
+  }
 
-      const edgesResult = await session.run(Q.CLUSTER_EDGES_QUERY);
-      const edges = edgesResult.records.map((r) => ({
-        source: r.get("source"),
-        target: r.get("target"),
-        edge_type: r.get("edge_type"),
+  async get_degree_counts(): Promise<
+    { ref_id: string; in_degree: number; out_degree: number }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.IMPORTANCE_DEGREE_QUERY);
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        in_degree: toNum(rec.get("in_degree")),
+        out_degree: toNum(rec.get("out_degree")),
       }));
-
-      return { nodes, edges };
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
   }
 
-  async clear_clusters(): Promise<void> {
+  async bulk_update_importance(
+    batch: {
+      ref_id: string;
+      pagerank: number;
+      in_degree: number;
+      out_degree: number;
+      entry_score: number;
+      utility_score: number;
+      hub_score: number;
+    }[],
+  ): Promise<void> {
     const session = this.driver.session();
     try {
-      await session.run(Q.CLEAR_CLUSTERS_QUERY);
-    } finally { await session.close(); }
+      await session.run(Q.BULK_UPDATE_IMPORTANCE_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
   }
 
-  async upsert_cluster(cluster_id: string, label: string, cohesion: number, symbol_count: number): Promise<void> {
+  async drop_importance_graph(graphName: string): Promise<void> {
     const session = this.driver.session();
-    const node_key = create_node_key({
-      node_type: "Cluster",
-      node_data: { name: label, file: "cluster://generated", start: 0 },
-    } as Node);
     try {
-      await session.run(Q.UPSERT_CLUSTER_QUERY, { cluster_id, label, cohesion, symbol_count, node_key, ts: Date.now() / 1000 });
-    } finally { await session.close(); }
+      await session.run(Q.IMPORTANCE_GRAPH_DROP_QUERY, { graphName });
+    } finally {
+      await session.close();
+    }
   }
 
-  async create_member_of(ref_id: string, cluster_id: string): Promise<void> {
+  async get_top_nodes_by_importance(limit: number): Promise<
+    {
+      ref_id: string;
+      name: string;
+      file: string;
+      label: string;
+      pagerank: number;
+      in_degree: number;
+      out_degree: number;
+      entry_score: number;
+      utility_score: number;
+      hub_score: number;
+    }[]
+  > {
     const session = this.driver.session();
     try {
-      await session.run(Q.CREATE_MEMBER_OF_QUERY, { ref_id, cluster_id });
-    } finally { await session.close(); }
-  }
-
-  async get_all_clusters(): Promise<Neo4jNode[]> {
-    const session = this.driver.session();
-    try {
-      const r = await session.run(Q.GET_ALL_CLUSTERS_QUERY);
-      return r.records.map((rec) => rec.get("c") as Neo4jNode);
-    } finally { await session.close(); }
-  }
-
-  async get_cluster_members(cluster_id: string, limit: number): Promise<{ ref_id: string; name: string; file: string; label: string }[]> {
-    const session = this.driver.session();
-    try {
-      const r = await session.run(Q.GET_CLUSTER_MEMBERS_QUERY, { cluster_id, limit: neo4j.int(limit) });
+      const r = await session.run(Q.GET_TOP_NODES_BY_IMPORTANCE_QUERY, {
+        limit: neo4j.int(limit),
+      });
       return r.records.map((rec) => ({
         ref_id: rec.get("ref_id"),
         name: rec.get("name"),
         file: rec.get("file") || "",
         label: rec.get("label"),
+        pagerank: toNum(rec.get("pagerank")),
+        in_degree: toNum(rec.get("in_degree")),
+        out_degree: toNum(rec.get("out_degree")),
+        entry_score: toNum(rec.get("entry_score")),
+        utility_score: toNum(rec.get("utility_score")),
+        hub_score: toNum(rec.get("hub_score")),
       }));
-    } finally { await session.close(); }
+    } finally {
+      await session.close();
+    }
   }
 
   async close() {
