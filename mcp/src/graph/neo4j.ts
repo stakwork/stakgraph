@@ -1504,6 +1504,84 @@ class Db {
     }
   }
 
+  async clear_semantic_domains(): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.CLEAR_SEMANTIC_DOMAINS_QUERY);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_create_cluster_parent_of(
+    edges: { parent_id: string; child_id: string }[],
+  ): Promise<void> {
+    const BATCH = 500;
+    const session = this.driver.session();
+    try {
+      for (let i = 0; i < edges.length; i += BATCH) {
+        const batch = edges.slice(i, i + BATCH);
+        await session.run(Q.BULK_CREATE_CLUSTER_PARENT_OF_QUERY, { batch });
+      }
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_semantic_hierarchy(): Promise<
+    {
+      domain_id: string;
+      domain_label: string;
+      domain_size: number;
+      children: { cluster_id: string; label: string; symbol_count: number }[];
+    }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_SEMANTIC_HIERARCHY_QUERY);
+      return r.records.map((rec) => ({
+        domain_id: rec.get("domain_id"),
+        domain_label: rec.get("domain_label"),
+        domain_size: toNum(rec.get("domain_size")),
+        children: rec.get("children") as {
+          cluster_id: string;
+          label: string;
+          symbol_count: number;
+        }[],
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_semantic_domains(): Promise<Record<string, unknown>[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_SEMANTIC_DOMAINS_QUERY);
+      return r.records.map((rec) => rec.get("c").properties);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_domain_cluster_members(
+    cluster_id: string,
+  ): Promise<{ cluster_id: string; label: string; symbol_count: number }[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_DOMAIN_CLUSTER_MEMBERS_QUERY, {
+        cluster_id,
+      });
+      return r.records.map((rec) => ({
+        cluster_id: rec.get("cluster_id"),
+        label: rec.get("label"),
+        symbol_count: toNum(rec.get("symbol_count")),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
   async project_semantic_graph(graphName: string): Promise<number> {
     const session = this.driver.session();
     try {
@@ -1528,6 +1606,8 @@ class Db {
       sourceFile: string;
       sourceLabels: string[];
       target: string;
+      targetName: string;
+      targetFile: string;
       similarity: number;
     }[]
   > {
@@ -1545,7 +1625,24 @@ class Db {
         sourceFile: rec.get("sourceFile") || "",
         sourceLabels: rec.get("sourceLabels") as string[],
         target: rec.get("target"),
+        targetName: rec.get("targetName"),
+        targetFile: rec.get("targetFile") || "",
         similarity: toNum(rec.get("similarity")),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_semantic_structural_edges(): Promise<
+    { source: string; target: string }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.SEMANTIC_STRUCTURAL_BOOST_QUERY);
+      return r.records.map((rec) => ({
+        source: rec.get("source"),
+        target: rec.get("target"),
       }));
     } finally {
       await session.close();
@@ -1589,7 +1686,12 @@ class Db {
   }
 
   async get_degree_counts(): Promise<
-    { ref_id: string; node_type: string; in_degree: number; out_degree: number }[]
+    {
+      ref_id: string;
+      node_type: string;
+      in_degree: number;
+      out_degree: number;
+    }[]
   > {
     const session = this.driver.session();
     try {
@@ -1623,7 +1725,9 @@ class Db {
     }
   }
 
-  async get_top_nodes_by_importance(limit: number): Promise<ImportanceTopNode[]> {
+  async get_top_nodes_by_importance(
+    limit: number,
+  ): Promise<ImportanceTopNode[]> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.GET_TOP_NODES_BY_IMPORTANCE_QUERY, {

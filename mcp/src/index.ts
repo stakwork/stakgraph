@@ -207,6 +207,12 @@ app.post("/gitree/provenance", gitree.gitree_provenance);
 app.get("/clusters", cluster.list_clusters);
 app.post("/clusters/detect", cluster.detect_clusters);
 app.post("/clusters/semantic/detect", cluster.detect_semantic_clusters);
+app.get("/clusters/semantic/hierarchy", cluster.get_semantic_hierarchy);
+app.get("/clusters/semantic/domains", cluster.get_semantic_domains);
+app.get(
+  "/clusters/semantic/domains/:domain_id/members",
+  cluster.get_domain_cluster_members_route,
+);
 app.delete("/clusters", cluster.clear_clusters_route);
 app.get("/clusters/:cluster_id/members", cluster.get_cluster_members_route);
 

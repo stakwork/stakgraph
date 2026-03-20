@@ -1025,6 +1025,15 @@ ORDER BY n.name
 LIMIT $limit
 `;
 
+export const SEMANTIC_STRUCTURAL_BOOST_QUERY = `
+MATCH (a)-[r]->(b)
+WHERE a.embeddings IS NOT NULL AND b.embeddings IS NOT NULL
+  AND (a:Function OR a:Class OR a:Trait OR a:Endpoint OR a:DataModel OR a:Request OR a:Page OR a:Var)
+  AND (b:Function OR b:Class OR b:Trait OR b:Endpoint OR b:DataModel OR b:Request OR b:Page OR b:Var)
+  AND type(r) IN ['CALLS', 'OPERAND', 'HANDLER', 'RENDERS', 'IMPLEMENTS', 'NESTED_IN']
+RETURN a.ref_id AS source, b.ref_id AS target
+`;
+
 export const SEMANTIC_GRAPH_PROJECT_QUERY = `
 MATCH (n:Data_Bank)
 WHERE n.embeddings IS NOT NULL
@@ -1052,6 +1061,8 @@ RETURN n1.ref_id AS source,
        n1.file AS sourceFile,
        labels(n1) AS sourceLabels,
        n2.ref_id AS target,
+       n2.name AS targetName,
+       n2.file AS targetFile,
        similarity
 `;
 
@@ -1062,6 +1073,47 @@ YIELD graphName
 
 export const CLEAR_SEMANTIC_CLUSTERS_QUERY = `
 MATCH (c:Cluster) WHERE c.cluster_id STARTS WITH 'semantic_' DETACH DELETE c
+`;
+
+export const CLEAR_SEMANTIC_DOMAINS_QUERY = `
+MATCH (c:Cluster) WHERE c.cluster_id STARTS WITH 'domain_' DETACH DELETE c
+`;
+
+export const BULK_CREATE_CLUSTER_PARENT_OF_QUERY = `
+UNWIND $batch AS item
+MATCH (child:Cluster {cluster_id: item.child_id})
+MATCH (parent:Cluster {cluster_id: item.parent_id})
+MERGE (child)-[:MEMBER_OF]->(parent)
+`;
+
+export const GET_SEMANTIC_HIERARCHY_QUERY = `
+MATCH (child:Cluster)-[:MEMBER_OF]->(parent:Cluster)
+WHERE parent.cluster_id STARTS WITH 'domain_'
+  AND child.cluster_id STARTS WITH 'semantic_'
+RETURN parent.cluster_id AS domain_id,
+       parent.label AS domain_label,
+       parent.symbol_count AS domain_size,
+       collect({
+         cluster_id: child.cluster_id,
+         label: child.label,
+         symbol_count: child.symbol_count
+       }) AS children
+ORDER BY parent.symbol_count DESC
+`;
+
+export const GET_SEMANTIC_DOMAINS_QUERY = `
+MATCH (c:Cluster)
+WHERE c.cluster_id STARTS WITH 'domain_'
+RETURN c
+ORDER BY c.symbol_count DESC
+`;
+
+export const GET_DOMAIN_CLUSTER_MEMBERS_QUERY = `
+MATCH (child:Cluster)-[:MEMBER_OF]->(parent:Cluster {cluster_id: $cluster_id})
+WHERE child.cluster_id STARTS WITH 'semantic_'
+RETURN child.cluster_id AS cluster_id, child.label AS label,
+       child.symbol_count AS symbol_count
+ORDER BY child.symbol_count DESC
 `;
 
 export const IMPORTANCE_GRAPH_PROJECT_QUERY = `

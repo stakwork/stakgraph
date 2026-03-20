@@ -20,6 +20,7 @@ export interface ClusterDetectionResult {
   clusterCount: number;
   modularity: number;
   nodesProcessed: number;
+  domainCount?: number;
 }
 
 export async function runClusterDetection(): Promise<ClusterDetectionResult> {
