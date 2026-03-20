@@ -1066,16 +1066,16 @@ MATCH (c:Cluster) WHERE c.cluster_id STARTS WITH 'semantic_' DETACH DELETE c
 
 export const IMPORTANCE_GRAPH_PROJECT_QUERY = `
 MATCH (n)
-WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel
 WITH collect(n) AS nodes
 UNWIND nodes AS n
 OPTIONAL MATCH (n)-[r:CALLS|HANDLER]->(m)
-WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:DataModel
+WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:Datamodel
 WITH gds.graph.project(
   $graphName,
   n,
   m,
-  { relationshipType: type(r) }
+  { relationshipType: CASE WHEN r IS NULL THEN 'NONE' ELSE type(r) END }
 ) AS g
 RETURN g.nodeCount AS nodeCount
 `;
@@ -1092,13 +1092,14 @@ RETURN n.ref_id AS ref_id, score
 
 export const IMPORTANCE_DEGREE_QUERY = `
 MATCH (n)
-WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel
 OPTIONAL MATCH (caller)-[:CALLS|HANDLER]->(n)
-WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:DataModel
+WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:Datamodel
 WITH n, count(DISTINCT caller) AS in_degree
 OPTIONAL MATCH (n)-[:CALLS|HANDLER]->(callee)
-WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:DataModel
-RETURN n.ref_id AS ref_id, in_degree, count(DISTINCT callee) AS out_degree
+WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel
+WITH n, in_degree, count(DISTINCT callee) AS out_degree
+RETURN n.ref_id AS ref_id, in_degree, out_degree
 `;
 
 export const BULK_UPDATE_IMPORTANCE_QUERY = `
@@ -1120,7 +1121,7 @@ YIELD graphName
 export const GET_TOP_NODES_BY_IMPORTANCE_QUERY = `
 MATCH (n)
 WHERE n.pagerank IS NOT NULL
-  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel)
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel)
 RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
        [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
        n.pagerank AS pagerank,
