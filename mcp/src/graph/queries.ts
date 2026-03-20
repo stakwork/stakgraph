@@ -1066,11 +1066,11 @@ MATCH (c:Cluster) WHERE c.cluster_id STARTS WITH 'semantic_' DETACH DELETE c
 
 export const IMPORTANCE_GRAPH_PROJECT_QUERY = `
 MATCH (n)
-WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page
 WITH collect(n) AS nodes
 UNWIND nodes AS n
-OPTIONAL MATCH (n)-[r:CALLS|HANDLER]->(m)
-WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:Datamodel
+OPTIONAL MATCH (n)-[r:CALLS|HANDLER|RENDERS]->(m)
+WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:Datamodel OR m:Request OR m:Page
 WITH gds.graph.project(
   $graphName,
   n,
@@ -1092,25 +1092,43 @@ RETURN n.ref_id AS ref_id, score
 
 export const IMPORTANCE_DEGREE_QUERY = `
 MATCH (n)
-WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel
-OPTIONAL MATCH (caller)-[:CALLS|HANDLER]->(n)
-WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:Datamodel
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page
+OPTIONAL MATCH (caller)-[:CALLS|HANDLER|RENDERS]->(n)
+WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:Datamodel OR caller:Request OR caller:Page
 WITH n, count(DISTINCT caller) AS in_degree
-OPTIONAL MATCH (n)-[:CALLS|HANDLER]->(callee)
-WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel
+OPTIONAL MATCH (n)-[:CALLS|HANDLER|RENDERS]->(callee)
+WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel OR callee:Request OR callee:Page
 WITH n, in_degree, count(DISTINCT callee) AS out_degree
-RETURN n.ref_id AS ref_id, in_degree, out_degree
+RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS node_type
 `;
 
 export const BULK_UPDATE_IMPORTANCE_QUERY = `
 UNWIND $batch AS item
 MATCH (n {ref_id: item.ref_id})
-SET n.pagerank     = item.pagerank,
-    n.in_degree    = item.in_degree,
-    n.out_degree   = item.out_degree,
-    n.entry_score  = item.entry_score,
+SET n.pagerank      = item.pagerank,
+    n.in_degree     = item.in_degree,
+    n.out_degree    = item.out_degree,
+    n.entry_score   = item.entry_score,
     n.utility_score = item.utility_score,
-    n.hub_score    = item.hub_score
+    n.hub_score     = item.hub_score,
+    n.importance_tag = item.importance_tag
+`;
+
+export const GET_NODES_BY_IMPORTANCE_TAG_QUERY = `
+MATCH (n)
+WHERE n.importance_tag = $tag
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
+RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
+       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+       n.pagerank AS pagerank,
+       n.in_degree AS in_degree,
+       n.out_degree AS out_degree,
+       n.entry_score AS entry_score,
+       n.utility_score AS utility_score,
+       n.hub_score AS hub_score,
+       n.importance_tag AS importance_tag
+ORDER BY n.pagerank DESC
+LIMIT toInteger($limit)
 `;
 
 export const IMPORTANCE_GRAPH_DROP_QUERY = `
@@ -1121,7 +1139,7 @@ YIELD graphName
 export const GET_TOP_NODES_BY_IMPORTANCE_QUERY = `
 MATCH (n)
 WHERE n.pagerank IS NOT NULL
-  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel)
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
        [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
        n.pagerank AS pagerank,
@@ -1129,7 +1147,8 @@ RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
        n.out_degree AS out_degree,
        n.entry_score AS entry_score,
        n.utility_score AS utility_score,
-       n.hub_score AS hub_score
+       n.hub_score AS hub_score,
+       n.importance_tag AS importance_tag
 ORDER BY n.pagerank DESC
 LIMIT toInteger($limit)
 `;
