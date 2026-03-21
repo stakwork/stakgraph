@@ -10,11 +10,11 @@ export const SearchSchema = z.object({
     .min(1, "Query is required.")
     .describe("Search query to match against snippet names and content."),
   method: z
-    .enum(["fulltext", "vector"])
+    .enum(["fulltext", "vector", "hybrid"])
     .optional()
-    .default("fulltext")
+    .default("hybrid")
     .describe(
-      "Search method. Fulltext search for exact matches, vector for semantic similarity."
+      "fulltext: keyword/exact matches. vector: semantic similarity. hybrid: combines both using rank fusion for best results."
     ),
   concise: z
     .boolean()
@@ -47,19 +47,20 @@ export const SearchSchema = z.object({
 
 export const SearchTool: Tool = {
   name: "stakgraph_search",
-  description: "Search for exact matches.",
+  description:
+    "Search the code graph by keyword (fulltext), semantic meaning (vector), or both combined (hybrid). Use hybrid for best recall.",
   inputSchema: parseSchema(SearchSchema),
 };
 
 export async function search(args: z.infer<typeof SearchSchema>) {
-  console.log("=> Running fulltext search tool with args:", args);
+  console.log("=> Running stakgraph search tool with args:", args);
   const result = await G.search(
     args.query,
     args.limit ?? 25,
     (args.node_types as NodeType[]) ?? [],
     args.concise ?? false,
     args.max_tokens ?? 100000,
-    args.method ?? "fulltext",
+    args.method ?? "hybrid",
     "snippet",
     false,
     args.language
