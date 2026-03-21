@@ -21,22 +21,50 @@ export async function vectorizeQuery(query: string): Promise<number[]> {
   return await flagEmbedding.queryEmbed(query);
 }
 
+export async function vectorizeBatch(texts: string[]): Promise<number[][]> {
+  const results: number[][] = new Array(texts.length);
+  const shortIndices: number[] = [];
+  const shortTexts: string[] = [];
+  const longIndices: number[] = [];
+
+  for (let i = 0; i < texts.length; i++) {
+    if (texts[i].length < 400) {
+      shortIndices.push(i);
+      shortTexts.push(texts[i]);
+    } else {
+      longIndices.push(i);
+    }
+  }
+
+  const flagEmbedding = await getFlagEmbedding();
+
+  if (shortTexts.length > 0) {
+    const gen = flagEmbedding.passageEmbed(shortTexts);
+    let idx = 0;
+    for await (const batch of gen) {
+      for (const vec of batch) {
+        results[shortIndices[idx++]] = vec;
+      }
+    }
+  }
+
+  for (const i of longIndices) {
+    results[i] = await vectorizeCodeDocument(texts[i]);
+  }
+
+  return results;
+}
+
 export async function vectorizeCodeDocument(
   codeString: string,
 ): Promise<number[]> {
   const flagEmbedding = await getFlagEmbedding();
 
-  // For smaller documents, use directly
-  if (codeString.length < 400) {
-    const embedding = await flagEmbedding.queryEmbed(codeString);
-    return embedding; // Ensure we return a single vector
-  }
-
   // Use overlapping chunks for better context capture
   const chunks = chunkCode(codeString, 400);
 
   // Generate embeddings for all chunks
-  const embeddingsGenerator = flagEmbedding.embed(chunks);
+  const embeddingsGenerator = flagEmbedding.passageEmbed(chunks);
   let allEmbeddings: number[][] = [];
 
   for await (const embeddings of embeddingsGenerator) {

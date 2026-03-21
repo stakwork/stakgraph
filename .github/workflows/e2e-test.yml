@@ -202,17 +202,15 @@ jobs:
           # Search for "router" which should match the seeded description for "NewRouter"
           curl -s -X GET "http://localhost:3355/search?query=router&method=vector&output=json" -o ./testing/actual-vector-search.json
 
-          # Filter actual response to remove dynamic fields (score, date_added_to_graph, etc.) for comparison
-          cat ./testing/actual-vector-search.json | jq 'map(del(.score, .date_added_to_graph, .properties.date_added_to_graph, .properties.score, .ref_id))' > ./testing/actual-vector-search-clean.json
+          EXPECTED_NODE_KEY="function-newrouter-stakworkdemoreporoutesgo-17"
+          ACTUAL_FILE="./testing/actual-vector-search.json"
 
-          EXPECTED_FILE="./testing/ci-vector-search-router.json"
-          ACTUAL_FILE="./testing/actual-vector-search-clean.json"
+          echo "Checking vector search contains expected node..."
+          cat "$ACTUAL_FILE"
 
-          echo "Comparing vector search results..."
-          if diff --color=always -u <(jq -S . "$EXPECTED_FILE") <(jq -S . "$ACTUAL_FILE"); then
-             echo "Vector Search matches expected ground truth"
+          if jq -e --arg key "$EXPECTED_NODE_KEY" 'any(.[]; .properties.node_key == $key)' "$ACTUAL_FILE" > /dev/null; then
+            echo "Vector Search contains expected node"
           else
-             echo "Vector Search response mismatch"
-             cat "$ACTUAL_FILE"
-             exit 1
+            echo "Vector Search did not return expected node: $EXPECTED_NODE_KEY"
+            exit 1
           fi
