@@ -21,7 +21,8 @@ const KNN_SAMPLE_RATE = 0.5;
 const KNN_SIMILARITY_CUTOFF = 0.62;
 const MIN_COMMUNITY_SIZE = 3;
 const STRUCTURAL_BOOST = 0.15;
-const DOMAIN_RESOLUTION = 0.3;
+const DOMAIN_RESOLUTION = 0.1;
+const MIN_DOMAIN_SIZE = 2;
 
 export async function runSemanticClusterDetection(): Promise<ClusterDetectionResult> {
   try {
@@ -188,7 +189,7 @@ export async function runSemanticClusterDetection(): Promise<ClusterDetectionRes
       childClusterIds: string[];
     }[] = [];
     for (const [domainCommNum, childClusterIds] of domainToFineClusters) {
-      if (childClusterIds.length === 0) continue;
+      if (childClusterIds.length < MIN_DOMAIN_SIZE) continue;
       // Collect all files from member fine clusters
       const domainFiles = childClusterIds.flatMap((cid) => {
         const fc = finalClusters.find((f) => f.clusterId === cid);
