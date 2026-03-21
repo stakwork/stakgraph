@@ -91,6 +91,35 @@ pub async fn call_mcp_docs(repo_url: &str, sync: bool, force: bool) {
     }
 }
 
+pub async fn call_mcp_clusters() {
+    let mcp_url =
+        std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
+
+    let url = format!("{}/clusters/detect", mcp_url);
+    println!("[mcp_clusters] Calling MCP to detect clusters: {}", url);
+
+    let client = Client::new();
+    let mut req = client.post(&url).timeout(Duration::from_secs(300));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.header("x-api-token", token);
+    }
+    match req.send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                println!("[mcp_clusters] Cluster detection succeeded");
+            } else {
+                println!(
+                    "[mcp_clusters] Cluster detection returned status: {}",
+                    resp.status()
+                );
+            }
+        }
+        Err(e) => {
+            println!("[mcp_clusters] Cluster detection failed (non-fatal): {}", e);
+        }
+    }
+}
+
 const ROOT_RULE_FILES: &[&str] = &[
     ".windsurfrules",
     ".cursorrules",
