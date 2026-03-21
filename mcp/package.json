@@ -17,10 +17,9 @@
     "@ai-sdk/anthropic": "3.0.37",
     "@ai-sdk/google": "3.0.21",
     "@ai-sdk/openai": "3.0.25",
-    "@ai-sdk/provider": "3.0.7",
-    "@ai-sdk/provider-utils": "4.0.13",
     "@ai-sdk/gateway": "3.0.35",
-    "ai": "6.0.72"
+    "ai": "6.0.72",
+    "@ai-sdk/xai": "2.0.26"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
@@ -64,16 +63,22 @@
     "git-url-parse": "^16.0.1",
     "gitsee": "1.0.18",
     "gitsee-agent": "1.0.19",
+    "graphology": "^0.25.4",
+    "graphology-indices": "^0.17.0",
+    "graphology-utils": "^2.5.2",
     "js-yaml": "^4.1.0",
     "jsonwebtoken": "^9.0.3",
     "nanoid": "^5.1.6",
     "neo4j-driver": "^5.28.1",
     "node-cache": "^5.1.2",
+    "pandemonium": "^2.4.1",
     "simple-git": "^3.28.0",
     "uuid": "^11.1.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@ai-sdk/provider": "3.0.8",
+    "@ai-sdk/provider-utils": "4.0.19",
     "@types/archy": "^0.0.36",
     "@types/commander": "^2.12.5",
     "@types/cors": "^2.8.17",

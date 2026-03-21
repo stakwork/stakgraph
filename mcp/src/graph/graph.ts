@@ -14,7 +14,7 @@ import { nameFileOnly, toReturnNode, formatNode, clean_node } from "./utils.js";
 import { createByModelName } from "@microsoft/tiktokenizer";
 import { generate_services_config } from "./service.js";
 
-export type SearchMethod = "vector" | "fulltext";
+export type SearchMethod = "vector" | "fulltext" | "hybrid";
 
 export { Data_Bank, Direction };
 
@@ -56,6 +56,8 @@ export async function get_edges(
 
 export type OutputFormat = "snippet" | "json";
 
+const RRF_K = 60;
+
 export async function search(
   query: string,
   limit: number,
@@ -67,24 +69,69 @@ export async function search(
   tests: boolean = false,
   language?: string
 ) {
+  const skip_node_types: NodeType[] = tests
+    ? []
+    : (["UnitTest", "IntegrationTest", "E2etest"] as NodeType[]);
+
   if (method === "vector") {
     const result = await db.vectorSearch(
       query,
       limit,
       node_types,
-      0.7,
+      skip_node_types,
+      maxTokens,
       language
     );
     return toNodes(result, concise, output);
+  } else if (method === "hybrid") {
+    const [fulltextResults, vectorResults] = await Promise.all([
+      db.search(query, limit, node_types, skip_node_types, 0, language),
+      db.vectorSearch(query, limit, node_types, skip_node_types, 0, language),
+    ]);
+
+    const merged = new Map<string, { node: Neo4jNode; score: number }>();
+
+    fulltextResults.forEach((node, i) => {
+      const key = node.properties.ref_id || node.properties.node_key;
+      merged.set(key, { node, score: 1 / (RRF_K + i + 1) });
+    });
+
+    vectorResults.forEach((node, i) => {
+      const key = node.properties.ref_id || node.properties.node_key;
+      const rrfScore = 1 / (RRF_K + i + 1);
+      const existing = merged.get(key);
+      if (existing) {
+        existing.score += rrfScore;
+      } else {
+        merged.set(key, { node, score: rrfScore });
+      }
+    });
+
+    let sorted = Array.from(merged.values())
+      .sort((a, b) => b.score - a.score)
+      .map((entry) => entry.node);
+
+    if (maxTokens) {
+      let totalTokens = 0;
+      sorted = sorted.filter((node) => {
+        const tokenCount = node.properties.token_count
+          ? parseInt(node.properties.token_count.toString(), 10)
+          : 0;
+        if (totalTokens + tokenCount <= maxTokens) {
+          totalTokens += tokenCount;
+          return true;
+        }
+        return false;
+      });
+    }
+
+    return toNodes(sorted, concise, output);
   } else {
-    const skip_node_types = tests
-      ? []
-      : ["UnitTest", "IntegrationTest", "E2etest"];
     const result = await db.search(
       query,
       limit,
       node_types,
-      skip_node_types as NodeType[],
+      skip_node_types,
       maxTokens,
       language
     );
