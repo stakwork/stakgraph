@@ -1585,12 +1585,21 @@ class Db {
   async project_semantic_graph(graphName: string): Promise<number> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.SEMANTIC_GRAPH_PROJECT_QUERY, {
+      await session.run(Q.SEMANTIC_GRAPH_DROP_QUERY, { graphName });
+    } catch (_) {
+      // graph didn't exist yet — that's fine
+      console.warn(`Semantic graph ${graphName} did not exist, skipping drop.`);
+    } finally {
+      await session.close();
+    }
+    const session2 = this.driver.session();
+    try {
+      const r = await session2.run(Q.SEMANTIC_GRAPH_PROJECT_QUERY, {
         graphName,
       });
       return toNum(r.records[0]?.get("nodeCount") ?? 0);
     } finally {
-      await session.close();
+      await session2.close();
     }
   }
 
