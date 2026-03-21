@@ -511,23 +511,26 @@ ${NODE_TYPES}
 `;
 
 export const VECTOR_SEARCH_QUERY = `
-MATCH (node)
+CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($limit), $embeddings)
+YIELD node, score
+WITH node, score
 WHERE
   CASE
     WHEN $node_types IS NULL OR size($node_types) = 0 THEN true
     ELSE ANY(label IN labels(node) WHERE label IN $node_types)
   END
-  AND node.embeddings IS NOT NULL
+  AND
+  CASE
+    WHEN $skip_node_types IS NULL OR size($skip_node_types) = 0 THEN true
+    ELSE NOT ANY(label IN labels(node) WHERE label IN $skip_node_types)
+  END
   AND
   CASE
     WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
     ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
   END
-WITH node, gds.similarity.cosine(node.embeddings, $embeddings) AS score
-WHERE score >= $similarityThreshold
 RETURN node, score
 ORDER BY score DESC
-LIMIT toInteger($limit)
 `;
 
 export const SUBGRAPH_QUERY = `
@@ -921,3 +924,53 @@ MATCH path = shortestPath((start)-[*]-(end))
 RETURN path
 
 */
+
+export const CLUSTER_GRAPH_DATA_QUERY = `
+MATCH (n)
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:DataModel
+RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
+  [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label
+`;
+
+export const CLUSTER_EDGES_QUERY = `
+MATCH (a)-[r]->(b)
+WHERE (a:Function OR a:Class OR a:Trait OR a:Endpoint OR a:DataModel)
+  AND (b:Function OR b:Class OR b:Trait OR b:Endpoint OR b:DataModel)
+  AND type(r) IN ['CALLS', 'OPERAND', 'HANDLER', 'NESTED_IN', 'IMPLEMENTS', 'PARENT_OF']
+RETURN a.ref_id AS source, b.ref_id AS target, type(r) AS edge_type
+`;
+
+// Since they are multi-repo
+export const CLEAR_CLUSTERS_QUERY = `
+MATCH (c:Cluster) DETACH DELETE c
+`;
+
+export const UPSERT_CLUSTER_QUERY = `
+MERGE (c:Cluster:${Data_Bank} {cluster_id: $cluster_id})
+ON CREATE SET c.ref_id = randomUUID(), c.node_key = $node_key, c.date_added_to_graph = $ts, c.namespace = 'default',
+  c.name = $label, c.file = 'cluster://generated', c.start = 0, c.end = 0
+SET c.label = $label, c.body = $label, c.cohesion = $cohesion, c.symbol_count = $symbol_count
+RETURN c
+`;
+
+export const CREATE_MEMBER_OF_QUERY = `
+MATCH (n {ref_id: $ref_id})
+MATCH (c:Cluster {cluster_id: $cluster_id})
+MERGE (n)-[:MEMBER_OF]->(c)
+`;
+
+export const COUNT_CLUSTERS_QUERY = `MATCH (c:Cluster) RETURN count(c) AS c`;
+
+export const GET_ALL_CLUSTERS_QUERY = `
+MATCH (c:Cluster)
+RETURN c
+ORDER BY c.symbol_count DESC
+`;
+
+export const GET_CLUSTER_MEMBERS_QUERY = `
+MATCH (n)-[:MEMBER_OF]->(c:Cluster {cluster_id: $cluster_id})
+RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
+  [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label
+ORDER BY n.name
+LIMIT $limit
+`;

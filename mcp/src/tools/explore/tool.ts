@@ -77,7 +77,7 @@ export async function get_context_explore(
         hypothesis: z
           .string()
           .describe(
-            "What you think this file might contain or handle, based on its name/location"
+            "What you think this file might contain or handle, based on its name/location",
           ),
       }),
       execute: async ({ file_path }: { file_path: string }) => {
@@ -104,7 +104,7 @@ export async function get_context_explore(
         hypothesis: z
           .string()
           .describe(
-            "What feature/workflow you think this reveals (e.g., 'user authentication flow', 'data validation pipeline')"
+            "What feature/workflow you think this reveals (e.g., 'user authentication flow', 'data validation pipeline')",
           ),
       }),
       execute: async ({
@@ -132,20 +132,20 @@ export async function get_context_explore(
     }),
     fulltext_search: tool({
       description:
-        "Search the entire codebase for a specific term. Use this when you need to find a specific function, component, or file. Call this when the user provided specific text that might be present in the codebase. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text to search for",
+        "Search the entire codebase for a specific term or concept. Use this when you need to find a specific function, component, or file — or when you want to search by semantic meaning. For example, if the query is 'Add a subtitle to the User Journeys page', you could call this with the query \"User Journeys\". Don't call this if you do not have specific text or concept to search for",
       inputSchema: z.object({
-        query: z.string().describe("The term to search for"),
+        query: z.string().describe("The term or concept to search for"),
       }),
       execute: async ({ query }: { query: string }) => {
         return await G.search(
           query,
-          5,
+          10,
           [],
           false,
           100000,
-          "fulltext",
+          "hybrid",
           "snippet",
-          false
+          false,
         );
       },
     }),
