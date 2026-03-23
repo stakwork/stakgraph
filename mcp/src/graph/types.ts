@@ -69,8 +69,7 @@ export type NodeType =
   | "Mock"
   | "Learning"
   | "Scope"
-  | "UserObjective"
-  | "Cluster";
+  | "UserObjective";
 
 export type EdgeType =
   | "CALLS"
@@ -194,7 +193,6 @@ export function all_node_types(): NodeType[] {
     "Learning",
     "Scope",
     "UserObjective",
-    "Cluster",
   ];
 }
 
@@ -277,7 +275,6 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
     Learning: "A rule or guideline capturing knowledge about the codebase, linked to scopes that define where it applies.",
     Scope: "A scope label that groups related learnings, such as a technology, pattern, or area of the codebase.",
     UserObjective: "A specific goal or objective that a user wants to achieve within the application.",
-    Cluster: "A structural cluster of related code symbols detected by the Leiden community algorithm.",
   };
 }
 

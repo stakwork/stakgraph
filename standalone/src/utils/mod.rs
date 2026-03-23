@@ -91,12 +91,12 @@ pub async fn call_mcp_docs(repo_url: &str, sync: bool, force: bool) {
     }
 }
 
-pub async fn call_mcp_clusters() {
+pub async fn call_mcp_importance() {
     let mcp_url =
         std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
 
-    let url = format!("{}/clusters/detect", mcp_url);
-    println!("[mcp_clusters] Calling MCP to detect clusters: {}", url);
+    let url = format!("{}/importance/score", mcp_url);
+    println!("[mcp_importance] Calling MCP to score importance: {}", url);
 
     let client = Client::new();
     let mut req = client.post(&url).timeout(Duration::from_secs(300));
@@ -106,16 +106,16 @@ pub async fn call_mcp_clusters() {
     match req.send().await {
         Ok(resp) => {
             if resp.status().is_success() {
-                println!("[mcp_clusters] Cluster detection succeeded");
+                println!("[mcp_importance] Importance scoring succeeded");
             } else {
                 println!(
-                    "[mcp_clusters] Cluster detection returned status: {}",
+                    "[mcp_importance] Importance scoring returned status: {}",
                     resp.status()
                 );
             }
         }
         Err(e) => {
-            println!("[mcp_clusters] Cluster detection failed (non-fatal): {}", e);
+            println!("[mcp_importance] Importance scoring failed (non-fatal): {}", e);
         }
     }
 }

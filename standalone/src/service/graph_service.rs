@@ -1,6 +1,6 @@
 use crate::types::{AppState, ProcessBody, ProcessResponse, Result, WebError};
 use crate::utils::{
-    call_mcp_clusters, call_mcp_docs, call_mcp_embed, call_mcp_mocks, has_rules_file_changes,
+    call_mcp_importance, call_mcp_docs, call_mcp_embed, call_mcp_mocks, has_rules_file_changes,
     resolve_repo, should_call_mcp_for_repo,
 };
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
@@ -186,7 +186,7 @@ pub async fn ingest(
             tracing::warn!("Error printing nodes and edges to files: {}", e);
         }
     }
-   call_mcp_clusters().await;
+   call_mcp_importance().await;
 
     for repo_url in &repo_urls {
         if should_call_mcp_for_repo(&docs_param, repo_url) {
@@ -319,7 +319,7 @@ pub async fn sync(
     })
     .unwrap_or(true);
     if has_code_changes {
-        call_mcp_clusters().await;
+        call_mcp_importance().await;
     }
 
     if should_call_mcp_for_repo(&docs_param, repo_url) {

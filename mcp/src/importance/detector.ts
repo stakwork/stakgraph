@@ -39,7 +39,6 @@ function assignTag(
   }
 
   // Entry point: top 10% entry_score AND meaningfully calls out (≥3 callees)
-  // Using p90 + min out_degree avoids tagging every function that calls one helper
   if (entry_score >= thresholds.entry_p90 && out_degree >= 3) {
     return ImportanceTag.EntryPoint;
   }
@@ -49,9 +48,6 @@ function assignTag(
     return ImportanceTag.Utility;
   }
 
-  // Connector: everything else — including nodes that appear "isolated" in the
-  // projected graph (no CALLS/HANDLER/RENDERS edges) but may have IMPLEMENTS,
-  // CONTAINS, etc. They are still part of the codebase, not truly isolated.
   return ImportanceTag.Connector;
 }
 
@@ -107,7 +103,6 @@ export async function runImportanceScoring(): Promise<ImportanceResult> {
       .map((n) => n.hub_score)
       .sort((a, b) => a - b);
 
-    // Compute hub and entry thresholds on non-zero values only to avoid dilution
     const nonZeroHub = sortedHub.filter((v) => v > 0);
     const thresholds: ImportanceThresholds = {
       entry_p90: percentile(sortedEntry, 90),
@@ -139,7 +134,6 @@ export async function runImportanceScoring(): Promise<ImportanceResult> {
       ),
     }));
 
-    // Log tag distribution
     const tagCounts = batch.reduce(
       (acc, n) => {
         acc[n.importance_tag] = (acc[n.importance_tag] ?? 0) + 1;

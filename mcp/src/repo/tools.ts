@@ -47,9 +47,7 @@ type ToolName =
   | "list_workflows"
   | "learn_workflow"
   | "read_workflow_json"
-  | "vector_search"
-  | "list_clusters"
-  | "get_cluster_members";
+  | "vector_search";
 
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
@@ -58,7 +56,7 @@ const TOOL_NAMES: Set<string> = new Set<string>([
   "fulltext_search", "web_search", "bash", "final_answer",
   "ask_clarifying_questions", "list_concepts", "learn_concept",
   "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
-  "vector_search", "list_clusters", "get_cluster_members",
+  "vector_search",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -152,8 +150,6 @@ Rules:
   learn_workflow: 'Get the generated documentation for a specific workflow by its node_key.',
   read_workflow_json: 'Read the raw workflow_json property of a Workflow node by its node_key.',
   vector_search: 'Search for code nodes by semantic similarity using vector embeddings. Use this when you want to find code related to a concept or description, even if the exact terms are not present in the code. Returns the node name, type, filename, and line number for each match.',
-  list_clusters: 'List all structural code clusters (groups of functions/classes that call each other frequently). Use this to understand how the codebase is organized at a functional level. Returns id, label, symbolCount, cohesion per cluster.',
-  get_cluster_members: 'Get all code symbols (functions, classes, endpoints) that belong to a specific cluster. Use this to explore a functional area of the codebase.',
 };
 
 export async function get_tools(
@@ -432,37 +428,6 @@ export async function get_tools(
     }
   } else {
     console.log("===> no db found, skipping vector_search tool");
-  }
-
-  // Conditionally register cluster tools if Cluster nodes exist
-  if (db) {
-    const clusterCount = await db.count_cluster_nodes();
-    if (clusterCount > 0) {
-      console.log(`===> ${clusterCount} cluster nodes found, registering cluster tools`);
-      allTools.list_clusters = tool({
-        description: defaultDescriptions.list_clusters,
-        inputSchema: z.object({}),
-        execute: async () => {
-          const clusters = await db.get_all_clusters();
-          return { clusters, total: clusters.length };
-        },
-      });
-      allTools.get_cluster_members = tool({
-        description: defaultDescriptions.get_cluster_members,
-        inputSchema: z.object({
-          cluster_id: z.string().describe("The cluster_id to look up members for"),
-          limit: z.number().optional().default(50).describe("Maximum number of members to return"),
-        }),
-        execute: async ({ cluster_id, limit }: { cluster_id: string; limit?: number }) => {
-          const members = await db.get_cluster_members(cluster_id, limit || 50);
-          return { cluster_id, members, total: members.length };
-        },
-      });
-    } else {
-      console.log("===> no cluster nodes found, skipping cluster tools");
-    }
-  } else {
-    console.log("===> no db found, skipping cluster tools");
   }
 
   // Register sub-agent tools (remote agent delegation)
