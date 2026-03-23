@@ -38,13 +38,13 @@ Point `stakgraph` at any file or directory. It parses the code, extracts every m
 $ stakgraph src/routes.ts
 ```
 
-```ansi
-[1;36mFile:[0m [36msrc/routes.ts[0m
+```
+File: src/routes.ts
 
-[1;35mDatamodel[0m: PersonRequest [2m(6)[0m
+Datamodel: PersonRequest (6)
   type PersonRequest = Request<{}, {}, { name: string; email: string }>;
 
-[1;35mDatamodel[0m: ResponseStatus [2m(9-14)[0m
+Datamodel: ResponseStatus (9-14)
   enum ResponseStatus {
     SUCCESS = 200,
     CREATED = 201,
@@ -52,22 +52,22 @@ $ stakgraph src/routes.ts
     INTERNAL_ERROR = 500,
   }
 
-[1;33mEndpoint[0m: POST /people/new [2m(18)[0m
-[1;33mEndpoint[0m: GET /people/recent [2m(19)[0m
+Endpoint: POST /people/new (18)
+Endpoint: GET /people/recent (19)
 
-[1;32mFunction[0m: registerRoutes [2m(21-30)[0m
+Function: registerRoutes (21-30)
   export function registerRoutes(app)
-  [2m→[0m /person/:id [2m(L22)[0m
-  [2m→[0m /person [2m(L24)[0m
+  → /person/:id (L22)
+  → /person (L24)
 
-[1;33mEndpoint[0m: GET /person/:id [2m(22)[0m
-[1;33mEndpoint[0m: POST /person [2m(24)[0m
+Endpoint: GET /person/:id (22)
+Endpoint: POST /person (24)
 
-[1;32mFunction[0m: getPerson [2m(32-49)[0m
+Function: getPerson (32-49)
   async function getPerson(req: Request, res: Response)
 
-[1;32mFunction[0m: createPerson [2m(54-65)[0m
-  [2mDocs:[0m Create a new person.
+Function: createPerson (54-65)
+  Docs: Create a new person.
   async function createPerson(req: PersonRequest, res: PersonResponse)
 ```
 
@@ -81,43 +81,43 @@ Parse multiple files at once. Cross-file function calls are resolved automatical
 $ stakgraph src/routes.py src/models.py src/db.py
 ```
 
-```ansi
-[1;36mFile:[0m [36msrc/routes.py[0m
+```
+File: src/routes.py
 
-[1;33mEndpoint[0m: GET /person/{id} [2m(10)[0m
+Endpoint: GET /person/{id} (10)
 
-[1;32mFunction[0m: get_person [2m(11-25)[0m
-  [2mDocs:[0m Get user details by user id
+Function: get_person (11-25)
+  Docs: Get user details by user id
   async def get_person(id: int, db: Session = Depends(get_db))
-  [2m→[0m get_person_by_id [2m(L32)[0m [2m[db.py][0m
+  → get_person_by_id (L32) [db.py]
 
-[1;33mEndpoint[0m: POST /person/ [2m(29)[0m
-  [2mDocs:[0m Create new user endpoint
+Endpoint: POST /person/ (29)
+  Docs: Create new user endpoint
 
-[1;32mFunction[0m: create_person [2m(30-41)[0m
-  [2mDocs:[0m Create new user
+Function: create_person (30-41)
+  Docs: Create new user
   async def create_person(person: CreateOrEditPerson, db: Session = Depends(get_db))
-  [2m→[0m create_new_person [2m(L37)[0m [2m[db.py][0m
+  → create_new_person (L37) [db.py]
 
-[1;36mFile:[0m [36msrc/models.py[0m
+File: src/models.py
 
-[1;34mClass[0m: Person [2m(9-27)[0m
-  [2mDocs:[0m Person model for storing user details
+Class: Person (9-27)
+  Docs: Person model for storing user details
 
-[1;35mDatamodel[0m: CreateOrEditPerson [2m(30-36)[0m
-  [2mDocs:[0m PersonCreate model for creating new person
+Datamodel: CreateOrEditPerson (30-36)
+  Docs: PersonCreate model for creating new person
   class CreateOrEditPerson(BaseModel):
       id: Optional[int] = None
       name: str
       email: str
 
-[1;36mFile:[0m [36msrc/db.py[0m
+File: src/db.py
 
-[1;32mFunction[0m: get_person_by_id [2m(32-34)[0m
-  [2mDocs:[0m Get a person by their ID
+Function: get_person_by_id (32-34)
+  Docs: Get a person by their ID
 
-[1;32mFunction[0m: create_new_person [2m(37-56)[0m
-  [2mDocs:[0m Create a new person in the database
+Function: create_new_person (37-56)
+  Docs: Create a new person in the database
 ```
 
 Notice `→ get_person_by_id (L32) [db.py]` -- cross-file call resolution with the exact target line and filename.
@@ -130,12 +130,12 @@ Get a token-budget-aware overview of any project. Prioritizes entry points and k
 $ stakgraph summarize ./my-project --max-tokens 2000
 ```
 
-```ansi
-[1mSummary:[0m [1;36m./my-project[0m  (budget: [1;33m2000[0m tokens)
+```
+Summary: ./my-project  (budget: 2000 tokens)
 
-[1;4mDirectory Structure[0m
-[1;36mmy-project/[0m
-  [1msrc/[0m
+Directory Structure
+my-project/
+  src/
     middleware/
     routers/
     services/
@@ -144,23 +144,23 @@ $ stakgraph summarize ./my-project --max-tokens 2000
     routes.ts
     service.ts
 
-[1;4mFile Summaries[0m
-[1;36mFile:[0m [36msrc/routes.ts[0m
-[1;33mEndpoint[0m: POST /people/new [2m(18)[0m
-[1;33mEndpoint[0m: GET /people/recent [2m(19)[0m
-[1;32mFunction[0m: registerRoutes [2m(21-30)[0m
-  [2m→[0m /person/:id [2m(L22)[0m
-  [2m→[0m /person [2m(L24)[0m
-[1;32mFunction[0m: getPerson [2m(32-49)[0m
-[1;32mFunction[0m: createPerson [2m(54-65)[0m
+File Summaries
+File: src/routes.ts
+  Endpoint: POST /people/new (18)
+  Endpoint: GET /people/recent (19)
+  Function: registerRoutes (21-30)
+    → /person/:id (L22)
+    → /person (L24)
+  Function: getPerson (32-49)
+  Function: createPerson (54-65)
 
-[1;36mFile:[0m [36msrc/services/user-service.ts[0m
-[1;34mClass[0m: UserService [2m(3-24)[0m
-[1;32mFunction[0m: UserService.findAll [2m(4-7)[0m
-[1;32mFunction[0m: UserService.findById [2m(9-11)[0m
-[1;32mFunction[0m: UserService.create [2m(13-15)[0m
+File: src/services/user-service.ts
+  Class: UserService (3-24)
+  Function: UserService.findAll (4-7)
+  Function: UserService.findById (9-11)
+  Function: UserService.create (13-15)
 
-[2m[1418/2000 tokens used — 11 files not shown][0m
+[1418/2000 tokens used — 11 files not shown]
 ```
 
 Designed to fit into LLM context windows. Adaptive depth, file scoring (entry points first), and token counting via tiktoken.
@@ -173,31 +173,31 @@ See what actually changed in your code at the structural level -- not just line 
 $ stakgraph changes diff --since main src/
 ```
 
-```ansi
-[1;36mFound[0m [1;32m9[0m file(s) changed in [33mchanges since main[0m (scope: [36msrc/[0m)
+```
+Found 9 file(s) changed in changes since main (scope: src/)
 
-[1msrc/args.rs[0m  [1;33m[Modified][0m  [2m(3 nodes)[0m
-  [1;33m~[0m [33mClass[0m [1mCliArgs[0m  [2mL8-L51[0m
-  [1;33m~[0m [33mDatamodel[0m [1mCliArgs[0m  [2mL8-L51[0m
+src/args.rs  [Modified]  (3 nodes)
+  ~ Class CliArgs  L8-L51
+  ~ Datamodel CliArgs  L8-L51
 
-[1msrc/changes.rs[0m  [1;33m[Modified][0m  [2m(4 nodes)[0m
-  [1;33m~[0m [33mFunction[0m [1mrun[0m  [2mL19-L41[0m
-    [31m-[0m [31mpub async fn run(args: &ChangesArgs, out: &mut Output) -> Result<()> {[0m
-    [32m+[0m [32mpub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {[0m
+src/changes.rs  [Modified]  (4 nodes)
+  ~ Function run  L19-L41
+    - pub async fn run(args: &ChangesArgs, out: &mut Output) -> Result<()> {
+    + pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
 
-[1msrc/git.rs[0m  [1;32m[Added][0m  [2m(1 node)[0m
-  [1;32m+[0m [32mFunction[0m [1mget_repo_root[0m  [2mL2[0m
+src/git.rs  [Added]  (1 node)
+  + Function get_repo_root  L2
 
-[1msrc/progress.rs[0m  [1;33m[Modified][0m  [2m(6 nodes)[0m
-  [1;33m~[0m [33mFunction[0m [1mnew[0m  [2mL12-L27[0m
-    [31m-[0m [31mpub fn new(verbose: bool) -> (Self, broadcast::Sender<StatusUpdate>) {[0m
-    [32m+[0m [32mpub fn new(message: &str) -> Self {[0m
-  [1;32m+[0m [32mDatamodel[0m [1mCliSpinner[0m  [2mL7[0m
-  [1;32m+[0m [32mFunction[0m [1mset_message[0m  [2mL29[0m
-  [1;32m+[0m [32mFunction[0m [1mfinish_and_clear[0m  [2mL35[0m
-  [1;32m+[0m [32mFunction[0m [1mfinish_with_message[0m  [2mL41[0m
+src/progress.rs  [Modified]  (6 nodes)
+  ~ Function new  L12-L27
+    - pub fn new(verbose: bool) -> (Self, broadcast::Sender<StatusUpdate>) {
+    + pub fn new(message: &str) -> Self {
+  + Datamodel CliSpinner  L7
+  + Function set_message  L29
+  + Function finish_and_clear  L35
+  + Function finish_with_message  L41
 
-[1m9 files[0m  [32m10 added[0m  [31m0 removed[0m  [33m13 modified[0m
+9 files  10 added  0 removed  13 modified
 ```
 
 Works with `--staged`, `--last N`, `--since <ref>`, or `--range HEAD~5..HEAD`. Builds before/after AST graphs from git blobs and computes the structural delta.
