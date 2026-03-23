@@ -38,169 +38,31 @@ Point `stakgraph` at any file or directory. It parses the code, extracts every m
 $ stakgraph src/routes.ts
 ```
 
-```
-File: src/routes.ts
-
-Datamodel: PersonRequest (6)
-  type PersonRequest = Request<{}, {}, { name: string; email: string }>;
-
-Datamodel: ResponseStatus (9-14)
-  enum ResponseStatus {
-    SUCCESS = 200,
-    CREATED = 201,
-    NOT_FOUND = 404,
-    INTERNAL_ERROR = 500,
-  }
-
-Endpoint: POST /people/new (18)
-Endpoint: GET /people/recent (19)
-
-Function: registerRoutes (21-30)
-  export function registerRoutes(app)
-  → /person/:id (L22)
-  → /person (L24)
-
-Endpoint: GET /person/:id (22)
-Endpoint: POST /person (24)
-
-Function: getPerson (32-49)
-  async function getPerson(req: Request, res: Response)
-
-Function: createPerson (54-65)
-  Docs: Create a new person.
-  async function createPerson(req: PersonRequest, res: PersonResponse)
-```
+<img src="./mcp/docs/screenshot/file.png" alt="stakgraph file output" width="700">
 
 Functions, endpoints, data models, classes, traits, tests -- all extracted with **line numbers**, **doc comments**, **signatures**, and **call edges** (`→`).
 
-### Parse a directory
+### Track code changes
 
-Parse multiple files at once. Cross-file function calls are resolved automatically:
-
-```
-$ stakgraph src/routes.py src/models.py src/db.py
-```
+See what actually changed at the structural level -- not line diffs, but which **functions, endpoints, and classes** were added, removed, or modified:
 
 ```
-File: src/routes.py
-
-Endpoint: GET /person/{id} (10)
-
-Function: get_person (11-25)
-  Docs: Get user details by user id
-  async def get_person(id: int, db: Session = Depends(get_db))
-  → get_person_by_id (L32) [db.py]
-
-Endpoint: POST /person/ (29)
-  Docs: Create new user endpoint
-
-Function: create_person (30-41)
-  Docs: Create new user
-  async def create_person(person: CreateOrEditPerson, db: Session = Depends(get_db))
-  → create_new_person (L37) [db.py]
-
-File: src/models.py
-
-Class: Person (9-27)
-  Docs: Person model for storing user details
-
-Datamodel: CreateOrEditPerson (30-36)
-  Docs: PersonCreate model for creating new person
-  class CreateOrEditPerson(BaseModel):
-      id: Optional[int] = None
-      name: str
-      email: str
-
-File: src/db.py
-
-Function: get_person_by_id (32-34)
-  Docs: Get a person by their ID
-
-Function: create_new_person (37-56)
-  Docs: Create a new person in the database
+$ stakgraph changes diff --last 5 mcp/src/
 ```
 
-Notice `→ get_person_by_id (L32) [db.py]` -- cross-file call resolution with the exact target line and filename.
+<img src="./mcp/docs/screenshot/diff.png" alt="stakgraph changes diff output" width="700">
+
+Works with `--staged`, `--last N`, `--since <ref>`, or `--range HEAD~5..HEAD`. Builds before/after AST graphs from git blobs and computes the structural delta.
 
 ### Summarize a project
 
-Get a token-budget-aware overview of any project. Prioritizes entry points and key files:
+Get a token-budget-aware overview of any project, designed to fit into LLM context windows:
 
 ```
 $ stakgraph summarize ./my-project --max-tokens 2000
 ```
 
-```
-Summary: ./my-project  (budget: 2000 tokens)
-
-Directory Structure
-my-project/
-  src/
-    middleware/
-    routers/
-    services/
-    index.ts
-    model.ts
-    routes.ts
-    service.ts
-
-File Summaries
-File: src/routes.ts
-  Endpoint: POST /people/new (18)
-  Endpoint: GET /people/recent (19)
-  Function: registerRoutes (21-30)
-    → /person/:id (L22)
-    → /person (L24)
-  Function: getPerson (32-49)
-  Function: createPerson (54-65)
-
-File: src/services/user-service.ts
-  Class: UserService (3-24)
-  Function: UserService.findAll (4-7)
-  Function: UserService.findById (9-11)
-  Function: UserService.create (13-15)
-
-[1418/2000 tokens used — 11 files not shown]
-```
-
-Designed to fit into LLM context windows. Adaptive depth, file scoring (entry points first), and token counting via tiktoken.
-
-### Track code changes
-
-See what actually changed in your code at the structural level -- not just line diffs, but which **functions, endpoints, and classes** were added, removed, or modified:
-
-```
-$ stakgraph changes diff --since main src/
-```
-
-```
-Found 9 file(s) changed in changes since main (scope: src/)
-
-src/args.rs  [Modified]  (3 nodes)
-  ~ Class CliArgs  L8-L51
-  ~ Datamodel CliArgs  L8-L51
-
-src/changes.rs  [Modified]  (4 nodes)
-  ~ Function run  L19-L41
-    - pub async fn run(args: &ChangesArgs, out: &mut Output) -> Result<()> {
-    + pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
-
-src/git.rs  [Added]  (1 node)
-  + Function get_repo_root  L2
-
-src/progress.rs  [Modified]  (6 nodes)
-  ~ Function new  L12-L27
-    - pub fn new(verbose: bool) -> (Self, broadcast::Sender<StatusUpdate>) {
-    + pub fn new(message: &str) -> Self {
-  + Datamodel CliSpinner  L7
-  + Function set_message  L29
-  + Function finish_and_clear  L35
-  + Function finish_with_message  L41
-
-9 files  10 added  0 removed  13 modified
-```
-
-Works with `--staged`, `--last N`, `--since <ref>`, or `--range HEAD~5..HEAD`. Builds before/after AST graphs from git blobs and computes the structural delta.
+Adaptive directory tree depth, file scoring (entry points first), and token counting via tiktoken. Shows functions, classes, endpoints, data models, and call edges within your budget.
 
 ### CLI options
 
