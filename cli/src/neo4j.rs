@@ -3,8 +3,11 @@ mod inner {
     use std::path::Path;
 
     use ast::lang::graphs::graph_ops::GraphOps;
-    use ast::lang::graphs::neo4j::{execute_node_query, find_nodes_by_name_contains_query};
-    use ast::lang::graphs::{EdgeType, NodeType};
+    use std::str::FromStr;
+
+    use ast::lang::graphs::neo4j::execute_node_query;
+    use ast::lang::graphs::{EdgeType, Node, NodeType};
+    use ast::lang::NodeData;
     use ast::repo::{Repo, Repos};
     use ast::Lang;
     use console::style;
@@ -153,59 +156,111 @@ mod inner {
         Ok(())
     }
 
+    fn node_data_from_neo_node(neo_node: &neo4rs::Node) -> Option<Node> {
+        let node_data = NodeData::try_from(neo_node).ok()?;
+        let labels = neo_node.labels();
+        let label = labels.iter().copied().find(|l| *l != "Data_Bank")?;
+        let node_type = NodeType::from_str(label).ok()?;
+        Some(Node { node_type, node_data })
+    }
+
+    fn escape_fulltext_query(query: &str) -> String {
+        if query.contains(' ') {
+            let escaped = query.replace('"', "\\\"");
+            return format!("\"{}\"", escaped);
+        }
+        let special = [
+            '+', '-', '&', '|', '!', '(', ')', '{', '}', '[', ']', '^', '"', '~', '?', ':',
+            '\\', '/',
+        ];
+        let mut result = query.to_string();
+        for ch in special {
+            result = result.replace(ch, &format!("\\{}", ch));
+        }
+        format!("{}*", result)
+    }
+
     async fn run_search(
         query: &str,
         node_type_strs: &[String],
         limit: usize,
         out: &mut Output,
     ) -> Result<()> {
-        let mut ops = connect_graph_ops().await?;
+        use neo4rs::{query as nq, BoltType};
+
+        let ops = connect_graph_ops().await?;
         let connection = ops.graph.ensure_connected().await?;
 
-        let search_types: Vec<NodeType> = if node_type_strs.is_empty() {
-            ALL_NODE_TYPES.to_vec()
+        let escaped = escape_fulltext_query(query);
+
+        // Skip test nodes and imports (same default as MCP)
+        let skip_types = vec!["UnitTest", "IntegrationTest", "E2etest", "Import"];
+
+        let node_type_labels: Vec<String> = if node_type_strs.is_empty() {
+            vec![]
         } else {
-            node_type_strs
-                .iter()
-                .filter_map(|s| s.parse::<NodeType>().ok())
-                .collect()
+            node_type_strs.to_vec()
         };
 
-        let mut results: Vec<(NodeType, ast::lang::NodeData)> = Vec::new();
-        for nt in &search_types {
-            let (q, params) = find_nodes_by_name_contains_query(nt, query);
-            let nodes = execute_node_query(&connection, q, params).await;
-            for node in nodes {
-                results.push((nt.clone(), node));
-                if results.len() >= limit {
-                    break;
-                }
+        let cypher = r#"
+            CALL db.index.fulltext.queryNodes('nameBodyFileIndex', $query) YIELD node, score
+            WITH node, score
+            WHERE
+            CASE
+                WHEN size($node_types) = 0 THEN true
+                ELSE ANY(label IN labels(node) WHERE label IN $node_types)
+            END
+            AND NOT ANY(label IN labels(node) WHERE label IN $skip_types)
+            RETURN node, score
+            ORDER BY score DESC
+            LIMIT toInteger($limit)
+"#;
+
+        let node_types_bolt: Vec<BoltType> = node_type_labels
+            .iter()
+            .map(|s: &String| BoltType::String(s.clone().into()))
+            .collect();
+        let skip_bolt: Vec<BoltType> = skip_types
+            .iter()
+            .map(|s: &&str| BoltType::String((*s).into()))
+            .collect();
+
+        let q = nq(cypher)
+            .param("query", escaped)
+            .param("node_types", node_types_bolt.as_slice())
+            .param("skip_types", skip_bolt.as_slice())
+            .param("limit", limit as i64);
+
+        let mut result = connection.execute(q).await?;
+        let mut count = 0;
+
+        while let Some(row) = result.next().await? {
+            let neo_node: neo4rs::Node = match row.get("node") {
+                Ok(n) => n,
+                Err(_) => continue,
+            };
+            let score: f64 = row.get("score").unwrap_or(0.0);
+
+            if let Some(graph_node) = node_data_from_neo_node(&neo_node) {
+                let score_label = style(format!("{:.3}", score)).dim();
+                out.writeln(score_label.to_string())?;
+                crate::render::print_node_summary(out, &graph_node)
+                    .map_err(|e| shared::Error::Io(e))?;
+                out.newline()?;
             }
-            if results.len() >= limit {
-                break;
-            }
+            count += 1;
         }
 
-        if results.is_empty() {
+        if count == 0 {
             out.writeln(format!("No results for {:?}", query))?;
-            return Ok(());
+        } else {
+            out.writeln(format!("\n{} result(s)", count))?;
         }
-
-        for (node_type, node_data) in &results {
-            let type_label = style(node_type.to_string()).bold().cyan();
-            let name_label = style(&node_data.name).bold();
-            let file_label = style(&node_data.file).dim();
-            out.writeln(format!(
-                "  {}  {}  [{}:{}]",
-                type_label, name_label, file_label, node_data.start
-            ))?;
-        }
-        out.writeln(format!("\n{} result(s)", results.len()))?;
         Ok(())
     }
 
     async fn run_node(name: &str, out: &mut Output) -> Result<()> {
-        let mut ops = connect_graph_ops().await?;
+        let ops = connect_graph_ops().await?;
         let connection = ops.graph.ensure_connected().await?;
 
         let mut found: Vec<(NodeType, ast::lang::NodeData)> = Vec::new();
@@ -223,20 +278,10 @@ mod inner {
             return Ok(());
         }
 
-        for (node_type, node_data) in &found {
-            let header = style(format!("[{}] {}", node_type, node_data.name))
-                .bold()
-                .cyan();
-            out.writeln(header.to_string())?;
-            out.writeln(format!("  file:  {}", node_data.file))?;
-            out.writeln(format!(
-                "  lines: {}–{}",
-                node_data.start, node_data.end
-            ))?;
-            if !node_data.body.is_empty() {
-                let preview: String = node_data.body.lines().take(5).collect::<Vec<_>>().join("\n");
-                out.writeln(format!("  body:\n{}", preview))?;
-            }
+        for (node_type, node_data) in found {
+            let graph_node = ast::lang::graphs::Node { node_type, node_data };
+            crate::render::print_node_summary(out, &graph_node)
+                .map_err(|e| shared::Error::Io(e))?;
             out.newline()?;
         }
         Ok(())

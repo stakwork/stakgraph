@@ -156,7 +156,7 @@ fn print_function_edges(
     Ok(())
 }
 
-fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::Result<()> {
+pub(crate) fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::Result<()> {
     let nd = &node.node_data;
     let name = format_function_name_with_operand(node);
     let lines = format_lines(nd.start, nd.end);
