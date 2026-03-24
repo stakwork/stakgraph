@@ -205,9 +205,19 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
         }
     }
 
+    #[cfg(feature = "neo4j")]
+    if cli.neo4j {
+        annotate_with_caller_counts(out, &graph, &files_to_print).await;
+    }
+
     if let Some(sp) = &spinner {
         sp.finish_with_message("Node summary ready");
     }
 
     Ok(())
+}
+
+#[cfg(feature = "neo4j")]
+async fn annotate_with_caller_counts(out: &mut Output, graph: &ast::lang::graphs::ArrayGraph, files_to_print: &[String]) {
+    crate::neo4j::print_caller_counts(out, graph, files_to_print).await;
 }

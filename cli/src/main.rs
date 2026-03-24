@@ -7,6 +7,8 @@ mod args;
 mod changes;
 mod completions;
 mod git;
+#[cfg(feature = "neo4j")]
+mod neo4j;
 mod output;
 mod parse;
 mod progress;
@@ -62,6 +64,13 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Changes(args)) => {
             changes::run(args, &mut Output::new(), cli.verbose || cli.perf).await
+        }
+        #[cfg(feature = "neo4j")]
+        Some(Commands::Graph(args)) => neo4j::run_graph(args, &mut Output::new()).await,
+        #[cfg(not(feature = "neo4j"))]
+        Some(Commands::Graph(_)) => {
+            eprintln!("error: 'graph' subcommand requires building with --features neo4j");
+            std::process::exit(1);
         }
         None => parse::run(&cli, &mut Output::new()).await,
     }

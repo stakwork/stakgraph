@@ -46,6 +46,10 @@ pub struct CliArgs {
     #[arg(long, action = ArgAction::SetTrue)]
     pub stats: bool,
 
+    /// Use Neo4j graph for enhanced output (requires --features neo4j build)
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub neo4j: bool,
+
     /// Input files or directories (comma-separated or multiple args)
     #[arg(value_name = "FILE_OR_DIR", num_args = 0..)]
     pub files: Vec<String>,
@@ -59,6 +63,8 @@ pub enum Commands {
     Completions(CompletionsArgs),
     /// Explore git changes summaries scoped to specific files or directories
     Changes(ChangesArgs),
+    /// Query and manage the Neo4j knowledge graph (requires --features neo4j build)
+    Graph(GraphArgs),
 }
 
 #[derive(Debug, Args)]
@@ -135,6 +141,55 @@ pub struct DiffArgs {
     pub paths: Vec<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct GraphArgs {
+    #[command(subcommand)]
+    pub command: GraphCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GraphCommand {
+    /// Ingest a local repository into Neo4j
+    Ingest(GraphIngestArgs),
+    /// Search for nodes by name substring
+    Search(GraphSearchArgs),
+    /// Show details for a named node
+    Node(GraphNodeArgs),
+    /// Print all known node and edge types
+    Schema,
+    /// Clear all nodes and edges from the graph
+    Clear,
+    /// Show graph size statistics
+    Stats,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphIngestArgs {
+    /// Path to the repository to ingest
+    #[arg(value_name = "PATH", default_value = ".")]
+    pub path: String,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphSearchArgs {
+    /// Name substring to search for
+    pub query: String,
+
+    /// Limit to these node types, comma-separated (e.g. Function,Endpoint)
+    #[arg(long, value_delimiter = ',')]
+    pub node_type: Vec<String>,
+
+    /// Maximum number of results to return
+    #[arg(long, default_value = "20")]
+    pub limit: usize,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphNodeArgs {
+    /// Exact node name to look up
+    pub name: String,
+}
+
 impl CliArgs {
     pub fn parse_and_expand() -> Result<Self> {
         let mut args = Self::parse();
@@ -161,6 +216,10 @@ impl CliArgs {
         }
 
         if let Some(Commands::Changes(_)) = &args.command {
+            return Ok(args);
+        }
+
+        if let Some(Commands::Graph(_)) = &args.command {
             return Ok(args);
         }
 
