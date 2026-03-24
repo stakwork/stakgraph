@@ -190,6 +190,14 @@ pub struct GraphSearchArgs {
 pub struct GraphNodeArgs {
     /// Exact node name to look up
     pub name: String,
+
+    /// Limit lookup to this node type (e.g. Function, Endpoint)
+    #[arg(long)]
+    pub node_type: Option<String>,
+
+    /// Filter by file path (exact match) to disambiguate duplicate names
+    #[arg(long)]
+    pub file: Option<String>,
 }
 
 #[derive(Debug, Args)]
