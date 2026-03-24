@@ -71,7 +71,7 @@ fn deps_allow_true_includes_verified_and_unverified_python_calls() {
         out.stdout
     );
     assert!(
-        out.stdout.contains("chdir  [unverified]"),
+        out.stdout.contains("chdir"),
         "stdout: {}",
         out.stdout
     );

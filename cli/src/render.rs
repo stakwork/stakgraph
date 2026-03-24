@@ -223,7 +223,7 @@ fn print_file_nodes_inner(
         .to_string();
 
     let file_label = style("File:").bold().cyan();
-    out.writeln(format!("{} {}", file_label, style(&file_path).cyan()))?;
+    out.writeln(format!("{} {}", file_label, style(super::utils::rel_path_from_cwd(&file_path)).cyan()))?;
 
     let mut nodes: Vec<_> = graph
         .nodes

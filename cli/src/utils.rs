@@ -133,6 +133,14 @@ pub async fn build_graph_for_files_with_options(
     repos.build_graphs_array().await
 }
 
+pub fn rel_path_from_cwd(path: &str) -> String {
+    let base = std::env::current_dir().unwrap_or_default();
+    Path::new(path)
+        .strip_prefix(&base)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path.to_string())
+}
+
 pub fn common_ancestor(files: &[String]) -> Option<std::path::PathBuf> {
     if files.is_empty() {
         return None;

@@ -9,6 +9,7 @@ use super::output::Output;
 use super::progress::CliSpinner;
 use super::utils::{
     build_graph_for_files_with_options, expand_dirs_for_parse, parse_node_types,
+    rel_path_from_cwd,
 };
 
 pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Result<()> {
@@ -71,7 +72,7 @@ pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Resu
             "{}: {}  [{}:{}]",
             style(seed.node_type.to_string()).bold().cyan(),
             style(&args.name).bold().white(),
-            style(file).dim(),
+            style(rel_path_from_cwd(file)).dim(),
             style(line).dim()
         ))?;
 
@@ -108,25 +109,27 @@ pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Resu
             let connector = if item.is_last { "└── " } else { "├── " };
             let node_line = if item.file == "unverified" {
                 format!(
-                    "{}{}{}  [{}]",
+                    "{}{}{}",
                     item.prefix,
                     connector,
-                    style(&item.name).white(),
-                    style("unverified").dim().yellow()
+                    style(&item.name).white()
                 )
             } else {
-                let display_line = graph
+                let found = graph
                     .nodes
                     .iter()
-                    .find(|n| n.node_data.name == item.name && n.node_data.file == item.file)
-                    .map(|n| n.node_data.start + 1)
-                    .unwrap_or(0);
+                    .find(|n| n.node_data.name == item.name && n.node_data.file == item.file);
+                let display_line = found.map(|n| n.node_data.start + 1).unwrap_or(0);
+                let node_type_label = found
+                    .map(|n| n.node_type.to_string())
+                    .unwrap_or_default();
                 format!(
-                    "{}{}{}  [{}:{}]",
+                    "{}{}{}  [{}]  [{}:{}]",
                     item.prefix,
                     connector,
                     style(&item.name).white(),
-                    style(&item.file).dim(),
+                    style(&node_type_label).cyan(),
+                    style(rel_path_from_cwd(&item.file)).dim(),
                     style(display_line).dim()
                 )
             };
