@@ -5,7 +5,7 @@ use super::git::{
     filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
     get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
 };
-use ast::lang::graphs::{ArrayGraph, Node, NodeType};
+use ast::lang::graphs::{ArrayGraph, Edge, EdgeType, Node, NodeType};
 use ast::lang::Lang;
 use ast::repo::{Repo, Repos};
 use console::style;
@@ -338,6 +338,9 @@ async fn run_diff(
     let after_by_key = index_graph_by_norm_key(&after_graph, &canon_after_root, &changed_abs);
     let before_by_key = index_graph_by_norm_key(&before_graph, canon_tmp_str, &changed_tmp);
 
+    let after_edge_by_key = index_edges_by_key(&after_graph, &canon_after_root, &changed_abs);
+    let before_edge_by_key = index_edges_by_key(&before_graph, canon_tmp_str, &changed_tmp);
+
     let after_keys: HashSet<String> = after_by_key.keys().cloned().collect();
     let before_keys: HashSet<String> = before_by_key.keys().cloned().collect();
 
@@ -358,6 +361,34 @@ async fn run_diff(
         }
     }
 
+    // Edge diff: Calls + Handler edges whose source node was not itself added/removed
+    let after_edge_keys: HashSet<String> = after_edge_by_key.keys().cloned().collect();
+    let before_edge_keys: HashSet<String> = before_edge_by_key.keys().cloned().collect();
+    let added_node_keys: HashSet<String> = added
+        .iter()
+        .map(|n| norm_key(n, &canon_after_root))
+        .collect();
+    let removed_node_keys: HashSet<String> = removed
+        .iter()
+        .map(|n| norm_key(n, canon_tmp_str))
+        .collect();
+    let added_edges: Vec<&Edge> = after_edge_keys
+        .difference(&before_edge_keys)
+        .filter_map(|k| after_edge_by_key.get(k.as_str()).copied())
+        .filter(|e| {
+            let src_key = norm_key_from_ref(&e.source, &canon_after_root);
+            !added_node_keys.contains(&src_key)
+        })
+        .collect();
+    let removed_edges: Vec<&Edge> = before_edge_keys
+        .difference(&after_edge_keys)
+        .filter_map(|k| before_edge_by_key.get(k.as_str()).copied())
+        .filter(|e| {
+            let src_key = norm_key_from_ref(&e.source, canon_tmp_str);
+            !removed_node_keys.contains(&src_key)
+        })
+        .collect();
+
     let filter_node = |n: &&Node| -> bool {
         validated_types.is_empty() || validated_types.contains(&n.node_type)
     };
@@ -368,7 +399,7 @@ async fn run_diff(
         .filter(|(a, _)| filter_node(&a))
         .collect();
 
-    if added.is_empty() && removed.is_empty() && modified.is_empty() {
+    if added.is_empty() && removed.is_empty() && modified.is_empty() && added_edges.is_empty() && removed_edges.is_empty() {
         if let Some(sp) = &spinner {
             sp.finish_with_message("No graph-level changes found");
         }
@@ -382,7 +413,7 @@ async fn run_diff(
     if let Some(sp) = &spinner {
         sp.set_message("Rendering graph change summary...");
     }
-    print_delta(out, &added, &removed, &modified, canon_repo_str, &canon_after_root, canon_tmp_str)?;
+    print_delta(out, &added, &removed, &modified, &added_edges, &removed_edges, canon_repo_str, &canon_after_root, canon_tmp_str)?;
     if let Some(sp) = &spinner {
         sp.finish_with_message("Graph change summary ready");
     }
@@ -462,6 +493,18 @@ fn norm_key(node: &Node, root: &str) -> String {
     format!("{}-{}-{}", node.node_type, node.node_data.name, rel_file)
 }
 
+fn norm_key_from_ref(node_ref: &ast::lang::graphs::NodeRef, root: &str) -> String {
+    let file = &node_ref.node_data.file;
+    let rel_file = if root.is_empty() {
+        file.as_str()
+    } else {
+        file.strip_prefix(root)
+            .map(|s| s.trim_start_matches('/'))
+            .unwrap_or(file.as_str())
+    };
+    format!("{}-{}-{}", node_ref.node_type, node_ref.node_data.name, rel_file)
+}
+
 fn index_graph_by_norm_key<'a>(
     graph: &'a ArrayGraph,
     root: &str,
@@ -494,6 +537,64 @@ fn index_graph_by_norm_key<'a>(
     map
 }
 
+fn edge_key(edge: &Edge, src_root: &str, tgt_root: &str) -> String {
+    let src_file = &edge.source.node_data.file;
+    let tgt_file = &edge.target.node_data.file;
+    let rel_src = if src_root.is_empty() {
+        src_file.as_str()
+    } else {
+        src_file
+            .strip_prefix(src_root)
+            .map(|s| s.trim_start_matches('/'))
+            .unwrap_or(src_file.as_str())
+    };
+    let rel_tgt = if tgt_root.is_empty() {
+        tgt_file.as_str()
+    } else {
+        tgt_file
+            .strip_prefix(tgt_root)
+            .map(|s| s.trim_start_matches('/'))
+            .unwrap_or(tgt_file.as_str())
+    };
+    format!(
+        "{}-{}-{}→{}-{}-{}",
+        edge.source.node_type,
+        edge.source.node_data.name,
+        rel_src,
+        edge.target.node_type,
+        edge.target.node_data.name,
+        rel_tgt,
+    )
+}
+
+fn index_edges_by_key<'a>(
+    graph: &'a ArrayGraph,
+    root: &str,
+    allowed_files: &HashSet<String>,
+) -> HashMap<String, &'a Edge> {
+    let mut map = HashMap::new();
+    for edge in &graph.edges {
+        if !matches!(edge.edge, EdgeType::Calls | EdgeType::Handler) {
+            continue;
+        }
+        // Only include edges where at least one endpoint is in the changed files set
+        if !allowed_files.is_empty() {
+            let src_canon = std::fs::canonicalize(&edge.source.node_data.file)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let tgt_canon = std::fs::canonicalize(&edge.target.node_data.file)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if !allowed_files.contains(&src_canon) && !allowed_files.contains(&tgt_canon) {
+                continue;
+            }
+        }
+        let key = edge_key(edge, root, root);
+        map.entry(key).or_insert(edge);
+    }
+    map
+}
+
 fn rel_path(file: &str, root: &str) -> String {
     Path::new(file)
         .strip_prefix(root)
@@ -512,6 +613,8 @@ fn print_delta(
     added: &[&Node],
     removed: &[&Node],
     modified: &[(&Node, &Node)],
+    added_edges: &[&Edge],
+    removed_edges: &[&Edge],
     repo_root: &str,
     after_root: &str,
     before_root: &str,
@@ -520,6 +623,9 @@ fn print_delta(
     let mut file_added: HashMap<String, Vec<&Node>> = HashMap::new();
     let mut file_removed: HashMap<String, Vec<&Node>> = HashMap::new();
     let mut file_modified: HashMap<String, Vec<(&Node, &Node)>> = HashMap::new();
+    // Edge changes bucketed by the source node's file
+    let mut file_added_edges: HashMap<String, Vec<&Edge>> = HashMap::new();
+    let mut file_removed_edges: HashMap<String, Vec<&Edge>> = HashMap::new();
 
     for node in added {
         // Added nodes may live in tmp_after_dir (--range) or repo dir (HEAD-based)
@@ -535,6 +641,14 @@ fn print_delta(
         let rp = rel_path(&after_node.node_data.file, after_root);
         file_modified.entry(rp).or_default().push((after_node, before_node));
     }
+    for edge in added_edges {
+        let rp = rel_path(&edge.source.node_data.file, after_root);
+        file_added_edges.entry(rp).or_default().push(edge);
+    }
+    for edge in removed_edges {
+        let rp = rel_path(&edge.source.node_data.file, before_root);
+        file_removed_edges.entry(rp).or_default().push(edge);
+    }
     let _ = repo_root; // kept for future use
 
     // Collect all unique files and determine file-level status
@@ -542,6 +656,8 @@ fn print_delta(
         .keys()
         .chain(file_removed.keys())
         .chain(file_modified.keys())
+        .chain(file_added_edges.keys())
+        .chain(file_removed_edges.keys())
         .cloned()
         .collect::<HashSet<_>>()
         .into_iter()
@@ -554,25 +670,38 @@ fn print_delta(
         let has_added = file_added.contains_key(file);
         let has_removed = file_removed.contains_key(file);
         let has_modified = file_modified.contains_key(file);
+        let edge_add_count = file_added_edges.get(file).map(|v| v.len()).unwrap_or(0);
+        let edge_rem_count = file_removed_edges.get(file).map(|v| v.len()).unwrap_or(0);
 
         // File-level status: Added if only in added, Removed if only in removed, else Modified
         let file_status = if has_modified || (has_added && has_removed) {
             style("[Modified]".to_string()).bold().yellow()
         } else if has_added {
             style("[Added]".to_string()).bold().green()
-        } else {
+        } else if has_removed {
             style("[Removed]".to_string()).bold().red()
+        } else {
+            style("[Edge changes]".to_string()).bold().cyan()
         };
 
         let node_count = file_added.get(file).map(|v| v.len()).unwrap_or(0)
             + file_removed.get(file).map(|v| v.len()).unwrap_or(0)
             + file_modified.get(file).map(|v| v.len()).unwrap_or(0);
 
+        let mut summary_parts: Vec<String> = Vec::new();
+        if node_count > 0 {
+            summary_parts.push(format!("{} node{}", node_count, if node_count == 1 { "" } else { "s" }));
+        }
+        if edge_add_count + edge_rem_count > 0 {
+            summary_parts.push(format!("{} edge change{}", edge_add_count + edge_rem_count, if edge_add_count + edge_rem_count == 1 { "" } else { "s" }));
+        }
+        let summary = summary_parts.join(", ");
+
         out.writeln(format!(
             "{}  {}  {}",
             style(file).bold(),
             file_status,
-            style(format!("({} node{})", node_count, if node_count == 1 { "" } else { "s" })).dim()
+            style(format!("({})", summary)).dim()
         ))?;
 
         // Modified nodes (show with ~)
@@ -638,15 +767,71 @@ fn print_delta(
             }
         }
 
+        // Added edges (show with ↗)
+        if let Some(edges) = file_added_edges.get(file) {
+            let mut sorted = edges.clone();
+            sorted.sort_by_key(|e| &e.source.node_data.name);
+            for edge in sorted {
+                let tgt_file = &edge.target.node_data.file;
+                let tgt_rel = rel_path(tgt_file, after_root);
+                let tgt_display = if tgt_rel != *file {
+                    format!("{} [{}]", edge.target.node_data.name, tgt_rel)
+                } else {
+                    edge.target.node_data.name.clone()
+                };
+                let edge_label = match edge.edge {
+                    EdgeType::Handler => "handler",
+                    _ => "calls",
+                };
+                out.writeln(format!(
+                    "  {} {} {} {} {}",
+                    style("↗").green().bold(),
+                    style("new").green(),
+                    style(edge_label).dim(),
+                    style(&edge.source.node_data.name).bold(),
+                    style(format!("→ {}", tgt_display)).cyan()
+                ))?;
+            }
+        }
+
+        // Removed edges (show with ↘)
+        if let Some(edges) = file_removed_edges.get(file) {
+            let mut sorted = edges.clone();
+            sorted.sort_by_key(|e| &e.source.node_data.name);
+            for edge in sorted {
+                let tgt_file = &edge.target.node_data.file;
+                let tgt_rel = rel_path(tgt_file, before_root);
+                let tgt_display = if tgt_rel != *file {
+                    format!("{} [{}]", edge.target.node_data.name, tgt_rel)
+                } else {
+                    edge.target.node_data.name.clone()
+                };
+                let edge_label = match edge.edge {
+                    EdgeType::Handler => "handler",
+                    _ => "calls",
+                };
+                out.writeln(format!(
+                    "  {} {} {} {} {}",
+                    style("↘").red().bold(),
+                    style("dropped").red(),
+                    style(edge_label).dim(),
+                    style(&edge.source.node_data.name).bold(),
+                    style(format!("→ {}", tgt_display)).cyan()
+                ))?;
+            }
+        }
+
         out.newline()?;
     }
 
     out.writeln(format!(
-        "{}  {}  {}  {}",
+        "{}  {}  {}  {}  {}  {}",
         style(format!("{} file{}", total_file_count, if total_file_count == 1 { "" } else { "s" })).bold(),
         style(format!("{} added", added.len())).green(),
         style(format!("{} removed", removed.len())).red(),
-        style(format!("{} modified", modified.len())).yellow()
+        style(format!("{} modified", modified.len())).yellow(),
+        style(format!("{} new edge{}", added_edges.len(), if added_edges.len() == 1 { "" } else { "s" })).green(),
+        style(format!("{} dropped edge{}", removed_edges.len(), if removed_edges.len() == 1 { "" } else { "s" })).red(),
     ))?;
 
     Ok(())
