@@ -13,6 +13,6 @@
     "test:ui": "npx playwright test --ui"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "express": "4.21.2"
   }
 }
