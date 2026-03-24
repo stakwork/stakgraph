@@ -58,6 +58,9 @@ pub async fn run_graph(args: &GraphArgs, out: &mut Output) -> Result<()> {
         GraphCommand::Ingest(a) => ingest::run_ingest(&a.path, out).await,
         GraphCommand::Search(a) => search::run_search(&a.query, &a.node_type, a.limit, out).await,
         GraphCommand::Node(a) => node::run_node(&a.name, out).await,
+        GraphCommand::Map(a) => {
+            map::run_map(&a.name, a.node_type.as_deref(), &a.direction, a.depth, a.tests, &a.trim, out).await
+        }
         GraphCommand::Schema => schema::run_schema(out),
         GraphCommand::Clear => schema::run_clear(out).await,
         GraphCommand::Stats => schema::run_stats(out).await,

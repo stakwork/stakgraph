@@ -155,6 +155,8 @@ pub enum GraphCommand {
     Search(GraphSearchArgs),
     /// Show details for a named node
     Node(GraphNodeArgs),
+    /// Traverse the graph from a node and render an ASCII tree
+    Map(GraphMapArgs),
     /// Print all known node and edge types
     Schema,
     /// Clear all nodes and edges from the graph
@@ -188,6 +190,32 @@ pub struct GraphSearchArgs {
 pub struct GraphNodeArgs {
     /// Exact node name to look up
     pub name: String,
+}
+
+#[derive(Debug, Args)]
+pub struct GraphMapArgs {
+    /// Name of the node to start traversal from
+    pub name: String,
+
+    /// Node type label (e.g. Function, Endpoint, Class)
+    #[arg(long)]
+    pub node_type: Option<String>,
+
+    /// Traversal direction: down, up, or both
+    #[arg(long, default_value = "down")]
+    pub direction: String,
+
+    /// Maximum traversal depth
+    #[arg(long, default_value_t = 10)]
+    pub depth: usize,
+
+    /// Include test nodes in the traversal
+    #[arg(long)]
+    pub tests: bool,
+
+    /// Node names to exclude from the tree, comma-separated
+    #[arg(long, value_delimiter = ',')]
+    pub trim: Vec<String>,
 }
 
 impl CliArgs {

@@ -25,6 +25,7 @@ tempfile = "3"
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 neo4rs = { version = "0.8", optional = true }
+termtree = { version = "0.4", optional = true }
 
 [features]
-neo4j = ["ast/neo4j", "ast/openssl", "dep:neo4rs"]
+neo4j = ["ast/neo4j", "ast/openssl", "dep:neo4rs", "dep:termtree"]
