@@ -30,13 +30,13 @@
     "@ai-sdk/openai": "3.0.25",
     "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
     "ai": "6.0.72",
-    "zod": "^4.3.6"
+    "zod": "4.3.6"
   },
   "devDependencies": {
-    "@types/json-schema": "^7.0.15",
-    "@types/node": "^24.3.0",
-    "ts-node": "^10.9.2",
-    "tsup": "^8.4.0",
-    "typescript": "^5.9.2"
+    "@types/json-schema": "7.0.15",
+    "@types/node": "24.3.0",
+    "ts-node": "10.9.2",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3"
   }
 }
