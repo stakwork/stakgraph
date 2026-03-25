@@ -59,6 +59,8 @@ pub enum Commands {
     Completions(CompletionsArgs),
     /// Explore git changes summaries scoped to specific files or directories
     Changes(ChangesArgs),
+    /// Show a dependency tree for a named node
+    Deps(DepsArgs),
 }
 
 #[derive(Debug, Args)]
@@ -135,6 +137,29 @@ pub struct DiffArgs {
     pub paths: Vec<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct DepsArgs {
+    /// Name of the function or node to inspect
+    #[arg(value_name = "NAME")]
+    pub name: String,
+
+    /// Maximum traversal depth (0 = unlimited, default: 3)
+    #[arg(long, default_value = "3")]
+    pub depth: usize,
+
+    /// Only show nodes of this type (e.g. Function, Class, Endpoint)
+    #[arg(long)]
+    pub r#type: Option<String>,
+
+    /// Include unverified (cross-file unresolved) calls (default: true)
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    pub allow: bool,
+
+    /// Files or directories to parse
+    #[arg(value_name = "FILE_OR_DIR", num_args = 1..)]
+    pub files: Vec<String>,
+}
+
 impl CliArgs {
     pub fn parse_and_expand() -> Result<Self> {
         let mut args = Self::parse();
@@ -161,6 +186,10 @@ impl CliArgs {
         }
 
         if let Some(Commands::Changes(_)) = &args.command {
+            return Ok(args);
+        }
+
+        if let Some(Commands::Deps(_)) = &args.command {
             return Ok(args);
         }
 

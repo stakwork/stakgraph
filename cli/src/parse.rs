@@ -89,17 +89,18 @@ pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
             None => {
                 if !dir_files.contains(file_path) {
                     let file_label = style("File:").bold().cyan();
+                    let rel = crate::utils::rel_path_from_cwd(file_path);
                     let msg = match read_text_preview(file_path) {
                         Some(preview) => format!(
                             "{}  {}\n{}\n",
                             file_label,
-                            style(file_path).cyan(),
+                            style(&rel).cyan(),
                             preview
                         ),
                         None => format!(
                             "{}  {}\n[binary or unprintable content skipped]\n",
                             file_label,
-                            style(file_path).cyan()
+                            style(&rel).cyan()
                         ),
                     };
                     out.writeln(msg)?;

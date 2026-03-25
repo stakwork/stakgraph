@@ -5,9 +5,7 @@ use super::git::{
     filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
     get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
 };
-use ast::lang::graphs::{ArrayGraph, Edge, EdgeType, Node, NodeType};
-use ast::lang::Lang;
-use ast::repo::{Repo, Repos};
+use ast::lang::graphs::{ArrayGraph, Node, NodeType, Edge, EdgeType};
 use console::style;
 use lsp::Language;
 use shared::{Error, Result};
@@ -15,7 +13,7 @@ use shared::{Error, Result};
 use super::args::{ChangesArgs, ChangesCommand, DiffArgs};
 use super::output::Output;
 use super::progress::CliSpinner;
-use super::utils::{common_ancestor, parse_node_types};
+use super::utils::{build_graph_for_files, parse_node_types};
 
 pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
     let cwd = std::env::current_dir()
@@ -421,53 +419,7 @@ async fn run_diff(
     Ok(())
 }
 
-async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
-    if files.is_empty() {
-        return Ok(ArrayGraph::default());
-    }
-
-    let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
-    for file_path in files {
-        if let Some(lang) = Language::from_path(file_path) {
-            if let Some((_, list)) = files_by_lang.iter_mut().find(|(l, _)| *l == lang) {
-                list.push(file_path.clone());
-            } else {
-                files_by_lang.push((lang, vec![file_path.clone()]));
-            }
-        }
-    }
-
-    let mut repos_vec: Vec<Repo> = Vec::new();
-    for (language, file_list) in &files_by_lang {
-        let lang = Lang::from_language(language.clone());
-        if let Some(root) = common_ancestor(file_list) {
-            let file_refs: Vec<&str> = file_list.iter().map(|s| s.as_str()).collect();
-            repos_vec.push(Repo::from_files(
-                &file_refs,
-                root,
-                lang,
-                false,
-                false,
-                false,
-            )?);
-        } else {
-            for file_path in file_list {
-                let file_lang = Lang::from_language(language.clone());
-                repos_vec.push(Repo::from_single_file(file_path, file_lang, false, false, false)?);
-            }
-        }
-    }
-
-    if repos_vec.is_empty() {
-        return Ok(ArrayGraph::default());
-    }
-
-    let repos = Repos(repos_vec);
-    repos.build_graphs_array().await
-}
-
-const MAX_SIG: usize = 120;
-
+const MAX_SIG: usize = 100;
 fn node_signature(node: &Node) -> Option<String> {
     let raw = if let Some(iface) = node.node_data.meta.get("interface") {
         iface.as_str()

@@ -149,3 +149,68 @@ fn changes_diff_scope_warning_for_missing_path() {
     assert!(out.stdout.contains("warning:"));
     assert!(out.stdout.contains("No changes found in the specified scope"));
 }
+
+fn init_git_repo_with_path_scope_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("tempdir failed");
+    let root = dir.path();
+
+    run_cmd(root, &["git", "init"]);
+    run_cmd(root, &["git", "config", "user.email", "test@example.com"]);
+    run_cmd(root, &["git", "config", "user.name", "Test User"]);
+
+    write_file(root, "src/app/main.rs", "pub fn app() -> i32 {\n    1\n}\n");
+    write_file(
+        root,
+        "src/app-utils/main.rs",
+        "pub fn app_utils() -> i32 {\n    1\n}\n",
+    );
+    run_cmd(root, &["git", "add", "."]);
+    run_cmd(root, &["git", "commit", "-m", "initial"]);
+
+    write_file(root, "src/app/main.rs", "pub fn app() -> i32 {\n    2\n}\n");
+    write_file(
+        root,
+        "src/app-utils/main.rs",
+        "pub fn app_utils() -> i32 {\n    2\n}\n",
+    );
+
+    dir
+}
+
+#[test]
+fn changes_diff_scope_does_not_match_sibling_prefix() {
+    let repo = init_git_repo_with_path_scope_fixture();
+    let cwd = repo.path().to_string_lossy().to_string();
+
+    let out = run_stakgraph_in_cwd(&cwd, &["changes", "diff", "src/app"]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(
+        out.stdout.contains("Found 1 file(s) changed"),
+        "expected exact scoped file count; stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+    assert!(
+        !out.stdout.contains("Found 2 file(s) changed"),
+        "unexpected sibling scope match count; stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+}
+
+#[test]
+fn changes_diff_scope_normalizes_dot_slash_and_trailing_slash() {
+    let repo = init_git_repo_with_path_scope_fixture();
+    let cwd = repo.path().to_string_lossy().to_string();
+
+    let out = run_stakgraph_in_cwd(&cwd, &["changes", "diff", "./src/app/"]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(
+        out.stdout.contains("Found 1 file(s) changed"),
+        "expected normalized scope to match app dir only; stdout: {}\nstderr: {}",
+        out.stdout,
+        out.stderr
+    );
+}
