@@ -32,6 +32,7 @@ import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
 import * as rr from "./repo/index.js";
+import * as importance from "./importance/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
@@ -170,6 +171,7 @@ app.get("/repo/agent/session", rr.get_agent_session);
 app.get("/repo/agent/validate_session", rr.validate_agent_session);
 app.get("/repo/agent/file", rr.get_agent_file);
 app.post("/repo/describe", rr.describe_nodes_agent);
+app.post("/repo/embed", rr.embed_nodes_agent);
 app.get("/reattach", r.reconnect_orphaned_hints);
 app.post("/pull_request", r.create_pull_request);
 app.post("/learn_docs", learn_docs_agent);
@@ -201,6 +203,10 @@ app.get("/gitree/clues/:id", gitree.gitree_get_clue);
 app.delete("/gitree/clues/:id", gitree.gitree_delete_clue);
 app.post("/gitree/search-clues", gitree.gitree_search_clues);
 app.post("/gitree/provenance", gitree.gitree_provenance);
+
+app.post("/importance/score", importance.score_importance);
+app.get("/importance/top", importance.get_top_importance);
+app.get("/importance/tag", importance.get_importance_tag);
 
 app.post("/document_workflow", document_workflow);
 app.post("/document_workflows", document_workflows);

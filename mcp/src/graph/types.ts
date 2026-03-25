@@ -91,7 +91,8 @@ export type EdgeType =
   | "TOUCHES"
   | "MODIFIES"
   | "REFERENCES"
-  | "HAS_SCOPE";
+  | "HAS_SCOPE"
+  | "MEMBER_OF";
 
 export interface EdgeTypeInterface {
   edge_type: EdgeType;
@@ -212,6 +213,7 @@ export function all_edge_types(): EdgeType[] {
     "HAS_ISSUES",
     "METADATA_FOR",
     "MOCKS",
+    "MEMBER_OF",
   ];
 }
 

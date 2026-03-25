@@ -1,6 +1,7 @@
 import neo4j, { Driver, Session } from "neo4j-driver";
 import fs from "fs";
 import readline from "readline";
+import { ImportanceTag, ImportanceTopNode, TaggedNode } from "../importance/types.js";
 import {
   NodeType,
   all_node_types,
@@ -9,6 +10,7 @@ import {
   EdgeType,
   Node,
   Edge,
+  toNum,
 } from "./types.js";
 import {
   create_node_key,
@@ -394,7 +396,8 @@ class Db {
     query: string,
     limit: number,
     node_types: NodeType[],
-    similarityThreshold: number = 0.7,
+    skip_node_types: NodeType[] = [],
+    maxTokens: number = 0,
     language?: string,
   ): Promise<Neo4jNode[]> {
     let session: Session | null = null;
@@ -402,16 +405,20 @@ class Db {
       session = this.driver.session();
       const embeddings = await vectorizeQuery(query);
 
+      if (!skip_node_types.includes("Import")) {
+        skip_node_types.push("Import");
+      }
+
       const extensions = language ? getExtensionsForLanguage(language) : [];
 
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
         limit,
         node_types,
-        similarityThreshold,
+        skip_node_types,
         extensions,
       });
-      return result.records.map((record) => {
+      const nodes = result.records.map((record) => {
         const node: Neo4jNode = deser_node(record, "node");
         return {
           properties: node.properties,
@@ -419,6 +426,23 @@ class Db {
           score: record.get("score"),
         };
       });
+      if (!maxTokens) {
+        return nodes;
+      }
+      let totalTokens = 0;
+      const filteredNodes: Neo4jNode[] = [];
+      for (const node of nodes) {
+        const tokenCount = node.properties.token_count
+          ? parseInt(node.properties.token_count.toString(), 10)
+          : 0;
+        if (totalTokens + tokenCount <= maxTokens) {
+          totalTokens += tokenCount;
+          filteredNodes.push(node);
+        } else {
+          break;
+        }
+      }
+      return filteredNodes;
     } catch (error) {
       console.error("Error vector searching:", error);
       throw error;
@@ -939,7 +963,9 @@ class Db {
 
   async get_learnings_by_scopes(
     scope_names: string[],
-  ): Promise<{ id: string; rule: string; reason: string | null; scopes: string[] }[]> {
+  ): Promise<
+    { id: string; rule: string; reason: string | null; scopes: string[] }[]
+  > {
     const session = this.driver.session();
     try {
       const result = await session.run(Q.GET_LEARNINGS_BY_SCOPES_QUERY, {
@@ -1160,59 +1186,276 @@ class Db {
     }
   }
 
+  async update_node_description_only(ref_id: string, description: string) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.UPDATE_NODE_DESCRIPTION_ONLY_QUERY, {
+        ref_id,
+        description,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_nodes_with_description_without_embeddings(
+    limit: number,
+    repo_paths: string[] | null,
+    file_paths: string[],
+  ): Promise<{ ref_id: string; description: string }[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(
+        Q.GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY,
+        {
+          limit: neo4j.int(limit),
+          repo_paths: repo_paths || [],
+          file_paths,
+        },
+      );
+      return result.records.map((record) => ({
+        ref_id: record.get("ref_id"),
+        description: record.get("description"),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_embeddings(
+    batch: { ref_id: string; embeddings: number[] }[],
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_descriptions(
+    batch: { ref_id: string; description: string }[],
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_descriptions_and_embeddings(
+    batch: { ref_id: string; description: string; embeddings: number[] }[],
+  ) {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY, {
+        batch,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
   async count_nodes_with_embeddings(): Promise<number> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.COUNT_NODES_WITH_EMBEDDINGS_QUERY);
-      return r.records[0].get('c').toNumber();
-    } finally { await session.close(); }
+      return r.records[0].get("c").toNumber();
+    } finally {
+      await session.close();
+    }
   }
 
   async count_workflow_nodes(): Promise<number> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.COUNT_WORKFLOWS_QUERY);
-      return r.records[0].get('c').toNumber();
-    } finally { await session.close(); }
+      return r.records[0].get("c").toNumber();
+    } finally {
+      await session.close();
+    }
   }
 
   async get_all_workflows(): Promise<any[]> {
     const session = this.driver.session();
     try {
       const r = await session.run(Q.GET_ALL_WORKFLOWS_QUERY);
-      return r.records.map(rec => rec.get('w').properties);
-    } finally { await session.close(); }
+      return r.records.map((rec) => rec.get("w").properties);
+    } finally {
+      await session.close();
+    }
   }
 
-  async get_workflow_by_key(node_key: string, ref_id?: string): Promise<any | null> {
+  async get_workflow_by_key(
+    node_key: string,
+    ref_id?: string,
+  ): Promise<any | null> {
     const session = this.driver.session();
     try {
       let r = await session.run(Q.GET_WORKFLOW_BY_KEY_QUERY, { node_key });
       if (r.records.length === 0 && ref_id) {
         r = await session.run(Q.GET_WORKFLOW_BY_REF_ID_QUERY, { ref_id });
       }
-      return r.records.length > 0 ? r.records[0].get('w').properties : null;
-    } finally { await session.close(); }
+      return r.records.length > 0 ? r.records[0].get("w").properties : null;
+    } finally {
+      await session.close();
+    }
   }
 
   async get_workflow_documentation(node_key: string): Promise<any | null> {
     const session = this.driver.session();
     try {
-      const r = await session.run(Q.GET_WORKFLOW_DOCUMENTATION_QUERY, { node_key });
-      return r.records.length > 0 ? r.records[0].get('d').properties : null;
-    } finally { await session.close(); }
+      const r = await session.run(Q.GET_WORKFLOW_DOCUMENTATION_QUERY, {
+        node_key,
+      });
+      return r.records.length > 0 ? r.records[0].get("d").properties : null;
+    } finally {
+      await session.close();
+    }
   }
 
-  async upsert_workflow_documentation(workflow_ref_id: string, name: string, body: string): Promise<string> {
+  async upsert_workflow_documentation(
+    workflow_ref_id: string,
+    name: string,
+    body: string,
+  ): Promise<string> {
     const session = this.driver.session();
     try {
       const node_key = `workflow_documentation_${workflow_ref_id}`;
       const ts = Date.now();
       const r = await session.run(Q.UPSERT_WORKFLOW_DOCUMENTATION_QUERY, {
-        workflow_ref_id, node_key, name, body, ts
+        workflow_ref_id,
+        node_key,
+        name,
+        body,
+        ts,
       });
-      return r.records[0].get('ref_id');
-    } finally { await session.close(); }
+      return r.records[0].get("ref_id");
+    } finally {
+      await session.close();
+    }
+  }
+
+  async project_importance_graph(graphName: string): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.IMPORTANCE_GRAPH_PROJECT_QUERY, {
+        graphName,
+      });
+      return toNum(r.records[0]?.get("nodeCount") ?? 0);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async stream_pagerank(
+    graphName: string,
+  ): Promise<{ ref_id: string; score: number }[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.IMPORTANCE_PAGERANK_QUERY, { graphName });
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        score: toNum(rec.get("score")),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_degree_counts(): Promise<
+    {
+      ref_id: string;
+      node_type: string;
+      in_degree: number;
+      out_degree: number;
+    }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.IMPORTANCE_DEGREE_QUERY);
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        node_type: rec.get("node_type") ?? "",
+        in_degree: toNum(rec.get("in_degree")),
+        out_degree: toNum(rec.get("out_degree")),
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async bulk_update_importance(batch: TaggedNode[]): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.BULK_UPDATE_IMPORTANCE_QUERY, { batch });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async drop_importance_graph(graphName: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.IMPORTANCE_GRAPH_DROP_QUERY, { graphName });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_top_nodes_by_importance(
+    limit: number,
+  ): Promise<ImportanceTopNode[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_TOP_NODES_BY_IMPORTANCE_QUERY, {
+        limit: neo4j.int(limit),
+      });
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        name: rec.get("name"),
+        file: rec.get("file") || "",
+        label: rec.get("label"),
+        pagerank: toNum(rec.get("pagerank")),
+        in_degree: toNum(rec.get("in_degree")),
+        out_degree: toNum(rec.get("out_degree")),
+        entry_score: toNum(rec.get("entry_score")),
+        utility_score: toNum(rec.get("utility_score")),
+        hub_score: toNum(rec.get("hub_score")),
+        importance_tag: (rec.get("importance_tag") as ImportanceTag) ?? null,
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_nodes_by_importance_tag(
+    tag: ImportanceTag,
+    limit: number,
+  ): Promise<ImportanceTopNode[]> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.GET_NODES_BY_IMPORTANCE_TAG_QUERY, {
+        tag,
+        limit: neo4j.int(limit),
+      });
+      return r.records.map((rec) => ({
+        ref_id: rec.get("ref_id"),
+        name: rec.get("name"),
+        file: rec.get("file") || "",
+        label: rec.get("label"),
+        pagerank: toNum(rec.get("pagerank")),
+        in_degree: toNum(rec.get("in_degree")),
+        out_degree: toNum(rec.get("out_degree")),
+        entry_score: toNum(rec.get("entry_score")),
+        utility_score: toNum(rec.get("utility_score")),
+        hub_score: toNum(rec.get("hub_score")),
+        importance_tag: rec.get("importance_tag") as ImportanceTag,
+      }));
+    } finally {
+      await session.close();
+    }
   }
 
   async close() {

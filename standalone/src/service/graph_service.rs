@@ -1,7 +1,7 @@
 use crate::types::{AppState, ProcessBody, ProcessResponse, Result, WebError};
 use crate::utils::{
-    call_mcp_docs, call_mcp_embed, call_mcp_mocks, has_rules_file_changes, resolve_repo,
-    should_call_mcp_for_repo,
+    call_mcp_importance, call_mcp_docs, call_mcp_embed, call_mcp_mocks, has_rules_file_changes,
+    resolve_repo, should_call_mcp_for_repo,
 };
 use ast::lang::{graphs::graph_ops::GraphOps, Graph};
 use ast::repo::{check_revs_files, clone_repo, Repo};
@@ -186,6 +186,7 @@ pub async fn ingest(
             tracing::warn!("Error printing nodes and edges to files: {}", e);
         }
     }
+   call_mcp_importance().await;
 
     for repo_url in &repo_urls {
         if should_call_mcp_for_repo(&docs_param, repo_url) {
@@ -198,6 +199,8 @@ pub async fn ingest(
             call_mcp_embed(repo_url, embeddings_limit, vec![], false).await;
         }
     }
+
+    
 
     Ok(Json(ProcessResponse { nodes, edges }))
 }
@@ -305,6 +308,19 @@ pub async fn sync(
         "\n\n ==>> Total processing time: {:.2?} \n\n",
         total_start.elapsed()
     );
+
+    // prevent call for cluster if only markdown or text files were changed
+    let has_code_changes = modified_files
+    .as_ref()
+    .map(|files| {
+        files
+            .iter()
+            .any(|f| !f.ends_with(".md") && !f.ends_with(".txt"))
+    })
+    .unwrap_or(true);
+    if has_code_changes {
+        call_mcp_importance().await;
+    }
 
     if should_call_mcp_for_repo(&docs_param, repo_url) {
         let force = modified_files

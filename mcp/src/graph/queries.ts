@@ -511,23 +511,26 @@ ${NODE_TYPES}
 `;
 
 export const VECTOR_SEARCH_QUERY = `
-MATCH (node)
+CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($limit), $embeddings)
+YIELD node, score
+WITH node, score
 WHERE
   CASE
     WHEN $node_types IS NULL OR size($node_types) = 0 THEN true
     ELSE ANY(label IN labels(node) WHERE label IN $node_types)
   END
-  AND node.embeddings IS NOT NULL
+  AND
+  CASE
+    WHEN $skip_node_types IS NULL OR size($skip_node_types) = 0 THEN true
+    ELSE NOT ANY(label IN labels(node) WHERE label IN $skip_node_types)
+  END
   AND
   CASE
     WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
     ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
   END
-WITH node, gds.similarity.cosine(node.embeddings, $embeddings) AS score
-WHERE score >= $similarityThreshold
 RETURN node, score
 ORDER BY score DESC
-LIMIT toInteger($limit)
 `;
 
 export const SUBGRAPH_QUERY = `
@@ -869,6 +872,41 @@ MATCH (n {ref_id: $ref_id})
 SET n.description = $description, n.embeddings = $embeddings
 `;
 
+export const UPDATE_NODE_DESCRIPTION_ONLY_QUERY = `
+MATCH (n {ref_id: $ref_id})
+SET n.description = $description
+`;
+
+export const GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY = `
+MATCH (n)
+WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
+  AND n.description IS NOT NULL
+  AND n.description <> ''
+  AND (n.embeddings IS NULL)
+  AND ($repo_paths IS NULL OR size($repo_paths) = 0 OR ANY(repo IN $repo_paths WHERE n.file STARTS WITH repo))
+  AND ($file_paths IS NULL OR size($file_paths) = 0 OR ANY(path IN $file_paths WHERE n.file ENDS WITH path))
+RETURN n.ref_id as ref_id, n.description as description
+LIMIT toInteger($limit)
+`;
+
+export const BULK_UPDATE_EMBEDDINGS_BY_REF_ID_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.embeddings = item.embeddings
+`;
+
+export const BULK_UPDATE_DESCRIPTIONS_ONLY_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.description = item.description
+`;
+
+export const BULK_UPDATE_DESCRIPTIONS_AND_EMBEDDINGS_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.description = item.description, n.embeddings = item.embeddings
+`;
+
 export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
 
 export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
@@ -921,3 +959,92 @@ MATCH path = shortestPath((start)-[*]-(end))
 RETURN path
 
 */
+
+export const IMPORTANCE_GRAPH_PROJECT_QUERY = `
+MATCH (n)
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page
+WITH collect(n) AS nodes
+UNWIND nodes AS n
+OPTIONAL MATCH (n)-[r:CALLS|HANDLER|RENDERS]->(m)
+WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:Datamodel OR m:Request OR m:Page
+WITH gds.graph.project(
+  $graphName,
+  n,
+  m,
+  { relationshipType: CASE WHEN r IS NULL THEN 'NONE' ELSE type(r) END }
+) AS g
+RETURN g.nodeCount AS nodeCount
+`;
+
+export const IMPORTANCE_PAGERANK_QUERY = `
+CALL gds.pageRank.stream($graphName, {
+  maxIterations: 20,
+  dampingFactor: 0.85
+})
+YIELD nodeId, score
+MATCH (n) WHERE id(n) = nodeId
+RETURN n.ref_id AS ref_id, score
+`;
+
+export const IMPORTANCE_DEGREE_QUERY = `
+MATCH (n)
+WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page
+OPTIONAL MATCH (caller)-[:CALLS|HANDLER|RENDERS]->(n)
+WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:Datamodel OR caller:Request OR caller:Page
+WITH n, count(DISTINCT caller) AS in_degree
+OPTIONAL MATCH (n)-[:CALLS|HANDLER|RENDERS]->(callee)
+WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel OR callee:Request OR callee:Page
+WITH n, in_degree, count(DISTINCT callee) AS out_degree
+RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS node_type
+`;
+
+export const BULK_UPDATE_IMPORTANCE_QUERY = `
+UNWIND $batch AS item
+MATCH (n {ref_id: item.ref_id})
+SET n.pagerank      = item.pagerank,
+    n.in_degree     = item.in_degree,
+    n.out_degree    = item.out_degree,
+    n.entry_score   = item.entry_score,
+    n.utility_score = item.utility_score,
+    n.hub_score     = item.hub_score,
+    n.importance_tag = item.importance_tag
+`;
+
+export const GET_NODES_BY_IMPORTANCE_TAG_QUERY = `
+MATCH (n)
+WHERE n.importance_tag = $tag
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
+RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
+       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+       n.pagerank AS pagerank,
+       n.in_degree AS in_degree,
+       n.out_degree AS out_degree,
+       n.entry_score AS entry_score,
+       n.utility_score AS utility_score,
+       n.hub_score AS hub_score,
+       n.importance_tag AS importance_tag
+ORDER BY n.pagerank DESC
+LIMIT toInteger($limit)
+`;
+
+export const IMPORTANCE_GRAPH_DROP_QUERY = `
+CALL gds.graph.drop($graphName, false)
+YIELD graphName
+`;
+
+export const GET_TOP_NODES_BY_IMPORTANCE_QUERY = `
+MATCH (n)
+WHERE n.pagerank IS NOT NULL
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
+RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
+       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+       n.pagerank AS pagerank,
+       n.in_degree AS in_degree,
+       n.out_degree AS out_degree,
+       n.entry_score AS entry_score,
+       n.utility_score AS utility_score,
+       n.hub_score AS hub_score,
+       n.importance_tag AS importance_tag
+ORDER BY n.pagerank DESC
+LIMIT toInteger($limit)
+`;

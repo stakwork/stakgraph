@@ -91,6 +91,35 @@ pub async fn call_mcp_docs(repo_url: &str, sync: bool, force: bool) {
     }
 }
 
+pub async fn call_mcp_importance() {
+    let mcp_url =
+        std::env::var("MCP_URL").unwrap_or_else(|_| "http://repo2graph.sphinx:3355".to_string());
+
+    let url = format!("{}/importance/score", mcp_url);
+    println!("[mcp_importance] Calling MCP to score importance: {}", url);
+
+    let client = Client::new();
+    let mut req = client.post(&url).timeout(Duration::from_secs(300));
+    if let Ok(token) = std::env::var("API_TOKEN") {
+        req = req.header("x-api-token", token);
+    }
+    match req.send().await {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                println!("[mcp_importance] Importance scoring succeeded");
+            } else {
+                println!(
+                    "[mcp_importance] Importance scoring returned status: {}",
+                    resp.status()
+                );
+            }
+        }
+        Err(e) => {
+            println!("[mcp_importance] Importance scoring failed (non-fatal): {}", e);
+        }
+    }
+}
+
 const ROOT_RULE_FILES: &[&str] = &[
     ".windsurfrules",
     ".cursorrules",
