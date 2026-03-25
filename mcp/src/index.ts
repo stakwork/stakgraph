@@ -110,10 +110,13 @@ try {
   console.log("===> skipping sage setup");
 }
 
-app.get("/", swagger);
+app.get("/swagger", swagger);
 app.use("/textarea", express.static(path.join(__dirname, "../textarea")));
 app.use("/app", express.static(path.join(__dirname, "../app")));
 app.use("/demo", express.static(path.join(__dirname, "../app/vendor")));
+
+// Vite/React static app - serve built assets (JS, CSS, images, etc.)
+app.use(express.static(path.join(__dirname, "../../web/dist")));
 app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 
@@ -215,6 +218,11 @@ app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {
   clearCache();
   res.json({ message: "Cache cleared" });
+});
+
+// SPA fallback: any GET that didn't match an API route serves the React app
+app.get("*", (_req: Request, res: Response) => {
+  res.sendFile(path.join(__dirname, "../../web/dist/index.html"));
 });
 
 const port = parseInt(process.env.PORT || '3355', 10);

@@ -32,7 +32,8 @@
     "gen-redoc": "tsc --noEmit && tsx docs/gen-redoc.ts",
     "copydir": "node docs/copydir/index.js",
     "build-app1": "tsc --noEmit && tsc --target esnext --module commonjs --outDir build/app app/app.ts",
-    "build-app": "node build-app.js"
+    "build-app": "node build-app.js",
+    "build-web": "cd web && npm install && npm run build"
   },
   "bin": {
     "cursor-tools": "./build/index.js",
