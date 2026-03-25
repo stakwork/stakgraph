@@ -166,6 +166,10 @@ pub(crate) fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Nod
 
     out.writeln(format!("{}: {} {}", node_type_styled, name, lines_styled))?;
 
+    if !nd.file.is_empty() && nd.file != "unverified" {
+        out.writeln(style(&nd.file).dim().to_string())?;
+    }
+
     if matches!(node.node_type, NodeType::Endpoint) {
         if let Some(handler) = nd.meta.get("handler") {
             let handler_label = style("Handler:").dim();

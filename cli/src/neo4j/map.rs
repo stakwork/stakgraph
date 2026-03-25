@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
 use neo4rs::{query as nq, BoltType, Node as NeoNode};
 use shared::Result;
 use termtree::Tree;
+use tiktoken_rs::CoreBPE;
 
 use crate::output::Output;
 
@@ -27,7 +28,7 @@ const SUBGRAPH_QUERY: &str = r#"
         WITH nodeName, nodeLabel
         WITH nodeName, nodeLabel WHERE nodeName IS NOT NULL AND nodeName <> ''
         MATCH (node {name: nodeName})
-        WHERE nodeLabel IN labels(node)
+        WHERE nodeLabel = '' OR nodeLabel IN labels(node)
         RETURN node
         UNION
         WITH nodeFile, nodeLabel
@@ -132,26 +133,30 @@ const SUBGRAPH_QUERY: &str = r#"
             relationships
 "#;
 
-fn node_label(node: &NeoNode) -> String {
+fn node_label(node: &NeoNode, bpe: &CoreBPE) -> (String, u64) {
     let name: String = node.get("name").unwrap_or_default();
-    let token_count: Option<i64> = node.get("token_count").ok();
     let label = if name.is_empty() {
         node.get::<String>("file").unwrap_or_else(|_| "?".to_string())
     } else {
         name
     };
-    match token_count {
-        Some(t) if t > 0 => format!("{} ({})", label, t),
+    let token_count: Option<i64> = node.get("token_count").ok();
+    let (count, from_stored) = match token_count {
+        Some(t) if t > 0 => (t as u64, true),
         _ => {
-            // estimate from body word count
             let body: String = node.get("body").unwrap_or_default();
             if body.is_empty() {
-                label
+                (0, false)
             } else {
-                let est = body.split_whitespace().count() * 4 / 3;
-                format!("{} (~{})", label, est)
+                (bpe.encode_with_special_tokens(&body).len() as u64, false)
             }
         }
+    };
+    let _ = from_stored; // both paths now produce exact counts
+    if count > 0 {
+        (format!("{} ({})", label, count), count)
+    } else {
+        (label, 0)
     }
 }
 
@@ -167,7 +172,7 @@ pub(super) async fn run_map(
     let ops = connect_graph_ops().await?;
     let connection = ops.graph.ensure_connected().await?;
 
-    let node_label_param = node_type.unwrap_or("Function").to_string();
+    let node_label_param = node_type.unwrap_or("").to_string();
 
     // Build label filter: exclude infrastructure nodes, optionally exclude test nodes
     let mut excluded = vec![
@@ -233,23 +238,23 @@ pub(super) async fn run_map(
 
     let start_id = start_node.id();
 
-    // Build id → label map
+    let bpe = tiktoken_rs::cl100k_base()
+        .map_err(|e| shared::Error::internal(format!("tiktoken init failed: {}", e)))?;
+
+    // Build id → label map, accumulating token counts from every node
     let mut id_to_label: HashMap<i64, String> = HashMap::new();
-    id_to_label.insert(start_id, node_label(&start_node));
     let mut total_tokens: u64 = 0;
 
-    // Accumulate token count from start node
-    if let Ok(t) = start_node.get::<i64>("token_count") {
-        if t > 0 { total_tokens += t as u64; }
-    }
+    let (start_label, start_tokens) = node_label(&start_node, &bpe);
+    id_to_label.insert(start_id, start_label);
+    total_tokens += start_tokens;
 
     for node in &all_nodes {
         let nid = node.id();
         if nid == start_id { continue; }
-        id_to_label.insert(nid, node_label(node));
-        if let Ok(t) = node.get::<i64>("token_count") {
-            if t > 0 { total_tokens += t as u64; }
-        }
+        let (label, tokens) = node_label(node, &bpe);
+        id_to_label.insert(nid, label);
+        total_tokens += tokens;
     }
 
     // Build parent → children adjacency, respecting OPERAND reversal
@@ -310,6 +315,6 @@ pub(super) async fn run_map(
     }
 
     out.writeln(root_tree.to_string())?;
-    out.writeln(format!("total tokens: ~{}", total_tokens))?;
+    out.writeln(format!("total tokens: {}", total_tokens))?;
     Ok(())
 }
