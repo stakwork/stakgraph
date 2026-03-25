@@ -156,7 +156,7 @@ fn print_function_edges(
     Ok(())
 }
 
-fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::Result<()> {
+pub(crate) fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::Result<()> {
     let nd = &node.node_data;
     let name = format_function_name_with_operand(node);
     let lines = format_lines(nd.start, nd.end);
@@ -165,6 +165,10 @@ fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::R
     let lines_styled = style(format!("({})", lines)).dim();
 
     out.writeln(format!("{}: {} {}", node_type_styled, name, lines_styled))?;
+
+    if !nd.file.is_empty() && nd.file != "unverified" {
+        out.writeln(style(&nd.file).dim().to_string())?;
+    }
 
     if matches!(node.node_type, NodeType::Endpoint) {
         if let Some(handler) = nd.meta.get("handler") {
