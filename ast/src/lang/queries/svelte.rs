@@ -54,6 +54,16 @@ impl Stack for Svelte {
         }
     }
 
+    fn cache_key(&self, file: &str, nt: &NodeType) -> String {
+        match nt {
+            NodeType::Function
+            | NodeType::UnitTest
+            | NodeType::IntegrationTest
+            | NodeType::E2eTest => format!("{file}:tsx"),
+            _ => file.to_string(),
+        }
+    }
+
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
         let mut parser = Parser::new();
 

@@ -28,7 +28,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
         "createPerson should have documentation"
     );
 
-    // graph.analysis();
+    graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -342,7 +342,7 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();
-    assert_eq!(variables.len(), 3, "Expected 3 variables in CUDA suite");
+    assert_eq!(variables.len(), 2, "Expected 2 variables in CUDA suite");
 
     let files = graph.find_nodes_by_type(NodeType::File);
     nodes += files.len();
@@ -525,7 +525,7 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains_edges;
-    assert_eq!(contains_edges, 179, "Expected 179 Contains edges");
+    assert_eq!(contains_edges, 178, "Expected 178 Contains edges");
 
     let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in_edges;
@@ -553,8 +553,8 @@ pub async fn test_cpp_cuda_generic<G: Graph + Sync>() -> Result<()> {
         "Expected {} edges found {}",
         edges, num_edges
     );
-    assert_eq!(num_nodes as u32, 179, "Expected 179 nodes");
-    assert_eq!(num_edges as u32, 186, "Expected 186 edges");
+    assert_eq!(num_nodes as u32, 178, "Expected 178 nodes");
+    assert_eq!(num_edges as u32, 185, "Expected 185 edges");
 
     Ok(())
 }

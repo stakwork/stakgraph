@@ -257,6 +257,7 @@ impl Repo {
         stats.insert("total_edges".to_string(), num_of_edges as usize);
 
         self.send_status_with_stats(stats);
+        self.lang.clear_cache();
         print_parse_stats();
 
         Ok(graph)
