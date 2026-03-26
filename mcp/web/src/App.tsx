@@ -1,15 +1,43 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Plus } from "lucide-react";
 import { Sidebar } from "@/components/Sidebar";
 import { DocViewer, ActiveItem } from "@/components/DocViewer";
 import { GraphScene } from "@/graph/GraphScene";
+import { Onboarding } from "@/components/Onboarding";
+import { IngestionStatus } from "@/components/IngestionStatus";
+import { useIngestion } from "@/stores/useIngestion";
+import { useGraphData } from "@/stores/useGraphData";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
-type View = "graph" | "doc";
+type View = "graph" | "doc" | "onboarding";
 
 function App() {
   const [view, setView] = useState<View>("graph");
   const [activeItem, setActiveItem] = useState<ActiveItem | null>(null);
+  const { phase, reset: resetIngestion } = useIngestion();
+  const { reset: resetGraph } = useGraphData();
+  const graphLoading = useGraphData((s) => s.loading);
+  const graphData = useGraphData((s) => s.data);
+
+  useEffect(() => {
+    if (
+      !graphLoading &&
+      (!graphData || graphData.nodes.length === 0) &&
+      view === "graph" &&
+      phase === "idle"
+    ) {
+      setView("onboarding");
+    }
+  }, [graphLoading, graphData, view, phase]);
+
+  // When ingestion completes, reload graph data
+  useEffect(() => {
+    if (phase === "complete") {
+      resetGraph();
+      setView("graph");
+    }
+  }, [phase, resetGraph]);
 
   const handleDocClick = (repoName: string, documentation: string) => {
     setActiveItem({
@@ -24,14 +52,14 @@ function App() {
   const handleConceptClick = async (
     id: string,
     name: string,
-    _description: string
+    _description: string,
   ) => {
     setActiveItem({ type: "concept", id, name, content: "Loading..." });
     setView("doc");
 
     try {
       const res = await fetch(
-        `${API_BASE}/gitree/features/${encodeURIComponent(id)}`
+        `${API_BASE}/gitree/features/${encodeURIComponent(id)}`,
       );
       if (res.ok) {
         const data = await res.json();
@@ -53,9 +81,12 @@ function App() {
     return `concept-${activeItem.id}`;
   };
 
+  const showSidebar = view === "graph" || view === "doc";
+  const ingesting = phase === "running" || phase === "error";
+
   return (
     <div className="flex flex-col h-screen w-full">
-      <header className="h-12 border-b border-border flex items-center px-4 shrink-0">
+      <header className="h-12 border-b border-border flex items-center px-4 shrink-0 gap-3">
         <button
           onClick={() => setView("graph")}
           className={`flex items-center gap-2 text-sm font-semibold tracking-wide hover:text-foreground transition-colors ${
@@ -65,23 +96,47 @@ function App() {
           <img src="/favicon.ico" alt="" className="w-5 h-5" />
           stakgraph
         </button>
-        <span className="text-sm text-muted-foreground ml-2">
+        <span className="text-sm text-muted-foreground">
           software knowledge graph
         </span>
-      </header>
-      <div className="flex flex-1 min-h-0">
-        <div className="flex-1 pr-80 relative">
-          {view === "graph" ? (
-            <GraphScene />
-          ) : (
-            <DocViewer activeItem={activeItem} />
+        <div className="ml-auto">
+          {!ingesting && view !== "onboarding" && (
+            <button
+              onClick={() => {
+                resetIngestion();
+                setView("onboarding");
+              }}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="size-3.5" />
+              Add repository
+            </button>
           )}
         </div>
-        <Sidebar
-          activeItemKey={getActiveItemKey()}
-          onDocClick={handleDocClick}
-          onConceptClick={handleConceptClick}
-        />
+      </header>
+      <div className="flex flex-1 min-h-0 relative">
+        <div className={`flex-1 relative ${showSidebar ? "pr-80" : ""}`}>
+          {view === "graph" && <GraphScene />}
+          {view === "doc" && <DocViewer activeItem={activeItem} />}
+          {view === "onboarding" && (
+            <Onboarding onStarted={() => setView("graph")} />
+          )}
+        </div>
+        {showSidebar && (
+          <Sidebar
+            activeItemKey={getActiveItemKey()}
+            onDocClick={handleDocClick}
+            onConceptClick={handleConceptClick}
+          />
+        )}
+        {ingesting && (
+          <IngestionStatus
+            onReset={() => {
+              resetIngestion();
+              setView("onboarding");
+            }}
+          />
+        )}
       </div>
     </div>
   );
