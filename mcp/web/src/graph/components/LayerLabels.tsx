@@ -1,8 +1,7 @@
 import { memo } from "react";
 import { Billboard, Text } from "@react-three/drei";
 import { useGraphData, getColorForType } from "@/stores/useGraphData";
-
-const LAYER_SPACING = 500;
+import { LAYER_SPACING } from "@/graph/config";
 
 export const LayerLabels = memo(() => {
   const nodeTypes = useGraphData((s) => s.nodeTypes);

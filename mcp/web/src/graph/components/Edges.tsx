@@ -8,6 +8,7 @@ import {
 } from "three";
 import { useGraphData } from "@/stores/useGraphData";
 import { nodePositions, useSimulation } from "@/stores/useSimulation";
+import { EDGE_OPACITY } from "@/graph/config";
 
 const EDGE_COLOR = new Color(0.4, 0.4, 0.5);
 
@@ -22,7 +23,7 @@ const EdgesInner = memo(() => {
       new LineBasicMaterial({
         color: EDGE_COLOR,
         transparent: true,
-        opacity: 0.06,
+        opacity: EDGE_OPACITY,
         depthWrite: false,
       }),
     []

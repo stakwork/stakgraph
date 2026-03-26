@@ -7,6 +7,11 @@ import type {
   GraphEdge,
 } from "@/graph/types";
 
+import { LAYER_ORDER } from "@/graph/config";
+
+// Re-export for consumers that import from here
+export { LAYER_ORDER };
+
 // Color palette by node type
 const COLORS: Record<string, string> = {
   Function: "#5C6BC0",
@@ -26,7 +31,7 @@ const COLORS: Record<string, string> = {
   Repository: "#BF360C",
 };
 
-const DEFAULT_COLOR = "#F8F8FF";
+const DEFAULT_COLOR = "#78909C";
 
 export function getColorForType(nodeType: string): string {
   return COLORS[nodeType] || DEFAULT_COLOR;
@@ -118,33 +123,15 @@ export const useGraphData = create<GraphDataState>((set) => ({
       }
     }
 
-    // Fixed layer order (top to bottom)
-    const LAYER_ORDER = [
-      "Repository",
-      "Directory",
-      "File",
-      "Feature",
-      "PullRequest",
-      "Commit",
-      "Class",
-      "Function",
-      "Datamodel",
-      "Endpoint",
-      "Request",
-      "Var",
-      "Page",
-    ];
+    
 
-    // Collect present node types, ordered by LAYER_ORDER then remainder alphabetically
+    // Only keep node types in LAYER_ORDER
+    const layerSet = new Set(LAYER_ORDER);
     const presentTypes = new Set<string>();
     for (const n of nodes) {
-      presentTypes.add(n.node_type);
+      if (layerSet.has(n.node_type)) presentTypes.add(n.node_type);
     }
-    const ordered = LAYER_ORDER.filter((t) => presentTypes.has(t));
-    const rest = Array.from(presentTypes)
-      .filter((t) => !LAYER_ORDER.includes(t))
-      .sort();
-    const nodeTypes = [...ordered, ...rest];
+    const nodeTypes = LAYER_ORDER.filter((t) => presentTypes.has(t));
 
     set({
       data: { nodes, links },

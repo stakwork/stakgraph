@@ -58,10 +58,11 @@ function App() {
       <header className="h-12 border-b border-border flex items-center px-4 shrink-0">
         <button
           onClick={() => setView("graph")}
-          className={`text-sm font-semibold tracking-wide hover:text-foreground transition-colors ${
+          className={`flex items-center gap-2 text-sm font-semibold tracking-wide hover:text-foreground transition-colors ${
             view === "graph" ? "text-foreground" : "text-muted-foreground"
           }`}
         >
+          <img src="/favicon.ico" alt="" className="w-5 h-5" />
           stakgraph
         </button>
         <span className="text-sm text-muted-foreground ml-2">

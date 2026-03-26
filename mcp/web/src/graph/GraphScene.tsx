@@ -1,22 +1,46 @@
-import { memo, useEffect, useCallback } from "react";
-import { Canvas } from "@react-three/fiber";
+import { memo, useEffect, useCallback, useRef } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
 import { CameraControls, AdaptiveDpr, Preload } from "@react-three/drei";
+import { MathUtils } from "three";
 import { Graph } from "./components/Graph";
 import { useGraphData } from "@/stores/useGraphData";
 import { useSimulation } from "@/stores/useSimulation";
 import type { GraphApiResponse } from "./types";
+import type CameraControlsImpl from "camera-controls";
+import {
+  LAYER_ORDER,
+  INITIAL_CAMERA_POSITION,
+  CAMERA_NEAR,
+  CAMERA_FAR,
+  CAMERA_MIN_DISTANCE,
+  CAMERA_MAX_DISTANCE,
+  CAMERA_SMOOTH_TIME,
+  AUTO_ROTATE_SPEED,
+} from "./config";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 const SceneContent = memo(() => {
+  const controlsRef = useRef<CameraControlsImpl>(null);
+  const userInteracting = useRef(false);
+
+  useFrame((_, delta) => {
+    if (controlsRef.current && !userInteracting.current) {
+      controlsRef.current.azimuthAngle += AUTO_ROTATE_SPEED * delta * MathUtils.DEG2RAD;
+    }
+  });
+
   return (
     <>
       <CameraControls
+        ref={controlsRef}
         makeDefault
-        minDistance={50}
-        maxDistance={15000}
-        smoothTime={0.8}
+        minDistance={CAMERA_MIN_DISTANCE}
+        maxDistance={CAMERA_MAX_DISTANCE}
+        smoothTime={CAMERA_SMOOTH_TIME}
         dollyToCursor
+        onStart={() => { userInteracting.current = true; }}
+        onEnd={() => { userInteracting.current = false; }}
       />
       <Graph />
     </>
@@ -35,11 +59,12 @@ export const GraphScene = memo(() => {
 
   const fetchGraph = useCallback(async () => {
     try {
+      const nodeTypesParam = LAYER_ORDER.join(",");
       const [codeRes, featuresRes] = await Promise.all([
         fetch(
-          `${API_BASE}/graph?edges=true&no_body=true&limit=500&limit_mode=per_type`
+          `${API_BASE}/graph?edges=true&no_body=true&limit=500&limit_mode=per_type&node_types=${nodeTypesParam}`
         ),
-        fetch(`${API_BASE}/gitree/all-features-graph?no_body=true`),
+        fetch(`${API_BASE}/gitree/all-features-graph?no_body=true&node_types=${nodeTypesParam}`),
       ]);
 
       const codeData: GraphApiResponse = codeRes.ok
@@ -95,9 +120,9 @@ export const GraphScene = memo(() => {
     <div style={{ width: "100%", height: "100%" }}>
       <Canvas
         camera={{
-          position: [2000, 2000, 4000],
-          far: 30000,
-          near: 1,
+          position: INITIAL_CAMERA_POSITION,
+          far: CAMERA_FAR,
+          near: CAMERA_NEAR,
         }}
         style={{ width: "100%", height: "100%" }}
       >

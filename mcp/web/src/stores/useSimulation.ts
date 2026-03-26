@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import type { NodeExtended } from "@/graph/types";
-
-const LAYER_SPACING = 500;
-const GRID_SPACING = 300;
+import { LAYER_SPACING, GRID_SPACING } from "@/graph/config";
 
 // Mutable position map — read imperatively, never triggers React re-renders
 export const nodePositions = new Map<

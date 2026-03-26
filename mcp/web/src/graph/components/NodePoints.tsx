@@ -3,8 +3,7 @@ import { Instance, Instances } from "@react-three/drei";
 import { SphereGeometry, BufferGeometry } from "three";
 import { useGraphData, getColorForType } from "@/stores/useGraphData";
 import type { NodeExtended } from "@/graph/types";
-
-const NODE_SIZE = 20;
+import { NODE_SIZE } from "@/graph/config";
 
 const NodePointsComponent = () => {
   const data = useGraphData((s) => s.data);
