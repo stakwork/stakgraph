@@ -8,15 +8,24 @@ export const nodePositions = new Map<
   { x: number; y: number; z: number }
 >();
 
-// Deterministic square grid layout per layer — ported from hive's calculateGridMap
+// Deterministic square grid layout per layer — ported from hive's calculateGridMap.
+// When `existingPositions` is provided, nodes already in it are left untouched;
+// only genuinely new ref_ids get positions calculated. This preserves the visual
+// stability of already-placed nodes during live ingestion polling.
 function calculateGridMap(
   nodes: NodeExtended[],
-  nodeTypes: string[]
+  nodeTypes: string[],
+  existingPositions?: Map<string, { x: number; y: number; z: number }>,
 ): Map<string, { x: number; y: number; z: number }> {
   const normalizeType = (type?: string) => (type || "Unknown").trim();
-  const nodesByType: Record<string, NodeExtended[]> = {};
 
-  // 1. Group by type
+  const newNodes = existingPositions
+    ? nodes.filter((n) => !existingPositions.has(n.ref_id))
+    : nodes;
+
+  if (newNodes.length === 0) return new Map();
+
+  const nodesByType: Record<string, NodeExtended[]> = {};
   nodes.forEach((node) => {
     const typeKey = normalizeType(node.node_type);
     if (!nodesByType[typeKey]) nodesByType[typeKey] = [];
@@ -27,32 +36,23 @@ function calculateGridMap(
   const allTypes = Array.from(new Set(Object.keys(nodesByType)));
   const typeOrder = providedOrder.length ? providedOrder : allTypes;
 
-  if (typeOrder.length === 0) {
-    return new Map();
-  }
+  if (typeOrder.length === 0) return new Map();
 
-  const typeIndexMap = new Map(
-    typeOrder.map((type, index) => [type, index])
-  );
+  const typeIndexMap = new Map(typeOrder.map((type, index) => [type, index]));
 
-  const positionMap = new Map<
-    string,
-    { x: number; y: number; z: number }
-  >();
+  const positionMap = new Map<string, { x: number; y: number; z: number }>();
 
-  // 2. Calculate positions for each type
-  nodes.forEach((n) => {
+  newNodes.forEach((n) => {
     const typeKey = normalizeType(n.node_type);
     const typeIndex = typeIndexMap.get(typeKey) ?? typeOrder.length - 1;
 
-    // Position layers from top to bottom to match LayerLabels ordering
     const totalTypes = typeOrder.length;
     const startOffset = ((totalTypes - 1) / 2) * LAYER_SPACING;
     const yOffset = startOffset - typeIndex * LAYER_SPACING;
 
     const sameTypeNodes = nodesByType[typeKey] || [];
     const nodeIndexInType = sameTypeNodes.findIndex(
-      (node) => node.ref_id === n.ref_id
+      (node) => node.ref_id === n.ref_id,
     );
 
     const nodesPerRow = Math.ceil(Math.sqrt(sameTypeNodes.length));
@@ -70,23 +70,24 @@ function calculateGridMap(
     positionMap.set(n.ref_id, { x, y: yOffset, z });
   });
 
-  // 3. Center the entire grid around (0,0,0)
-  const positions = Array.from(positionMap.values());
-  if (positions.length > 0) {
-    const minX = Math.min(...positions.map((p) => p.x));
-    const maxX = Math.max(...positions.map((p) => p.x));
-    const minZ = Math.min(...positions.map((p) => p.z));
-    const maxZ = Math.max(...positions.map((p) => p.z));
-
-    const centerX = (minX + maxX) / 2;
-    const centerZ = (minZ + maxZ) / 2;
-
-    for (const [nodeId, pos] of positionMap.entries()) {
-      positionMap.set(nodeId, {
-        x: pos.x - centerX,
-        y: pos.y,
-        z: pos.z - centerZ,
-      });
+  // Only center when doing a fresh (non-incremental) layout — during incremental
+  // updates we intentionally skip recentering so existing nodes don't move.
+  if (!existingPositions) {
+    const positions = Array.from(positionMap.values());
+    if (positions.length > 0) {
+      const minX = Math.min(...positions.map((p) => p.x));
+      const maxX = Math.max(...positions.map((p) => p.x));
+      const minZ = Math.min(...positions.map((p) => p.z));
+      const maxZ = Math.max(...positions.map((p) => p.z));
+      const centerX = (minX + maxX) / 2;
+      const centerZ = (minZ + maxZ) / 2;
+      for (const [nodeId, pos] of positionMap.entries()) {
+        positionMap.set(nodeId, {
+          x: pos.x - centerX,
+          y: pos.y,
+          z: pos.z - centerZ,
+        });
+      }
     }
   }
 
@@ -95,25 +96,41 @@ function calculateGridMap(
 
 interface SimulationState {
   ready: boolean;
+  layoutVersion: number;
 
   layoutNodes: (nodes: NodeExtended[], nodeTypes: string[]) => void;
+  layoutNodesIncremental: (nodes: NodeExtended[], nodeTypes: string[]) => void;
   destroy: () => void;
 }
 
-export const useSimulation = create<SimulationState>((set) => ({
+export const useSimulation = create<SimulationState>((set, get) => ({
   ready: false,
+  layoutVersion: 0,
 
+  // Full layout: clears all positions and recomputes from scratch.
+  // Use on initial load or after a full reset.
   layoutNodes: (nodes: NodeExtended[], nodeTypes: string[]) => {
     nodePositions.clear();
     const grid = calculateGridMap(nodes, nodeTypes);
     for (const [id, pos] of grid.entries()) {
       nodePositions.set(id, pos);
     }
-    set({ ready: true });
+    set({ ready: true, layoutVersion: get().layoutVersion + 1 });
+  },
+
+  // Incremental layout: only computes positions for nodes not yet in the map.
+  // Existing nodes stay exactly where they are — no jumps during live polling.
+  layoutNodesIncremental: (nodes: NodeExtended[], nodeTypes: string[]) => {
+    const grid = calculateGridMap(nodes, nodeTypes, nodePositions);
+    if (grid.size === 0) return;
+    for (const [id, pos] of grid.entries()) {
+      nodePositions.set(id, pos);
+    }
+    set({ ready: true, layoutVersion: get().layoutVersion + 1 });
   },
 
   destroy: () => {
     nodePositions.clear();
-    set({ ready: false });
+    set({ ready: false, layoutVersion: 0 });
   },
 }));

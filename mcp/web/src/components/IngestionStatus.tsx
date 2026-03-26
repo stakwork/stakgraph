@@ -1,9 +1,11 @@
+import { useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { XCircle, X } from "lucide-react";
 import { useIngestion } from "@/stores/useIngestion";
 import { useSSE } from "@/hooks/useSSE";
 
-const STANDALONE_BASE = import.meta.env.VITE_STANDALONE_URL || "http://localhost:7799";
+const STANDALONE_BASE =
+  import.meta.env.VITE_STANDALONE_URL || "http://localhost:7799";
 
 interface IngestionStatusProps {
   onReset: () => void;
@@ -16,11 +18,21 @@ export function IngestionStatus({ onReset }: IngestionStatusProps) {
 
   const step = currentUpdate?.step ?? 0;
   const totalSteps = currentUpdate?.total_steps ?? 16;
-  const overallPct =
+  const rawPct =
     totalSteps > 0
-      ? Math.round(((step - 1 + (currentUpdate?.progress ?? 0) / 100) / totalSteps) * 100)
+      ? Math.round(
+          ((step - 1 + (currentUpdate?.progress ?? 0) / 100) / totalSteps) *
+            100,
+        )
       : 0;
-  const description = currentUpdate?.step_description || currentUpdate?.message || "Initializing…";
+  const maxPctRef = useRef(0);
+  if (rawPct > maxPctRef.current) maxPctRef.current = rawPct;
+  if (phase !== "running") maxPctRef.current = 0;
+  const overallPct = maxPctRef.current;
+  const description =
+    currentUpdate?.step_description ||
+    currentUpdate?.message ||
+    "Initializing…";
 
   return (
     <div className="absolute top-3 left-3 z-50 w-72 rounded-xl border border-border bg-background/90 backdrop-blur-sm shadow-lg overflow-hidden">
@@ -66,33 +78,39 @@ export function IngestionStatus({ onReset }: IngestionStatusProps) {
           </div>
 
           {/* Step label */}
-          <AnimatePresence mode="wait">
-            <motion.p
-              key={description}
-              initial={{ opacity: 0, y: 3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.15 }}
-              className="text-[11px] text-muted-foreground truncate"
-            >
-              {step > 0 ? `${step}/${totalSteps} · ` : ""}{description}
-            </motion.p>
-          </AnimatePresence>
+          <p className="text-[11px] text-muted-foreground truncate transition-all duration-150">
+            {step > 0 ? `${step}/${totalSteps} · ` : ""}
+            {description}
+          </p>
 
           {/* Stats chips */}
-          {currentUpdate?.stats && Object.keys(currentUpdate.stats).length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-0.5">
-              {Object.entries(currentUpdate.stats).map(([k, v]) => (
-                <span
-                  key={k}
-                  className="inline-flex items-center gap-1 text-[10px] rounded-md bg-muted px-1.5 py-0.5 text-muted-foreground"
-                >
-                  <span className="capitalize">{k.replace(/_/g, " ")}</span>
-                  <span className="font-mono font-semibold text-foreground">{v.toLocaleString()}</span>
-                </span>
-              ))}
-            </div>
-          )}
+          {currentUpdate?.stats &&
+            Object.keys(currentUpdate.stats).length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                <AnimatePresence initial={false}>
+                  {Object.entries(currentUpdate.stats).map(([k, v]) => (
+                    <motion.span
+                      key={k}
+                      initial={{ opacity: 0, scale: 0.85 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.2 }}
+                      className="inline-flex items-center gap-1 text-[10px] rounded-md bg-muted px-1.5 py-0.5 text-muted-foreground"
+                    >
+                      <span className="capitalize">{k.replace(/_/g, " ")}</span>
+                      <motion.span
+                        key={v}
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ duration: 0.15 }}
+                        className="font-mono font-semibold text-foreground"
+                      >
+                        {v.toLocaleString()}
+                      </motion.span>
+                    </motion.span>
+                  ))}
+                </AnimatePresence>
+              </div>
+            )}
         </div>
       )}
 

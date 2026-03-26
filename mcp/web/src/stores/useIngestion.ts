@@ -14,6 +14,7 @@ interface IngestionState {
   requestId: string | null;
   currentUpdate: StatusUpdate | null;
   errorMessage: string | null;
+  statsVersion: number;
 
   setRunning: (requestId: string) => void;
   applyUpdate: (update: StatusUpdate) => void;
@@ -27,17 +28,63 @@ export const useIngestion = create<IngestionState>((set) => ({
   requestId: null,
   currentUpdate: null,
   errorMessage: null,
+  statsVersion: 0,
 
-  setRunning: (requestId) => set({ phase: "running", requestId, currentUpdate: null, errorMessage: null }),
+  setRunning: (requestId) =>
+    set({
+      phase: "running",
+      requestId,
+      currentUpdate: null,
+      errorMessage: null,
+      statsVersion: 0,
+    }),
   applyUpdate: (update) => {
-    set({ currentUpdate: update });
-    if (update.status === "complete" || update.status === "Complete") {
-      set({ phase: "complete" });
-    } else if (update.status === "error" || update.status === "Error" || update.status === "Failed") {
-      set({ phase: "error", errorMessage: update.message });
-    }
+    set((state) => {
+      const prev = state.currentUpdate;
+      const merged: StatusUpdate = {
+        status: update.status || prev?.status || "",
+        message: update.message || prev?.message || "",
+        step: update.step > 0 ? update.step : (prev?.step ?? 0),
+        total_steps:
+          update.total_steps > 0
+            ? update.total_steps
+            : (prev?.total_steps ?? 16),
+        progress: update.progress > 0 ? update.progress : (prev?.progress ?? 0),
+        stats: update.stats ?? prev?.stats ?? undefined,
+        step_description:
+          update.step_description || prev?.step_description || undefined,
+      };
+
+      const isComplete =
+        update.status === "complete" || update.status === "Complete";
+      const isError =
+        update.status === "error" ||
+        update.status === "Error" ||
+        update.status === "Failed";
+
+      if (isComplete) {
+        return { currentUpdate: merged, phase: "complete" as IngestionPhase };
+      }
+      if (isError) {
+        return {
+          currentUpdate: merged,
+          phase: "error" as IngestionPhase,
+          errorMessage: update.message,
+        };
+      }
+      const statsVersion =
+        update.stats != null ? state.statsVersion + 1 : state.statsVersion;
+      return { currentUpdate: merged, statsVersion };
+    });
   },
   setComplete: () => set({ phase: "complete" }),
   setError: (message) => set({ phase: "error", errorMessage: message }),
-  reset: () => set({ phase: "idle", requestId: null, currentUpdate: null, errorMessage: null }),
+  reset: () =>
+    set({
+      phase: "idle",
+      requestId: null,
+      currentUpdate: null,
+      errorMessage: null,
+      statsVersion: 0,
+    }),
 }));

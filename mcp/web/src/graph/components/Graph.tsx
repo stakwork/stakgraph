@@ -8,6 +8,7 @@ import { LayerHoverHighlight } from "./LayerHoverHighlight";
 import { NodeDetailsPanel } from "./NodeDetailsPanel";
 import { useGraphData } from "@/stores/useGraphData";
 import { nodePositions, useSimulation } from "@/stores/useSimulation";
+import { useLayerVisibility } from "@/stores/useLayerVisibility";
 
 const POINTER_DRAG_THRESHOLD = 5;
 
@@ -21,6 +22,19 @@ export const Graph = memo(() => {
   const setSelectedNode = useGraphData((s) => s.setSelectedNode);
   const setHoveredNode = useGraphData((s) => s.setHoveredNode);
   const ready = useSimulation((s) => s.ready);
+  const layoutVersion = useSimulation((s) => s.layoutVersion);
+  const disabledLayers = useLayerVisibility((s) => s.disabledLayers);
+
+  const prevLayoutVersion = useRef(0);
+  const prevDisabledLayers = useRef(disabledLayers);
+  if (
+    layoutVersion !== prevLayoutVersion.current ||
+    disabledLayers !== prevDisabledLayers.current
+  ) {
+    prevLayoutVersion.current = layoutVersion;
+    prevDisabledLayers.current = disabledLayers;
+    positioned.current = false;
+  }
 
   // Set instance positions from the precomputed grid
   useFrame(() => {
@@ -37,13 +51,15 @@ export const Graph = memo(() => {
     const data = useGraphData.getState().data;
     if (!data) return;
 
-    const count = Math.min(data.nodes.length, instancedMesh.children.length);
+    const count = instancedMesh.children.length;
 
     for (let i = 0; i < count; i++) {
-      const node = data.nodes[i];
-      const pos = nodePositions.get(node.ref_id);
-      if (pos && instancedMesh.children[i]) {
-        instancedMesh.children[i].position.set(pos.x, pos.y, pos.z);
+      const child = instancedMesh.children[i];
+      const refId = child?.userData?.ref_id as string | undefined;
+      if (!refId) continue;
+      const pos = nodePositions.get(refId);
+      if (pos) {
+        child.position.set(pos.x, pos.y, pos.z);
       }
     }
 

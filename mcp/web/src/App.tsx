@@ -5,15 +5,16 @@ import { DocViewer, ActiveItem } from "@/components/DocViewer";
 import { GraphScene } from "@/graph/GraphScene";
 import { Onboarding } from "@/components/Onboarding";
 import { IngestionStatus } from "@/components/IngestionStatus";
+import { LayerTogglePanel } from "@/components/LayerTogglePanel";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
-type View = "graph" | "doc" | "onboarding";
+type View = "graph" | "doc" | "onboarding" | null;
 
 function App() {
-  const [view, setView] = useState<View>("graph");
+  const [view, setView] = useState<View>(null);
   const [activeItem, setActiveItem] = useState<ActiveItem | null>(null);
   const { phase, reset: resetIngestion } = useIngestion();
   const { reset: resetGraph } = useGraphData();
@@ -21,13 +22,12 @@ function App() {
   const graphData = useGraphData((s) => s.data);
 
   useEffect(() => {
-    if (
-      !graphLoading &&
-      (!graphData || graphData.nodes.length === 0) &&
-      view === "graph" &&
-      phase === "idle"
-    ) {
+    if (graphLoading) return;
+    if (view !== null) return;
+    if ((!graphData || graphData.nodes.length === 0) && phase === "idle") {
       setView("onboarding");
+    } else {
+      setView("graph");
     }
   }, [graphLoading, graphData, view, phase]);
 
@@ -84,6 +84,14 @@ function App() {
   const showSidebar = view === "graph" || view === "doc";
   const ingesting = phase === "running" || phase === "error";
 
+  if (view === null) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center">
+        <div className="w-2 h-2 rounded-full bg-muted-foreground animate-pulse" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen w-full">
       <header className="h-12 border-b border-border flex items-center px-4 shrink-0 gap-3">
@@ -116,7 +124,12 @@ function App() {
       </header>
       <div className="flex flex-1 min-h-0 relative">
         <div className={`flex-1 relative ${showSidebar ? "pr-80" : ""}`}>
-          {view === "graph" && <GraphScene />}
+          {view === "graph" && (
+            <>
+              <GraphScene />
+              <LayerTogglePanel />
+            </>
+          )}
           {view === "doc" && <DocViewer activeItem={activeItem} />}
           {view === "onboarding" && (
             <Onboarding onStarted={() => setView("graph")} />
