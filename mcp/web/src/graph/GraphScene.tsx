@@ -140,15 +140,30 @@ export const GraphScene = memo(() => {
   }, [statsVersion, ingestionPhase, fetchGraph]);
 
   useEffect(() => {
-    if (ingestionPhase === "complete") fetchGraph(true);
+    if (ingestionPhase === "complete") {
+      // Full re-fetch after ingestion: clear stale incremental state so we
+      // load all nodes (including ones from the first repo) rather than only
+      // nodes added since the last delta timestamp.
+      latestTimestampRef.current = null;
+      hasInitialData.current = false;
+      fetchGraph(false);
+    }
   }, [ingestionPhase, fetchGraph]);
 
+  const prevNodeTypesRef = useRef<string[]>([]);
+
   // Layout nodes when data arrives.
-  // First load: full layout (clears and recomputes everything).
-  // Subsequent polls during ingestion: incremental layout
+  // First load or new node types appearing: full layout (clears and recomputes
+  // everything so labels and node positions stay in sync).
+  // Subsequent polls with the same type set: incremental layout only.
   useEffect(() => {
     if (!data || data.nodes.length === 0) return;
-    if (!hasInitialData.current) {
+    const typesChanged =
+      nodeTypes.length !== prevNodeTypesRef.current.length ||
+      nodeTypes.some((t, i) => t !== prevNodeTypesRef.current[i]);
+    prevNodeTypesRef.current = nodeTypes;
+
+    if (!hasInitialData.current || typesChanged) {
       hasInitialData.current = true;
       layoutNodes(data.nodes, nodeTypes);
     } else {

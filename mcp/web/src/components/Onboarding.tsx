@@ -1,7 +1,14 @@
 import { useState } from "react";
-import { Plus, Trash2, ChevronDown, ChevronUp } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIngestion, type RepoEntry } from "@/stores/useIngestion";
+import { cleanError } from "@/lib/errors";
 
 const STANDALONE_BASE = import.meta.env.VITE_STANDALONE_URL || "http://localhost:7799";
 
@@ -20,7 +27,7 @@ export function Onboarding({ onStarted }: OnboardingProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const { setRunning, setError } = useIngestion();
+  const { setRunning } = useIngestion();
 
   const updateRepo = (i: number, field: keyof RepoEntry, value: string) => {
     setRepos((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
@@ -60,18 +67,15 @@ export function Onboarding({ onStarted }: OnboardingProps) {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `${res.status} ${res.statusText}`);
+      const data = await res.json().catch(() => null);
+      if (!res.ok || data?.error || !data?.request_id) {
+        throw new Error(data?.error || `${res.status} ${res.statusText}`);
       }
-
-      const data = await res.json();
       setRunning(data.request_id);
       onStarted();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      setError(msg);
-      setSubmitError(msg);
+      setSubmitError(cleanError(msg));
     } finally {
       setSubmitting(false);
     }
@@ -81,15 +85,20 @@ export function Onboarding({ onStarted }: OnboardingProps) {
     <div className="flex flex-col items-center justify-center h-full w-full px-4">
       <div className="w-full max-w-lg">
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight mb-1">Add a repository</h1>
+          <h1 className="text-2xl font-semibold tracking-tight mb-1">
+            Add a repository
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Stakgraph will parse and index it into your local knowledge graph.
+            Stakgraph will build your local knowledge graph.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {repos.map((repo, i) => (
-            <div key={i} className="flex flex-col gap-2 rounded-lg border border-border p-4">
+            <div
+              key={i}
+              className="flex flex-col gap-2 rounded-lg border border-border p-4"
+            >
               <div className="flex items-center gap-2">
                 <input
                   type="url"
@@ -115,7 +124,11 @@ export function Onboarding({ onStarted }: OnboardingProps) {
                 onClick={() => togglePrivate(i)}
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
               >
-                {privateOpen[i] ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+                {privateOpen[i] ? (
+                  <ChevronUp className="size-3" />
+                ) : (
+                  <ChevronDown className="size-3" />
+                )}
                 Private repo credentials
               </button>
 
@@ -154,7 +167,11 @@ export function Onboarding({ onStarted }: OnboardingProps) {
             onClick={() => setShowAdvanced((v) => !v)}
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors w-fit"
           >
-            {showAdvanced ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+            {showAdvanced ? (
+              <ChevronUp className="size-3" />
+            ) : (
+              <ChevronDown className="size-3" />
+            )}
             Advanced options
           </button>
 
@@ -169,7 +186,9 @@ export function Onboarding({ onStarted }: OnboardingProps) {
                     className="rounded border-input accent-primary"
                   />
                   Use LSP
-                  <span className="text-xs text-muted-foreground">(slower, more accurate cross-file links)</span>
+                  <span className="text-xs text-muted-foreground">
+                    (slower, more accurate cross-file links)
+                  </span>
                 </label>
               </div>
               <div className="flex items-center gap-2">
@@ -185,7 +204,22 @@ export function Onboarding({ onStarted }: OnboardingProps) {
           )}
 
           {submitError && (
-            <p className="text-sm text-destructive">{submitError}</p>
+            <div className="flex items-start gap-2.5 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2.5">
+              <AlertCircle className="size-4 text-destructive shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-0.5">
+                <p className="text-sm text-destructive leading-snug">
+                  {submitError}
+                </p>
+                {/auth|credential|token|password|forbidden|401|403/i.test(
+                  submitError,
+                ) && (
+                  <p className="text-xs text-muted-foreground">
+                    Check your username and Personal Access Token under "Private
+                    repo credentials".
+                  </p>
+                )}
+              </div>
+            </div>
           )}
 
           <Button type="submit" disabled={submitting} className="mt-2">
@@ -196,3 +230,5 @@ export function Onboarding({ onStarted }: OnboardingProps) {
     </div>
   );
 }
+
+

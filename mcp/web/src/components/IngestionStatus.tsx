@@ -1,8 +1,9 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { XCircle, X } from "lucide-react";
+import { XCircle, RefreshCw } from "lucide-react";
 import { useIngestion } from "@/stores/useIngestion";
 import { useSSE } from "@/hooks/useSSE";
+import { cleanError } from "@/lib/errors";
 
 const STANDALONE_BASE =
   import.meta.env.VITE_STANDALONE_URL || "http://localhost:7799";
@@ -12,9 +13,29 @@ interface IngestionStatusProps {
 }
 
 export function IngestionStatus({ onReset }: IngestionStatusProps) {
-  const { phase, currentUpdate, errorMessage, applyUpdate } = useIngestion();
+  const {
+    phase,
+    currentUpdate,
+    errorMessage,
+    applyUpdate,
+    setError,
+    updateVersion,
+  } = useIngestion();
 
-  useSSE(phase === "running" ? `${STANDALONE_BASE}/events` : null, applyUpdate);
+  useSSE(
+    phase === "running" ? `${STANDALONE_BASE}/events` : null,
+    applyUpdate,
+    (msg) => setError(msg),
+  );
+
+  useEffect(() => {
+    if (phase !== "running") return;
+    const timer = setTimeout(
+      () => setError("Ingestion timed out — no progress detected"),
+      5 * 60 * 1000,
+    );
+    return () => clearTimeout(timer);
+  }, [phase, updateVersion, setError]);
 
   const step = currentUpdate?.step ?? 0;
   const totalSteps = currentUpdate?.total_steps ?? 16;
@@ -35,7 +56,11 @@ export function IngestionStatus({ onReset }: IngestionStatusProps) {
     "Initializing…";
 
   return (
-    <div className="absolute top-3 left-3 z-50 w-72 rounded-xl border border-border bg-background/90 backdrop-blur-sm shadow-lg overflow-hidden">
+    <div
+      className={`absolute top-3 left-3 z-50 w-72 rounded-xl border bg-background/90 backdrop-blur-sm shadow-lg overflow-hidden transition-colors ${
+        phase === "error" ? "border-destructive/50" : "border-border"
+      }`}
+    >
       {/* Header bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         {phase === "error" ? (
@@ -50,14 +75,6 @@ export function IngestionStatus({ onReset }: IngestionStatusProps) {
         <span className="text-xs font-medium flex-1 truncate">
           {phase === "error" ? "Ingestion failed" : "Building graph…"}
         </span>
-        {phase === "error" && (
-          <button
-            onClick={onReset}
-            className="text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <X className="size-3.5" />
-          </button>
-        )}
       </div>
 
       {/* Progress */}
@@ -115,8 +132,21 @@ export function IngestionStatus({ onReset }: IngestionStatusProps) {
       )}
 
       {/* Error detail */}
-      {phase === "error" && errorMessage && (
-        <p className="px-3 py-2 text-[11px] text-destructive">{errorMessage}</p>
+      {phase === "error" && (
+        <div className="px-3 py-3 flex flex-col gap-3">
+          {errorMessage && (
+            <p className="text-xs text-foreground leading-relaxed break-words">
+              {cleanError(errorMessage)}
+            </p>
+          )}
+          <button
+            onClick={onReset}
+            className="flex items-center justify-center gap-1.5 w-full h-8 rounded-md bg-destructive/10 hover:bg-destructive/20 text-destructive text-xs font-medium transition-colors"
+          >
+            <RefreshCw className="size-3" />
+            Try again
+          </button>
+        </div>
       )}
     </div>
   );

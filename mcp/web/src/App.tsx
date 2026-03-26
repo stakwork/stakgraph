@@ -18,18 +18,29 @@ function App() {
   const [activeItem, setActiveItem] = useState<ActiveItem | null>(null);
   const { phase, reset: resetIngestion } = useIngestion();
   const { reset: resetGraph } = useGraphData();
-  const graphLoading = useGraphData((s) => s.loading);
-  const graphData = useGraphData((s) => s.data);
-
+  // Preflight: check if Neo4j already has graph data before deciding which view to show
   useEffect(() => {
-    if (graphLoading) return;
-    if (view !== null) return;
-    if ((!graphData || graphData.nodes.length === 0) && phase === "idle") {
-      setView("onboarding");
-    } else {
-      setView("graph");
+    let cancelled = false;
+    async function checkGraph() {
+      try {
+        const res = await fetch(`${API_BASE}/graph?limit=1&no_body=true`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          const hasNodes = Array.isArray(data?.nodes) && data.nodes.length > 0;
+          setView(hasNodes ? "graph" : "onboarding");
+        } else {
+          setView("onboarding");
+        }
+      } catch {
+        if (!cancelled) setView("onboarding");
+      }
     }
-  }, [graphLoading, graphData, view, phase]);
+    checkGraph();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // When ingestion completes, reload graph data
   useEffect(() => {

@@ -24,7 +24,7 @@ pub async fn sync_async(
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
-                "error": format!("Invalid repository configuration: {:?}", e)
+                "error": format!("Invalid repository configuration: {}", e)
             }))
             .into_response();
         }
@@ -42,7 +42,7 @@ pub async fn sync_async(
 
     if let Err(e) = validate_git_credentials(&repo_url, username.clone(), pat.clone()).await {
         return Json(serde_json::json!({
-            "error": format!("Git authentication failed: {:?}", e)
+            "error": format!("{}", e)
         }))
         .into_response();
     }
@@ -213,7 +213,7 @@ pub async fn sync_async(
                     progress: 0,
                     update: Some(ast::repo::StatusUpdate {
                         status: "Failed".to_string(),
-                        message: format!("Error: {:?}", e),
+                        message: format!("{}", e),
                         step: 0,
                         total_steps: 16,
                         progress: 0,
@@ -272,7 +272,7 @@ pub async fn ingest_async(
         Ok(config) => config,
         Err(e) => {
             return Json(serde_json::json!({
-                "error": format!("Invalid repository configuration: {:?}", e)
+                "error": format!("Invalid repository configuration: {}", e)
             }))
             .into_response();
         }
@@ -281,10 +281,21 @@ pub async fn ingest_async(
     if let Err(e) =
         lsp::git::validate_git_credentials_multi(&repo_urls, username.clone(), pat.clone()).await
     {
-        return Json(serde_json::json!({
-            "error": format!("Git authentication failed: {:?}", e)
-        }))
-        .into_response();
+        let err_msg = format!("{}", e);
+        let _ = state.tx.send(ast::repo::StatusUpdate {
+            status: "Failed".to_string(),
+            message: err_msg.clone(),
+            step: 0,
+            total_steps: 16,
+            progress: 0,
+            stats: None,
+            step_description: Some("Failed".to_string()),
+        });
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": err_msg })),
+        )
+            .into_response();
     }
 
     // Try to acquire the busy lock before creating request_id
@@ -434,13 +445,23 @@ pub async fn ingest_async(
                 }
             }
             Err(e) => {
+                let err_msg = format!("{}", e);
+                let _ = state_clone.tx.send(ast::repo::StatusUpdate {
+                    status: "Failed".to_string(),
+                    message: err_msg.clone(),
+                    step: 0,
+                    total_steps: 16,
+                    progress: 0,
+                    stats: None,
+                    step_description: Some("Failed".to_string()),
+                });
                 let entry = AsyncRequestStatus {
                     status: AsyncStatus::Failed,
                     result: None,
                     progress: 0,
                     update: Some(ast::repo::StatusUpdate {
                         status: "Failed".to_string(),
-                        message: format!("Error: {:?}", e),
+                        message: err_msg,
                         step: 0,
                         total_steps: 16,
                         progress: 0,

@@ -15,6 +15,7 @@ interface IngestionState {
   currentUpdate: StatusUpdate | null;
   errorMessage: string | null;
   statsVersion: number;
+  updateVersion: number;
 
   setRunning: (requestId: string) => void;
   applyUpdate: (update: StatusUpdate) => void;
@@ -29,6 +30,7 @@ export const useIngestion = create<IngestionState>((set) => ({
   currentUpdate: null,
   errorMessage: null,
   statsVersion: 0,
+  updateVersion: 0,
 
   setRunning: (requestId) =>
     set({
@@ -63,18 +65,19 @@ export const useIngestion = create<IngestionState>((set) => ({
         update.status === "Failed";
 
       if (isComplete) {
-        return { currentUpdate: merged, phase: "complete" as IngestionPhase };
+        return { currentUpdate: merged, phase: "complete" as IngestionPhase, updateVersion: state.updateVersion + 1 };
       }
       if (isError) {
         return {
           currentUpdate: merged,
           phase: "error" as IngestionPhase,
           errorMessage: update.message,
+          updateVersion: state.updateVersion + 1,
         };
       }
       const statsVersion =
         update.stats != null ? state.statsVersion + 1 : state.statsVersion;
-      return { currentUpdate: merged, statsVersion };
+      return { currentUpdate: merged, statsVersion, updateVersion: state.updateVersion + 1 };
     });
   },
   setComplete: () => set({ phase: "complete" }),
@@ -86,5 +89,6 @@ export const useIngestion = create<IngestionState>((set) => ({
       currentUpdate: null,
       errorMessage: null,
       statsVersion: 0,
+      updateVersion: 0,
     }),
 }));
