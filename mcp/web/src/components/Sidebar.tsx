@@ -47,15 +47,6 @@ export function Sidebar({
     Record<string, boolean>
   >({});
 
-  // Auto-select first doc when docs finish loading
-  const [hasAutoSelected, setHasAutoSelected] = useState(false);
-  useEffect(() => {
-    if (!hasAutoSelected && !isDocsLoading && docs.length > 0) {
-      onDocClick(docs[0].repoName, docs[0].documentation);
-      setHasAutoSelected(true);
-    }
-  }, [isDocsLoading, docs, hasAutoSelected, onDocClick]);
-
   // Seed new repo groups (default to expanded), preserve existing toggle state
   useEffect(() => {
     const newKeys = features.reduce<Record<string, boolean>>((acc, f) => {
