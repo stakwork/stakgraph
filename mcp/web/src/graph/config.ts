@@ -25,7 +25,7 @@ export const CAMERA_SMOOTH_TIME = 0.8;
 export const AUTO_ROTATE_SPEED = 0.5; // degrees per second
 
 // Layout
-export const LAYER_SPACING = 500;
+export const LAYER_SPACING = 700;
 export const GRID_SPACING = 300;
 export const GRID_PADDING = 100;
 

@@ -1,10 +1,11 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { ChevronDown, BookOpen, Lightbulb } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/hooks/useApi";
+import { useGraphData } from "@/stores/useGraphData";
 import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
 
 // GET /docs returns: [ { "repo-name": { documentation: "..." } }, ... ]
@@ -34,6 +35,27 @@ export function Sidebar({
   onDocClick,
   onConceptClick,
 }: SidebarProps) {
+  const setHighlightedFeature = useGraphData((s) => s.setHighlightedFeature);
+  const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleConceptHover = useCallback(
+    (refId: string | null) => {
+      if (clearTimer.current) {
+        clearTimeout(clearTimer.current);
+        clearTimer.current = null;
+      }
+      if (refId) {
+        setHighlightedFeature(refId);
+      } else {
+        // Debounce the clear so moving between items doesn't flicker
+        clearTimer.current = setTimeout(() => {
+          setHighlightedFeature(null);
+        }, 100);
+      }
+    },
+    [setHighlightedFeature]
+  );
+
   const { data: rawDocs, loading: isDocsLoading } = useApi<DocsResponse>("/docs");
   const { data: featuresData, loading: isConceptsLoading } =
     useApi<FeaturesResponse>("/gitree/features");
@@ -235,7 +257,7 @@ export function Sidebar({
                                 transition={{ duration: 0.2 }}
                                 className="overflow-hidden"
                               >
-                                <div className="mt-1 space-y-1 pl-2">
+                                <div className="mt-1 pl-2">
                                   {group.map((concept) => {
                                     const itemKey = `concept-${concept.id}`;
                                     const isActive =
@@ -249,6 +271,12 @@ export function Sidebar({
                                             concept.name,
                                             concept.description
                                           )
+                                        }
+                                        onMouseEnter={() =>
+                                          handleConceptHover(concept.ref_id || concept.id)
+                                        }
+                                        onMouseLeave={() =>
+                                          handleConceptHover(null)
                                         }
                                         className={cn(
                                           "w-full text-left p-2 rounded-md text-sm transition-colors",

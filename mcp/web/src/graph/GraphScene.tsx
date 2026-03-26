@@ -22,10 +22,10 @@ const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 const SceneContent = memo(() => {
   const controlsRef = useRef<CameraControlsImpl>(null);
-  const userInteracting = useRef(false);
+  const autoRotate = useRef(true);
 
   useFrame((_, delta) => {
-    if (controlsRef.current && !userInteracting.current) {
+    if (controlsRef.current && autoRotate.current) {
       controlsRef.current.azimuthAngle += AUTO_ROTATE_SPEED * delta * MathUtils.DEG2RAD;
     }
   });
@@ -39,8 +39,7 @@ const SceneContent = memo(() => {
         maxDistance={CAMERA_MAX_DISTANCE}
         smoothTime={CAMERA_SMOOTH_TIME}
         dollyToCursor
-        onStart={() => { userInteracting.current = true; }}
-        onEnd={() => { userInteracting.current = false; }}
+        onStart={() => { autoRotate.current = false; }}
       />
       <Graph />
     </>

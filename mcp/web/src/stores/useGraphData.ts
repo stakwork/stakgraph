@@ -48,10 +48,15 @@ interface GraphDataState {
   selectedNode: NodeExtended | null;
   hoveredNode: NodeExtended | null;
 
+  // Feature highlight (from sidebar hover)
+  highlightedFeatureId: string | null;
+  highlightedNodeIds: Set<string>;
+
   // Actions
   setData: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setSelectedNode: (node: NodeExtended | null) => void;
   setHoveredNode: (node: NodeExtended | null) => void;
+  setHighlightedFeature: (featureRefId: string | null) => void;
   reset: () => void;
 }
 
@@ -63,6 +68,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   selectedNode: null,
   hoveredNode: null,
+  highlightedFeatureId: null,
+  highlightedNodeIds: new Set(),
 
   setData: (rawNodes: GraphNode[], rawEdges: GraphEdge[]) => {
     const nodesMap = new Map<string, NodeExtended>();
@@ -144,6 +151,45 @@ export const useGraphData = create<GraphDataState>((set) => ({
   setSelectedNode: (node) => set({ selectedNode: node }),
   setHoveredNode: (node) => set({ hoveredNode: node }),
 
+  setHighlightedFeature: (featureRefId: string | null) => {
+    if (!featureRefId) {
+      set({ highlightedFeatureId: null, highlightedNodeIds: new Set() });
+      return;
+    }
+
+    const { nodesNormalized, data } = useGraphData.getState();
+    const node = nodesNormalized.get(featureRefId);
+    if (!node || !data) {
+      set({ highlightedFeatureId: null, highlightedNodeIds: new Set() });
+      return;
+    }
+
+    // Collect the feature + all directly connected nodes + their children
+    const connected = new Set<string>();
+    connected.add(featureRefId);
+
+    // First level: direct connections
+    const directIds: string[] = [];
+    for (const id of node.sources || []) {
+      connected.add(id);
+      directIds.push(id);
+    }
+    for (const id of node.targets || []) {
+      connected.add(id);
+      directIds.push(id);
+    }
+
+    // Second level: children of all directly connected nodes
+    for (const id of directIds) {
+      const child = nodesNormalized.get(id);
+      if (!child) continue;
+      for (const cid of child.sources || []) connected.add(cid);
+      for (const cid of child.targets || []) connected.add(cid);
+    }
+
+    set({ highlightedFeatureId: featureRefId, highlightedNodeIds: connected });
+  },
+
   reset: () =>
     set({
       data: null,
@@ -152,5 +198,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       loading: true,
       selectedNode: null,
       hoveredNode: null,
+      highlightedFeatureId: null,
+      highlightedNodeIds: new Set(),
     }),
 }));
