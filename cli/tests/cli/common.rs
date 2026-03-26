@@ -1,9 +1,10 @@
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 use std::process::Command;
 
 pub struct CliOutput {
     pub stdout: String,
-    #[allow(dead_code)]
     pub stderr: String,
     pub exit_code: i32,
 }

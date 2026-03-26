@@ -58,9 +58,6 @@ async fn run() -> Result<()> {
             completions::run(args);
             Ok(())
         }
-        Some(Commands::Summarize(args)) => {
-            summarize::run_summarize(args, &mut Output::new(), cli.verbose || cli.perf).await
-        }
         Some(Commands::Changes(args)) => {
             changes::run(args, &mut Output::new(), cli.verbose || cli.perf).await
         }

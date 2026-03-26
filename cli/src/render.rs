@@ -330,7 +330,7 @@ pub fn print_named_node(
             "{}",
             style(format!(
                 "No node named '{}'{} found in {}",
-                node_name, type_hint, file_path
+                node_name, type_hint, super::utils::rel_path_from_cwd(&file_path)
             ))
             .yellow()
         ))?;

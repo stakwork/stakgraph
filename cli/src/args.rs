@@ -46,6 +46,14 @@ pub struct CliArgs {
     #[arg(long, action = ArgAction::SetTrue)]
     pub stats: bool,
 
+    /// Token budget for output; activates budget-aware summary mode
+    #[arg(long)]
+    pub max_tokens: Option<usize>,
+
+    /// Maximum directory tree depth (used with --max-tokens on a directory)
+    #[arg(long)]
+    pub depth: Option<usize>,
+
     /// Input files or directories (comma-separated or multiple args)
     #[arg(value_name = "FILE_OR_DIR", num_args = 0..)]
     pub files: Vec<String>,
@@ -53,29 +61,12 @@ pub struct CliArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum Commands {
-    /// Print a token-budget-aware high-level summary of a directory
-    Summarize(SummarizeArgs),
     /// Generate shell completions
     Completions(CompletionsArgs),
     /// Explore git changes summaries scoped to specific files or directories
     Changes(ChangesArgs),
     /// Show a dependency tree for a named node
     Deps(DepsArgs),
-}
-
-#[derive(Debug, Args)]
-pub struct SummarizeArgs {
-    /// Token budget for the output (default: 5000)
-    #[arg(long, default_value = "5000")]
-    pub max_tokens: usize,
-
-    /// Maximum directory depth to display (default: adaptive, starts at 1)
-    #[arg(long)]
-    pub depth: Option<usize>,
-
-    /// Path to summarize (default: current directory)
-    #[arg(value_name = "PATH", default_value = ".")]
-    pub path: String,
 }
 
 #[derive(Debug, Args)]

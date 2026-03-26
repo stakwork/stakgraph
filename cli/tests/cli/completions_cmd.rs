@@ -9,7 +9,7 @@ fn completions_bash_contains_command_and_flags() {
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("stakgraph"));
     assert!(out.stdout.contains("--type"));
-    assert!(out.stdout.contains("summarize"));
+    assert!(out.stdout.contains("--max-tokens"));
     assert!(out.stdout.contains("changes"));
 }
 

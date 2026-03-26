@@ -14,10 +14,10 @@ use ast::lang::queries::skips::summary::{
     is_junk_file, is_test_file, should_skip_dir, ENTRY_POINT_NAMES,
 };
 
-use super::args::SummarizeArgs;
 use super::output::Output;
 use super::progress::CliSpinner;
 use super::render::render_file_nodes_filtered;
+use super::utils::rel_path_from_cwd;
 
 const SUMMARY_ALLOWED_TYPES: &[NodeType] = &[
     NodeType::Function,
@@ -202,7 +202,9 @@ async fn render_file_summary(file_path: &Path) -> Option<String> {
 }
 
 pub async fn run_summarize(
-    args: &SummarizeArgs,
+    path: &str,
+    max_tokens: usize,
+    depth: Option<usize>,
     out: &mut Output,
     show_progress: bool,
 ) -> Result<()> {
@@ -213,9 +215,8 @@ pub async fn run_summarize(
     };
     let bpe = cl100k_base().map_err(|e| Error::Custom(e.to_string()))?;
     let mut tokens_used = 0usize;
-    let max_tokens = args.max_tokens;
 
-    let raw_root = PathBuf::from(&args.path);
+    let raw_root = PathBuf::from(path);
     let root = match raw_root.canonicalize() {
         Ok(p) => p,
         Err(_) => {
@@ -236,7 +237,7 @@ pub async fn run_summarize(
         let header = format!(
             "{} {}",
             style("Summary:").bold(),
-            style(root.display().to_string()).bold().cyan(),
+            style(rel_path_from_cwd(&root.to_string_lossy())).bold().cyan(),
         );
         out.writeln(&header)?;
         out.newline()?;
@@ -254,7 +255,7 @@ pub async fn run_summarize(
     if !root.is_dir() {
         out.writeln(format!(
             "{}",
-            style(format!("Error: {} is not a directory", root.display())).red()
+            style(format!("Error: {} is not a directory", rel_path_from_cwd(&root.to_string_lossy()))).red()
         ))?;
         return Ok(());
     }
@@ -263,7 +264,7 @@ pub async fn run_summarize(
     let header = format!(
         "{} {}  (budget: {} tokens)",
         style("Summary:").bold(),
-        style(root.display().to_string()).bold().cyan(),
+        style(rel_path_from_cwd(&root.to_string_lossy())).bold().cyan(),
         style(max_tokens.to_string()).bold().yellow(),
     );
     out.writeln(&header)?;
@@ -278,7 +279,7 @@ pub async fn run_summarize(
     out.writeln(&section)?;
     tokens_used += count_tokens(&bpe, &section);
 
-    let tree_str = if let Some(d) = args.depth {
+    let tree_str = if let Some(d) = depth {
         format_tree(&root, d)
     } else {
         let t1 = format_tree(&root, 1);
@@ -324,8 +325,11 @@ pub async fn run_summarize(
     source_files.sort_by(|a, b| score_file(b, &root).cmp(&score_file(a, &root)));
 
     let mut any_printed = false;
-    let mut files_skipped = 0usize;
+    let mut files_shown = 0usize;
     for (idx, file_path) in source_files.iter().enumerate() {
+        if tokens_used >= max_tokens {
+            break;
+        }
         let file_name = file_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -338,10 +342,6 @@ pub async fn run_summarize(
                 file_name
             ));
         }
-        if tokens_used >= max_tokens {
-            files_skipped += 1;
-            continue;
-        }
 
         let Some(rendered) = render_file_summary(file_path).await else {
             continue;
@@ -349,14 +349,15 @@ pub async fn run_summarize(
 
         let tok = count_tokens(&bpe, &rendered);
         if tokens_used + tok > max_tokens {
-            files_skipped += 1;
-            continue;
+            break;
         }
 
         out.writeln(&rendered)?;
         tokens_used += tok;
         any_printed = true;
+        files_shown += 1;
     }
+    let files_skipped = source_files.len().saturating_sub(files_shown);
 
     if !any_printed {
         out.writeln(
