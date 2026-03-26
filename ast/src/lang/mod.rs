@@ -19,9 +19,35 @@ use shared::{Context, Result};
 use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
-use tree_sitter::{Node as TreeNode, Query, QueryCursor};
+use tree_sitter::{Node as TreeNode, Query, QueryCursor, Tree};
+
+static PARSE_COUNT: AtomicU64 = AtomicU64::new(0);
+static PARSE_TIME_US: AtomicU64 = AtomicU64::new(0);
+
+pub fn reset_parse_stats() {
+    PARSE_COUNT.store(0, Ordering::Relaxed);
+    PARSE_TIME_US.store(0, Ordering::Relaxed);
+}
+
+pub fn print_parse_stats() {
+    let count = PARSE_COUNT.load(Ordering::Relaxed);
+    let time_us = PARSE_TIME_US.load(Ordering::Relaxed);
+    let time_ms = time_us / 1000;
+    let avg_us = if count > 0 { time_us / count } else { 0 };
+    tracing::info!(
+        "[parse-stats] total_parses={} total_time={}ms avg_per_parse={}µs",
+        count,
+        time_ms,
+        avg_us
+    );
+    println!(
+        "[Parse Stats] total_parses={} total_time={}ms avg_per_parse={}µs",
+        count, time_ms, avg_us
+    );
+}
 
 pub struct Lang {
     pub kind: Language,
@@ -70,7 +96,7 @@ impl Lang {
             return Ok(out);
         };
         let comment_q = self.q(&cq_str, node_type);
-        let tree = self.lang.parse(code, node_type)?;
+        let tree = self.parse(code, node_type)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&comment_q, tree.root_node(), code.as_bytes());
 
@@ -270,12 +296,20 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
+    pub fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
+        let start = std::time::Instant::now();
+        let result = self.lang.parse(code, nt);
+        let elapsed_us = start.elapsed().as_micros() as u64;
+        PARSE_COUNT.fetch_add(1, Ordering::Relaxed);
+        PARSE_TIME_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        result
+    }
     pub fn filter_nested_datamodels(&self, code: &str, data_models: Vec<NodeData>) -> Vec<NodeData> {
         let Some(scope_query_str) = self.lang.nested_scope_query() else {
             return data_models;
         };
         let q = self.q(&scope_query_str, &NodeType::DataModel);
-        let Ok(tree) = self.lang.parse(code, &NodeType::DataModel) else {
+        let Ok(tree) = self.parse(code, &NodeType::DataModel) else {
             return data_models;
         };
         let mut cursor = QueryCursor::new();
@@ -369,7 +403,7 @@ impl Lang {
     ) -> Result<Vec<Edge>> {
         if let Some(qo) = self.lang.component_template_query() {
             let qo = self.q(&qo, &NodeType::Class);
-            let tree = self.lang.parse(code, &NodeType::Class)?;
+            let tree = self.parse(code, &NodeType::Class)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&qo, tree.root_node(), code.as_bytes());
 
@@ -692,7 +726,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
         trace!("get_function_calls");
-        let tree = self.lang.parse(code, &NodeType::Function)?;
+        let tree = self.parse(code, &NodeType::Function)?;
         // get each function
         let qo1 = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut cursor = QueryCursor::new();
@@ -764,7 +798,7 @@ impl Lang {
         if self.lang.is_test_file(file) {
             if let Some(tq) = self.lang.test_query() {
                 let q_tests = self.q(&tq, &NodeType::UnitTest);
-                let tree_tests = self.lang.parse(code, &NodeType::UnitTest)?;
+                let tree_tests = self.parse(code, &NodeType::UnitTest)?;
                 let mut cursor_tests = QueryCursor::new();
                 let mut test_matches =
                     cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
