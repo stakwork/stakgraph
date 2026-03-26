@@ -4,6 +4,7 @@ import { ThreeEvent, useFrame } from "@react-three/fiber";
 import { NodePoints } from "./NodePoints";
 import { Edges } from "./Edges";
 import { LayerLabels } from "./LayerLabels";
+import { LayerHoverHighlight } from "./LayerHoverHighlight";
 import { NodeDetailsPanel } from "./NodeDetailsPanel";
 import { useGraphData } from "@/stores/useGraphData";
 import { nodePositions, useSimulation } from "@/stores/useSimulation";
@@ -104,6 +105,7 @@ export const Graph = memo(() => {
       </group>
       <Edges />
       <LayerLabels />
+      <LayerHoverHighlight />
       <NodeDetailsPanel />
     </group>
   );

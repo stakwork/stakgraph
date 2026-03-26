@@ -7,6 +7,11 @@ import type {
   GraphEdge,
 } from "@/graph/types";
 
+import { LAYER_ORDER } from "@/graph/config";
+
+// Re-export for consumers that import from here
+export { LAYER_ORDER };
+
 // Color palette by node type
 const COLORS: Record<string, string> = {
   Function: "#5C6BC0",
@@ -26,7 +31,7 @@ const COLORS: Record<string, string> = {
   Repository: "#BF360C",
 };
 
-const DEFAULT_COLOR = "#F8F8FF";
+const DEFAULT_COLOR = "#78909C";
 
 export function getColorForType(nodeType: string): string {
   return COLORS[nodeType] || DEFAULT_COLOR;
@@ -43,10 +48,15 @@ interface GraphDataState {
   selectedNode: NodeExtended | null;
   hoveredNode: NodeExtended | null;
 
+  // Feature highlight (from sidebar hover)
+  highlightedFeatureId: string | null;
+  highlightedNodeIds: Set<string>;
+
   // Actions
   setData: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setSelectedNode: (node: NodeExtended | null) => void;
   setHoveredNode: (node: NodeExtended | null) => void;
+  setHighlightedFeature: (featureRefId: string | null) => void;
   reset: () => void;
 }
 
@@ -58,6 +68,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   selectedNode: null,
   hoveredNode: null,
+  highlightedFeatureId: null,
+  highlightedNodeIds: new Set(),
 
   setData: (rawNodes: GraphNode[], rawEdges: GraphEdge[]) => {
     const nodesMap = new Map<string, NodeExtended>();
@@ -118,33 +130,15 @@ export const useGraphData = create<GraphDataState>((set) => ({
       }
     }
 
-    // Fixed layer order (top to bottom)
-    const LAYER_ORDER = [
-      "Repository",
-      "Directory",
-      "File",
-      "Feature",
-      "PullRequest",
-      "Commit",
-      "Class",
-      "Function",
-      "Datamodel",
-      "Endpoint",
-      "Request",
-      "Var",
-      "Page",
-    ];
+    
 
-    // Collect present node types, ordered by LAYER_ORDER then remainder alphabetically
+    // Only keep node types in LAYER_ORDER
+    const layerSet = new Set(LAYER_ORDER);
     const presentTypes = new Set<string>();
     for (const n of nodes) {
-      presentTypes.add(n.node_type);
+      if (layerSet.has(n.node_type)) presentTypes.add(n.node_type);
     }
-    const ordered = LAYER_ORDER.filter((t) => presentTypes.has(t));
-    const rest = Array.from(presentTypes)
-      .filter((t) => !LAYER_ORDER.includes(t))
-      .sort();
-    const nodeTypes = [...ordered, ...rest];
+    const nodeTypes = LAYER_ORDER.filter((t) => presentTypes.has(t));
 
     set({
       data: { nodes, links },
@@ -157,6 +151,45 @@ export const useGraphData = create<GraphDataState>((set) => ({
   setSelectedNode: (node) => set({ selectedNode: node }),
   setHoveredNode: (node) => set({ hoveredNode: node }),
 
+  setHighlightedFeature: (featureRefId: string | null) => {
+    if (!featureRefId) {
+      set({ highlightedFeatureId: null, highlightedNodeIds: new Set() });
+      return;
+    }
+
+    const { nodesNormalized, data } = useGraphData.getState();
+    const node = nodesNormalized.get(featureRefId);
+    if (!node || !data) {
+      set({ highlightedFeatureId: null, highlightedNodeIds: new Set() });
+      return;
+    }
+
+    // Collect the feature + all directly connected nodes + their children
+    const connected = new Set<string>();
+    connected.add(featureRefId);
+
+    // First level: direct connections
+    const directIds: string[] = [];
+    for (const id of node.sources || []) {
+      connected.add(id);
+      directIds.push(id);
+    }
+    for (const id of node.targets || []) {
+      connected.add(id);
+      directIds.push(id);
+    }
+
+    // Second level: children of all directly connected nodes
+    for (const id of directIds) {
+      const child = nodesNormalized.get(id);
+      if (!child) continue;
+      for (const cid of child.sources || []) connected.add(cid);
+      for (const cid of child.targets || []) connected.add(cid);
+    }
+
+    set({ highlightedFeatureId: featureRefId, highlightedNodeIds: connected });
+  },
+
   reset: () =>
     set({
       data: null,
@@ -165,5 +198,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       loading: true,
       selectedNode: null,
       hoveredNode: null,
+      highlightedFeatureId: null,
+      highlightedNodeIds: new Set(),
     }),
 }));
