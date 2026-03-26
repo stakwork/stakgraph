@@ -13,6 +13,7 @@ use super::args::CliArgs;
 use super::output::Output;
 use super::progress::{CliSpinner, ProgressTracker};
 use super::render::{print_named_node, print_single_file_nodes, print_single_file_nodes_filtered};
+use super::summarize::run_summarize;
 use super::utils::{common_ancestor, parse_node_types, read_text_preview};
 
 fn expand_dirs(inputs: &[String]) -> Result<(Vec<String>, HashSet<String>)> {
@@ -59,6 +60,15 @@ fn parse_goal_phrase(node_types: &[NodeType], stats: bool) -> String {
 }
 
 pub async fn run(cli: &CliArgs, out: &mut Output) -> Result<()> {
+    let first = cli.files.first().map(|s| s.as_str()).unwrap_or(".");
+    let is_dir_input = Path::new(first).is_dir();
+    let has_filters = !cli.r#type.is_empty() || cli.name.is_some() || cli.stats;
+
+    if cli.max_tokens.is_some() || (is_dir_input && !has_filters) {
+        let max_tokens = cli.max_tokens.unwrap_or(8000);
+        return run_summarize(first, max_tokens, cli.depth, out, cli.verbose || cli.perf).await;
+    }
+
     let (files, dir_files) = expand_dirs(&cli.files)?;
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
