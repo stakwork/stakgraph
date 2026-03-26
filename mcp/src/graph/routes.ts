@@ -11,6 +11,7 @@ import {
 import {
   nameFileOnly,
   toReturnNode,
+  toReturnNodeNoBody,
   isTrue,
   detectLanguagesAndPkgFiles,
   cloneRepoToTmp,
@@ -1111,6 +1112,7 @@ export async function get_graph(req: Request, res: Response) {
     const edge_type =
       (req.query.edge_type as EdgeType) || ("CALLS" as EdgeType);
     const concise = isTrue(req.query.concise as string);
+    const no_body = isTrue(req.query.no_body as string);
     const include_edges = isTrue(req.query.edges as string);
     const language = req.query.language as string | undefined;
     const since = parseSince(req.query);
@@ -1148,10 +1150,9 @@ export async function get_graph(req: Request, res: Response) {
       edges = await db.edges_between_node_keys(keys);
     }
 
+    const mapNode = concise ? nameFileOnly : no_body ? toReturnNodeNoBody : toReturnNode;
     res.json({
-      nodes: concise
-        ? nodes.map((n) => nameFileOnly(n))
-        : nodes.map((n) => toReturnNode(n)),
+      nodes: nodes.map((n) => mapNode(n)),
       edges: include_edges
         ? concise
           ? edges.map((e) => ({

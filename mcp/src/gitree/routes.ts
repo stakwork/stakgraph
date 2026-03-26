@@ -17,6 +17,7 @@ import { formatFeatureWithDetails } from "./utils.js";
 import { listFeatures } from "./service.js";
 import {
   toReturnNode,
+  toReturnNodeNoBody,
   parseNodeTypes,
   parseLimit,
   buildGraphMeta,
@@ -762,6 +763,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     const limit = parseLimit(req.query);
     const requestedNodeTypes = parseNodeTypes(req.query);
     const concise = isTrue(req.query.concise as string);
+    const no_body = isTrue(req.query.no_body as string);
     const depth = parseInt(req.query.depth as string) || undefined;
     const perTypeLimitsParam = req.query.per_type_limits as string;
 
@@ -832,9 +834,8 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     }
 
     // Transform nodes to return format
-    const returnNodes = concise
-      ? allNodes.map((node) => toConciseNode(node))
-      : allNodes.map((node) => toReturnNode(node));
+    const mapNode = concise ? toConciseNode : no_body ? toReturnNodeNoBody : toReturnNode;
+    const returnNodes = allNodes.map((node) => mapNode(node));
 
     // Combine all edges
     let allEdges = [...data.modifiesEdges, ...data.containsEdges];

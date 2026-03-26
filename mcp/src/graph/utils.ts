@@ -80,6 +80,12 @@ export function toReturnNode(node: Neo4jNode): ReturnNode {
   return ret;
 }
 
+export function toReturnNodeNoBody(node: Neo4jNode): ReturnNode {
+  const ret = toReturnNode(node);
+  const { body: _, ...rest } = ret.properties;
+  return { ...ret, properties: rest as ReturnNode["properties"] };
+}
+
 export function nameFileOnly(node: Neo4jNode): { name: string; file: string, ref_id?: string } {
   return {
     name: node.properties.name,
