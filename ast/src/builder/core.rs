@@ -4,7 +4,7 @@ use super::utils::*;
 #[cfg(feature = "neo4j")]
 use crate::lang::graphs::Neo4jGraph;
 use crate::lang::graphs::{Edge, Graph};
-
+use crate::lang::{reset_parse_stats, print_parse_stats};
 use crate::lang::BTreeMapGraph;
 use crate::lang::{asg::NodeData, graphs::NodeType};
 use crate::repo::Repo;
@@ -64,6 +64,7 @@ impl Repo {
             };
 
         self.send_status_update("initialization", 1);
+        reset_parse_stats();
         memory::log_memory("init");
 
         let stage_start = Instant::now();
@@ -256,6 +257,7 @@ impl Repo {
         stats.insert("total_edges".to_string(), num_of_edges as usize);
 
         self.send_status_with_stats(stats);
+        print_parse_stats();
 
         Ok(graph)
     }
