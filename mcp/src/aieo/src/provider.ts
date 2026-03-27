@@ -133,6 +133,12 @@ interface ModelDetails {
 export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string): ModelDetails {
   const provider = getProviderForModel(modelName);
   const apiKey = apiKeyIn || getApiKeyForProvider(provider);
+  console.log("===> getModelDetails", {
+    provider,
+    modelName: modelName || "(default)",
+    keySource: apiKeyIn ? "request body" : "env var",
+    apiKeyPrefix: apiKey ? apiKey.slice(0, 12) + "..." : "(missing)",
+  });
   const model = getModel(provider, {
     modelName,
     apiKey,

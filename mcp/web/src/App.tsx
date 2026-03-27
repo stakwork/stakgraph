@@ -9,6 +9,7 @@ import { LayerTogglePanel } from "@/components/LayerTogglePanel";
 import { Chat } from "@/components/chat/Chat";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
+import { SettingsToggle } from "@/components/chat/Settings";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -119,7 +120,7 @@ function App() {
         <span className="text-sm text-muted-foreground">
           software knowledge graph
         </span>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           {!ingesting && view !== "onboarding" && (
             <button
               onClick={() => {
@@ -132,6 +133,7 @@ function App() {
               Add repository
             </button>
           )}
+          <SettingsToggle />
         </div>
       </header>
       <div className="flex flex-1 min-h-0 relative">
@@ -148,7 +150,9 @@ function App() {
           )}
         </div>
         {view === "graph" && (
-          <div className={`pointer-events-none absolute inset-0 ${showSidebar ? "right-80" : ""}`}>
+          <div
+            className={`pointer-events-none absolute inset-0 ${showSidebar ? "right-80" : ""}`}
+          >
             <Chat />
           </div>
         )}

@@ -1,11 +1,17 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ChevronDown, BookOpen, Lightbulb } from "lucide-react";
+import { ChevronDown, BookOpen, Lightbulb, Zap, Loader2 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useApi } from "@/hooks/useApi";
 import { useGraphData } from "@/stores/useGraphData";
+import { useSettings } from "@/stores/useSettings";
 import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
 
 // GET /docs returns: [ { "repo-name": { documentation: "..." } }, ... ]
@@ -36,6 +42,7 @@ export function Sidebar({
   onConceptClick,
 }: SidebarProps) {
   const setHighlightedFeature = useGraphData((s) => s.setHighlightedFeature);
+  const githubToken = useSettings((s) => s.githubToken);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleConceptHover = useCallback(
@@ -56,9 +63,96 @@ export function Sidebar({
     [setHighlightedFeature]
   );
 
-  const { data: rawDocs, loading: isDocsLoading } = useApi<DocsResponse>("/docs");
-  const { data: featuresData, loading: isConceptsLoading } =
-    useApi<FeaturesResponse>("/gitree/features");
+  const {
+    data: rawDocs,
+    loading: isDocsLoading,
+    refetch: refetchDocs,
+  } = useApi<DocsResponse>("/docs");
+  const {
+    data: featuresData,
+    loading: isConceptsLoading,
+    refetch: refetchConcepts,
+  } = useApi<FeaturesResponse>("/gitree/features");
+
+  const API_BASE = import.meta.env.VITE_API_BASE || "";
+
+  // ── Docs: synchronous POST, stays disabled until it resolves ──────────
+  const [isGeneratingDocs, setIsGeneratingDocs] = useState(false);
+
+  const handleGenerateDocs = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isGeneratingDocs) return;
+      setIsGeneratingDocs(true);
+      try {
+        await fetch(`${API_BASE}/learn_docs`, { method: "POST" });
+        refetchDocs();
+      } finally {
+        setIsGeneratingDocs(false);
+      }
+    },
+    [API_BASE, isGeneratingDocs, refetchDocs],
+  );
+
+  // ── Concepts: async POST + poll processing flag every 3 s ─────────────
+  const [conceptsTriggered, setConceptsTriggered] = useState(false);
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const serverProcessing = featuresData?.processing ?? false;
+  const isGeneratingConcepts = conceptsTriggered || serverProcessing;
+
+  // Start polling as soon as triggered or server says processing
+  useEffect(() => {
+    if (isGeneratingConcepts) {
+      if (!pollTimer.current) {
+        pollTimer.current = setInterval(() => {
+          refetchConcepts();
+        }, 3000);
+      }
+    } else {
+      if (pollTimer.current) {
+        clearInterval(pollTimer.current);
+        pollTimer.current = null;
+      }
+      // Clear triggered flag once server confirms done
+      setConceptsTriggered(false);
+    }
+    return () => {
+      if (pollTimer.current) {
+        clearInterval(pollTimer.current);
+        pollTimer.current = null;
+      }
+    };
+  }, [isGeneratingConcepts, refetchConcepts]);
+
+  const handleGenerateConcepts = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (isGeneratingConcepts) return;
+      setConceptsTriggered(true);
+      const repo = featuresData?.repo;
+      // Pass token as query param; server also accepts GITHUB_TOKEN env var
+      const qp = new URLSearchParams();
+      if (repo) { qp.set("owner", repo.split("/")[0]); qp.set("repo", repo.split("/")[1]); }
+      if (githubToken) qp.set("token", githubToken);
+      const qs = qp.toString();
+      const url = `${API_BASE}/gitree/process${qs ? `?${qs}` : ""}`;
+      fetch(url, { method: "POST" })
+        .then(async (r) => {
+          if (!r.ok) {
+            const body = await r.json().catch(() => ({}));
+            const msg = (body as any)?.error || `HTTP ${r.status}`;
+            console.error("gitree/process failed:", msg);
+            setConceptsTriggered(false);
+          }
+        })
+        .catch(() => {
+          setConceptsTriggered(false);
+        });
+      // Kick off first poll quickly
+      setTimeout(refetchConcepts, 800);
+    },
+    [API_BASE, featuresData?.repo, isGeneratingConcepts, refetchConcepts],
+  );
 
   const docs = useMemo(() => parseDocs(rawDocs), [rawDocs]);
   const features = featuresData?.features ?? [];
@@ -107,25 +201,57 @@ export function Sidebar({
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Docs Section */}
         <div>
-          <Button
-            variant="ghost"
-            className="w-full justify-between p-2 h-auto"
-            onClick={() => setIsDocsExpanded(!isDocsExpanded)}
-          >
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4" />
-              <span className="font-medium">Docs</span>
-              <Badge variant="secondary" className="ml-1">
-                {docs.length}
-              </Badge>
-            </div>
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 transition-transform",
-                isDocsExpanded && "rotate-180"
-              )}
-            />
-          </Button>
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              className="flex-1 justify-between p-2 h-auto"
+              onClick={() => setIsDocsExpanded(!isDocsExpanded)}
+            >
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-4 w-4" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="font-medium cursor-default">Docs</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-56">
+                    AI-generated architecture summaries for each repository,
+                    built from rules files like .cursorrules and
+                    copilot-instructions.md.
+                  </TooltipContent>
+                </Tooltip>
+                <Badge variant="secondary" className="ml-1">
+                  {docs.length}
+                </Badge>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  isDocsExpanded && "rotate-180",
+                )}
+              />
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="ml-1 shrink-0"
+                  onClick={handleGenerateDocs}
+                  disabled={isGeneratingDocs}
+                  aria-label="Generate docs"
+                >
+                  {isGeneratingDocs ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                Generate / refresh docs
+              </TooltipContent>
+            </Tooltip>
+          </div>
 
           <AnimatePresence>
             {isDocsExpanded && (
@@ -146,6 +272,11 @@ export function Sidebar({
                         />
                       ))}
                     </div>
+                  ) : isGeneratingDocs ? (
+                    <div className="p-4 text-sm text-muted-foreground text-center flex items-center justify-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating docs...
+                    </div>
                   ) : docs.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground text-center">
                       No documentation available
@@ -164,7 +295,7 @@ export function Sidebar({
                             "w-full text-left p-2 rounded-md text-sm transition-colors",
                             isActive
                               ? "bg-muted/60 font-medium"
-                              : "bg-muted/30 hover:bg-muted/50"
+                              : "bg-muted/30 hover:bg-muted/50",
                           )}
                         >
                           {doc.repoName}
@@ -180,25 +311,57 @@ export function Sidebar({
 
         {/* Concepts Section */}
         <div>
-          <Button
-            variant="ghost"
-            className="w-full justify-between p-2 h-auto"
-            onClick={() => setIsConceptsExpanded(!isConceptsExpanded)}
-          >
-            <div className="flex items-center gap-2">
-              <Lightbulb className="h-4 w-4" />
-              <span className="font-medium">Concepts</span>
-              <Badge variant="secondary" className="ml-1">
-                {features.length}
-              </Badge>
-            </div>
-            <ChevronDown
-              className={cn(
-                "h-4 w-4 transition-transform",
-                isConceptsExpanded && "rotate-180"
-              )}
-            />
-          </Button>
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              className="flex-1 justify-between p-2 h-auto"
+              onClick={() => setIsConceptsExpanded(!isConceptsExpanded)}
+            >
+              <div className="flex items-center gap-2">
+                <Lightbulb className="h-4 w-4" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="font-medium cursor-default">Concepts</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-56">
+                    High-level features derived from your repo's GitHub PR and
+                    commit history. Generate to process new PRs and build your
+                    concept map.
+                  </TooltipContent>
+                </Tooltip>
+                <Badge variant="secondary" className="ml-1">
+                  {features.length}
+                </Badge>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  isConceptsExpanded && "rotate-180",
+                )}
+              />
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="ml-1 shrink-0"
+                  onClick={handleGenerateConcepts}
+                  disabled={isGeneratingConcepts}
+                  aria-label="Generate concepts"
+                >
+                  {isGeneratingConcepts ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">
+                Generate / refresh concepts
+              </TooltipContent>
+            </Tooltip>
+          </div>
 
           <AnimatePresence>
             {isConceptsExpanded && (
@@ -219,6 +382,11 @@ export function Sidebar({
                         />
                       ))}
                     </div>
+                  ) : isGeneratingConcepts && features.length === 0 ? (
+                    <div className="p-4 text-sm text-muted-foreground text-center flex items-center justify-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Generating concepts...
+                    </div>
                   ) : features.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground text-center">
                       No concepts discovered yet
@@ -226,8 +394,7 @@ export function Sidebar({
                   ) : (
                     groupedConcepts.map(({ repo, concepts: group }) => {
                       const shortName = repo.split("/")[1] ?? repo;
-                      const isGroupExpanded =
-                        expandedRepoGroups[repo] ?? true;
+                      const isGroupExpanded = expandedRepoGroups[repo] ?? true;
                       return (
                         <div key={repo}>
                           <Button
@@ -237,14 +404,12 @@ export function Sidebar({
                           >
                             <div className="flex items-center gap-1.5">
                               <span className="font-medium">{shortName}</span>
-                              <Badge variant="secondary">
-                                {group.length}
-                              </Badge>
+                              <Badge variant="secondary">{group.length}</Badge>
                             </div>
                             <ChevronDown
                               className={cn(
                                 "h-3 w-3 transition-transform",
-                                isGroupExpanded && "rotate-180"
+                                isGroupExpanded && "rotate-180",
                               )}
                             />
                           </Button>
@@ -260,8 +425,7 @@ export function Sidebar({
                                 <div className="mt-1 pl-2">
                                   {group.map((concept) => {
                                     const itemKey = `concept-${concept.id}`;
-                                    const isActive =
-                                      activeItemKey === itemKey;
+                                    const isActive = activeItemKey === itemKey;
                                     return (
                                       <button
                                         key={concept.id}
@@ -269,11 +433,13 @@ export function Sidebar({
                                           onConceptClick(
                                             concept.id,
                                             concept.name,
-                                            concept.description
+                                            concept.description,
                                           )
                                         }
                                         onMouseEnter={() =>
-                                          handleConceptHover(concept.ref_id || concept.id)
+                                          handleConceptHover(
+                                            concept.ref_id || concept.id,
+                                          )
                                         }
                                         onMouseLeave={() =>
                                           handleConceptHover(null)
@@ -282,7 +448,7 @@ export function Sidebar({
                                           "w-full text-left p-2 rounded-md text-sm transition-colors",
                                           isActive
                                             ? "bg-muted/60 font-medium"
-                                            : "bg-muted/30 hover:bg-muted/50"
+                                            : "bg-muted/30 hover:bg-muted/50",
                                         )}
                                       >
                                         {concept.name}

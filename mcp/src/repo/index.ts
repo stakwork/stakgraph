@@ -87,6 +87,9 @@ export async function repo_agent(req: Request, res: Response) {
     hasRepoUrl: Boolean(req.body?.repo_url),
     hasPrompt: Boolean(req.body?.prompt),
     stream: Boolean(req.body?.stream),
+    hasApiKey: Boolean(req.body?.apiKey),
+    apiKeyPrefix: req.body?.apiKey ? String(req.body.apiKey).slice(0, 12) + "..." : "(none)",
+    modelName: req.body?.model || "(none)",
   });
 
   const body = parseAgentBody(req);
