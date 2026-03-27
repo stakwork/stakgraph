@@ -6,16 +6,12 @@ import { useGraphData } from "@/stores/useGraphData";
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
 /**
- * Hook that wires together:
- *  1. POST /repo/agent  (kick off the agent)
- *  2. GET /events/:request_id  (SSE for tool calls + text + done)
- *  3. GET /progress?request_id=...  (poll fallback if SSE misses "done")
+ * Hook that calls POST /repo/agent with stream=true and
+ * consumes the AI SDK UI message stream for real-time text + tool calls.
  */
 export function useAgentChat() {
   const {
     status,
-    requestId,
-    eventsToken,
     sessionId,
     addUserMessage,
     setPending,
@@ -46,108 +42,35 @@ export function useAgentChat() {
     return storedRepoUrl;
   }, [data, storedRepoUrl]);
 
-  const esRef = useRef<EventSource | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Clean up SSE + polling on unmount
+  // Clean up on unmount
   useEffect(() => {
     return () => {
-      esRef.current?.close();
-      if (pollRef.current) clearInterval(pollRef.current);
+      abortRef.current?.abort();
     };
   }, []);
 
-  // Subscribe to SSE whenever requestId changes
-  useEffect(() => {
-    // Close previous
-    esRef.current?.close();
-    esRef.current = null;
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-
-    if (!requestId) return;
-
-    const params = new URLSearchParams();
-    if (eventsToken) params.set("token", eventsToken);
-    const url = `${API_BASE}/events/${requestId}${params.toString() ? "?" + params.toString() : ""}`;
-
-    const es = new EventSource(url);
-    esRef.current = es;
-
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        switch (data.type) {
-          case "tool_call":
-            addToolCall({
-              id: data.toolName + "-" + Date.now(),
-              toolName: data.toolName,
-              input: data.input,
-              timestamp: data.timestamp,
-            } satisfies ToolCallEvent);
-            break;
-          case "text":
-            if (data.text) appendText(data.text);
-            break;
-          case "done":
-            es.close();
-            esRef.current = null;
-            finishResponse(
-              data.result?.final_answer,
-              data.result?.sessionId,
-            );
-            break;
-          case "error":
-            es.close();
-            esRef.current = null;
-            setError(data.error || "Agent error");
-            break;
-        }
-      } catch {
-        // ignore malformed events
+  /** Parse a single AI SDK UIMessageChunk */
+  const processChunk = useCallback(
+    (chunk: Record<string, unknown>) => {
+      switch (chunk.type) {
+        case "text-delta":
+          appendText((chunk.delta || chunk.textDelta || "") as string);
+          break;
+        case "tool-input-available":
+          addToolCall({
+            id: (chunk.toolCallId || chunk.toolName + "-" + Date.now()) as string,
+            toolName: chunk.toolName as string,
+            input: chunk.input,
+            timestamp: new Date().toISOString(),
+          } satisfies ToolCallEvent);
+          break;
+        // ignore tool-output-available, start-step, finish-step, etc.
       }
-    };
-
-    es.onerror = () => {
-      es.close();
-      esRef.current = null;
-      // Fall back to polling
-      startPolling(requestId);
-    };
-
-    return () => {
-      es.close();
-      esRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requestId]);
-
-  function startPolling(rid: string) {
-    if (pollRef.current) return;
-    pollRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(`${API_BASE}/progress?request_id=${rid}`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.status === "complete" || data.result) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          finishResponse(
-            data.result?.final_answer,
-            data.result?.sessionId,
-          );
-        } else if (data.status === "error" || data.error) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-          setError(data.error || "Agent error");
-        }
-      } catch {
-        // keep polling
-      }
-    }, 3000);
-  }
+    },
+    [appendText, addToolCall],
+  );
 
   const send = useCallback(
     async (prompt: string) => {
@@ -157,11 +80,16 @@ export function useAgentChat() {
       }
 
       addUserMessage(prompt);
+      setPending("streaming", null);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
 
       try {
         const body: Record<string, unknown> = {
           repo_url: repoUrl,
           prompt,
+          stream: true,
           toolsConfig: { learn_concepts: true },
         };
         if (username) body.username = username;
@@ -172,6 +100,7 @@ export function useAgentChat() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
 
         if (!res.ok) {
@@ -179,13 +108,47 @@ export function useAgentChat() {
           throw new Error(err.error || `HTTP ${res.status}`);
         }
 
-        const data = await res.json();
-        setPending(data.request_id, data.events_token || null);
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error("No response body");
+
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+
+          // SSE format: "data: {json}\n\n"
+          const events = buffer.split("\n\n");
+          buffer = events.pop() || ""; // keep incomplete event in buffer
+
+          for (const event of events) {
+            for (const line of event.split("\n")) {
+              if (!line.startsWith("data: ")) continue;
+              const payload = line.slice(6); // strip "data: "
+
+              try {
+                const chunk = JSON.parse(payload);
+                processChunk(chunk);
+              } catch {
+                // not valid JSON, skip
+              }
+            }
+          }
+        }
+
+        // Stream finished normally
+        finishResponse();
       } catch (err) {
+        if ((err as Error).name === "AbortError") return;
         setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        abortRef.current = null;
       }
     },
-    [repoUrl, username, pat, sessionId, addUserMessage, setPending, setError],
+    [repoUrl, username, pat, sessionId, addUserMessage, setPending, setError, finishResponse, processChunk],
   );
 
   return { send, clearChat, status, repoUrl };

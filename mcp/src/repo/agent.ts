@@ -150,17 +150,27 @@ export interface GetContextOptions {
   onStepEvent?: (content: any[]) => void;
 }
 
-export async function get_context(
+interface PreparedAgent {
+  agent: ToolLoopAgent<never, ToolSet>;
+  model: LanguageModel;
+  finalPrompt: string | ModelMessage[];
+  previousMessages: ModelMessage[];
+  userMessage: ModelMessage;
+  sessionId: string | undefined;
+  sessionConfig: SessionConfig | undefined;
+  startTime: number;
+}
+
+async function prepareAgent(
   prompt: string | ModelMessage[],
   repoPath: string,
-  opts: GetContextOptions
-): Promise<ContextResult> {
+  opts: GetContextOptions,
+): Promise<PreparedAgent> {
   const {
     modelName,
     pat,
     toolsConfig,
     systemOverride,
-    schema,
     sessionId: inputSessionId,
     sessionConfig,
     mcpServers,
@@ -181,11 +191,9 @@ export async function get_context(
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
-      // Continue existing session
       sessionId = inputSessionId;
       previousMessages = loadSession(sessionId);
     } else {
-      // Create new session with provided ID
       sessionId = createNewSession(inputSessionId);
     }
   }
@@ -226,13 +234,11 @@ If the user's prompt mentions a sub-agent with an @mention (e.g. "@${validSubAge
     const inlineSkills = activeSkills.filter(name => !name.includes("/") && SKILLS[name]);
     const pathSkills = activeSkills.filter(name => name.includes("/") || !SKILLS[name]);
 
-    // Inline built-in skills directly into the prompt
     if (inlineSkills.length > 0) {
       const inlineBlock = inlineSkills.map(name => SKILLS[name]).join('\n\n');
       instructions += `\n\n${inlineBlock}`;
     }
 
-    // Path-based skills: use bash to load from disk
     if (pathSkills.length > 0) {
       const pathBlock = `\n\nSKILLS INSTRUCTIONS:
 Before starting your main task, use the bash tool to load your active skills into context:
@@ -255,7 +261,6 @@ Apply the guidance from each skill throughout your response.`;
     instructions = ASK_CLARIFYING_QUESTIONS_SYSTEM;
     stopWhen = [hasEndMarker, hasAskQuestions];
 
-    // Add clarifying questions text to prompt
     finalPrompt = appendTextToPrompt(
       prompt,
       " After exploring a bit, ask clarifying questions if needed."
@@ -266,7 +271,6 @@ Apply the guidance from each skill throughout your response.`;
     console.log("===> tool", tool, "===>", tools[tool].description);
   }
 
-  // Create the agent
   const agent = new ToolLoopAgent({
     model,
     instructions,
@@ -280,10 +284,7 @@ Apply the guidance from each skill throughout your response.`;
       }
     },
     prepareStep: async ({ steps, messages }) => {
-      // Keep messagesRef up to date so ggnn tools can read the current trace
       messagesRef.current = messages as ModelMessage[];
-      // Use real input token count from the last step if available,
-      // otherwise 0 to trigger estimation from the messages themselves
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
       const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
@@ -292,7 +293,6 @@ Apply the guidance from each skill throughout your response.`;
     },
   });
 
-  // Build the user message for session storage
   const userMessageContent =
     typeof finalPrompt === "string"
       ? finalPrompt
@@ -302,29 +302,35 @@ Apply the guidance from each skill throughout your response.`;
     content: userMessageContent as string,
   };
 
-  // Generate response
-  let result;
+  return { agent, model, finalPrompt, previousMessages, userMessage, sessionId, sessionConfig, startTime };
+}
+
+/** Build the generate/stream call params from the prepared agent state. */
+function buildCallParams(prepared: PreparedAgent) {
+  const { finalPrompt, previousMessages, userMessage } = prepared;
   if (previousMessages.length > 0) {
-    // Continue conversation with history + new message
     const messagesToSend =
       typeof finalPrompt === "string"
         ? [...previousMessages, userMessage]
         : [...previousMessages, ...finalPrompt];
-    result = await agent.generate({
-      messages: messagesToSend,
-    });
-  } else {
-    // Fresh conversation
-    if (typeof finalPrompt === "string") {
-      result = await agent.generate({
-        prompt: finalPrompt,
-      });
-    } else {
-      result = await agent.generate({
-        messages: finalPrompt,
-      });
-    }
+    return { messages: messagesToSend };
   }
+  if (typeof finalPrompt === "string") {
+    return { prompt: finalPrompt };
+  }
+  return { messages: finalPrompt };
+}
+
+export async function get_context(
+  prompt: string | ModelMessage[],
+  repoPath: string,
+  opts: GetContextOptions
+): Promise<ContextResult> {
+  const prepared = await prepareAgent(prompt, repoPath, opts);
+  const { agent, model, finalPrompt, sessionId, sessionConfig, userMessage, startTime } = prepared;
+  const { schema } = opts;
+
+  const result = await agent.generate(buildCallParams(prepared));
 
   const { steps, totalUsage } = result;
 
@@ -374,27 +380,28 @@ Apply the guidance from each skill throughout your response.`;
   };
 }
 
+/**
+ * Streaming variant of get_context.
+ * Returns a StreamTextResult that can be piped to an HTTP response
+ * via .toUIMessageStreamResponse().
+ */
+export async function stream_context(
+  prompt: string | ModelMessage[],
+  repoPath: string,
+  opts: GetContextOptions
+) {
+  const prepared = await prepareAgent(prompt, repoPath, opts);
+  return prepared.agent.stream(buildCallParams(prepared));
+}
+
 /*
 curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
-
-curl -X POST -H "Content-Type: application/json" -d '{
-  "repo_url": "https://github.com/stakwork/hive",
-  "prompt": "how does auth work in the repo? I don'\''t need a detailed answer, just a high-level overview. ANSWER QUICKLY!",
-  "toolsConfig": {
-    "final_answer": "Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF YOUR EXPLORATION. Please explore quickly, only read a couple files summaries. YOU MUST START THE FINAL ANSWER WITH 3 ROCKET EMOJIS!",
-    "repo_overview": "",
-    "file_summary": ""
-  }
-}' "http://localhost:3355/repo/agent"
 
 curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "repo_url": "https://github.com/stakwork/hive",
-    "prompt": "please call the bash tool to make sure it works. List my docker containers currently running. Then call final_answer to say the answer.",
-    "toolsConfig": {
-      "bash": ""
-    }
+    "prompt": "please call the bash tool to make sure it works. List my docker containers currently running."
   }' \
   "http://localhost:3355/repo/agent"
 
@@ -413,7 +420,7 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "repo_url": "https://github.com/stakwork/hive",
-    "prompt": "i want to build a user inbox to show recent activity and notifications.",
+    "prompt": "i want to build a user inbox to show recent activity and notifications. Ask me clarifying questions.",
     "toolsConfig": {
       "ask_clarifying_questions": true
     }
@@ -455,7 +462,7 @@ curl -X POST \
   }' \
   "http://localhost:3355/repo/agent"
 
-curl "http://localhost:3355/progress?request_id=1bfbf646-fff5-4e60-816a-47af33994912"
+curl "http://localhost:3355/progress?request_id=5b0e0339-e616-48fc-bd98-8676a556b689"
 
 curl -X POST \
   -H "Content-Type: application/json" \
