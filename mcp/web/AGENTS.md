@@ -33,17 +33,25 @@ src/
   stores/
     useGraphData.ts    # Nodes, links, selection, feature highlight
     useSimulation.ts   # Deterministic grid layout (calculateGridMap)
+    useIngestion.ts    # Ingestion phase, repo URL, credentials (persisted to localStorage)
+    useChat.ts         # Chat messages, tool call events, streaming state
   components/
     Sidebar.tsx        # Docs + Concepts sidebar (fetches /docs and /gitree/features)
     DocViewer.tsx       # Markdown viewer for docs/concepts
     MarkdownRenderer.tsx
+    chat/
+      Chat.tsx           # Floating chat overlay on graph (pointer-events-none, centered max-w-2xl)
+      ChatInput.tsx      # Auto-growing textarea with send button
+      ChatMessage.tsx    # User/assistant message bubbles with markdown
+      ToolCallFlow.tsx   # Real-time tool call display with icons + input preview
     ui/                # shadcn components (Badge, Button)
   hooks/
     useApi.ts          # Generic fetch hook
+    useAgentChat.ts    # Calls POST /repo/agent with stream=true, parses AI SDK SSE stream
   lib/
     utils.ts           # cn() utility
   types.ts             # Doc, FeatureSummary, FeaturesResponse
-  App.tsx              # Main layout (header + graph/doc view + sidebar)
+  App.tsx              # Main layout (header + graph/doc view + sidebar + chat overlay)
   index.css            # Tailwind + dark theme CSS variables
 ```
 
@@ -67,6 +75,19 @@ All visual tuning lives in `src/graph/config.ts`:
 4. `Graph.tsx` reads positions from `nodePositions` map in `useFrame` and sets them on drei `Instance` children
 5. Sidebar concept hover calls `setHighlightedFeature()` which dims non-connected nodes/edges
 
+## Chat overlay
+
+A floating chat UI overlaid on the 3D graph (like hive's DashboardChat). Input anchored to bottom-center, messages bubble up.
+
+1. `useAgentChat` hook sends `POST /repo/agent` with `stream: true`
+2. Server calls `agent.stream()` on the same `ToolLoopAgent`, pipes `toUIMessageStreamResponse()` directly
+3. Client reads the SSE stream (`data: {json}\n\n` format) via `fetch` + `ReadableStream`
+4. `text-delta` events stream text into `useChat.appendText()`, shown in real-time
+5. `tool-input-available` events add tool calls to `useChat.addToolCall()`, shown in `ToolCallFlow`
+6. Repo URL is derived from graph Repository nodes (`source_link` or `https://github.com/{name}`), not dependent on ingestion store
+7. Credentials (username/pat) for private repos are persisted to localStorage via `useIngestion.setRepo()`
+8. The chat overlay uses `pointer-events-none` on wrapper divs so the 3D graph remains interactive; only message bubbles, input, and buttons capture events
+
 ## Building
 
 ```sh
@@ -85,3 +106,5 @@ The Express server in `mcp/src/index.ts` serves `web/dist/` as static files on `
 - `GET /docs` — repository documentation
 - `GET /gitree/features` — feature summaries for sidebar
 - `GET /gitree/features/:id` — full feature detail (on concept click)
+- `POST /repo/agent` with `stream: true` — streaming agent chat (AI SDK SSE format)
+- `POST /repo/agent` without `stream` — async agent (returns `request_id`, poll via `/progress`)
