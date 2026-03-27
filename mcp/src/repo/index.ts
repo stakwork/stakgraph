@@ -1,5 +1,5 @@
 import { cloneOrUpdateRepo } from "./clone.js";
-import { get_context } from "./agent.js";
+import { get_context, stream_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
@@ -36,6 +36,47 @@ function prependRepoInfo(prompt: any, repoList: string[]): any {
 }
 
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.5"
+/** Parse shared request body params for repo_agent. */
+function parseAgentBody(req: Request) {
+  const repoUrl = req.body.repo_url as string;
+  const username = req.body.username as string | undefined;
+  const pat = req.body.pat as string | undefined;
+  const commit = req.body.commit as string | undefined;
+  const prompt = req.body.prompt as any;
+  const toolsConfig = normalizeToolsConfig(req.body.toolsConfig);
+  const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
+  const modelName = req.body.model as ModelName | undefined;
+  const apiKey = req.body.apiKey as string | undefined;
+  const logs = req.body.logs as boolean | undefined;
+  const sessionId = req.body.sessionId as string | undefined;
+  const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
+  const mcpServers = req.body.mcpServers as McpServer[] | undefined;
+  const systemOverride = req.body.systemOverride as string | undefined;
+  const skills = req.body.skills as SkillsConfig | undefined;
+  const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
+    ?.map(normalizeSubAgent) as SubAgent[] | undefined;
+  const ggnn = req.body.ggnn as GgnnConfig | undefined;
+  const stream = req.body.stream as boolean | undefined;
+
+  const repoList = repoUrl
+    .split(",")
+    .map((url: string) => url.trim())
+    .filter((url: string) => url.length > 0)
+    .map((url: string) => {
+      const parts = url.replace(/\.git$/, "").split("/");
+      const repoName = parts.pop() || "";
+      const owner = parts.pop() || "";
+      return `${owner}/${repoName}`;
+    });
+
+  return {
+    repoUrl, username, pat, commit, prompt, toolsConfig, schema,
+    modelName, apiKey, logs, sessionId, sessionConfig, mcpServers,
+    systemOverride, skills, subAgents, ggnn, stream, repoList,
+  };
+}
+
+// modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.5"
 export async function repo_agent(req: Request, res: Response) {
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive", "prompt": "how does auth work in the repo"}' "http://localhost:3355/repo/agent"
   // curl -X POST -H "Content-Type: application/json" -d '{"repo_url": "https://github.com/stakwork/hive,https://github.com/stakwork/stakgraph", "prompt": "how do these two repos relate to each other?"}' "http://localhost:3355/repo/agent"
@@ -45,40 +86,93 @@ export async function repo_agent(req: Request, res: Response) {
     hasUsername: Boolean(req.body?.username),
     hasRepoUrl: Boolean(req.body?.repo_url),
     hasPrompt: Boolean(req.body?.prompt),
+    stream: Boolean(req.body?.stream),
   });
-  const request_id = asyncReqs.startReq();
 
-  const repoUrl = req.body.repo_url as string;
-  const username = req.body.username as string | undefined;
-  const pat = req.body.pat as string | undefined;
-  const commit = req.body.commit as string | undefined;
-  const branch = req.body.branch as string | undefined;
-  const prompt = req.body.prompt as any;
-  const toolsConfig = normalizeToolsConfig(req.body.toolsConfig);
-  const schema = req.body.jsonSchema as { [key: string]: any } | undefined;
-  const modelName = req.body.model as ModelName | undefined;
-  const apiKey = req.body.apiKey as string | undefined;
-  const logs = req.body.logs as boolean | undefined;
-  // Session support
-  const sessionId = req.body.sessionId as string | undefined;
-  const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
-  // MCP servers
-  const mcpServers = req.body.mcpServers as McpServer[] | undefined;
-  const systemOverride = req.body.systemOverride as string | undefined;
-  // Skills support
-  const skills = req.body.skills as SkillsConfig | undefined;
-  // Sub-agents
-  const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
-    ?.map(normalizeSubAgent) as SubAgent[] | undefined;
-  // GGNN
-  const ggnn = req.body.ggnn as GgnnConfig | undefined;
+  const body = parseAgentBody(req);
 
-  if (!prompt) {
+  if (!body.prompt) {
     res.status(400).json({ error: "Missing prompt" });
     return;
   }
 
+  // ── Streaming path: direct SSE response ──────────────────────────────
+  if (body.stream) {
+    const opId = startTracking("repo_agent_stream");
+    try {
+      const repoDir = await cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit);
+      console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
+      const streamResult = await stream_context(
+        prependRepoInfo(body.prompt, body.repoList),
+        repoDir,
+        {
+          pat: body.pat,
+          toolsConfig: body.toolsConfig,
+          schema: body.schema,
+          modelName: body.modelName,
+          apiKey: body.apiKey,
+          logs: body.logs,
+          sessionId: body.sessionId,
+          sessionConfig: body.sessionConfig,
+          mcpServers: body.mcpServers,
+          repos: body.repoList.length > 1 ? body.repoList : undefined,
+          systemOverride: body.systemOverride,
+          skills: body.skills,
+          subAgents: body.subAgents,
+          ggnn: body.ggnn,
+        },
+      );
+
+      const streamResponse = streamResult.toUIMessageStreamResponse();
+
+      // Forward status + headers
+      res.status(streamResponse.status);
+      streamResponse.headers.forEach((value: string, key: string) => {
+        res.setHeader(key, value);
+      });
+
+      // Pipe the body
+      const reader = streamResponse.body?.getReader();
+      if (!reader) {
+        res.status(500).json({ error: "No stream body" });
+        endTracking(opId);
+        return;
+      }
+
+      const pump = async () => {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          res.write(value);
+        }
+        res.end();
+      };
+
+      pump()
+        .catch((err) => {
+          console.error("[repo_agent] Stream error:", err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: "Stream error" });
+          } else {
+            res.end();
+          }
+        })
+        .finally(() => endTracking(opId));
+
+      return;
+    } catch (error: any) {
+      console.error("[repo_agent] Stream setup error:", error);
+      endTracking(opId);
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message || "Internal server error" });
+      }
+      return;
+    }
+  }
+
+  // ── Non-streaming path: async job with event bus ─────────────────────
+  const request_id = asyncReqs.startReq();
   const opId = startTracking("repo_agent");
 
   // Create an event bus for real-time SSE streaming of this request
@@ -93,36 +187,24 @@ export async function repo_agent(req: Request, res: Response) {
   }
 
   try {
-    // Extract owner/repo from each URL for multi-repo filtering
-    const repoList = repoUrl
-      .split(",")
-      .map((url) => url.trim())
-      .filter((url) => url.length > 0)
-      .map((url) => {
-        const parts = url.replace(/\.git$/, "").split("/");
-        const repoName = parts.pop() || "";
-        const owner = parts.pop() || "";
-        return `${owner}/${repoName}`;
-      });
-
-    cloneOrUpdateRepo(repoUrl, username, pat, commit)
+    cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit)
       .then((repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(prependRepoInfo(prompt, repoList), repoDir, {
-          pat,
-          toolsConfig,
-          schema,
-          modelName,
-          apiKey,
-          logs,
-          sessionId,
-          sessionConfig,
-          mcpServers,
-          repos: repoList.length > 1 ? repoList : undefined,
-          systemOverride,
-          skills,
-          subAgents,
-          ggnn,
+        return get_context(prependRepoInfo(body.prompt, body.repoList), repoDir, {
+          pat: body.pat,
+          toolsConfig: body.toolsConfig,
+          schema: body.schema,
+          modelName: body.modelName,
+          apiKey: body.apiKey,
+          logs: body.logs,
+          sessionId: body.sessionId,
+          sessionConfig: body.sessionConfig,
+          mcpServers: body.mcpServers,
+          repos: body.repoList.length > 1 ? body.repoList : undefined,
+          systemOverride: body.systemOverride,
+          skills: body.skills,
+          subAgents: body.subAgents,
+          ggnn: body.ggnn,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
