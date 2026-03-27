@@ -56,6 +56,9 @@ pub trait Stack {
     fn q(&self, q: &str, nt: &NodeType) -> Query;
     // use different parser for pkg files
     fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree>;
+    fn cache_key(&self, file: &str, _nt: &NodeType) -> String {
+        file.to_string()
+    }
     fn module_query(&self) -> Option<String> {
         None
     }

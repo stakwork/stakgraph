@@ -13,7 +13,7 @@ impl Lang {
         file: &str,
         nt: NodeType,
     ) -> Result<Vec<NodeData>> {
-        let tree = self.lang.parse(code, &nt)?;
+        let tree = self.parse(code, &nt, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -45,7 +45,7 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        let tree = self.lang.parse(code, &NodeType::Class)?;
+        let tree = self.parse(code, &NodeType::Class, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -59,7 +59,7 @@ impl Lang {
 
         // Attach comments
         let mut nodes: Vec<NodeData> = res.iter().map(|(n, _)| n.clone()).collect();
-        self.attach_comments(code, &mut nodes, &NodeType::Class)?;
+        self.attach_comments(code, file, &mut nodes, &NodeType::Class)?;
 
         for (i, node) in nodes.into_iter().enumerate() {
             res[i].0.docs = node.docs;
@@ -73,7 +73,7 @@ impl Lang {
         code: &str,
         file: &str,
     ) -> Result<Vec<(String, String, String)>> {
-        let tree = self.lang.parse(code, &NodeType::Class)?;
+        let tree = self.parse(code, &NodeType::Class, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut results = Vec::new();
@@ -92,7 +92,7 @@ impl Lang {
         code: &str,
         graph: &G,
     ) -> Result<Vec<Edge>> {
-        let tree = self.lang.parse(code, &NodeType::Class)?;
+        let tree = self.parse(code, &NodeType::Class, "")?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut edges = Vec::new();
@@ -117,7 +117,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        let tree = self.lang.parse(code, &NodeType::Page)?;
+        let tree = self.parse(code, &NodeType::Page, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -140,7 +140,7 @@ impl Lang {
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
             let q = self.lang.q(&ef, &NodeType::Endpoint);
-            let tree = self.lang.parse(code, &NodeType::Endpoint)?;
+            let tree = self.parse(code, &NodeType::Endpoint, file)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
@@ -149,7 +149,7 @@ impl Lang {
             }
         }
         let mut nodes: Vec<NodeData> = res.iter().map(|(n, _)| n.clone()).collect();
-        self.attach_comments(code, &mut nodes, &NodeType::Endpoint)?;
+        self.attach_comments(code, file, &mut nodes, &NodeType::Endpoint)?;
         for (i, node) in nodes.into_iter().enumerate() {
             res[i].0.docs = node.docs;
         }
@@ -167,7 +167,7 @@ impl Lang {
         let mut functions = Vec::new();
 
         // Pass 1: Regular functions (existing logic)
-        let tree = self.lang.parse(code, &NodeType::Function)?;
+        let tree = self.parse(code, &NodeType::Function, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         while let Some(m) = matches.next() {
@@ -201,7 +201,7 @@ impl Lang {
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
             let q = self.lang.q(&ef, &NodeType::Function);
-            let tree = self.lang.parse(code, &NodeType::Function)?;
+            let tree = self.parse(code, &NodeType::Function, file)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
@@ -222,7 +222,7 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(Function, Option<Edge>)>> {
-        let tree = self.lang.parse(code, &NodeType::UnitTest)?;
+        let tree = self.parse(code, &NodeType::UnitTest, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -357,7 +357,7 @@ impl Lang {
             return Ok(Vec::new());
         };
         let q = self.q(&integration_query, &NodeType::IntegrationTest);
-        let tree = self.lang.parse(code, &NodeType::IntegrationTest)?;
+        let tree = self.parse(code, &NodeType::IntegrationTest, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -388,7 +388,7 @@ impl Lang {
             return Ok(Vec::new());
         };
         let q = self.q(&e2e_query, &NodeType::E2eTest);
-        let tree = self.lang.parse(code, &NodeType::E2eTest)?;
+        let tree = self.parse(code, &NodeType::E2eTest, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -412,7 +412,7 @@ impl Lang {
         if let Some(lsp) = lsp_tx {
             return self.collect_import_edges_with_lsp(code, file, graph, lsp);
         }
-        let tree = self.lang.parse(code, &NodeType::Import)?;
+        let tree = self.parse(code, &NodeType::Import, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut edges = Vec::new();
@@ -496,7 +496,7 @@ impl Lang {
         let mut processed = std::collections::HashSet::new();
 
         let query = self.q(&self.lang.identifier_query(), &NodeType::Var);
-        let tree = self.lang.parse(code, &NodeType::Function)?;
+        let tree = self.parse(code, &NodeType::Function, file)?;
         let mut cursor = tree_sitter::QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
 
@@ -623,7 +623,7 @@ impl Lang {
         }
 
         let code = &func.body;
-        let tree = match self.lang.parse(code, &NodeType::Function) {
+        let tree = match self.parse(code, &NodeType::Function, &func.file) {
             Ok(tree) => tree,
             Err(_) => return edges,
         };

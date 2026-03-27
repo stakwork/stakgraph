@@ -255,7 +255,7 @@ impl Repo {
             |(filename, code)| {
                 let mut structs = lang.get_data_models::<G>(code, filename)?;
                 if no_nested {
-                    structs = lang.filter_nested_datamodels(code, structs);
+                    structs = lang.filter_nested_datamodels(code, filename, structs);
                 }
                 let mut all_edges = Vec::new();
                 for dm in &structs {

@@ -11,6 +11,7 @@ use crate::lang::parse::utils::trim_quotes;
 pub use asg::NodeData;
 use asg::*;
 use consts::*;
+use dashmap::DashMap;
 pub use graphs::Edge;
 pub use graphs::*;
 use lsp::{CmdSender, Language};
@@ -19,13 +20,40 @@ use shared::{Context, Result};
 use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
-use tree_sitter::{Node as TreeNode, Query, QueryCursor};
+use tree_sitter::{Node as TreeNode, Query, QueryCursor, Tree};
+
+static PARSE_COUNT: AtomicU64 = AtomicU64::new(0);
+static PARSE_TIME_US: AtomicU64 = AtomicU64::new(0);
+
+pub fn reset_parse_stats() {
+    PARSE_COUNT.store(0, Ordering::Relaxed);
+    PARSE_TIME_US.store(0, Ordering::Relaxed);
+}
+
+pub fn print_parse_stats() {
+    let count = PARSE_COUNT.load(Ordering::Relaxed);
+    let time_us = PARSE_TIME_US.load(Ordering::Relaxed);
+    let time_ms = time_us / 1000;
+    let avg_us = if count > 0 { time_us / count } else { 0 };
+    tracing::info!(
+        "[parse-stats] total_parses={} total_time={}ms avg_per_parse={}µs",
+        count,
+        time_ms,
+        avg_us
+    );
+    println!(
+        "[Parse Stats] total_parses={} total_time={}ms avg_per_parse={}µs",
+        count, time_ms, avg_us
+    );
+}
 
 pub struct Lang {
     pub kind: Language,
     lang: Box<dyn Stack + Send + Sync + 'static>,
+    cache: DashMap<String, Tree>,
 }
 
 impl fmt::Display for Lang {
@@ -55,7 +83,7 @@ struct Comment {
 }
 
 impl Lang {
-    fn collect_comments(&self, code: &str, node_type: &NodeType) -> Result<Vec<Comment>> {
+    fn collect_comments(&self, code: &str, file: &str, node_type: &NodeType) -> Result<Vec<Comment>> {
         let mut out = Vec::new();
         let cq = match node_type {
             NodeType::Function => self.lang.comment_query(),
@@ -70,7 +98,7 @@ impl Lang {
             return Ok(out);
         };
         let comment_q = self.q(&cq_str, node_type);
-        let tree = self.lang.parse(code, node_type)?;
+        let tree = self.parse(code, node_type, file)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&comment_q, tree.root_node(), code.as_bytes());
 
@@ -103,13 +131,14 @@ impl Lang {
     fn attach_comments(
         &self,
         code: &str,
+        file: &str,
         nodes: &mut [NodeData],
         node_type: &NodeType,
     ) -> Result<()> {
         if nodes.is_empty() {
             return Ok(());
         }
-        let mut cs = self.collect_comments(code, node_type)?;
+        let mut cs = self.collect_comments(code, file, node_type)?;
         if cs.is_empty() {
             return Ok(());
         }
@@ -155,12 +184,12 @@ impl Lang {
         Ok(())
     }
 
-    fn attach_function_comments(&self, code: &str, funcs: &mut [Function]) -> Result<()> {
+    fn attach_function_comments(&self, code: &str, file: &str, funcs: &mut [Function]) -> Result<()> {
         if funcs.is_empty() {
             return Ok(());
         }
         let mut node_datas: Vec<NodeData> = funcs.iter().map(|f| f.0.clone()).collect();
-        self.attach_comments(code, &mut node_datas, &NodeType::Function)?;
+        self.attach_comments(code, file, &mut node_datas, &NodeType::Function)?;
         for (i, nd) in node_datas.into_iter().enumerate() {
             if nd.docs.is_some() {
                 funcs[i].0.docs = nd.docs;
@@ -172,96 +201,112 @@ impl Lang {
         Self {
             kind: Language::Python,
             lang: Box::new(python::Python::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_go() -> Self {
         Self {
             kind: Language::Go,
             lang: Box::new(go::Go::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_rust() -> Self {
         Self {
             kind: Language::Rust,
             lang: Box::new(rust::Rust::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_typescript() -> Self {
         Self {
             kind: Language::Typescript,
             lang: Box::new(react_ts::TypeScriptReact::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_ruby() -> Self {
         Self {
             kind: Language::Ruby,
             lang: Box::new(ruby::Ruby::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_kotlin() -> Self {
         Self {
             kind: Language::Kotlin,
             lang: Box::new(kotlin::Kotlin::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_swift() -> Self {
         Self {
             kind: Language::Swift,
             lang: Box::new(swift::Swift::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_java() -> Self {
         Self {
             kind: Language::Java,
             lang: Box::new(java::Java::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_svelte() -> Self {
         Self {
             kind: Language::Svelte,
             lang: Box::new(svelte::Svelte::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_angular() -> Self {
         Self {
             kind: Language::Angular,
             lang: Box::new(angular::Angular::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_cpp() -> Self {
         Self {
             kind: Language::Cpp,
             lang: Box::new(cpp::Cpp::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_c() -> Self {
         Self {
             kind: Language::C,
             lang: Box::new(c::C::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_php() -> Self {
         Self {
             kind: Language::Php,
             lang: Box::new(php::Php::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_csharp() -> Self {
         Self {
             kind: Language::CSharp,
             lang: Box::new(csharp::CSharp::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_bash() -> Self {
         Self {
             kind: Language::Bash,
             lang: Box::new(bash::Bash::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn new_toml() -> Self {
         Self {
             kind: Language::Toml,
             lang: Box::new(toml::Toml::new()),
+            cache: DashMap::new(),
         }
     }
     pub fn lang(&self) -> &dyn Stack {
@@ -270,12 +315,28 @@ impl Lang {
     pub fn q(&self, q: &str, nt: &NodeType) -> Query {
         self.lang.q(q, nt)
     }
-    pub fn filter_nested_datamodels(&self, code: &str, data_models: Vec<NodeData>) -> Vec<NodeData> {
+    pub fn parse(&self, code: &str, nt: &NodeType, file: &str) -> Result<Tree> {
+        let key = self.lang.cache_key(file, nt);
+        if let Some(tree) = self.cache.get(&key) {
+            return Ok(tree.clone());
+        }
+        let start = std::time::Instant::now();
+        let tree = self.lang.parse(code, nt)?;
+        let elapsed_us = start.elapsed().as_micros() as u64;
+        PARSE_COUNT.fetch_add(1, Ordering::Relaxed);
+        PARSE_TIME_US.fetch_add(elapsed_us, Ordering::Relaxed);
+        self.cache.insert(key, tree.clone());
+        Ok(tree)
+    }
+    pub fn clear_cache(&self) {
+        self.cache.clear();
+    }
+    pub fn filter_nested_datamodels(&self, code: &str, file: &str, data_models: Vec<NodeData>) -> Vec<NodeData> {
         let Some(scope_query_str) = self.lang.nested_scope_query() else {
             return data_models;
         };
         let q = self.q(&scope_query_str, &NodeType::DataModel);
-        let Ok(tree) = self.lang.parse(code, &NodeType::DataModel) else {
+        let Ok(tree) = self.parse(code, &NodeType::DataModel, file) else {
             return data_models;
         };
         let mut cursor = QueryCursor::new();
@@ -306,14 +367,14 @@ impl Lang {
     pub fn get_classes<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         let qo = self.q(&self.lang.class_definition_query(), &NodeType::Class);
         let mut classes = self.collect::<G>(&qo, code, file, NodeType::Class)?;
-        self.attach_comments(code, &mut classes, &NodeType::Class)?;
+        self.attach_comments(code, file, &mut classes, &NodeType::Class)?;
         Ok(classes)
     }
     pub fn get_traits<G: Graph>(&self, code: &str, file: &str) -> Result<Vec<NodeData>> {
         if let Some(qo) = self.lang.trait_query() {
             let qo = self.q(&qo, &NodeType::Trait);
             let mut traits = self.collect::<G>(&qo, code, file, NodeType::Trait)?;
-            self.attach_comments(code, &mut traits, &NodeType::Trait)?;
+            self.attach_comments(code, file, &mut traits, &NodeType::Trait)?;
             Ok(traits)
         } else {
             Ok(Vec::new())
@@ -331,7 +392,7 @@ impl Lang {
         if let Some(qo) = self.lang.variables_query() {
             let qo = self.q(&qo, &NodeType::Var);
             let mut vars = self.collect::<G>(&qo, code, file, NodeType::Var)?;
-            self.attach_comments(code, &mut vars, &NodeType::Var)?;
+            self.attach_comments(code, file, &mut vars, &NodeType::Var)?;
             Ok(vars)
         } else {
             Ok(Vec::new())
@@ -341,7 +402,7 @@ impl Lang {
         if let Some(qo) = self.lang.data_model_query() {
             let qo = self.q(&qo, &NodeType::DataModel);
             let mut models = self.collect::<G>(&qo, code, file, NodeType::DataModel)?;
-            self.attach_comments(code, &mut models, &NodeType::DataModel)?;
+            self.attach_comments(code, file, &mut models, &NodeType::DataModel)?;
             Ok(models)
         } else {
             Ok(Vec::new())
@@ -369,7 +430,7 @@ impl Lang {
     ) -> Result<Vec<Edge>> {
         if let Some(qo) = self.lang.component_template_query() {
             let qo = self.q(&qo, &NodeType::Class);
-            let tree = self.lang.parse(code, &NodeType::Class)?;
+            let tree = self.parse(code, &NodeType::Class, file)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&qo, tree.root_node(), code.as_bytes());
 
@@ -604,7 +665,7 @@ impl Lang {
         let qo = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut funcs1 =
             self.collect_functions(&qo, code, file, graph, lsp_tx, &identified_tests)?;
-        self.attach_function_comments(code, &mut funcs1)?;
+        self.attach_function_comments(code, file, &mut funcs1)?;
 
         let nested_pairs = self.find_nested_functions(&funcs1);
 
@@ -692,7 +753,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
         trace!("get_function_calls");
-        let tree = self.lang.parse(code, &NodeType::Function)?;
+        let tree = self.parse(code, &NodeType::Function, file)?;
         // get each function
         let qo1 = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut cursor = QueryCursor::new();
@@ -764,7 +825,7 @@ impl Lang {
         if self.lang.is_test_file(file) {
             if let Some(tq) = self.lang.test_query() {
                 let q_tests = self.q(&tq, &NodeType::UnitTest);
-                let tree_tests = self.lang.parse(code, &NodeType::UnitTest)?;
+                let tree_tests = self.parse(code, &NodeType::UnitTest, file)?;
                 let mut cursor_tests = QueryCursor::new();
                 let mut test_matches =
                     cursor_tests.matches(&q_tests, tree_tests.root_node(), code.as_bytes());
