@@ -25,7 +25,7 @@ export const LAYER_ORDER = [
 ];
 
 // Camera
-export const INITIAL_CAMERA_POSITION: [number, number, number] = [2000, 1000, 6000];
+export const INITIAL_CAMERA_POSITION: [number, number, number] = [2000, 1000, 8000];
 export const CAMERA_NEAR = 1;
 export const CAMERA_FAR = 30000;
 export const CAMERA_MIN_DISTANCE = 50;
