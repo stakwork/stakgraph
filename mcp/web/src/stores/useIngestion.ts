@@ -16,21 +16,42 @@ interface IngestionState {
   errorMessage: string | null;
   statsVersion: number;
   updateVersion: number;
+  /** The repo URL(s) that were ingested (comma-separated if multiple) */
+  repoUrl: string | null;
+  /** Optional credentials for private repos */
+  username: string | null;
+  pat: string | null;
 
   setRunning: (requestId: string) => void;
+  setRepo: (repoUrl: string, username?: string, pat?: string) => void;
   applyUpdate: (update: StatusUpdate) => void;
   setComplete: () => void;
   setError: (message: string) => void;
   reset: () => void;
 }
 
-export const useIngestion = create<IngestionState>((set) => ({
+function loadStoredRepo(): { repoUrl: string | null; username: string | null; pat: string | null } {
+  try {
+    const raw = localStorage.getItem("stakgraph_repo");
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // ignore
+  }
+  return { repoUrl: null, username: null, pat: null };
+}
+
+export const useIngestion = create<IngestionState>((set) => {
+  const stored = loadStoredRepo();
+  return {
   phase: "idle",
   requestId: null,
   currentUpdate: null,
   errorMessage: null,
   statsVersion: 0,
   updateVersion: 0,
+  repoUrl: stored.repoUrl,
+  username: stored.username,
+  pat: stored.pat,
 
   setRunning: (requestId) =>
     set({
@@ -40,6 +61,21 @@ export const useIngestion = create<IngestionState>((set) => ({
       errorMessage: null,
       statsVersion: 0,
     }),
+  setRepo: (repoUrl, username, pat) => {
+    set({
+      repoUrl,
+      username: username || null,
+      pat: pat || null,
+    });
+    try {
+      localStorage.setItem(
+        "stakgraph_repo",
+        JSON.stringify({ repoUrl, username: username || null, pat: pat || null }),
+      );
+    } catch {
+      // localStorage unavailable
+    }
+  },
   applyUpdate: (update) => {
     set((state) => {
       const prev = state.currentUpdate;
@@ -82,7 +118,7 @@ export const useIngestion = create<IngestionState>((set) => ({
   },
   setComplete: () => set({ phase: "complete" }),
   setError: (message) => set({ phase: "error", errorMessage: message }),
-  reset: () =>
+  reset: () => {
     set({
       phase: "idle",
       requestId: null,
@@ -90,5 +126,10 @@ export const useIngestion = create<IngestionState>((set) => ({
       errorMessage: null,
       statsVersion: 0,
       updateVersion: 0,
-    }),
-}));
+      repoUrl: null,
+      username: null,
+      pat: null,
+    });
+    try { localStorage.removeItem("stakgraph_repo"); } catch { /* */ }
+  },
+}});

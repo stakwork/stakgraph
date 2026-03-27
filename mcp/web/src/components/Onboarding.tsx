@@ -27,7 +27,7 @@ export function Onboarding({ onStarted }: OnboardingProps) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const { setRunning } = useIngestion();
+  const { setRunning, setRepo } = useIngestion();
 
   const updateRepo = (i: number, field: keyof RepoEntry, value: string) => {
     setRepos((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
@@ -72,6 +72,11 @@ export function Onboarding({ onStarted }: OnboardingProps) {
         throw new Error(data?.error || `${res.status} ${res.statusText}`);
       }
       setRunning(data.request_id);
+      setRepo(
+        urls.join(","),
+        firstWithCreds?.username || undefined,
+        firstWithCreds?.pat || undefined,
+      );
       onStarted();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

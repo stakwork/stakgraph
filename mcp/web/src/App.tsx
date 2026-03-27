@@ -6,6 +6,7 @@ import { GraphScene } from "@/graph/GraphScene";
 import { Onboarding } from "@/components/Onboarding";
 import { IngestionStatus } from "@/components/IngestionStatus";
 import { LayerTogglePanel } from "@/components/LayerTogglePanel";
+import { Chat } from "@/components/chat/Chat";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
 
@@ -146,6 +147,11 @@ function App() {
             <Onboarding onStarted={() => setView("graph")} />
           )}
         </div>
+        {view === "graph" && (
+          <div className={`pointer-events-none absolute inset-0 ${showSidebar ? "right-80" : ""}`}>
+            <Chat />
+          </div>
+        )}
         {showSidebar && (
           <Sidebar
             activeItemKey={getActiveItemKey()}
