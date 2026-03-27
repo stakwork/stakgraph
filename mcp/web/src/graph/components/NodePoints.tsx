@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import { Instance, Instances } from "@react-three/drei";
 import { SphereGeometry, BufferGeometry } from "three";
 import { useGraphData, getColorForType } from "@/stores/useGraphData";
+import { useLayerVisibility } from "@/stores/useLayerVisibility";
 import type { NodeExtended } from "@/graph/types";
 import { NODE_SIZE } from "@/graph/config";
 
@@ -12,6 +13,7 @@ const NodePointsComponent = () => {
   const nodeTypes = useGraphData((s) => s.nodeTypes);
   const highlightedFeatureId = useGraphData((s) => s.highlightedFeatureId);
   const highlightedNodeIds = useGraphData((s) => s.highlightedNodeIds);
+  const disabledLayers = useLayerVisibility((s) => s.disabledLayers);
 
   const sharedGeometry = useMemo(
     () => new SphereGeometry(NODE_SIZE / 2, 16, 8),
@@ -21,28 +23,30 @@ const NodePointsComponent = () => {
   const nodeInstanceData = useMemo(() => {
     if (!data?.nodes) return [];
 
-    return data.nodes.map((node: NodeExtended) => {
-      const weight = (node.properties?.weight as number) || 1;
-      const scale = Math.cbrt(weight);
-      const baseColor = getColorForType(node.node_type);
+    return data.nodes
+      .filter((node: NodeExtended) => !disabledLayers.has(node.node_type))
+      .map((node: NodeExtended) => {
+        const weight = (node.properties?.weight as number) || 1;
+        const scale = Math.cbrt(weight);
+        const baseColor = getColorForType(node.node_type);
 
-      const isDimmed =
-        highlightedFeatureId !== null && !highlightedNodeIds.has(node.ref_id);
-      const color = isDimmed ? DIMMED_COLOR : baseColor;
+        const isDimmed =
+          highlightedFeatureId !== null && !highlightedNodeIds.has(node.ref_id);
+        const color = isDimmed ? DIMMED_COLOR : baseColor;
 
-      return {
-        key: node.ref_id,
-        color,
-        scale: Math.max(0.5, Math.min(2, scale)),
-        node,
-        position: [node.x || 0, node.y || 0, node.z || 0] as [
-          number,
-          number,
-          number,
-        ],
-      };
-    });
-  }, [data?.nodes, nodeTypes, highlightedFeatureId, highlightedNodeIds]);
+        return {
+          key: node.ref_id,
+          color,
+          scale: Math.max(0.5, Math.min(2, scale)),
+          node,
+          position: [node.x || 0, node.y || 0, node.z || 0] as [
+            number,
+            number,
+            number,
+          ],
+        };
+      });
+  }, [data?.nodes, nodeTypes, highlightedFeatureId, highlightedNodeIds, disabledLayers]);
 
   return (
     <Instances

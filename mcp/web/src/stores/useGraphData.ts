@@ -54,6 +54,7 @@ interface GraphDataState {
 
   // Actions
   setData: (nodes: GraphNode[], edges: GraphEdge[]) => void;
+  addNodes: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setSelectedNode: (node: NodeExtended | null) => void;
   setHoveredNode: (node: NodeExtended | null) => void;
   setHighlightedFeature: (featureRefId: string | null) => void;
@@ -64,7 +65,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
   data: null,
   nodesNormalized: new Map(),
   nodeTypes: [],
-  loading: true,
+  loading: false,
 
   selectedNode: null,
   hoveredNode: null,
@@ -113,7 +114,12 @@ export const useGraphData = create<GraphDataState>((set) => ({
         ? rawTarget
         : nodeKeyToRefId.get(rawTarget);
 
-      if (sourceRefId && targetRefId && nodesMap.has(sourceRefId) && nodesMap.has(targetRefId)) {
+      if (
+        sourceRefId &&
+        targetRefId &&
+        nodesMap.has(sourceRefId) &&
+        nodesMap.has(targetRefId)
+      ) {
         links.push({
           source: sourceRefId,
           target: targetRefId,
@@ -130,8 +136,6 @@ export const useGraphData = create<GraphDataState>((set) => ({
       }
     }
 
-    
-
     // Only keep node types in LAYER_ORDER
     const layerSet = new Set(LAYER_ORDER);
     const presentTypes = new Set<string>();
@@ -142,6 +146,91 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
     set({
       data: { nodes, links },
+      nodesNormalized: nodesMap,
+      nodeTypes,
+      loading: false,
+    });
+  },
+
+  addNodes: (rawNodes: GraphNode[], rawEdges: GraphEdge[]) => {
+    const state = useGraphData.getState();
+    const nodesMap = new Map(state.nodesNormalized);
+    const nodeKeyToRefId = new Map<string, string>();
+
+    // Re-build nodeKey index from existing nodes
+    for (const [refId, node] of nodesMap) {
+      const nodeKey = node.properties?.node_key as string | undefined;
+      if (nodeKey) nodeKeyToRefId.set(nodeKey, refId);
+    }
+
+    // Add only new nodes
+    const nextIndex = state.data ? state.data.nodes.length : 0;
+    const newNodes: NodeExtended[] = [];
+    for (let i = 0; i < rawNodes.length; i++) {
+      const n = rawNodes[i];
+      if (nodesMap.has(n.ref_id)) continue;
+      const extended: NodeExtended = {
+        ...n,
+        x: 0,
+        y: 0,
+        z: 0,
+        sources: [],
+        targets: [],
+        index: nextIndex + newNodes.length,
+      };
+      nodesMap.set(n.ref_id, extended);
+      const nodeKey = n.properties?.node_key as string | undefined;
+      if (nodeKey) nodeKeyToRefId.set(nodeKey, n.ref_id);
+      newNodes.push(extended);
+    }
+
+    // Add only new edges
+    const existingLinks = state.data ? [...state.data.links] : [];
+    const existingLinkKeys = new Set(existingLinks.map((l) => l.ref_id));
+    for (const e of rawEdges) {
+      const rawSource =
+        typeof e.source === "string" ? e.source : String(e.source);
+      const rawTarget =
+        typeof e.target === "string" ? e.target : String(e.target);
+      const sourceRefId = nodesMap.has(rawSource)
+        ? rawSource
+        : nodeKeyToRefId.get(rawSource);
+      const targetRefId = nodesMap.has(rawTarget)
+        ? rawTarget
+        : nodeKeyToRefId.get(rawTarget);
+      if (!sourceRefId || !targetRefId) continue;
+      const linkId = e.ref_id || `${sourceRefId}-${targetRefId}`;
+      if (existingLinkKeys.has(linkId)) continue;
+      existingLinkKeys.add(linkId);
+      existingLinks.push({
+        source: sourceRefId,
+        target: targetRefId,
+        ref_id: linkId,
+        edge_type: e.edge_type,
+      });
+      const sourceNode = nodesMap.get(sourceRefId)!;
+      const targetNode = nodesMap.get(targetRefId)!;
+      sourceNode.targets = sourceNode.targets || [];
+      sourceNode.targets.push(targetRefId);
+      targetNode.sources = targetNode.sources || [];
+      targetNode.sources.push(sourceRefId);
+    }
+
+    if (
+      newNodes.length === 0 &&
+      existingLinks.length === (state.data?.links.length ?? 0)
+    )
+      return;
+
+    const layerSet = new Set(LAYER_ORDER);
+    const presentTypes = new Set<string>();
+    for (const n of nodesMap.values()) {
+      if (layerSet.has(n.node_type)) presentTypes.add(n.node_type);
+    }
+    const nodeTypes = LAYER_ORDER.filter((t) => presentTypes.has(t));
+
+    set({
+      data: { nodes: Array.from(nodesMap.values()), links: existingLinks },
       nodesNormalized: nodesMap,
       nodeTypes,
       loading: false,
@@ -195,7 +284,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       data: null,
       nodesNormalized: new Map(),
       nodeTypes: [],
-      loading: true,
+      loading: false,
       selectedNode: null,
       hoveredNode: null,
       highlightedFeatureId: null,

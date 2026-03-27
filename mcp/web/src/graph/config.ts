@@ -1,18 +1,27 @@
 // Layer order (top to bottom) — only these node types are rendered
 export const LAYER_ORDER = [
   "Repository",
+  "Package",
+  "Language",
   "Feature",
-  // "Directory",
+  "Directory",
+  "Library",
   "File",
+  "Import",
   "PullRequest",
   "Commit",
+  "Trait",
   "Class",
+  "Instance",
   "Function",
   "Datamodel",
   "Endpoint",
   "Request",
   "Var",
   "Page",
+  "UnitTest",
+  "IntegrationTest",
+  "E2eTest",
 ];
 
 // Camera

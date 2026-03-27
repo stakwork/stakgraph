@@ -5,6 +5,7 @@ import { MathUtils } from "three";
 import { Graph } from "./components/Graph";
 import { useGraphData } from "@/stores/useGraphData";
 import { useSimulation } from "@/stores/useSimulation";
+import { useIngestion } from "@/stores/useIngestion";
 import type { GraphApiResponse } from "./types";
 import type CameraControlsImpl from "camera-controls";
 import {
@@ -50,54 +51,128 @@ SceneContent.displayName = "SceneContent";
 
 export const GraphScene = memo(() => {
   const setData = useGraphData((s) => s.setData);
+  const addNodes = useGraphData((s) => s.addNodes);
   const data = useGraphData((s) => s.data);
   const nodeTypes = useGraphData((s) => s.nodeTypes);
   const loading = useGraphData((s) => s.loading);
   const layoutNodes = useSimulation((s) => s.layoutNodes);
+  const layoutNodesIncremental = useSimulation((s) => s.layoutNodesIncremental);
   const destroy = useSimulation((s) => s.destroy);
+  const hasInitialData = useRef(false);
+  const isFetchingRef = useRef(false);
+  const latestTimestampRef = useRef<number | null>(null);
 
-  const fetchGraph = useCallback(async () => {
-    try {
-      const nodeTypesParam = LAYER_ORDER.join(",");
-      const [codeRes, featuresRes] = await Promise.all([
-        fetch(
-          `${API_BASE}/graph?edges=true&no_body=true&limit=500&limit_mode=per_type&node_types=${nodeTypesParam}`
-        ),
-        fetch(`${API_BASE}/gitree/all-features-graph?no_body=true&node_types=${nodeTypesParam}`),
-      ]);
+  const fetchGraph = useCallback(
+    async (incremental = false) => {
+      if (isFetchingRef.current) return;
+      isFetchingRef.current = true;
+      try {
+        const nodeTypesParam = LAYER_ORDER.join(",");
+        const sinceParam =
+          incremental && latestTimestampRef.current !== null
+            ? `&since=${latestTimestampRef.current}`
+            : "";
 
-      const codeData: GraphApiResponse = codeRes.ok
-        ? await codeRes.json()
-        : { nodes: [], edges: [], status: "error" };
-      const featureData: GraphApiResponse = featuresRes.ok
-        ? await featuresRes.json()
-        : { nodes: [], edges: [], status: "error" };
+        const [codeRes, featuresRes] = await Promise.all([
+          fetch(
+            `${API_BASE}/graph?edges=true&no_body=true&limit=500&limit_mode=per_type&node_types=${nodeTypesParam}${sinceParam}`,
+          ),
+          fetch(
+            `${API_BASE}/gitree/all-features-graph?no_body=true&node_types=${nodeTypesParam}`,
+          ),
+        ]);
 
-      // Merge, dedup nodes by ref_id
-      const nodeMap = new Map<string, (typeof codeData.nodes)[0]>();
-      for (const n of [...codeData.nodes, ...featureData.nodes]) {
-        if (!nodeMap.has(n.ref_id)) nodeMap.set(n.ref_id, n);
+        const codeData: GraphApiResponse = codeRes.ok
+          ? await codeRes.json()
+          : { nodes: [], edges: [], status: "error" };
+        const featureData: GraphApiResponse = featuresRes.ok
+          ? await featuresRes.json()
+          : { nodes: [], edges: [], status: "error" };
+
+        // Merge, dedup nodes by ref_id
+        const nodeMap = new Map<string, (typeof codeData.nodes)[0]>();
+        for (const n of [...codeData.nodes, ...featureData.nodes]) {
+          if (!nodeMap.has(n.ref_id)) nodeMap.set(n.ref_id, n);
+        }
+
+        const allNodes = Array.from(nodeMap.values());
+        const allEdges = [...codeData.edges, ...featureData.edges];
+
+        // Track latest timestamp for delta fetching
+        for (const n of allNodes) {
+          const ts = n.date_added_to_graph as number | undefined;
+          if (
+            ts &&
+            (latestTimestampRef.current === null ||
+              ts > latestTimestampRef.current)
+          ) {
+            latestTimestampRef.current = ts;
+          }
+        }
+
+        if (incremental) {
+          addNodes(allNodes, allEdges);
+        } else {
+          setData(allNodes, allEdges);
+        }
+      } catch (err) {
+        console.error("Failed to fetch graph data:", err);
+      } finally {
+        isFetchingRef.current = false;
       }
-
-      const allEdges = [...codeData.edges, ...featureData.edges];
-
-      setData(Array.from(nodeMap.values()), allEdges);
-    } catch (err) {
-      console.error("Failed to fetch graph data:", err);
-    }
-  }, [setData]);
+    },
+    [setData, addNodes],
+  );
 
   useEffect(() => {
     fetchGraph();
-    return () => destroy();
+    return () => {
+      destroy();
+      hasInitialData.current = false;
+    };
   }, [fetchGraph, destroy]);
 
-  // Layout nodes when data arrives
+  const statsVersion = useIngestion((s) => s.statsVersion);
+  const ingestionPhase = useIngestion((s) => s.phase);
   useEffect(() => {
-    if (data && data.nodes.length > 0) {
-      layoutNodes(data.nodes, nodeTypes);
+    if (ingestionPhase !== "running" || statsVersion === 0) return;
+    fetchGraph(true);
+  }, [statsVersion, ingestionPhase, fetchGraph]);
+
+  useEffect(() => {
+    if (ingestionPhase === "complete") {
+      // Full re-fetch after ingestion: clear stale incremental state so we
+      // load all nodes (including ones from the first repo) rather than only
+      // nodes added since the last delta timestamp.
+      latestTimestampRef.current = null;
+      hasInitialData.current = false;
+      fetchGraph(false);
     }
-  }, [data, nodeTypes, layoutNodes]);
+  }, [ingestionPhase, fetchGraph]);
+
+  const prevNodeTypesRef = useRef<string[]>([]);
+
+  // Layout nodes when data arrives.
+  // First load or new node types appearing: full layout (clears and recomputes
+  // everything so labels and node positions stay in sync).
+  // Subsequent polls with the same type set: incremental layout only.
+  useEffect(() => {
+    if (!data || data.nodes.length === 0) return;
+    const typesChanged =
+      nodeTypes.length !== prevNodeTypesRef.current.length ||
+      nodeTypes.some((t, i) => t !== prevNodeTypesRef.current[i]);
+    prevNodeTypesRef.current = nodeTypes;
+
+    if (!hasInitialData.current || typesChanged) {
+      hasInitialData.current = true;
+      layoutNodes(data.nodes, nodeTypes);
+    } else {
+      layoutNodesIncremental(data.nodes, nodeTypes);
+    }
+  }, [data, nodeTypes, layoutNodes, layoutNodesIncremental]);
+
+  const isEmpty = !loading && (!data || data.nodes.length === 0);
+  const isWaiting = isEmpty && ingestionPhase === "running";
 
   if (loading) {
     return (
@@ -107,7 +182,16 @@ export const GraphScene = memo(() => {
     );
   }
 
-  if (!data || data.nodes.length === 0) {
+  if (isWaiting) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
+        <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+        <span className="text-sm">Graph Loading…</span>
+      </div>
+    );
+  }
+
+  if (isEmpty) {
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground">
         No graph data available

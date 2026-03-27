@@ -34,19 +34,17 @@ pub async fn validate_git_credentials(
                 || error_msg.contains("403")
                 || error_msg.contains("401")
             {
-                Err(Error::auth(format!(
-                    "Git authentication failed. Please check your PAT and username. Error: {}",
-                    e
-                )))
+                Err(Error::auth(
+                    "Git authentication failed. Please check your username and Personal Access Token."
+                ))
             } else if error_msg.contains("repository not found") || error_msg.contains("404") {
-                Err(Error::not_found(format!(
-                    "Repository not found or access denied. Error: {}",
-                    e
-                )))
+                Err(Error::not_found(
+                    "Repository not found or access denied. Please check the repository URL."
+                ))
             } else {
                 Err(Error::dependency(format!(
                     "Failed to validate git credentials: {}",
-                    e
+                    e.to_string().lines().next().unwrap_or("unknown error")
                 )))
             }
         }
