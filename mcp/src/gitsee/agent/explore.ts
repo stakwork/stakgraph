@@ -1,9 +1,5 @@
 import { generateText, tool, hasToolCall, ModelMessage } from "ai";
-import {
-  getModel,
-  getApiKeyForProvider,
-  Provider,
-} from "../../aieo/src/index.js";
+import { resolveLLMConfig } from "../../aieo/src/index.js";
 import * as prompts from "./prompts/index.js";
 import { z } from "zod";
 import { getRepoMap, getFileSummary, fulltextSearch } from "./tools.js";
@@ -68,6 +64,8 @@ function makeFad(
 export interface Overrides {
   system_prompt?: string;
   final_answer_description?: string;
+  model?: string;
+  apiKey?: string;
 }
 
 export interface GitseeContextResult {
@@ -83,9 +81,8 @@ export async function gitsee_context(
 ): Promise<GitseeContextResult> {
   const startTime = Date.now();
   const CONF = getConfig(mode);
-  const provider = process.env.LLM_PROVIDER || "anthropic";
-  const apiKey = getApiKeyForProvider(provider);
-  const model = await getModel(provider as Provider, apiKey as string);
+  const llm = resolveLLMConfig({ model: overrides?.model, apiKey: overrides?.apiKey });
+  const model = llm.model;
   let fad = makeFad(CONF, overrides?.final_answer_description);
   if (mode == "services") {
     // replace all instance of MY_REPO_NAME with the actual repo name

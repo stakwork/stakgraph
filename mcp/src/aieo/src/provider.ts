@@ -46,6 +46,18 @@ const DEFAULT_MODELS: Record<Provider, string> = {
   openrouter: MODELS.openrouter.kimi!,
 };
 
+// Light/cheap models for batch operations (descriptions, learnings, etc.)
+const LIGHT_MODELS: Record<Provider, string> = {
+  anthropic: "claude-haiku-4-5",
+  google: "gemini-2.0-flash",
+  openai: "gpt-4.1-mini",
+  openrouter: "moonshotai/kimi-k2.5",
+};
+
+export function getLightModelForProvider(provider: Provider): string {
+  return LIGHT_MODELS[provider];
+}
+
 export interface TokenPricing {
   inputTokenPrice: number;
   outputTokenPrice: number;
@@ -72,8 +84,22 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "google";
     case "gpt":
       return "openai";
+    // Full model IDs
+    case "claude-sonnet-4-6":
+    case "claude-opus-4-6":
+    case "claude-haiku-4-5":
+      return "anthropic";
+    case "gemini-3-pro-preview":
+    case "gemini-2.0-flash":
+      return "google";
+    case "gpt-5":
+    case "gpt-4.1-mini":
+      return "openai";
     default:
-      if (process.env.LLM_PROVIDER && PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)) {
+      if (
+        process.env.LLM_PROVIDER &&
+        PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)
+      ) {
         return process.env.LLM_PROVIDER as Provider;
       }
       return "anthropic";
@@ -180,7 +206,19 @@ export function getModel(
       modelId = opts.modelName;
     }
   } else if (opts?.modelName) {
-    modelId = getModelForProvider(provider, opts.modelName as ModelName);
+    const knownShortcuts: string[] = [
+      "sonnet",
+      "opus",
+      "haiku",
+      "gemini",
+      "gpt",
+      "kimi",
+    ];
+    if (knownShortcuts.includes(opts.modelName)) {
+      modelId = getModelForProvider(provider, opts.modelName as ModelName);
+    } else {
+      modelId = opts.modelName;
+    }
   } else {
     modelId = DEFAULT_MODELS[provider];
   }
@@ -246,8 +284,10 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "claude-haiku-4-5": 200_000,
   // Google
   "gemini-3-pro-preview": 1_000_000,
+  "gemini-2.0-flash": 1_000_000,
   // OpenAI
   "gpt-5": 128_000,
+  "gpt-4.1-mini": 1_000_000,
   // OpenRouter
   "moonshotai/kimi-k2.5": 128_000,
 };
@@ -327,4 +367,54 @@ export function getProviderOptions(
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
+}
+
+export interface LLMConfig {
+  provider: Provider;
+  apiKey: string;
+  model: LanguageModel;
+  modelName?: string;
+}
+
+/**
+ * Resolve LLM configuration from request params with env fallback.
+ * Priority: request body/query → env vars → defaults.
+ * Use `light: true` for batch/cheap operations (descriptions, learnings, etc.)
+ */
+export function resolveLLMConfig(opts?: {
+  model?: string;
+  apiKey?: string;
+  provider?: string;
+  light?: boolean;
+}): LLMConfig {
+  let modelName = opts?.model;
+  let providerHint = opts?.provider;
+  if (providerHint && !PROVIDERS.includes(providerHint as Provider)) {
+    modelName = modelName || providerHint;
+    providerHint = undefined;
+  }
+
+  const provider = modelName
+    ? getProviderForModel(modelName)
+    : (providerHint as Provider | undefined) ||
+      (process.env.LLM_PROVIDER as Provider | undefined) ||
+      getProviderForModel();
+
+  console.log(
+    `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light}`,
+  );
+
+  const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
+
+  let effectiveModelName = modelName;
+  if (!effectiveModelName && opts?.light) {
+    effectiveModelName = getLightModelForProvider(provider);
+  }
+
+  const model = getModel(provider, {
+    apiKey,
+    modelName: effectiveModelName,
+  });
+
+  return { provider, apiKey, model, modelName: effectiveModelName };
 }

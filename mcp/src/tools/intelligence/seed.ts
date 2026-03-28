@@ -1,5 +1,5 @@
 import { db } from "../../graph/neo4j.js";
-import { getApiKeyForProvider, Provider } from "../../aieo/src/provider.js";
+import { resolveLLMConfig, Provider } from "../../aieo/src/provider.js";
 import { HintExtraction, Neo4jNode } from "../../graph/types.js";
 import { z } from "zod";
 import { callGenerateObject } from "../../aieo/src/index.js";
@@ -37,7 +37,8 @@ async function findNodesFromExtraction(
 export async function create_hint_edges_llm(
   hint_ref_id: string,
   answer: string,
-  llm_provider?: Provider | string
+  llm_provider?: Provider | string,
+  llm_apiKey?: string
 ): Promise<{
   edges_added: number;
   linked_ref_ids: string[];
@@ -49,9 +50,8 @@ export async function create_hint_edges_llm(
       linked_ref_ids: [],
       usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
     };
-  const provider = llm_provider ? llm_provider : "anthropic";
-  const apiKey = getApiKeyForProvider(provider);
-  if (!apiKey)
+  const llm = resolveLLMConfig({ provider: llm_provider as string | undefined, apiKey: llm_apiKey });
+  if (!llm.apiKey)
     return {
       edges_added: 0,
       linked_ref_ids: [],
@@ -60,8 +60,8 @@ export async function create_hint_edges_llm(
 
   const result = await extractHintReferences(
     answer,
-    provider as Provider,
-    apiKey
+    llm.provider as Provider,
+    llm.apiKey
   );
 
   const foundNodes = await findNodesFromExtraction(result.extraction);

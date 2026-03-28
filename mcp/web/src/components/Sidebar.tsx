@@ -45,6 +45,7 @@ export function Sidebar({
   const setHighlightedFeature = useGraphData((s) => s.setHighlightedFeature);
   const ingestedRepoUrl = useIngestion((s) => s.repoUrl);
   const githubToken = useSettings((s) => s.githubToken);
+  const { model: settingsModel, apiKey: settingsApiKey } = useSettings();
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleConceptHover = useCallback(
@@ -87,13 +88,20 @@ export function Sidebar({
       if (isGeneratingDocs) return;
       setIsGeneratingDocs(true);
       try {
-        await fetch(`${API_BASE}/learn_docs`, { method: "POST" });
+        const body: Record<string, unknown> = {};
+        if (settingsModel) body.model = settingsModel;
+        if (settingsApiKey) body.apiKey = settingsApiKey;
+        await fetch(`${API_BASE}/learn_docs`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
         refetchDocs();
       } finally {
         setIsGeneratingDocs(false);
       }
     },
-    [API_BASE, isGeneratingDocs, refetchDocs],
+    [API_BASE, isGeneratingDocs, refetchDocs, settingsModel, settingsApiKey],
   );
 
   // ── Concepts: async POST + poll processing flag every 3 s ─────────────

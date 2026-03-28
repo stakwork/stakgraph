@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../graph/neo4j.js';
 import { generateText } from 'ai';
-import { getModel, Provider } from '../aieo/src/index.js';
+import { resolveLLMConfig } from '../aieo/src/index.js';
 import * as asyncReqs from '../graph/reqs.js';
 
 function buildPrompt(workflow_json: string): string {
@@ -29,11 +29,10 @@ export async function document_workflow(req: Request, res: Response) {
   const request_id = asyncReqs.startReq();
   res.json({ request_id, status: 'pending' });
 
-  const provider = (process.env.LLM_PROVIDER || 'anthropic') as Provider;
-  const model = getModel(provider);
+  const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey });
   (async () => {
     try {
-      const result = await generateText({ model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)) });
+      const result = await generateText({ model: llm.model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)) });
       const name = `Documentation for ${workflow.workflow_name || workflow.node_key}`;
       await db.upsert_workflow_documentation(workflow.ref_id, name, result.text);
       asyncReqs.finishReq(request_id, {
@@ -54,8 +53,8 @@ export async function document_workflows(req: Request, res: Response) {
   const request_id = asyncReqs.startReq();
   res.json({ request_id, status: 'pending' });
 
-  const provider = (process.env.LLM_PROVIDER || 'anthropic') as Provider;
-  const model = getModel(provider);
+  const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey });
+  const model = llm.model;
   (async () => {
     try {
       const workflows = await db.get_all_workflows();

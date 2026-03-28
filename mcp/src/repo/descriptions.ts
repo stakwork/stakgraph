@@ -1,16 +1,14 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
-import { getModel, Provider, getTokenPricing } from "../aieo/src/index.js";
+import { resolveLLMConfig, getTokenPricing } from "../aieo/src/index.js";
 import { vectorizeBatch } from "../vector/index.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import PQueueModule from "p-queue";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
 
-// Hardcoded provider for now as we want to use 'haiku' specifically from Anthropic
-const PROVIDER: Provider = "anthropic";
-const MODEL_NAME = "haiku";
+
 
 function extractRepoPaths(repo_url?: string): string[] | null {
   if (!repo_url || repo_url.trim() === "") return null;
@@ -42,6 +40,8 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   const repo_url = req.body.repo_url as string | undefined;
   const file_paths = (req.body.file_paths || []) as string[];
   const do_embed = req.body.embed !== false && req.body.embed !== "false";
+  const reqModel = req.body.model as string | undefined;
+  const reqApiKey = req.body.apiKey as string | undefined;
 
   if (isNaN(cost_limit) || cost_limit <= 0) {
     res
@@ -79,8 +79,10 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     }
   }
 
+  const llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey, light: true });
+
   console.log(
-    `[describe_nodes] Starting job. Provider: ${PROVIDER}, Model: ${MODEL_NAME}, Cost limit: $${cost_limit}, Batch size: ${batch_size}, Concurrency: ${concurrency}${repo_paths ? `, Repos: ${repo_paths.join(", ")}` : ""}${file_paths.length > 0 ? `, Files: ${file_paths.length}` : ""}`,
+    `[describe_nodes] Starting job. Provider: ${llm.provider}, Model: ${llm.modelName || "(default)"}, Cost limit: $${cost_limit}, Batch size: ${batch_size}, Concurrency: ${concurrency}${repo_paths ? `, Repos: ${repo_paths.join(", ")}` : ""}${file_paths.length > 0 ? `, Files: ${file_paths.length}` : ""}`,
   );
   res.json({
     request_id,
@@ -94,9 +96,8 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     let totalCost = 0;
     let totalProcessed = 0;
     let totalTokens = { input: 0, output: 0 };
-    const pricing = getTokenPricing(PROVIDER);
-    // Create model once, reuse for all nodes (avoids creating a new SDK client per node)
-    const model = getModel(PROVIDER, { modelName: MODEL_NAME });
+    const pricing = getTokenPricing(llm.provider);
+    const model = llm.model;
 
     // Loop until cost limit reached or no more nodes
     while (true) {

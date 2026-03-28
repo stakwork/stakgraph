@@ -1,9 +1,5 @@
 import { generateText, tool, hasToolCall, ModelMessage } from "ai";
-import {
-  getModel,
-  getApiKeyForProvider,
-  Provider,
-} from "../../aieo/src/provider.js";
+import { resolveLLMConfig } from "../../aieo/src/provider.js";
 import {
   EXPLORER,
   RE_EXPLORER,
@@ -49,11 +45,11 @@ export async function get_context_explore(
   prompt: string | ModelMessage[],
   re_explore: boolean = false,
   general_explore: boolean = false,
-  provider?: string
+  provider?: string,
+  apiKey?: string
 ): Promise<ContextResult> {
-  const effectiveProvider = provider || process.env.LLM_PROVIDER || "anthropic";
-  const apiKey = getApiKeyForProvider(effectiveProvider);
-  const model = await getModel(effectiveProvider as Provider, apiKey as string);
+  const llm = resolveLLMConfig({ provider, apiKey });
+  const model = llm.model;
   // console.log("call claude:");
   const tools = {
     repo_overview: tool({

@@ -1,4 +1,4 @@
-import { getApiKeyForProvider, Provider } from "../../aieo/src/provider.js";
+import { resolveLLMConfig, Provider } from "../../aieo/src/provider.js";
 import { callGenerateObject, ModelMessage } from "../../aieo/src/index.js";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
@@ -107,7 +107,8 @@ async function filter_by_relevance_from_cache(
   similarityThreshold: number,
   provider?: string,
   originalPrompt?: string,
-  persona?: Persona
+  persona?: Persona,
+  apiKey?: string
 ): Promise<FilterByRelevanceFromCacheResult | undefined> {
   const existingAll = await G.search(
     question,
@@ -133,7 +134,7 @@ async function filter_by_relevance_from_cache(
       candidates.forEach((e: any) => {
         qas += `**Question:** ${e.properties.question}\n**Answer:** ${e.properties.body}\n\n`;
       });
-      const filterResult = await filterAnswers(qas, originalPrompt, provider);
+      const filterResult = await filterAnswers(qas, originalPrompt, provider, apiKey);
       if (filterResult.answer === "NO_MATCH") {
         return;
       }
@@ -180,14 +181,16 @@ export async function ask_question(
   similarityThreshold: number,
   provider?: string,
   originalPrompt?: string,
-  persona?: Persona
+  persona?: Persona,
+  apiKey?: string
 ): Promise<Answer> {
   const filtered = await filter_by_relevance_from_cache(
     question,
     similarityThreshold,
     provider,
     originalPrompt,
-    persona
+    persona,
+    apiKey
   );
   if (filtered && filtered.cachedAnswer && !filtered.reexplore) {
     if (filtered.filterUsage) {
@@ -207,7 +210,7 @@ export async function ask_question(
     reexplore = true;
   }
   console.log(">> NEW question:", question);
-  const ctx = await get_context_explore(q, reexplore, false, provider);
+  const ctx = await get_context_explore(q, reexplore, false, provider, apiKey);
   const answer = ctx.final;
   const embeddings = await vectorizeQuery(question);
   const created = await db.create_hint(question, answer, embeddings, "PM");
@@ -219,7 +222,7 @@ export async function ask_question(
     totalTokens: ctx.usage.totalTokens,
   };
   try {
-    const r = await create_hint_edges_llm(created.ref_id, answer, provider);
+    const r = await create_hint_edges_llm(created.ref_id, answer, provider, apiKey);
     edges_added = r.edges_added;
     linked_ref_ids = r.linked_ref_ids;
     totalUsage.inputTokens += r.usage.inputTokens;
@@ -245,17 +248,17 @@ interface DecomposedQuestion {
 }
 export async function decomposeQuestion(
   question: string,
-  llm_provider?: string
+  llm_provider?: string,
+  llm_apiKey?: string
 ): Promise<DecomposedQuestion> {
-  const provider = llm_provider ? llm_provider : "anthropic";
-  const apiKey = getApiKeyForProvider(provider);
+  const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
   const schema = z.object({
     business_context: z.string(),
     questions: z.array(z.string()),
   });
   const result = await callGenerateObject({
-    provider: provider as Provider,
-    apiKey,
+    provider: llm.provider as Provider,
+    apiKey: llm.apiKey,
     prompt: DECOMPOSE_PROMPT(question),
     schema,
   });
