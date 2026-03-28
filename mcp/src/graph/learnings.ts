@@ -2,11 +2,7 @@ import { Request, Response } from "express";
 import { db } from "./neo4j.js";
 import { vectorizeQuery } from "../vector/index.js";
 import { generateObject, jsonSchema } from "ai";
-import {
-  getApiKeyForProvider,
-  getModel,
-  Provider,
-} from "../aieo/src/provider.js";
+import { resolveLLMConfig } from "../aieo/src/provider.js";
 
 // === Learning + Scope routes ===
 
@@ -92,9 +88,8 @@ export async function post_relevant_learnings(req: Request, res: Response) {
   }
 
   try {
-    const provider = (process.env.LLM_PROVIDER || "anthropic") as Provider;
-    const apiKey = getApiKeyForProvider(provider);
-    const model = getModel(provider, { apiKey, modelName: "haiku" });
+    const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey, light: true });
+    const model = llm.model;
 
     // 1. List all scopes
     const allScopes = await db.get_all_scopes();

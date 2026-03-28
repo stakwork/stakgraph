@@ -4,16 +4,17 @@ import { Answer } from "./ask.js";
 export async function decomposeAndAsk(
   prompt: string,
   threshold: number,
-  provider?: string
+  provider?: string,
+  apiKey?: string
 ): Promise<Answer[]> {
   const answers: Answer[] = [];
-  const dq = await decomposeQuestion(prompt);
+  const dq = await decomposeQuestion(prompt, provider, apiKey);
 
   dq.questions.forEach((q) => {
     console.log(" ======== Q:", q);
   });
   for (const q of dq.questions) {
-    const answer = await ask_question(q, threshold, provider, prompt);
+    const answer = await ask_question(q, threshold, provider, prompt, undefined, apiKey);
     if (answers.find((a) => a.hint_ref_id === answer.hint_ref_id)) {
       continue;
     }

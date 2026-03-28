@@ -1,8 +1,7 @@
 import {
   callModel,
-  getApiKeyForProvider,
+  resolveLLMConfig,
   ModelMessage,
-  Provider,
 } from "../../aieo/src/index.js";
 import { Answer } from "./ask.js";
 
@@ -64,7 +63,8 @@ export interface RecomposedAnswer {
 export async function recomposeAnswer(
   user_query: string,
   answers: Answer[],
-  llm_provider?: string
+  llm_provider?: string,
+  llm_apiKey?: string
 ): Promise<RecomposedAnswer> {
   let qas = "";
   for (const answer of answers) {
@@ -72,12 +72,11 @@ export async function recomposeAnswer(
       "Question: " + answer.question + "\n" + "Answer: " + answer.answer + "\n";
   }
   const content = RECOMPOSE_PROMPT(user_query, qas);
-  const provider = llm_provider || "anthropic";
-  const apiKey = getApiKeyForProvider(provider as Provider);
+  const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
   const messages: ModelMessage[] = [{ role: "user", content }];
   const result = await callModel({
-    provider: provider as Provider,
-    apiKey,
+    provider: llm.provider,
+    apiKey: llm.apiKey,
     messages,
   });
   const totalUsage = {

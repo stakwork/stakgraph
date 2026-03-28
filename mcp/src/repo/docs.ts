@@ -1,16 +1,17 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
-import { getModel, Provider } from "../aieo/src/index.js";
+import { resolveLLMConfig } from "../aieo/src/index.js";
 
 export async function learn_docs_agent(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
   const force = req.query.force === "true";
 
   console.log("===> learn_docs_agent", repoUrl, "force:", force);
-  // Resolve AI model
-  const provider = (process.env.LLM_PROVIDER || "anthropic") as Provider;
-  const model = getModel(provider);
+  const reqModel = (req.query.model || req.body?.model) as string | undefined;
+  const reqApiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
+  const llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey });
+  const model = llm.model;
 
   try {
     const allRepos = await db.get_repositories();

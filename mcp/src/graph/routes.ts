@@ -146,7 +146,9 @@ export async function understand(req: Request, res: Response) {
       return;
     }
     const provider = req.query.provider as string | undefined;
-    const answer = await ask_question(question, similarityThreshold, provider);
+    const model = (req.query.model || req.body?.model) as string | undefined;
+    const apiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
+    const answer = await ask_question(question, similarityThreshold, model || provider, undefined, undefined, apiKey);
     res.json(answer);
   } catch (e: any) {
     console.error(e);
@@ -160,6 +162,8 @@ export async function seed_understanding(req: Request, res: Response) {
       ? parseFloat(req.query.budget as string)
       : undefined;
     const provider = (req.query.provider as string) || "anthropic";
+    const model = (req.query.model || req.body?.model) as string | undefined;
+    const apiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
 
     const answers = [];
     let budgetTracker = createBudgetTracker(
@@ -180,7 +184,7 @@ export async function seed_understanding(req: Request, res: Response) {
         break;
       }
 
-      const answer = await ask_question(question, 0.85, provider);
+      const answer = await ask_question(question, 0.85, model || provider, undefined, undefined, apiKey);
       if (!answer.reused) {
         console.log("ANSWERED question:", question);
       }
@@ -237,6 +241,8 @@ export async function ask(req: Request, res: Response) {
   const similarityThreshold =
     parseFloat(req.query.threshold as string) || undefined;
   const provider = req.query.provider as string | undefined;
+  const model = (req.query.model || req.body?.model) as string | undefined;
+  const apiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
 
   // Parse cache control options
   const cacheControl: any = {};
@@ -255,9 +261,10 @@ export async function ask(req: Request, res: Response) {
   try {
     const answer = await ask_prompt(
       question,
-      provider,
+      model || provider,
       similarityThreshold,
-      cacheControl
+      cacheControl,
+      apiKey
     );
     res.json(answer);
   } catch (error) {
@@ -342,7 +349,10 @@ export async function generate_siblings(req: Request, res: Response) {
       processed++;
     }
 
-    await generate_persona_variants();
+    const provider = req.query.provider as string | undefined;
+    const model = (req.query.model || req.body?.model) as string | undefined;
+    const apiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
+    await generate_persona_variants(model || provider, apiKey);
     res.json({ processed });
   } catch (error) {
     console.error("Generate Siblings Error:", error);
@@ -421,6 +431,8 @@ export async function seed_stories(req: Request, res: Response) {
     ? parseFloat(req.query.budget as string)
     : undefined;
   const provider = (req.query.provider as string) || "anthropic";
+  const model = (req.query.model || req.body?.model) as string | undefined;
+  const apiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
 
   try {
     let budgetTracker = createBudgetTracker(
@@ -433,7 +445,7 @@ export async function seed_stories(req: Request, res: Response) {
       console.log(`Budget limit enabled: $${budgetDollars}`);
     }
 
-    const gres = await get_context_explore(prompt, false, true);
+    const gres = await get_context_explore(prompt, false, true, model || provider, apiKey);
 
     budgetTracker = addUsage(
       budgetTracker,
@@ -463,7 +475,7 @@ export async function seed_stories(req: Request, res: Response) {
       }
 
       console.log("+++++++++ feature:", feature);
-      const answer = await ask_prompt(feature, provider);
+      const answer = await ask_prompt(feature, model || provider, undefined, undefined, apiKey);
       answers.push(answer);
 
       budgetTracker = addUsage(
@@ -1193,7 +1205,9 @@ export async function get_script_progress(req: Request, res: Response) {
 
 export async function reconnect_orphaned_hints(req: Request, res: Response) {
   try {
-    const provider = (req.query.provider as string) || "anthropic";
+    const provider = req.query.provider as string | undefined;
+    const model = (req.query.model || req.body?.model) as string | undefined;
+    const apiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
     const orphanedHints = await db.get_orphaned_hints();
 
     const results = {
@@ -1215,7 +1229,7 @@ export async function reconnect_orphaned_hints(req: Request, res: Response) {
       }
 
       try {
-        const result = await create_hint_edges_llm(ref_id, answer, provider);
+        const result = await create_hint_edges_llm(ref_id, answer, model || provider, apiKey);
         if (result.edges_added > 0) {
           results.reconnected++;
         }

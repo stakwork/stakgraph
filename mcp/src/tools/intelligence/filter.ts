@@ -1,7 +1,6 @@
 import {
   callModel,
-  getApiKeyForProvider,
-  Provider,
+  resolveLLMConfig,
 } from "../../aieo/src/index.js";
 
 function FILTER_PROMPT(originalPrompt: string, candidatePairs: string) {
@@ -43,17 +42,17 @@ export type FilteredAnswer = "NO_MATCH" | string;
 export async function filterAnswers(
   qas: string,
   originalPrompt: string,
-  llm_provider?: string
+  llm_provider?: string,
+  llm_apiKey?: string
 ): Promise<{
   answer: FilteredAnswer;
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }> {
   console.log(">> filterAnswers!!!!");
-  const provider = (llm_provider || "anthropic") as Provider;
-  const apiKey = getApiKeyForProvider(provider);
+  const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
   const result = await callModel({
-    provider,
-    apiKey,
+    provider: llm.provider,
+    apiKey: llm.apiKey,
     messages: [{ role: "user", content: FILTER_PROMPT(originalPrompt, qas) }],
   });
   return {

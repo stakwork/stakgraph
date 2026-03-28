@@ -74,7 +74,8 @@ export async function ask_prompt(
   prompt: string,
   provider?: string,
   similarityThreshold: number = QUESTION_SIMILARITY_THRESHOLD,
-  cacheControl?: CacheControlOptions
+  cacheControl?: CacheControlOptions,
+  apiKey?: string
 ): Promise<RecomposedAnswer> {
   // first get a 0.95 match
   const existing = await G.search(
@@ -212,9 +213,10 @@ export async function ask_prompt(
     const answers = await decomposeAndAsk(
       prompt,
       similarityThreshold,
-      provider
+      provider,
+      apiKey
     );
-    const answer = await recomposeAnswer(prompt, answers, provider);
+    const answer = await recomposeAnswer(prompt, answers, provider, apiKey);
 
     // If we need to replace an existing node, delete it just before creating the new one
     if (existingRefIdToReplace) {

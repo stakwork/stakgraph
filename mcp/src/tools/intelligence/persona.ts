@@ -1,4 +1,4 @@
-import { getApiKeyForProvider, Provider } from "../../aieo/src/provider.js";
+import { resolveLLMConfig } from "../../aieo/src/provider.js";
 import { callGenerateObject } from "../../aieo/src/index.js";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
@@ -34,21 +34,21 @@ export async function rephraseHint(
   question: string,
   answer: string,
   persona: Persona,
-  llm_provider?: string
+  llm_provider?: string,
+  llm_apiKey?: string
 ): Promise<{ question: string; answer: string }> {
-  const provider = (llm_provider || "anthropic") as Provider;
-  const apiKey = getApiKeyForProvider(provider);
+  const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
   const schema = z.object({ question: z.string(), answer: z.string() });
   const result = await callGenerateObject({
-    provider,
-    apiKey,
+    provider: llm.provider,
+    apiKey: llm.apiKey,
     prompt: personaPrompt(persona, question, answer),
     schema,
   });
   return result.object;
 }
 
-export async function generate_persona_variants(llm_provider?: string) {
+export async function generate_persona_variants(llm_provider?: string, llm_apiKey?: string) {
   const hints = await db.hints_without_siblings();
   for (const h of hints) {
     const origRef = h.ref_id || h.properties.ref_id;
@@ -74,7 +74,8 @@ export async function generate_persona_variants(llm_provider?: string) {
         question,
         answer,
         persona,
-        llm_provider
+        llm_provider,
+        llm_apiKey
       );
       const embeddings = await vectorizeQuery(rephrased.question);
       const created = await db.create_hint(
