@@ -1,8 +1,10 @@
 use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
+use crate::builder::utils::log_stage_timing;
 use dashmap::DashMap;
 use std::sync::LazyLock;
+use std::time::Instant;
 use tree_sitter::QueryCursor;
 
 type ImportCache = DashMap<String, Option<Vec<(String, Vec<String>)>>>;
@@ -44,6 +46,7 @@ pub fn func_target_file_finder<G: Graph>(
     import_names: Option<Vec<(String, Vec<String>)>>,
     lang: &Lang,
 ) -> Option<NodeData> {
+    let _start = Instant::now();
     // Attempt 1: find only one function file
     if let Some(tf) = find_only_one_function_file(
         func_name,
@@ -92,10 +95,12 @@ pub fn func_target_file_finder<G: Graph>(
     if let Some(ref operand) = operand {
         if let Some(tf) = find_nested_function_in_variable(operand, func_name, graph, current_file)
         {
+            log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=true", func_name, current_file)));
             return Some(tf);
         }
     }
 
+    log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=false", func_name, current_file)));
     None
 }
 
@@ -105,10 +110,13 @@ pub fn get_imports_for_file<G: Graph>(
     graph: &G,
 ) -> Option<Vec<(String, Vec<String>)>> {
     if let Some(cached) = IMPORT_CACHE.get(current_file) {
+        tracing::debug!(target: "stakgraph.timing", file = %current_file, "import_cache_hit");
         return cached.clone();
     }
 
+    let start = Instant::now();
     let result = parse_imports_for_file(current_file, lang, graph);
+    log_stage_timing("import_cache_miss", start, Some(&format!("file={}", current_file)));
 
     IMPORT_CACHE.insert(current_file.to_string(), result.clone());
 

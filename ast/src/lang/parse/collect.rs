@@ -1,7 +1,9 @@
 use super::utils::trim_quotes;
+use crate::builder::utils::log_stage_timing;
 use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
+use std::time::Instant;
 use streaming_iterator::StreamingIterator;
 use tracing::warn;
 use tree_sitter::Node as TreeNode;
@@ -164,6 +166,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
         identified_tests: &std::collections::HashSet<NodeKeys>,
     ) -> Result<Vec<Function>> {
+        let _collect_start = Instant::now();
         let mut functions = Vec::new();
 
         // Pass 1: Regular functions (existing logic)
@@ -184,6 +187,7 @@ impl Lang {
         let router_functions = self.collect_router_arrow_functions(code, file, graph, lsp_tx)?;
         functions.extend(router_functions);
 
+        log_stage_timing("collect_functions", _collect_start, Some(&format!("file={} count={}", file, functions.len())));
         Ok(functions)
     }
 
@@ -222,6 +226,7 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(Function, Option<Edge>)>> {
+        let _collect_start = Instant::now();
         let tree = self.parse(code, &NodeType::UnitTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
@@ -243,6 +248,7 @@ impl Lang {
                 test_edge,
             ));
         }
+        log_stage_timing("collect_tests", _collect_start, Some(&format!("file={} count={}", file, res.len())));
         Ok(res)
     }
     pub fn collect_calls_in_function<G: Graph>(
@@ -258,6 +264,7 @@ impl Lang {
         allow_unverified: bool,
     ) -> Result<Vec<FunctionCall>> {
         trace!("collect_calls_in_function");
+        let _collect_start = Instant::now();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, caller_node, code.as_bytes());
         let mut res = Vec::new();
@@ -276,6 +283,7 @@ impl Lang {
                 res.push(fc);
             }
         }
+        log_stage_timing("collect_calls_in_function", _collect_start, Some(&format!("file={} caller={} count={}", file, caller_name, res.len())));
         Ok(res)
     }
     pub fn collect_extras_in_function<G: Graph>(
