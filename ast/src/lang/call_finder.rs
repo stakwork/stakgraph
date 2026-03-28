@@ -2,16 +2,18 @@ use super::parse::utils::trim_quotes;
 use super::queries::consts::{IMPORTS_ALIAS, IMPORTS_FROM, IMPORTS_NAME};
 use super::{graphs::Graph, *};
 use crate::builder::utils::log_stage_timing;
-use dashmap::DashMap;
+use dashmap::{DashMap, DashSet};
 use std::sync::LazyLock;
 use std::time::Instant;
 use tree_sitter::QueryCursor;
 
 type ImportCache = DashMap<String, Option<Vec<(String, Vec<String>)>>>;
 pub static IMPORT_CACHE: LazyLock<ImportCache> = LazyLock::new(DashMap::new);
+pub static NO_FUNC_CACHE: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
 
 pub fn clear_import_cache() {
     IMPORT_CACHE.clear();
+    NO_FUNC_CACHE.clear();
 }
 
 pub fn node_data_finder<G: Graph>(
@@ -47,6 +49,10 @@ pub fn func_target_file_finder<G: Graph>(
     lang: &Lang,
 ) -> Option<NodeData> {
     let _start = Instant::now();
+    if NO_FUNC_CACHE.contains(func_name) {
+        log_stage_timing("call_resolution", _start, Some(&format!("func={} file={} hit=cached_miss", func_name, current_file)));
+        return None;
+    }
     // Attempt 1: find only one function file
     if let Some(tf) = find_only_one_function_file(
         func_name,
@@ -237,6 +243,7 @@ fn find_only_one_function_file<G: Graph>(
     let nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
     if nodes.is_empty() {
         log_cmd(format!("::: found zero {:?}", func_name));
+        NO_FUNC_CACHE.insert(func_name.to_string());
         return None;
     }
     for node in nodes {
