@@ -7,6 +7,7 @@ pub mod linker;
 pub mod parse;
 pub mod queries;
 
+use crate::builder::utils::log_stage_timing;
 use crate::lang::parse::utils::trim_quotes;
 pub use asg::NodeData;
 use asg::*;
@@ -16,10 +17,12 @@ pub use graphs::*;
 use lsp::{CmdSender, Language};
 use queries::*;
 use shared::{Context, Result};
+use dashmap::DashMap;
 use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use streaming_iterator::{IntoStreamingIterator, StreamingIterator};
 use tracing::trace;
 use tree_sitter::{Node as TreeNode, Query, QueryCursor, Tree};
@@ -43,15 +46,12 @@ pub fn print_parse_stats() {
         time_ms,
         avg_us
     );
-    println!(
-        "[Parse Stats] total_parses={} total_time={}ms avg_per_parse={}µs",
-        count, time_ms, avg_us
-    );
 }
 
 pub struct Lang {
     pub kind: Language,
     lang: Box<dyn Stack + Send + Sync + 'static>,
+    query_cache: DashMap<(String, NodeType), Arc<Query>>,
 }
 
 impl fmt::Display for Lang {
@@ -198,103 +198,126 @@ impl Lang {
         Self {
             kind: Language::Python,
             lang: Box::new(python::Python::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_go() -> Self {
         Self {
             kind: Language::Go,
             lang: Box::new(go::Go::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_rust() -> Self {
         Self {
             kind: Language::Rust,
             lang: Box::new(rust::Rust::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_typescript() -> Self {
         Self {
             kind: Language::Typescript,
             lang: Box::new(react_ts::TypeScriptReact::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_ruby() -> Self {
         Self {
             kind: Language::Ruby,
             lang: Box::new(ruby::Ruby::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_kotlin() -> Self {
         Self {
             kind: Language::Kotlin,
             lang: Box::new(kotlin::Kotlin::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_swift() -> Self {
         Self {
             kind: Language::Swift,
             lang: Box::new(swift::Swift::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_java() -> Self {
         Self {
             kind: Language::Java,
             lang: Box::new(java::Java::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_svelte() -> Self {
         Self {
             kind: Language::Svelte,
             lang: Box::new(svelte::Svelte::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_angular() -> Self {
         Self {
             kind: Language::Angular,
             lang: Box::new(angular::Angular::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_cpp() -> Self {
         Self {
             kind: Language::Cpp,
             lang: Box::new(cpp::Cpp::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_c() -> Self {
         Self {
             kind: Language::C,
             lang: Box::new(c::C::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_php() -> Self {
         Self {
             kind: Language::Php,
             lang: Box::new(php::Php::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_csharp() -> Self {
         Self {
             kind: Language::CSharp,
             lang: Box::new(csharp::CSharp::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_bash() -> Self {
         Self {
             kind: Language::Bash,
             lang: Box::new(bash::Bash::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn new_toml() -> Self {
         Self {
             kind: Language::Toml,
             lang: Box::new(toml::Toml::new()),
+            query_cache: DashMap::new(),
         }
     }
     pub fn lang(&self) -> &dyn Stack {
         self.lang.as_ref()
     }
-    pub fn q(&self, q: &str, nt: &NodeType) -> Query {
-        self.lang.q(q, nt)
+    pub fn q(&self, q: &str, nt: &NodeType) -> Arc<Query> {
+        let key = (q.to_string(), nt.clone());
+        if let Some(cached) = self.query_cache.get(&key) {
+            return Arc::clone(cached.value());
+        }
+        let query = self.lang.q(q, nt);
+        let arc = Arc::new(query);
+        self.query_cache.insert(key, Arc::clone(&arc));
+        arc
     }
     pub fn parse(&self, code: &str, nt: &NodeType) -> Result<Tree> {
         let start = std::time::Instant::now();
@@ -530,16 +553,16 @@ impl Lang {
     }
     pub fn get_identifier_for_node(&self, node: TreeNode, code: &str) -> Result<Option<String>> {
         let query = self.q(&self.lang.identifier_query(), &NodeType::Function);
-        let ident = Self::get_identifier_for_query(query, node, code)?;
+        let ident = Self::get_identifier_for_query(&query, node, code)?;
         Ok(ident)
     }
     pub fn get_identifier_for_query(
-        query: Query,
+        query: &Query,
         node: TreeNode,
         code: &str,
     ) -> Result<Option<String>> {
         let mut cursor = QueryCursor::new();
-        let mut matches = cursor.matches(&query, node, code.as_bytes());
+        let mut matches = cursor.matches(query, node, code.as_bytes());
         let Some(first) = matches.next() else {
             return Ok(None);
         };
@@ -726,7 +749,9 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
     ) -> Result<(Vec<FunctionCall>, Vec<FunctionCall>, Vec<Edge>, Vec<Edge>)> {
         trace!("get_function_calls");
+        let parse_start = std::time::Instant::now();
         let tree = self.parse(code, &NodeType::Function)?;
+        log_stage_timing("finalize_parse", parse_start, Some(&format!("file={}", file)));
         // get each function
         let qo1 = self.q(&self.lang.function_definition_query(), &NodeType::Function);
         let mut cursor = QueryCursor::new();

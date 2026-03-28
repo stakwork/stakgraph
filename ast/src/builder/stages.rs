@@ -654,10 +654,12 @@ impl Repo {
                     self.send_status_progress(cnt, total, 13);
                 }
 
+                let file_start = Instant::now();
                 let all_calls = self
                     .lang
                     .get_function_calls(code, filename, graph, &self.lsp_tx)
                     .await?;
+                log_stage_timing("finalize_file", file_start, Some(&format!("file={} calls={}", filename, all_calls.0.len())));
                 function_call_count += all_calls.0.len();
                 _i += all_calls.0.len();
                 graph.add_calls(

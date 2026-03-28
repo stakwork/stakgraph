@@ -141,7 +141,7 @@ impl Lang {
         }
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
-            let q = self.lang.q(&ef, &NodeType::Endpoint);
+            let q = self.q(&ef, &NodeType::Endpoint);
             let tree = self.parse(code, &NodeType::Endpoint)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
@@ -204,7 +204,7 @@ impl Lang {
 
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
-            let q = self.lang.q(&ef, &NodeType::Function);
+            let q = self.q(&ef, &NodeType::Function);
             let tree = self.parse(code, &NodeType::Function)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
