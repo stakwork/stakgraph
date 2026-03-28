@@ -1,7 +1,9 @@
 use super::utils::trim_quotes;
+use crate::builder::utils::log_stage_timing;
 use crate::lang::{graphs::Graph, *};
 use lsp::{Cmd as LspCmd, Position, Res as LspRes};
 use shared::error::{Error, Result};
+use std::time::Instant;
 use streaming_iterator::StreamingIterator;
 use tracing::warn;
 use tree_sitter::Node as TreeNode;
@@ -13,7 +15,7 @@ impl Lang {
         file: &str,
         nt: NodeType,
     ) -> Result<Vec<NodeData>> {
-        let tree = self.lang.parse(code, &nt)?;
+        let tree = self.parse(code, &nt)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -45,7 +47,7 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        let tree = self.lang.parse(code, &NodeType::Class)?;
+        let tree = self.parse(code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -73,7 +75,7 @@ impl Lang {
         code: &str,
         file: &str,
     ) -> Result<Vec<(String, String, String)>> {
-        let tree = self.lang.parse(code, &NodeType::Class)?;
+        let tree = self.parse(code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut results = Vec::new();
@@ -92,7 +94,7 @@ impl Lang {
         code: &str,
         graph: &G,
     ) -> Result<Vec<Edge>> {
-        let tree = self.lang.parse(code, &NodeType::Class)?;
+        let tree = self.parse(code, &NodeType::Class)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut edges = Vec::new();
@@ -117,7 +119,7 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
         graph: &G,
     ) -> Result<Vec<(NodeData, Vec<Edge>)>> {
-        let tree = self.lang.parse(code, &NodeType::Page)?;
+        let tree = self.parse(code, &NodeType::Page)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -139,8 +141,8 @@ impl Lang {
         }
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
-            let q = self.lang.q(&ef, &NodeType::Endpoint);
-            let tree = self.lang.parse(code, &NodeType::Endpoint)?;
+            let q = self.q(&ef, &NodeType::Endpoint);
+            let tree = self.parse(code, &NodeType::Endpoint)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
@@ -164,10 +166,11 @@ impl Lang {
         lsp_tx: &Option<CmdSender>,
         identified_tests: &std::collections::HashSet<NodeKeys>,
     ) -> Result<Vec<Function>> {
+        let _collect_start = Instant::now();
         let mut functions = Vec::new();
 
         // Pass 1: Regular functions (existing logic)
-        let tree = self.lang.parse(code, &NodeType::Function)?;
+        let tree = self.parse(code, &NodeType::Function)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         while let Some(m) = matches.next() {
@@ -184,6 +187,7 @@ impl Lang {
         let router_functions = self.collect_router_arrow_functions(code, file, graph, lsp_tx)?;
         functions.extend(router_functions);
 
+        log_stage_timing("collect_functions", _collect_start, Some(&format!("file={} count={}", file, functions.len())));
         Ok(functions)
     }
 
@@ -200,8 +204,8 @@ impl Lang {
 
         let mut res = Vec::new();
         for ef in self.lang().endpoint_finders() {
-            let q = self.lang.q(&ef, &NodeType::Function);
-            let tree = self.lang.parse(code, &NodeType::Function)?;
+            let q = self.q(&ef, &NodeType::Function);
+            let tree = self.parse(code, &NodeType::Function)?;
             let mut cursor = QueryCursor::new();
             let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
             while let Some(m) = matches.next() {
@@ -222,7 +226,8 @@ impl Lang {
         file: &str,
         graph: &G,
     ) -> Result<Vec<(Function, Option<Edge>)>> {
-        let tree = self.lang.parse(code, &NodeType::UnitTest)?;
+        let _collect_start = Instant::now();
+        let tree = self.parse(code, &NodeType::UnitTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -243,6 +248,7 @@ impl Lang {
                 test_edge,
             ));
         }
+        log_stage_timing("collect_tests", _collect_start, Some(&format!("file={} count={}", file, res.len())));
         Ok(res)
     }
     pub fn collect_calls_in_function<G: Graph>(
@@ -258,6 +264,7 @@ impl Lang {
         allow_unverified: bool,
     ) -> Result<Vec<FunctionCall>> {
         trace!("collect_calls_in_function");
+        let _collect_start = Instant::now();
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, caller_node, code.as_bytes());
         let mut res = Vec::new();
@@ -276,6 +283,7 @@ impl Lang {
                 res.push(fc);
             }
         }
+        log_stage_timing("collect_calls_in_function", _collect_start, Some(&format!("file={} caller={} count={}", file, caller_name, res.len())));
         Ok(res)
     }
     pub fn collect_extras_in_function<G: Graph>(
@@ -357,7 +365,7 @@ impl Lang {
             return Ok(Vec::new());
         };
         let q = self.q(&integration_query, &NodeType::IntegrationTest);
-        let tree = self.lang.parse(code, &NodeType::IntegrationTest)?;
+        let tree = self.parse(code, &NodeType::IntegrationTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -388,7 +396,7 @@ impl Lang {
             return Ok(Vec::new());
         };
         let q = self.q(&e2e_query, &NodeType::E2eTest);
-        let tree = self.lang.parse(code, &NodeType::E2eTest)?;
+        let tree = self.parse(code, &NodeType::E2eTest)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), code.as_bytes());
         let mut res = Vec::new();
@@ -412,7 +420,7 @@ impl Lang {
         if let Some(lsp) = lsp_tx {
             return self.collect_import_edges_with_lsp(code, file, graph, lsp);
         }
-        let tree = self.lang.parse(code, &NodeType::Import)?;
+        let tree = self.parse(code, &NodeType::Import)?;
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(q, tree.root_node(), code.as_bytes());
         let mut edges = Vec::new();
@@ -496,7 +504,7 @@ impl Lang {
         let mut processed = std::collections::HashSet::new();
 
         let query = self.q(&self.lang.identifier_query(), &NodeType::Var);
-        let tree = self.lang.parse(code, &NodeType::Function)?;
+        let tree = self.parse(code, &NodeType::Function)?;
         let mut cursor = tree_sitter::QueryCursor::new();
         let mut matches = cursor.matches(&query, tree.root_node(), code.as_bytes());
 
@@ -623,7 +631,7 @@ impl Lang {
         }
 
         let code = &func.body;
-        let tree = match self.lang.parse(code, &NodeType::Function) {
+        let tree = match self.parse(code, &NodeType::Function) {
             Ok(tree) => tree,
             Err(_) => return edges,
         };

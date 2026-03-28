@@ -27,7 +27,7 @@ use crate::lang::asg::*;
 use crate::lang::Lang;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub enum NodeType {
     Repository,
     Package,

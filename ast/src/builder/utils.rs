@@ -7,6 +7,7 @@ use rayon::prelude::*;
 use shared::error::Result;
 use std::collections::{HashSet, BTreeMap};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
 
@@ -156,6 +157,16 @@ pub fn is_allowed_file(path: &Path, lang: &Language) -> bool {
     }
     false
 }
+pub fn log_stage_timing(stage: &str, start: Instant, extra: Option<&str>) {
+    let duration = start.elapsed();
+    tracing::info!(
+        target: "stakgraph.timing",
+        stage = %stage,
+        duration_ms = %duration.as_millis(),
+        extra = %extra.unwrap_or("")
+    );
+}
+
 
 impl Repo {
     pub fn prepare_file_data(&self, path: &str, code: &str) -> NodeData {

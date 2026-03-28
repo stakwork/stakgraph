@@ -1,6 +1,8 @@
 #![cfg(feature = "neo4j")]
 use std::collections::BTreeSet;
+use std::time::Instant;
 
+use crate::builder::utils::log_stage_timing;
 use crate::lang::graphs::{neo4j::*, Graph, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use neo4rs::BoltMap;
@@ -24,7 +26,9 @@ impl GraphStreamingUploader {
         let node_cnt = delta_node_queries.len();
         if node_cnt > 0 {
             debug!(stage = stage, count = node_cnt, "stream_upload_nodes");
+            let start = Instant::now();
             neo.execute_batch(delta_node_queries.to_vec()).await?;
+            log_stage_timing("neo4j_flush_nodes", start, Some(&format!("stage={} nodes={}", stage, node_cnt)));
             info!(stage = stage, nodes = node_cnt, "stream_stage_flush");
         }
         Ok(())
@@ -54,7 +58,9 @@ impl GraphStreamingUploader {
             256,
         );
 
+        let start = Instant::now();
         neo.execute_simple(edge_queries).await?;
+        log_stage_timing("neo4j_flush_edges", start, Some(&format!("stage={} edges={}", stage, edges.len())));
 
         info!(stage = stage, edges = edges.len(), "stream_edges_flushed");
         Ok(())

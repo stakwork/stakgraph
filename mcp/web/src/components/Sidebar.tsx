@@ -101,6 +101,7 @@ export function Sidebar({
   const [conceptsError, setConceptsError] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCount = useRef(0);
+
   const serverProcessing = featuresData?.processing ?? false;
   const isGeneratingConcepts = conceptsTriggered || serverProcessing;
 
@@ -136,6 +137,7 @@ export function Sidebar({
         clearInterval(pollTimer.current);
         pollTimer.current = null;
       }
+
       setConceptsTriggered(false);
     }
     return () => {
@@ -155,7 +157,6 @@ export function Sidebar({
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isGeneratingConcepts) return;
-
       setConceptsError(null);
 
       if (!githubToken) {
@@ -210,6 +211,7 @@ export function Sidebar({
       isGeneratingConcepts,
       refetchConcepts,
     ],
+
   );
 
   const docs = useMemo(() => parseDocs(rawDocs), [rawDocs]);

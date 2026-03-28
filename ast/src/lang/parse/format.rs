@@ -75,8 +75,8 @@ impl Lang {
 
         if self.lang.filter_by_implements() {
             if let Some(implements_query) = self.lang.implements_query() {
-                let implements_q = self.lang.q(&implements_query, &NodeType::Class);
-                let tree = self.lang.parse(code, &NodeType::Class)?;
+                let implements_q = self.q(&implements_query, &NodeType::Class);
+                let tree = self.parse(code, &NodeType::Class)?;
                 let mut cursoe = QueryCursor::new();
                 let mut matches = cursoe.matches(&implements_q, tree.root_node(), code.as_bytes());
                 while let Some(m) = matches.next() {
