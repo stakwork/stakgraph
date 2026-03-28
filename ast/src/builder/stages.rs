@@ -7,6 +7,7 @@ use crate::lang::{
 };
 use crate::repo::Repo;
 use shared::error::Result;
+use std::time::Instant;
 use std::{any::type_name, collections::{HashMap, HashSet}, path::Path};
 use tracing::{debug, info};
 
@@ -16,6 +17,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_libraries", 3);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
@@ -59,6 +61,7 @@ impl Repo {
 
         self.send_status_progress(100, 100, 3);
         info!("=> got {} libs", lib_count);
+        log_stage_timing("process_libraries", stage_start, Some(&format!("libs={}", lib_count)));
         Ok(())
     }
     pub fn process_import_sections<G: Graph + Sync>(
@@ -66,6 +69,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_imports", 4);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
@@ -113,6 +117,7 @@ impl Repo {
         self.send_status_with_stats(stats);
         self.send_status_progress(100, 100, 4);
         info!("=> got {} import sections", import_count);
+        log_stage_timing("process_import_sections", stage_start, Some(&format!("imports={}", import_count)));
         Ok(())
     }
     pub fn process_variables<G: Graph + Sync>(
@@ -120,6 +125,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_variables", 5);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
@@ -163,6 +169,7 @@ impl Repo {
         self.send_status_progress(100, 100, 5);
 
         info!("=> got {} all vars", var_count);
+        log_stage_timing("process_variables", stage_start, Some(&format!("vars={}", var_count)));
         Ok(())
     }
     pub fn process_instances_and_traits<G: Graph + Sync>(
@@ -170,6 +177,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_instances_and_traits", 7);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut cnt = 0;
@@ -217,6 +225,7 @@ impl Repo {
         self.send_status_progress(100, 100, 7);
 
         info!("=> got {} traits", trait_count);
+        log_stage_timing("process_instances_and_traits", stage_start, Some(&format!("instances={};traits={}", instance_count, trait_count)));
         Ok(())
     }
     pub fn process_data_models<G: Graph + Sync>(
@@ -224,6 +233,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_data_models", 8);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
@@ -306,6 +316,7 @@ impl Repo {
         self.send_status_progress(100, 100, 8);
 
         info!("=> got {} data models", datamodel_count);
+        log_stage_timing("process_data_models", stage_start, Some(&format!("data_models={}", datamodel_count)));
         Ok(())
     }
     pub async fn process_functions_and_tests<G: Graph + Sync>(
@@ -313,6 +324,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_functions_and_tests", 9);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         let mut i = 0;
@@ -374,6 +386,7 @@ impl Repo {
         self.send_status_progress(100, 100, 9);
 
         info!("=> got {} functions and tests", function_count + test_count);
+        log_stage_timing("process_functions_and_tests", stage_start, Some(&format!("functions={};tests={}", function_count, test_count)));
         Ok(())
     }
     pub fn process_pages_and_templates<G: Graph>(
@@ -381,6 +394,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_pages_and_templates", 10);
         let mut i = 0;
         let mut page_count = 0;
@@ -495,6 +509,7 @@ impl Repo {
             info!("=> got {} page component renders", page_renders_count);
         }
 
+        log_stage_timing("process_pages_and_templates", stage_start, Some(&format!("pages={};templates={}", page_count, template_count)));
         Ok(())
     }
     pub fn process_endpoints<G: Graph + Sync>(
@@ -502,6 +517,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
+        let stage_start = Instant::now();
         self.send_status_update("process_endpoints", 11);
         let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
         info!("=> get_endpoints...");
@@ -559,6 +575,7 @@ impl Repo {
             info!("=> get_data_models_within...");
             graph.get_data_models_within(&self.lang);
         }
+        log_stage_timing("process_endpoints", stage_start, None);
         Ok(())
     }
     pub async fn finalize_graph<G: Graph>(
@@ -570,6 +587,7 @@ impl Repo {
         let mut _i = 0;
         let mut import_edges_count = 0;
         info!("=> get_import_edges...");
+        let sub_start = Instant::now();
         for (filename, code) in filez {
             if let Some(import_query) = self.lang.lang().imports_query() {
                 let q = self.lang.q(&import_query, &NodeType::Import);
@@ -585,6 +603,7 @@ impl Repo {
         }
         stats.insert("import_edges".to_string(), import_edges_count);
         info!("=> got {} import edges", import_edges_count);
+        log_stage_timing("finalize_import_edges", sub_start, Some(&format!("import_edges={}", import_edges_count)));
 
         self.send_status_update("process_integration_tests", 12);
 
@@ -593,6 +612,7 @@ impl Repo {
         let mut integration_test_count = 0;
         let total = filez.len();
 
+        let sub_start = Instant::now();
         if self.lang.lang().use_integration_test_finder() {
             info!("=> get_integration_tests...");
             for (filename, code) in filez {
@@ -616,6 +636,7 @@ impl Repo {
         }
         stats.insert("integration_tests".to_string(), integration_test_count);
         info!("=> got {} integration tests", _i);
+        log_stage_timing("finalize_integration_tests", sub_start, Some(&format!("integration_tests={}", integration_test_count)));
 
         if self.skip_calls {
             info!("=> Skipping function_calls...");
@@ -625,7 +646,7 @@ impl Repo {
             let mut cnt = 0;
             let mut function_call_count = 0;
             let total = filez.len();
-
+            let sub_start = Instant::now();
             info!("=> get_function_calls...");
             for (filename, code) in filez {
                 cnt += 1;
@@ -646,6 +667,7 @@ impl Repo {
             }
             stats.insert("function_calls".to_string(), function_call_count);
             info!("=> got {} function calls", _i);
+            log_stage_timing("finalize_function_calls", sub_start, Some(&format!("function_calls={}", function_call_count)));
         }
 
         link_tests(graph)?;

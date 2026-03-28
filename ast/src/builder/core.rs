@@ -69,10 +69,7 @@ impl Repo {
 
         let stage_start = Instant::now();
         self.add_repository_and_language_nodes(&mut graph).await?;
-        info!(
-            "[perf][stage] repository_language s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("repository_language", stage_start, None);
         memory::log_memory("repository_language");
 
         #[cfg(feature = "neo4j")]
@@ -81,20 +78,14 @@ impl Repo {
         }
         let stage_start = Instant::now();
         let files = self.collect_and_add_directories(&mut graph)?;
-        info!(
-            "[perf][stage] directories s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("directories", stage_start, Some(&format!("count={}", files.len())));
         memory::log_memory("directories");
 
         stats.insert("directories".to_string(), files.len());
 
         let stage_start = Instant::now();
         let filez = self.process_and_add_files(&mut graph, &files).await?;
-        info!(
-            "[perf][stage] files s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("files", stage_start, Some(&format!("count={}", filez.len())));
         memory::log_memory("files");
 
         stats.insert("files".to_string(), filez.len());
@@ -108,10 +99,7 @@ impl Repo {
 
         let stage_start = Instant::now();
         self.setup_lsp(&filez)?;
-        info!(
-            "[perf][stage] lsp_setup s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("lsp_setup", stage_start, None);
         memory::log_memory("lsp_setup");
 
         let allowed_files = filez
@@ -121,122 +109,99 @@ impl Repo {
             .collect::<Vec<_>>();
         let stage_start = Instant::now();
         self.process_libraries(&mut graph, &allowed_files)?;
-        info!(
-            "[perf][stage] libraries s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("libraries", stage_start, None);
         memory::log_memory("libraries");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "libraries").await?;
         }
+        let stage_start = Instant::now();
         self.process_import_sections(&mut graph, &filez)?;
-        info!(
-            "[perf][stage] imports s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("imports", stage_start, None);
         memory::log_memory("imports");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "imports").await?;
         }
+        let stage_start = Instant::now();
         self.process_variables(&mut graph, &allowed_files)?;
-        info!(
-            "[perf][stage] variables s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("variables", stage_start, None);
         memory::log_memory("variables");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "variables").await?;
         }
+        let stage_start = Instant::now();
         let impl_relationships = self.process_classes(&mut graph, &allowed_files)?;
-        info!(
-            "[perf][stage] classes s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("classes", stage_start, None);
         memory::log_memory("classes");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "classes").await?;
         }
+        let stage_start = Instant::now();
         self.process_instances_and_traits(&mut graph, &allowed_files)?;
-        info!(
-            "[perf][stage] instances_traits s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("instances_traits", stage_start, None);
         memory::log_memory("instances_traits");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "instances_traits").await?;
         }
+        let stage_start = Instant::now();
         self.resolve_implements_edges(&mut graph, impl_relationships)?;
-        info!(
-            "[perf][stage] implements s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("implements", stage_start, None);
         memory::log_memory("implements");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "implements").await?;
         }
+        let stage_start = Instant::now();
         self.process_data_models(&mut graph, &allowed_files)?;
-        info!(
-            "[perf][stage] data_models s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("data_models", stage_start, None);
         memory::log_memory("data_models");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "data_models").await?;
         }
+        let stage_start = Instant::now();
         self.process_functions_and_tests(&mut graph, &allowed_files)
             .await?;
-        info!(
-            "[perf][stage] functions_tests s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("functions_tests", stage_start, None);
         memory::log_memory("functions_tests");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "functions_tests").await?
         }
+        let stage_start = Instant::now();
         self.process_pages_and_templates(&mut graph, &filez)?;
-        info!(
-            "[perf][stage] pages_templates s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("pages_templates", stage_start, None);
         memory::log_memory("pages_templates");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "pages_templates").await?;
         }
+        let stage_start = Instant::now();
         self.process_endpoints(&mut graph, &allowed_files)?;
-        info!(
-            "[perf][stage] endpoints s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("endpoints", stage_start, None);
         memory::log_memory("endpoints");
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
             flush_stage_nodes_and_edges(ctx, &graph, "endpoints").await?;
         }
+        let stage_start = Instant::now();
         self.finalize_graph(&mut graph, &allowed_files, &mut stats)
             .await?;
-        info!(
-            "[perf][stage] finalize s={:.2}",
-            stage_start.elapsed().as_secs_f64()
-        );
+        log_stage_timing("finalize", stage_start, None);
         memory::log_memory("finalize");
 
         #[cfg(feature = "neo4j")]
