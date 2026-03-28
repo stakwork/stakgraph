@@ -252,6 +252,7 @@ export async function gitree_process(req: Request, res: Response) {
         isProcessing = false;
         endTracking(opId);
       } catch (error) {
+        console.error("===> gitree_process background task failed:", error);
         asyncReqs.failReq(request_id, error);
         isProcessing = false;
         endTracking(opId);

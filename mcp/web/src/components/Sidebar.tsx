@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useApi } from "@/hooks/useApi";
 import { useGraphData } from "@/stores/useGraphData";
+import { useIngestion } from "@/stores/useIngestion";
 import { useSettings } from "@/stores/useSettings";
 import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
 
@@ -42,6 +43,7 @@ export function Sidebar({
   onConceptClick,
 }: SidebarProps) {
   const setHighlightedFeature = useGraphData((s) => s.setHighlightedFeature);
+  const ingestedRepoUrl = useIngestion((s) => s.repoUrl);
   const githubToken = useSettings((s) => s.githubToken);
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -96,24 +98,44 @@ export function Sidebar({
 
   // ── Concepts: async POST + poll processing flag every 3 s ─────────────
   const [conceptsTriggered, setConceptsTriggered] = useState(false);
+  const [conceptsError, setConceptsError] = useState<string | null>(null);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollCount = useRef(0);
   const serverProcessing = featuresData?.processing ?? false;
   const isGeneratingConcepts = conceptsTriggered || serverProcessing;
 
   // Start polling as soon as triggered or server says processing
   useEffect(() => {
+    console.log("[concepts] poll effect", { isGeneratingConcepts, conceptsTriggered, serverProcessing });
     if (isGeneratingConcepts) {
       if (!pollTimer.current) {
+        pollCount.current = 0;
         pollTimer.current = setInterval(() => {
+          pollCount.current += 1;
+          console.log(`[concepts] poll #${pollCount.current}`, { conceptsTriggered, serverProcessing });
+          // If we've polled 10 times (~30s) without server confirming processing,
+          // the background task likely crashed — stop polling.
+          if (
+            conceptsTriggered &&
+            !serverProcessing &&
+            pollCount.current >= 10
+          ) {
+            console.warn("[concepts] timed out waiting for server processing flag");
+            setConceptsError(
+              "Generation may have failed — no server response. Check logs and try again.",
+            );
+            setConceptsTriggered(false);
+            return;
+          }
           refetchConcepts();
         }, 3000);
       }
     } else {
       if (pollTimer.current) {
+        console.log("[concepts] stopping poll timer");
         clearInterval(pollTimer.current);
         pollTimer.current = null;
       }
-      // Clear triggered flag once server confirms done
       setConceptsTriggered(false);
     }
     return () => {
@@ -122,36 +144,72 @@ export function Sidebar({
         pollTimer.current = null;
       }
     };
-  }, [isGeneratingConcepts, refetchConcepts]);
+  }, [
+    isGeneratingConcepts,
+    conceptsTriggered,
+    serverProcessing,
+    refetchConcepts,
+  ]);
 
   const handleGenerateConcepts = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isGeneratingConcepts) return;
+
+      setConceptsError(null);
+
+      if (!githubToken) {
+        setConceptsError("A GitHub token is required. Add it in Settings (⚙).");
+        return;
+      }
+
+      console.log("[concepts] ingestedRepoUrl:", ingestedRepoUrl);
+
+      if (!ingestedRepoUrl) {
+        setConceptsError("No repository detected. Load a graph first.");
+        return;
+      }
+
+      const firstUrl = ingestedRepoUrl.split(",")[0].trim();
+      console.log("[concepts] firing POST /gitree/process with repo_url:", firstUrl);
+
       setConceptsTriggered(true);
-      const repo = featuresData?.repo;
-      // Pass token as query param; server also accepts GITHUB_TOKEN env var
+
       const qp = new URLSearchParams();
-      if (repo) { qp.set("owner", repo.split("/")[0]); qp.set("repo", repo.split("/")[1]); }
-      if (githubToken) qp.set("token", githubToken);
-      const qs = qp.toString();
-      const url = `${API_BASE}/gitree/process${qs ? `?${qs}` : ""}`;
+      qp.set("repo_url", firstUrl);
+      qp.set("token", githubToken);
+      const url = `${API_BASE}/gitree/process?${qp.toString()}`;
+
       fetch(url, { method: "POST" })
         .then(async (r) => {
+          console.log("[concepts] POST /gitree/process response:", r.status, r.ok);
           if (!r.ok) {
             const body = await r.json().catch(() => ({}));
-            const msg = (body as any)?.error || `HTTP ${r.status}`;
-            console.error("gitree/process failed:", msg);
+            const msg =
+              (body as any)?.error || `Server error (HTTP ${r.status})`;
+            console.error("[concepts] server rejected request:", msg, body);
+            setConceptsError(msg);
             setConceptsTriggered(false);
+          } else {
+            const body = await r.json().catch(() => ({}));
+            console.log("[concepts] accepted, request_id:", (body as any)?.request_id);
+            // accepted — kick off first poll quickly
+            setTimeout(refetchConcepts, 800);
           }
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error("[concepts] network error:", err);
+          setConceptsError("Network error — could not reach the server.");
           setConceptsTriggered(false);
         });
-      // Kick off first poll quickly
-      setTimeout(refetchConcepts, 800);
     },
-    [API_BASE, featuresData?.repo, isGeneratingConcepts, refetchConcepts],
+    [
+      API_BASE,
+      ingestedRepoUrl,
+      githubToken,
+      isGeneratingConcepts,
+      refetchConcepts,
+    ],
   );
 
   const docs = useMemo(() => parseDocs(rawDocs), [rawDocs]);
@@ -373,6 +431,11 @@ export function Sidebar({
                 className="overflow-hidden"
               >
                 <div className="mt-2 space-y-1">
+                  {conceptsError && (
+                    <div className="mx-1 mb-1 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-xs">
+                      {conceptsError}
+                    </div>
+                  )}
                   {isConceptsLoading ? (
                     <div className="space-y-2 p-2">
                       {[1, 2, 3].map((i) => (
