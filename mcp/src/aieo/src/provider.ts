@@ -84,8 +84,22 @@ export function getProviderForModel(modelName?: ModelName | string): Provider {
       return "google";
     case "gpt":
       return "openai";
+    // Full model IDs
+    case "claude-sonnet-4-6":
+    case "claude-opus-4-6":
+    case "claude-haiku-4-5":
+      return "anthropic";
+    case "gemini-3-pro-preview":
+    case "gemini-2.0-flash":
+      return "google";
+    case "gpt-5":
+    case "gpt-4.1-mini":
+      return "openai";
     default:
-      if (process.env.LLM_PROVIDER && PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)) {
+      if (
+        process.env.LLM_PROVIDER &&
+        PROVIDERS.includes(process.env.LLM_PROVIDER as Provider)
+      ) {
         return process.env.LLM_PROVIDER as Provider;
       }
       return "anthropic";
@@ -192,7 +206,19 @@ export function getModel(
       modelId = opts.modelName;
     }
   } else if (opts?.modelName) {
-    modelId = getModelForProvider(provider, opts.modelName as ModelName);
+    const knownShortcuts: string[] = [
+      "sonnet",
+      "opus",
+      "haiku",
+      "gemini",
+      "gpt",
+      "kimi",
+    ];
+    if (knownShortcuts.includes(opts.modelName)) {
+      modelId = getModelForProvider(provider, opts.modelName as ModelName);
+    } else {
+      modelId = opts.modelName;
+    }
   } else {
     modelId = DEFAULT_MODELS[provider];
   }
@@ -361,12 +387,22 @@ export function resolveLLMConfig(opts?: {
   provider?: string;
   light?: boolean;
 }): LLMConfig {
-  const modelName = opts?.model;
+  let modelName = opts?.model;
+  let providerHint = opts?.provider;
+  if (providerHint && !PROVIDERS.includes(providerHint as Provider)) {
+    modelName = modelName || providerHint;
+    providerHint = undefined;
+  }
+
   const provider = modelName
     ? getProviderForModel(modelName)
-    : (opts?.provider as Provider | undefined) ||
+    : (providerHint as Provider | undefined) ||
       (process.env.LLM_PROVIDER as Provider | undefined) ||
       getProviderForModel();
+
+  console.log(
+    `[resolveLLMConfig] provider=${provider} modelName=${modelName || "(default)"} light=${!!opts?.light}`,
+  );
 
   const apiKey = opts?.apiKey || getApiKeyForProvider(provider);
 
