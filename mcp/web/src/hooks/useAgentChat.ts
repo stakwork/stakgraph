@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useMemo } from "react";
 import { useChat, type ToolCallEvent } from "@/stores/useChat";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
+import { useSettings } from "@/stores/useSettings";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -24,6 +25,7 @@ export function useAgentChat() {
 
   const { repoUrl: storedRepoUrl, username, pat } = useIngestion();
   const data = useGraphData((s) => s.data);
+  const { model, apiKey } = useSettings();
 
   // Derive repo URL from graph Repository nodes, fall back to ingestion store
   const repoUrl = useMemo(() => {
@@ -95,6 +97,8 @@ export function useAgentChat() {
         if (username) body.username = username;
         if (pat) body.pat = pat;
         if (sessionId) body.sessionId = sessionId;
+        if (model) body.model = model;
+        if (apiKey) body.apiKey = apiKey;
 
         const res = await fetch(`${API_BASE}/repo/agent`, {
           method: "POST",
