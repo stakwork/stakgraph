@@ -28,6 +28,7 @@ const TOOL_LABELS: Record<string, string> = {
   repo_overview: "Scanning repo structure",
   list_concepts: "Listing concepts",
   learn_concept: "Learning concept",
+  file_summary: "Summary",
 };
 
 function getToolIcon(toolName: string): LucideIcon {
