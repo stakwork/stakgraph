@@ -1,9 +1,6 @@
+import { useMemo } from "react";
 import { useIngestion } from "@/stores/useIngestion";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { useGraphData } from "@/stores/useGraphData";
 import {
   Layers,
   FileCode,
@@ -11,7 +8,6 @@ import {
   Globe,
   Database,
   Beaker,
-  ChevronDown,
   ExternalLink,
 } from "lucide-react";
 
@@ -68,15 +64,12 @@ interface GitHubInfo {
 }
 
 /**
- * Parse GitHub URL to extract owner/repo and strip owner/repo from file paths
+ * Parse GitHub URL to extract owner/repo
  */
 function parseGitHubUrl(url: string | undefined | null, branch: string): GitHubInfo | null {
   if (!url) return null;
 
   try {
-    // Handle both SSH and HTTPS formats
-    // SSH: git@github.com:owner/repo.git
-    // HTTPS: https://github.com/owner/repo or https://github.com/owner/repo.git
     let owner: string;
     let repo: string;
 
@@ -100,16 +93,12 @@ function parseGitHubUrl(url: string | undefined | null, branch: string): GitHubI
  */
 function stripOwnerRepoFromPath(filePath: string, repo: string): string {
   const parts = filePath.split("/");
-
-  // Find where the repo name is in the path
   const repoIndex = parts.findIndex(part => part === repo);
 
   if (repoIndex >= 0 && repoIndex < parts.length - 1) {
-    // Return everything after the repo name
     return parts.slice(repoIndex + 1).join("/");
   }
 
-  // Fallback: assume first two parts are owner/repo
   if (parts.length > 2) {
     return parts.slice(2).join("/");
   }
@@ -121,7 +110,7 @@ function stripOwnerRepoFromPath(filePath: string, repo: string): string {
  * Get icon for node type
  */
 function getNodeIcon(nodeType: ProvenanceCodeEntity["nodeType"]) {
-  const iconProps = { className: "w-3 h-3 mr-1.5" };
+  const iconProps = { className: "w-3 h-3 mr-1.5 shrink-0" };
 
   switch (nodeType) {
     case "Function":
@@ -142,7 +131,7 @@ function getNodeIcon(nodeType: ProvenanceCodeEntity["nodeType"]) {
 }
 
 /**
- * Code entity node component
+ * Code entity node - links to specific line on GitHub
  */
 function CodeEntityNode({
   entity,
@@ -156,39 +145,42 @@ function CodeEntityNode({
     ? `https://github.com/${githubInfo.owner}/${githubInfo.repo}/tree/${githubInfo.branch}/${cleanPath}#L${entity.start}`
     : null;
 
+  const inner = (
+    <>
+      {getNodeIcon(entity.nodeType)}
+      <span className="flex-1 truncate">
+        {entity.name}
+        <span className="text-muted-foreground ml-1">(line {entity.start})</span>
+      </span>
+      {githubUrl && (
+        <ExternalLink className="w-3 h-3 ml-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+      )}
+    </>
+  );
+
   return (
     <div className="pl-4 border-l border-border/30 ml-2">
-      <a
-        href={githubUrl || "#"}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`flex items-center py-1 text-xs hover:text-primary transition-colors group ${
-          !githubUrl ? "cursor-not-allowed opacity-50" : ""
-        }`}
-        onClick={(e) => {
-          if (!githubUrl) e.preventDefault();
-        }}
-        title={
-          githubUrl
-            ? `Open ${entity.name} in GitHub`
-            : "GitHub URL not available"
-        }
-      >
-        {getNodeIcon(entity.nodeType)}
-        <span className="flex-1">
-          {entity.name}
-          <span className="text-muted-foreground ml-1">(line {entity.start})</span>
-        </span>
-        {githubUrl && (
-          <ExternalLink className="w-3 h-3 ml-1 opacity-0 group-hover:opacity-100 transition-opacity" />
-        )}
-      </a>
+      {githubUrl ? (
+        <a
+          href={githubUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center py-1 text-xs cursor-pointer hover:text-primary transition-colors group"
+          title={`Open ${entity.name} in GitHub`}
+        >
+          {inner}
+        </a>
+      ) : (
+        <div className="flex items-center py-1 text-xs opacity-50">
+          {inner}
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * File node component
+ * File node - links to file on GitHub, with code entities listed below
  */
 function FileNode({
   file,
@@ -204,44 +196,37 @@ function FileNode({
 
   return (
     <div className="pl-4 border-l border-border/30 ml-2">
-      <Collapsible defaultOpen>
-        <div className="flex items-center py-1">
-          <CollapsibleTrigger className="flex items-center flex-1 text-sm hover:text-primary transition-colors group">
-            <ChevronDown className="w-3 h-3 mr-1 transition-transform [[data-state=closed]>&]:rotate-[-90deg]" />
-            <FileCode
-              className="w-3 h-3 mr-1.5"
-              style={{ color: "#6b7280" }}
-            />
-            <span className="flex-1 text-left">{file.name}</span>
-          </CollapsibleTrigger>
-          {githubUrl && (
-            <a
-              href={githubUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
-              title={`Open ${file.name} in GitHub`}
-            >
-              <ExternalLink className="w-3 h-3 text-muted-foreground hover:text-primary" />
-            </a>
-          )}
+      {githubUrl ? (
+        <a
+          href={githubUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center py-1 text-sm cursor-pointer hover:text-primary transition-colors group"
+          title={`Open ${file.name} in GitHub`}
+        >
+          <FileCode className="w-3 h-3 mr-1.5 shrink-0" style={{ color: "#6b7280" }} />
+          <span className="flex-1 text-left truncate">{file.name}</span>
+          <ExternalLink className="w-3 h-3 ml-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
+        </a>
+      ) : (
+        <div className="flex items-center py-1 text-sm">
+          <FileCode className="w-3 h-3 mr-1.5 shrink-0" style={{ color: "#6b7280" }} />
+          <span className="flex-1 text-left truncate">{file.name}</span>
         </div>
-        <CollapsibleContent>
-          {file.codeEntities.map((entity) => (
-            <CodeEntityNode
-              key={entity.refId}
-              entity={entity}
-              githubInfo={githubInfo}
-            />
-          ))}
-        </CollapsibleContent>
-      </Collapsible>
+      )}
+      {file.codeEntities.map((entity) => (
+        <CodeEntityNode
+          key={entity.refId}
+          entity={entity}
+          githubInfo={githubInfo}
+        />
+      ))}
     </div>
   );
 }
 
 /**
- * Concept node component
+ * Concept node - heading with files and code entities below
  */
 function ConceptNode({
   concept,
@@ -252,23 +237,18 @@ function ConceptNode({
 }) {
   return (
     <div className="mb-3">
-      <Collapsible defaultOpen>
-        <CollapsibleTrigger className="flex items-center w-full py-1.5 text-sm font-medium hover:text-primary transition-colors group">
-          <ChevronDown className="w-4 h-4 mr-1.5 transition-transform [[data-state=closed]>&]:rotate-[-90deg]" />
-          <Layers className="w-4 h-4 mr-2" style={{ color: "#64748b" }} />
-          <span className="flex-1 text-left">{concept.name}</span>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="mt-1">
-          {concept.description && (
-            <div className="pl-6 pb-2 text-xs text-muted-foreground/80">
-              {concept.description}
-            </div>
-          )}
-          {concept.files.map((file) => (
-            <FileNode key={file.refId} file={file} githubInfo={githubInfo} />
-          ))}
-        </CollapsibleContent>
-      </Collapsible>
+      <div className="flex items-center py-1.5 text-sm font-medium">
+        <Layers className="w-4 h-4 mr-2 shrink-0" style={{ color: "#64748b" }} />
+        <span className="flex-1 text-left">{concept.name}</span>
+      </div>
+      {concept.description && (
+        <div className="pl-6 pb-2 text-xs text-muted-foreground/80">
+          {concept.description}
+        </div>
+      )}
+      {concept.files.map((file) => (
+        <FileNode key={file.refId} file={file} githubInfo={githubInfo} />
+      ))}
     </div>
   );
 }
@@ -281,8 +261,26 @@ export function ProvenanceTree({
 }: {
   provenanceData: ProvenanceData;
 }) {
-  const repoUrl = useIngestion((s) => s.repoUrl);
-  // Use the first repo URL if comma-separated
+  const storedRepoUrl = useIngestion((s) => s.repoUrl);
+  const data = useGraphData((s) => s.data);
+
+  // Derive repo URL from graph Repository nodes, fall back to ingestion store
+  const repoUrl = useMemo(() => {
+    if (data?.nodes) {
+      const repoNodes = data.nodes.filter((n) => n.node_type === "Repository");
+      if (repoNodes.length > 0) {
+        return repoNodes
+          .map((n) => {
+            const sourceLink = n.properties.source_link as string | undefined;
+            if (sourceLink) return sourceLink;
+            return `https://github.com/${n.properties.name}`;
+          })
+          .join(",");
+      }
+    }
+    return storedRepoUrl;
+  }, [data, storedRepoUrl]);
+
   const firstUrl = repoUrl?.split(",")[0]?.trim() || null;
   const githubInfo = parseGitHubUrl(firstUrl, "main");
 
