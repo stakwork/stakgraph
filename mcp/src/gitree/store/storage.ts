@@ -76,6 +76,9 @@ export abstract class Storage {
   // Feature-File Linking
   abstract linkFeaturesToFiles(featureId?: string, repo?: string): Promise<LinkResult>;
 
+  // Link a feature to files by explicit file paths (used by bootstrap)
+  abstract linkFeatureToFilesByPaths(featureId: string, filePaths: string[]): Promise<number>;
+
   // Get Files for Feature
   abstract getFilesForFeature(featureId: string, expand?: string[]): Promise<any[]>;
 

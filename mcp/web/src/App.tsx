@@ -138,13 +138,24 @@ function App() {
       </header>
       <div className="flex flex-1 min-h-0 relative">
         <div className={`flex-1 relative ${showSidebar ? "pr-80" : ""}`}>
-          {view === "graph" && (
-            <>
+          {/* Keep GraphScene mounted but hidden so it doesn't re-fetch/re-render */}
+          {(view === "graph" || view === "doc") && (
+            <div
+              className={`absolute inset-0 ${showSidebar ? "right-80" : ""}`}
+              style={{ visibility: view === "graph" ? "visible" : "hidden" }}
+            >
               <GraphScene />
               <LayerTogglePanel />
-            </>
+            </div>
           )}
-          {view === "doc" && <DocViewer activeItem={activeItem} />}
+          {view === "doc" && (
+            <div className={`absolute inset-0 ${showSidebar ? "right-80" : ""} bg-background`}>
+              <DocViewer
+                activeItem={activeItem}
+                onClose={() => setView("graph")}
+              />
+            </div>
+          )}
           {view === "onboarding" && (
             <Onboarding onStarted={() => setView("graph")} />
           )}

@@ -38,6 +38,8 @@ import { McpServer, getMcpTools } from "./mcpServers.js";
 
 const DEFAULT_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
+The file_summary tool is the most useful way to see a high-level summary of the main code entities in a file.
+
 The bash tool is available to you.
 
 ### Viewing files

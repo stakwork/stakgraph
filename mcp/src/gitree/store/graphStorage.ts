@@ -1659,6 +1659,41 @@ export class GraphStorage extends Storage {
     }
   }
 
+  /**
+   * Link a feature to File nodes by explicit file paths.
+   * Used by bootstrap to create MODIFIES edges from LLM-identified core files.
+   * All files get importance 1.0 since they are directly identified as core files.
+   * Returns the number of File nodes linked.
+   */
+  async linkFeatureToFilesByPaths(featureId: string, filePaths: string[]): Promise<number> {
+    if (filePaths.length === 0) return 0;
+
+    const session = this.driver.session();
+    try {
+      let totalLinked = 0;
+
+      for (const filePath of filePaths) {
+        const result = await session.run(
+          `
+          MATCH (f:Feature {id: $featureId})
+          MATCH (file:File)
+          WHERE file.file ENDS WITH $filePath
+          MERGE (f)-[:MODIFIES {importance: 1.0}]->(file)
+          RETURN COUNT(file) as linkedCount
+          `,
+          { featureId, filePath }
+        );
+
+        const linkedCount = result.records[0]?.get("linkedCount");
+        totalLinked += linkedCount?.toNumber ? linkedCount.toNumber() : linkedCount || 0;
+      }
+
+      return totalLinked;
+    } finally {
+      await session.close();
+    }
+  }
+
   // Get Files for Feature
   // Supports expand options: CONTAINS, CALLS
   // Can be combined: expand=['CONTAINS', 'CALLS']
