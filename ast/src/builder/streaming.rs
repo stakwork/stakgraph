@@ -70,6 +70,8 @@ impl GraphStreamingUploader {
 pub struct StreamingUploadContext {
     pub neo: Neo4jGraph,
     pub uploader: GraphStreamingUploader,
+    pub flushed_node_count: usize,
+    pub flushed_edge_count: usize,
 }
 
 impl StreamingUploadContext {
@@ -77,6 +79,8 @@ impl StreamingUploadContext {
         Self {
             neo,
             uploader: GraphStreamingUploader::new(),
+            flushed_node_count: 0,
+            flushed_edge_count: 0,
         }
     }
 }
@@ -94,10 +98,13 @@ pub async fn flush_stage_nodes<G: Graph>(
     graph: &G,
     stage: &str,
 ) -> Result<()> {
-    let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
-    ctx.uploader
-        .flush_stage(&ctx.neo, stage, &bolt_nodes)
-        .await?;
+    let all_nodes: Vec<_> = graph.iter_all_nodes().collect();
+    let new_nodes = &all_nodes[ctx.flushed_node_count..];
+    if !new_nodes.is_empty() {
+        let bolt_nodes = nodes_to_bolt_format(new_nodes.iter().copied());
+        ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
+        ctx.flushed_node_count = all_nodes.len();
+    }
     Ok(())
 }
 
@@ -106,13 +113,18 @@ pub async fn flush_stage_nodes_and_edges<G: Graph>(
     graph: &G,
     stage: &str,
 ) -> Result<()> {
-    let bolt_nodes = nodes_to_bolt_format(graph.iter_all_nodes());
-    ctx.uploader
-        .flush_stage(&ctx.neo, stage, &bolt_nodes)
-        .await?;
-    let edges = graph.get_edge_keys();
-    ctx.uploader
-        .flush_edges_stage(&ctx.neo, stage, &edges)
-        .await?;
+    let all_nodes: Vec<_> = graph.iter_all_nodes().collect();
+    let new_nodes = &all_nodes[ctx.flushed_node_count..];
+    if !new_nodes.is_empty() {
+        let bolt_nodes = nodes_to_bolt_format(new_nodes.iter().copied());
+        ctx.uploader.flush_stage(&ctx.neo, stage, &bolt_nodes).await?;
+        ctx.flushed_node_count = all_nodes.len();
+    }
+    let all_edges = graph.get_edge_keys();
+    let new_edges: BTreeSet<_> = all_edges.iter().skip(ctx.flushed_edge_count).cloned().collect();
+    if !new_edges.is_empty() {
+        ctx.uploader.flush_edges_stage(&ctx.neo, stage, &new_edges).await?;
+        ctx.flushed_edge_count = all_edges.len();
+    }
     Ok(())
 }
