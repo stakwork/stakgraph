@@ -206,6 +206,8 @@ impl Repo {
 
         #[cfg(feature = "neo4j")]
         if let Some(ctx) = &mut streaming_ctx {
+            ctx.flushed_node_count = ctx.flushed_node_count.min(graph.iter_all_nodes().count());
+            ctx.flushed_edge_count = ctx.flushed_edge_count.min(graph.get_edge_keys().len());
             flush_stage_nodes_and_edges(ctx, &graph, "finalize").await?;
         }
 

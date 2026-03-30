@@ -32,6 +32,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
     }
 
     const allRulesFiles = await db.get_rules_files();
+    console.log(`[learn_docs] Total rules files in graph: ${allRulesFiles.length}`);
 
     const summaries: Record<string, string> = {};
     let totalInputTokens = 0, totalOutputTokens = 0;
@@ -45,21 +46,22 @@ export async function learn_docs_agent(req: Request, res: Response) {
         continue;
       }
 
-      console.log(`[learn_docs] Processing ${repoName} ${repoRoot}`);
+      console.log(`[learn_docs] Processing ${repoName}, repoRoot="${repoRoot}"`);
+
+      if (!repoRoot) {
+        console.warn(`[learn_docs] No repoRoot (file property) on Repository node for ${repoName}, skipping`);
+        continue;
+      }
 
       try {
-        const repoRulesFiles = allRulesFiles.filter((f) => {
-          if (repoRoot && f.properties.file?.startsWith(repoRoot)) {
-            return true;
-          }
-          if (!repoRoot && reposToProcess.length === 1) {
-            return true;
-          }
-          return false;
-        });
+        const repoRulesFiles = allRulesFiles.filter((f) =>
+          f.properties.file?.startsWith(repoRoot)
+        );
+
+        console.log(`[learn_docs] Matched ${repoRulesFiles.length}/${allRulesFiles.length} rules files for ${repoName}`);
 
         if (repoRulesFiles.length === 0) {
-          console.log(`[learn_docs] No rules files found for ${repoName}`);
+          console.log(`[learn_docs] No rules files found for ${repoName} under root "${repoRoot}"`);
           continue;
         }
 
