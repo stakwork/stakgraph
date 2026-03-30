@@ -782,9 +782,7 @@ WHERE
   f.file ENDS WITH 'CLAUDE.md' OR
   f.file ENDS WITH 'AGENTS.md' OR
   f.file ENDS WITH '.goosehints' OR
-  f.file ENDS WITH 'README.md' OR
-  f.file ENDS WITH 'readme.md' OR
-  f.file ENDS WITH 'Readme.md'
+  toLower(f.file) ENDS WITH 'readme.md'
 RETURN f
 ORDER BY f.file
 `;
