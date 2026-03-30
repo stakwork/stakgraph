@@ -129,6 +129,7 @@ For each feature provide:
 - **name**: A clear, non-technical name (no framework/library names)
 - **description**: 1-2 sentences explaining what this capability does for users
 - **summary**: SUCCINCT high-level documentation (30-80 lines markdown) for this feature's CURRENT state
+- **files**: List the core source files that implement this feature (relative paths from repo root, e.g. "src/auth/login.ts"). Include only the most important files — entry points, main modules, route definitions, core logic. Aim for 3-15 files per feature depending on scope.
 
 **Summary requirements** — focus on what developers need to know to work on this feature:
 ${DOC_GUIDELINES.include}
@@ -163,8 +164,14 @@ const BOOTSTRAP_SCHEMA = {
             description:
               "10-20 line high-level explanation of how the feature works",
           },
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Core source file paths relative to repo root (e.g. 'src/auth/login.ts')",
+          },
         },
-        required: ["name", "description", "summary"],
+        required: ["name", "description", "summary", "files"],
       },
     },
   },
@@ -208,6 +215,7 @@ export async function bootstrapFeatures(
       name: string;
       description: string;
       summary: string;
+      files: string[];
     }>;
   };
 
@@ -235,7 +243,14 @@ export async function bootstrapFeatures(
     await storage.saveDocumentation(featureId, f.summary);
     features.push(feature);
 
-    console.log(`   ✅ Created feature: ${f.name} (${featureId})`);
+    // Link core files identified by the LLM
+    const files = f.files || [];
+    if (files.length > 0) {
+      const linked = await storage.linkFeatureToFilesByPaths(featureId, files);
+      console.log(`   ✅ Created feature: ${f.name} (${featureId}) — linked ${linked} files`);
+    } else {
+      console.log(`   ✅ Created feature: ${f.name} (${featureId})`);
+    }
   }
 
   // 4. Set checkpoint to N days ago so processRepo replays recent changes
