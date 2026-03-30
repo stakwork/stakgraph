@@ -52,7 +52,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
           if (repoRoot && f.properties.file?.startsWith(repoRoot)) {
             return true;
           }
-          if (reposToProcess.length === 1) {
+          if (!repoRoot && reposToProcess.length === 1) {
             return true;
           }
           return false;
