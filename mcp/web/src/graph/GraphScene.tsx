@@ -4,7 +4,7 @@ import { CameraControls, AdaptiveDpr, Preload } from "@react-three/drei";
 import { MathUtils } from "three";
 import { Graph } from "./components/Graph";
 import { useGraphData } from "@/stores/useGraphData";
-import { useSimulation } from "@/stores/useSimulation";
+import { nodePositions, useSimulation } from "@/stores/useSimulation";
 import { useIngestion } from "@/stores/useIngestion";
 import type { GraphApiResponse } from "./types";
 import type CameraControlsImpl from "camera-controls";
@@ -20,16 +20,49 @@ import {
 } from "./config";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
+const ZOOM_DISTANCE = 800;
 
 const SceneContent = memo(() => {
   const controlsRef = useRef<CameraControlsImpl>(null);
   const autoRotate = useRef(true);
+  const selectedNode = useGraphData((s) => s.selectedNode);
+  const setSelectedNode = useGraphData((s) => s.setSelectedNode);
+  const prevSelectedRef = useRef<string | null>(null);
 
   useFrame((_, delta) => {
     if (controlsRef.current && autoRotate.current) {
       controlsRef.current.azimuthAngle += AUTO_ROTATE_SPEED * delta * MathUtils.DEG2RAD;
     }
   });
+
+  // Zoom to selected node
+  useEffect(() => {
+    const refId = selectedNode?.ref_id ?? null;
+    if (refId === prevSelectedRef.current) return;
+    prevSelectedRef.current = refId;
+
+    if (!refId || !controlsRef.current) return;
+    const pos = nodePositions.get(refId);
+    if (!pos) return;
+
+    autoRotate.current = false;
+    controlsRef.current.setLookAt(
+      pos.x + ZOOM_DISTANCE * 0.3, pos.y + ZOOM_DISTANCE * 0.15, pos.z + ZOOM_DISTANCE,
+      pos.x, pos.y, pos.z,
+      true,
+    );
+  }, [selectedNode]);
+
+  // Escape key to deselect
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && useGraphData.getState().selectedNode) {
+        setSelectedNode(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setSelectedNode]);
 
   return (
     <>
