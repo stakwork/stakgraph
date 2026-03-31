@@ -44,6 +44,12 @@ Assign every node to a class. No unstyled nodes.
 - Keep labels short: 2-3 words (\`read/write\`, \`publish event\`, \`HTTPS\`)
 - Use \`-->\` for sync, \`-.->\` for async/optional if relevant
 
+### Syntax Rules
+- Every \`subgraph\` MUST have a matching \`end\` keyword on its own line
+- Every edge must have exactly one source and one target: \`A -->|"label"| B\`. Never chain multiple labels or arrows in a single edge.
+- Every node referenced in an edge or \`class\` assignment must be defined (e.g. \`NODE_ID["Label"]\`) inside a subgraph first
+- Do not nest subgraphs — close each subgraph with \`end\` before opening the next
+
 ### Avoid
 - Don't use \`style\` on individual nodes — only \`classDef\` + \`class\`
 - Don't exceed ~30 nodes (split into multiple diagrams instead)
