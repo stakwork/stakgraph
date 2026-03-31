@@ -21,18 +21,26 @@ export const Graph = memo(() => {
   const selectedNode = useGraphData((s) => s.selectedNode);
   const setSelectedNode = useGraphData((s) => s.setSelectedNode);
   const setHoveredNode = useGraphData((s) => s.setHoveredNode);
+  const importanceFilter = useGraphData((s) => s.importanceFilter);
+  const tracedPath = useGraphData((s) => s.tracedPath);
   const ready = useSimulation((s) => s.ready);
   const layoutVersion = useSimulation((s) => s.layoutVersion);
   const disabledLayers = useLayerVisibility((s) => s.disabledLayers);
 
   const prevLayoutVersion = useRef(0);
   const prevDisabledLayers = useRef(disabledLayers);
+  const prevImportanceFilter = useRef(importanceFilter);
+  const prevTracedPath = useRef(tracedPath);
   if (
     layoutVersion !== prevLayoutVersion.current ||
-    disabledLayers !== prevDisabledLayers.current
+    disabledLayers !== prevDisabledLayers.current ||
+    importanceFilter !== prevImportanceFilter.current ||
+    tracedPath !== prevTracedPath.current
   ) {
     prevLayoutVersion.current = layoutVersion;
     prevDisabledLayers.current = disabledLayers;
+    prevImportanceFilter.current = importanceFilter;
+    prevTracedPath.current = tracedPath;
     positioned.current = false;
   }
 
@@ -108,8 +116,13 @@ export const Graph = memo(() => {
     setHoveredNode(null);
   }, [setHoveredNode]);
 
+  const handleMiss = useCallback(() => {
+    const { selectedNode: sel } = useGraphData.getState();
+    if (sel) setSelectedNode(null);
+  }, [setSelectedNode]);
+
   return (
-    <group ref={groupRef}>
+    <group ref={groupRef} onPointerMissed={handleMiss}>
       <group
         name="node-points-group"
         onClick={handleClick}

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { ChevronDown, BookOpen, Lightbulb, Zap, Loader2 } from "lucide-react";
+import { ChevronDown, BookOpen, Lightbulb, Zap, Loader2, Activity } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { useApi } from "@/hooks/useApi";
 import { useGraphData } from "@/stores/useGraphData";
 import { useIngestion } from "@/stores/useIngestion";
 import { useSettings } from "@/stores/useSettings";
+import { ImportanceLens } from "@/components/ImportanceLens";
 import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
 
 // GET /docs returns: [ { "repo-name": { documentation: "..." } }, ... ]
@@ -227,6 +228,7 @@ export function Sidebar({
 
   const [isDocsExpanded, setIsDocsExpanded] = useState(true);
   const [isConceptsExpanded, setIsConceptsExpanded] = useState(true);
+  const [isImportanceExpanded, setIsImportanceExpanded] = useState(true);
   const [expandedRepoGroups, setExpandedRepoGroups] = useState<
     Record<string, boolean>
   >({});
@@ -536,6 +538,52 @@ export function Sidebar({
                       );
                     })
                   )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Importance Section */}
+        <div>
+          <div className="flex items-center">
+            <Button
+              variant="ghost"
+              className="flex-1 justify-between p-2 h-auto"
+              onClick={() => setIsImportanceExpanded(!isImportanceExpanded)}
+            >
+              <div className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="font-medium cursor-default">Importance</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-56">
+                    Nodes ranked by structural importance — entry points, hubs, and
+                    utilities derived from PageRank and graph degree analysis.
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  isImportanceExpanded && "rotate-180",
+                )}
+              />
+            </Button>
+          </div>
+
+          <AnimatePresence>
+            {isImportanceExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div className="mt-2">
+                  <ImportanceLens />
                 </div>
               </motion.div>
             )}

@@ -12,6 +12,8 @@ import { LAYER_ORDER } from "@/graph/config";
 // Re-export for consumers that import from here
 export { LAYER_ORDER };
 
+const API_BASE = import.meta.env.VITE_API_BASE || "";
+
 // Color palette by node type
 const COLORS: Record<string, string> = {
   Function: "#5C6BC0",
@@ -52,12 +54,22 @@ interface GraphDataState {
   highlightedFeatureId: string | null;
   highlightedNodeIds: Set<string>;
 
+  // Importance filter
+  importanceFilter: { tag: string | null; nodeType: string | null };
+
+  // Critical path trace (downstream)
+  tracedPath: { rootId: string; nodeIds: Set<string>; edgeKeys: Set<string> } | null;
+
   // Actions
   setData: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   addNodes: (nodes: GraphNode[], edges: GraphEdge[]) => void;
   setSelectedNode: (node: NodeExtended | null) => void;
   setHoveredNode: (node: NodeExtended | null) => void;
   setHighlightedFeature: (featureRefId: string | null) => void;
+  setImportanceFilter: (tag: string | null, nodeType?: string | null) => void;
+  fetchNodeBody: (refId: string) => void;
+  traceCriticalPath: (refId: string) => void;
+  clearTrace: () => void;
   reset: () => void;
 }
 
@@ -71,6 +83,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
   hoveredNode: null,
   highlightedFeatureId: null,
   highlightedNodeIds: new Set(),
+  importanceFilter: { tag: null, nodeType: null },
+  tracedPath: null,
 
   setData: (rawNodes: GraphNode[], rawEdges: GraphEdge[]) => {
     const nodesMap = new Map<string, NodeExtended>();
@@ -237,8 +251,37 @@ export const useGraphData = create<GraphDataState>((set) => ({
     });
   },
 
-  setSelectedNode: (node) => set({ selectedNode: node }),
+  setSelectedNode: (node) => {
+    set({ selectedNode: node });
+    if (node && !node.properties.body) {
+      useGraphData.getState().fetchNodeBody(node.ref_id);
+    }
+  },
   setHoveredNode: (node) => set({ hoveredNode: node }),
+
+  fetchNodeBody: async (refId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`);
+      if (!res.ok) return;
+      const result = await res.json();
+      const body = result?.node?.properties?.body;
+      if (!body) return;
+      const { nodesNormalized, selectedNode, data } = useGraphData.getState();
+      const existing = nodesNormalized.get(refId);
+      if (!existing) return;
+      existing.properties.body = body;
+      nodesNormalized.set(refId, existing);
+      if (data) {
+        const idx = data.nodes.findIndex((n) => n.ref_id === refId);
+        if (idx >= 0) data.nodes[idx].properties.body = body;
+      }
+      if (selectedNode?.ref_id === refId) {
+        set({ selectedNode: { ...existing } });
+      }
+    } catch (e) {
+      console.error("[fetchNodeBody]", e);
+    }
+  },
 
   setHighlightedFeature: (featureRefId: string | null) => {
     if (!featureRefId) {
@@ -279,6 +322,37 @@ export const useGraphData = create<GraphDataState>((set) => ({
     set({ highlightedFeatureId: featureRefId, highlightedNodeIds: connected });
   },
 
+  setImportanceFilter: (tag: string | null, nodeType: string | null = null) => {
+    set({ importanceFilter: { tag, nodeType } });
+  },
+
+  traceCriticalPath: (refId: string) => {
+    const { nodesNormalized } = useGraphData.getState();
+    const nodeIds = new Set<string>();
+    const edgeKeys = new Set<string>();
+    const maxDepth = 8;
+    const queue: { id: string; depth: number }[] = [{ id: refId, depth: 0 }];
+
+    while (queue.length > 0) {
+      const { id, depth } = queue.shift()!;
+      if (nodeIds.has(id)) continue;
+      nodeIds.add(id);
+      if (depth >= maxDepth) continue;
+      const node = nodesNormalized.get(id);
+      if (!node) continue;
+      for (const targetId of node.targets || []) {
+        if (!nodeIds.has(targetId)) {
+          edgeKeys.add(`${id}->${targetId}`);
+          queue.push({ id: targetId, depth: depth + 1 });
+        }
+      }
+    }
+
+    set({ tracedPath: { rootId: refId, nodeIds, edgeKeys } });
+  },
+
+  clearTrace: () => set({ tracedPath: null }),
+
   reset: () =>
     set({
       data: null,
@@ -289,5 +363,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       hoveredNode: null,
       highlightedFeatureId: null,
       highlightedNodeIds: new Set(),
+      importanceFilter: { tag: null, nodeType: null },
+      tracedPath: null,
     }),
 }));
