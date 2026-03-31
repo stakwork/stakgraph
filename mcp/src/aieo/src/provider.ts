@@ -279,8 +279,8 @@ export function getModel(
 // For models not listed here, falls back to provider default.
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   // Anthropic
-  "claude-sonnet-4-6": 200_000,
-  "claude-opus-4-6": 200_000,
+  "claude-sonnet-4-6": 1_000_000,
+  "claude-opus-4-6": 1_000_000,
   "claude-haiku-4-5": 200_000,
   // Google
   "gemini-3-pro-preview": 1_000_000,
@@ -293,7 +293,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
 };
 
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
-  anthropic: 200_000,
+  anthropic: 1_000_000,
   google: 1_000_000,
   openai: 128_000,
   openrouter: 128_000,
