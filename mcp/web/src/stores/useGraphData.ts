@@ -350,7 +350,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
       );
       if (!res.ok) return;
       const result = await res.json();
-      const nodeData = result?.nodes?.find((n: any) => n.ref_id === refId) || result?.node;
+      const nodeData =
+        result?.nodes?.find((n: any) => n.ref_id === refId) || result?.node;
       const body = nodeData?.properties?.body;
       if (!body) return;
       const { nodesNormalized, selectedNode, data } = useGraphData.getState();
