@@ -110,7 +110,6 @@ export function SyncButton() {
       });
       return;
     }
-
     const urls = repoUrl.split(",").map((s) => s.trim()).filter(Boolean);
     if (urls.length > 1) {
       toast.error("Sync is only supported for a single repository.", {
