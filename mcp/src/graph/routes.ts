@@ -655,6 +655,36 @@ export async function search(req: Request, res: Response) {
     res.status(500).send("Internal Server Error");
   }
 }
+
+export async function embeddings_status(_req: Request, res: Response) {
+  try {
+    const [embeddings_count, eligible_count] = await Promise.all([
+      db.count_nodes_with_embeddings(),
+      db.count_eligible_nodes_for_embeddings(),
+    ]);
+
+    const coverage_ratio =
+      eligible_count > 0 ? embeddings_count / eligible_count : 0;
+
+    const status =
+      embeddings_count === 0
+        ? "none"
+        : embeddings_count < eligible_count
+          ? "partial"
+          : "ready";
+
+    res.json({
+      status,
+      embeddings_count,
+      eligible_count,
+      coverage_ratio,
+    });
+  } catch (error) {
+    console.error("Error fetching embeddings status:", error);
+    res.status(500).json({ error: "Failed to fetch embeddings status" });
+  }
+}
+
 export async function get_rules_files(req: Request, res: Response) {
   try {
     const snippets = await G.get_rules_files();

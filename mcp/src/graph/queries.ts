@@ -909,10 +909,18 @@ export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
 
 export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
 
+const EMBEDDING_ELIGIBLE_LABELS = "['Function', 'Class', 'Endpoint', 'Datamodel', 'Request', 'Page', 'Trait', 'Var']";
+
+export const COUNT_ELIGIBLE_NODES_FOR_EMBEDDINGS_QUERY = `
+MATCH (n:${Data_Bank})
+WHERE ANY(label IN labels(n) WHERE label IN ${EMBEDDING_ELIGIBLE_LABELS})
+RETURN count(n) AS c
+`;
+
 export const COUNT_NODES_WITH_EMBEDDINGS_QUERY = `
 MATCH (n:${Data_Bank})
 WHERE n.embeddings IS NOT NULL
-  AND ANY(label IN labels(n) WHERE label IN ['Function', 'Class', 'Endpoint', 'Datamodel', 'Request', 'Page', 'Trait', 'Var'])
+  AND ANY(label IN labels(n) WHERE label IN ${EMBEDDING_ELIGIBLE_LABELS})
 RETURN count(n) AS c
 `;
 
@@ -1046,3 +1054,4 @@ RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
 ORDER BY n.pagerank DESC
 LIMIT toInteger($limit)
 `;
+
