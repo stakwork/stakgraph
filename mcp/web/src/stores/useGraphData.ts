@@ -307,8 +307,9 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   setSelectedNode: (node) => {
     set({ selectedNode: node });
-    if (node) {
-      useGraphData.getState().hydrateNodeNeighborhood(node.ref_id);
+
+    if (node && !node.properties?.body) {
+      useGraphData.getState().fetchNodeBody(node.ref_id);
     }
   },
   setHoveredNode: (node) => set({ hoveredNode: node }),
@@ -349,8 +350,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
       );
       if (!res.ok) return;
       const result = await res.json();
-      const nodeData =
-        result?.nodes?.find((n: any) => n.ref_id === refId) || result?.node;
+      const nodeData = result?.nodes?.find((n: any) => n.ref_id === refId) || result?.node;
       const body = nodeData?.properties?.body;
       if (!body) return;
       const { nodesNormalized, selectedNode, data } = useGraphData.getState();
