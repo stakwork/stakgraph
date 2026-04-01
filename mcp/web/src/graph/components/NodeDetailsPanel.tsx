@@ -67,12 +67,13 @@ function CodeViewer({ body, file, startLine }: { body: string; file: string; sta
   const language = getLanguageFromFile(file);
   return (
     <div
+      onWheel={(e) => e.stopPropagation()}
       style={{
         borderRadius: 6,
-        overflow: "hidden",
         border: "1px solid rgba(255,255,255,0.08)",
         maxHeight: 200,
         overflowY: "auto",
+        overflowX: "auto",
       }}
     >
       <SyntaxHighlighter
@@ -149,6 +150,10 @@ export const NodeDetailsPanel = memo(() => {
       distanceFactor={400}
     >
       <div
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
         style={{
           background: "rgba(16, 16, 24, 0.96)",
           border: "1px solid rgba(255,255,255,0.1)",

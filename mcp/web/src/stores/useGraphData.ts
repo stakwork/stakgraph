@@ -253,7 +253,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   setSelectedNode: (node) => {
     set({ selectedNode: node });
-    if (node && !node.properties.body) {
+    if (node && !node.properties?.body) {
       useGraphData.getState().fetchNodeBody(node.ref_id);
     }
   },
@@ -264,7 +264,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
       const res = await fetch(`${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`);
       if (!res.ok) return;
       const result = await res.json();
-      const body = result?.node?.properties?.body;
+      const nodeData = result?.nodes?.find((n: any) => n.ref_id === refId) || result?.node;
+      const body = nodeData?.properties?.body;
       if (!body) return;
       const { nodesNormalized, selectedNode, data } = useGraphData.getState();
       const existing = nodesNormalized.get(refId);

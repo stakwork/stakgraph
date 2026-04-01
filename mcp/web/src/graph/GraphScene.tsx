@@ -20,7 +20,7 @@ import {
 } from "./config";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
-const ZOOM_DISTANCE = 800;
+const ZOOM_DISTANCE = 400;
 
 const SceneContent = memo(() => {
   const controlsRef = useRef<CameraControlsImpl>(null);
