@@ -39,8 +39,8 @@ export const GetMapSchema = z.object({
   depth: z
     .number()
     .optional()
-    .default(10)
-    .describe("Depth of the subtree to retrieve (default: 1)."),
+    .default(2)
+    .describe("Depth of the subtree to retrieve (default: 2)."),
   direction: z
     .enum(["up", "down", "both"] as const)
     .optional()
