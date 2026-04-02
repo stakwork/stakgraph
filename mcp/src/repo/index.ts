@@ -14,13 +14,85 @@ import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
 import { createBus, filterStepContent, signEventsToken } from "./events.js";
+import { db } from "../graph/neo4j.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
 export { services_agent, mocks_agent, describe_nodes_agent, embed_nodes_agent };
 
-function prependRepoInfo(prompt: any, repoList: string[]): any {
-  if (repoList.length <= 1) return prompt;
-  const repoInfo = `You are exploring the following repositories: ${repoList.join(", ")}. Files are located under /tmp/{owner}/{repo}.\n\n`;
+function normalizeRepoRef(input?: string): string {
+  if (!input) return "";
+  const trimmed = input.trim().replace(/\.git$/, "");
+  if (!trimmed) return "";
+  if (/^https?:\/\//.test(trimmed)) {
+    const parts = trimmed.split("/").filter(Boolean);
+    const repo = parts.pop() || "";
+    const owner = parts.pop() || "";
+    return owner && repo ? `${owner}/${repo}` : repo;
+  }
+  return trimmed;
+}
+
+async function getGraphRepoList(): Promise<string[]> {
+  try {
+    const repos = await db.get_repositories();
+    return [...new Set(
+      repos
+        .map((repo) => {
+          const sourceLink = String(repo.properties?.source_link || "");
+          const name = String(repo.properties?.name || "");
+          return normalizeRepoRef(sourceLink || name);
+        })
+        .filter((repo) => repo.length > 0)
+    )];
+  } catch (error) {
+    console.error("[repo_agent] Failed to load graph repositories:", error);
+    return [];
+  }
+}
+
+function resolveRepoDir(repoList: string[]): string {
+  if (repoList.length === 1) {
+    const [owner, repo] = repoList[0].split("/");
+    if (owner && repo) {
+      const repoDir = path.join("/tmp", owner, repo);
+      if (existsSync(repoDir)) return repoDir;
+    }
+  }
+  return "/tmp";
+}
+
+function prependRepoInfo(prompt: any, clonedRepos: string[], graphRepos: string[]): any {
+  const uniqueGraphRepos = [...new Set(graphRepos.filter(Boolean))];
+  const uniqueClonedRepos = [...new Set(clonedRepos.filter(Boolean))];
+  const clonedOnlyRepos = uniqueClonedRepos.filter((repo) => !uniqueGraphRepos.includes(repo));
+
+  const lines: string[] = ["Repository availability for this request:"];
+
+  if (uniqueGraphRepos.length > 0) {
+    lines.push(
+      "Graph-backed repos (prefer repo_overview, stakgraph_search, stakgraph_map, and stakgraph_code for these):",
+      ...uniqueGraphRepos.map((repo) => `- ${repo}`)
+    );
+  }
+
+  if (clonedOnlyRepos.length > 0) {
+    lines.push(
+      "Additional repos cloned locally under /tmp/{owner}/{repo} but not ingested in the graph (use bash/fulltext_search for these):",
+      ...clonedOnlyRepos.map((repo) => `- ${repo}`)
+    );
+  }
+
+  if (uniqueClonedRepos.length === 0 && uniqueGraphRepos.length > 0) {
+    lines.push("No repo_url was supplied. Use the ingested repos above; they are also available locally under /tmp/{owner}/{repo}.");
+  }
+
+  if (uniqueGraphRepos.length === 0 && uniqueClonedRepos.length > 0) {
+    lines.push("No ingested Repository nodes were found for the requested repos, so rely on bash/fulltext_search over the cloned repos.");
+  }
+
+  lines.push("If a repo is graph-backed, use graph tools first. Use bash when the repo is only available locally or for exact file/config inspection.");
+
+  const repoInfo = `${lines.join("\n")}\n\n`;
   if (typeof prompt === "string") {
     return repoInfo + prompt;
   }
@@ -38,7 +110,7 @@ function prependRepoInfo(prompt: any, repoList: string[]): any {
 // modelName can be a shortcut like "kimi" or a full model name like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.5"
 /** Parse shared request body params for repo_agent. */
 function parseAgentBody(req: Request) {
-  const repoUrl = req.body.repo_url as string;
+  const repoUrl = req.body.repo_url as string | undefined;
   const username = req.body.username as string | undefined;
   const pat = req.body.pat as string | undefined;
   const commit = req.body.commit as string | undefined;
@@ -58,16 +130,10 @@ function parseAgentBody(req: Request) {
   const ggnn = req.body.ggnn as GgnnConfig | undefined;
   const stream = req.body.stream as boolean | undefined;
 
-  const repoList = repoUrl
+  const repoList = (repoUrl || "")
     .split(",")
-    .map((url: string) => url.trim())
-    .filter((url: string) => url.length > 0)
-    .map((url: string) => {
-      const parts = url.replace(/\.git$/, "").split("/");
-      const repoName = parts.pop() || "";
-      const owner = parts.pop() || "";
-      return `${owner}/${repoName}`;
-    });
+    .map((url: string) => normalizeRepoRef(url))
+    .filter((url: string) => url.length > 0);
 
   return {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
@@ -99,15 +165,22 @@ export async function repo_agent(req: Request, res: Response) {
     return;
   }
 
+  const graphRepos = await getGraphRepoList();
+  const effectiveRepos = body.repoList.length > 0 ? body.repoList : graphRepos;
+  const promptWithRepoInfo = prependRepoInfo(body.prompt, body.repoList, graphRepos);
+  const repoDirPromise = body.repoUrl
+    ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit)
+    : Promise.resolve(resolveRepoDir(effectiveRepos));
+
   // ── Streaming path: direct SSE response ──────────────────────────────
   if (body.stream) {
     const opId = startTracking("repo_agent_stream");
     try {
-      const repoDir = await cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit);
+      const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
       const streamResult = await stream_context(
-        prependRepoInfo(body.prompt, body.repoList),
+        promptWithRepoInfo,
         repoDir,
         {
           pat: body.pat,
@@ -119,7 +192,7 @@ export async function repo_agent(req: Request, res: Response) {
           sessionId: body.sessionId,
           sessionConfig: body.sessionConfig,
           mcpServers: body.mcpServers,
-          repos: body.repoList.length > 1 ? body.repoList : undefined,
+          repos: effectiveRepos.length > 1 ? effectiveRepos : undefined,
           systemOverride: body.systemOverride,
           skills: body.skills,
           subAgents: body.subAgents,
@@ -190,10 +263,10 @@ export async function repo_agent(req: Request, res: Response) {
   }
 
   try {
-    cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit)
+    repoDirPromise
       .then((repoDir) => {
         console.log(`===> POST /repo/agent ${repoDir}`);
-        return get_context(prependRepoInfo(body.prompt, body.repoList), repoDir, {
+        return get_context(promptWithRepoInfo, repoDir, {
           pat: body.pat,
           toolsConfig: body.toolsConfig,
           schema: body.schema,
@@ -203,7 +276,7 @@ export async function repo_agent(req: Request, res: Response) {
           sessionId: body.sessionId,
           sessionConfig: body.sessionConfig,
           mcpServers: body.mcpServers,
-          repos: body.repoList.length > 1 ? body.repoList : undefined,
+          repos: effectiveRepos.length > 1 ? effectiveRepos : undefined,
           systemOverride: body.systemOverride,
           skills: body.skills,
           subAgents: body.subAgents,
