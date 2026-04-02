@@ -627,6 +627,7 @@ export async function search(req: Request, res: Response) {
     }
     const method = req.query.method as G.SearchMethod;
     const output = req.query.output as G.OutputFormat;
+    const sort_by = req.query.sort_by as G.SearchSortBy;
     let tests = isTrue(req.query.tests as string);
     const maxTokens = parseInt(req.query.max_tokens as string);
     const language = req.query.language as string;
@@ -643,7 +644,8 @@ export async function search(req: Request, res: Response) {
       method,
       output || "snippet",
       tests,
-      language
+      language,
+      sort_by === "pagerank" ? "pagerank" : "relevance"
     );
     if (output === "snippet") {
       res.send(result);

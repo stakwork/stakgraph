@@ -1,5 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
-import { ChevronDown, CircleAlert, Layers, Loader2, Search } from "lucide-react";
+import { ChevronDown, Layers, Loader2, Search } from "lucide-react";
 import { useGraphData, getColorForType } from "@/stores/useGraphData";
 import { useLayerVisibility } from "@/stores/useLayerVisibility";
 import {
@@ -28,11 +28,31 @@ type SearchResult = {
   };
 };
 
+type SearchSortBy = "relevance" | "pagerank";
+
 type EmbeddingsStatusResponse = {
   status: "none" | "partial" | "ready";
   embeddings_count: number;
   eligible_count: number;
   coverage_ratio: number;
+};
+
+const SEARCH_QUALITY_LABELS: Record<
+  EmbeddingsStatusResponse["status"],
+  string
+> = {
+  none: "None",
+  partial: "Partial",
+  ready: "Ready",
+};
+
+const SEARCH_QUALITY_STYLES: Record<
+  EmbeddingsStatusResponse["status"],
+  string
+> = {
+  none: "text-rose-400 bg-rose-500/15 border-rose-500/30",
+  partial: "text-amber-300 bg-amber-500/15 border-amber-500/30",
+  ready: "text-emerald-300 bg-emerald-500/15 border-emerald-500/30",
 };
 
 function formatNodeType(nodeType: string): string {
@@ -82,6 +102,7 @@ export function LayerTogglePanel() {
   const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const [selectedNodeTypeFilter, setSelectedNodeTypeFilter] =
     useState<string>("all");
+  const [searchSortBy, setSearchSortBy] = useState<SearchSortBy>("relevance");
 
   const nodeTypes = useGraphData((s) => s.nodeTypes);
   const nodesNormalized = useGraphData((s) => s.nodesNormalized);
@@ -90,14 +111,14 @@ export function LayerTogglePanel() {
   const { data: embeddingsStatus } =
     useApi<EmbeddingsStatusResponse>("/embeddings_status");
 
-  const showEmbeddingsHint =
-    embeddingsStatus?.status === "none" ||
-    embeddingsStatus?.status === "partial";
+  const qualityStatus = embeddingsStatus?.status || "none";
 
   const embeddingsHintText =
     embeddingsStatus?.status === "partial"
       ? `Embeddings are only partially available (${embeddingsStatus.embeddings_count}/${embeddingsStatus.eligible_count}). Click Enrich to improve semantic search results.`
-      : "Embeddings are not available yet. Click Enrich to generate embeddings and improve semantic search results.";
+      : embeddingsStatus?.status === "ready"
+        ? `Embeddings are ready (${embeddingsStatus.embeddings_count}/${embeddingsStatus.eligible_count}).`
+        : "Embeddings are not available yet. Click Enrich to generate embeddings and improve semantic search results.";
 
   useEffect(() => {
     const q = query.trim();
@@ -118,6 +139,7 @@ export function LayerTogglePanel() {
           limit: String(SEARCH_LIMIT),
           method: "hybrid",
           output: "json",
+          sort_by: searchSortBy,
         });
 
         const res = await fetch(`${API_BASE}/search?${params.toString()}`, {
@@ -147,7 +169,7 @@ export function LayerTogglePanel() {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, searchSortBy]);
 
   const resultNodeTypes = Array.from(new Set(results.map((r) => r.node_type)));
 
@@ -254,18 +276,21 @@ export function LayerTogglePanel() {
             <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               <Search className="size-3.5" />
               Search
-              {showEmbeddingsHint && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <span className="inline-flex items-center text-amber-500">
-                      <CircleAlert className="size-3.5" />
-                    </span>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" className="max-w-64">
-                    {embeddingsHintText}
-                  </TooltipContent>
-                </Tooltip>
-              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tracking-wide",
+                      SEARCH_QUALITY_STYLES[qualityStatus],
+                    )}
+                  >
+                    {SEARCH_QUALITY_LABELS[qualityStatus]}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-64">
+                  {embeddingsHintText}
+                </TooltipContent>
+              </Tooltip>
             </span>
             <ChevronDown
               className={cn(
@@ -283,6 +308,31 @@ export function LayerTogglePanel() {
                 placeholder="Search code graph..."
                 className="w-full h-8 rounded-md border border-border bg-background px-2.5 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring/40"
               />
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setSearchSortBy("relevance")}
+                  className={cn(
+                    "text-[11px] rounded px-2 py-1 border transition-colors",
+                    searchSortBy === "relevance"
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-muted/40 text-muted-foreground border-border hover:bg-muted/60",
+                  )}
+                >
+                  Relevance
+                </button>
+                <button
+                  onClick={() => setSearchSortBy("pagerank")}
+                  className={cn(
+                    "text-[11px] rounded px-2 py-1 border transition-colors",
+                    searchSortBy === "pagerank"
+                      ? "bg-foreground text-background border-foreground"
+                      : "bg-muted/40 text-muted-foreground border-border hover:bg-muted/60",
+                  )}
+                >
+                  PageRank
+                </button>
+              </div>
 
               {resultNodeTypes.length > 0 && (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">

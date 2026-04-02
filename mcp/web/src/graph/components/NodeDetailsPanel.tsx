@@ -44,6 +44,41 @@ const TRACE_MODE_COLORS: Record<TraceMode, string> = {
   both: "#BCAEFF",
 };
 
+type RelationDirection = "up" | "down" | "lateral";
+
+const RELATION_ICON: Record<RelationDirection, string> = {
+  up: "↑",
+  down: "↓",
+  lateral: "↔",
+};
+
+const RELATION_LABEL: Record<RelationDirection, string> = {
+  up: "Incoming",
+  down: "Outgoing",
+  lateral: "Bidirectional",
+};
+
+const RELATION_COLORS: Record<
+  RelationDirection,
+  { text: string; bg: string; border: string }
+> = {
+  up: {
+    text: "#7EDDD4",
+    bg: "rgba(126,221,212,0.16)",
+    border: "rgba(126,221,212,0.35)",
+  },
+  down: {
+    text: "#FFD88A",
+    bg: "rgba(255,216,138,0.16)",
+    border: "rgba(255,216,138,0.35)",
+  },
+  lateral: {
+    text: "#BFAEFF",
+    bg: "rgba(191,174,255,0.16)",
+    border: "rgba(191,174,255,0.35)",
+  },
+};
+
 function getLanguageFromFile(file: string): string {
   const ext = file.split(".").pop()?.toLowerCase() || "";
   const map: Record<string, string> = {
@@ -151,13 +186,29 @@ export const NodeDetailsPanel = memo(() => {
   const pos = nodePositions.get(selectedNode.ref_id);
   if (!pos) return null;
 
-  const relatedIds = [
-    ...(selectedNode.sources || []),
-    ...(selectedNode.targets || []),
-  ];
-  const relatedNodes = relatedIds
-    .map((id) => nodesNormalized.get(id))
-    .filter(Boolean)
+  const sourceIds = new Set(selectedNode.sources || []);
+  const targetIds = new Set(selectedNode.targets || []);
+  const relatedEntries = Array.from(new Set([...sourceIds, ...targetIds]))
+    .map((id) => {
+      const node = nodesNormalized.get(id);
+      if (!node) return null;
+
+      const inSource = sourceIds.has(id);
+      const inTarget = targetIds.has(id);
+      const direction: RelationDirection =
+        inSource && inTarget ? "lateral" : inSource ? "up" : "down";
+
+      return { id, node, direction };
+    })
+    .filter(
+      (
+        entry,
+      ): entry is {
+        id: string;
+        node: NodeExtended;
+        direction: RelationDirection;
+      } => !!entry,
+    )
     .slice(0, 20);
 
   const hasBody = !!selectedNode.properties.body;
@@ -404,7 +455,7 @@ export const NodeDetailsPanel = memo(() => {
           </div>
         )}
 
-        {relatedNodes.length > 0 && (
+        {relatedEntries.length > 0 && (
           <>
             <div
               style={{
@@ -415,61 +466,84 @@ export const NodeDetailsPanel = memo(() => {
                 marginBottom: 6,
               }}
             >
-              Connected ({relatedIds.length})
+              Connected ({relatedEntries.length})
             </div>
-            {relatedNodes.map((node) => (
-              <div
-                key={node!.ref_id}
-                onClick={() => setSelectedNode(node!)}
-                style={{
-                  padding: "5px 8px",
-                  marginBottom: 2,
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background =
-                    "rgba(255,255,255,0.05)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background =
-                    "transparent";
-                }}
-              >
-                <span
+            {relatedEntries.map(({ node, direction }) => {
+              const relColor = RELATION_COLORS[direction];
+              return (
+                <div
+                  key={node.ref_id}
+                  onClick={() => setSelectedNode(node)}
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: getColorForType(node!.node_type),
-                    flexShrink: 0,
+                    padding: "5px 8px",
+                    marginBottom: 2,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
                   }}
-                />
-                <span
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    flex: 1,
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.background =
+                      "rgba(255,255,255,0.05)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.background =
+                      "transparent";
                   }}
                 >
-                  {node!.properties.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: "#666",
-                    marginLeft: "auto",
-                    flexShrink: 0,
-                  }}
-                >
-                  {node!.node_type}
-                </span>
-              </div>
-            ))}
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: getColorForType(node.node_type),
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span
+                    title={RELATION_LABEL[direction]}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: relColor.text,
+                      background: relColor.bg,
+                      border: `1px solid ${relColor.border}`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {RELATION_ICON[direction]}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {node.properties.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "#666",
+                      marginLeft: "auto",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {node.node_type}
+                  </span>
+                </div>
+              );
+            })}
           </>
         )}
       </div>

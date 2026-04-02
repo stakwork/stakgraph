@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type {
   NodeExtended,
+  NodeRelation,
   Link,
   GraphData,
   GraphNode,
@@ -20,8 +21,10 @@ const COLORS: Record<string, string> = {
   Endpoint: "#0288D1",
   Class: "#9747FF",
   Trait: "#7E57C2",
+  Instance: "#AB47BC",
   Datamodel: "#00887A",
   File: "#689F39",
+  Package: "#F4A261",
   Page: "#EC407A",
   Import: "#78909C",
   Library: "#8C6E63",
@@ -46,6 +49,22 @@ export interface TracedPath {
 
 export function getColorForType(nodeType: string): string {
   return COLORS[nodeType] || DEFAULT_COLOR;
+}
+
+function pushUniqueRelation(
+  relations: NodeRelation[],
+  nextRelation: NodeRelation,
+) {
+  const exists = relations.some(
+    (relation) =>
+      relation.id === nextRelation.id &&
+      relation.edgeType === nextRelation.edgeType,
+  );
+  if (!exists) relations.push(nextRelation);
+}
+
+function pushUniqueId(ids: string[], id: string) {
+  if (!ids.includes(id)) ids.push(id);
 }
 
 interface GraphDataState {
@@ -76,6 +95,7 @@ interface GraphDataState {
   setHoveredNode: (node: NodeExtended | null) => void;
   setHighlightedFeature: (featureRefId: string | null) => void;
   setImportanceFilter: (tag: string | null, nodeType?: string | null) => void;
+  hydrateNodeNeighborhood: (refId: string) => void;
   fetchNodeBody: (refId: string) => void;
   tracePath: (refId: string, mode?: TraceMode) => void;
   traceCriticalPath: (refId: string) => void;
@@ -110,6 +130,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
         z: 0,
         sources: [],
         targets: [],
+        sourceRelations: [],
+        targetRelations: [],
         index: i,
       };
       nodesMap.set(n.ref_id, extended);
@@ -154,9 +176,19 @@ export const useGraphData = create<GraphDataState>((set) => ({
         const sourceNode = nodesMap.get(sourceRefId)!;
         const targetNode = nodesMap.get(targetRefId)!;
         sourceNode.targets = sourceNode.targets || [];
-        sourceNode.targets.push(targetRefId);
+        pushUniqueId(sourceNode.targets, targetRefId);
+        sourceNode.targetRelations = sourceNode.targetRelations || [];
+        pushUniqueRelation(sourceNode.targetRelations, {
+          id: targetRefId,
+          edgeType: e.edge_type,
+        });
         targetNode.sources = targetNode.sources || [];
-        targetNode.sources.push(sourceRefId);
+        pushUniqueId(targetNode.sources, sourceRefId);
+        targetNode.sourceRelations = targetNode.sourceRelations || [];
+        pushUniqueRelation(targetNode.sourceRelations, {
+          id: sourceRefId,
+          edgeType: e.edge_type,
+        });
       }
     }
 
@@ -200,6 +232,8 @@ export const useGraphData = create<GraphDataState>((set) => ({
         z: 0,
         sources: [],
         targets: [],
+        sourceRelations: [],
+        targetRelations: [],
         index: nextIndex + newNodes.length,
       };
       nodesMap.set(n.ref_id, extended);
@@ -235,9 +269,19 @@ export const useGraphData = create<GraphDataState>((set) => ({
       const sourceNode = nodesMap.get(sourceRefId)!;
       const targetNode = nodesMap.get(targetRefId)!;
       sourceNode.targets = sourceNode.targets || [];
-      sourceNode.targets.push(targetRefId);
+      pushUniqueId(sourceNode.targets, targetRefId);
+      sourceNode.targetRelations = sourceNode.targetRelations || [];
+      pushUniqueRelation(sourceNode.targetRelations, {
+        id: targetRefId,
+        edgeType: e.edge_type,
+      });
       targetNode.sources = targetNode.sources || [];
-      targetNode.sources.push(sourceRefId);
+      pushUniqueId(targetNode.sources, sourceRefId);
+      targetNode.sourceRelations = targetNode.sourceRelations || [];
+      pushUniqueRelation(targetNode.sourceRelations, {
+        id: sourceRefId,
+        edgeType: e.edge_type,
+      });
     }
 
     if (
@@ -263,11 +307,40 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   setSelectedNode: (node) => {
     set({ selectedNode: node });
-    if (node && !node.properties?.body) {
-      useGraphData.getState().fetchNodeBody(node.ref_id);
+    if (node) {
+      useGraphData.getState().hydrateNodeNeighborhood(node.ref_id);
     }
   },
   setHoveredNode: (node) => set({ hoveredNode: node }),
+
+  hydrateNodeNeighborhood: async (refId: string) => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`,
+      );
+      if (!res.ok) return;
+
+      const result = await res.json();
+      const nodes = Array.isArray(result?.nodes)
+        ? (result.nodes as GraphNode[])
+        : [];
+      const edges = Array.isArray(result?.edges)
+        ? (result.edges as GraphEdge[])
+        : [];
+
+      if (nodes.length > 0 || edges.length > 0) {
+        useGraphData.getState().addNodes(nodes, edges);
+      }
+
+      const { nodesNormalized, selectedNode } = useGraphData.getState();
+      const refreshed = nodesNormalized.get(refId);
+      if (refreshed && selectedNode?.ref_id === refId) {
+        set({ selectedNode: { ...refreshed } });
+      }
+    } catch (e) {
+      console.error("[hydrateNodeNeighborhood]", e);
+    }
+  },
 
   fetchNodeBody: async (refId: string) => {
     try {
