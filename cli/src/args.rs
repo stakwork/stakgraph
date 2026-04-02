@@ -10,6 +10,10 @@ pub struct CliArgs {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
+    /// Emit machine-readable JSON instead of the default human output
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub json: bool,
+
     /// Include unverified function calls in the graph
     #[arg(long, action = ArgAction::SetTrue)]
     pub allow: bool,

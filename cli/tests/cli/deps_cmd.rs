@@ -1,6 +1,7 @@
 mod common;
 
 use common::{fixture_path, run_stakgraph};
+use serde_json::Value;
 
 #[test]
 fn deps_missing_name_fails() {
@@ -119,4 +120,17 @@ fn deps_skips_ts_test_framework_calls() {
         "stdout: {}",
         out.stdout
     );
+}
+
+#[test]
+fn deps_json_outputs_machine_readable_payload() {
+    let traits = fixture_path("src/testing/rust/src/traits.rs");
+    let out = run_stakgraph(&["--json", "deps", "batch_process", &traits]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    let payload: Value = serde_json::from_str(&out.stdout).expect("valid json stdout");
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["command"], "deps");
+    assert!(payload["data"]["seeds"].is_array());
+    assert!(payload["data"]["edges"].is_array());
 }

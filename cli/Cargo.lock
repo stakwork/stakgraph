@@ -2030,6 +2030,8 @@ dependencies = [
  "ignore",
  "indicatif 0.18.4",
  "lsp",
+ "serde",
+ "serde_json",
  "shared",
  "tempfile",
  "tiktoken-rs 0.9.1",

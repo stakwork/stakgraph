@@ -8,14 +8,85 @@ use super::git::{
 use ast::lang::graphs::{ArrayGraph, Node, NodeType, Edge, EdgeType};
 use console::style;
 use lsp::Language;
+use serde::Serialize;
 use shared::{Error, Result};
 
 use super::args::{ChangesArgs, ChangesCommand, DiffArgs};
-use super::output::Output;
+use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::utils::{build_graph_for_files, parse_node_types};
 
-pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> Result<()> {
+#[derive(Serialize)]
+struct CommitSummary {
+    hash: String,
+    short_hash: String,
+    message: String,
+    author: String,
+    date: String,
+}
+
+#[derive(Serialize)]
+struct ChangesListData {
+    repo_path: String,
+    scope: Vec<String>,
+    commits: Vec<CommitSummary>,
+}
+
+#[derive(Serialize)]
+struct DeltaSummary {
+    files_changed: usize,
+    nodes_added: usize,
+    nodes_removed: usize,
+    nodes_modified: usize,
+    edges_added: usize,
+    edges_removed: usize,
+}
+
+#[derive(Serialize)]
+struct ChangedNodeSummary {
+    node_type: String,
+    name: String,
+    file: String,
+    start_line: usize,
+    end_line: usize,
+    signature: Option<String>,
+}
+
+#[derive(Serialize)]
+struct ModifiedNodeSummary {
+    before: ChangedNodeSummary,
+    after: ChangedNodeSummary,
+}
+
+#[derive(Serialize)]
+struct EdgeSummary {
+    edge_type: String,
+    source_name: String,
+    source_file: String,
+    target_name: String,
+    target_file: String,
+}
+
+#[derive(Serialize)]
+struct ChangesDiffData {
+    repo_path: String,
+    mode: String,
+    scope: Vec<String>,
+    files: Vec<String>,
+    summary: DeltaSummary,
+    added_nodes: Vec<ChangedNodeSummary>,
+    removed_nodes: Vec<ChangedNodeSummary>,
+    modified_nodes: Vec<ModifiedNodeSummary>,
+    added_edges: Vec<EdgeSummary>,
+    removed_edges: Vec<EdgeSummary>,
+}
+
+pub async fn run(
+    args: &ChangesArgs,
+    out: &mut Output,
+    show_progress: bool,
+    output_mode: OutputMode,
+) -> Result<()> {
     let cwd = std::env::current_dir()
         .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
     let cwd_str = cwd.to_string_lossy().to_string();
@@ -23,7 +94,15 @@ pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> R
 
     match &args.command {
         ChangesCommand::List(list_args) => {
-            run_list_commits(&repo_str, &list_args.paths, list_args.max, out, show_progress).await
+            run_list_commits(
+                &repo_str,
+                &list_args.paths,
+                list_args.max,
+                out,
+                show_progress,
+                output_mode,
+            )
+            .await
         }
         ChangesCommand::Diff(diff_args) => {
             run_diff(
@@ -33,6 +112,7 @@ pub async fn run(args: &ChangesArgs, out: &mut Output, show_progress: bool) -> R
                 diff_args,
                 out,
                 show_progress,
+                output_mode,
             )
             .await
         }
@@ -45,6 +125,7 @@ async fn run_list_commits(
     max: usize,
     out: &mut Output,
     show_progress: bool,
+    output_mode: OutputMode,
 ) -> Result<()> {
     let spinner = if show_progress {
         Some(CliSpinner::new("Scanning commit history..."))
@@ -54,6 +135,25 @@ async fn run_list_commits(
     let commits = list_commits_for_paths(repo_path, paths, Some(max))?;
     if let Some(sp) = &spinner {
         sp.finish_and_clear();
+    }
+
+    if output_mode.is_json() {
+        let data = ChangesListData {
+            repo_path: repo_path.to_string(),
+            scope: paths.to_vec(),
+            commits: commits
+                .into_iter()
+                .map(|commit| CommitSummary {
+                    short_hash: commit.hash[..7.min(commit.hash.len())].to_string(),
+                    hash: commit.hash,
+                    message: commit.message,
+                    author: commit.author,
+                    date: commit.date,
+                })
+                .collect(),
+        };
+        write_json_success(out, "changes", data, Vec::new())?;
+        return Ok(());
     }
 
     if commits.is_empty() {
@@ -102,6 +202,7 @@ async fn run_diff(
     args: &DiffArgs,
     out: &mut Output,
     show_progress: bool,
+    output_mode: OutputMode,
 ) -> Result<()> {
 
     let validated_types = parse_node_types(types)?;
@@ -165,17 +266,48 @@ async fn run_diff(
     let scoped_files = filter_paths_by_scope(changed_files, paths);
 
     if scoped_files.is_empty() {
+        let mut warnings = Vec::new();
         if !paths.is_empty() {
             for p in paths {
                 let abs = Path::new(repo_path).join(p);
                 if !abs.exists() {
-                    out.writeln(format!(
-                        "{}",
-                        style(format!("warning: '{}' does not exist in this repository", p))
-                            .yellow()
-                    ))?;
+                    if output_mode.is_json() {
+                        warnings.push(JsonWarning::new(
+                            "missing_path",
+                            format!("'{}' does not exist in this repository", p),
+                        ));
+                    } else {
+                        out.writeln(format!(
+                            "{}",
+                            style(format!("warning: '{}' does not exist in this repository", p))
+                                .yellow()
+                        ))?;
+                    }
                 }
             }
+        }
+        if output_mode.is_json() {
+            let data = ChangesDiffData {
+                repo_path: repo_path.to_string(),
+                mode: mode_description,
+                scope: paths.to_vec(),
+                files: Vec::new(),
+                summary: DeltaSummary {
+                    files_changed: 0,
+                    nodes_added: 0,
+                    nodes_removed: 0,
+                    nodes_modified: 0,
+                    edges_added: 0,
+                    edges_removed: 0,
+                },
+                added_nodes: Vec::new(),
+                removed_nodes: Vec::new(),
+                modified_nodes: Vec::new(),
+                added_edges: Vec::new(),
+                removed_edges: Vec::new(),
+            };
+            write_json_success(out, "changes", data, warnings)?;
+            return Ok(());
         }
         out.writeln(format!(
             "{}",
@@ -190,14 +322,16 @@ async fn run_diff(
         paths.join(", ")
     };
 
-    out.writeln(format!(
-        "{} {} file(s) changed in {} (scope: {})",
-        style("Found").bold().cyan(),
-        style(scoped_files.len()).bold().green(),
-        style(mode_description).yellow(),
-        style(&scope_label).cyan()
-    ))?;
-    out.newline()?;
+    if !output_mode.is_json() {
+        out.writeln(format!(
+            "{} {} file(s) changed in {} (scope: {})",
+            style("Found").bold().cyan(),
+            style(scoped_files.len()).bold().green(),
+            style(&mode_description).yellow(),
+            style(&scope_label).cyan()
+        ))?;
+        out.newline()?;
+    }
 
     let parseable_count = scoped_files
         .iter()
@@ -208,16 +342,18 @@ async fn run_diff(
     for file in &scoped_files {
         let parseable = Language::from_path(file).is_some();
         if parseable {
-            if parseable_count > 5 {
+            if parseable_count > 5 && !output_mode.is_json() {
                 out.writeln(format!("  {}", style(file).cyan()))?;
                 printed_file_list = true;
             }
         } else {
-            out.writeln(format!("  {} {}", style(file).cyan(), style("(not parsed)").dim()))?;
-            printed_file_list = true;
+            if !output_mode.is_json() {
+                out.writeln(format!("  {} {}", style(file).cyan(), style("(not parsed)").dim()))?;
+                printed_file_list = true;
+            }
         }
     }
-    if printed_file_list {
+    if printed_file_list && !output_mode.is_json() {
         out.newline()?;
     }
 
@@ -401,10 +537,63 @@ async fn run_diff(
         if let Some(sp) = &spinner {
             sp.finish_with_message("No graph-level changes found");
         }
+        if output_mode.is_json() {
+            let data = ChangesDiffData {
+                repo_path: repo_path.to_string(),
+                mode: mode_description,
+                scope: paths.to_vec(),
+                files: scoped_files,
+                summary: DeltaSummary {
+                    files_changed: 0,
+                    nodes_added: 0,
+                    nodes_removed: 0,
+                    nodes_modified: 0,
+                    edges_added: 0,
+                    edges_removed: 0,
+                },
+                added_nodes: Vec::new(),
+                removed_nodes: Vec::new(),
+                modified_nodes: Vec::new(),
+                added_edges: Vec::new(),
+                removed_edges: Vec::new(),
+            };
+            write_json_success(out, "changes", data, Vec::new())?;
+            return Ok(());
+        }
         out.writeln(format!(
             "{}",
             style("No graph-level changes detected in the scoped files").dim()
         ))?;
+        return Ok(());
+    }
+
+    if output_mode.is_json() {
+        let data = ChangesDiffData {
+            repo_path: repo_path.to_string(),
+            mode: mode_description,
+            scope: paths.to_vec(),
+            files: scoped_files,
+            summary: DeltaSummary {
+                files_changed: total_changed_file_count(&added, &removed, &modified, &added_edges, &removed_edges, &canon_after_root, canon_tmp_str),
+                nodes_added: added.len(),
+                nodes_removed: removed.len(),
+                nodes_modified: modified.len(),
+                edges_added: added_edges.len(),
+                edges_removed: removed_edges.len(),
+            },
+            added_nodes: added.iter().map(|n| json_node_summary(n)).collect(),
+            removed_nodes: removed.iter().map(|n| json_node_summary(n)).collect(),
+            modified_nodes: modified
+                .iter()
+                .map(|(after, before)| ModifiedNodeSummary {
+                    before: json_node_summary(before),
+                    after: json_node_summary(after),
+                })
+                .collect(),
+            added_edges: added_edges.iter().map(|e| json_edge_summary(e)).collect(),
+            removed_edges: removed_edges.iter().map(|e| json_edge_summary(e)).collect(),
+        };
+        write_json_success(out, "changes", data, Vec::new())?;
         return Ok(());
     }
 
@@ -417,6 +606,47 @@ async fn run_diff(
     }
 
     Ok(())
+}
+
+fn json_node_summary(node: &Node) -> ChangedNodeSummary {
+    ChangedNodeSummary {
+        node_type: node.node_type.to_string(),
+        name: node.node_data.name.clone(),
+        file: node.node_data.file.clone(),
+        start_line: node.node_data.start + 1,
+        end_line: node.node_data.end + 1,
+        signature: node_signature(node),
+    }
+}
+
+fn json_edge_summary(edge: &Edge) -> EdgeSummary {
+    EdgeSummary {
+        edge_type: format!("{:?}", edge.edge).to_uppercase(),
+        source_name: edge.source.node_data.name.clone(),
+        source_file: edge.source.node_data.file.clone(),
+        target_name: edge.target.node_data.name.clone(),
+        target_file: edge.target.node_data.file.clone(),
+    }
+}
+
+fn total_changed_file_count(
+    added: &[&Node],
+    removed: &[&Node],
+    modified: &[(&Node, &Node)],
+    added_edges: &[&Edge],
+    removed_edges: &[&Edge],
+    after_root: &str,
+    before_root: &str,
+) -> usize {
+    added
+        .iter()
+        .map(|n| rel_path(&n.node_data.file, after_root))
+        .chain(removed.iter().map(|n| rel_path(&n.node_data.file, before_root)))
+        .chain(modified.iter().map(|(n, _)| rel_path(&n.node_data.file, after_root)))
+        .chain(added_edges.iter().map(|e| rel_path(&e.source.node_data.file, after_root)))
+        .chain(removed_edges.iter().map(|e| rel_path(&e.source.node_data.file, before_root)))
+        .collect::<HashSet<_>>()
+        .len()
 }
 
 const MAX_SIG: usize = 100;

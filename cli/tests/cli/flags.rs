@@ -1,6 +1,7 @@
 mod common;
 
 use common::{fixture_path, run_stakgraph, workspace_path};
+use serde_json::Value;
 
 #[test]
 fn filter_is_case_insensitive() {
@@ -124,4 +125,17 @@ fn type_and_stats_can_be_used_together() {
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("Function:"));
     assert!(out.stdout.contains("--- Node type counts ---"));
+}
+
+#[test]
+fn json_parse_mode_returns_machine_readable_payload() {
+    let traits = fixture_path("src/testing/rust/src/traits.rs");
+    let out = run_stakgraph(&["--json", &traits]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    let payload: Value = serde_json::from_str(&out.stdout).expect("valid json stdout");
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["command"], "parse");
+    assert_eq!(payload["data"]["mode"], "parse");
+    assert!(payload["data"]["files"].is_array());
 }
