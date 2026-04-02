@@ -307,7 +307,6 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   setSelectedNode: (node) => {
     set({ selectedNode: node });
-
     if (node && !node.properties?.body) {
       useGraphData.getState().fetchNodeBody(node.ref_id);
     }

@@ -111,7 +111,6 @@ export function LayerTogglePanel() {
     useApi<EmbeddingsStatusResponse>("/embeddings_status");
   const qualityStatus = embeddingsStatus?.status || "none";
 
-
   const embeddingsHintText =
     embeddingsStatus?.status === "partial"
       ? `Embeddings are only partially available (${embeddingsStatus.embeddings_count}/${embeddingsStatus.eligible_count}). Click Enrich to improve semantic search results.`
