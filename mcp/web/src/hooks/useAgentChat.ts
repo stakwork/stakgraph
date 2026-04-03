@@ -3,6 +3,7 @@ import { useChat, type ToolCallEvent } from "@/stores/useChat";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
 import { useSettings } from "@/stores/useSettings";
+import { resolveRepoUrl } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -27,22 +28,10 @@ export function useAgentChat() {
   const data = useGraphData((s) => s.data);
   const { model, apiKey } = useSettings();
 
-  // Derive repo URL from graph Repository nodes, fall back to ingestion store
-  const repoUrl = useMemo(() => {
-    if (data?.nodes) {
-      const repoNodes = data.nodes.filter((n) => n.node_type === "Repository");
-      if (repoNodes.length > 0) {
-        return repoNodes
-          .map((n) => {
-            const sourceLink = n.properties.source_link as string | undefined;
-            if (sourceLink) return sourceLink;
-            return `https://github.com/${n.properties.name}`;
-          })
-          .join(",");
-      }
-    }
-    return storedRepoUrl;
-  }, [data, storedRepoUrl]);
+  const repoUrl = useMemo(
+    () => resolveRepoUrl(data, storedRepoUrl),
+    [data, storedRepoUrl],
+  );
 
   const abortRef = useRef<AbortController | null>(null);
 

@@ -2,7 +2,11 @@ import { memo, useState } from "react";
 import { Html } from "@react-three/drei";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useGraphData, getColorForType } from "@/stores/useGraphData";
+import {
+  useGraphData,
+  getColorForType,
+  type TraceMode,
+} from "@/stores/useGraphData";
 import { nodePositions } from "@/stores/useSimulation";
 import type { NodeExtended } from "@/graph/types";
 
@@ -20,6 +24,59 @@ const IMPORTANCE_TAG_LABELS: Record<string, string> = {
   utility: "Utility",
   connector: "Connector",
   isolated: "Isolated",
+};
+
+const TRACE_MODE_LABELS: Record<TraceMode, string> = {
+  down: "Down",
+  up: "Up",
+  both: "Both",
+};
+
+const TRACE_MODE_ICONS: Record<TraceMode, string> = {
+  down: "↓",
+  up: "↑",
+  both: "↕",
+};
+
+const TRACE_MODE_COLORS: Record<TraceMode, string> = {
+  down: "#FFD36B",
+  up: "#82D7D0",
+  both: "#BCAEFF",
+};
+
+type RelationDirection = "up" | "down" | "lateral";
+
+const RELATION_ICON: Record<RelationDirection, string> = {
+  up: "↑",
+  down: "↓",
+  lateral: "↔",
+};
+
+const RELATION_LABEL: Record<RelationDirection, string> = {
+  up: "Incoming",
+  down: "Outgoing",
+  lateral: "Bidirectional",
+};
+
+const RELATION_COLORS: Record<
+  RelationDirection,
+  { text: string; bg: string; border: string }
+> = {
+  up: {
+    text: "#7EDDD4",
+    bg: "rgba(126,221,212,0.16)",
+    border: "rgba(126,221,212,0.35)",
+  },
+  down: {
+    text: "#FFD88A",
+    bg: "rgba(255,216,138,0.16)",
+    border: "rgba(255,216,138,0.35)",
+  },
+  lateral: {
+    text: "#BFAEFF",
+    bg: "rgba(191,174,255,0.16)",
+    border: "rgba(191,174,255,0.35)",
+  },
 };
 
 function getLanguageFromFile(file: string): string {
@@ -67,12 +124,13 @@ function CodeViewer({ body, file, startLine }: { body: string; file: string; sta
   const language = getLanguageFromFile(file);
   return (
     <div
+      onWheel={(e) => e.stopPropagation()}
       style={{
         borderRadius: 6,
-        overflow: "hidden",
         border: "1px solid rgba(255,255,255,0.08)",
         maxHeight: 200,
         overflowY: "auto",
+        overflowX: "auto",
       }}
     >
       <SyntaxHighlighter
@@ -119,7 +177,7 @@ export const NodeDetailsPanel = memo(() => {
   const nodesNormalized = useGraphData((s) => s.nodesNormalized);
   const setSelectedNode = useGraphData((s) => s.setSelectedNode);
   const tracedPath = useGraphData((s) => s.tracedPath);
-  const traceCriticalPath = useGraphData((s) => s.traceCriticalPath);
+  const tracePath = useGraphData((s) => s.tracePath);
   const clearTrace = useGraphData((s) => s.clearTrace);
   const [showCode, setShowCode] = useState(true);
 
@@ -128,18 +186,37 @@ export const NodeDetailsPanel = memo(() => {
   const pos = nodePositions.get(selectedNode.ref_id);
   if (!pos) return null;
 
-  const relatedIds = [
-    ...(selectedNode.sources || []),
-    ...(selectedNode.targets || []),
-  ];
-  const relatedNodes = relatedIds
-    .map((id) => nodesNormalized.get(id))
-    .filter(Boolean)
+  const sourceIds = new Set(selectedNode.sources || []);
+  const targetIds = new Set(selectedNode.targets || []);
+  const relatedEntries = Array.from(new Set([...sourceIds, ...targetIds]))
+    .map((id) => {
+      const node = nodesNormalized.get(id);
+      if (!node) return null;
+
+      const inSource = sourceIds.has(id);
+      const inTarget = targetIds.has(id);
+      const direction: RelationDirection =
+        inSource && inTarget ? "lateral" : inSource ? "up" : "down";
+
+      return { id, node, direction };
+    })
+    .filter(
+      (
+        entry,
+      ): entry is {
+        id: string;
+        node: NodeExtended;
+        direction: RelationDirection;
+      } => !!entry,
+    )
     .slice(0, 20);
 
   const hasBody = !!selectedNode.properties.body;
   const hasTrace = tracedPath && tracedPath.nodeIds.size > 0;
   const isTraceRoot = hasTrace && tracedPath?.rootId === selectedNode.ref_id;
+  const currentTraceMode: TraceMode = tracedPath?.mode || "down";
+  const isTraceActive = (mode: TraceMode) =>
+    !!isTraceRoot && currentTraceMode === mode;
 
   return (
     <Html
@@ -149,6 +226,10 @@ export const NodeDetailsPanel = memo(() => {
       distanceFactor={400}
     >
       <div
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerUp={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onWheel={(e) => e.stopPropagation()}
         style={{
           background: "rgba(16, 16, 24, 0.96)",
           border: "1px solid rgba(255,255,255,0.1)",
@@ -164,7 +245,13 @@ export const NodeDetailsPanel = memo(() => {
           boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "start",
+          }}
+        >
           <div style={{ flex: 1, minWidth: 0 }}>
             <div
               style={{
@@ -177,9 +264,37 @@ export const NodeDetailsPanel = memo(() => {
             >
               {selectedNode.node_type}
             </div>
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, wordBreak: "break-word" }}>
+            <div
+              style={{
+                fontSize: 15,
+                fontWeight: 600,
+                marginBottom: 6,
+                wordBreak: "break-word",
+              }}
+            >
               {selectedNode.properties.name}
             </div>
+            {hasTrace && (
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 10,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  border: `1px solid ${TRACE_MODE_COLORS[currentTraceMode]}50`,
+                  background: `${TRACE_MODE_COLORS[currentTraceMode]}1a`,
+                  color: TRACE_MODE_COLORS[currentTraceMode],
+                  fontWeight: 600,
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                }}
+              >
+                <span>{TRACE_MODE_ICONS[currentTraceMode]}</span>
+                Trace {TRACE_MODE_LABELS[currentTraceMode]}
+              </div>
+            )}
           </div>
           <button
             onClick={() => {
@@ -211,8 +326,10 @@ export const NodeDetailsPanel = memo(() => {
             }}
           >
             {selectedNode.properties.file}
-            {selectedNode.properties.start != null && `:${selectedNode.properties.start}`}
-            {selectedNode.properties.end != null && `-${selectedNode.properties.end}`}
+            {selectedNode.properties.start != null &&
+              `:${selectedNode.properties.start}`}
+            {selectedNode.properties.end != null &&
+              `-${selectedNode.properties.end}`}
           </div>
         )}
 
@@ -237,28 +354,78 @@ export const NodeDetailsPanel = memo(() => {
               Code
             </button>
           )}
-          <button
-            onClick={() => {
-              if (isTraceRoot) {
-                clearTrace();
-              } else {
-                traceCriticalPath(selectedNode.ref_id);
-              }
-            }}
+          <div
             style={{
-              fontSize: 10,
-              padding: "3px 8px",
-              borderRadius: 4,
-              border: `1px solid ${isTraceRoot ? "#FFD70060" : "rgba(255,255,255,0.15)"}`,
-              background: isTraceRoot ? "#FFD70020" : "transparent",
-              color: isTraceRoot ? "#FFD700" : "#888",
-              cursor: "pointer",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
+              display: "inline-flex",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.15)",
+              overflow: "hidden",
             }}
           >
-            {isTraceRoot ? "Clear Trace" : "Trace Path ↓"}
-          </button>
+            {(["up", "down", "both"] as TraceMode[]).map((mode) => {
+              const active = isTraceActive(mode);
+              const modeColor = TRACE_MODE_COLORS[mode];
+              return (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    if (active) {
+                      clearTrace();
+                    } else {
+                      tracePath(selectedNode.ref_id, mode);
+                    }
+                  }}
+                  style={{
+                    fontSize: 10,
+                    padding: "3px 8px",
+                    border: "none",
+                    borderRight:
+                      mode !== "both"
+                        ? "1px solid rgba(255,255,255,0.12)"
+                        : "none",
+                    background: active
+                      ? `${modeColor}22`
+                      : "rgba(255,255,255,0.03)",
+                    color: active ? modeColor : "#9a9a9a",
+                    cursor: "pointer",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                    fontWeight: active ? 700 : 500,
+                    transition: "all 120ms ease",
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <span>{TRACE_MODE_ICONS[mode]}</span>
+                    {TRACE_MODE_LABELS[mode]}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {hasTrace && (
+            <button
+              onClick={clearTrace}
+              style={{
+                fontSize: 10,
+                padding: "3px 8px",
+                borderRadius: 4,
+                border: "1px solid rgba(255,255,255,0.15)",
+                background: "transparent",
+                color: "#aaa",
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+              }}
+            >
+              Clear
+            </button>
+          )}
         </div>
 
         {hasBody && showCode && (
@@ -272,13 +439,23 @@ export const NodeDetailsPanel = memo(() => {
         )}
 
         {hasTrace && !isTraceRoot && (
-          <div style={{ fontSize: 11, color: "#FFD700", marginBottom: 8, display: "flex", alignItems: "center", gap: 4 }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: TRACE_MODE_COLORS[currentTraceMode],
+              marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
             <span style={{ fontSize: 14 }}>⚡</span>
-            Tracing from {nodesNormalized.get(tracedPath!.rootId)?.properties.name || "..."}
+            {TRACE_MODE_LABELS[currentTraceMode]} trace from{" "}
+            {nodesNormalized.get(tracedPath!.rootId)?.properties.name || "..."}
           </div>
         )}
 
-        {relatedNodes.length > 0 && (
+        {relatedEntries.length > 0 && (
           <>
             <div
               style={{
@@ -289,45 +466,84 @@ export const NodeDetailsPanel = memo(() => {
                 marginBottom: 6,
               }}
             >
-              Connected ({relatedIds.length})
+              Connected ({relatedEntries.length})
             </div>
-            {relatedNodes.map((node) => (
-              <div
-                key={node!.ref_id}
-                onClick={() => setSelectedNode(node!)}
-                style={{
-                  padding: "5px 8px",
-                  marginBottom: 2,
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                }}
-                onMouseEnter={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background = "rgba(255,255,255,0.05)";
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLDivElement).style.background = "transparent";
-                }}
-              >
-                <span
+            {relatedEntries.map(({ node, direction }) => {
+              const relColor = RELATION_COLORS[direction];
+              return (
+                <div
+                  key={node.ref_id}
+                  onClick={() => setSelectedNode(node)}
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: "50%",
-                    background: getColorForType(node!.node_type),
-                    flexShrink: 0,
+                    padding: "5px 8px",
+                    marginBottom: 2,
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "flex-start",
+                    gap: 8,
                   }}
-                />
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
-                  {node!.properties.name}
-                </span>
-                <span style={{ fontSize: 10, color: "#666", marginLeft: "auto", flexShrink: 0 }}>
-                  {node!.node_type}
-                </span>
-              </div>
-            ))}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.background =
+                      "rgba(255,255,255,0.05)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLDivElement).style.background =
+                      "transparent";
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: "50%",
+                      background: getColorForType(node.node_type),
+                      flexShrink: 0,
+                    }}
+                  />
+                  <span
+                    title={RELATION_LABEL[direction]}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      width: 18,
+                      height: 18,
+                      borderRadius: "50%",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: relColor.text,
+                      background: relColor.bg,
+                      border: `1px solid ${relColor.border}`,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {RELATION_ICON[direction]}
+                  </span>
+                  <span
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {node.properties.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "#666",
+                      marginLeft: "auto",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {node.node_type}
+                  </span>
+                </div>
+              );
+            })}
           </>
         )}
       </div>

@@ -87,8 +87,44 @@ export function ImportanceLens() {
   };
 
   const handleNodeClick = useCallback(
-    (refId: string) => {
-      const node = nodesNormalized.get(refId);
+    async (refId: string) => {
+      console.log("refId:", refId);
+      console.log("in nodesNormalized:", nodesNormalized.has(refId));
+      let node = nodesNormalized.get(refId);
+      if (!node) {
+        try {
+          const res = await fetch(
+            `${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`,
+          );
+          if (res.ok) {
+            const result = await res.json();
+            let raw =
+              result?.nodes?.find((n: any) => n.ref_id === refId) ||
+              result?.node;
+            if (!raw && Array.isArray(result)) {
+              raw = result[0];
+            } else if (!raw) {
+              raw = result;
+            }
+            if (raw) {
+              const extended = {
+                ...raw,
+                x: 0,
+                y: 0,
+                z: 0,
+                sources: [],
+                targets: [],
+                index: -1,
+              };
+              useGraphData.getState().nodesNormalized.set(refId, extended);
+              node = extended;
+            }
+          }
+        } catch (e) {
+          console.error("[handleNodeClick] fetch failed", e);
+        }
+      }
+
       if (node) setSelectedNode(node);
     },
     [nodesNormalized, setSelectedNode],
@@ -201,12 +237,20 @@ export function ImportanceLens() {
                   onClick={() => handleFilterToggle(activeTab, nodeType)}
                   className="text-xs px-1.5 py-0.5 rounded shrink-0 transition-colors"
                   style={{
-                    background: isTypeFiltered ? `${activeTabMeta.color}25` : "transparent",
+                    background: isTypeFiltered
+                      ? `${activeTabMeta.color}25`
+                      : "transparent",
                     border: `1px solid ${isTypeFiltered ? activeTabMeta.color + "60" : "rgba(255,255,255,0.08)"}`,
-                    color: isTypeFiltered ? activeTabMeta.color : "var(--muted-foreground)",
+                    color: isTypeFiltered
+                      ? activeTabMeta.color
+                      : "var(--muted-foreground)",
                     fontSize: 9,
                   }}
-                  title={isTypeFiltered ? "Clear filter" : `Highlight ${nodeType} ${activeTab}s`}
+                  title={
+                    isTypeFiltered
+                      ? "Clear filter"
+                      : `Highlight ${nodeType} ${activeTab}s`
+                  }
                 >
                   {isTypeFiltered ? "✓" : "⊙"}
                 </button>
@@ -229,10 +273,13 @@ export function ImportanceLens() {
                           className="w-full text-left p-1.5 rounded-md text-xs bg-muted/30 hover:bg-muted/50 transition-colors flex items-center gap-2"
                         >
                           <span
-                            className="truncate flex-1"
+                            className="truncate flex-1 shrink-0"
                             title={n.name}
                           >
                             {n.name}
+                          </span>
+                          <span className="truncate flex-2  text-neutral-700 dark:text-neutral-400">
+                            {n.file.split("/").slice(2).join("/")}
                           </span>
                           <span
                             className="text-muted-foreground shrink-0"

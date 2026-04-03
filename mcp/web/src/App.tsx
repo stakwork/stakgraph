@@ -10,6 +10,9 @@ import { Chat } from "@/components/chat/Chat";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
 import { SettingsToggle } from "@/components/chat/Settings";
+import { SyncButton } from "@/components/SyncButton";
+import { EnrichButton } from "@/components/EnrichButton";
+import { Toaster } from "@/components/ui/sonner";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -133,6 +136,8 @@ function App() {
               Add repository
             </button>
           )}
+          <EnrichButton />
+          <SyncButton />
           <SettingsToggle />
         </div>
       </header>
@@ -183,6 +188,7 @@ function App() {
           />
         )}
       </div>
+      <Toaster />
     </div>
   );
 }
