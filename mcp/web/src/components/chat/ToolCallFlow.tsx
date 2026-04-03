@@ -63,7 +63,7 @@ export function ToolCallFlow({ toolCalls, isActive }: ToolCallFlowProps) {
       transition={{ duration: 0.2 }}
       className="pointer-events-auto flex justify-center w-full"
     >
-      <div className="max-w-[70vw] sm:max-w-[450px] md:max-w-[500px] lg:max-w-[600px] w-full">
+      <div className="max-w-[75vw] sm:max-w-[520px] md:max-w-[620px] lg:max-w-[720px] w-full">
         <div className="rounded-2xl px-4 py-3 shadow-sm backdrop-blur-sm bg-muted/10 space-y-1.5">
           <AnimatePresence mode="popLayout">
             {toolCalls.map((tc, i) => {
@@ -81,7 +81,9 @@ export function ToolCallFlow({ toolCalls, isActive }: ToolCallFlowProps) {
                 >
                   <Icon className="size-3.5 text-muted-foreground shrink-0" />
                   {TOOL_LABELS[tc.toolName] && (
-                    <span className="text-foreground/70">{TOOL_LABELS[tc.toolName]}</span>
+                    <span className="text-foreground/70">
+                      {TOOL_LABELS[tc.toolName]}
+                    </span>
                   )}
                   {preview && (
                     <span className="text-muted-foreground truncate text-xs font-mono">

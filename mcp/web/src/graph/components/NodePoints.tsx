@@ -1,7 +1,11 @@
 import { memo, useMemo } from "react";
 import { Instance, Instances } from "@react-three/drei";
 import { SphereGeometry, BufferGeometry, AdditiveBlending } from "three";
-import { useGraphData, getColorForType } from "@/stores/useGraphData";
+import {
+  useGraphData,
+  getColorForType,
+  type TraceMode,
+} from "@/stores/useGraphData";
 import { useLayerVisibility } from "@/stores/useLayerVisibility";
 import type { NodeExtended } from "@/graph/types";
 import { NODE_SIZE } from "@/graph/config";
@@ -18,6 +22,16 @@ const IMPORTANCE_TAG_COLORS: Record<string, string> = {
 
 function getImportanceColor(tag: string): string {
   return IMPORTANCE_TAG_COLORS[tag] || "#6688AA";
+}
+
+const TRACE_GLOW_COLORS: Record<TraceMode, string> = {
+  down: "#FFD36B",
+  up: "#82D7D0",
+  both: "#BCAEFF",
+};
+
+function getTraceGlowColor(mode: TraceMode): string {
+  return TRACE_GLOW_COLORS[mode] || TRACE_GLOW_COLORS.down;
 }
 
 const NodePointsComponent = () => {
@@ -39,7 +53,7 @@ const NodePointsComponent = () => {
   );
 
   const importanceActive = importanceFilter.tag !== null;
-  const instancesKey = `${importanceFilter.tag || "none"}-${importanceFilter.nodeType || "all"}-${tracedPath?.rootId || ""}`;
+  const instancesKey = `${importanceFilter.tag || "none"}-${importanceFilter.nodeType || "all"}-${tracedPath?.rootId || ""}-${tracedPath?.mode || "none"}`;
 
   const nodeInstanceData = useMemo(() => {
     if (!data?.nodes) return [];
@@ -96,7 +110,7 @@ const NodePointsComponent = () => {
             number,
           ],
           glowColor: tracedPath?.nodeIds.has(node.ref_id)
-            ? "#FFD700"
+            ? getTraceGlowColor(tracedPath.mode)
             : matchesImportance && tag
               ? getImportanceColor(tag)
               : null,

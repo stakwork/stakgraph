@@ -139,6 +139,7 @@ app.get("/nodes", r.get_nodes);
 app.post("/nodes", r.post_nodes);
 app.get("/edges", r.get_edges);
 app.get("/graph", r.get_graph);
+app.get("/embeddings_status", r.embeddings_status);
 app.get("/search", r.search);
 app.get("/map", r.get_map);
 app.get("/repo_map", cacheMiddleware(), r.get_repo_map);

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
+import { resolveRepoUrl } from "@/lib/utils";
 import {
   Layers,
   FileCode,
@@ -264,22 +265,10 @@ export function ProvenanceTree({
   const storedRepoUrl = useIngestion((s) => s.repoUrl);
   const data = useGraphData((s) => s.data);
 
-  // Derive repo URL from graph Repository nodes, fall back to ingestion store
-  const repoUrl = useMemo(() => {
-    if (data?.nodes) {
-      const repoNodes = data.nodes.filter((n) => n.node_type === "Repository");
-      if (repoNodes.length > 0) {
-        return repoNodes
-          .map((n) => {
-            const sourceLink = n.properties.source_link as string | undefined;
-            if (sourceLink) return sourceLink;
-            return `https://github.com/${n.properties.name}`;
-          })
-          .join(",");
-      }
-    }
-    return storedRepoUrl;
-  }, [data, storedRepoUrl]);
+  const repoUrl = useMemo(
+    () => resolveRepoUrl(data, storedRepoUrl),
+    [data, storedRepoUrl],
+  );
 
   const firstUrl = repoUrl?.split(",")[0]?.trim() || null;
   const githubInfo = parseGitHubUrl(firstUrl, "main");

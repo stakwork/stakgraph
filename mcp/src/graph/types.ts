@@ -35,12 +35,14 @@ export interface NodeData {
 
 export type NodeType =
   | "Repository"
+  | "Package"
   | "Language"
   | "Directory"
   | "File"
   | "Import"
   | "Class"
   | "Trait"
+  | "Instance"
   | "Library"
   | "Function"
   | "UnitTest"
@@ -75,11 +77,16 @@ export type EdgeType =
   | "CALLS"
   | "USES"
   | "OPERAND"
+  | "ARG_OF"
   | "CONTAINS"
   | "IMPORTS"
   | "OF"
   | "HANDLER"
+  | "INCLUDES"
   | "RENDERS"
+  | "PARENT_OF"
+  | "IMPLEMENTS"
+  | "NESTED_IN"
   | "HAS_CONTRIBUTOR"
   | "HAS_STARS"
   | "HAS_COMMITS"
@@ -158,12 +165,14 @@ export function relevant_node_types(): NodeType[] {
 export function all_node_types(): NodeType[] {
   return [
     "Repository",
+    "Package",
     "Language",
     "Directory",
     "File",
     "Import",
     "Class",
     "Trait",
+    "Instance",
     "Library",
     "Function",
     "UnitTest",
@@ -201,11 +210,16 @@ export function all_edge_types(): EdgeType[] {
     "CALLS",
     "USES",
     "OPERAND",
+    "ARG_OF",
     "CONTAINS",
     "IMPORTS",
     "OF",
     "HANDLER",
+    "INCLUDES",
     "RENDERS",
+    "PARENT_OF",
+    "IMPLEMENTS",
+    "NESTED_IN",
     "HAS_CONTRIBUTOR",
     "HAS_STARS",
     "HAS_COMMITS",
@@ -221,6 +235,7 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
   return {
     Repository:
       "A code repository that contains source files, directories, and version history.",
+    Package: "A package or module grouping related source files and dependencies within a repository.",
     Language: "A programming language used in the repository.",
     Directory:
       "A folder within a repository that organizes files and subdirectories.",
@@ -231,6 +246,8 @@ export function node_type_descriptions(): { [k in NodeType]: string } {
       "A class definition in source code, representing an object-oriented structure with attributes and methods.",
     Trait:
       "A trait definition in source code, representing a collection of methods that can be implemented by other classes.",
+    Instance:
+      "An instantiation of a class in source code, representing a specific object created from a class definition.",
     Library:
       "A reusable collection of code or modules providing functionality that can be imported and used in other projects.",
     Function:

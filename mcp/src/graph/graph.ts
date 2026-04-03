@@ -15,6 +15,7 @@ import { createByModelName } from "@microsoft/tiktokenizer";
 import { generate_services_config } from "./service.js";
 
 export type SearchMethod = "vector" | "fulltext" | "hybrid";
+export type SearchSortBy = "relevance" | "pagerank";
 
 export { Data_Bank, Direction };
 
@@ -58,6 +59,14 @@ export type OutputFormat = "snippet" | "json";
 
 const RRF_K = 60;
 
+function sortByPagerank(nodes: Neo4jNode[]): Neo4jNode[] {
+  return [...nodes].sort((a, b) => {
+    const ap = Number(a.properties.pagerank || 0);
+    const bp = Number(b.properties.pagerank || 0);
+    return bp - ap;
+  });
+}
+
 export async function search(
   query: string,
   limit: number,
@@ -67,14 +76,15 @@ export async function search(
   method: SearchMethod = "fulltext",
   output: OutputFormat = "snippet",
   tests: boolean = false,
-  language?: string
+  language?: string,
+  sortBy: SearchSortBy = "relevance"
 ) {
   const skip_node_types: NodeType[] = tests
     ? []
     : (["UnitTest", "IntegrationTest", "E2etest"] as NodeType[]);
 
   if (method === "vector") {
-    const result = await db.vectorSearch(
+    let result = await db.vectorSearch(
       query,
       limit,
       node_types,
@@ -82,6 +92,9 @@ export async function search(
       maxTokens,
       language
     );
+    if (sortBy === "pagerank") {
+      result = sortByPagerank(result);
+    }
     return toNodes(result, concise, output);
   } else if (method === "hybrid") {
     const [fulltextResults, vectorResults] = await Promise.all([
@@ -107,9 +120,12 @@ export async function search(
       }
     });
 
-    let sorted = Array.from(merged.values())
-      .sort((a, b) => b.score - a.score)
-      .map((entry) => entry.node);
+    let sorted =
+      sortBy === "pagerank"
+        ? sortByPagerank(Array.from(merged.values()).map((entry) => entry.node))
+        : Array.from(merged.values())
+            .sort((a, b) => b.score - a.score)
+            .map((entry) => entry.node);
 
     if (maxTokens) {
       let totalTokens = 0;
@@ -127,7 +143,7 @@ export async function search(
 
     return toNodes(sorted, concise, output);
   } else {
-    const result = await db.search(
+    let result = await db.search(
       query,
       limit,
       node_types,
@@ -135,6 +151,9 @@ export async function search(
       maxTokens,
       language
     );
+    if (sortBy === "pagerank") {
+      result = sortByPagerank(result);
+    }
     return toNodes(result, concise, output);
   }
 }

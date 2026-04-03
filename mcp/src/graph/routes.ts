@@ -627,6 +627,7 @@ export async function search(req: Request, res: Response) {
     }
     const method = req.query.method as G.SearchMethod;
     const output = req.query.output as G.OutputFormat;
+    const sort_by = req.query.sort_by as G.SearchSortBy;
     let tests = isTrue(req.query.tests as string);
     const maxTokens = parseInt(req.query.max_tokens as string);
     const language = req.query.language as string;
@@ -643,7 +644,8 @@ export async function search(req: Request, res: Response) {
       method,
       output || "snippet",
       tests,
-      language
+      language,
+      sort_by === "pagerank" ? "pagerank" : "relevance"
     );
     if (output === "snippet") {
       res.send(result);
@@ -655,6 +657,36 @@ export async function search(req: Request, res: Response) {
     res.status(500).send("Internal Server Error");
   }
 }
+
+export async function embeddings_status(_req: Request, res: Response) {
+  try {
+    const [embeddings_count, eligible_count] = await Promise.all([
+      db.count_nodes_with_embeddings(),
+      db.count_eligible_nodes_for_embeddings(),
+    ]);
+
+    const coverage_ratio =
+      eligible_count > 0 ? embeddings_count / eligible_count : 0;
+
+    const status =
+      embeddings_count === 0
+        ? "none"
+        : embeddings_count < eligible_count
+          ? "partial"
+          : "ready";
+
+    res.json({
+      status,
+      embeddings_count,
+      eligible_count,
+      coverage_ratio,
+    });
+  } catch (error) {
+    console.error("Error fetching embeddings status:", error);
+    res.status(500).json({ error: "Failed to fetch embeddings status" });
+  }
+}
+
 export async function get_rules_files(req: Request, res: Response) {
   try {
     const snippets = await G.get_rules_files();

@@ -14,6 +14,11 @@ export interface GraphNode {
   date_added_to_graph?: string | number;
 }
 
+export interface NodeRelation {
+  id: string;
+  edgeType: string;
+}
+
 // Extended node used in the simulation/rendering
 export interface NodeExtended extends GraphNode {
   x: number;
@@ -27,6 +32,8 @@ export interface NodeExtended extends GraphNode {
   vz?: number;
   sources?: string[];
   targets?: string[];
+  sourceRelations?: NodeRelation[];
+  targetRelations?: NodeRelation[];
   index?: number;
   [key: string]: unknown;
 }

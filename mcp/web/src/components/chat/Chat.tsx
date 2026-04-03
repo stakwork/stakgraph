@@ -21,66 +21,68 @@ export function Chat() {
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-end z-10">
-      <div className="pointer-events-none flex flex-col justify-end max-h-[85vh] w-full max-w-2xl px-4">
-      {/* Message history - scrolls up from bottom */}
-      {hasMessages && (
-        <div className="flex-1 min-h-0 overflow-y-auto pb-2 pointer-events-none">
-          <div className="space-y-2 flex flex-col items-center">
-            {messages.map((msg) => (
-              <ChatMessage key={msg.id} message={msg} />
-            ))}
+      <div className="pointer-events-none flex flex-col justify-end max-h-[85vh] w-full max-w-3xl px-4">
+        {/* Message history - scrolls up from bottom */}
+        {hasMessages && (
+          <div className="flex-1 min-h-0 overflow-y-auto pb-2 pointer-events-none">
+            <div className="space-y-2 flex flex-col items-center">
+              {messages.map((msg) => (
+                <ChatMessage key={msg.id} message={msg} />
+              ))}
 
-            {/* Tool call flow while agent is working */}
-            {isActive && toolCalls.length > 0 && (
-              <ToolCallFlow toolCalls={toolCalls} isActive={isActive} />
-            )}
+              {/* Tool call flow while agent is working */}
+              {isActive && toolCalls.length > 0 && (
+                <ToolCallFlow toolCalls={toolCalls} isActive={isActive} />
+              )}
 
-            {/* Streaming text preview */}
-            {isActive && streamingText && (
-              <ChatMessage
-                message={{
-                  id: "streaming",
-                  role: "assistant",
-                  content: streamingText,
-                  timestamp: Date.now(),
-                }}
-                isStreaming
-              />
-            )}
+              {/* Streaming text preview */}
+              {isActive && streamingText && (
+                <ChatMessage
+                  message={{
+                    id: "streaming",
+                    role: "assistant",
+                    content: streamingText,
+                    timestamp: Date.now(),
+                  }}
+                  isStreaming
+                />
+              )}
 
-            {/* Pending indicator */}
-            {status === "pending" && toolCalls.length === 0 && (
-              <div className="pointer-events-auto flex justify-center">
-                <div className="rounded-2xl px-4 py-3 bg-muted/10 backdrop-blur-sm">
-                  <span className="text-sm text-muted-foreground">Thinking</span>
-                  <PulsingDots />
+              {/* Pending indicator */}
+              {status === "pending" && toolCalls.length === 0 && (
+                <div className="pointer-events-auto flex justify-center">
+                  <div className="rounded-2xl px-4 py-3 bg-muted/10 backdrop-blur-sm">
+                    <span className="text-sm text-muted-foreground">
+                      Thinking
+                    </span>
+                    <PulsingDots />
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} />
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Clear button */}
-      {messages.length > 0 && (
-        <div className="pointer-events-auto flex justify-center pb-1">
-          <button
-            type="button"
-            onClick={clearChat}
-            className="rounded-full border border-border/50 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground transition-all flex items-center gap-1.5"
-          >
-            <X className="w-3.5 h-3.5" />
-            Clear
-          </button>
-        </div>
-      )}
+        {/* Clear button */}
+        {messages.length > 0 && (
+          <div className="pointer-events-auto flex justify-center pb-1">
+            <button
+              type="button"
+              onClick={clearChat}
+              className="rounded-full border border-border/50 bg-muted/30 px-3 py-1.5 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 hover:text-foreground transition-all flex items-center gap-1.5"
+            >
+              <X className="w-3.5 h-3.5" />
+              Clear
+            </button>
+          </div>
+        )}
 
-      {/* Input - anchored to bottom */}
-      <div className="pointer-events-auto shrink-0">
-        <ChatInput onSend={send} disabled={isActive} />
-      </div>
+        {/* Input - anchored to bottom */}
+        <div className="pointer-events-auto shrink-0">
+          <ChatInput onSend={send} disabled={isActive} />
+        </div>
       </div>
     </div>
   );
