@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use std::io;
 
 use console::{style, Style};
+use serde::Serialize;
 use shared::Result;
 
 use ast::lang::graphs::EdgeType;
@@ -22,7 +23,7 @@ fn format_lines(start: usize, end: usize) -> String {
     }
 }
 
-fn get_language_delimiter(file: &str) -> &'static str {
+pub fn get_language_delimiter(file: &str) -> &'static str {
     if file.ends_with(".rs") {
         "::"
     } else {
@@ -45,7 +46,7 @@ fn style_for_node_type(node_type: &NodeType) -> Style {
     }
 }
 
-fn format_function_name_with_operand(node: &Node) -> String {
+pub fn node_display_name(node: &Node) -> String {
     let nd = &node.node_data;
 
     if let Some(verb) = nd.meta.get("verb") {
@@ -62,6 +63,99 @@ fn format_function_name_with_operand(node: &Node) -> String {
     } else {
         nd.name.clone()
     }
+}
+
+pub fn node_code_preview(node: &Node) -> Option<String> {
+    let nd = &node.node_data;
+    if let Some(interface) = nd.meta.get("interface") {
+        return Some(interface.clone());
+    }
+    let body_lines = match node.node_type {
+        NodeType::Function | NodeType::Var => 20,
+        NodeType::Endpoint | NodeType::Request => 0,
+        NodeType::DataModel | NodeType::Import => 100,
+        NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => 0,
+        _ => 0,
+    };
+    if body_lines == 0 || nd.body.is_empty() {
+        return None;
+    }
+    let body = if matches!(node.node_type, NodeType::Import) {
+        nd.body
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        nd.body.clone()
+    };
+    Some(first_lines(&body, body_lines, 200))
+}
+
+#[derive(Serialize)]
+pub struct CallRef {
+    pub name: String,
+    pub line: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+}
+
+pub fn resolve_call_ref(
+    edge: &Edge,
+    source_file: &str,
+    graph: &ArrayGraph,
+) -> CallRef {
+    let target_name = &edge.target.node_data.name;
+    let target_file = &edge.target.node_data.file;
+
+    let operand = edge.operand.as_ref().or_else(|| {
+        graph
+            .nodes
+            .iter()
+            .find(|n| {
+                ast::utils::create_node_key(n).to_lowercase()
+                    == ast::utils::create_node_key_from_ref(&edge.target).to_lowercase()
+            })
+            .and_then(|n| n.node_data.meta.get("operand"))
+    });
+
+    let name = if let Some(op) = operand {
+        let file_for_delimiter = if target_file == "unverified" {
+            source_file
+        } else {
+            target_file
+        };
+        let delimiter = get_language_delimiter(file_for_delimiter);
+        format!("{}{}{}", op, delimiter, target_name)
+    } else {
+        target_name.clone()
+    };
+
+    let file = if source_file != target_file && target_file != "unverified" {
+        std::path::Path::new(target_file)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|s| s.to_string())
+    } else {
+        None
+    };
+
+    CallRef {
+        name,
+        line: edge.target.node_data.start + 1,
+        file,
+    }
+}
+
+pub fn build_call_index<'a>(edges: &'a [Edge]) -> HashMap<String, Vec<&'a Edge>> {
+    let mut index = HashMap::new();
+    for edge in edges {
+        if matches!(edge.edge, EdgeType::Calls | EdgeType::Uses) {
+            let key = ast::utils::create_node_key_from_ref(&edge.source).to_lowercase();
+            index.entry(key).or_insert_with(Vec::new).push(edge);
+        }
+    }
+    index
 }
 
 fn build_edge_indices(
@@ -100,56 +194,22 @@ fn print_function_edges(
     graph: &ArrayGraph,
 ) -> io::Result<()> {
     let source_key = ast::utils::create_node_key(node).to_lowercase();
-    let source_file = &node.node_data.file;
 
     if let Some(edges) = edges_by_source.get(&source_key) {
         for edge in edges {
-            let target_name = &edge.target.node_data.name;
-            let target_line = edge.target.node_data.start;
-            let target_file = &edge.target.node_data.file;
-
-            let target_display = {
-                let operand = edge.operand.as_ref().or_else(|| {
-                    graph
-                        .nodes
-                        .iter()
-                        .find(|n| {
-                            ast::utils::create_node_key(n).to_lowercase()
-                                == ast::utils::create_node_key_from_ref(&edge.target).to_lowercase()
-                        })
-                        .and_then(|n| n.node_data.meta.get("operand"))
-                });
-
-                if let Some(op) = operand {
-                    let file_for_delimiter = if target_file == "unverified" {
-                        source_file
-                    } else {
-                        target_file
-                    };
-                    let delimiter = get_language_delimiter(file_for_delimiter);
-                    format!("{}{}{}", op, delimiter, target_name)
-                } else {
-                    target_name.clone()
-                }
-            };
-
-            let file_info = if source_file != target_file && target_file != "unverified" {
-                let filename = std::path::Path::new(target_file)
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or(target_file);
-                format!(" [{}]", filename)
-            } else {
-                String::new()
-            };
+            let cr = resolve_call_ref(edge, &node.node_data.file, graph);
+            let file_info = cr
+                .file
+                .map(|f| format!(" [{}]", f))
+                .unwrap_or_default();
 
             let arrow = style("→").dim();
-            let line_num = style(format!("L{}", target_line + 1)).dim();
+            let line_num = style(format!("L{}", cr.line)).dim();
             let file_info_styled = style(file_info).dim();
 
             out.writeln(format!(
                 "  {} {} ({}){}",
-                arrow, target_display, line_num, file_info_styled
+                arrow, cr.name, line_num, file_info_styled
             ))?;
         }
     }
@@ -158,7 +218,7 @@ fn print_function_edges(
 
 fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::Result<()> {
     let nd = &node.node_data;
-    let name = format_function_name_with_operand(node);
+    let name = node_display_name(node);
     let lines = format_lines(nd.start, nd.end);
 
     let node_type_styled = style_for_node_type(&node.node_type).apply_to(&node.node_type);
@@ -182,32 +242,9 @@ fn print_node_summary(out: &mut Output, node: &ast::lang::graphs::Node) -> io::R
         ))?;
     }
 
-    if let Some(interface) = nd.meta.get("interface") {
+    if let Some(code) = node_code_preview(node) {
         let fence = style("```").dim();
-        out.writeln(format!("{}\n{}\n{}", fence, interface, fence))?;
-    } else {
-        let body_lines = match node.node_type {
-            NodeType::Function | NodeType::Var => 20,
-            NodeType::Endpoint | NodeType::Request => 0,
-            NodeType::DataModel | NodeType::Import => 100,
-            NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest => 0,
-            _ => 0,
-        };
-
-        if body_lines > 0 && !nd.body.is_empty() {
-            let body = if matches!(node.node_type, NodeType::Import) {
-                nd.body
-                    .lines()
-                    .filter(|line| !line.trim().is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            } else {
-                nd.body.clone()
-            };
-            let body_preview = first_lines(&body, body_lines, 200);
-            let fence = style("```").dim();
-            out.writeln(format!("{}\n{}\n{}", fence, body_preview, fence))?;
-        }
+        out.writeln(format!("{}\n{}\n{}", fence, code, fence))?;
     }
     Ok(())
 }
@@ -360,7 +397,7 @@ pub fn print_named_node(
 
     let node = matches[0];
     let nd = &node.node_data;
-    let name = format_function_name_with_operand(node);
+    let name = node_display_name(node);
     let lines = format_lines(nd.start, nd.end);
 
     let node_type_styled = style_for_node_type(&node.node_type).apply_to(&node.node_type);

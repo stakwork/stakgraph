@@ -2,17 +2,51 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use ast::lang::graphs::EdgeType;
 use console::style;
+use serde::Serialize;
 use shared::{Error, Result};
 
 use super::args::DepsArgs;
-use super::output::Output;
+use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::utils::{
     build_graph_for_files_with_options, expand_dirs_for_parse, parse_node_types,
     rel_path_from_cwd,
 };
 
-pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Result<()> {
+#[derive(Serialize)]
+struct DependencySeed {
+    node_type: String,
+    name: String,
+    file: String,
+    line: usize,
+}
+
+#[derive(Serialize)]
+struct DependencyEdge {
+    source_name: String,
+    source_file: String,
+    target_name: String,
+    target_file: String,
+    depth: usize,
+    verified: bool,
+}
+
+#[derive(Serialize)]
+struct DependencyTreeData {
+    query: String,
+    files: Vec<String>,
+    depth: usize,
+    allow_unverified: bool,
+    seeds: Vec<DependencySeed>,
+    edges: Vec<DependencyEdge>,
+}
+
+pub async fn run(
+    args: &DepsArgs,
+    out: &mut Output,
+    show_progress: bool,
+    output_mode: OutputMode,
+) -> Result<()> {
     let node_type_filter = args
         .r#type
         .as_deref()
@@ -63,6 +97,39 @@ pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Resu
             "no {} named '{}' found in the parsed files",
             type_label, args.name
         )));
+    }
+
+    if output_mode.is_json() {
+        let mut result_edges = Vec::new();
+        for seed in &seeds {
+            collect_dependency_edges(&graph, seed, args.depth, args.allow, &mut result_edges);
+        }
+        let data = DependencyTreeData {
+            query: args.name.clone(),
+            files: files.clone(),
+            depth: args.depth,
+            allow_unverified: args.allow,
+            seeds: seeds
+                .iter()
+                .map(|seed| DependencySeed {
+                    node_type: seed.node_type.to_string(),
+                    name: seed.node_data.name.clone(),
+                    file: seed.node_data.file.clone(),
+                    line: seed.node_data.start + 1,
+                })
+                .collect(),
+            edges: result_edges,
+        };
+        let warnings = if data.edges.is_empty() {
+            vec![JsonWarning::new(
+                "no_dependencies",
+                format!("No outgoing dependency edges found for '{}'", args.name),
+            )]
+        } else {
+            Vec::new()
+        };
+        write_json_success(out, "deps", data, warnings)?;
+        return Ok(());
     }
 
     for seed in seeds {
@@ -167,6 +234,61 @@ pub async fn run(args: &DepsArgs, out: &mut Output, show_progress: bool) -> Resu
     }
 
     Ok(())
+}
+
+fn collect_dependency_edges(
+    graph: &ast::lang::graphs::ArrayGraph,
+    seed: &ast::lang::Node,
+    max_depth: usize,
+    allow_unverified: bool,
+    result_edges: &mut Vec<DependencyEdge>,
+) {
+    let mut queue: VecDeque<(String, String, usize)> = VecDeque::new();
+    let mut visited: HashSet<(String, String)> = HashSet::new();
+
+    let seed_name = seed.node_data.name.clone();
+    let seed_file = seed.node_data.file.clone();
+    visited.insert((seed_name.clone(), seed_file.clone()));
+
+    for (callee_name, callee_file) in direct_callees(graph, &seed_name, &seed_file, allow_unverified)
+    {
+        result_edges.push(DependencyEdge {
+            source_name: seed_name.clone(),
+            source_file: seed_file.clone(),
+            target_name: callee_name.clone(),
+            target_file: callee_file.clone(),
+            depth: 1,
+            verified: callee_file != "unverified",
+        });
+        queue.push_back((callee_name, callee_file, 1));
+    }
+
+    while let Some((name, file, depth)) = queue.pop_front() {
+        let key = (name.clone(), file.clone());
+        if visited.contains(&key) {
+            continue;
+        }
+        visited.insert(key);
+
+        if max_depth != 0 && depth >= max_depth {
+            continue;
+        }
+        if file == "unverified" {
+            continue;
+        }
+
+        for (callee_name, callee_file) in direct_callees(graph, &name, &file, allow_unverified) {
+            result_edges.push(DependencyEdge {
+                source_name: name.clone(),
+                source_file: file.clone(),
+                target_name: callee_name.clone(),
+                target_file: callee_file.clone(),
+                depth: depth + 1,
+                verified: callee_file != "unverified",
+            });
+            queue.push_back((callee_name, callee_file, depth + 1));
+        }
+    }
 }
 
 fn direct_callees(

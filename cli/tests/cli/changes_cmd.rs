@@ -5,6 +5,7 @@ use std::path::Path;
 use std::process::Command;
 
 use common::run_stakgraph_in_cwd;
+use serde_json::Value;
 
 fn run_cmd(cwd: &Path, args: &[&str]) {
     let output = Command::new(args[0])
@@ -213,4 +214,31 @@ fn changes_diff_scope_normalizes_dot_slash_and_trailing_slash() {
         out.stdout,
         out.stderr
     );
+}
+
+#[test]
+fn changes_list_json_outputs_machine_readable_payload() {
+    let repo = init_git_repo();
+    let cwd = repo.path().to_string_lossy().to_string();
+    let out = run_stakgraph_in_cwd(&cwd, &["--json", "changes", "list"]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    let payload: Value = serde_json::from_str(&out.stdout).expect("valid json stdout");
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["command"], "changes");
+    assert!(payload["data"]["commits"].is_array());
+}
+
+#[test]
+fn changes_diff_json_outputs_machine_readable_payload() {
+    let repo = init_git_repo();
+    let cwd = repo.path().to_string_lossy().to_string();
+    let out = run_stakgraph_in_cwd(&cwd, &["--json", "changes", "diff"]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    let payload: Value = serde_json::from_str(&out.stdout).expect("valid json stdout");
+    assert_eq!(payload["ok"], true);
+    assert_eq!(payload["command"], "changes");
+    assert!(payload["data"]["summary"].is_object());
+    assert!(payload["data"]["files"].is_array());
 }
