@@ -155,6 +155,8 @@ export interface GetContextOptions {
 interface PreparedAgent {
   agent: ToolLoopAgent<never, ToolSet>;
   model: LanguageModel;
+  modelId: string;
+  provider: string;
   finalPrompt: string | ModelMessage[];
   previousMessages: ModelMessage[];
   userMessage: ModelMessage;
@@ -184,7 +186,7 @@ async function prepareAgent(
     onStepEvent,
   } = opts;
   const startTime = Date.now();
-  const { model, apiKey, provider, contextLimit } = getModelDetails(modelName, apiKeyIn);
+  const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn);
   console.log("===> model", model, "contextLimit", contextLimit);
 
   // Session handling: if sessionId provided, use existing or create new with that ID
@@ -304,7 +306,7 @@ Apply the guidance from each skill throughout your response.`;
     content: userMessageContent as string,
   };
 
-  return { agent, model, finalPrompt, previousMessages, userMessage, sessionId, sessionConfig, startTime };
+  return { agent, model, modelId, provider, finalPrompt, previousMessages, userMessage, sessionId, sessionConfig, startTime };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
@@ -329,7 +331,7 @@ export async function get_context(
   opts: GetContextOptions
 ): Promise<ContextResult> {
   const prepared = await prepareAgent(prompt, repoPath, opts);
-  const { agent, model, finalPrompt, sessionId, sessionConfig, userMessage, startTime } = prepared;
+  const { agent, model, modelId, provider, finalPrompt, sessionId, sessionConfig, userMessage, startTime } = prepared;
   const { schema } = opts;
 
   const result = await agent.generate(buildCallParams(prepared));
@@ -376,6 +378,8 @@ export async function get_context(
       inputTokens: totalUsage.inputTokens || 0,
       outputTokens: totalUsage.outputTokens || 0,
       totalTokens: totalUsage.totalTokens || 0,
+      model: modelId,
+      provider,
     },
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,

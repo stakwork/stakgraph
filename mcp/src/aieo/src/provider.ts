@@ -154,6 +154,7 @@ interface ModelDetails {
   provider: Provider,
   apiKey: string,
   model: LanguageModel,
+  modelId: string,
   contextLimit: number,
 }
 export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: string): ModelDetails {
@@ -184,7 +185,7 @@ export function getModelDetails(modelName?: ModelName | string, apiKeyIn?: strin
     modelId = DEFAULT_MODELS[provider];
   }
   const contextLimit = getContextLimit(modelId, provider);
-  return { model, provider, apiKey, contextLimit }
+  return { model, provider, apiKey, contextLimit, modelId }
 }
 
 export function getModel(

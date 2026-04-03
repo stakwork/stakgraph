@@ -12,6 +12,8 @@ export interface ContextResult {
     inputTokens: number;
     outputTokens: number;
     totalTokens: number;
+    model?: string;
+    provider?: string;
   };
   tool_use?: string;
   content: any;
