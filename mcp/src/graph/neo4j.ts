@@ -1222,6 +1222,40 @@ class Db {
     }
   }
 
+  async get_nodes_without_embeddings(
+    limit: number,
+    repo_paths: string[] | null,
+    file_paths: string[],
+  ): Promise<
+    {
+      ref_id: string;
+      description: string;
+      name: string;
+      body: string;
+      file: string;
+      labels: string[];
+    }[]
+  > {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_NODES_WITHOUT_EMBEDDINGS_QUERY, {
+        limit: neo4j.int(limit),
+        repo_paths: repo_paths || [],
+        file_paths,
+      });
+      return result.records.map((record) => ({
+        ref_id: record.get("ref_id"),
+        description: record.get("description") || "",
+        name: record.get("name") || "",
+        body: record.get("body") || "",
+        file: record.get("file") || "",
+        labels: record.get("labels") || [],
+      }));
+    } finally {
+      await session.close();
+    }
+  }
+
   async bulk_update_embeddings(
     batch: { ref_id: string; embeddings: number[] }[],
   ) {

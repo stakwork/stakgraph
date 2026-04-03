@@ -7,7 +7,36 @@ import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import PQueueModule from "p-queue";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
+import { shouldSkipDescription } from "./builtin-skips.js";
 
+const BUILTIN_DESCRIPTION_MARKER = "__builtin_or_external_symbol__";
+
+function pickNodeType(labels: string[]): string {
+  return (
+    labels.find((l) =>
+      ["Class", "Endpoint", "Request", "Function", "Datamodel", "Page", "Trait", "Var"].includes(l),
+    ) || "Node"
+  );
+}
+
+function embeddingTextFromNode(input: {
+  labels?: string[];
+  name?: string;
+  docs?: string;
+  body?: string;
+  description?: string;
+}) {
+  const description = (input.description || "").trim();
+  if (description && description !== BUILTIN_DESCRIPTION_MARKER) {
+    return description.slice(0, 3000);
+  }
+  const nodeType = pickNodeType(input.labels || []);
+  const name = (input.name || "Unknown").trim();
+  const docs = (input.docs || "").trim();
+  const body = (input.body || "").trim();
+  const bodySlice = body.slice(0, 2500);
+  return `${nodeType}: ${name}\n${docs ? `Docs: ${docs}\n` : ""}${bodySlice}`;
+}
 
 
 function extractRepoPaths(repo_url?: string): string[] | null {
@@ -95,11 +124,13 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   try {
     let totalCost = 0;
     let totalProcessed = 0;
+    let describedNodes = 0;
+    let skippedBuiltinDescriptions = 0;
+    let embeddedBuiltinNodes = 0;
     let totalTokens = { input: 0, output: 0 };
     const pricing = getTokenPricing(llm.provider);
     const model = llm.model;
 
-    // Loop until cost limit reached or no more nodes
     while (true) {
       if (totalCost >= cost_limit) {
         console.log(
@@ -118,8 +149,12 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         break;
       }
 
-      console.log(
-        `[describe_nodes] Processing batch of ${nodes.length} nodes...`,
+      const candidates = nodes.filter((node) => !!node.ref_id);
+      const builtinNodes = candidates.filter((node) =>
+        shouldSkipDescription(node.properties.name || "", node.properties.file || "", node.labels || []),
+      );
+      const llmNodes = candidates.filter(
+        (node) => !shouldSkipDescription(node.properties.name || "", node.properties.file || "", node.labels || []),
       );
 
       asyncReqs.updateReq(request_id, {
@@ -127,13 +162,13 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         total_cost: totalCost,
         total_tokens: totalTokens,
         current_batch_size: nodes.length,
+        llm_batch_size: llmNodes.length,
+        builtin_batch_size: builtinNodes.length,
       });
 
-      // Fan out LLM calls in parallel with concurrency cap
       const queue = new PQueue({ concurrency });
       type NodeResult = {
         ref_id: string;
-        name: string;
         text: string;
         inputTokens: number;
         outputTokens: number;
@@ -142,23 +177,10 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
       const results: NodeResult[] = [];
 
       await queue.addAll(
-        nodes
-          .filter((node) => !!node.ref_id)
+        llmNodes
           .map((node) => async () => {
             if (totalCost >= cost_limit) return;
-            const nodeType =
-              node.labels.find((l) =>
-                [
-                  "Class",
-                  "Endpoint",
-                  "Request",
-                  "Function",
-                  "Datamodel",
-                  "Page",
-                  "Trait",
-                  "Var",
-                ].includes(l),
-              ) || "Node";
+            const nodeType = pickNodeType(node.labels || []);
             const content = node.properties.body || "";
             const existingDocs = node.properties.docs || "";
             const name = node.properties.name || "Unknown";
@@ -178,12 +200,8 @@ ${content.slice(0, 2000)}`;
                 ((usage.outputTokens || 0) / 1000000) *
                 pricing.outputTokenPrice;
               const cost = inputCost + outputCost;
-              console.log(
-                `[describe_nodes] LLM done: ${name} ($${cost.toFixed(6)})`,
-              );
               results.push({
                 ref_id: node.ref_id!,
-                name,
                 text,
                 inputTokens: usage.inputTokens || 0,
                 outputTokens: usage.outputTokens || 0,
@@ -195,14 +213,43 @@ ${content.slice(0, 2000)}`;
           }),
       );
 
-      // Accumulate costs
       for (const r of results) {
         totalCost += r.cost;
         totalTokens.input += r.inputTokens;
         totalTokens.output += r.outputTokens;
       }
+      describedNodes += results.length;
 
-      // Bulk write to Neo4j
+      if (builtinNodes.length > 0) {
+        if (do_embed) {
+          const builtinTexts = builtinNodes.map((n) =>
+            embeddingTextFromNode({
+              labels: n.labels,
+              name: n.properties.name,
+              docs: n.properties.docs,
+              body: n.properties.body,
+            }),
+          );
+          const builtinEmbeddings = await vectorizeBatch(builtinTexts);
+          await db.bulk_update_descriptions_and_embeddings(
+            builtinNodes.map((n, i) => ({
+              ref_id: n.ref_id!,
+              description: BUILTIN_DESCRIPTION_MARKER,
+              embeddings: builtinEmbeddings[i],
+            })),
+          );
+          embeddedBuiltinNodes += builtinNodes.length;
+        } else {
+          await db.bulk_update_descriptions(
+            builtinNodes.map((n) => ({
+              ref_id: n.ref_id!,
+              description: BUILTIN_DESCRIPTION_MARKER,
+            })),
+          );
+        }
+        skippedBuiltinDescriptions += builtinNodes.length;
+      }
+
       if (results.length > 0) {
         if (do_embed) {
           const texts = results.map((r) => r.text);
@@ -219,17 +266,20 @@ ${content.slice(0, 2000)}`;
             results.map((r) => ({ ref_id: r.ref_id, description: r.text })),
           );
         }
-        totalProcessed += results.length;
       }
+      totalProcessed += results.length + builtinNodes.length;
 
       console.log(
-        `[describe_nodes] Batch done. total_processed=${totalProcessed} total_cost=$${totalCost.toFixed(6)} budget_remaining=$${(cost_limit - totalCost).toFixed(6)}`,
+        `[describe_nodes] batch: fetched=${nodes.length} llm=${llmNodes.length} builtin=${builtinNodes.length} processed_total=${totalProcessed} cost_total=$${totalCost.toFixed(6)} budget_remaining=$${Math.max(0, cost_limit - totalCost).toFixed(6)}`,
       );
     }
 
     const result = {
       success: true,
       processed: totalProcessed,
+      described_nodes: describedNodes,
+      skipped_builtin_descriptions: skippedBuiltinDescriptions,
+      embedded_builtin_nodes: embeddedBuiltinNodes,
       total_cost: totalCost,
       total_tokens: totalTokens,
       usage: {
@@ -283,9 +333,11 @@ export const embed_nodes_agent = async (req: Request, res: Response) => {
 
   try {
     let totalProcessed = 0;
+    let embeddedFromDescriptions = 0;
+    let embeddedFromCode = 0;
 
     while (true) {
-      const nodes = await db.get_nodes_with_description_without_embeddings(
+      const nodes = await db.get_nodes_without_embeddings(
         batch_size,
         repo_paths,
         file_paths,
@@ -302,7 +354,23 @@ export const embed_nodes_agent = async (req: Request, res: Response) => {
         current_batch_size: nodes.length,
       });
 
-      const texts = nodes.map((n) => n.description);
+      const texts = nodes.map((n) => {
+        const useDescription =
+          !!n.description &&
+          n.description.trim().length > 0 &&
+          n.description !== BUILTIN_DESCRIPTION_MARKER;
+        if (useDescription) {
+          embeddedFromDescriptions += 1;
+        } else {
+          embeddedFromCode += 1;
+        }
+        return embeddingTextFromNode({
+          labels: n.labels,
+          name: n.name,
+          body: n.body,
+          description: n.description,
+        });
+      });
       const embeddings = await vectorizeBatch(texts);
 
       const batch = nodes.map((n, i) => ({
@@ -313,10 +381,17 @@ export const embed_nodes_agent = async (req: Request, res: Response) => {
       await db.bulk_update_embeddings(batch);
       totalProcessed += nodes.length;
 
-      console.log(`[embed_nodes] Embedded ${totalProcessed} nodes so far.`);
+      console.log(
+        `[embed_nodes] batch: size=${nodes.length} from_description=${embeddedFromDescriptions} from_code=${embeddedFromCode} processed_total=${totalProcessed}`,
+      );
     }
 
-    const result = { success: true, processed: totalProcessed };
+    const result = {
+      success: true,
+      processed: totalProcessed,
+      embedded_from_descriptions: embeddedFromDescriptions,
+      embedded_from_code: embeddedFromCode,
+    };
     console.log(`[embed_nodes] Finished. ${JSON.stringify(result)}`);
     asyncReqs.finishReq(request_id, result);
   } catch (error: any) {
