@@ -19,9 +19,9 @@ export const SearchSchema = z.object({
   concise: z
     .boolean()
     .optional()
-    .default(false)
+    .default(true)
     .describe(
-      "Whether to return a concise response (only the name and filename)."
+      "Whether to return a concise response (only the name and filename). Set to false to include full code body."
     ),
   node_types: z
     .array(z.enum(relevant_node_types() as [string, ...string[]]))
@@ -30,12 +30,12 @@ export const SearchSchema = z.object({
   limit: z
     .number()
     .optional()
-    .default(25)
+    .default(10)
     .describe("Limit the number of results."),
   max_tokens: z
     .number()
     .optional()
-    .default(100000)
+    .default(15000)
     .describe("Limit the number of tokens."),
   language: z
     .string()

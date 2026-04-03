@@ -29,7 +29,6 @@ type SearchResult = {
 };
 
 type SearchSortBy = "relevance" | "pagerank";
-
 type EmbeddingsStatusResponse = {
   status: "none" | "partial" | "ready";
   embeddings_count: number;
@@ -110,7 +109,6 @@ export function LayerTogglePanel() {
   const { disabledLayers, toggleLayer } = useLayerVisibility();
   const { data: embeddingsStatus } =
     useApi<EmbeddingsStatusResponse>("/embeddings_status");
-
   const qualityStatus = embeddingsStatus?.status || "none";
 
   const embeddingsHintText =
@@ -333,7 +331,6 @@ export function LayerTogglePanel() {
                   PageRank
                 </button>
               </div>
-
               {resultNodeTypes.length > 0 && (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                   <button
