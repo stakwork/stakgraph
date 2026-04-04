@@ -176,13 +176,7 @@ fn collect_md_files(root: &Path) -> Vec<PathBuf> {
 async fn render_file_summary(file_path: &Path) -> Option<String> {
     let lang = Language::from_path(file_path.to_str()?)?;
     let ast_lang = Lang::from_language(lang);
-    let repo = Repo::from_single_file(
-        file_path.to_str()?,
-        ast_lang,
-        false,
-        false,
-        false,
-    )
+    let repo = Repo::from_single_file(file_path.to_str()?, ast_lang, false, false)
     .ok()?;
 
     let graph = Repos(vec![repo]).build_graphs_array().await.ok()?;

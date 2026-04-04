@@ -1151,6 +1151,7 @@ class Db {
     limit: number,
     repo_paths: string[] | null,
     file_paths: string[],
+    skip_tests: boolean = true,
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
@@ -1158,6 +1159,7 @@ class Db {
         limit: neo4j.int(limit),
         repo_paths: repo_paths || [],
         file_paths,
+        skip_tests,
       });
       return result.records.map((record) => ({
         properties: record.get("properties"),

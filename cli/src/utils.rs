@@ -109,7 +109,6 @@ pub async fn build_graph_for_files_with_options(
                 lang,
                 allow_unverified_calls,
                 false,
-                false,
             )?);
         } else {
             for file_path in file_list {
@@ -118,7 +117,6 @@ pub async fn build_graph_for_files_with_options(
                     file_path,
                     file_lang,
                     allow_unverified_calls,
-                    false,
                     false,
                 )?);
             }

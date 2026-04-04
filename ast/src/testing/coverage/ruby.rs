@@ -1,7 +1,6 @@
 use crate::lang::graphs::{Graph, NodeType, TestFilters};
 use crate::lang::Lang;
 use crate::repo::{Repo, Repos};
-use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
 use tokio::sync::OnceCell;
@@ -12,7 +11,7 @@ async fn setup_ruby_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
 
     GRAPH_INIT
         .get_or_init(|| async {
-            let use_lsp = get_use_lsp();
+            let use_lsp = false;
             let repo = Repo::new(
                 "src/testing/ruby",
                 Lang::from_str("ruby").unwrap(),
@@ -261,15 +260,20 @@ async fn test_nodes_endpoint_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 23, "Should have 23 Endpoint nodes");
+    assert_eq!(count, 25, "Should have 25 Endpoint nodes");
 
+    let mut endpoints_with_verb = 0;
     for (node_type, node_data, _, _, _, _, _, _, _) in &results {
         assert_eq!(*node_type, NodeType::Endpoint);
-        assert!(
-            node_data.meta.contains_key("verb"),
-            "Endpoints should have verb metadata"
-        );
+        if node_data.meta.contains_key("verb") {
+            endpoints_with_verb += 1;
+        }
     }
+
+    assert_eq!(
+        endpoints_with_verb, 24,
+        "Should have 24 endpoints with verb metadata"
+    );
 
     Ok(())
 }

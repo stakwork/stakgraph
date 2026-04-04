@@ -290,29 +290,54 @@ fn find_nested_function_in_variable<G: Graph>(
     var_name: &str,
     func_name: &str,
     graph: &G,
-    _current_file: &str,
+    current_file: &str,
 ) -> Option<NodeData> {
-    let var_nodes = graph.find_nodes_by_name(NodeType::Var, var_name);
+    let mut var_nodes: Vec<NodeData> = graph
+        .find_nodes_by_name(NodeType::Var, var_name)
+        .into_iter()
+        .filter(|v| v.file == current_file)
+        .collect();
+    if var_nodes.is_empty() {
+        var_nodes = graph.find_nodes_by_name(NodeType::Var, var_name);
+    }
     if var_nodes.is_empty() {
         return None;
     }
 
-    let func_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+    let mut func_nodes: Vec<NodeData> = graph
+        .find_nodes_by_name(NodeType::Function, func_name)
+        .into_iter()
+        .filter(|f| f.file == current_file)
+        .collect();
     if func_nodes.is_empty() {
-        return None;
+        func_nodes = graph.find_nodes_by_name(NodeType::Function, func_name);
+    }
+    if func_nodes.is_empty() {
+        return var_nodes.into_iter().next();
     }
 
-    for func in func_nodes.clone() {
+    for var in &var_nodes {
+        if let Some(func) = func_nodes
+            .iter()
+            .filter(|f| f.file == var.file && f.start > var.start && f.end < var.end)
+            .min_by_key(|f| (f.end.saturating_sub(f.start), f.start))
+        {
+            return Some(func.clone());
+        }
+    }
+
+    for func in &func_nodes {
         if let Some(nested_in) = func.meta.get("nested_in") {
-            let n = crate::lang::parse::utils::trim_quotes(nested_in);
-            let v = crate::lang::parse::utils::trim_quotes(var_name);
-            if n == v {
-                return Some(func);
+            let nested_name = trim_quotes(nested_in);
+            let var_name = trim_quotes(var_name);
+            if nested_name == var_name {
+                return Some(func.clone());
             }
         }
     }
 
-    None
+    // Fall back to the parent Var when no nested function can be resolved directly.
+    var_nodes.into_iter().next()
 }
 
 fn find_function_in_same_file<G: Graph>(

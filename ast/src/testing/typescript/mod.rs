@@ -101,7 +101,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(functions.len(), 38, "Expected 38 functions with LSP");
     } else {
-        assert_eq!(functions.len(), 65, "Expected 65 functions without LSP");
+        assert_eq!(functions.len(), 64, "Expected 64 functions without LSP");
     }
 
     let log_fn = functions
@@ -282,7 +282,11 @@ import {{ sequelize }} from "./config.js";"#
     let calls_edges_count = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges_count;
 
-    assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
+    if cfg!(feature = "neo4j") {
+        assert_eq!(calls_edges_count, 14, "Expected 14 calls edges");
+    } else {
+        assert_eq!(calls_edges_count, 18, "Expected 18 calls edges");
+    }
 
     let data_models = graph.find_nodes_by_type(NodeType::DataModel);
     nodes_count += data_models.len();
@@ -320,7 +324,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 220, "Expected 220 contains edges");
+    assert_eq!(contains, 219, "Expected 219 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -343,7 +347,7 @@ import {{ sequelize }} from "./config.js";"#
     if use_lsp {
         assert_eq!(handlers, 8, "Expected 8 handler edges with LSP");
     } else {
-        assert_eq!(handlers, 22, "Expected 22 handler edges without LSP");
+        assert_eq!(handlers, 21, "Expected 21 handler edges without LSP");
     }
 
     let create_person_fn = functions

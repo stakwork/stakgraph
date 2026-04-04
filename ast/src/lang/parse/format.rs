@@ -507,8 +507,8 @@ impl Lang {
         if let Some(graph) = graph {
             if self.lang().use_handler_finder() {
                 // find handler manually (not LSP)
-                return Ok(self.lang().handler_finder(
-                    endp,
+                let result = self.lang().handler_finder(
+                    endp.clone(),
                     &|handler, suffix| {
                         graph.find_node_by_name_and_file_end_with(
                             NodeType::Function,
@@ -518,7 +518,11 @@ impl Lang {
                     },
                     &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                     params,
-                ));
+                );
+                if result.is_empty() {
+                    return Ok(vec![(endp, None)]);
+                }
+                return Ok(result);
             } else {
                 // here find the handler using LSP!
                 if let Some(handler_name) = endp.meta.get("handler") {
@@ -545,7 +549,7 @@ impl Lang {
                     } else {
                         // FALLBACK to find?
                         let import_names = get_imports_for_file(file, self, graph);
-                        return Ok(self.lang().handler_finder(
+                        let result = self.lang().handler_finder(
                             endp.clone(),
                             &|handler_name, _suffix| {
                                 node_data_finder(
@@ -561,7 +565,11 @@ impl Lang {
                             },
                             &|file| graph.find_nodes_by_file_ends_with(NodeType::Function, file),
                             params,
-                        ));
+                        );
+                        if result.is_empty() {
+                            return Ok(vec![(endp, None)]);
+                        }
+                        return Ok(result);
                     }
                 }
             }

@@ -165,8 +165,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            197,
-            "Expected 197 Function nodes without LSP, found {}",
+            125,
+            "Expected 125 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -288,15 +288,15 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     edges += calls;
 
     if use_lsp {
-        assert_eq!(calls, 303, "Expected 303 Calls edges");
+        assert_eq!(calls, 230, "Expected 230 Calls edges");
     } else {
         #[cfg(not(feature = "neo4j"))]
-        assert_eq!(calls, 233, "Expected 233 Calls edges");
+        assert_eq!(calls, 220, "Expected 220 Calls edges");
     }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 565, "Expected 565 Contains edges");
+    assert_eq!(contains, 477, "Expected 477 Contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -505,7 +505,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
-    assert_eq!(nested_in, 93, "Expected 93 NestedIn edges");
+    assert_eq!(nested_in, 0, "Expected 0 NestedIn edges");
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;

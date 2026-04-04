@@ -22,9 +22,6 @@ pub struct CliArgs {
     #[arg(long = "skip-calls", action = ArgAction::SetTrue)]
     pub skip_calls: bool,
 
-    /// Exclude nodes nested inside other nodes
-    #[arg(long = "no-nested", action = ArgAction::SetTrue)]
-    pub no_nested: bool,
 
     /// Suppress all logs except errors (overrides RUST_LOG)
     #[arg(long, short = 'q', action = ArgAction::SetTrue)]

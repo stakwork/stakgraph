@@ -9,7 +9,7 @@ fn smoke_traits_rs_exact_counts() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(count_prefix(&out.stdout, "Function:"), 12);
-    assert_eq!(count_prefix(&out.stdout, "Datamodel:"), 5);
+    assert_eq!(count_prefix(&out.stdout, "Datamodel:"), 4);
     assert_eq!(count_prefix(&out.stdout, "Trait:"), 4);
 
     let test_nodes = count_prefix(&out.stdout, "UnitTest:") + count_prefix(&out.stdout, "IntegrationTest:");
@@ -17,9 +17,9 @@ fn smoke_traits_rs_exact_counts() {
 }
 
 #[test]
-fn no_nested_removes_item_datamodel_exactly() {
+fn default_prunes_item_datamodel_exactly() {
     let traits = fixture_path("src/testing/rust/src/traits.rs");
-    let out = run_stakgraph(&["--no-nested", &traits]);
+    let out = run_stakgraph(&[&traits]);
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(count_prefix(&out.stdout, "Function:"), 12);

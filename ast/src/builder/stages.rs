@@ -246,7 +246,6 @@ impl Repo {
         let lang = &self.lang;
         let graph_ref = &*graph;
 
-        let no_nested = self.no_nested;
         let results: Vec<_> = process_files(
             filez,
             use_parallel,
@@ -263,10 +262,10 @@ impl Repo {
                 true
             },
             |(filename, code)| {
-                let mut structs = lang.get_data_models::<G>(code, filename)?;
-                if no_nested {
-                    structs = lang.filter_nested_datamodels(code, structs);
-                }
+                let structs = lang.filter_nested_datamodels(
+                    code,
+                    lang.get_data_models::<G>(code, filename)?,
+                );
                 let mut all_edges = Vec::new();
                 for dm in &structs {
                     let edges = lang.collect_class_contains_datamodel_edge(dm, graph_ref)?;
@@ -282,23 +281,19 @@ impl Repo {
                 self.send_status_progress(i, total, 10);
             }
 
-            let structs = if self.no_nested {
-                let containers: Vec<NodeData> = graph
-                    .find_nodes_by_type(NodeType::Trait)
-                    .into_iter()
-                    .chain(graph.find_nodes_by_type(NodeType::Class))
-                    .collect();
-                structs
-                    .into_iter()
-                    .filter(|dm| {
-                        !containers
-                            .iter()
-                            .any(|c| c.file == dm.file && dm.start > c.start && dm.end < c.end)
-                    })
-                    .collect()
-            } else {
-                structs
-            };
+            let containers: Vec<NodeData> = graph
+                .find_nodes_by_type(NodeType::Trait)
+                .into_iter()
+                .chain(graph.find_nodes_by_type(NodeType::Class))
+                .collect();
+            let structs = structs
+                .into_iter()
+                .filter(|dm| {
+                    !containers
+                        .iter()
+                        .any(|c| c.file == dm.file && dm.start > c.start && dm.end < c.end)
+                })
+                .collect::<Vec<_>>();
 
             datamodel_count += structs.len();
 
@@ -352,25 +347,21 @@ impl Repo {
                 self.send_status_progress(i, total, 11);
             }
 
-            let funcs = if self.no_nested {
-                let nested: HashSet<(String, usize, usize)> = funcs
-                    .iter()
-                    .filter(|(child, ..)| {
-                        funcs.iter().any(|(parent, ..)| {
-                            child.file == parent.file
-                                && child.start > parent.start
-                                && child.end < parent.end
-                        })
+            let nested: HashSet<(String, usize, usize)> = funcs
+                .iter()
+                .filter(|(child, ..)| {
+                    funcs.iter().any(|(parent, ..)| {
+                        child.file == parent.file
+                            && child.start > parent.start
+                            && child.end < parent.end
                     })
-                    .map(|(nd, ..)| (nd.file.clone(), nd.start, nd.end))
-                    .collect();
-                funcs
-                    .into_iter()
-                    .filter(|(nd, ..)| !nested.contains(&(nd.file.clone(), nd.start, nd.end)))
-                    .collect()
-            } else {
-                funcs
-            };
+                })
+                .map(|(nd, ..)| (nd.file.clone(), nd.start, nd.end))
+                .collect();
+            let funcs = funcs
+                .into_iter()
+                .filter(|(nd, ..)| !nested.contains(&(nd.file.clone(), nd.start, nd.end)))
+                .collect::<Vec<_>>();
 
             function_count += funcs.len();
             graph.add_functions(&funcs);
@@ -562,7 +553,10 @@ impl Repo {
         info!("=> process endpoints and groups Results...");
 
         let mut all_endpoint_groups = Vec::new();
-        for (endpoints, endpoint_groups) in results {
+        for (mut endpoints, endpoint_groups) in results {
+            // Sort so entries with handler edges come before anonymous (None) entries,
+            // guaranteeing named-handler matches are processed before anonymous matches.
+            endpoints.sort_by_key(|(_, h)| if h.is_some() { 0usize } else { 1 });
             graph.add_endpoints(&endpoints);
             all_endpoint_groups.extend(endpoint_groups);
         }

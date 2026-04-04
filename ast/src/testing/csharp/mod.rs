@@ -186,7 +186,7 @@ pub async fn test_csharp_generic<G: Graph + Sync>() -> Result<()> {
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
-    assert_eq!(datamodels.len(), 19, "Expected 19 DataModel nodes");
+    assert_eq!(datamodels.len(), 4, "Expected 4 DataModel nodes");
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
@@ -202,17 +202,17 @@ pub async fn test_csharp_generic<G: Graph + Sync>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    // BTreeMapGraph produces slightly fewer call edges (208) than ArrayGraph (212)
+    // BTreeMapGraph produces slightly fewer call edges than ArrayGraph
     // likely due to iteration order differences in resolution logic
     if std::any::type_name::<G>().contains("ArrayGraph") {
-        assert_eq!(calls, 212, "Expected 212 Calls edges for ArrayGraph");
+        assert_eq!(calls, 398, "Expected 398 Calls edges for ArrayGraph");
     } else {
-        assert_eq!(calls, 208, "Expected 208 Calls edges for BTreeMapGraph");
+        assert_eq!(calls, 398, "Expected 398 Calls edges for BTreeMapGraph");
     }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 1523, "Expected 1523 Contains edges");
+    assert_eq!(contains, 1508, "Expected 1508 Contains edges");
 
     let parent_of = graph.count_edges_of_type(EdgeType::ParentOf);
     edges += parent_of;
