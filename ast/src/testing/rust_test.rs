@@ -279,34 +279,43 @@ use std::net::SocketAddr;"#
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert!(endpoints.len() >= 21, "Expected at least 21 endpoints");
+    assert_eq!(endpoints.len(), 21, "Expected 21 endpoints");
 
     let imported_edges = graph.count_edges_of_type(EdgeType::Imports);
     edges_count += imported_edges;
-    assert!(imported_edges >= 9, "Expected at least 9 import edges");
+    assert_eq!(imported_edges, 10, "Expected 10 import edges");
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert!(
-        contains_edges >= 262,
-        "Expected at least 262 contains edges"
-    );
+    if cfg!(feature = "neo4j") {
+        assert_eq!(contains_edges, 305, "Expected 305 contains edges");
+    } else {
+        assert_eq!(contains_edges, 306, "Expected 306 contains edges");
+    }
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
-    assert!(of_edges >= 1, "Expected at least 1 of edges");
+    assert_eq!(of_edges, 1, "Expected 1 of edges");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += calls_edges;
-    assert!(calls_edges >= 84, "Expected at least 84 calls edges");
+    if cfg!(feature = "neo4j") {
+        assert_eq!(calls_edges, 90, "Expected 90 calls edges");
+    } else {
+        assert_eq!(calls_edges, 91, "Expected 91 calls edges");
+    }
 
     let operand_calls = graph.count_edges_of_type(EdgeType::Operand);
-    assert!(operand_calls >= 18, "Expected at least 18 Operand edges");
+    if cfg!(feature = "neo4j") {
+        assert_eq!(operand_calls, 22, "Expected 22 Operand edges");
+    } else {
+        assert_eq!(operand_calls, 25, "Expected 25 Operand edges");
+    }
     edges_count += operand_calls;
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert!(functions.len() >= 78, "Expected at least 78 functions");
+    assert_eq!(functions.len(), 91, "Expected 91 functions");
 
     let macros: Vec<_> = functions
         .iter()
@@ -419,30 +428,27 @@ use std::net::SocketAddr;"#
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     nodes_count += unit_tests.len();
-    assert!(unit_tests.len() >= 43, "Expected at least 43 unit tests");
+    assert_eq!(unit_tests.len(), 43, "Expected 43 unit tests");
 
     let integration_tests = graph.find_nodes_by_type(NodeType::IntegrationTest);
     nodes_count += integration_tests.len();
-    assert!(
-        integration_tests.len() >= 17,
-        "Expected at least 17 integration tests"
-    );
+    assert_eq!(integration_tests.len(), 17, "Expected 17 integration tests");
 
     let e2e_tests = graph.find_nodes_by_type(NodeType::E2eTest);
     nodes_count += e2e_tests.len();
-    assert!(e2e_tests.len() >= 8, "Expected at least 8 e2e tests");
+    assert_eq!(e2e_tests.len(), 8, "Expected 8 e2e tests");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert!(handlers >= 21, "Expected at least 21 handler edges");
+    assert_eq!(handlers, 18, "Expected 18 handler edges");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;
-    assert!(implements >= 2, "Expected at least 2 implements edges");
+    assert_eq!(implements, 2, "Expected 2 implements edges");
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges_count += nested_in;
-    assert!(nested_in >= 3, "Expected at least 3 NestedIn edges");
+    assert_eq!(nested_in, 0, "Expected 0 NestedIn edges");
 
     let get_person_fn = functions
         .iter()
@@ -778,71 +784,37 @@ use std::net::SocketAddr;"#
         "Expected '/admin/users/{{id}}' DELETE endpoint to be handled by delete_user (cross-file)"
     );
 
-    // Verify anonymous closures
-    let anon_get_handler = functions
-        .iter()
-        .find(|f| {
-            f.name.contains("GET_anon-get_closure") && f.file.ends_with("anonymous_routes.rs")
-        })
-        .expect("Anonymous GET closure handler not found");
-
-    let anon_post_handler = functions
-        .iter()
-        .find(|f| {
-            f.name.contains("POST_anon-post_closure") && f.file.ends_with("anonymous_routes.rs")
-        })
-        .expect("Anonymous POST closure handler not found");
-
-    let anon_move_handler = functions
-        .iter()
-        .find(|f| {
-            f.name.contains("GET_anon-move_closure") && f.file.ends_with("anonymous_routes.rs")
-        })
-        .expect("Anonymous move closure handler not found");
-
     let anon_get_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/anon-get" && e.file.ends_with("anonymous_routes.rs"))
+        .find(|e| e.name == "/anon-get" && e.file.ends_with("src/routes/anonymous_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
-        .expect("Anonymous GET endpoint not found");
+        .expect("GET /anon-get anonymous endpoint not found in anonymous_routes.rs");
+    assert_eq!(
+        anon_get_endpoint.node_data.meta.get("verb"),
+        Some(&"GET".to_string()),
+        "Expected /anon-get to have verb GET"
+    );
 
     let anon_post_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/anon-post" && e.file.ends_with("anonymous_routes.rs"))
+        .find(|e| e.name == "/anon-post" && e.file.ends_with("src/routes/anonymous_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
-        .expect("Anonymous POST endpoint not found");
+        .expect("POST /anon-post anonymous endpoint not found in anonymous_routes.rs");
+    assert_eq!(
+        anon_post_endpoint.node_data.meta.get("verb"),
+        Some(&"POST".to_string()),
+        "Expected /anon-post to have verb POST"
+    );
 
     let anon_move_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/anon-move" && e.file.ends_with("anonymous_routes.rs"))
+        .find(|e| e.name == "/anon-move" && e.file.ends_with("src/routes/anonymous_routes.rs"))
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
-        .expect("Anonymous move endpoint not found");
-
-    assert!(
-        graph.has_edge(
-            &anon_get_endpoint,
-            &Node::new(NodeType::Function, anon_get_handler.clone()),
-            EdgeType::Handler
-        ),
-        "Expected anonymous GET endpoint to link to closure handler"
-    );
-
-    assert!(
-        graph.has_edge(
-            &anon_post_endpoint,
-            &Node::new(NodeType::Function, anon_post_handler.clone()),
-            EdgeType::Handler
-        ),
-        "Expected anonymous POST endpoint to link to closure handler"
-    );
-
-    assert!(
-        graph.has_edge(
-            &anon_move_endpoint,
-            &Node::new(NodeType::Function, anon_move_handler.clone()),
-            EdgeType::Handler
-        ),
-        "Expected anonymous move endpoint to link to closure handler"
+        .expect("GET /anon-move anonymous endpoint not found in anonymous_routes.rs");
+    assert_eq!(
+        anon_move_endpoint.node_data.meta.get("verb"),
+        Some(&"GET".to_string()),
+        "Expected /anon-move to have verb GET"
     );
 
     let init_db_fn = functions
@@ -953,10 +925,10 @@ async fn test_rust() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_rust_no_nested_removes_nested_nodes() {
+async fn test_rust_nested_nodes_are_pruned_by_default() {
     use crate::lang::graphs::ArrayGraph;
 
-    let mut repo = Repo::new(
+    let repo = Repo::new(
         "src/testing/rust",
         Lang::from_str("rust").unwrap(),
         false,
@@ -964,7 +936,6 @@ async fn test_rust_no_nested_removes_nested_nodes() {
         Vec::new(),
     )
     .unwrap();
-    repo.no_nested = true;
 
     let graph = repo.build_graph_inner::<ArrayGraph>().await.unwrap();
 
@@ -977,7 +948,7 @@ async fn test_rust_no_nested_removes_nested_nodes() {
     let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
 
     println!(
-        "[test-no-nested] datamodels={} item_aliases={} nested_in_edges={}",
+        "[test-default-pruning] datamodels={} item_aliases={} nested_in_edges={}",
         data_models.len(),
         nested_item_aliases,
         nested_in_edges
@@ -985,11 +956,11 @@ async fn test_rust_no_nested_removes_nested_nodes() {
 
     assert_eq!(
         nested_item_aliases, 0,
-        "Expected nested associated type aliases to be removed when no_nested is enabled"
+        "Expected nested associated type aliases to be removed by default"
     );
     assert_eq!(
         nested_in_edges, 0,
-        "Expected no NestedIn edges when no_nested is enabled"
+        "Expected no NestedIn edges by default"
     );
     assert!(
         data_models

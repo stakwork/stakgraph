@@ -9,7 +9,7 @@ fn smoke_routes_cpp_exact_counts() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(count_prefix(&out.stdout, "Import:"), 1);
-    assert_eq!(count_prefix(&out.stdout, "Function:"), 5);
+    assert_eq!(count_prefix(&out.stdout, "Function:"), 3);
     assert_eq!(count_prefix(&out.stdout, "Endpoint:"), 2);
     assert_eq!(count_prefix(&out.stdout, "  → "), 2);
 }

@@ -209,7 +209,6 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
     let (files, dir_files) = expand_dirs(&cli.files)?;
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
-    let no_nested = cli.no_nested;
     let node_types = parse_node_types(&cli.r#type)?;
 
     let mut files_by_lang: Vec<(Language, Vec<String>)> = Vec::new();
@@ -307,7 +306,6 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
                 lang,
                 allow_unverified_calls,
                 skip_calls,
-                no_nested,
             )?;
             repos_vec.push(repo);
         } else {
@@ -318,7 +316,6 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
                     file_lang,
                     allow_unverified_calls,
                     skip_calls,
-                    no_nested,
                 )?;
                 repos_vec.push(repo);
             }

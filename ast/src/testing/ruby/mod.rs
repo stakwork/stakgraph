@@ -129,7 +129,7 @@ pub async fn test_ruby_generic<G: Graph + Sync>() -> Result<()> {
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
-    assert_eq!(endpoints.len(), 23, "Expected 23 endpoints");
+    assert_eq!(endpoints.len(), 25, "Expected 25 endpoints");
 
     let mut sorted_endpoints = endpoints.clone();
     sorted_endpoints.sort_by(|a, b| a.name.cmp(&b.name));
@@ -252,6 +252,24 @@ pub async fn test_ruby_generic<G: Graph + Sync>() -> Result<()> {
     assert_eq!(
         authors_get_endpoint.file, "src/testing/ruby/config/routes.rb",
         "Authors GET endpoint file path is incorrect"
+    );
+
+    let authors_post_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/authors" && e.meta.get("verb") == Some(&"POST".to_string()))
+        .expect("POST /authors endpoint not found");
+    assert_eq!(
+        authors_post_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Authors POST endpoint file path is incorrect"
+    );
+
+    let authors_show_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/authors/:id" && e.meta.get("verb") == Some(&"GET".to_string()))
+        .expect("GET /authors/:id endpoint not found");
+    assert_eq!(
+        authors_show_endpoint.file, "src/testing/ruby/config/routes.rb",
+        "Authors show endpoint file path is incorrect"
     );
 
     let authors_books_get_endpoint = endpoints
@@ -408,9 +426,9 @@ pub async fn test_ruby_generic<G: Graph + Sync>() -> Result<()> {
     edges_count += calls;
 
     if use_lsp {
-        assert_eq!(calls, 94, "Expected 94 call edges with lsp");
+        assert_eq!(calls, 100, "Expected 100 call edges with lsp");
     } else {
-        assert_eq!(calls, 97, "Expected 97 call edges without lsp");
+        assert_eq!(calls, 103, "Expected 103 call edges without lsp");
     }
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);

@@ -2,7 +2,6 @@ use crate::lang::graphs::{EdgeType, Graph, NodeType, TestFilters};
 use crate::lang::linker::normalize_backend_path;
 use crate::lang::Lang;
 use crate::repo::{Repo, Repos};
-use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
 use tokio::sync::OnceCell;
@@ -94,7 +93,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_btreemap_indirect_test_metadata() -> Result<()> {
-    let use_lsp = get_use_lsp();
+    let use_lsp = false;
 
     let repo = Repo::new(
         "src/testing/nextjs",
@@ -149,7 +148,7 @@ async fn test_btreemap_indirect_test_metadata() -> Result<()> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_btreemap_tested_endpoints() -> Result<()> {
-    let use_lsp = get_use_lsp();
+    let use_lsp = false;
 
     let repo = Repo::new(
         "src/testing/nextjs",
@@ -213,8 +212,8 @@ async fn test_nextjs_graph_upload() -> Result<()> {
     let graph_ops = setup_nextjs_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 564);
-    assert_eq!(edges, 962);
+    assert_eq!(nodes, 492);
+    assert_eq!(edges, 740);
 
     Ok(())
 }

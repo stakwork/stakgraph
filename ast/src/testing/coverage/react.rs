@@ -67,7 +67,7 @@ async fn test_btreemap_graph_structure() -> Result<()> {
     assert_eq!(endpoints.len(), 9);
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 61);
+    assert_eq!(functions.len(), 59);
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 3);
@@ -109,13 +109,13 @@ async fn test_btreemap_edges() -> Result<()> {
     assert_eq!(renders_edges, 4);
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
-    assert_eq!(contains_edges, 223);
+    assert_eq!(contains_edges, 221);
 
     let handler_edges = graph.count_edges_of_type(EdgeType::Handler);
     assert_eq!(handler_edges, 9);
 
     let nested_in_edges = graph.count_edges_of_type(EdgeType::NestedIn);
-    assert_eq!(nested_in_edges, 2);
+    assert_eq!(nested_in_edges, 0);
 
     let operand_edges = graph.count_edges_of_type(EdgeType::Operand);
     assert_eq!(operand_edges, 1);
@@ -134,8 +134,8 @@ async fn test_react_graph_upload() -> Result<()> {
     // Requests(14) + Pages(4) + Variables(7) + DataModels(22) + Endpoints(5)
     // UnitTests(3) + IntegrationTests(2) + E2eTests(2) + Files(~11 TSX + others) + Dirs(14)
     // Total approx 187+. We will adjust based on actual test run.
-    assert_eq!(nodes, 219);
-    assert_eq!(edges, 283); // Derived from previous test runs matches actual output
+    assert_eq!(nodes, 217);
+    assert_eq!(edges, 277);
 
     Ok(())
 }

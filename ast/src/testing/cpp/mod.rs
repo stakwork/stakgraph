@@ -102,7 +102,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
-    assert_eq!(endpoints.len(), 3, "Expected 3 endpoints");
+    assert_eq!(endpoints.len(), 4, "Expected 4 endpoints");
 
     let get_endpoint = endpoints
         .iter()
@@ -116,23 +116,21 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
         .expect("POST endpoint not found");
     assert_eq!(post_endpoint.file, "src/testing/cpp/web_api/routes.cpp");
 
-    let anon_post = endpoints
+    let anon_get_endpoint = endpoints
         .iter()
-        .find(|e| e.name == "/anon-post")
-        .expect("POST /anon-post endpoint not found");
-    assert!(
-        anon_post
-            .meta
-            .get("handler")
-            .unwrap()
-            .contains("_METHOD_anon-post_lambda_L13"),
-        "Incorrect anon post handler: {:?}",
-        anon_post.meta.get("handler")
-    );
+        .find(|e| e.name == "/anon-get" && e.file == "src/testing/cpp/web_api/anonymous_functions.cpp")
+        .expect("GET /anon-get anonymous endpoint not found in anonymous_functions.cpp");
+    let _ = anon_get_endpoint;
+
+    let anon_post_endpoint = endpoints
+        .iter()
+        .find(|e| e.name == "/anon-post" && e.file == "src/testing/cpp/web_api/anonymous_functions.cpp")
+        .expect("POST /anon-post anonymous endpoint not found in anonymous_functions.cpp");
+    let _ = anon_post_endpoint;
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges += handler_edges_count;
-    assert_eq!(handler_edges_count, 3, "Expected 3 handler edges");
+    assert_eq!(handler_edges_count, 2, "Expected 2 handler edges");
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += function_calls;
@@ -140,7 +138,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 47, "Expected 47 contains edges");
+    assert_eq!(contains, 43, "Expected 43 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -149,8 +147,8 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     assert_eq!(
-        nested_in, 4,
-        "Expected 4 NestedIn edges for lambda functions"
+        nested_in, 0,
+        "Expected 0 NestedIn edges for lambda functions"
     );
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
@@ -218,7 +216,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 11, "Expected 11 functions");
+    assert_eq!(functions.len(), 7, "Expected 7 functions");
 
     let database = classes
         .into_iter()

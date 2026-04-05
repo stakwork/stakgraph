@@ -261,7 +261,7 @@ pub async fn test_php_generic<G: Graph + Sync>() -> Result<()> {
 
     let calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += calls;
-    assert_eq!(calls, 6, "Expected 6 Calls edges");
+    assert_eq!(calls, 7, "Expected 7 Calls edges");
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;

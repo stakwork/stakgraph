@@ -9,7 +9,7 @@ fn smoke_routes_go_exact_counts() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(count_prefix(&out.stdout, "Function:"), 4);
-    assert_eq!(count_prefix(&out.stdout, "Endpoint:"), 2);
+    assert_eq!(count_prefix(&out.stdout, "Endpoint:"), 4);
     assert_eq!(count_prefix(&out.stdout, "  → "), 2);
 }
 
@@ -25,20 +25,14 @@ fn routes_go_contains_exact_named_nodes() {
 }
 
 #[test]
-fn no_nested_filters_nested_functions_exactly() {
+fn default_prunes_nested_functions_exactly() {
     let file = fixture_path("src/testing/go/anonymous_functions.go");
-    let normal = run_stakgraph(&[&file]);
-    let filtered = run_stakgraph(&["--no-nested", &file]);
+    let out = run_stakgraph(&[&file]);
 
-    assert_eq!(normal.exit_code, 0);
-    assert_eq!(filtered.exit_code, 0);
-    assert_eq!(count_prefix(&normal.stdout, "Function:"), 3);
-    assert_eq!(count_prefix(&filtered.stdout, "Function:"), 1);
-
-    assert_eq!(normal.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), true);
-    assert_eq!(normal.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), true);
-    assert_eq!(filtered.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), false);
-    assert_eq!(filtered.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), false);
+    assert_eq!(out.exit_code, 0);
+    assert_eq!(count_prefix(&out.stdout, "Function:"), 1);
+    assert_eq!(out.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), false);
+    assert_eq!(out.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), false);
 }
 
 #[test]

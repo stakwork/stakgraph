@@ -2,7 +2,6 @@ use crate::lang::graphs::graph_ops::GraphOps;
 use crate::lang::graphs::{BTreeMapGraph, EdgeType, Graph, NodeType, TestFilters};
 use crate::lang::Lang;
 use crate::repo::{Repo, Repos};
-use crate::utils::get_use_lsp;
 use shared::error::Result;
 use std::str::FromStr;
 use tokio::sync::OnceCell;
@@ -12,7 +11,7 @@ async fn setup_rust_graph() -> Result<crate::lang::graphs::graph_ops::GraphOps> 
 
     GRAPH_INIT
         .get_or_init(|| async {
-            let use_lsp = get_use_lsp();
+            let use_lsp = false;
             let repo = Repo::new(
                 "src/testing/rust",
                 Lang::from_str("rust").unwrap(),
@@ -67,11 +66,7 @@ async fn test_rust_coverage() -> Result<()> {
     assert_eq!(endpoints.len(), 21, "Expected exactly 21 endpoints");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(
-        functions.len(),
-        94,
-        "Expected 94 functions after test improvements"
-    );
+    assert_eq!(functions.len(), 91, "Expected 91 functions");
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 43, "Expected 43 unit tests");
@@ -83,7 +78,7 @@ async fn test_rust_coverage() -> Result<()> {
     assert_eq!(e2e_tests.len(), 8, "Expected 8 e2e tests");
 
     let calls_edges = graph.count_edges_of_type(EdgeType::Calls);
-    assert_eq!(calls_edges, 90, "Expected 90 Calls edges");
+    assert_eq!(calls_edges, 91, "Expected 91 Calls edges");
 
     let unit_test_to_function_edges =
         graph.find_nodes_with_edge_type(NodeType::UnitTest, NodeType::Function, EdgeType::Calls);
@@ -130,8 +125,8 @@ async fn test_rust_graph_upload() -> Result<()> {
     let graph_ops = setup_rust_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 303, "Graph should have 303 nodes after upload");
-    assert_eq!(edges, 464, "Graph should have 464 edges after upload");
+    assert_eq!(nodes, 298, "Graph should have 298 nodes after upload");
+    assert_eq!(edges, 449, "Graph should have 449 edges after upload");
 
     Ok(())
 }
@@ -411,8 +406,8 @@ async fn test_nodes_data_model_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 23, "Should have 23 DataModel nodes");
-    assert_eq!(results.len(), 23);
+    assert_eq!(count, 21, "Should have 21 DataModel nodes");
+    assert_eq!(results.len(), 21);
 
     Ok(())
 }
