@@ -8,6 +8,25 @@ import { resolveRepoUrl } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
+function getEnrichSnapshot(progressData: any) {
+  const latestUpdate =
+    progressData?.updates && progressData.updates.length > 0
+      ? progressData.updates[progressData.updates.length - 1]
+      : progressData?.progress ?? progressData?.result ?? progressData ?? {};
+
+  const totalTokens = latestUpdate?.total_tokens ?? progressData?.result?.total_tokens ?? {};
+
+  return {
+    processed: Number(latestUpdate?.processed ?? progressData?.result?.processed ?? 0),
+    total_cost: Number(latestUpdate?.total_cost ?? progressData?.result?.total_cost ?? 0),
+    current_batch_size: Number(latestUpdate?.current_batch_size ?? 0),
+    total_tokens: {
+      input: Number(totalTokens?.input ?? 0),
+      output: Number(totalTokens?.output ?? 0),
+    },
+  };
+}
+
 export function EnrichButton() {
   const [open, setOpen] = useState(false);
   const [enriching, setEnriching] = useState(false);
@@ -73,13 +92,7 @@ export function EnrichButton() {
         if (!pollRes.ok) return;
 
         const progressData = await pollRes.json();
-        
-        let latestUpdate: any = {};
-        if (progressData && progressData.updates && progressData.updates.length > 0) {
-          latestUpdate = progressData.updates[progressData.updates.length - 1];
-        } else if (progressData) {
-            latestUpdate = progressData;
-        }
+        const snapshot = getEnrichSnapshot(progressData);
 
         if (progressData.status === "failed" || progressData.status === "error") {
            clearInterval(pollInterval);
@@ -100,12 +113,16 @@ export function EnrichButton() {
             activeReqIdRef.current = null;
            setEnriching(false);
            
-           const finalCost = progressData.result?.total_cost || latestUpdate.total_cost || 0;
-           const finalProcessed = progressData.result?.processed || latestUpdate.processed || 0;
+           const finalCost = snapshot.total_cost;
+           const finalProcessed = snapshot.processed;
+           const tokenSummary =
+             snapshot.total_tokens.input > 0 || snapshot.total_tokens.output > 0
+               ? ` · tokens in ${snapshot.total_tokens.input.toLocaleString()} / out ${snapshot.total_tokens.output.toLocaleString()}`
+               : "";
 
            toast.success("Enrichment Complete", {
               id: toastId,
-              description: `Processed ${finalProcessed} nodes for $${Number(finalCost).toFixed(4)}. Reloading graph...`,
+              description: `Processed ${finalProcessed} nodes for $${Number(finalCost).toFixed(4)}${tokenSummary}. Reloading graph...`,
            });
            localStorage.removeItem("stakgraph_enrich_req_id");
 
@@ -115,15 +132,31 @@ export function EnrichButton() {
            return;
         }
 
-        // Still running - update the toast
-        const currentCost = latestUpdate.total_cost || 0;
-        const currentProcessed = latestUpdate.processed || 0;
-        
+        // Still running - update the toast from the live `progress` payload
+        const currentCost = snapshot.total_cost;
+        const currentProcessed = snapshot.processed;
+        const detailParts: string[] = [];
+
+        if (snapshot.current_batch_size > 0) {
+          detailParts.push(`Batch ${snapshot.current_batch_size}`);
+        }
+        if (snapshot.total_tokens.input > 0 || snapshot.total_tokens.output > 0) {
+          detailParts.push(
+            `Tokens in ${snapshot.total_tokens.input.toLocaleString()} / out ${snapshot.total_tokens.output.toLocaleString()}`,
+          );
+        }
+
+        const description =
+          detailParts.join(" • ") || "Generating descriptions and embeddings...";
+
         if (!toastId) {
-           toastId = toast.loading(`Enriching... Processed: ${currentProcessed} | Cost: $${Number(currentCost).toFixed(4)}`);
+           toastId = toast.loading(`Enriching... Processed: ${currentProcessed} | Cost: $${Number(currentCost).toFixed(4)}`, {
+             description,
+           });
         } else {
            toast.loading(`Enriching... Processed: ${currentProcessed} | Cost: $${Number(currentCost).toFixed(4)}`, {
               id: toastId,
+              description,
            });
         }
 

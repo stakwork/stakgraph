@@ -219,12 +219,25 @@ export const useGraphData = create<GraphDataState>((set) => ({
       if (nodeKey) nodeKeyToRefId.set(nodeKey, refId);
     }
 
-    // Add only new nodes
+    // Add new nodes and merge fresh properties into existing ones
     const nextIndex = state.data ? state.data.nodes.length : 0;
     const newNodes: NodeExtended[] = [];
     for (let i = 0; i < rawNodes.length; i++) {
       const n = rawNodes[i];
-      if (nodesMap.has(n.ref_id)) continue;
+      const existing = nodesMap.get(n.ref_id);
+      if (existing) {
+        existing.properties = {
+          ...existing.properties,
+          ...n.properties,
+        };
+        if (n.date_added_to_graph != null) {
+          existing.date_added_to_graph = n.date_added_to_graph;
+        }
+        nodesMap.set(n.ref_id, existing);
+        const existingNodeKey = n.properties?.node_key as string | undefined;
+        if (existingNodeKey) nodeKeyToRefId.set(existingNodeKey, n.ref_id);
+        continue;
+      }
       const extended: NodeExtended = {
         ...n,
         x: 0,
