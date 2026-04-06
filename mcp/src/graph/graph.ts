@@ -361,9 +361,20 @@ export async function get_map(params: MapParams): Promise<string> {
 }
 
 export async function get_code(params: MapParams): Promise<string> {
-  const record = await get_subtree(params);
-  // const pkg_files = await db.get_pkg_files();
   const tokenizer = await getTokenizer();
+  if (params.depth === 0) {
+    const node = await db.find_node(
+      params.node_type as NodeType,
+      params.name,
+      params.file,
+      params.ref_id
+    );
+    if (!node) return "Node not found";
+    const text = formatNode(node);
+    const tokens = tokenizer.encode(text, []);
+    return `Total tokens: ${tokens.length}\n\n${text}`;
+  }
+  const record = await get_subtree(params);
   const text = extractNodesFromRecord(record);
   const tokens = tokenizer.encode(text, []);
   return `Total tokens: ${tokens.length}\n\n${text}`;

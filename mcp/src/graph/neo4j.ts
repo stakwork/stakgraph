@@ -203,6 +203,27 @@ class Db {
     }
   }
 
+  async find_node(
+    node_type: NodeType,
+    name: string,
+    file: string,
+    ref_id: string,
+  ): Promise<Neo4jNode | null> {
+    const session = this.driver.session();
+    try {
+      const r = await session.run(Q.FIND_NODE_QUERY, {
+        node_label: node_type,
+        node_name: name,
+        node_file: file,
+        ref_id: ref_id,
+      });
+      if (r.records.length === 0) return null;
+      return deser_node(r.records[0], "node");
+    } finally {
+      await session.close();
+    }
+  }
+
   async get_repositories(): Promise<Neo4jNode[]> {
     const session = this.driver.session();
     try {
