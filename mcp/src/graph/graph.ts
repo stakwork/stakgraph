@@ -11,7 +11,7 @@ import {
   GraphResponse,
 } from "./types.js";
 import { nameFileOnly, toReturnNode, formatNode, clean_node } from "./utils.js";
-import { createByModelName } from "@microsoft/tiktokenizer";
+import { getTokenizer } from "../repo/utils.js";
 import { generate_services_config } from "./service.js";
 
 export type SearchMethod = "vector" | "fulltext" | "hybrid";
@@ -309,7 +309,7 @@ export async function get_repo_map(
       include_functions_and_classes
     );
     const record = r.records[0];
-    const tokenizer = await createByModelName("gpt-4");
+    const tokenizer = await getTokenizer();
     const tree = await buildTree(record, "down", tokenizer);
     alphabetizeNodeLabels(tree.root);
     const text = archy(tree.root);
@@ -321,7 +321,7 @@ export async function get_repo_map(
 
 export async function get_file_map(file_end: string): Promise<string> {
   const f = await db.get_file_ends_with(file_end);
-  const tokenizer = await createByModelName("gpt-4");
+  const tokenizer = await getTokenizer();
   const record = await get_subtree({
     node_type: "File",
     name: "",
@@ -342,7 +342,7 @@ export async function get_file_map(file_end: string): Promise<string> {
 export async function get_map(params: MapParams): Promise<string> {
   const record = await get_subtree(params);
   const pkg_files = await db.get_pkg_files();
-  const tokenizer = await createByModelName("gpt-4");
+  const tokenizer = await getTokenizer();
 
   const tree = await buildTree(record, params.direction, tokenizer);
   alphabetizeNodeLabels(tree.root);
@@ -362,9 +362,9 @@ export async function get_map(params: MapParams): Promise<string> {
 
 export async function get_code(params: MapParams): Promise<string> {
   const record = await get_subtree(params);
-  const pkg_files = await db.get_pkg_files();
-  const tokenizer = await createByModelName("gpt-4");
-  const text = extractNodesFromRecord(record, pkg_files);
+  // const pkg_files = await db.get_pkg_files();
+  const tokenizer = await getTokenizer();
+  const text = extractNodesFromRecord(record);
   const tokens = tokenizer.encode(text, []);
   return `Total tokens: ${tokens.length}\n\n${text}`;
 }

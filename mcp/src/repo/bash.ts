@@ -247,7 +247,8 @@ export function getFileSummary(
 // Fulltext search using ripgrep
 export async function fulltextSearch(
   query: string,
-  repoPath: string
+  repoPath: string,
+  repos?: string[]
 ): Promise<string> {
   if (!repoPath) {
     return "No repository path provided";
@@ -257,20 +258,32 @@ export async function fulltextSearch(
     return "Repository not cloned yet";
   }
 
+  // In multi-repo mode, pass repo directories as search paths
+  // to avoid picking up unrelated files in /tmp
+  const isMultiRepo = repoPath === "/tmp" && repos && repos.length > 0;
+  const searchPaths: string[] = isMultiRepo
+    ? repos.map((repo) => path.join(repoPath, repo)).filter((dir) => fs.existsSync(dir))
+    : ["./"];
+
+  if (searchPaths.length === 0) {
+    return "No repository directories found";
+  }
+
   try {
+    const ignoreFile = path.join(repoPath, ".gitignore");
     const args = [
       "--glob",
       "!dist",
-      "--ignore-file",
-      ".gitignore",
+      ...(fs.existsSync(ignoreFile) ? ["--ignore-file", ".gitignore"] : []),
       "-n", // Show line numbers
       "--no-heading", // Don't group by file (easier to parse)
       "--max-count",
       "100", // Increased to get more matches per file
       query,
-      "./",
+      ...searchPaths,
     ];
 
+    console.log(`[fulltextSearch] (cd ${repoPath} && rg ${args.map(a => `'${a}'`).join(" ")})`);
     const result = await execRipgrepCommandDirect(args, repoPath, 5000);
 
     if (result === "No matches found") {

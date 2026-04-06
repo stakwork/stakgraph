@@ -9,7 +9,7 @@ const CONTEXT_THRESHOLD = 0.9;
 let _tokenizer: TikTokenizer | null = null;
 let _tokenizerPromise: Promise<TikTokenizer> | null = null;
 
-async function getTokenizer(): Promise<TikTokenizer> {
+export async function getTokenizer(): Promise<TikTokenizer> {
   if (_tokenizer) return _tokenizer;
   if (!_tokenizerPromise) {
     _tokenizerPromise = createByModelName("gpt-4").then((t) => {

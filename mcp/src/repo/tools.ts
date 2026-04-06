@@ -296,7 +296,7 @@ export async function get_tools(
       }),
       execute: async ({ query }: { query: string }) => {
         try {
-          return await fulltextSearch(query, repoPath);
+          return await fulltextSearch(query, repoPath, repos);
         } catch (e) {
           return `Search failed: ${e}`;
         }
