@@ -533,6 +533,39 @@ RETURN node, score
 ORDER BY score DESC
 `;
 
+export const FIND_NODE_QUERY = `
+WITH $node_label AS nodeLabel,
+     $node_name as nodeName,
+     $node_file as nodeFile,
+     $ref_id as refId
+
+CALL {
+  WITH refId
+  WITH refId WHERE refId IS NOT NULL AND refId <> ''
+  MATCH (node {ref_id: refId})
+  RETURN node
+  UNION
+  WITH nodeName, nodeLabel
+  WITH nodeName, nodeLabel WHERE nodeName IS NOT NULL AND nodeName <> ''
+  MATCH (node {name: nodeName})
+  WHERE nodeLabel IN labels(node)
+  RETURN node
+  UNION
+  WITH nodeFile, nodeLabel
+  WITH nodeFile, nodeLabel WHERE nodeFile IS NOT NULL AND nodeFile <> ''
+  MATCH (node)
+  WHERE nodeLabel IN labels(node)
+    AND node.file IS NOT NULL
+    AND node.file CONTAINS nodeFile
+  RETURN node
+}
+
+WITH node
+WHERE node IS NOT NULL
+RETURN node
+LIMIT 1
+`;
+
 export const SUBGRAPH_QUERY = `
 WITH $node_label AS nodeLabel,
      $node_name as nodeName,

@@ -472,7 +472,7 @@ export async function get_tools(
       description: "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
       inputSchema: stak.GetCodeSchema,
       execute: async (args: z.infer<typeof stak.GetCodeSchema>) => {
-        const result = await stak.getCode({ ...args, depth: args.depth ?? 1 });
+        const result = await stak.getCode({ ...args, depth: args.depth ?? 0 });
         return result.content?.[0]?.text ?? "";
       },
     });
