@@ -12,6 +12,8 @@ import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, type SubAgent } from "./subagent.js";
+import * as stak from "../tools/stakgraph/index.js";
+import { search as graphSearch } from "../graph/graph.js";
 
 export interface GgnnTool {
   name: string;          // tool name, e.g. "ggnn_check"
@@ -428,6 +430,53 @@ export async function get_tools(
     }
   } else {
     console.log("===> no db found, skipping vector_search tool");
+  }
+
+  // Register stakgraph graph tools (requires Neo4j connection)
+  if (db) {
+    allTools.stakgraph_search = tool({
+      description: "Search the code graph by keyword, semantic meaning, or hybrid. Returns compact results with name, file, ref_id, and description. Use stakgraph_code with a ref_id to read full source.",
+      inputSchema: stak.SearchSchema,
+      execute: async (args: z.infer<typeof stak.SearchSchema>) => {
+        const results = await graphSearch(
+          args.query,
+          args.limit ?? 10,
+          (args.node_types ?? []) as any[],
+          false,
+          args.max_tokens ?? 15000,
+          (args.method ?? "hybrid") as any,
+          "json",
+          false,
+          args.language
+        );
+        if (!Array.isArray(results)) return "No results";
+        return JSON.stringify(results.map((node: any) => ({
+          name: node.properties?.name,
+          node_type: node.node_type,
+          file: node.properties?.file,
+          lines: `${node.properties?.start ?? "?"}-${node.properties?.end ?? "?"}`,
+          ref_id: node.ref_id,
+          description: node.properties?.description || node.properties?.docs || "",
+        })));
+      },
+    });
+    allTools.stakgraph_map = tool({
+      description: stak.GetMapTool.description,
+      inputSchema: stak.GetMapSchema,
+      execute: async (args: z.infer<typeof stak.GetMapSchema>) => {
+        const result = await stak.getMap(args);
+        return result.content?.[0]?.text ?? "";
+      },
+    });
+    allTools.stakgraph_code = tool({
+      description: "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
+      inputSchema: stak.GetCodeSchema,
+      execute: async (args: z.infer<typeof stak.GetCodeSchema>) => {
+        const result = await stak.getCode({ ...args, depth: args.depth ?? 1 });
+        return result.content?.[0]?.text ?? "";
+      },
+    });
+    console.log("===> registered stakgraph graph tools: stakgraph_search, stakgraph_map, stakgraph_code");
   }
 
   // Register sub-agent tools (remote agent delegation)
