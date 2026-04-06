@@ -1,3 +1,5 @@
+import "dotenv/config";
+
 // Global console patch - add ISO 8601 timestamps to all console output
 const _ts = () => new Date().toISOString();
 const _log = console.log.bind(console);
@@ -6,11 +8,11 @@ const _error = console.error.bind(console);
 const _debug = console.debug.bind(console);
 const _info = console.info.bind(console);
 const _trace = console.trace.bind(console);
-console.log   = (...a: unknown[]) => _log(_ts(), ...a);
-console.warn  = (...a: unknown[]) => _warn(_ts(), ...a);
+console.log = (...a: unknown[]) => _log(_ts(), ...a);
+console.warn = (...a: unknown[]) => _warn(_ts(), ...a);
 console.error = (...a: unknown[]) => _error(_ts(), ...a);
 console.debug = (...a: unknown[]) => _debug(_ts(), ...a);
-console.info  = (...a: unknown[]) => _info(_ts(), ...a);
+console.info = (...a: unknown[]) => _info(_ts(), ...a);
 console.trace = (...a: unknown[]) => _trace(_ts(), ...a);
 
 import express, { Request, Response } from "express";
@@ -25,7 +27,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import cors from "cors";
 import { App as SageApp } from "./sage/src/app.js";
-import dotenv from "dotenv";
 import { learn_docs_agent, get_docs, update_docs } from "./repo/docs.js";
 import { document_workflow, document_workflows } from "./repo/workflows.js";
 import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
@@ -38,8 +39,6 @@ import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
 import { getBus, verifyEventsToken, pipeToSSE } from "./repo/events.js";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,7 +87,9 @@ app.get("/events/:request_id", (req: Request, res: Response) => {
 
   const bus = getBus(request_id);
   if (!bus) {
-    res.status(404).json({ error: "No active event stream for this request_id" });
+    res
+      .status(404)
+      .json({ error: "No active event stream for this request_id" });
     return;
   }
 
@@ -187,7 +188,10 @@ app.post("/logs/agent", logs_agent);
 app.post("/gitree/process", gitree.gitree_process);
 app.get("/gitree/features", gitree.gitree_list_features);
 app.get("/gitree/features/:id", gitree.gitree_get_feature);
-app.put("/gitree/features/:id/documentation", gitree.gitree_update_feature_documentation);
+app.put(
+  "/gitree/features/:id/documentation",
+  gitree.gitree_update_feature_documentation,
+);
 app.delete("/gitree/features/:id", gitree.gitree_delete_feature);
 app.get("/gitree/features/:id/files", gitree.gitree_get_feature_files);
 app.get("/gitree/prs/:number", gitree.gitree_get_pr);
@@ -231,8 +235,8 @@ app.get("*", (_req: Request, res: Response) => {
   });
 });
 
-const port = parseInt(process.env.PORT || '3355', 10);
-const host = process.env.HOST || '0.0.0.0';
+const port = parseInt(process.env.PORT || "3355", 10);
+const host = process.env.HOST || "0.0.0.0";
 app.listen(port, host, () => {
   console.log(`Server started at http://${host}:${port}`);
 
