@@ -108,7 +108,7 @@ import java.util.Optional;"#
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 34, "Expected 34 function nodes");
+    assert_eq!(functions.len(), 37, "Expected 37 function nodes");
 
     assert!(
         functions.iter().any(|f| f.name == "BillingService"),
@@ -202,11 +202,11 @@ import java.util.Optional;"#
 
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
-    assert_eq!(contains_edges_count, 193, "Expected 193 Contains edges");
+    assert_eq!(contains_edges_count, 196, "Expected 196 Contains edges");
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;
-    assert_eq!(handler_edges_count, 8, "Expected 8 Handler edges");
+    assert_eq!(handler_edges_count, 11, "Expected 11 Handler edges");
 
     let nested_in_edges_count = graph.count_edges_of_type(EdgeType::NestedIn);
     edges_count += nested_in_edges_count;

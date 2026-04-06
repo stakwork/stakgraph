@@ -67,7 +67,7 @@ pub async fn test_python_web_generic<G: Graph + Sync>() -> Result<()> {
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 6, "Expected 6 handler edges");
+    assert_eq!(handlers, 7, "Expected 7 handler edges");
 
     let uses = graph.count_edges_of_type(EdgeType::Uses);
     edges_count += uses;
@@ -933,7 +933,7 @@ from flask_app.routes import flask_bp"#
         .get("handler")
         .expect("Rule handler missing");
     assert!(
-        rule_handler.contains("unknown_lambda_rule_lambda_L5"),
+        rule_handler.contains("_lambda_rule_lambda_L5"),
         "Incorrect rule handler: {}",
         rule_handler
     );

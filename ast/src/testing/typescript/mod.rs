@@ -99,9 +99,9 @@ import {{ sequelize }} from "./config.js";"#
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 38, "Expected 38 functions with LSP");
+        assert_eq!(functions.len(), 39, "Expected 39 functions with LSP");
     } else {
-        assert_eq!(functions.len(), 64, "Expected 64 functions without LSP");
+        assert_eq!(functions.len(), 65, "Expected 65 functions without LSP");
     }
 
     let log_fn = functions
@@ -324,7 +324,7 @@ import {{ sequelize }} from "./config.js";"#
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 219, "Expected 219 contains edges");
+    assert_eq!(contains, 220, "Expected 220 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -345,9 +345,9 @@ import {{ sequelize }} from "./config.js";"#
     edges_count += handlers;
 
     if use_lsp {
-        assert_eq!(handlers, 8, "Expected 8 handler edges with LSP");
+        assert_eq!(handlers, 9, "Expected 9 handler edges with LSP");
     } else {
-        assert_eq!(handlers, 21, "Expected 21 handler edges without LSP");
+        assert_eq!(handlers, 22, "Expected 22 handler edges without LSP");
     }
 
     let create_person_fn = functions

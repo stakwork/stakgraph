@@ -350,11 +350,12 @@ impl Repo {
             let nested: HashSet<(String, usize, usize)> = funcs
                 .iter()
                 .filter(|(child, ..)| {
-                    funcs.iter().any(|(parent, ..)| {
-                        child.file == parent.file
-                            && child.start > parent.start
-                            && child.end < parent.end
-                    })
+                    child.meta.get("function_type").map(|t| t.as_str()) != Some("arrow")
+                        && funcs.iter().any(|(parent, ..)| {
+                            child.file == parent.file
+                                && child.start > parent.start
+                                && child.end < parent.end
+                        })
                 })
                 .map(|(nd, ..)| (nd.file.clone(), nd.start, nd.end))
                 .collect();

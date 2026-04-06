@@ -30,9 +30,9 @@ fn default_prunes_nested_functions_exactly() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(count_prefix(&out.stdout, "Function:"), 1);
-    assert_eq!(out.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), false);
-    assert_eq!(out.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), false);
+    assert_eq!(count_prefix(&out.stdout, "Function:"), 3);
+    assert_eq!(out.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), true);
+    assert_eq!(out.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), true);
 }
 
 #[test]

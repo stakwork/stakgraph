@@ -383,7 +383,7 @@ impl Lang {
                 let method = endp
                     .meta
                     .get("verb")
-                    .unwrap_or(&"unknown".to_string())
+                    .unwrap_or(&"".to_string())
                     .clone();
                 let path = endp.name.clone();
                 if let Some(generated_name) = self

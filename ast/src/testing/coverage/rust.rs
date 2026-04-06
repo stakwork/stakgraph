@@ -66,7 +66,7 @@ async fn test_rust_coverage() -> Result<()> {
     assert_eq!(endpoints.len(), 21, "Expected exactly 21 endpoints");
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
-    assert_eq!(functions.len(), 91, "Expected 91 functions");
+    assert_eq!(functions.len(), 94, "Expected 94 functions");
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
     assert_eq!(unit_tests.len(), 43, "Expected 43 unit tests");
@@ -125,8 +125,8 @@ async fn test_rust_graph_upload() -> Result<()> {
     let graph_ops = setup_rust_graph().await?;
     let (nodes, edges) = graph_ops.get_graph_size().await?;
 
-    assert_eq!(nodes, 298, "Graph should have 298 nodes after upload");
-    assert_eq!(edges, 449, "Graph should have 449 edges after upload");
+    assert_eq!(nodes, 301, "Graph should have 301 nodes after upload");
+    assert_eq!(edges, 455, "Graph should have 455 edges after upload");
 
     Ok(())
 }

@@ -288,9 +288,9 @@ use std::net::SocketAddr;"#
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
     if cfg!(feature = "neo4j") {
-        assert_eq!(contains_edges, 305, "Expected 305 contains edges");
+        assert_eq!(contains_edges, 308, "Expected 308 contains edges");
     } else {
-        assert_eq!(contains_edges, 306, "Expected 306 contains edges");
+        assert_eq!(contains_edges, 309, "Expected 309 contains edges");
     }
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
@@ -315,7 +315,7 @@ use std::net::SocketAddr;"#
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 91, "Expected 91 functions");
+    assert_eq!(functions.len(), 94, "Expected 94 functions");
 
     let macros: Vec<_> = functions
         .iter()
@@ -440,7 +440,7 @@ use std::net::SocketAddr;"#
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
-    assert_eq!(handlers, 18, "Expected 18 handler edges");
+    assert_eq!(handlers, 21, "Expected 21 handler edges");
 
     let implements = graph.count_edges_of_type(EdgeType::Implements);
     edges_count += implements;

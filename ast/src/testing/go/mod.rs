@@ -124,9 +124,9 @@ pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
     if use_lsp {
-        assert_eq!(functions.len(), 59, "Expected 59 functions");
+        assert_eq!(functions.len(), 61, "Expected 61 functions");
     } else {
-        assert_eq!(functions.len(), 27, "Expected 27 functions");
+        assert_eq!(functions.len(), 29, "Expected 29 functions");
     }
     assert!(
         functions
@@ -286,8 +286,8 @@ pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
         assert_eq!(handler_edges_count, 4, "Expected 4 handler edges with lsp");
     } else {
         assert_eq!(
-            handler_edges_count, 3,
-            "Expected 3 handler edges without lsp"
+            handler_edges_count, 5,
+            "Expected 5 handler edges without lsp"
         );
     }
 
@@ -309,7 +309,7 @@ pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 106, "Expected 106 contains edges");
+    assert_eq!(contains, 108, "Expected 108 contains edges");
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();

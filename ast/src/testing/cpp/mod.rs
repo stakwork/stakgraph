@@ -130,7 +130,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges += handler_edges_count;
-    assert_eq!(handler_edges_count, 2, "Expected 2 handler edges");
+    assert_eq!(handler_edges_count, 4, "Expected 4 handler edges");
 
     let function_calls = graph.count_edges_of_type(EdgeType::Calls);
     edges += function_calls;
@@ -138,7 +138,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 43, "Expected 43 contains edges");
+    assert_eq!(contains, 47, "Expected 47 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -216,7 +216,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 7, "Expected 7 functions");
+    assert_eq!(functions.len(), 11, "Expected 11 functions");
 
     let database = classes
         .into_iter()
