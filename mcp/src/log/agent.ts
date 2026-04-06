@@ -9,7 +9,7 @@ import {
 } from "../repo/utils.js";
 import {
   createSession as createNewSession,
-  loadSession,
+  loadSessionMessages,
   appendMessages,
   sessionExists,
   SessionConfig,
@@ -58,19 +58,6 @@ export async function log_agent_context(
   const { model } = getModelDetails(opts.modelName, opts.apiKey);
   console.log("===> log_agent model", model);
 
-  // Session handling
-  let sessionId: string | undefined;
-  let previousMessages: ModelMessage[] = [];
-
-  if (opts.sessionId) {
-    if (sessionExists(opts.sessionId)) {
-      sessionId = opts.sessionId;
-      previousMessages = loadSession(sessionId);
-    } else {
-      sessionId = createNewSession(opts.sessionId);
-    }
-  }
-
   const tools = get_log_tools({
     logsDir: opts.logsDir,
     stakworkApiKey: opts.stakworkApiKey,
@@ -91,6 +78,19 @@ export async function log_agent_context(
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => logStepMaybe(sf.content, opts.printAgentProgress), // dont log logs_agent logs!
   });
+
+  // Session handling (after instructions are final so we can persist them)
+  let sessionId: string | undefined;
+  let previousMessages: ModelMessage[] = [];
+
+  if (opts.sessionId) {
+    if (sessionExists(opts.sessionId)) {
+      sessionId = opts.sessionId;
+      previousMessages = loadSessionMessages(sessionId);
+    } else {
+      sessionId = createNewSession(opts.sessionId, SYSTEM);
+    }
+  }
 
   const userMessage: ModelMessage = { role: "user", content: prompt };
 
