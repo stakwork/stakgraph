@@ -40,16 +40,22 @@ function getSessionFile(sessionId: string): string {
 /**
  * Create a new session and return its ID.
  * If an ID is provided, use it; otherwise generate a random UUID.
+ * Optionally writes the system prompt as the first JSONL entry.
  */
-export function createSession(id?: string): string {
+export function createSession(id?: string, system?: string): string {
   const sessionId = id || randomUUID();
   const filePath = getSessionFile(sessionId);
-  appendFileSync(filePath, "");
+  if (system) {
+    const systemMsg: ModelMessage = { role: "system", content: system };
+    appendFileSync(filePath, JSON.stringify(systemMsg) + "\n");
+  } else {
+    appendFileSync(filePath, "");
+  }
   return sessionId;
 }
 
 /**
- * Load all messages from a session
+ * Load all messages from a session (including system message if present).
  */
 export function loadSession(sessionId: string): ModelMessage[] {
   const filePath = getSessionFile(sessionId);
@@ -62,6 +68,20 @@ export function loadSession(sessionId: string): ModelMessage[] {
   const lines = content.split("\n").filter((line) => line.trim());
 
   return lines.map((line) => JSON.parse(line) as ModelMessage);
+}
+
+/**
+ * Load conversation messages from a session, excluding the system prompt.
+ * The system prompt (first entry with role "system") is stored once at
+ * session creation for observability, but stripped here because the
+ * ToolLoopAgent already sends it via its `instructions` field.
+ */
+export function loadSessionMessages(sessionId: string): ModelMessage[] {
+  const all = loadSession(sessionId);
+  if (all.length > 0 && all[0].role === "system") {
+    return all.slice(1);
+  }
+  return all;
 }
 
 /**

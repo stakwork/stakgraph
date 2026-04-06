@@ -29,7 +29,7 @@ import {
 import { LanguageModel } from "ai";
 import {
   createSession as createNewSession,
-  loadSession,
+  loadSessionMessages,
   appendMessages,
   sessionExists,
   SessionConfig,
@@ -201,19 +201,6 @@ async function prepareAgent(
   const { model, apiKey, provider, contextLimit, modelId } = getModelDetails(modelName, apiKeyIn);
   console.log("===> model", model, "contextLimit", contextLimit);
 
-  // Session handling: if sessionId provided, use existing or create new with that ID
-  let sessionId: string | undefined;
-  let previousMessages: ModelMessage[] = [];
-
-  if (inputSessionId) {
-    if (sessionExists(inputSessionId)) {
-      sessionId = inputSessionId;
-      previousMessages = loadSession(sessionId);
-    } else {
-      sessionId = createNewSession(inputSessionId);
-    }
-  }
-
   const messagesRef: MessagesRef = { current: [] };
   let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos, subAgents, ggnn, messagesRef);
 
@@ -281,6 +268,19 @@ Apply the guidance from each skill throughout your response.`;
       prompt,
       " After exploring a bit, ask clarifying questions if needed."
     );
+  }
+
+  // Session handling (after instructions are fully assembled so we can persist them)
+  let sessionId: string | undefined;
+  let previousMessages: ModelMessage[] = [];
+
+  if (inputSessionId) {
+    if (sessionExists(inputSessionId)) {
+      sessionId = inputSessionId;
+      previousMessages = loadSessionMessages(sessionId);
+    } else {
+      sessionId = createNewSession(inputSessionId, instructions);
+    }
   }
 
   for (const tool of Object.keys(tools)) {

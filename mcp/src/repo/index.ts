@@ -66,7 +66,7 @@ function prependRepoInfo(prompt: any, clonedRepos: string[], graphRepos: string[
   const uniqueClonedRepos = [...new Set(clonedRepos.filter(Boolean))];
   const clonedOnlyRepos = uniqueClonedRepos.filter((repo) => !uniqueGraphRepos.includes(repo));
 
-  const lines: string[] = ["Repository availability for this request:"];
+  const lines: string[] = ["Repository availability for this session:"];
 
   if (uniqueGraphRepos.length > 0) {
     lines.push(
@@ -89,8 +89,6 @@ function prependRepoInfo(prompt: any, clonedRepos: string[], graphRepos: string[
   if (uniqueGraphRepos.length === 0 && uniqueClonedRepos.length > 0) {
     lines.push("No ingested Repository nodes were found for the requested repos, so rely on bash/fulltext_search over the cloned repos.");
   }
-
-  lines.push("If a repo is graph-backed, use graph tools first. Use bash when the repo is only available locally or for exact file/config inspection.");
 
   const repoInfo = `${lines.join("\n")}\n\n`;
   if (typeof prompt === "string") {
@@ -167,7 +165,11 @@ export async function repo_agent(req: Request, res: Response) {
 
   const graphRepos = await getGraphRepoList();
   const effectiveRepos = body.repoList.length > 0 ? body.repoList : graphRepos;
-  const promptWithRepoInfo = prependRepoInfo(body.prompt, body.repoList, graphRepos);
+  // Only prepend repo info on the first message of a session (or when there's no session)
+  const isExistingSession = body.sessionId && sessionExists(body.sessionId);
+  const promptWithRepoInfo = isExistingSession
+    ? body.prompt
+    : prependRepoInfo(body.prompt, body.repoList, graphRepos);
   const repoDirPromise = body.repoUrl
     ? cloneOrUpdateRepo(body.repoUrl, body.username, body.pat, body.commit)
     : Promise.resolve(resolveRepoDir(effectiveRepos));
