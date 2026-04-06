@@ -10,7 +10,7 @@ export function toMapParams(args: z.infer<typeof GetMapSchema>): G.MapParams {
     file: args.file || "",
     ref_id: args.ref_id || "",
     tests: args.tests ?? false,
-    depth: args.depth ?? 10,
+    depth: args.depth!,
     direction: (args.direction || "down") as G.Direction,
     trim: args.trim?.split(",") || [],
   };
@@ -39,8 +39,8 @@ export const GetMapSchema = z.object({
   depth: z
     .number()
     .optional()
-    .default(2)
-    .describe("Depth of the subtree to retrieve (default: 2)."),
+    .default(1)
+    .describe("Depth of the subtree to retrieve (default: 1)."),
   direction: z
     .enum(["up", "down", "both"] as const)
     .optional()
