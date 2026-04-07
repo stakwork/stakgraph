@@ -1,6 +1,7 @@
 import { Settings2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSettings, MODEL_OPTIONS } from "@/stores/useSettings";
+import { useServerConfig } from "../../stores/useServerConfig";
 
 export function SettingsToggle() {
   const [open, setOpen] = useState(false);
@@ -54,6 +55,15 @@ export function SettingsToggle() {
 
 function SettingsFields() {
   const { model, apiKey, githubToken, setModel, setApiKey, setGithubToken } = useSettings();
+  const {
+    hasLLMKey,
+    loaded: serverConfigLoaded,
+    load: loadServerConfig,
+  } = useServerConfig();
+
+  useEffect(() => {
+    void loadServerConfig();
+  }, [loadServerConfig]);
 
   return (
     <>
@@ -81,7 +91,11 @@ function SettingsFields() {
           onChange={(e) => setApiKey(e.target.value)}
           className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/50 placeholder:text-muted-foreground/40"
         />
-        <p className="text-xs text-muted-foreground/60">Stored locally in your browser only.</p>
+        <p className="text-xs text-muted-foreground/60">
+          {serverConfigLoaded && hasLLMKey
+            ? "Optional — the server already has an LLM key configured. Any key entered here stays in your browser only."
+            : "Stored locally in your browser only."}
+        </p>
       </div>
 
       <div className="flex flex-col gap-1.5">

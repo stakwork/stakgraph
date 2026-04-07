@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useApi } from "@/hooks/useApi";
 import { useGraphData } from "@/stores/useGraphData";
+import { toast } from "sonner";
 import { useIngestion } from "@/stores/useIngestion";
 import { useSettings } from "@/stores/useSettings";
 import { ImportanceLens } from "@/components/ImportanceLens";
@@ -18,6 +19,10 @@ import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
 
 // GET /docs returns: [ { "repo-name": { documentation: "..." } }, ... ]
 type DocsResponse = Array<Record<string, { documentation: string }>>;
+type DocsStatus = {
+  type: "success" | "empty" | "error";
+  message: string;
+} | null;
 
 function parseDocs(raw: DocsResponse | null): Doc[] {
   if (!raw) return [];
@@ -82,22 +87,74 @@ export function Sidebar({
 
   // ── Docs: synchronous POST, stays disabled until it resolves ──────────
   const [isGeneratingDocs, setIsGeneratingDocs] = useState(false);
+  const [docsStatus, setDocsStatus] = useState<DocsStatus>(null);
 
   const handleGenerateDocs = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (isGeneratingDocs) return;
+
       setIsGeneratingDocs(true);
+      setDocsStatus(null);
+
+      const toastId = toast.loading("Generating docs...", {
+        description: "Scanning repository rules files and guidance.",
+      });
+
       try {
         const body: Record<string, unknown> = {};
         if (settingsModel) body.model = settingsModel;
         if (settingsApiKey) body.apiKey = settingsApiKey;
-        await fetch(`${API_BASE}/learn_docs`, {
+
+        const res = await fetch(`${API_BASE}/learn_docs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+
+        const payload = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          throw new Error(payload?.error || `Server error (HTTP ${res.status})`);
+        }
+
         refetchDocs();
+
+        const createdCount =
+          payload?.summaries && typeof payload.summaries === "object"
+            ? Object.keys(payload.summaries).length
+            : 0;
+
+        if (createdCount > 0) {
+          const message =
+            createdCount === 1
+              ? "Documentation created for 1 repository."
+              : `Documentation created for ${createdCount} repositories.`;
+          setDocsStatus({ type: "success", message });
+          toast.dismiss(toastId);
+          toast.success("Docs generated", {
+            description: message,
+            duration: 4000,
+          });
+        } else {
+          const message =
+            "No new documentation was generated. Docs may already exist, or no rules files were found.";
+          setDocsStatus({ type: "empty", message });
+          toast.dismiss(toastId);
+          toast("No new docs generated", {
+            description: message,
+            duration: 5000,
+          });
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "Failed to generate docs.";
+        setDocsStatus({ type: "error", message });
+        toast.dismiss(toastId);
+        toast.error("Docs generation failed", {
+          description: message,
+          duration: 6000,
+        });
       } finally {
         setIsGeneratingDocs(false);
       }
@@ -123,8 +180,6 @@ export function Sidebar({
         pollTimer.current = setInterval(() => {
           pollCount.current += 1;
           console.log(`[concepts] poll #${pollCount.current}`, { conceptsTriggered, serverProcessing });
-          // If we've polled 10 times (~30s) without server confirming processing,
-          // the background task likely crashed — stop polling.
           if (
             conceptsTriggered &&
             !serverProcessing &&
@@ -333,6 +388,20 @@ export function Sidebar({
                 className="overflow-hidden"
               >
                 <div className="mt-2 space-y-1">
+                  {docsStatus && !isGeneratingDocs && (
+                    <div
+                      className={cn(
+                        "mx-1 mb-1 px-3 py-2 rounded-md text-xs",
+                        docsStatus.type === "error"
+                          ? "bg-destructive/10 text-destructive"
+                          : docsStatus.type === "success"
+                            ? "bg-primary/10 text-primary"
+                            : "bg-muted/40 text-muted-foreground",
+                      )}
+                    >
+                      {docsStatus.message}
+                    </div>
+                  )}
                   {isDocsLoading ? (
                     <div className="space-y-2 p-2">
                       {[1, 2, 3].map((i) => (
@@ -349,7 +418,7 @@ export function Sidebar({
                     </div>
                   ) : docs.length === 0 ? (
                     <div className="p-4 text-sm text-muted-foreground text-center">
-                      No documentation available
+                      No documentation available yet. Use the zap button to generate it.
                     </div>
                   ) : (
                     docs.map((doc) => {

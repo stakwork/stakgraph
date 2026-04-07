@@ -48,6 +48,11 @@ import {
   isBudgetExceeded,
   getBudgetInfo,
 } from "../tools/budget.js";
+import {
+  PROVIDERS,
+  getApiKeyForProvider,
+  getProviderForModel,
+} from "../aieo/src/index.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import {
   clone_and_explore_parse_files,
@@ -655,6 +660,29 @@ export async function search(req: Request, res: Response) {
   } catch (error) {
     console.error("Error:", error);
     res.status(500).send("Internal Server Error");
+  }
+}
+
+export async function server_config(_req: Request, res: Response) {
+  try {
+    const providers = Object.fromEntries(
+      PROVIDERS.map((provider) => {
+        try {
+          return [provider, Boolean(getApiKeyForProvider(provider))];
+        } catch {
+          return [provider, false];
+        }
+      }),
+    );
+
+    res.json({
+      providers,
+      has_llm_key: Object.values(providers).some(Boolean),
+      default_provider: getProviderForModel(),
+    });
+  } catch (error) {
+    console.error("Error fetching server config:", error);
+    res.status(500).json({ error: "Failed to fetch server config" });
   }
 }
 

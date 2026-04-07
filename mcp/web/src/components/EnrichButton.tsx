@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { Sparkles, X, AlertTriangle } from "lucide-react";
 import { useIngestion } from "@/stores/useIngestion";
 import { useSettings } from "@/stores/useSettings";
+import { useServerConfig } from "../stores/useServerConfig";
 import { useGraphData } from "@/stores/useGraphData";
 import { toast } from "sonner";
 import { resolveRepoUrl } from "@/lib/utils";
@@ -40,12 +41,21 @@ export function EnrichButton() {
   const { repoUrl: storedRepoUrl } = useIngestion();
   const data = useGraphData((s) => s.data);
   const { apiKey, model } = useSettings();
+  const {
+    hasLLMKey,
+    loaded: serverConfigLoaded,
+    load: loadServerConfig,
+  } = useServerConfig();
   const { reset: resetGraph } = useGraphData();
 
   const repoUrl = useMemo(
     () => resolveRepoUrl(data, storedRepoUrl),
     [data, storedRepoUrl],
   );
+
+  useEffect(() => {
+    void loadServerConfig();
+  }, [loadServerConfig]);
 
   useEffect(() => {
     if (!open) return;
@@ -176,9 +186,9 @@ export function EnrichButton() {
       return;
     }
 
-    if (!apiKey) {
+    if (!apiKey && serverConfigLoaded && !hasLLMKey) {
       toast.error("Missing API Key", {
-        description: "Please set your API Key in the Settings menu first.",
+        description: "Add an API key in Settings or configure one on the server.",
       });
       return;
     }
@@ -193,13 +203,13 @@ export function EnrichButton() {
         description: `Target: ${repoUrl}`,
       });
 
-      const body = {
+      const body: Record<string, unknown> = {
         repo_url: repoUrl,
         cost_limit: parseFloat(costLimit),
         batch_size: parseInt(batchSize, 10),
         model: model,
-        apiKey: apiKey,
       };
+      if (apiKey) body.apiKey = apiKey;
 
       const res = await fetch(`${API_BASE}/repo/describe`, {
         method: "POST",
@@ -255,14 +265,14 @@ export function EnrichButton() {
              </button>
            </div>
            
-           {!apiKey ? (
+           {!apiKey && serverConfigLoaded && !hasLLMKey ? (
                <div className="flex flex-col gap-3 rounded-lg border border-yellow-500/40 bg-yellow-500/10 p-3">
                  <div className="flex items-center gap-2">
                     <AlertTriangle className="size-4 text-yellow-500" />
                     <span className="text-sm font-medium text-yellow-500">API Key Required</span>
                  </div>
                  <p className="text-xs text-muted-foreground leading-snug">
-                    You must configure a valid API key in the top right Settings menu before you can enrich your graph.
+                    No API key was detected in Settings or on the server. Add one in the top right Settings menu before you enrich your graph.
                  </p>
                </div>
            ) : (
