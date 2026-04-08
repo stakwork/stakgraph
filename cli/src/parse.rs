@@ -15,8 +15,7 @@ use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::{CliSpinner, ProgressTracker};
 use super::render::{
     build_call_index, node_code_preview, node_display_name, print_named_node,
-    print_single_file_nodes, print_single_file_nodes_filtered, resolve_call_ref,
-    CallRef,
+    print_single_file_nodes, print_single_file_nodes_filtered, resolve_call_ref, CallRef,
 };
 use super::summarize::run_summarize;
 use super::utils::{common_ancestor, parse_node_types, read_text_preview};
@@ -112,8 +111,8 @@ fn collect_nodes_for_file(
         .unwrap_or_else(|_| file_path.to_string());
 
     let in_file = |node: &&Node| -> bool {
-        let nf = std::fs::canonicalize(&node.node_data.file)
-            .map(|p| p.to_string_lossy().to_string());
+        let nf =
+            std::fs::canonicalize(&node.node_data.file).map(|p| p.to_string_lossy().to_string());
         if let Ok(ref nf) = nf {
             if *nf == canonical {
                 return true;
@@ -218,7 +217,10 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
 
     for file_path in &files {
         if !dir_files.contains(file_path) && !Path::new(file_path).exists() {
-            return Err(Error::validation(format!("file does not exist: {}", file_path)));
+            return Err(Error::validation(format!(
+                "file does not exist: {}",
+                file_path
+            )));
         }
 
         let canonical_path = std::fs::canonicalize(file_path)
@@ -247,12 +249,9 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
                         });
                     } else {
                         let msg = match preview {
-                            Some(preview) => format!(
-                                "{}  {}\n{}\n",
-                                file_label,
-                                style(&rel).cyan(),
-                                preview
-                            ),
+                            Some(preview) => {
+                                format!("{}  {}\n{}\n", file_label, style(&rel).cyan(), preview)
+                            }
                             None => format!(
                                 "{}  {}\n[binary or unprintable content skipped]\n",
                                 file_label,
@@ -269,7 +268,10 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
     if files_by_lang.is_empty() {
         if output_mode.is_json() {
             let warnings = if unsupported_files.is_empty() {
-                vec![JsonWarning::new("no_parseable_files", "No parseable files found")]
+                vec![JsonWarning::new(
+                    "no_parseable_files",
+                    "No parseable files found",
+                )]
             } else {
                 Vec::new()
             };
@@ -287,7 +289,10 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
     let goal_phrase = parse_goal_phrase(&node_types, cli.stats);
 
     let spinner = if cli.verbose || cli.perf {
-        Some(CliSpinner::new(&format!("Preparing {} summary...", goal_phrase)))
+        Some(CliSpinner::new(&format!(
+            "Preparing {} summary...",
+            goal_phrase
+        )))
     } else {
         None
     };
@@ -345,7 +350,11 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
 
     for file_path in &files_to_print {
         if output_mode.is_json() {
-            let type_filter = if node_types.is_empty() { None } else { Some(node_types.as_slice()) };
+            let type_filter = if node_types.is_empty() {
+                None
+            } else {
+                Some(node_types.as_slice())
+            };
             let name_filter = cli.name.as_deref();
             let nodes = collect_nodes_for_file(&graph, file_path, name_filter, type_filter);
             file_entries.push(FileNodeEntry {
@@ -353,7 +362,11 @@ pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Re
                 nodes,
             });
         } else if let Some(node_name) = &cli.name {
-            let type_filter = if node_types.is_empty() { None } else { Some(node_types.as_slice()) };
+            let type_filter = if node_types.is_empty() {
+                None
+            } else {
+                Some(node_types.as_slice())
+            };
             print_named_node(out, &graph, file_path, node_name, type_filter)?;
         } else if node_types.is_empty() {
             print_single_file_nodes(out, &graph, file_path)?;

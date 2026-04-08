@@ -22,8 +22,15 @@ fn person_controller_cs_contains_exact_named_nodes() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(out.stdout.contains("Class: PersonController (7-107)"), true);
-    assert_eq!(out.stdout.contains("Function: ApiController.GetById (33-42)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: HTTPGET {id:int} (33-42)"), true);
+    assert_eq!(
+        out.stdout
+            .contains("Function: ApiController.GetById (33-42)"),
+        true
+    );
+    assert_eq!(
+        out.stdout.contains("Endpoint: HTTPGET {id:int} (33-42)"),
+        true
+    );
     assert_eq!(
         out.stdout
             .contains("Endpoint: HTTPPOST {id:int}/avatar (101-106)"),

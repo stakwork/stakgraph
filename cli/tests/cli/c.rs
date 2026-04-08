@@ -19,10 +19,17 @@ fn routes_c_contains_exact_named_functions() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Function: handler_get_user (5-18)"), true);
-    assert_eq!(out.stdout.contains("Function: handler_post_user (20-33)"), true);
     assert_eq!(
-        out.stdout.contains("Function: handler_list_products (35-39)"),
+        out.stdout.contains("Function: handler_get_user (5-18)"),
+        true
+    );
+    assert_eq!(
+        out.stdout.contains("Function: handler_post_user (20-33)"),
+        true
+    );
+    assert_eq!(
+        out.stdout
+            .contains("Function: handler_list_products (35-39)"),
         true
     );
 }

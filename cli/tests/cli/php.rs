@@ -21,6 +21,13 @@ fn api_php_contains_exact_named_endpoints() {
     assert_eq!(out.exit_code, 0);
     assert_eq!(out.stdout.contains("Endpoint: GET /user (20-22)"), true);
     assert_eq!(out.stdout.contains("Endpoint: POST /login (24)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: DELETE /posts/{post} (29)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: POST /posts/{post}/like (32)"), true);
+    assert_eq!(
+        out.stdout.contains("Endpoint: DELETE /posts/{post} (29)"),
+        true
+    );
+    assert_eq!(
+        out.stdout
+            .contains("Endpoint: POST /posts/{post}/like (32)"),
+        true
+    );
 }

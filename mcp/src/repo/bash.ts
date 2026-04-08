@@ -177,25 +177,23 @@ export async function getRepoMap(repoPath: string, repos?: string[]): Promise<st
     const isMultiRepo = repoPath === "/tmp" && repos && repos.length > 0;
     
     if (isMultiRepo) {
-      // For multi-repo, iterate over the requested repos only
       const results: string[] = [];
       for (const repo of repos) {
         const repoDir = path.join(repoPath, repo);
         if (fs.existsSync(repoDir)) {
-          const files = await execShellCommand(
-            "git ls-tree -r --name-only HEAD | head -100",
+          const overview = await execShellCommand(
+            'stakgraph overview "." --max-lines 40',
             repoDir
           );
-          results.push(`=== ${repo} ===\n${files}`);
+          results.push(`=== ${repo} ===\n${overview}`);
         } else {
           results.push(`=== ${repo} ===\n(not found)`);
         }
       }
       return results.join("\n\n");
     } else {
-      // Single repo - use git ls-tree
       const result = await execShellCommand(
-        "git ls-tree -r --name-only HEAD | tree -L 3 --fromfile",
+        'stakgraph overview "." --max-lines 60',
         repoPath
       );
       return result;

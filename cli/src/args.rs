@@ -73,6 +73,8 @@ pub enum Commands {
     Deps(DepsArgs),
     /// Show what is affected if a node changes (reverse dependency tree)
     Impact(ImpactArgs),
+    /// Show a de-noised overview of a repository tree
+    Overview(OverviewArgs),
 }
 
 #[derive(Debug, Args)]
@@ -184,6 +186,21 @@ pub struct ImpactArgs {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct OverviewArgs {
+    /// Repository root or directory to summarize
+    #[arg(value_name = "PATH")]
+    pub path: String,
+
+    /// Maximum number of lines to emit
+    #[arg(long, default_value = "80")]
+    pub max_lines: usize,
+
+    /// Maximum depth to expand before collapsing
+    #[arg(long, default_value = "4")]
+    pub depth: usize,
+}
+
 impl CliArgs {
     pub fn parse_and_expand() -> Result<Self> {
         let mut args = Self::parse();
@@ -200,7 +217,11 @@ impl CliArgs {
             })
             .collect();
 
-        if args.command.is_none() && args.files.is_empty() {
+        if args.command.is_some() {
+            return Ok(args);
+        }
+
+        if args.files.is_empty() {
             eprintln!("Error: no file path provided. Run with --help for usage.");
             std::process::exit(1);
         }
@@ -220,7 +241,9 @@ impl CliArgs {
         if let Some(Commands::Impact(_)) = &args.command {
             return Ok(args);
         }
-
+        if let Some(Commands::Overview(_)) = &args.command {
+            return Ok(args);
+        }
         Ok(args)
     }
 }

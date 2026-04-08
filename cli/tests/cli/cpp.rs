@@ -20,7 +20,10 @@ fn routes_cpp_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Endpoint: ANY /person/<int> (26-29)"), true);
+    assert_eq!(
+        out.stdout.contains("Endpoint: ANY /person/<int> (26-29)"),
+        true
+    );
     assert_eq!(out.stdout.contains("Endpoint: POST /person (31-34)"), true);
     assert_eq!(out.stdout.contains("Function: setup_routes (25-35)"), true);
 }

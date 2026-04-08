@@ -5,7 +5,7 @@ use super::git::{
     filter_paths_by_scope, get_changed_files, get_repo_root, get_staged_changes,
     get_working_tree_changes, list_commits_for_paths, read_file_at_rev,
 };
-use ast::lang::graphs::{ArrayGraph, Node, NodeType, Edge, EdgeType};
+use ast::lang::graphs::{ArrayGraph, Edge, EdgeType, Node, NodeType};
 use console::style;
 use lsp::Language;
 use serde::Serialize;
@@ -157,7 +157,10 @@ async fn run_list_commits(
     }
 
     if commits.is_empty() {
-        out.writeln(format!("{}", style("No commits found for the specified paths").yellow()))?;
+        out.writeln(format!(
+            "{}",
+            style("No commits found for the specified paths").yellow()
+        ))?;
         return Ok(());
     }
 
@@ -204,7 +207,6 @@ async fn run_diff(
     show_progress: bool,
     output_mode: OutputMode,
 ) -> Result<()> {
-
     let validated_types = parse_node_types(types)?;
 
     let mode_description = if args.staged {
@@ -260,7 +262,11 @@ async fn run_diff(
         let files = get_changed_files(repo_path, parts[0], parts[1])?;
         (files, parts[0].to_string(), Some(parts[1].to_string()))
     } else {
-        (get_working_tree_changes(repo_path)?, "HEAD".to_string(), None)
+        (
+            get_working_tree_changes(repo_path)?,
+            "HEAD".to_string(),
+            None,
+        )
     };
 
     let scoped_files = filter_paths_by_scope(changed_files, paths);
@@ -279,8 +285,11 @@ async fn run_diff(
                     } else {
                         out.writeln(format!(
                             "{}",
-                            style(format!("warning: '{}' does not exist in this repository", p))
-                                .yellow()
+                            style(format!(
+                                "warning: '{}' does not exist in this repository",
+                                p
+                            ))
+                            .yellow()
                         ))?;
                     }
                 }
@@ -348,7 +357,11 @@ async fn run_diff(
             }
         } else {
             if !output_mode.is_json() {
-                out.writeln(format!("  {} {}", style(file).cyan(), style("(not parsed)").dim()))?;
+                out.writeln(format!(
+                    "  {} {}",
+                    style(file).cyan(),
+                    style("(not parsed)").dim()
+                ))?;
                 printed_file_list = true;
             }
         }
@@ -377,9 +390,8 @@ async fn run_diff(
                         Error::internal(format!("Failed to create temp dir structure: {}", e))
                     })?;
                 }
-                std::fs::write(&dest, &content).map_err(|e| {
-                    Error::internal(format!("Failed to write temp file: {}", e))
-                })?;
+                std::fs::write(&dest, &content)
+                    .map_err(|e| Error::internal(format!("Failed to write temp file: {}", e)))?;
                 files.push(dest.to_string_lossy().to_string());
             }
         }
@@ -420,9 +432,8 @@ async fn run_diff(
                         Error::internal(format!("Failed to create temp dir structure: {}", e))
                     })?;
                 }
-                std::fs::write(&dest, &content).map_err(|e| {
-                    Error::internal(format!("Failed to write temp file: {}", e))
-                })?;
+                std::fs::write(&dest, &content)
+                    .map_err(|e| Error::internal(format!("Failed to write temp file: {}", e)))?;
                 before_files.push(dest.to_string_lossy().to_string());
             }
         }
@@ -438,8 +449,8 @@ async fn run_diff(
     }
 
     // Canonicalize roots to resolve symlinks (e.g., macOS /var -> /private/var)
-    let canon_repo = std::fs::canonicalize(repo_path)
-        .unwrap_or_else(|_| std::path::PathBuf::from(repo_path));
+    let canon_repo =
+        std::fs::canonicalize(repo_path).unwrap_or_else(|_| std::path::PathBuf::from(repo_path));
     let canon_tmp = tmp_dir
         .path()
         .canonicalize()
@@ -502,10 +513,8 @@ async fn run_diff(
         .iter()
         .map(|n| norm_key(n, &canon_after_root))
         .collect();
-    let removed_node_keys: HashSet<String> = removed
-        .iter()
-        .map(|n| norm_key(n, canon_tmp_str))
-        .collect();
+    let removed_node_keys: HashSet<String> =
+        removed.iter().map(|n| norm_key(n, canon_tmp_str)).collect();
     let added_edges: Vec<&Edge> = after_edge_keys
         .difference(&before_edge_keys)
         .filter_map(|k| after_edge_by_key.get(k.as_str()).copied())
@@ -533,7 +542,12 @@ async fn run_diff(
         .filter(|(a, _)| filter_node(&a))
         .collect();
 
-    if added.is_empty() && removed.is_empty() && modified.is_empty() && added_edges.is_empty() && removed_edges.is_empty() {
+    if added.is_empty()
+        && removed.is_empty()
+        && modified.is_empty()
+        && added_edges.is_empty()
+        && removed_edges.is_empty()
+    {
         if let Some(sp) = &spinner {
             sp.finish_with_message("No graph-level changes found");
         }
@@ -574,7 +588,15 @@ async fn run_diff(
             scope: paths.to_vec(),
             files: scoped_files,
             summary: DeltaSummary {
-                files_changed: total_changed_file_count(&added, &removed, &modified, &added_edges, &removed_edges, &canon_after_root, canon_tmp_str),
+                files_changed: total_changed_file_count(
+                    &added,
+                    &removed,
+                    &modified,
+                    &added_edges,
+                    &removed_edges,
+                    &canon_after_root,
+                    canon_tmp_str,
+                ),
                 nodes_added: added.len(),
                 nodes_removed: removed.len(),
                 nodes_modified: modified.len(),
@@ -600,7 +622,17 @@ async fn run_diff(
     if let Some(sp) = &spinner {
         sp.set_message("Rendering graph change summary...");
     }
-    print_delta(out, &added, &removed, &modified, &added_edges, &removed_edges, canon_repo_str, &canon_after_root, canon_tmp_str)?;
+    print_delta(
+        out,
+        &added,
+        &removed,
+        &modified,
+        &added_edges,
+        &removed_edges,
+        canon_repo_str,
+        &canon_after_root,
+        canon_tmp_str,
+    )?;
     if let Some(sp) = &spinner {
         sp.finish_with_message("Graph change summary ready");
     }
@@ -641,10 +673,26 @@ fn total_changed_file_count(
     added
         .iter()
         .map(|n| rel_path(&n.node_data.file, after_root))
-        .chain(removed.iter().map(|n| rel_path(&n.node_data.file, before_root)))
-        .chain(modified.iter().map(|(n, _)| rel_path(&n.node_data.file, after_root)))
-        .chain(added_edges.iter().map(|e| rel_path(&e.source.node_data.file, after_root)))
-        .chain(removed_edges.iter().map(|e| rel_path(&e.source.node_data.file, before_root)))
+        .chain(
+            removed
+                .iter()
+                .map(|n| rel_path(&n.node_data.file, before_root)),
+        )
+        .chain(
+            modified
+                .iter()
+                .map(|(n, _)| rel_path(&n.node_data.file, after_root)),
+        )
+        .chain(
+            added_edges
+                .iter()
+                .map(|e| rel_path(&e.source.node_data.file, after_root)),
+        )
+        .chain(
+            removed_edges
+                .iter()
+                .map(|e| rel_path(&e.source.node_data.file, before_root)),
+        )
         .collect::<HashSet<_>>()
         .len()
 }
@@ -689,7 +737,10 @@ fn norm_key_from_ref(node_ref: &ast::lang::graphs::NodeRef, root: &str) -> Strin
             .map(|s| s.trim_start_matches('/'))
             .unwrap_or(file.as_str())
     };
-    format!("{}-{}-{}", node_ref.node_type, node_ref.node_data.name, rel_file)
+    format!(
+        "{}-{}-{}",
+        node_ref.node_type, node_ref.node_data.name, rel_file
+    )
 }
 
 fn index_graph_by_norm_key<'a>(
@@ -826,7 +877,10 @@ fn print_delta(
     }
     for (after_node, before_node) in modified {
         let rp = rel_path(&after_node.node_data.file, after_root);
-        file_modified.entry(rp).or_default().push((after_node, before_node));
+        file_modified
+            .entry(rp)
+            .or_default()
+            .push((after_node, before_node));
     }
     for edge in added_edges {
         let rp = rel_path(&edge.source.node_data.file, after_root);
@@ -877,10 +931,22 @@ fn print_delta(
 
         let mut summary_parts: Vec<String> = Vec::new();
         if node_count > 0 {
-            summary_parts.push(format!("{} node{}", node_count, if node_count == 1 { "" } else { "s" }));
+            summary_parts.push(format!(
+                "{} node{}",
+                node_count,
+                if node_count == 1 { "" } else { "s" }
+            ));
         }
         if edge_add_count + edge_rem_count > 0 {
-            summary_parts.push(format!("{} edge change{}", edge_add_count + edge_rem_count, if edge_add_count + edge_rem_count == 1 { "" } else { "s" }));
+            summary_parts.push(format!(
+                "{} edge change{}",
+                edge_add_count + edge_rem_count,
+                if edge_add_count + edge_rem_count == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            ));
         }
         let summary = summary_parts.join(", ");
 
@@ -896,7 +962,12 @@ fn print_delta(
             let mut sorted = nodes.clone();
             sorted.sort_by_key(|(a, _)| a.node_data.start);
             for (after_node, before_node) in sorted {
-                let line_range = style(format!("L{}-L{}", after_node.node_data.start + 1, after_node.node_data.end + 1)).dim();
+                let line_range = style(format!(
+                    "L{}-L{}",
+                    after_node.node_data.start + 1,
+                    after_node.node_data.end + 1
+                ))
+                .dim();
                 out.writeln(format!(
                     "  {} {} {}  {}",
                     style("~").yellow().bold(),
@@ -908,8 +979,16 @@ fn print_delta(
                 let after_sig = node_signature(&after_node);
                 match (before_sig, after_sig) {
                     (Some(b), Some(a)) if b != a => {
-                        out.writeln(format!("    {} {}", style("-").red(), style(&b).red().bright()))?;
-                        out.writeln(format!("    {} {}", style("+").green(), style(&a).green().bright()))?;
+                        out.writeln(format!(
+                            "    {} {}",
+                            style("-").red(),
+                            style(&b).red().bright()
+                        ))?;
+                        out.writeln(format!(
+                            "    {} {}",
+                            style("+").green(),
+                            style(&a).green().bright()
+                        ))?;
                     }
                     _ => {}
                 }
@@ -1013,12 +1092,27 @@ fn print_delta(
 
     out.writeln(format!(
         "{}  {}  {}  {}  {}  {}",
-        style(format!("{} file{}", total_file_count, if total_file_count == 1 { "" } else { "s" })).bold(),
+        style(format!(
+            "{} file{}",
+            total_file_count,
+            if total_file_count == 1 { "" } else { "s" }
+        ))
+        .bold(),
         style(format!("{} added", added.len())).green(),
         style(format!("{} removed", removed.len())).red(),
         style(format!("{} modified", modified.len())).yellow(),
-        style(format!("{} new edge{}", added_edges.len(), if added_edges.len() == 1 { "" } else { "s" })).green(),
-        style(format!("{} dropped edge{}", removed_edges.len(), if removed_edges.len() == 1 { "" } else { "s" })).red(),
+        style(format!(
+            "{} new edge{}",
+            added_edges.len(),
+            if added_edges.len() == 1 { "" } else { "s" }
+        ))
+        .green(),
+        style(format!(
+            "{} dropped edge{}",
+            removed_edges.len(),
+            if removed_edges.len() == 1 { "" } else { "s" }
+        ))
+        .red(),
     ))?;
 
     Ok(())

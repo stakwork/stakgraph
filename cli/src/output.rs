@@ -85,7 +85,11 @@ pub fn write_json_success<T: Serialize>(
     out.write_json(&payload)
 }
 
-pub fn write_json_error(out: &mut Output, command: &str, message: impl Into<String>) -> io::Result<()> {
+pub fn write_json_error(
+    out: &mut Output,
+    command: &str,
+    message: impl Into<String>,
+) -> io::Result<()> {
     let payload = JsonErrorEnvelope {
         ok: false,
         command: command.to_string(),

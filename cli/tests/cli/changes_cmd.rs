@@ -38,11 +38,7 @@ fn init_git_repo() -> tempfile::TempDir {
     run_cmd(root, &["git", "config", "user.email", "test@example.com"]);
     run_cmd(root, &["git", "config", "user.name", "Test User"]);
 
-    write_file(
-        root,
-        "src/lib.rs",
-        "pub fn one() -> i32 {\n    1\n}\n",
-    );
+    write_file(root, "src/lib.rs", "pub fn one() -> i32 {\n    1\n}\n");
     run_cmd(root, &["git", "add", "."]);
     run_cmd(root, &["git", "commit", "-m", "initial"]);
 
@@ -112,7 +108,10 @@ fn changes_diff_last_and_types_filter_smoke() {
     );
 
     let cwd = root.to_string_lossy().to_string();
-    let out = run_stakgraph_in_cwd(&cwd, &["changes", "diff", "--last", "1", "--types", "FUNCTION"]);
+    let out = run_stakgraph_in_cwd(
+        &cwd,
+        &["changes", "diff", "--last", "1", "--types", "FUNCTION"],
+    );
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(
@@ -148,7 +147,9 @@ fn changes_diff_scope_warning_for_missing_path() {
 
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("warning:"));
-    assert!(out.stdout.contains("No changes found in the specified scope"));
+    assert!(out
+        .stdout
+        .contains("No changes found in the specified scope"));
 }
 
 fn init_git_repo_with_path_scope_fixture() -> tempfile::TempDir {

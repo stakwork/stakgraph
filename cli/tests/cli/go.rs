@@ -35,10 +35,30 @@ fn no_nested_filters_nested_functions_exactly() {
     assert_eq!(count_prefix(&normal.stdout, "Function:"), 3);
     assert_eq!(count_prefix(&filtered.stdout, "Function:"), 1);
 
-    assert_eq!(normal.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), true);
-    assert_eq!(normal.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), true);
-    assert_eq!(filtered.stdout.contains("Function: GET_anon-get_func_L8 (9-11)"), false);
-    assert_eq!(filtered.stdout.contains("Function: POST_anon-post_func_L13 (14-16)"), false);
+    assert_eq!(
+        normal
+            .stdout
+            .contains("Function: GET_anon-get_func_L8 (9-11)"),
+        true
+    );
+    assert_eq!(
+        normal
+            .stdout
+            .contains("Function: POST_anon-post_func_L13 (14-16)"),
+        true
+    );
+    assert_eq!(
+        filtered
+            .stdout
+            .contains("Function: GET_anon-get_func_L8 (9-11)"),
+        false
+    );
+    assert_eq!(
+        filtered
+            .stdout
+            .contains("Function: POST_anon-post_func_L13 (14-16)"),
+        false
+    );
 }
 
 #[test]

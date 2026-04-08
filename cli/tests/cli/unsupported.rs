@@ -10,7 +10,9 @@ fn unsupported_text_file_prints_preview() {
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("File:"));
     assert!(out.stdout.contains("Rust Monorepo"));
-    assert!(!out.stdout.contains("[binary or unprintable content skipped]"));
+    assert!(!out
+        .stdout
+        .contains("[binary or unprintable content skipped]"));
 }
 
 #[test]
@@ -20,5 +22,7 @@ fn unsupported_binary_file_prints_skip_message() {
 
     assert_eq!(out.exit_code, 0);
     assert!(out.stdout.contains("File:"));
-    assert!(out.stdout.contains("[binary or unprintable content skipped]"));
+    assert!(out
+        .stdout
+        .contains("[binary or unprintable content skipped]"));
 }

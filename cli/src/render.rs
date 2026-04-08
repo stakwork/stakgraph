@@ -100,11 +100,7 @@ pub struct CallRef {
     pub file: Option<String>,
 }
 
-pub fn resolve_call_ref(
-    edge: &Edge,
-    source_file: &str,
-    graph: &ArrayGraph,
-) -> CallRef {
+pub fn resolve_call_ref(edge: &Edge, source_file: &str, graph: &ArrayGraph) -> CallRef {
     let target_name = &edge.target.node_data.name;
     let target_file = &edge.target.node_data.file;
 
@@ -198,10 +194,7 @@ fn print_function_edges(
     if let Some(edges) = edges_by_source.get(&source_key) {
         for edge in edges {
             let cr = resolve_call_ref(edge, &node.node_data.file, graph);
-            let file_info = cr
-                .file
-                .map(|f| format!(" [{}]", f))
-                .unwrap_or_default();
+            let file_info = cr.file.map(|f| format!(" [{}]", f)).unwrap_or_default();
 
             let arrow = style("→").dim();
             let line_num = style(format!("L{}", cr.line)).dim();
@@ -260,7 +253,11 @@ fn print_file_nodes_inner(
         .to_string();
 
     let file_label = style("File:").bold().cyan();
-    out.writeln(format!("{} {}", file_label, style(super::utils::rel_path_from_cwd(&file_path)).cyan()))?;
+    out.writeln(format!(
+        "{} {}",
+        file_label,
+        style(super::utils::rel_path_from_cwd(&file_path)).cyan()
+    ))?;
 
     let mut nodes: Vec<_> = graph
         .nodes
@@ -276,8 +273,8 @@ fn print_file_nodes_inner(
             }
             let node_file_str = &node.node_data.file;
             // Try canonicalize first (works when node stores an absolute/resolvable path)
-            let node_file = std::fs::canonicalize(node_file_str)
-                .map(|p| p.to_string_lossy().to_string());
+            let node_file =
+                std::fs::canonicalize(node_file_str).map(|p| p.to_string_lossy().to_string());
             if let Ok(ref nf) = node_file {
                 if *nf == file_path {
                     return true;
@@ -340,8 +337,8 @@ pub fn print_named_node(
                 }
             }
             let node_file_str = &node.node_data.file;
-            let node_file = std::fs::canonicalize(node_file_str)
-                .map(|p| p.to_string_lossy().to_string());
+            let node_file =
+                std::fs::canonicalize(node_file_str).map(|p| p.to_string_lossy().to_string());
             let in_file = if let Ok(ref nf) = node_file {
                 *nf == file_path
             } else {
@@ -367,7 +364,9 @@ pub fn print_named_node(
             "{}",
             style(format!(
                 "No node named '{}'{} found in {}",
-                node_name, type_hint, super::utils::rel_path_from_cwd(&file_path)
+                node_name,
+                type_hint,
+                super::utils::rel_path_from_cwd(&file_path)
             ))
             .yellow()
         ))?;

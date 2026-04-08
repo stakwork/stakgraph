@@ -37,15 +37,16 @@ fn run_git(repo_path: &str, args: &[&str]) -> Result<String> {
 
 pub fn get_changed_files(repo_path: &str, old_rev: &str, new_rev: &str) -> Result<Vec<String>> {
     let out = run_git(repo_path, &["diff", "--name-only", old_rev, new_rev])?;
-    Ok(out.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    Ok(out
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 pub fn get_working_tree_changes(repo_path: &str) -> Result<Vec<String>> {
     let modified = run_git(repo_path, &["diff", "--name-only", "HEAD"])?;
-    let untracked = run_git(
-        repo_path,
-        &["ls-files", "--others", "--exclude-standard"],
-    )?;
+    let untracked = run_git(repo_path, &["ls-files", "--others", "--exclude-standard"])?;
     let mut files: Vec<String> = modified
         .lines()
         .chain(untracked.lines())
@@ -59,7 +60,11 @@ pub fn get_working_tree_changes(repo_path: &str) -> Result<Vec<String>> {
 
 pub fn get_staged_changes(repo_path: &str) -> Result<Vec<String>> {
     let out = run_git(repo_path, &["diff", "--name-only", "--cached"])?;
-    Ok(out.lines().filter(|l| !l.is_empty()).map(String::from).collect())
+    Ok(out
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 pub fn list_commits_for_paths(
@@ -94,11 +99,7 @@ pub fn list_commits_for_paths(
     Ok(commits)
 }
 
-pub fn read_file_at_rev(
-    repo_path: &str,
-    rev: &str,
-    file_path: &str,
-) -> Result<Option<Vec<u8>>> {
+pub fn read_file_at_rev(repo_path: &str, rev: &str, file_path: &str) -> Result<Option<Vec<u8>>> {
     let spec = format!("{}:{}", rev, file_path);
     let output = std::process::Command::new("git")
         .args(["show", &spec])
@@ -108,7 +109,10 @@ pub fn read_file_at_rev(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("does not exist") || stderr.contains("exists on disk") || stderr.contains("Path '") {
+        if stderr.contains("does not exist")
+            || stderr.contains("exists on disk")
+            || stderr.contains("Path '")
+        {
             return Ok(None);
         }
         let exit_code = output.status.code().unwrap_or(-1);
@@ -141,7 +145,10 @@ pub fn filter_paths_by_scope(files: Vec<String>, scope: &[String]) -> Vec<String
         .filter(|f| {
             let file = f.trim_start_matches("./");
             normalized_scope.iter().any(|s| {
-                file == s || file.strip_prefix(s).is_some_and(|rest| rest.starts_with('/'))
+                file == s
+                    || file
+                        .strip_prefix(s)
+                        .is_some_and(|rest| rest.starts_with('/'))
             })
         })
         .collect()

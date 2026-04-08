@@ -19,7 +19,19 @@ fn person_service_rb_contains_exact_named_nodes() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(out.stdout.contains("Class: PersonService (1-13)"), true);
-    assert_eq!(out.stdout.contains("Function: PersonService.get_person_by_id (2-4)"), true);
-    assert_eq!(out.stdout.contains("Function: PersonService.new_person (6-8)"), true);
-    assert_eq!(out.stdout.contains("Function: PersonService.delete (10-12)"), true);
+    assert_eq!(
+        out.stdout
+            .contains("Function: PersonService.get_person_by_id (2-4)"),
+        true
+    );
+    assert_eq!(
+        out.stdout
+            .contains("Function: PersonService.new_person (6-8)"),
+        true
+    );
+    assert_eq!(
+        out.stdout
+            .contains("Function: PersonService.delete (10-12)"),
+        true
+    );
 }
