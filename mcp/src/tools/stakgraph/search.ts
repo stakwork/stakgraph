@@ -43,6 +43,11 @@ export const SearchSchema = z.object({
     .describe(
       "Filter nodes by programming language (e.g. 'javascript', 'python', 'typescript')"
     ),
+  skip_node_types: z
+    .array(z.string())
+    .optional()
+    .default([])
+    .describe("Node types to exclude from search results (e.g. ['UnitTest', 'IntegrationTest', 'E2etest'])."),
 });
 
 export const SearchTool: Tool = {
@@ -62,7 +67,7 @@ export async function search(args: z.infer<typeof SearchSchema>) {
     args.max_tokens ?? 100000,
     args.method ?? "hybrid",
     "snippet",
-    false,
+    (args.skip_node_types as NodeType[]) ?? [],
     args.language
   );
   return {

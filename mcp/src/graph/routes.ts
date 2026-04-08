@@ -628,9 +628,12 @@ export async function search(req: Request, res: Response) {
     const method = req.query.method as G.SearchMethod;
     const output = req.query.output as G.OutputFormat;
     const sort_by = req.query.sort_by as G.SearchSortBy;
-    let tests = isTrue(req.query.tests as string);
+    const tests = isTrue(req.query.tests as string);
     const maxTokens = parseInt(req.query.max_tokens as string);
     const language = req.query.language as string;
+    const skip_node_types: NodeType[] = tests
+      ? []
+      : (["UnitTest", "IntegrationTest", "E2etest"] as NodeType[]);
 
     if (maxTokens) {
       console.log("search with max tokens", maxTokens);
@@ -643,7 +646,7 @@ export async function search(req: Request, res: Response) {
       maxTokens || 100000,
       method,
       output || "snippet",
-      tests,
+      skip_node_types,
       language,
       sort_by === "pagerank" ? "pagerank" : "relevance"
     );

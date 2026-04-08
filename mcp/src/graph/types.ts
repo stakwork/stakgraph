@@ -136,6 +136,30 @@ export interface GraphResponse {
   edges: any[];
   status: string;
 }
+export function code_node_types(): NodeType[] {
+  return [
+    "Repository",
+    "Package",
+    "Language",
+    "Directory",
+    "File",
+    "Import",
+    "Library",
+    "Class",
+    "Trait",
+    "Instance",
+    "Function",
+    "Endpoint",
+    "Request",
+    "Datamodel",
+    "Page",
+    "Var",
+    "UnitTest",
+    "IntegrationTest",
+    "E2etest",
+  ];
+}
+
 export function relevant_node_types(): NodeType[] {
   return [
     "Page",
