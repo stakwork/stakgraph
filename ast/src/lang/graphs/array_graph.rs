@@ -741,6 +741,97 @@ impl Graph for ArrayGraph {
         }
     }
 
+    fn prune_orphan_nested_functions(&mut self) {
+        let func_keys: HashSet<String> = self
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == NodeType::Function)
+            .map(create_node_key)
+            .collect();
+
+        // Only consider NestedIn edges where BOTH src AND dst are Function nodes.
+        // This excludes Var-nested functions (Zustand store methods etc.).
+        let nested_in_func_edges: Vec<(String, String)> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                e.edge == EdgeType::NestedIn
+                    && func_keys.contains(&create_node_key_from_ref(&e.source))
+                    && func_keys.contains(&create_node_key_from_ref(&e.target))
+            })
+            .map(|e| (create_node_key_from_ref(&e.source), create_node_key_from_ref(&e.target)))
+            .collect();
+
+        if nested_in_func_edges.is_empty() {
+            return;
+        }
+
+        // Parent functions that are themselves nested inside a Var (e.g. Zustand factory arrows).
+        // Children of these should not be pruned.
+        let var_prefix = format!("{:?}-", NodeType::Var).to_lowercase();
+        let parents_in_var: HashSet<String> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                e.edge == EdgeType::NestedIn
+                    && func_keys.contains(&create_node_key_from_ref(&e.source))
+                    && create_node_key_from_ref(&e.target).starts_with(&var_prefix)
+            })
+            .map(|e| create_node_key_from_ref(&e.source))
+            .collect();
+
+        let nested_in_func_keys: HashSet<String> = nested_in_func_edges
+            .iter()
+            .filter(|(_, parent)| !parents_in_var.contains(parent))
+            .map(|(src, _)| src.clone())
+            .collect();
+
+        if nested_in_func_keys.is_empty() {
+            return;
+        }
+
+        let has_incoming: HashSet<String> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                let dst_key = create_node_key_from_ref(&e.target);
+                nested_in_func_keys.contains(&dst_key)
+                    && matches!(e.edge, EdgeType::Handler | EdgeType::Calls | EdgeType::Renders)
+            })
+            .map(|e| create_node_key_from_ref(&e.target))
+            .collect();
+
+        let has_outgoing_calls: HashSet<String> = self
+            .edges
+            .iter()
+            .filter(|e| {
+                let src_key = create_node_key_from_ref(&e.source);
+                nested_in_func_keys.contains(&src_key)
+                    && matches!(e.edge, EdgeType::Calls | EdgeType::Handler)
+            })
+            .map(|e| create_node_key_from_ref(&e.source))
+            .collect();
+
+        let to_remove: HashSet<String> = nested_in_func_keys
+            .into_iter()
+            .filter(|k| !has_incoming.contains(k) && !has_outgoing_calls.contains(k))
+            .collect();
+
+        self.nodes
+            .retain(|n| !to_remove.contains(&create_node_key(n)));
+        self.edges.retain(|e| {
+            let src = create_node_key_from_ref(&e.source);
+            let dst = create_node_key_from_ref(&e.target);
+            !to_remove.contains(&src) && !to_remove.contains(&dst)
+        });
+        for key in &to_remove {
+            self.node_keys.remove(key);
+        }
+        self.edge_keys.retain(|ek| {
+            !to_remove.iter().any(|rm| ek.contains(rm))
+        });
+    }
+
     fn get_data_models_within(&mut self, lang: &Lang) {
         let data_model_nodes: Vec<NodeData> = self
             .nodes

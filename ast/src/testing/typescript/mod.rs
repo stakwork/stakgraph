@@ -396,7 +396,32 @@ import {{ sequelize }} from "./config.js";"#
         anon_file_funcs.iter().any(|f| f.name == "anonWithArgs"),
         "Missing anonWithArgs"
     );
-    //TODO: Callbacks and IIFFEs are not captured as standalone roots for now.
+
+    let anon_file_func_names = anon_file_funcs
+        .iter()
+        .map(|f| f.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        anon_file_funcs.len(),
+        5,
+        "Expected only the 5 named root functions in anonymous_functions.ts. Found {:?}",
+        anon_file_func_names
+    );
+    assert!(
+        anon_file_func_names.iter().all(|name| {
+            [
+                "basicArrow",
+                "arrowWithArgs",
+                "implicitReturn",
+                "anonExpr",
+                "anonWithArgs",
+            ]
+            .contains(name)
+        }),
+        "Unexpected anonymous callback or IIFE function captured in anonymous_functions.ts: {:?}",
+        anon_file_func_names
+    );
+
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes_count += endpoints.len();
     assert_eq!(endpoints.len(), 22, "Expected 22 endpoints");

@@ -683,6 +683,15 @@ impl Neo4jGraph {
         Ok(())
     }
 
+    pub async fn prune_orphan_nested_functions_async(&self) -> Result<()> {
+        let Ok(connection) = self.ensure_connected().await else {
+            return Ok(());
+        };
+        let mut txn_manager = TransactionManager::new(&connection);
+        txn_manager.add_query((prune_orphan_nested_functions_query(), BoltMap::new()));
+        txn_manager.execute().await
+    }
+
     pub async fn process_endpoint_groups_async(&self, eg: &[NodeData], lang: &Lang) -> Result<()> {
         if eg.is_empty() {
             return Ok(());
@@ -1249,6 +1258,14 @@ impl Graph for Neo4jGraph {
     fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, operation: &str) {
         sync_fn(|| async {
             self.deduplicate_nodes_async(remove_type, keep_type, operation)
+                .await
+                .unwrap_or_default()
+        });
+    }
+
+    fn prune_orphan_nested_functions(&mut self) {
+        sync_fn(|| async {
+            self.prune_orphan_nested_functions_async()
                 .await
                 .unwrap_or_default()
         });

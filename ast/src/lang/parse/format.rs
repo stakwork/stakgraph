@@ -542,8 +542,9 @@ impl Lang {
                                 }
                             }
                         }
-                    } else {
-                        // FALLBACK to find?
+                    }
+
+                    if handler.is_none() {
                         let import_names = get_imports_for_file(file, self, graph);
                         return Ok(self.lang().handler_finder(
                             endp.clone(),

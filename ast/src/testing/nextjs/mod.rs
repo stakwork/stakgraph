@@ -150,6 +150,21 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         panic!("FAILURE: detail function NOT FOUND in graph nodes");
     }
 
+    for (fn_name, file_suffix) in [
+        ("lists", "nextjs/lib/hooks/useBountyQueries.ts"),
+        ("detail", "nextjs/lib/hooks/useBountyQueries.ts"),
+        ("workspace", "nextjs/lib/hooks/useBountyQueries.ts"),
+    ] {
+        assert!(
+            functions
+                .iter()
+                .any(|f| f.name == fn_name && f.file.ends_with(file_suffix)),
+            "Expected named object-key function '{}' to be preserved in {}",
+            fn_name,
+            file_suffix
+        );
+    }
+
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
     assert_eq!(endpoints.len(), 21, "Expected 21 Endpoint nodes");
@@ -165,8 +180,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            197,
-            "Expected 197 Function nodes without LSP, found {}",
+            154,
+            "Expected 154 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -296,7 +311,12 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 565, "Expected 565 Contains edges");
+    if use_lsp {
+        assert_eq!(contains, 526, "Expected 526 Contains edges with LSP");
+    }else{
+        assert_eq!(contains, 511, "Expected 511 Contains edges");
+    }
+
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -505,7 +525,11 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
-    assert_eq!(nested_in, 93, "Expected 93 NestedIn edges");
+    if use_lsp {
+        assert_eq!(nested_in, 61, "Expected 61 NestedIn edges with LSP");
+    } else {
+    assert_eq!(nested_in, 50, "Expected 50 NestedIn edges");
+    }
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
