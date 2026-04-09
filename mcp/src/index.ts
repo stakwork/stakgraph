@@ -133,6 +133,7 @@ app.get("/busy", (req: Request, res: Response) => {
 });
 
 app.get("/gitsee/events/:owner/:repo", r.gitseeEvents);
+app.get("/server-config", r.server_config);
 
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);
