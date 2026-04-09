@@ -1372,6 +1372,13 @@ impl Stack for TypeScriptReact {
     fn should_skip_function_call(&self, called: &str, operand: &Option<String>) -> bool {
         super::skips::react_ts::should_skip(called, operand)
     }
+    fn function_definition_tag(&self, node_kind: &str) -> Option<&'static str> {
+        if node_kind == "pair" {
+            Some("pair")
+        } else {
+            None
+        }
+    }
 
     // MERGED: parse_imports_from_file (using TypeScript version with IMPORTS_ALIAS)
     fn parse_imports_from_file(

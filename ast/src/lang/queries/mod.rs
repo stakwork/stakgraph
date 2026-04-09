@@ -367,6 +367,9 @@ pub trait Stack {
     fn should_skip_function_call(&self, _called: &str, _operand: &Option<String>) -> bool {
         false
     }
+    fn function_definition_tag(&self, _node_kind: &str) -> Option<&'static str> {
+        None
+    }
     fn convert_association_to_name(&self, name: &str) -> String {
         name.to_string()
     }

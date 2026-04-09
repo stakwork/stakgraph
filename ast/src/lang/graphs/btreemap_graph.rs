@@ -831,6 +831,46 @@ impl Graph for BTreeMapGraph {
         }
         self.edges
             .retain(|(src, dst, _)| !to_remove.contains(src) && !to_remove.contains(dst));
+
+        let pair_keys: HashSet<String> = self
+            .nodes
+            .range(func_prefix.clone()..)
+            .take_while(|(k, _)| k.starts_with(&func_prefix))
+            .filter(|(_, n)| n.node_data.meta.get("source").map(|s| s == "pair").unwrap_or(false))
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        if !pair_keys.is_empty() {
+            let has_meaningful_edge: HashSet<String> = self
+                .edges
+                .iter()
+                .filter(|(src, dst, et)| {
+                    matches!(et, EdgeType::Calls | EdgeType::Handler | EdgeType::Renders)
+                        && (pair_keys.contains(src) || pair_keys.contains(dst))
+                })
+                .flat_map(|(src, dst, _)| {
+                    let mut v = Vec::new();
+                    if pair_keys.contains(src) {
+                        v.push(src.clone());
+                    }
+                    if pair_keys.contains(dst) {
+                        v.push(dst.clone());
+                    }
+                    v
+                })
+                .collect();
+
+            let to_remove: Vec<String> = pair_keys
+                .into_iter()
+                .filter(|k| !has_meaningful_edge.contains(k))
+                .collect();
+
+            for key in &to_remove {
+                self.nodes.remove(key);
+            }
+            self.edges
+                .retain(|(src, dst, _)| !to_remove.contains(src) && !to_remove.contains(dst));
+        }
     }
 
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {

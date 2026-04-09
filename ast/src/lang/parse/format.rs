@@ -704,6 +704,9 @@ impl Lang {
                 func.end = node.end_position().row;
                 def_start_byte = Some(node.start_byte());
                 def_end_byte = Some(node.end_byte());
+                if let Some(tag) = self.lang.function_definition_tag(node.kind()) {
+                    func.meta.insert("source".to_string(), tag.to_string());
+                }
                 if attributes_start_byte.is_none() {
                     attributes_start_byte = Some(node.start_byte());
                 }
