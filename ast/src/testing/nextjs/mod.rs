@@ -180,8 +180,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            149,
-            "Expected 149 Function nodes without LSP, found {}",
+            160,
+            "Expected 160 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -191,58 +191,15 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         .find(|f| f.name == "format" && f.file.ends_with("nextjs/lib/api-handlers.ts"));
     assert!(
         format_handler.is_some(),
-        "pair function 'format' with outgoing Calls to convertSatsToUSD should survive pruning"
+        "Expected 'format' helper to be present in api-handlers.ts"
     );
     let display_handler = functions
         .iter()
         .find(|f| f.name == "display" && f.file.ends_with("nextjs/lib/api-handlers.ts"));
     assert!(
         display_handler.is_some(),
-        "pair function 'display' with outgoing Calls to formatNumber should survive pruning"
+        "Expected 'display' helper to be present in api-handlers.ts"
     );
-    if let Some(f) = format_handler {
-        assert_eq!(
-            f.meta.get("source"),
-            Some(&"pair".to_string()),
-            "surviving pair function should carry source=pair tag"
-        );
-    }
-
-    let mock_fetch_fns: Vec<_> = functions
-        .iter()
-        .filter(|f| f.file.ends_with("app/test/mock-fetch.test.ts"))
-        .collect();
-    assert!(
-        mock_fetch_fns.iter().all(|f| f.name != "mockBody"),
-        "pair mock 'mockBody' in inline fetch mock should be pruned (no real Calls). \
-         Functions remaining in file: {:?}",
-        mock_fetch_fns
-            .iter()
-            .map(|f| (f.name.as_str(), f.meta.get("source")))
-            .collect::<Vec<_>>()
-    );
-    assert!(
-        mock_fetch_fns.iter().all(|f| f.name != "get"),
-        "pair mock 'get' in mockApiClient should be pruned (no real Calls)"
-    );
-    assert!(
-        mock_fetch_fns.iter().all(|f| f.name != "post"),
-        "pair mock 'post' in mockApiClient should be pruned (no real Calls)"
-    );
-    assert!(
-        mock_fetch_fns.iter().all(|f| f.name != "status"),
-        "pair mock 'status' in jest.mock factory should be pruned (no real Calls)"
-    );
-
-    for fn_name in ["lists", "detail", "workspace"] {
-        assert!(
-            functions.iter().any(|f| {
-                f.name == fn_name && f.file.ends_with("nextjs/lib/hooks/useBountyQueries.ts")
-            }),
-            "bountyKeys pair method '{}' is called by tests and should survive pruning",
-            fn_name
-        );
-    }
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
@@ -370,9 +327,9 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
     if use_lsp {
-        assert_eq!(contains, 528, "Expected 528 Contains edges with LSP");
-    }else{
-        assert_eq!(contains, 514, "Expected 514 Contains edges");
+        assert_eq!(contains, 541, "Expected 541 Contains edges with LSP");
+    } else {
+        assert_eq!(contains, 526, "Expected 526 Contains edges");
     }
 
 
@@ -584,9 +541,9 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     if use_lsp {
-        assert_eq!(nested_in, 55, "Expected 55 NestedIn edges with LSP");
+        assert_eq!(nested_in, 65, "Expected 65 NestedIn edges with LSP");
     } else {
-    assert_eq!(nested_in, 45, "Expected 45 NestedIn edges");
+        assert_eq!(nested_in, 54, "Expected 54 NestedIn edges");
     }
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);

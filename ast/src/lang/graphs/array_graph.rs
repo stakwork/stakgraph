@@ -830,58 +830,6 @@ impl Graph for ArrayGraph {
         self.edge_keys.retain(|ek| {
             !to_remove.iter().any(|rm| ek.contains(rm))
         });
-
-        let pair_keys: HashSet<String> = self
-            .nodes
-            .iter()
-            .filter(|n| {
-                n.node_type == NodeType::Function
-                    && n.node_data.meta.get("source").map(|s| s == "pair").unwrap_or(false)
-            })
-            .map(create_node_key)
-            .collect();
-
-        if !pair_keys.is_empty() {
-            let has_meaningful_edge: HashSet<String> = self
-                .edges
-                .iter()
-                .filter(|e| {
-                    matches!(e.edge, EdgeType::Calls | EdgeType::Handler | EdgeType::Renders)
-                        && (pair_keys.contains(&create_node_key_from_ref(&e.source))
-                            || pair_keys.contains(&create_node_key_from_ref(&e.target)))
-                })
-                .flat_map(|e| {
-                    let mut v = Vec::new();
-                    let src = create_node_key_from_ref(&e.source);
-                    let dst = create_node_key_from_ref(&e.target);
-                    if pair_keys.contains(&src) {
-                        v.push(src);
-                    }
-                    if pair_keys.contains(&dst) {
-                        v.push(dst);
-                    }
-                    v
-                })
-                .collect();
-
-            let to_remove: HashSet<String> = pair_keys
-                .into_iter()
-                .filter(|k| !has_meaningful_edge.contains(k))
-                .collect();
-
-            self.nodes
-                .retain(|n| !to_remove.contains(&create_node_key(n)));
-            self.edges.retain(|e| {
-                let src = create_node_key_from_ref(&e.source);
-                let dst = create_node_key_from_ref(&e.target);
-                !to_remove.contains(&src) && !to_remove.contains(&dst)
-            });
-            for key in &to_remove {
-                self.node_keys.remove(key);
-            }
-            self.edge_keys
-                .retain(|ek| !to_remove.iter().any(|rm| ek.contains(rm)));
-        }
     }
 
     fn get_data_models_within(&mut self, lang: &Lang) {

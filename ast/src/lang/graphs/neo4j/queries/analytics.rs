@@ -172,12 +172,3 @@ pub fn prune_orphan_nested_functions_query() -> String {
      DETACH DELETE f"
         .to_string()
 }
-
-pub fn prune_orphan_pair_arrow_functions_query() -> String {
-    "MATCH (f:Function)
-     WHERE f.source IS NOT NULL
-       AND NOT ()-[:CALLS|HANDLER|RENDERS]->(f)
-       AND NOT (f)-[:CALLS|HANDLER|RENDERS]->()
-     DETACH DELETE f"
-        .to_string()
-}
