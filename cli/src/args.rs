@@ -169,6 +169,18 @@ pub struct ImpactArgs {
     #[arg(long)]
     pub file: Option<String>,
 
+    /// Impact staged files only
+    #[arg(long, conflicts_with_all = &["last", "since"])]
+    pub staged: bool,
+
+    /// Impact files changed in the last N commits
+    #[arg(long, conflicts_with_all = &["staged", "since"])]
+    pub last: Option<usize>,
+
+    /// Impact files changed since a git ref
+    #[arg(long, conflicts_with_all = &["staged", "last"])]
+    pub since: Option<String>,
+
     /// Maximum traversal depth (0 = unlimited, default: 3)
     #[arg(long, default_value = "3")]
     pub depth: usize,
@@ -182,7 +194,7 @@ pub struct ImpactArgs {
     pub allow: bool,
 
     /// Files or directories to parse
-    #[arg(value_name = "FILE_OR_DIR", num_args = 1..)]
+    #[arg(value_name = "FILE_OR_DIR", num_args = 0..)]
     pub files: Vec<String>,
 }
 
