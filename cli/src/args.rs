@@ -71,6 +71,8 @@ pub enum Commands {
     Changes(ChangesArgs),
     /// Show a dependency tree for a named node
     Deps(DepsArgs),
+    /// Show what is affected if a node changes (reverse dependency tree)
+    Impact(ImpactArgs),
 }
 
 #[derive(Debug, Args)]
@@ -155,6 +157,33 @@ pub struct DepsArgs {
     pub files: Vec<String>,
 }
 
+#[derive(Debug, Args)]
+pub struct ImpactArgs {
+    /// Name of the node to check impact for
+    #[arg(long)]
+    pub name: Option<String>,
+
+    /// File containing the node (seeds all nodes in file when --name is omitted)
+    #[arg(long)]
+    pub file: Option<String>,
+
+    /// Maximum traversal depth (0 = unlimited, default: 3)
+    #[arg(long, default_value = "3")]
+    pub depth: usize,
+
+    /// Only match seed nodes of this type (e.g. Function, Class, Endpoint)
+    #[arg(long)]
+    pub r#type: Option<String>,
+
+    /// Include unverified (cross-file unresolved) calls (default: true)
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
+    pub allow: bool,
+
+    /// Files or directories to parse
+    #[arg(value_name = "FILE_OR_DIR", num_args = 1..)]
+    pub files: Vec<String>,
+}
+
 impl CliArgs {
     pub fn parse_and_expand() -> Result<Self> {
         let mut args = Self::parse();
@@ -185,6 +214,10 @@ impl CliArgs {
         }
 
         if let Some(Commands::Deps(_)) = &args.command {
+            return Ok(args);
+        }
+
+        if let Some(Commands::Impact(_)) = &args.command {
             return Ok(args);
         }
 

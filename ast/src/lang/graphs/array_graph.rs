@@ -947,4 +947,21 @@ impl ArrayGraph {
         let edge_type = sanitize_string(&format!("{}", edge.edge));
         format!("{}-{}-{}", source_key, target_key, edge_type,)
     }
+
+    pub fn find_dependents(
+        &self,
+        target_name: &str,
+        target_file: &str,
+        edge_types: &[EdgeType],
+    ) -> Vec<(NodeRef, EdgeType)> {
+        self.edges
+            .iter()
+            .filter(|e| {
+                edge_types.contains(&e.edge)
+                    && e.target.node_data.name == target_name
+                    && e.target.node_data.file == target_file
+            })
+            .map(|e| (e.source.clone(), e.edge.clone()))
+            .collect()
+    }
 }

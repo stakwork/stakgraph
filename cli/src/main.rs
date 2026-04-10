@@ -8,6 +8,7 @@ mod changes;
 mod completions;
 mod deps;
 mod git;
+mod impact;
 mod output;
 mod parse;
 mod progress;
@@ -54,6 +55,7 @@ fn command_name(cli: &CliArgs) -> &'static str {
         Some(Commands::Completions(_)) => "completions",
         Some(Commands::Changes(_)) => "changes",
         Some(Commands::Deps(_)) => "deps",
+        Some(Commands::Impact(_)) => "impact",
         None => "parse",
     }
 }
@@ -93,6 +95,9 @@ async fn run(cli: CliArgs) -> Result<()> {
         }
         Some(Commands::Deps(args)) => {
             deps::run(args, &mut Output::new(), cli.verbose || cli.perf, output_mode).await
+        }
+        Some(Commands::Impact(args)) => {
+            impact::run(args, &mut Output::new(), cli.verbose || cli.perf, output_mode).await
         }
         None => parse::run(&cli, &mut Output::new(), output_mode).await,
     }
