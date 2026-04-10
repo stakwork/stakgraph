@@ -273,7 +273,7 @@ pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
     let handler_edges_count = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handler_edges_count;
     if use_lsp {
-        assert_eq!(handler_edges_count, 4, "Expected 4 handler edges with lsp");
+        assert_eq!(handler_edges_count, 6, "Expected 6 handler edges with lsp");
     } else {
         assert_eq!(
             handler_edges_count, 5,
@@ -299,7 +299,8 @@ pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 108, "Expected 108 contains edges");
+        assert_eq!(contains, 108, "Expected 108 contains edges without lsp");
+
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes_count += variables.len();
@@ -323,6 +324,7 @@ pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
         nested_in, 2,
         "Expected 2 NestedIn edges for anonymous functions"
     );
+
 
     let handler_fn = graph
         .find_nodes_by_name(NodeType::Function, "GetBountiesLeaderboard")

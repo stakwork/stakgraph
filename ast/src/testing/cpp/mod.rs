@@ -140,7 +140,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 47, "Expected 47 contains edges");
+    assert_eq!(contains, 45, "Expected 45 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -149,8 +149,8 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     assert_eq!(
-        nested_in, 4,
-        "Expected 4 NestedIn edges for lambda functions"
+        nested_in, 2,
+        "Expected 2 NestedIn edges for lambda functions"
     );
 
     let variables = graph.find_nodes_by_type(NodeType::Var);
@@ -218,7 +218,7 @@ pub async fn test_cpp_generic<G: Graph + Sync>() -> Result<()> {
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes += functions.len();
-    assert_eq!(functions.len(), 11, "Expected 11 functions");
+    assert_eq!(functions.len(), 9, "Expected 9 functions");
 
     let database = classes
         .into_iter()

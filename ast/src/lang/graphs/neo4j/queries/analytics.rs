@@ -163,3 +163,12 @@ pub fn find_endpoint_query(name: &str, file: &str, verb: &str) -> (String, BoltM
 
     (query.to_string(), params)
 }
+
+pub fn prune_orphan_nested_functions_query() -> String {
+    "MATCH (f:Function)-[:NESTED_IN]->(parent:Function)
+     WHERE NOT (parent)-[:NESTED_IN]->(:Var)
+       AND NOT ()-[:HANDLER|CALLS|RENDERS]->(f)
+       AND NOT (f)-[:CALLS|HANDLER]->()
+     DETACH DELETE f"
+        .to_string()
+}

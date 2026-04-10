@@ -39,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 83, "Expected 83 File nodes");
+    assert_eq!(file_nodes.len(), 85, "Expected 85 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -150,6 +150,21 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         panic!("FAILURE: detail function NOT FOUND in graph nodes");
     }
 
+    for (fn_name, file_suffix) in [
+        ("lists", "nextjs/lib/hooks/useBountyQueries.ts"),
+        ("detail", "nextjs/lib/hooks/useBountyQueries.ts"),
+        ("workspace", "nextjs/lib/hooks/useBountyQueries.ts"),
+    ] {
+        assert!(
+            functions
+                .iter()
+                .any(|f| f.name == fn_name && f.file.ends_with(file_suffix)),
+            "Expected named object-key function '{}' to be preserved in {}",
+            fn_name,
+            file_suffix
+        );
+    }
+
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
     assert_eq!(endpoints.len(), 21, "Expected 21 Endpoint nodes");
@@ -165,11 +180,26 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            197,
-            "Expected 197 Function nodes without LSP, found {}",
+            160,
+            "Expected 160 Function nodes without LSP, found {}",
             functions.len()
         );
     }
+
+    let format_handler = functions
+        .iter()
+        .find(|f| f.name == "format" && f.file.ends_with("nextjs/lib/api-handlers.ts"));
+    assert!(
+        format_handler.is_some(),
+        "Expected 'format' helper to be present in api-handlers.ts"
+    );
+    let display_handler = functions
+        .iter()
+        .find(|f| f.name == "display" && f.file.ends_with("nextjs/lib/api-handlers.ts"));
+    assert!(
+        display_handler.is_some(),
+        "Expected 'display' helper to be present in api-handlers.ts"
+    );
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
@@ -278,7 +308,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();
 
-    assert_eq!(variables.len(), 17, "Expected 17 Variable nodes");
+    assert_eq!(variables.len(), 19, "Expected 19 Variable nodes");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
@@ -288,15 +318,20 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     edges += calls;
 
     if use_lsp {
-        assert_eq!(calls, 303, "Expected 303 Calls edges");
+        assert_eq!(calls, 306, "Expected 306 Calls edges");
     } else {
         #[cfg(not(feature = "neo4j"))]
-        assert_eq!(calls, 233, "Expected 233 Calls edges");
+        assert_eq!(calls, 235, "Expected 235 Calls edges");
     }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
-    assert_eq!(contains, 565, "Expected 565 Contains edges");
+    if use_lsp {
+        assert_eq!(contains, 541, "Expected 541 Contains edges with LSP");
+    } else {
+        assert_eq!(contains, 526, "Expected 526 Contains edges");
+    }
+
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges += of_edges;
@@ -311,8 +346,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     nodes += tests.len();
     assert_eq!(
         tests.len(),
-        27,
-        "Expected 27 UnitTest nodes, found {}",
+        30,
+        "Expected 30 UnitTest nodes, found {}",
         tests.len()
     );
 
@@ -411,7 +446,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     assert_eq!(
         integration_test.len(),
         19,
-        "Expected 18 IntegrationTest nodes"
+        "Expected 19 IntegrationTest nodes"
     );
 
     if let Some(test) = integration_test
@@ -484,12 +519,12 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     if use_lsp {
         //  assert_eq!(import, 18, "Expected 18 Imports edges with LSP");
     } else {
-        assert_eq!(import, 8, "Expected 8 Imports edges without LSP");
+        assert_eq!(import, 10, "Expected 10 Imports edges without LSP");
     }
 
     let import_nodes = graph.find_nodes_by_type(NodeType::Import);
     nodes += import_nodes.len();
-    assert_eq!(import_nodes.len(), 48, "Expected 48 Import nodes");
+    assert_eq!(import_nodes.len(), 50, "Expected 50 Import nodes");
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
@@ -505,7 +540,11 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
 
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
-    assert_eq!(nested_in, 93, "Expected 93 NestedIn edges");
+    if use_lsp {
+        assert_eq!(nested_in, 65, "Expected 65 NestedIn edges with LSP");
+    } else {
+        assert_eq!(nested_in, 54, "Expected 54 NestedIn edges");
+    }
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;

@@ -674,6 +674,8 @@ impl Repo {
 
         link_tests(graph)?;
 
+        graph.prune_orphan_nested_functions();
+
         self.lang
             .lang()
             .clean_graph(&mut |parent_type, child_type, operation| match operation {

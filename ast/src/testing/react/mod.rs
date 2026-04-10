@@ -19,7 +19,7 @@ pub async fn test_react_typescript_generic<G: Graph + Sync>() -> Result<()> {
 
     let graph = repo.build_graph_inner::<G>().await?;
 
-    // graph.analysis();
+    graph.analysis();
 
     let mut nodes_count = 0;
     let mut edges_count = 0;
@@ -300,6 +300,14 @@ import NewPerson from "./components/NewPerson";"#
     assert!(
         use_store_function.body.contains("initialState"),
         "useStore should reference initialState"
+    );
+
+    assert!(
+        !functions.iter().any(|f| {
+            ["setPeople", "setLoading", "addPerson"].contains(&f.name.as_str())
+                && normalize_path(&f.file) == "src/testing/react/src/components/Person.tsx"
+        }),
+        "useCallback helpers inside useStore should NOT appear as separate Function nodes"
     );
 
     let function_component_fn = functions

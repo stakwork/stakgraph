@@ -188,6 +188,30 @@ pub async fn test_csharp_generic<G: Graph + Sync>() -> Result<()> {
     nodes += datamodels.len();
     assert_eq!(datamodels.len(), 19, "Expected 19 DataModel nodes");
 
+    for model_name in [
+        "Person",
+        "UserProfile",
+        "Article",
+        "Comment",
+        "ArticleLike",
+        "Category",
+        "Tag",
+        "Order",
+        "OrderItem",
+        "Product",
+        "ProductImage",
+        "ProductReview",
+        "ProductVariant",
+        "Brand",
+        "Country",
+    ] {
+        assert!(
+            datamodels.iter().any(|dm| dm.name == model_name),
+            "Expected representative C# data model '{}' to be preserved",
+            model_name
+        );
+    }
+
     let endpoints = graph.find_nodes_by_type(NodeType::Endpoint);
     nodes += endpoints.len();
     assert_eq!(endpoints.len(), 81, "Expected 81 Endpoint nodes");

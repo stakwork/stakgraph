@@ -750,6 +750,89 @@ impl Graph for BTreeMapGraph {
         }
     }
 
+    fn prune_orphan_nested_functions(&mut self) {
+        let func_prefix = format!("{:?}-", NodeType::Function).to_lowercase();
+        let func_keys: HashSet<String> = self
+            .nodes
+            .range(func_prefix.clone()..)
+            .take_while(|(k, _)| k.starts_with(&func_prefix))
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        // Only consider NestedIn edges where BOTH src AND dst are Function nodes.
+        // This excludes Var-nested functions (Zustand store methods etc.).
+        let nested_in_func_edges: Vec<(String, String)> = self
+            .edges
+            .iter()
+            .filter(|(src, dst, et)| {
+                *et == EdgeType::NestedIn
+                    && func_keys.contains(src)
+                    && func_keys.contains(dst)
+            })
+            .map(|(src, dst, _)| (src.clone(), dst.clone()))
+            .collect();
+
+        if nested_in_func_edges.is_empty() {
+            return;
+        }
+
+        // The parent functions that are themselves nested inside a Var node.
+        // Children of such parents (e.g. Zustand store method bodies inside a factory arrow)
+        // should be preserved even if they have no graph connections.
+        let var_prefix = format!("{:?}-", NodeType::Var).to_lowercase();
+        let parents_in_var: HashSet<String> = self
+            .edges
+            .iter()
+            .filter(|(src, dst, et)| {
+                *et == EdgeType::NestedIn
+                    && func_keys.contains(src)
+                    && dst.starts_with(&var_prefix)
+            })
+            .map(|(src, _, _)| src.clone())
+            .collect();
+
+        let nested_in_func_keys: HashSet<String> = nested_in_func_edges
+            .iter()
+            .filter(|(_, parent)| !parents_in_var.contains(parent))
+            .map(|(src, _)| src.clone())
+            .collect();
+
+        if nested_in_func_keys.is_empty() {
+            return;
+        }
+
+        let has_incoming: HashSet<String> = self
+            .edges
+            .iter()
+            .filter(|(_, dst, et)| {
+                nested_in_func_keys.contains(dst)
+                    && matches!(et, EdgeType::Handler | EdgeType::Calls | EdgeType::Renders)
+            })
+            .map(|(_, dst, _)| dst.clone())
+            .collect();
+
+        let has_outgoing_calls: HashSet<String> = self
+            .edges
+            .iter()
+            .filter(|(src, _, et)| {
+                nested_in_func_keys.contains(src)
+                    && matches!(et, EdgeType::Calls | EdgeType::Handler)
+            })
+            .map(|(src, _, _)| src.clone())
+            .collect();
+
+        let to_remove: Vec<String> = nested_in_func_keys
+            .into_iter()
+            .filter(|k| !has_incoming.contains(k) && !has_outgoing_calls.contains(k))
+            .collect();
+
+        for key in &to_remove {
+            self.nodes.remove(key);
+        }
+        self.edges
+            .retain(|(src, dst, _)| !to_remove.contains(src) && !to_remove.contains(dst));
+    }
+
     fn find_nodes_by_name_contains(&self, node_type: NodeType, name: &str) -> Vec<NodeData> {
         let prefix = format!("{:?}-", node_type).to_lowercase();
         self.nodes
