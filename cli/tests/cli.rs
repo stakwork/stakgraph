@@ -63,3 +63,6 @@ mod cli_deps_cmd;
 
 #[path = "cli/changes_cmd.rs"]
 mod cli_changes_cmd;
+
+#[path = "cli/impact_cmd.rs"]
+mod cli_impact_cmd;
