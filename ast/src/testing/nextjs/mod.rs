@@ -39,7 +39,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
 
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
-    assert_eq!(file_nodes.len(), 85, "Expected 85 File nodes");
+    assert_eq!(file_nodes.len(), 87, "Expected 87 File nodes");
 
     let card_file = file_nodes
         .iter()
@@ -180,8 +180,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            160,
-            "Expected 160 Function nodes without LSP, found {}",
+            169,
+            "Expected 169 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -200,6 +200,167 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         display_handler.is_some(),
         "Expected 'display' helper to be present in api-handlers.ts"
     );
+
+    // ── Noisy-pattern fixture assertions ──────────────────────────────────────
+    // These document the CURRENT behavior of the pruner so we can reason about
+    // what is kept vs filtered before making any pruner changes.
+    let noisy_pattern_file = "nextjs/lib/noisy-patterns.ts";
+    let noisy_pattern_functions: Vec<_> = functions
+        .iter()
+        .filter(|f| f.file.ends_with(noisy_pattern_file))
+        .collect();
+    #[cfg(not(feature = "neo4j"))]
+    let edge_vec = graph.get_edges_vec();
+
+    // Category 1: inline object in member-expression assignment — NestedIn → Var.
+    // global.fetch is now captured as a Var, so json/text get NestedIn → global.fetch.
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "json"),
+        "Cat1: 'json' survives (NestedIn → Var, Var-protected)"
+    );
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "text"),
+        "Cat1: 'text' survives (NestedIn → Var, Var-protected)"
+    );
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "json"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat1: 'json' has NestedIn edge to global.fetch Var"
+    );
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "text"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat1: 'text' has NestedIn edge to global.fetch Var"
+    );
+
+    // Category 2: factory callback passed into jest.mock — no NestedIn edge exists.
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "fetchUser"),
+        "Cat2: 'fetchUser' survives (no NestedIn, pruner ignores it)"
+    );
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "deleteUser"),
+        "Cat2: 'deleteUser' survives (no NestedIn, pruner ignores it)"
+    );
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        !edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "fetchUser"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat2: 'fetchUser' has no NestedIn edge"
+    );
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        !edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "deleteUser"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat2: 'deleteUser' has no NestedIn edge"
+    );
+
+    // Category 3: returned object from a tracked function.
+    // onSuccess survives (has outgoing Calls → formatNumber).
+    // onError is pruned (NestedIn → createApiHandlers Function, no Calls).
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "createApiHandlers"),
+        "Cat3: 'createApiHandlers' survives as the parent function"
+    );
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "onSuccess"),
+        "Cat3: 'onSuccess' survives because it has an outgoing Calls edge"
+    );
+    if use_lsp {
+        assert!(
+            noisy_pattern_functions.iter().any(|f| f.name == "onError"),
+            "Cat3: 'onError' survives with LSP — console.error resolves as a real call"
+        );
+    } else {
+        assert!(
+            noisy_pattern_functions.iter().all(|f| f.name != "onError"),
+            "Cat3: 'onError' is pruned without LSP — no Calls resolved"
+        );
+    }
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "onSuccess"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+                && e.target.node_data.name == "createApiHandlers"
+                && e.target.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat3: 'onSuccess' has NestedIn edge to 'createApiHandlers'"
+    );
+
+    // Category 4: deeply nested config inside a Var — both survive (NestedIn → Var protected).
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "handler"),
+        "Cat4: 'handler' survives (NestedIn → deepConfig Var)"
+    );
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "transform"),
+        "Cat4: 'transform' survives (NestedIn → deepConfig Var)"
+    );
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "handler"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+                && e.target.node_data.name == "deepConfig"
+                && e.target.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat4: 'handler' has NestedIn edge to 'deepConfig' Var"
+    );
+    #[cfg(not(feature = "neo4j"))]
+    assert!(
+        edge_vec.iter().any(|e| {
+            e.edge == EdgeType::NestedIn
+                && e.source.node_data.name == "transform"
+                && e.source.node_data.file.ends_with(noisy_pattern_file)
+                && e.target.node_data.name == "deepConfig"
+                && e.target.node_data.file.ends_with(noisy_pattern_file)
+        }),
+        "Cat4: 'transform' has NestedIn edge to 'deepConfig' Var"
+    );
+
+    // Category 5: class method body — getHandlers survives, parse/serialize pruned.
+    // parse/serialize have NestedIn → getHandlers (Function), no Calls of their own.
+    assert!(
+        noisy_pattern_functions.iter().any(|f| f.name == "getHandlers"),
+        "Cat5: 'getHandlers' survives as the class method"
+    );
+    if use_lsp {
+        assert!(
+            noisy_pattern_functions.iter().any(|f| f.name == "parse"),
+            "Cat5: 'parse' survives with LSP — JSON.parse resolves as a real call"
+        );
+        assert!(
+            noisy_pattern_functions.iter().any(|f| f.name == "serialize"),
+            "Cat5: 'serialize' survives with LSP — JSON.stringify resolves as a real call"
+        );
+    } else {
+        assert!(
+            noisy_pattern_functions.iter().all(|f| f.name != "parse"),
+            "Cat5: 'parse' is pruned without LSP — no Calls resolved"
+        );
+        assert!(
+            noisy_pattern_functions.iter().all(|f| f.name != "serialize"),
+            "Cat5: 'serialize' is pruned without LSP — no Calls resolved"
+        );
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
@@ -308,7 +469,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let variables = graph.find_nodes_by_type(NodeType::Var);
     nodes += variables.len();
 
-    assert_eq!(variables.len(), 19, "Expected 19 Variable nodes");
+    assert_eq!(variables.len(), 24, "Expected 24 Variable nodes");
 
     let libraries = graph.find_nodes_by_type(NodeType::Library);
     nodes += libraries.len();
@@ -318,18 +479,18 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     edges += calls;
 
     if use_lsp {
-        assert_eq!(calls, 306, "Expected 306 Calls edges");
+        assert_eq!(calls, 316, "Expected 316 Calls edges");
     } else {
         #[cfg(not(feature = "neo4j"))]
-        assert_eq!(calls, 235, "Expected 235 Calls edges");
+        assert_eq!(calls, 243, "Expected 243 Calls edges");
     }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
     if use_lsp {
-        assert_eq!(contains, 541, "Expected 541 Contains edges with LSP");
+        assert_eq!(contains, 566, "Expected 566 Contains edges with LSP");
     } else {
-        assert_eq!(contains, 526, "Expected 526 Contains edges");
+        assert_eq!(contains, 548, "Expected 548 Contains edges");
     }
 
 
@@ -346,8 +507,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     nodes += tests.len();
     assert_eq!(
         tests.len(),
-        30,
-        "Expected 30 UnitTest nodes, found {}",
+        33,
+        "Expected 33 UnitTest nodes, found {}",
         tests.len()
     );
 
@@ -413,7 +574,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let classes = graph.find_nodes_by_type(NodeType::Class);
     nodes += classes.len();
 
-    assert_eq!(classes.len(), 9, "Expected 9 Class nodes");
+    assert_eq!(classes.len(), 10, "Expected 10 Class nodes");
 
     let calculator_class = classes
         .iter()
@@ -519,12 +680,12 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     if use_lsp {
         //  assert_eq!(import, 18, "Expected 18 Imports edges with LSP");
     } else {
-        assert_eq!(import, 10, "Expected 10 Imports edges without LSP");
+        assert_eq!(import, 11, "Expected 11 Imports edges without LSP");
     }
 
     let import_nodes = graph.find_nodes_by_type(NodeType::Import);
     nodes += import_nodes.len();
-    assert_eq!(import_nodes.len(), 50, "Expected 50 Import nodes");
+    assert_eq!(import_nodes.len(), 52, "Expected 52 Import nodes");
 
     let datamodels = graph.find_nodes_by_type(NodeType::DataModel);
     nodes += datamodels.len();
@@ -541,14 +702,14 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     if use_lsp {
-        assert_eq!(nested_in, 65, "Expected 65 NestedIn edges with LSP");
+        assert_eq!(nested_in, 73, "Expected 73 NestedIn edges with LSP");
     } else {
-        assert_eq!(nested_in, 54, "Expected 54 NestedIn edges");
+        assert_eq!(nested_in, 59, "Expected 59 NestedIn edges");
     }
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
-    assert_eq!(operand, 33, "Expected 33 Operand edges");
+    assert_eq!(operand, 34, "Expected 34 Operand edges");
 
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges += renders;
