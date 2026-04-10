@@ -31,7 +31,7 @@ pub fn get_language_delimiter(file: &str) -> &'static str {
     }
 }
 
-fn style_for_node_type(node_type: &NodeType) -> Style {
+pub(crate) fn style_for_node_type(node_type: &NodeType) -> Style {
     match node_type {
         NodeType::Function => Style::new().green().bold(),
         NodeType::Endpoint => Style::new().yellow().bold(),
