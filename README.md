@@ -146,13 +146,10 @@ The MCP server exposes StakGraph's graph intelligence to AI agents running in Cu
 | Tool                      | What it does                                                                    |
 | ------------------------- | ------------------------------------------------------------------------------- |
 | `stakgraph_search`        | Fulltext or vector (semantic) search across the codebase graph                  |
-| `stakgraph_get_nodes`     | Retrieve nodes by type, name, or file                                           |
-| `stakgraph_get_edges`     | Retrieve edges connecting nodes                                                 |
 | `stakgraph_map`           | Visual map of code relationships from any node (configurable depth & direction) |
-| `stakgraph_repo_map`      | Directory/file tree of the repository                                           |
 | `stakgraph_code`          | Retrieve actual code from a subtree                                             |
 | `stakgraph_shortest_path` | Find shortest path between two nodes in the graph                               |
-| `stakgraph_explore`       | Autonomous AI agent that explores the codebase and answers questions            |
+| `stakgraph_rules_files`   | Fetch rules/instructions files (.cursorrules, AGENTS.md, etc.)                  |
 
 ### Built-in agents
 
