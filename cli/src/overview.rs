@@ -1,7 +1,8 @@
 use std::cmp::Ordering;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use console::style;
 use lsp::Language;
 use serde::Serialize;
 use shared::{Error, Result};
@@ -20,6 +21,7 @@ struct DirNode {
     depth: usize,
     dirs: Vec<DirNode>,
     files: Vec<FileEntry>,
+    rel_path: String,
 }
 
 #[derive(Debug)]
@@ -27,12 +29,15 @@ struct FileEntry {
     name: String,
     ext: String,
     is_source: bool,
+    rel_path: String,
 }
 
 #[derive(Default, Serialize)]
 struct OverviewJsonData {
     mode: String,
     root: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fingerprint: Option<String>,
     tree: String,
     stats: OverviewJsonStats,
 }
@@ -91,7 +96,7 @@ fn file_ext(name: &str) -> String {
         .unwrap_or_else(|| "file".to_string())
 }
 
-fn build_tree(path: &Path, depth: usize) -> Option<DirNode> {
+fn build_tree(path: &Path, depth: usize, rel: &str) -> Option<DirNode> {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -110,6 +115,11 @@ fn build_tree(path: &Path, depth: usize) -> Option<DirNode> {
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
+        let child_rel = if rel.is_empty() {
+            child_name.clone()
+        } else {
+            format!("{}/{}", rel, child_name)
+        };
 
         if child_path.is_dir() {
             if depth > 0
@@ -118,7 +128,7 @@ fn build_tree(path: &Path, depth: usize) -> Option<DirNode> {
             {
                 continue;
             }
-            if let Some(sub) = build_tree(&child_path, depth + 1) {
+            if let Some(sub) = build_tree(&child_path, depth + 1, &child_rel) {
                 dirs.push(sub);
             }
         } else if should_include_file(&child_name) {
@@ -127,6 +137,7 @@ fn build_tree(path: &Path, depth: usize) -> Option<DirNode> {
                 ext: file_ext(&child_name),
                 name: child_name,
                 is_source,
+                rel_path: child_rel,
             });
         }
     }
@@ -140,6 +151,7 @@ fn build_tree(path: &Path, depth: usize) -> Option<DirNode> {
         depth,
         dirs,
         files,
+        rel_path: rel.to_string(),
     })
 }
 
@@ -213,6 +225,60 @@ fn format_ext_summary(total: usize, ext_counts: &BTreeMap<String, usize>) -> Str
     }
 }
 
+fn tree_matches_grep(node: &DirNode, pattern: &str) -> bool {
+    let pat = pattern.to_ascii_lowercase();
+    for f in &node.files {
+        if f.rel_path.to_ascii_lowercase().contains(&pat)
+            || f.name.to_ascii_lowercase().contains(&pat)
+        {
+            return true;
+        }
+    }
+    for d in &node.dirs {
+        if d.name.to_ascii_lowercase().contains(&pat) || tree_matches_grep(d, pattern) {
+            return true;
+        }
+    }
+    false
+}
+
+const JUNK_COLLAPSE: &[&str] = &[
+    "node_modules", "vendor", "target", "dist", "build", "out", ".next", "coverage",
+    "__pycache__", "obj", ".turbo", ".cache", "storybook-static", "web",
+];
+
+fn is_junk_collapse_dir(name: &str) -> bool {
+    JUNK_COLLAPSE.contains(&name)
+}
+
+fn file_matches_grep(f: &FileEntry, pattern: &str) -> bool {
+    let pat = pattern.to_ascii_lowercase();
+    f.rel_path.to_ascii_lowercase().contains(&pat) || f.name.to_ascii_lowercase().contains(&pat)
+}
+
+fn is_on_zoom_path(dir_rel: &str, zoom_target: &str) -> bool {
+    zoom_target.starts_with(dir_rel) || dir_rel.starts_with(zoom_target)
+}
+
+fn is_entry_point(name: &str) -> bool {
+    ENTRY_POINT_NAMES.contains(&name)
+}
+
+fn is_config_file(name: &str) -> bool {
+    PRIORITY_ROOT_FILES.contains(&name)
+}
+
+fn is_priority_dir(name: &str) -> bool {
+    PRIORITY_SOURCE_DIRS.contains(&name)
+}
+
+struct RenderOpts<'a> {
+    grep: Option<&'a str>,
+    zoom: Option<&'a str>,
+    marked_files: &'a HashSet<String>,
+    use_color: bool,
+}
+
 struct RenderState {
     lines: Vec<String>,
     max_lines: usize,
@@ -239,38 +305,133 @@ impl RenderState {
     }
 }
 
-fn render(node: &DirNode, indent: usize, state: &mut RenderState) {
+fn style_dir_name(name: &str, use_color: bool) -> String {
+    if !use_color {
+        return format!("{}/", name);
+    }
+    if is_priority_dir(name) {
+        format!("{}", style(format!("{}/", name)).cyan().bold())
+    } else {
+        format!("{}/", name)
+    }
+}
+
+fn style_file_name(f: &FileEntry, marked: bool, use_color: bool) -> String {
+    let marker = if marked { " ●" } else { "" };
+    if !use_color {
+        return format!("{}{}", f.name, marker);
+    }
+    let styled_name = if is_entry_point(&f.name) {
+        format!("{}", style(&f.name).green().bold())
+    } else if is_config_file(&f.name) {
+        format!("{}", style(&f.name).yellow())
+    } else if f.is_source {
+        format!("{}", f.name)
+    } else {
+        format!("{}", style(&f.name).dim())
+    };
+    if marked {
+        format!("{} {}", styled_name, style("●").green())
+    } else {
+        styled_name
+    }
+}
+
+fn style_collapsed_summary(
+    name: &str,
+    total: usize,
+    ext_counts: &BTreeMap<String, usize>,
+    use_color: bool,
+) -> String {
+    let summary = format_ext_summary(total, ext_counts);
+    if !use_color {
+        return format!("{}/  {}", name, summary);
+    }
+    format!("{}/  {}", name, style(summary).dim())
+}
+
+fn render(
+    node: &DirNode,
+    prefix: &str,
+    is_last: bool,
+    is_root: bool,
+    state: &mut RenderState,
+    opts: &RenderOpts,
+) {
     if state.at_limit() {
         state.hidden_files += count_files(node);
         return;
     }
 
-    if indent == 0 {
-        state.push(format!("{}/", node.name));
+    let in_zoom = opts
+        .zoom
+        .map(|z| is_on_zoom_path(&node.rel_path, z))
+        .unwrap_or(true);
+    let is_zoom_target = opts
+        .zoom
+        .map(|z| node.rel_path == z)
+        .unwrap_or(false);
+
+    if is_root {
+        state.push(style_dir_name(&node.name, opts.use_color));
     } else {
-        let prefix = "  ".repeat(indent);
+        let connector = if is_last { "└── " } else { "├── " };
         let total = count_files(node);
         let ext_counts = collect_ext_counts(node);
 
-        match classify_dir(&node.name, node.depth, total, ext_counts.len()) {
-            DirAction::Skip => return,
-            DirAction::Collapse => {
-                state.push(format!(
-                    "{}{}/  {}",
-                    prefix,
-                    node.name,
-                    format_ext_summary(total, &ext_counts)
-                ));
-                state.collapsed_dirs += 1;
+        if let Some(pat) = opts.grep {
+            if !tree_matches_grep(node, pat) {
                 return;
             }
-            DirAction::Expand => {
-                state.push(format!("{}{}/", prefix, node.name));
-            }
         }
+
+        let should_collapse = if is_zoom_target {
+            false
+        } else if opts.grep.is_some() {
+            is_junk_collapse_dir(&node.name)
+        } else if opts.zoom.is_some() && !in_zoom {
+            total > 0
+        } else {
+            matches!(
+                classify_dir(&node.name, node.depth, total, ext_counts.len()),
+                DirAction::Collapse
+            )
+        };
+
+        match classify_dir(&node.name, node.depth, total, ext_counts.len()) {
+            DirAction::Skip => return,
+            _ => {}
+        }
+
+        if should_collapse {
+            if opts.grep.is_some() {
+                return;
+            }
+            state.push(format!(
+                "{}{}{}",
+                prefix,
+                connector,
+                style_collapsed_summary(&node.name, total, &ext_counts, opts.use_color)
+            ));
+            state.collapsed_dirs += 1;
+            return;
+        }
+
+        state.push(format!(
+            "{}{}{}",
+            prefix,
+            connector,
+            style_dir_name(&node.name, opts.use_color)
+        ));
     }
 
-    let child_indent = indent + 1;
+    let child_prefix = if is_root {
+        String::new()
+    } else if is_last {
+        format!("{}    ", prefix)
+    } else {
+        format!("{}│   ", prefix)
+    };
 
     let mut scored_dirs: Vec<_> = node
         .dirs
@@ -285,6 +446,13 @@ fn render(node: &DirNode, indent: usize, state: &mut RenderState) {
     let mut scored_files: Vec<_> = node
         .files
         .iter()
+        .filter(|f| {
+            if let Some(pat) = opts.grep {
+                file_matches_grep(f, pat)
+            } else {
+                true
+            }
+        })
         .map(|f| (score_file(f, node.depth + 1), f))
         .collect();
     scored_files.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.name.cmp(&b.1.name)));
@@ -304,17 +472,244 @@ fn render(node: &DirNode, indent: usize, state: &mut RenderState) {
         })
     });
 
-    for (_, is_dir, idx) in items {
+    for (idx_in_list, (_, is_dir, idx)) in items.iter().enumerate() {
         if state.at_limit() {
             break;
         }
-        if is_dir {
-            render(scored_dirs[idx].1, child_indent, state);
+        let is_last_child = idx_in_list == items.len() - 1;
+        if *is_dir {
+            render(
+                scored_dirs[*idx].1,
+                &child_prefix,
+                is_last_child,
+                false,
+                state,
+                opts,
+            );
         } else {
-            let prefix = "  ".repeat(child_indent);
-            state.push(format!("{}{}", prefix, scored_files[idx].1.name));
+            let f = scored_files[*idx].1;
+            let connector = if is_last_child { "└── " } else { "├── " };
+            let marked = opts.marked_files.contains(&f.rel_path);
+            state.push(format!(
+                "{}{}{}",
+                child_prefix,
+                connector,
+                style_file_name(f, marked, opts.use_color)
+            ));
         }
     }
+}
+
+const MANIFEST_FILES: &[(&str, &str)] = &[
+    ("Cargo.toml", "Rust"),
+    ("package.json", "Node.js"),
+    ("go.mod", "Go"),
+    ("pyproject.toml", "Python"),
+    ("requirements.txt", "Python"),
+    ("Gemfile", "Ruby"),
+    ("pom.xml", "Java"),
+    ("build.gradle", "Java/Kotlin"),
+    ("build.gradle.kts", "Kotlin"),
+    ("composer.json", "PHP"),
+    ("Package.swift", "Swift"),
+    ("CMakeLists.txt", "C/C++"),
+];
+
+fn detect_fingerprint(root: &Path) -> Option<String> {
+    let mut langs = Vec::new();
+    let mut dep_names: Vec<String> = Vec::new();
+
+    for (manifest, lang) in MANIFEST_FILES {
+        let manifest_path = root.join(manifest);
+        if !manifest_path.exists() {
+            continue;
+        }
+        langs.push(*lang);
+        let content = std::fs::read_to_string(&manifest_path).unwrap_or_default();
+
+        match *manifest {
+            "Cargo.toml" => {
+                if content.contains("[workspace]") {
+                    if let Some(idx) = langs.iter().position(|l| *l == "Rust") {
+                        let members = content
+                            .lines()
+                            .skip_while(|l| !l.starts_with("members"))
+                            .skip(1)
+                            .take_while(|l| !l.starts_with(']'))
+                            .filter_map(|l| {
+                                let trimmed = l.trim().trim_matches('"').trim_matches(',').trim();
+                                if trimmed.is_empty() || trimmed == "]" {
+                                    None
+                                } else {
+                                    Some(trimmed.trim_matches('"').to_string())
+                                }
+                            })
+                            .count();
+                        if members > 0 {
+                            langs[idx] = "Rust";
+                            let label = format!("Rust workspace ({} crates)", members);
+                            langs[idx] = Box::leak(label.into_boxed_str());
+                        }
+                    }
+                }
+                extract_toml_deps(&content, &mut dep_names);
+            }
+            "package.json" => {
+                extract_json_deps(&content, &mut dep_names);
+            }
+            "go.mod" => {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.starts_with("require") || trimmed.is_empty() || trimmed == "(" || trimmed == ")" {
+                        continue;
+                    }
+                    if let Some(dep) = trimmed.split_whitespace().next() {
+                        if let Some(name) = dep.rsplit('/').next() {
+                            dep_names.push(name.to_string());
+                        }
+                    }
+                }
+            }
+            "pyproject.toml" => {
+                extract_toml_deps(&content, &mut dep_names);
+            }
+            _ => {}
+        }
+    }
+
+    if langs.is_empty() {
+        return None;
+    }
+
+    let mut result = langs.join(" · ");
+
+    dep_names.sort();
+    dep_names.dedup();
+    let top_deps: Vec<_> = dep_names.iter().take(8).cloned().collect();
+    if !top_deps.is_empty() {
+        result.push_str(&format!("\ndeps: {}", top_deps.join(", ")));
+    }
+
+    Some(result)
+}
+
+fn extract_toml_deps(content: &str, deps: &mut Vec<String>) {
+    let mut in_deps = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("[") {
+            in_deps = trimmed == "[dependencies]"
+                || trimmed == "[dev-dependencies]"
+                || trimmed.starts_with("[dependencies.")
+                || trimmed == "[tool.poetry.dependencies]";
+            continue;
+        }
+        if in_deps {
+            if let Some(name) = trimmed.split('=').next() {
+                let name = name.trim();
+                if !name.is_empty() && name != "python" {
+                    deps.push(name.to_string());
+                }
+            }
+        }
+    }
+}
+
+fn extract_json_deps(content: &str, deps: &mut Vec<String>) {
+    for section in &["dependencies", "devDependencies"] {
+        let needle = format!("\"{}\"", section);
+        if let Some(start) = content.find(&needle) {
+            if let Some(brace) = content[start..].find('{') {
+                let from = start + brace + 1;
+                if let Some(end) = content[from..].find('}') {
+                    let block = &content[from..from + end];
+                    for line in block.lines() {
+                        let trimmed = line.trim();
+                        if let Some(name) = trimmed.strip_prefix('"') {
+                            if let Some(end_q) = name.find('"') {
+                                deps.push(name[..end_q].to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn find_git_root(start: &Path) -> Option<PathBuf> {
+    let mut current = start.to_path_buf();
+    loop {
+        if current.join(".git").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
+fn strip_git_prefix(path: &str, git_root: &Path, scan_root: &Path) -> Option<String> {
+    let prefix = scan_root.strip_prefix(git_root).ok()?;
+    let prefix_str = prefix.to_string_lossy();
+    if prefix_str.is_empty() {
+        return Some(path.to_string());
+    }
+    let full_prefix = format!("{}/", prefix_str);
+    path.strip_prefix(&*full_prefix).map(|s| s.to_string())
+}
+
+fn get_recently_modified_files(scan_root: &Path, n_commits: usize) -> HashSet<String> {
+    let git_root = find_git_root(scan_root).unwrap_or_else(|| scan_root.to_path_buf());
+    let output = std::process::Command::new("git")
+        .args([
+            "log",
+            "--name-only",
+            "--pretty=format:",
+            "-n",
+            &n_commits.to_string(),
+        ])
+        .current_dir(&git_root)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.is_empty())
+            .filter_map(|l| strip_git_prefix(l, &git_root, scan_root))
+            .collect(),
+        _ => HashSet::new(),
+    }
+}
+
+fn get_dirty_files(scan_root: &Path) -> HashSet<String> {
+    let git_root = find_git_root(scan_root).unwrap_or_else(|| scan_root.to_path_buf());
+    let output = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&git_root)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter_map(|l| {
+                if l.len() > 3 {
+                    strip_git_prefix(&l[3..], &git_root, scan_root)
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        _ => HashSet::new(),
+    }
+}
+
+fn compute_zoom_target(root: &Path, requested: &Path) -> Option<String> {
+    let canon_root = root.canonicalize().ok()?;
+    let canon_req = requested.canonicalize().ok()?;
+    let rel = canon_req.strip_prefix(&canon_root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    Some(rel.to_string_lossy().to_string())
 }
 
 pub fn run(args: &OverviewArgs, out: &mut Output, output_mode: OutputMode) -> Result<()> {
@@ -330,12 +725,39 @@ pub fn run(args: &OverviewArgs, out: &mut Output, output_mode: OutputMode) -> Re
         )));
     }
 
-    let tree = build_tree(&root, 0)
+    let scan_root = if root.join(".git").exists() || has_manifest(&root) {
+        root.clone()
+    } else {
+        find_repo_root(&root).unwrap_or_else(|| root.clone())
+    };
+
+    let zoom_target = if scan_root != root {
+        compute_zoom_target(&scan_root, &root)
+    } else {
+        None
+    };
+
+    let tree = build_tree(&scan_root, 0, "")
         .ok_or_else(|| Error::validation(format!("empty directory: {}", root.display())))?;
 
+    let mut marked_files = HashSet::new();
+    if let Some(n) = args.recent {
+        marked_files.extend(get_recently_modified_files(&scan_root, n));
+    }
+    if args.changed {
+        marked_files.extend(get_dirty_files(&scan_root));
+    }
+
     let max_lines = args.max_lines.max(10);
+    let use_color = !output_mode.is_json();
+    let opts = RenderOpts {
+        grep: args.grep.as_deref(),
+        zoom: zoom_target.as_deref(),
+        marked_files: &marked_files,
+        use_color,
+    };
     let mut state = RenderState::new(max_lines);
-    render(&tree, 0, &mut state);
+    render(&tree, "", true, true, &mut state, &opts);
 
     let total_files = count_files(&tree);
     let tree_str = state.lines.join("\n");
@@ -343,7 +765,8 @@ pub fn run(args: &OverviewArgs, out: &mut Output, output_mode: OutputMode) -> Re
     let display_path = {
         let raw = raw_root.to_string_lossy().to_string();
         if raw == "." {
-            root.file_name()
+            scan_root
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(".")
                 .to_string()
@@ -352,10 +775,17 @@ pub fn run(args: &OverviewArgs, out: &mut Output, output_mode: OutputMode) -> Re
         }
     };
 
+    let fingerprint = if zoom_target.is_none() && args.grep.is_none() {
+        detect_fingerprint(&scan_root)
+    } else {
+        None
+    };
+
     if output_mode.is_json() {
         let data = OverviewJsonData {
             mode: "overview".to_string(),
             root: display_path,
+            fingerprint: fingerprint.clone(),
             tree: tree_str,
             stats: OverviewJsonStats {
                 total_files,
@@ -368,15 +798,42 @@ pub fn run(args: &OverviewArgs, out: &mut Output, output_mode: OutputMode) -> Re
         return Ok(());
     }
 
-    out.writeln(format!("Overview: {}", display_path))?;
-    out.newline()?;
+    if let Some(fp) = &fingerprint {
+        for line in fp.lines() {
+            out.writeln(format!("{}", style(line).cyan().bold()))?;
+        }
+        out.newline()?;
+    }
+
     out.writeln(&tree_str)?;
     if state.hidden_files > 0 || state.collapsed_dirs > 0 {
         out.newline()?;
         out.writeln(format!(
-            "[{} dirs collapsed, {} files not shown]",
-            state.collapsed_dirs, state.hidden_files
+            "{}",
+            style(format!(
+                "[{} dirs collapsed, {} files not shown]",
+                state.collapsed_dirs, state.hidden_files
+            ))
+            .dim()
         ))?;
     }
     Ok(())
+}
+
+fn has_manifest(path: &Path) -> bool {
+    MANIFEST_FILES
+        .iter()
+        .any(|(name, _)| path.join(name).exists())
+}
+
+fn find_repo_root(start: &Path) -> Option<PathBuf> {
+    let mut current = start.to_path_buf();
+    loop {
+        if current.join(".git").exists() || has_manifest(&current) {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
 }

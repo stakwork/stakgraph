@@ -199,6 +199,18 @@ pub struct OverviewArgs {
     /// Maximum depth to expand before collapsing
     #[arg(long, default_value = "4")]
     pub depth: usize,
+
+    /// Filter tree to branches matching this pattern (filename/path substring)
+    #[arg(long)]
+    pub grep: Option<String>,
+
+    /// Mark files changed in the last N commits
+    #[arg(long)]
+    pub recent: Option<usize>,
+
+    /// Mark uncommitted (dirty) files
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub changed: bool,
 }
 
 impl CliArgs {
