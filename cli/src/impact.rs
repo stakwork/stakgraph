@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::path::Path;
 
 use ast::lang::graphs::{EdgeType, NodeType};
 use console::style;
+use lsp::Language;
 use serde::Serialize;
 use shared::{Error, Result};
 
 use super::args::ImpactArgs;
+use super::git::{get_changed_files, get_repo_root, get_staged_changes, get_working_tree_changes};
 use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::utils::{
@@ -54,6 +57,8 @@ struct ImpactSummary {
 
 #[derive(Serialize)]
 struct ImpactData {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mode: Option<String>,
     seeds: Vec<ImpactSeed>,
     files: Vec<String>,
     depth: usize,
@@ -67,9 +72,11 @@ pub async fn run(
     show_progress: bool,
     output_mode: OutputMode,
 ) -> Result<()> {
-    if args.name.is_none() && args.file.is_none() {
+    let git_mode = args.staged || args.last.is_some() || args.since.is_some();
+
+    if !git_mode && args.name.is_none() && args.file.is_none() {
         return Err(Error::validation(
-            "at least one of --name or --file is required",
+            "at least one of --name, --file, --staged, --last, or --since is required",
         ));
     }
 
@@ -85,12 +92,93 @@ pub async fn run(
         })
         .transpose()?;
 
-    let files = expand_dirs_for_parse(&args.files);
-    if files.is_empty() {
-        return Err(Error::validation(
-            "no parseable files found in the given paths",
-        ));
-    }
+    let (files, git_changed_files, mode_description) = if git_mode {
+        let cwd = std::env::current_dir()
+            .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
+        let cwd_str = cwd.to_string_lossy().to_string();
+        let repo_root = get_repo_root(&cwd_str)?;
+
+        let (changed, mode_desc) = if args.staged {
+            (get_staged_changes(&repo_root)?, "staged changes".to_string())
+        } else if let Some(n) = args.last {
+            let old_rev = format!("HEAD~{}", n);
+            (
+                get_changed_files(&repo_root, &old_rev, "HEAD")?,
+                format!("last {} commit{}", n, if n == 1 { "" } else { "s" }),
+            )
+        } else if let Some(ref since_ref) = args.since {
+            (
+                get_changed_files(&repo_root, since_ref, "HEAD")?,
+                format!("since {}", since_ref),
+            )
+        } else {
+            (get_working_tree_changes(&repo_root)?, "working tree changes".to_string())
+        };
+
+        let abs_files: Vec<String> = changed
+            .iter()
+            .filter(|f| Language::from_path(f).is_some())
+            .map(|f| {
+                Path::new(&repo_root)
+                    .join(f)
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+
+        if abs_files.is_empty() {
+            if !output_mode.is_json() {
+                out.writeln(format!(
+                    "{}",
+                    style(format!("No parseable files changed in {}", mode_desc)).yellow()
+                ))?;
+            }
+            if output_mode.is_json() {
+                let data = ImpactData {
+                    mode: Some(mode_desc),
+                    seeds: Vec::new(),
+                    files: Vec::new(),
+                    depth: args.depth,
+                    summary: ImpactSummary {
+                        total: 0,
+                        by_type: HashMap::new(),
+                    },
+                    affected: Vec::new(),
+                };
+                write_json_success(out, "impact", data, vec![
+                    JsonWarning::new("no_changes", "No parseable files changed"),
+                ])?;
+            }
+            return Ok(());
+        }
+
+        let changed_rel: HashSet<String> = changed.into_iter().collect();
+
+        // If the user also passed positional files/dirs, use those as the parse scope
+        // (wider graph) but still seed only from the git-changed files.
+        // Without positional args, parse only the changed files themselves.
+        let parse_scope = if !args.files.is_empty() {
+            let scope = expand_dirs_for_parse(&args.files);
+            if scope.is_empty() {
+                return Err(Error::validation(
+                    "no parseable files found in the given paths",
+                ));
+            }
+            scope
+        } else {
+            abs_files
+        };
+
+        (parse_scope, Some(changed_rel), Some(mode_desc))
+    } else {
+        let files = expand_dirs_for_parse(&args.files);
+        if files.is_empty() {
+            return Err(Error::validation(
+                "no parseable files found in the given paths",
+            ));
+        }
+        (files, None, None)
+    };
 
     let spinner = if show_progress {
         Some(CliSpinner::new(&format!(
@@ -141,16 +229,26 @@ pub async fn run(
                 .file
                 .as_ref()
                 .map_or(true, |f| n.node_data.file.ends_with(f.as_str()));
-            name_ok && file_ok
+            let git_ok = git_changed_files.as_ref().map_or(true, |changed| {
+                changed.iter().any(|cf| n.node_data.file.ends_with(cf))
+            });
+            name_ok && file_ok && git_ok
         })
         .collect();
 
     if seeds.is_empty() {
-        let label = match (&args.name, &args.file) {
-            (Some(name), Some(file)) => format!("'{}' in {}", name, file),
-            (Some(name), None) => format!("'{}'", name),
-            (None, Some(file)) => format!("nodes in {}", file),
-            _ => unreachable!(),
+        let label = if git_mode {
+            mode_description
+                .as_deref()
+                .unwrap_or("git changes")
+                .to_string()
+        } else {
+            match (&args.name, &args.file) {
+                (Some(name), Some(file)) => format!("'{}' in {}", name, file),
+                (Some(name), None) => format!("'{}'", name),
+                (None, Some(file)) => format!("nodes in {}", file),
+                _ => "specified criteria".to_string(),
+            }
         };
         return Err(Error::validation(format!(
             "no matching nodes found for {}",
@@ -185,6 +283,7 @@ pub async fn run(
 
     if output_mode.is_json() {
         let data = ImpactData {
+            mode: mode_description.clone(),
             seeds: seeds
                 .iter()
                 .map(|s| ImpactSeed {
@@ -214,15 +313,29 @@ pub async fn run(
         return Ok(());
     }
 
+    if let Some(ref mode) = mode_description {
+        out.writeln(format!(
+            "{} {} file(s) changed in {} ({} seed nodes)",
+            style("Found").bold().cyan(),
+            style(git_changed_files.as_ref().map_or(0, |f| f.len())).bold().green(),
+            style(mode).yellow(),
+            style(seeds.len()).bold().green(),
+        ))?;
+        out.newline()?;
+    }
+
     for seed in &seeds {
         out.writeln(format!(
-            "Impact: {}  {}  [{}:{}]",
+            "  {} {}  {}  [{}:{}]",
+            style("→").cyan().bold(),
             style(seed.node_type.to_string()).bold().cyan(),
             style(&seed.node_data.name).bold().white(),
             style(rel_path_from_cwd(&seed.node_data.file)).dim(),
             style(seed.node_data.start + 1).dim()
         ))?;
     }
+
+    out.newline()?;
 
     if all_affected.is_empty() {
         out.writeln(format!(
