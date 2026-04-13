@@ -1,5 +1,5 @@
 import { cloneOrUpdateRepo } from "./clone.js";
-import { get_context, stream_context } from "./agent.js";
+import { get_context, stream_context, CLI_SYSTEM } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
@@ -122,6 +122,7 @@ function parseAgentBody(req: Request) {
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const mcpServers = req.body.mcpServers as McpServer[] | undefined;
   const systemOverride = req.body.systemOverride as string | undefined;
+  const cliMode = Boolean(req.body.cliMode ?? req.body.climode);
   const skills = req.body.skills as SkillsConfig | undefined;
   const subAgents = (req.body.subAgents as Record<string, unknown>[] | undefined)
     ?.map(normalizeSubAgent) as SubAgent[] | undefined;
@@ -136,7 +137,7 @@ function parseAgentBody(req: Request) {
   return {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
     modelName, apiKey, logs, sessionId, sessionConfig, mcpServers,
-    systemOverride, skills, subAgents, ggnn, stream, repoList,
+    systemOverride, cliMode, skills, subAgents, ggnn, stream, repoList,
   };
 }
 
@@ -151,6 +152,7 @@ export async function repo_agent(req: Request, res: Response) {
     hasRepoUrl: Boolean(req.body?.repo_url),
     hasPrompt: Boolean(req.body?.prompt),
     stream: Boolean(req.body?.stream),
+    cliMode: Boolean(req.body?.cliMode ?? req.body?.climode),
     hasApiKey: Boolean(req.body?.apiKey),
     apiKeyPrefix: req.body?.apiKey ? String(req.body.apiKey).slice(0, 12) + "..." : "(none)",
     modelName: req.body?.model || "(none)",
@@ -195,7 +197,8 @@ export async function repo_agent(req: Request, res: Response) {
           sessionConfig: body.sessionConfig,
           mcpServers: body.mcpServers,
           repos: effectiveRepos.length > 1 ? effectiveRepos : undefined,
-          systemOverride: body.systemOverride,
+          systemOverride: body.systemOverride ?? (body.cliMode ? CLI_SYSTEM : undefined),
+          cliMode: body.cliMode,
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
@@ -279,7 +282,8 @@ export async function repo_agent(req: Request, res: Response) {
           sessionConfig: body.sessionConfig,
           mcpServers: body.mcpServers,
           repos: effectiveRepos.length > 1 ? effectiveRepos : undefined,
-          systemOverride: body.systemOverride,
+          systemOverride: body.systemOverride ?? (body.cliMode ? CLI_SYSTEM : undefined),
+          cliMode: body.cliMode,
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
