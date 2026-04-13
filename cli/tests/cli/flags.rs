@@ -94,7 +94,9 @@ fn name_lookup_not_found_reports_clear_message() {
     let out = run_stakgraph(&["--name", "definitely_not_real_node", &traits]);
 
     assert_eq!(out.exit_code, 0);
-    assert!(out.stdout.contains("No node named 'definitely_not_real_node'"));
+    assert!(out
+        .stdout
+        .contains("No node named 'definitely_not_real_node'"));
 }
 
 #[test]

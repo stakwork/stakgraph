@@ -176,19 +176,12 @@ fn collect_md_files(root: &Path) -> Vec<PathBuf> {
 async fn render_file_summary(file_path: &Path) -> Option<String> {
     let lang = Language::from_path(file_path.to_str()?)?;
     let ast_lang = Lang::from_language(lang);
-    let repo = Repo::from_single_file(
-        file_path.to_str()?,
-        ast_lang,
-        false,
-        false,
-        false,
-    )
-    .ok()?;
+    let repo = Repo::from_single_file(file_path.to_str()?, ast_lang, false, false, false).ok()?;
 
     let graph = Repos(vec![repo]).build_graphs_array().await.ok()?;
 
-    let rendered = render_file_nodes_filtered(&graph, file_path.to_str()?, SUMMARY_ALLOWED_TYPES)
-        .ok()?;
+    let rendered =
+        render_file_nodes_filtered(&graph, file_path.to_str()?, SUMMARY_ALLOWED_TYPES).ok()?;
 
     let has_nodes = console::strip_ansi_codes(&rendered)
         .lines()
@@ -237,14 +230,20 @@ pub async fn run_summarize(
         let header = format!(
             "{} {}",
             style("Summary:").bold(),
-            style(rel_path_from_cwd(&root.to_string_lossy())).bold().cyan(),
+            style(rel_path_from_cwd(&root.to_string_lossy()))
+                .bold()
+                .cyan(),
         );
         out.writeln(&header)?;
         out.newline()?;
         if let Some(rendered) = render_file_summary(&root).await {
             out.writeln(&rendered)?;
         } else {
-            out.writeln(style("(no summary — file not parseable or contains no relevant nodes)").dim().to_string())?;
+            out.writeln(
+                style("(no summary — file not parseable or contains no relevant nodes)")
+                    .dim()
+                    .to_string(),
+            )?;
         }
         if let Some(sp) = &spinner {
             sp.finish_with_message("File summary ready");
@@ -255,7 +254,11 @@ pub async fn run_summarize(
     if !root.is_dir() {
         out.writeln(format!(
             "{}",
-            style(format!("Error: {} is not a directory", rel_path_from_cwd(&root.to_string_lossy()))).red()
+            style(format!(
+                "Error: {} is not a directory",
+                rel_path_from_cwd(&root.to_string_lossy())
+            ))
+            .red()
         ))?;
         return Ok(());
     }
@@ -264,7 +267,9 @@ pub async fn run_summarize(
     let header = format!(
         "{} {}  (budget: {} tokens)",
         style("Summary:").bold(),
-        style(rel_path_from_cwd(&root.to_string_lossy())).bold().cyan(),
+        style(rel_path_from_cwd(&root.to_string_lossy()))
+            .bold()
+            .cyan(),
         style(max_tokens.to_string()).bold().yellow(),
     );
     out.writeln(&header)?;
@@ -390,17 +395,17 @@ pub async fn run_summarize(
                 .unwrap_or(md_path)
                 .display()
                 .to_string();
-            let header = style(format!("Docs: {}", name)).bold().magenta().to_string();
+            let header = style(format!("Docs: {}", name))
+                .bold()
+                .magenta()
+                .to_string();
             let header_tok = count_tokens(&bpe, &header);
             if tokens_used + header_tok > max_tokens {
                 break;
             }
             let lines: Vec<&str> = content.lines().collect();
             if lines.len() < 10 {
-                let total: usize = lines
-                    .iter()
-                    .map(|l| count_tokens(&bpe, l) + 1)
-                    .sum();
+                let total: usize = lines.iter().map(|l| count_tokens(&bpe, l) + 1).sum();
                 if tokens_used + header_tok + total > max_tokens {
                     continue;
                 }

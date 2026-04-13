@@ -4,7 +4,9 @@ use common::{count_prefix, fixture_path, run_stakgraph};
 
 #[test]
 fn smoke_billing_service_java_exact_counts() {
-    let file = fixture_path("src/testing/java/src/main/java/graph/stakgraph/java/nonweb/BillingService.java");
+    let file = fixture_path(
+        "src/testing/java/src/main/java/graph/stakgraph/java/nonweb/BillingService.java",
+    );
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
@@ -15,7 +17,9 @@ fn smoke_billing_service_java_exact_counts() {
 
 #[test]
 fn billing_service_java_contains_exact_named_nodes() {
-    let file = fixture_path("src/testing/java/src/main/java/graph/stakgraph/java/nonweb/BillingService.java");
+    let file = fixture_path(
+        "src/testing/java/src/main/java/graph/stakgraph/java/nonweb/BillingService.java",
+    );
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);

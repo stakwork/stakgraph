@@ -58,7 +58,11 @@ fn deps_depth_zero_unlimited() {
     let traits = fixture_path("src/testing/rust/src/traits.rs");
     let out = run_stakgraph(&["deps", "batch_process", "--depth", "0", &traits]);
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
-    assert!(out.stdout.contains("batch_process"), "stdout: {}", out.stdout);
+    assert!(
+        out.stdout.contains("batch_process"),
+        "stdout: {}",
+        out.stdout
+    );
 }
 
 #[test]
@@ -71,11 +75,7 @@ fn deps_allow_true_includes_verified_and_unverified_python_calls() {
         "stdout: {}",
         out.stdout
     );
-    assert!(
-        out.stdout.contains("chdir"),
-        "stdout: {}",
-        out.stdout
-    );
+    assert!(out.stdout.contains("chdir"), "stdout: {}", out.stdout);
 }
 
 #[test]
@@ -84,11 +84,7 @@ fn deps_allow_false_prefers_verified_python_calls() {
     let out = run_stakgraph(&["deps", "run_servers", "--allow", "false", &file]);
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("cleanup"), "stdout: {}", out.stdout);
-    assert!(
-        out.stdout.contains("main.py:37"),
-        "stdout: {}",
-        out.stdout
-    );
+    assert!(out.stdout.contains("main.py:37"), "stdout: {}", out.stdout);
     assert!(
         !out.stdout.contains("cleanup  [unverified]"),
         "stdout: {}",
@@ -115,11 +111,7 @@ fn deps_skips_ts_test_framework_calls() {
         "stdout: {}",
         out.stdout
     );
-    assert!(
-        !out.stdout.contains("│   │   "),
-        "stdout: {}",
-        out.stdout
-    );
+    assert!(!out.stdout.contains("│   │   "), "stdout: {}", out.stdout);
 }
 
 #[test]

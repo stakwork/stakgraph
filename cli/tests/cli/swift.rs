@@ -22,7 +22,10 @@ fn api_swift_contains_exact_named_nodes() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(out.stdout.contains("Class: API (11-126)"), true);
-    assert_eq!(out.stdout.contains("Function: API.getPeopleList (62-85)"), true);
+    assert_eq!(
+        out.stdout.contains("Function: API.getPeopleList (62-85)"),
+        true
+    );
     assert_eq!(out.stdout.contains("Request: GET /people (68-72)"), true);
     assert_eq!(out.stdout.contains("Request: POST /person (103-107)"), true);
 }

@@ -21,6 +21,12 @@ fn routes_react_contains_exact_named_nodes() {
     assert_eq!(out.exit_code, 0);
     assert_eq!(out.stdout.contains("Endpoint: GET /users (6-9)"), true);
     assert_eq!(out.stdout.contains("Endpoint: POST /users (12-16)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: PUT /users/:id (19-23)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: DELETE /users/:id (26-29)"), true);
+    assert_eq!(
+        out.stdout.contains("Endpoint: PUT /users/:id (19-23)"),
+        true
+    );
+    assert_eq!(
+        out.stdout.contains("Endpoint: DELETE /users/:id (26-29)"),
+        true
+    );
 }

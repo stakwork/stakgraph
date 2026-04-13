@@ -9,8 +9,7 @@ use super::args::DepsArgs;
 use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::utils::{
-    build_graph_for_files_with_options, expand_dirs_for_parse, parse_node_types,
-    rel_path_from_cwd,
+    build_graph_for_files_with_options, expand_dirs_for_parse, parse_node_types, rel_path_from_cwd,
 };
 
 #[derive(Serialize)]
@@ -86,7 +85,9 @@ pub async fn run(
         .nodes
         .iter()
         .filter(|n| {
-            node_type_filter.as_ref().map_or(true, |nt| n.node_type == *nt)
+            node_type_filter
+                .as_ref()
+                .map_or(true, |nt| n.node_type == *nt)
                 && n.node_data.name == args.name
         })
         .collect();
@@ -173,23 +174,20 @@ pub async fn run(
         }
 
         while let Some(item) = queue.pop_front() {
-            let connector = if item.is_last { "└── " } else { "├── " };
+            let connector = if item.is_last {
+                "└── "
+            } else {
+                "├── "
+            };
             let node_line = if item.file == "unverified" {
-                format!(
-                    "{}{}{}",
-                    item.prefix,
-                    connector,
-                    style(&item.name).white()
-                )
+                format!("{}{}{}", item.prefix, connector, style(&item.name).white())
             } else {
                 let found = graph
                     .nodes
                     .iter()
                     .find(|n| n.node_data.name == item.name && n.node_data.file == item.file);
                 let display_line = found.map(|n| n.node_data.start + 1).unwrap_or(0);
-                let node_type_label = found
-                    .map(|n| n.node_type.to_string())
-                    .unwrap_or_default();
+                let node_type_label = found.map(|n| n.node_type.to_string()).unwrap_or_default();
                 format!(
                     "{}{}{}  [{}]  [{}:{}]",
                     item.prefix,
@@ -250,7 +248,8 @@ fn collect_dependency_edges(
     let seed_file = seed.node_data.file.clone();
     visited.insert((seed_name.clone(), seed_file.clone()));
 
-    for (callee_name, callee_file) in direct_callees(graph, &seed_name, &seed_file, allow_unverified)
+    for (callee_name, callee_file) in
+        direct_callees(graph, &seed_name, &seed_file, allow_unverified)
     {
         result_edges.push(DependencyEdge {
             source_name: seed_name.clone(),
@@ -317,7 +316,11 @@ fn direct_callees(
     // otherwise emit a single unverified entry.
     let mut result = Vec::new();
     for (callee_name, files) in by_name {
-        let verified: Vec<_> = files.iter().filter(|f| *f != "unverified").cloned().collect();
+        let verified: Vec<_> = files
+            .iter()
+            .filter(|f| *f != "unverified")
+            .cloned()
+            .collect();
         if !verified.is_empty() {
             for f in verified {
                 result.push((callee_name.clone(), f));

@@ -19,12 +19,18 @@ fn manifest_path() -> PathBuf {
 
 pub fn workspace_path(relative: &str) -> String {
     let p = manifest_dir().join("..").join(relative);
-    std::fs::canonicalize(&p).unwrap_or(p).to_string_lossy().to_string()
+    std::fs::canonicalize(&p)
+        .unwrap_or(p)
+        .to_string_lossy()
+        .to_string()
 }
 
 pub fn fixture_path(relative: &str) -> String {
     let p = manifest_dir().join("..").join("ast").join(relative);
-    std::fs::canonicalize(&p).unwrap_or(p).to_string_lossy().to_string()
+    std::fs::canonicalize(&p)
+        .unwrap_or(p)
+        .to_string_lossy()
+        .to_string()
 }
 
 pub fn run_stakgraph(args: &[&str]) -> CliOutput {
@@ -74,5 +80,8 @@ pub fn run_stakgraph_in_cwd(cwd: &str, args: &[&str]) -> CliOutput {
 }
 
 pub fn count_prefix(output: &str, prefix: &str) -> usize {
-    output.lines().filter(|line| line.starts_with(prefix)).count()
+    output
+        .lines()
+        .filter(|line| line.starts_with(prefix))
+        .count()
 }

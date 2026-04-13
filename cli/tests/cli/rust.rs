@@ -12,7 +12,8 @@ fn smoke_traits_rs_exact_counts() {
     assert_eq!(count_prefix(&out.stdout, "Datamodel:"), 5);
     assert_eq!(count_prefix(&out.stdout, "Trait:"), 4);
 
-    let test_nodes = count_prefix(&out.stdout, "UnitTest:") + count_prefix(&out.stdout, "IntegrationTest:");
+    let test_nodes =
+        count_prefix(&out.stdout, "UnitTest:") + count_prefix(&out.stdout, "IntegrationTest:");
     assert_eq!(test_nodes, 10);
 }
 
@@ -36,7 +37,10 @@ fn traits_rs_contains_exact_named_nodes() {
     assert_eq!(out.exit_code, 0);
     assert_eq!(out.stdout.contains("Trait: Greet (4-6)"), true);
     assert_eq!(out.stdout.contains("Datamodel: Greeter (9-11)"), true);
-    assert_eq!(out.stdout.contains("Function: Greeter::greet (20-22)"), true);
+    assert_eq!(
+        out.stdout.contains("Function: Greeter::greet (20-22)"),
+        true
+    );
 }
 
 #[test]
