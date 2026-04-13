@@ -75,6 +75,8 @@ pub enum Commands {
     Impact(ImpactArgs),
     /// Show a de-noised overview of a repository tree
     Overview(OverviewArgs),
+    /// Search for nodes by name, content, or type
+    Search(SearchArgs),
 }
 
 #[derive(Debug, Args)]
@@ -225,6 +227,49 @@ pub struct OverviewArgs {
     pub changed: bool,
 }
 
+#[derive(Debug, Args)]
+pub struct SearchArgs {
+    /// Search query (supports multiple space-separated terms)
+    #[arg(value_name = "QUERY")]
+    pub query: String,
+
+    /// Only search nodes of these types, comma-separated (e.g. Function,Endpoint)
+    #[arg(long, value_delimiter = ',')]
+    pub r#type: Vec<String>,
+
+    /// Only search within files whose path contains this fragment
+    #[arg(long)]
+    pub file: Option<String>,
+
+    /// Maximum number of results (default: 20)
+    #[arg(long, default_value = "20")]
+    pub limit: usize,
+
+    /// Also search inside function bodies and doc comments
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub body: bool,
+
+    /// Show full source body for each result
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub code: bool,
+
+    /// Show immediate callers and callees for each result
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub context: bool,
+
+    /// Show associated test nodes for each result
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub tests: bool,
+
+    /// Show sibling nodes in the same file for each result
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub related: bool,
+
+    /// Files or directories to search
+    #[arg(value_name = "FILE_OR_DIR", num_args = 1..)]
+    pub files: Vec<String>,
+}
+
 impl CliArgs {
     pub fn parse_and_expand() -> Result<Self> {
         let mut args = Self::parse();
@@ -268,6 +313,11 @@ impl CliArgs {
         if let Some(Commands::Overview(_)) = &args.command {
             return Ok(args);
         }
+
+        if let Some(Commands::Search(_)) = &args.command {
+            return Ok(args);
+        }
+
         Ok(args)
     }
 }

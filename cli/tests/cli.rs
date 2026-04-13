@@ -68,3 +68,5 @@ mod cli_changes_cmd;
 mod cli_overview_cmd;
 #[path = "cli/impact_cmd.rs"]
 mod cli_impact_cmd;
+#[path = "cli/search_cmd.rs"]
+mod cli_search_cmd;
