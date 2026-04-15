@@ -16,13 +16,8 @@ export async function listConcepts(params: { repo?: string }): Promise<ToolResul
   const conceptList = features.map((f) => ({
     id: f.id,
     repo: f.repo,
-    ref_id: f.ref_id,
     name: f.name,
     description: f.description,
-    prCount: f.prNumbers.length,
-    commitCount: (f.commitShas || []).length,
-    lastUpdated: f.lastUpdated.toISOString(),
-    hasDocumentation: !!f.documentation,
   }));
 
   return {
