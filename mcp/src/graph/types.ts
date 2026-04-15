@@ -136,6 +136,45 @@ export interface GraphResponse {
   edges: any[];
   status: string;
 }
+
+export const CODE_LABEL = "Code";
+export const INFRA_NODE_LABELS = ["Data_Bank", CODE_LABEL] as const;
+
+export const SOURCE_CODE_NODE_TYPES: NodeType[] = [
+  "Repository",
+  "Package",
+  "Language",
+  "Directory",
+  "File",
+  "Import",
+  "Class",
+  "Trait",
+  "Instance",
+  "Library",
+  "Function",
+  "UnitTest",
+  "IntegrationTest",
+  "E2etest",
+  "Endpoint",
+  "Request",
+  "Datamodel",
+  "Page",
+  "Var",
+  "Feature",
+  "Mock",
+];
+
+export const EMBEDDING_ELIGIBLE_NODE_TYPES: NodeType[] = [
+  "Function",
+  "Class",
+  "Endpoint",
+  "Datamodel",
+  "Request",
+  "Page",
+  "Trait",
+  "Var",
+];
+
 export function relevant_node_types(): NodeType[] {
   return [
     "Page",

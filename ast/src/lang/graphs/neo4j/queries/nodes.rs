@@ -45,12 +45,19 @@ impl NodeQueryBuilder {
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
+        let code_label = if is_code_node_type(&self.node_type) {
+            format!(":{}", CODE_LABEL)
+        } else {
+            String::new()
+        };
+
         let query = format!(
-            "MERGE (node:{}:{} {{node_key: $node_key}})
+            "MERGE (node:{}{}:{} {{node_key: $node_key}})
          ON CREATE SET node += $properties, node.date_added_to_graph = $now
          ON MATCH SET node += $properties, node.date_added_to_graph = $now
          Return node",
             self.node_type.to_string(),
+            code_label,
             DATA_BANK,
         );
 
@@ -83,11 +90,18 @@ impl NodeQueryBuilder {
 
         // println!("[NodeQueryBuilder] node_key: {}", node_key);
 
+        let code_label = if is_code_node_type(&self.node_type) {
+            format!(":{}", CODE_LABEL)
+        } else {
+            String::new()
+        };
+
         let query = format!(
-            "MERGE (node:{}:{} {{node_key: $node_key}})
+            "MERGE (node:{}{}:{} {{node_key: $node_key}})
          ON CREATE SET node += $properties, node.date_added_to_graph = $now
          Return node",
             self.node_type.to_string(),
+            code_label,
             DATA_BANK,
         );
 

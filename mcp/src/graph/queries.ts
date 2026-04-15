@@ -1,13 +1,16 @@
 import { DIMENSIONS } from "../vector/index.js";
+import { CODE_LABEL, EMBEDDING_ELIGIBLE_NODE_TYPES } from "./types.js";
 
 export const Data_Bank = "Data_Bank";
 export const KEY_INDEX = "data_bank_node_key_index";
+export const CODE_KEY_INDEX = "code_node_key_index";
 export const FULLTEXT_BODY_INDEX = "bodyIndex";
 export const FULLTEXT_NAME_INDEX = "nameIndex";
 export const FULLTEXT_COMPOSITE_INDEX = "nameBodyFileIndex";
 export const VECTOR_INDEX = "vectorIndex";
 
 export const KEY_INDEX_QUERY = `CREATE INDEX ${KEY_INDEX} IF NOT EXISTS FOR (n:${Data_Bank}) ON (n.node_key)`;
+export const CODE_KEY_INDEX_QUERY = `CREATE INDEX ${CODE_KEY_INDEX} IF NOT EXISTS FOR (n:${CODE_LABEL}) ON (n.node_key)`;
 
 const ENGLISH_ANALYZER = `OPTIONS {
   indexConfig: {
@@ -214,8 +217,8 @@ DETACH DELETE n
 RETURN count(n) as deleted_count
 `;
 
-export const ADD_NODE_QUERY = (nodeType: string) => `
-MERGE (n:${nodeType}:${Data_Bank} {node_key: $node_key})
+export const ADD_NODE_QUERY = (nodeType: string, addCodeLabel = false) => `
+MERGE (n:${nodeType}${addCodeLabel ? `:${CODE_LABEL}` : ""}:${Data_Bank} {node_key: $node_key})
 ON CREATE SET n += $properties, n.namespace = 'default'
 ON MATCH SET n += $properties
 RETURN n.ref_id as ref_id
@@ -888,7 +891,8 @@ LIMIT toInteger($limit)
 
 export const GET_NODES_WITHOUT_DESCRIPTION_QUERY = `
 MATCH (n)
-WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
+WHERE n:${CODE_LABEL}
+  AND (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
   AND (n.description IS NULL OR n.description = '')
   AND n.body IS NOT NULL
   AND n.body <> ''
@@ -910,7 +914,8 @@ SET n.description = $description
 
 export const GET_NODES_WITH_DESCRIPTION_WITHOUT_EMBEDDINGS_QUERY = `
 MATCH (n)
-WHERE (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
+WHERE n:${CODE_LABEL}
+  AND (n:Class OR n:Endpoint OR n:Request OR n:Function OR n:Datamodel OR n:Page OR n:Trait OR n:Var)
   AND n.description IS NOT NULL
   AND n.description <> ''
   AND (n.embeddings IS NULL)
@@ -942,16 +947,16 @@ export const GET_ALL_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN w`;
 
 export const COUNT_WORKFLOWS_QUERY = `MATCH (w:Workflow) RETURN count(w) AS c`;
 
-const EMBEDDING_ELIGIBLE_LABELS = "['Function', 'Class', 'Endpoint', 'Datamodel', 'Request', 'Page', 'Trait', 'Var']";
+const EMBEDDING_ELIGIBLE_LABELS = `${JSON.stringify(EMBEDDING_ELIGIBLE_NODE_TYPES)}`;
 
 export const COUNT_ELIGIBLE_NODES_FOR_EMBEDDINGS_QUERY = `
-MATCH (n:${Data_Bank})
+MATCH (n:${CODE_LABEL}:${Data_Bank})
 WHERE ANY(label IN labels(n) WHERE label IN ${EMBEDDING_ELIGIBLE_LABELS})
 RETURN count(n) AS c
 `;
 
 export const COUNT_NODES_WITH_EMBEDDINGS_QUERY = `
-MATCH (n:${Data_Bank})
+MATCH (n:${CODE_LABEL}:${Data_Bank})
 WHERE n.embeddings IS NOT NULL
   AND ANY(label IN labels(n) WHERE label IN ${EMBEDDING_ELIGIBLE_LABELS})
 RETURN count(n) AS c
@@ -1001,11 +1006,13 @@ RETURN path
 
 export const IMPORTANCE_GRAPH_PROJECT_QUERY = `
 MATCH (n)
-WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page
+WHERE n:${CODE_LABEL}
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 WITH collect(n) AS nodes
 UNWIND nodes AS n
 OPTIONAL MATCH (n)-[r:CALLS|HANDLER|RENDERS]->(m)
-WHERE m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:Datamodel OR m:Request OR m:Page
+WHERE m:${CODE_LABEL}
+  AND (m:Function OR m:Class OR m:Trait OR m:Endpoint OR m:Datamodel OR m:Request OR m:Page)
 WITH gds.graph.project(
   $graphName,
   n,
@@ -1027,14 +1034,17 @@ RETURN n.ref_id AS ref_id, score
 
 export const IMPORTANCE_DEGREE_QUERY = `
 MATCH (n)
-WHERE n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page
+WHERE n:${CODE_LABEL}
+  AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 OPTIONAL MATCH (caller)-[:CALLS|HANDLER|RENDERS]->(n)
-WHERE caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:Datamodel OR caller:Request OR caller:Page
+WHERE caller:${CODE_LABEL}
+  AND (caller:Function OR caller:Class OR caller:Trait OR caller:Endpoint OR caller:Datamodel OR caller:Request OR caller:Page)
 WITH n, count(DISTINCT caller) AS in_degree
 OPTIONAL MATCH (n)-[:CALLS|HANDLER|RENDERS]->(callee)
-WHERE callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel OR callee:Request OR callee:Page
+WHERE callee:${CODE_LABEL}
+  AND (callee:Function OR callee:Class OR callee:Trait OR callee:Endpoint OR callee:Datamodel OR callee:Request OR callee:Page)
 WITH n, in_degree, count(DISTINCT callee) AS out_degree
-RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS node_type
+RETURN n.ref_id AS ref_id, in_degree, out_degree, [l IN labels(n) WHERE l <> 'Data_Bank' AND l <> '${CODE_LABEL}'][0] AS node_type
 `;
 
 export const BULK_UPDATE_IMPORTANCE_QUERY = `
@@ -1052,9 +1062,10 @@ SET n.pagerank      = item.pagerank,
 export const GET_NODES_BY_IMPORTANCE_TAG_QUERY = `
 MATCH (n)
 WHERE n.importance_tag = $tag
+  AND n:${CODE_LABEL}
   AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
-       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+       [l IN labels(n) WHERE l <> 'Data_Bank' AND l <> '${CODE_LABEL}'][0] AS label,
        n.pagerank AS pagerank,
        n.in_degree AS in_degree,
        n.out_degree AS out_degree,
@@ -1074,9 +1085,10 @@ YIELD graphName
 export const GET_TOP_NODES_BY_IMPORTANCE_QUERY = `
 MATCH (n)
 WHERE n.pagerank IS NOT NULL
+  AND n:${CODE_LABEL}
   AND (n:Function OR n:Class OR n:Trait OR n:Endpoint OR n:Datamodel OR n:Request OR n:Page)
 RETURN n.ref_id AS ref_id, n.name AS name, n.file AS file,
-       [l IN labels(n) WHERE l <> 'Data_Bank'][0] AS label,
+       [l IN labels(n) WHERE l <> 'Data_Bank' AND l <> '${CODE_LABEL}'][0] AS label,
        n.pagerank AS pagerank,
        n.in_degree AS in_degree,
        n.out_degree AS out_degree,

@@ -5,11 +5,39 @@ use shared::Result;
 use tiktoken_rs::{get_bpe_from_model, CoreBPE};
 
 pub const DATA_BANK: &str = "Data_Bank";
+pub const CODE_LABEL: &str = "Code";
 pub const BATCH_SIZE: usize = 4096;
 
 lazy_static! {
     static ref TOKENIZER: std::result::Result<CoreBPE, String> =
         get_bpe_from_model("gpt-4").map_err(|e| e.to_string());
+}
+
+pub fn is_code_node_type(node_type: &NodeType) -> bool {
+    matches!(
+        node_type,
+        NodeType::Repository
+            | NodeType::Package
+            | NodeType::Language
+            | NodeType::Directory
+            | NodeType::File
+            | NodeType::Import
+            | NodeType::Library
+            | NodeType::Class
+            | NodeType::Trait
+            | NodeType::Instance
+            | NodeType::Function
+            | NodeType::Endpoint
+            | NodeType::Request
+            | NodeType::DataModel
+            | NodeType::Feature
+            | NodeType::Page
+            | NodeType::Var
+            | NodeType::UnitTest
+            | NodeType::IntegrationTest
+            | NodeType::E2eTest
+            | NodeType::Mock
+    )
 }
 
 #[derive(Debug, Clone)]

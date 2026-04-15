@@ -5,6 +5,8 @@ import { ImportanceTag, ImportanceTopNode, TaggedNode } from "../importance/type
 import {
   NodeType,
   all_node_types,
+  SOURCE_CODE_NODE_TYPES,
+  CODE_LABEL,
   Neo4jNode,
   Neo4jEdge,
   EdgeType,
@@ -28,6 +30,12 @@ import { createByModelName } from "@microsoft/tiktokenizer";
 export type Direction = "up" | "down" | "both";
 
 export const Data_Bank = Q.Data_Bank;
+
+function nodeLabelPattern(nodeType: string): string {
+  return SOURCE_CODE_NODE_TYPES.includes(nodeType as NodeType)
+    ? `${nodeType}:${CODE_LABEL}:${Data_Bank}`
+    : `${nodeType}:${Data_Bank}`;
+}
 
 const no_db = process.env.NO_DB === "true" || process.env.NO_DB === "1";
 if (!no_db) {
@@ -737,8 +745,9 @@ class Db {
       } as Node);
 
       const now = Date.now();
+      const addCodeLabel = SOURCE_CODE_NODE_TYPES.includes(node_type);
 
-      const result = await session.run(Q.ADD_NODE_QUERY(node_type), {
+      const result = await session.run(Q.ADD_NODE_QUERY(node_type, addCodeLabel), {
         node_key,
         properties: { ...node_data, node_key },
         now,
@@ -1070,6 +1079,7 @@ class Db {
       // console.log(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
       // console.log(Q.VECTOR_INDEX_QUERY);
       await session.run(Q.KEY_INDEX_QUERY);
+      await session.run(Q.CODE_KEY_INDEX_QUERY);
       await session.run(Q.FULLTEXT_BODY_INDEX_QUERY);
       await session.run(Q.FULLTEXT_NAME_INDEX_QUERY);
       await session.run(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
@@ -1533,7 +1543,7 @@ function construct_merge_node_query(node: Node): MergeQuery {
   const { node_type, node_data } = node;
   const node_key = create_node_key(node);
   const query = `
-      MERGE (node:${node_type}:${Data_Bank} {node_key: $node_key})
+  MERGE (node:${nodeLabelPattern(node_type)} {node_key: $node_key})
       ON CREATE SET node += $properties
       ON MATCH SET node += $properties
       RETURN node

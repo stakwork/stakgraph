@@ -1,5 +1,13 @@
-import { Node, Neo4jNode, ReturnNode, NodeType, toNum } from "./types.js";
-import { Data_Bank } from "./neo4j.js";
+import {
+  Node,
+  Neo4jNode,
+  ReturnNode,
+  NodeType,
+  toNum,
+  INFRA_NODE_LABELS,
+  normalizeNodeType,
+  CODE_LABEL,
+} from "./types.js";
 import { simpleGit } from "simple-git";
 import path from "path";
 import fg from "fast-glob";
@@ -46,12 +54,23 @@ export function normalizeRepoParam(value?: string): string | undefined {
 
 export const IS_TEST = isTrue(process.env.TEST_REF_ID as string);
 
+export function hasCodeLabel(labels: string[]): boolean {
+  return labels.includes(CODE_LABEL);
+}
+
+export function getConcreteNodeLabel(labels: string[]): NodeType {
+  const label = labels.find(
+    (candidate) =>
+      !INFRA_NODE_LABELS.includes(
+        candidate as (typeof INFRA_NODE_LABELS)[number]
+      )
+  );
+
+  return (label ? normalizeNodeType(label) || label : "") as NodeType;
+}
+
 export function rightLabel(node: Neo4jNode): NodeType {
-  let label = node.labels[0];
-  if (label === Data_Bank) {
-    label = node.labels[1] || "";
-  }
-  return label as NodeType;
+  return getConcreteNodeLabel(node.labels);
 }
 
 export function toReturnNode(node: Neo4jNode): ReturnNode {

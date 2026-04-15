@@ -11,6 +11,7 @@ import { getProviderTool, Provider } from "../aieo/src/index.js";
 import { RepoAnalyzer } from "gitsee/server";
 import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
+import { getConcreteNodeLabel } from "../graph/utils.js";
 import { callRemoteAgent, type SubAgent } from "./subagent.js";
 import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch } from "../graph/graph.js";
@@ -414,7 +415,7 @@ export async function get_tools(
             const results = await db.vectorSearch(query, limit || 10, codeNodeTypes as any);
             return results.map((node) => ({
               name: node.properties.name,
-              node_type: node.labels.find(l => l !== "Data_Bank") || node.labels[0],
+              node_type: getConcreteNodeLabel(node.labels) || node.labels[0],
               file: node.properties.file,
               line: node.properties.start,
               score: node.score,

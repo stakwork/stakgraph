@@ -40,6 +40,7 @@ impl Neo4jGraph {
         let connection: Neo4jConnection = self.ensure_connected().await?;
         let queries = vec![
             "CREATE INDEX data_bank_node_key_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.node_key)",
+            "CREATE INDEX code_node_key_index IF NOT EXISTS FOR (n:Code) ON (n.node_key)",
             "CREATE FULLTEXT INDEX bodyIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.body]",
             "CREATE FULLTEXT INDEX nameIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name]",
             "CREATE FULLTEXT INDEX nameBodyFileIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name, n.body, n.file]",

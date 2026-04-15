@@ -789,6 +789,19 @@ impl Neo4jGraph {
         }
     }
 
+    pub async fn set_missing_code_label(&self) -> Result<u32> {
+        let connection = self.ensure_connected().await?;
+        let query_str = set_missing_code_label_query();
+        let mut result = connection.execute(query(&query_str)).await?;
+        if let Some(row) = result.next().await? {
+            let count = row.get::<i64>("updated_count").unwrap_or(0);
+            info!("Set Code label for {} nodes", count);
+            Ok(count as u32)
+        } else {
+            Ok(0)
+        }
+    }
+
     pub async fn set_default_namespace(&self) -> Result<u32> {
         let connection = self.ensure_connected().await?;
         let query_str = set_default_namespace_query();

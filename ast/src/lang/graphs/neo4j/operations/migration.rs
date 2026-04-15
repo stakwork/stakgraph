@@ -55,7 +55,10 @@ impl Neo4jGraph {
         let query_str = r#"
                 MATCH (source)-[r]->(target)
                 WHERE target.file = $file AND source.file <> $file
-                RETURN source, r, target, labels(source)[0] as source_type, labels(target)[0] as target_type, type(r) as edge_type
+                  RETURN source, r, target,
+                      [label IN labels(source) WHERE label <> 'Data_Bank' AND label <> 'Code'][0] as source_type,
+                      [label IN labels(target) WHERE label <> 'Data_Bank' AND label <> 'Code'][0] as target_type,
+                      type(r) as edge_type
             "#;
         let query_obj = query(query_str).param("file", file);
         let mut incoming = Vec::new();
@@ -357,6 +360,22 @@ pub fn set_missing_data_bank_query() -> String {
         MATCH (n)
         WHERE n.Data_Bank IS NULL AND n.name IS NOT NULL AND NOT n:Schema
         SET n.Data_Bank = n.name
+        RETURN count(n) as updated_count
+    "#
+    .to_string()
+}
+
+pub fn set_missing_code_label_query() -> String {
+    r#"
+        MATCH (n:Data_Bank)
+                WHERE NOT n:Code
+                    AND ANY(label IN labels(n) WHERE label IN [
+                        'Repository', 'Package', 'Language', 'Directory', 'File', 'Import',
+                        'Library', 'Class', 'Trait', 'Instance', 'Function', 'Endpoint',
+                        'Request', 'Datamodel', 'Feature', 'Page', 'Var', 'UnitTest',
+                        'IntegrationTest', 'E2etest', 'Mock'
+                    ])
+        SET n:Code
         RETURN count(n) as updated_count
     "#
     .to_string()
