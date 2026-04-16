@@ -665,7 +665,11 @@ export async function get_tools(
             const repo = isMultiRepo ? undefined : `${repoOwner}/${repoName}`;
             const result = await listFeatures(repo);
             return {
-              concepts: result.features,
+              concepts: result.features.map((f) => ({
+                id: f.id,
+                name: f.name,
+                description: f.description,
+              })),
               total: result.total,
               repo,
             };
