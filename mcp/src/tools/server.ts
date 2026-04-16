@@ -49,14 +49,6 @@ server
         const fa = stakgraph.SearchSchema.parse(args);
         return await stakgraph.search(fa);
       }
-      case stakgraph.GetNodesTool.name: {
-        const fa = stakgraph.GetNodesSchema.parse(args);
-        return await stakgraph.getNodes(fa);
-      }
-      case stakgraph.GetEdgesTool.name: {
-        const fa = stakgraph.GetEdgesSchema.parse(args);
-        return await stakgraph.getEdges(fa);
-      }
       case stakgraph.GetMapTool.name: {
         const fa = stakgraph.GetMapSchema.parse(args);
         return await stakgraph.getMap(fa);
@@ -69,16 +61,8 @@ server
         const fa = stakgraph.ShortestPathSchema.parse(args);
         return await stakgraph.shortestPath(fa);
       }
-      case stakgraph.RepoMapTool.name: {
-        const fa = stakgraph.RepoMapSchema.parse(args);
-        return await stakgraph.repoMap(fa);
-      }
       case stakgraph.GetRulesFilesTool.name: {
         return await stakgraph.getRulesFiles();
-      }
-      case stakgraph.ExploreTool.name: {
-        const fa = stakgraph.ExploreSchema.parse(args);
-        return await stakgraph.explore(fa);
       }
       default:
         if (name.startsWith("stagehand_")) {
