@@ -144,7 +144,7 @@ Rules:
 - Use color_swatch when asking about colors/themes
 - Can combine: use questionArtifact to show a diagram AND rich options for choices`,
   list_concepts:
-    "List all high-level concepts (features) that have been learned about this codebase. Use this to discover what areas of functionality have been documented and understand the main components of the system. Returns a list of concepts with their names, descriptions, and metadata about associated PRs and commits.",
+    "List all high-level concepts (features) that have been learned about this codebase. Use this to discover what areas of functionality have been documented and understand the main components of the system. Returns a list of concepts with their ids, names, and descriptions. Use learn_concept to get full details on a specific concept.",
   learn_concept:
     "Get detailed information about a specific concept (feature) including its full documentation, associated PRs with summaries, and commits. Use this when you need deep understanding of how a particular feature was implemented and evolved over time.",
   learn_concepts: '', // this is just for naming, to enable the above 2.
