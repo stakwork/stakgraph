@@ -31,29 +31,19 @@ export async function formatFeatureWithDetails(
   return {
     feature: {
       id: feature.id,
-      ref_id: feature.ref_id,
       name: feature.name,
       description: feature.description,
       documentation: feature.documentation,
-      prNumbers: feature.prNumbers,
-      commitShas: feature.commitShas || [],
-      createdAt: feature.createdAt.toISOString(),
-      lastUpdated: feature.lastUpdated.toISOString(),
     },
     prs: limitedPrs.map((pr) => ({
       number: pr.number,
       title: pr.title,
       summary: pr.summary,
-      mergedAt: pr.mergedAt.toISOString(),
-      url: pr.url,
     })),
     commits: limitedCommits.map((commit) => ({
-      sha: commit.sha,
       message: commit.message.split("\n")[0],
       summary: commit.summary,
       author: commit.author,
-      committedAt: commit.committedAt.toISOString(),
-      url: commit.url,
     })),
   };
 }
