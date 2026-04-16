@@ -141,7 +141,7 @@ export async function get_context_explore(
           100000,
           "hybrid",
           "snippet",
-          false,
+          [],
         );
       },
     }),

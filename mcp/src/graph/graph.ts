@@ -9,6 +9,7 @@ import {
   NodeType,
   EdgeType,
   GraphResponse,
+  code_node_types,
 } from "./types.js";
 import { nameFileOnly, toReturnNode, formatNode, clean_node } from "./utils.js";
 import { getTokenizer } from "../repo/utils.js";
@@ -75,19 +76,18 @@ export async function search(
   maxTokens: number,
   method: SearchMethod = "fulltext",
   output: OutputFormat = "snippet",
-  tests: boolean = false,
+  skip_node_types: NodeType[] = [],
   language?: string,
   sortBy: SearchSortBy = "relevance"
 ) {
-  const skip_node_types: NodeType[] = tests
-    ? []
-    : (["UnitTest", "IntegrationTest", "E2etest"] as NodeType[]);
+  const effective_node_types =
+    node_types.length > 0 ? node_types : code_node_types();
 
   if (method === "vector") {
     let result = await db.vectorSearch(
       query,
       limit,
-      node_types,
+      effective_node_types,
       skip_node_types,
       maxTokens,
       language
@@ -98,8 +98,8 @@ export async function search(
     return toNodes(result, concise, output);
   } else if (method === "hybrid") {
     const [fulltextResults, vectorResults] = await Promise.all([
-      db.search(query, limit, node_types, skip_node_types, 0, language),
-      db.vectorSearch(query, limit, node_types, skip_node_types, 0, language),
+      db.search(query, limit, effective_node_types, skip_node_types, 0, language),
+      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language),
     ]);
 
     const merged = new Map<string, { node: Neo4jNode; score: number }>();
@@ -146,7 +146,7 @@ export async function search(
     let result = await db.search(
       query,
       limit,
-      node_types,
+      effective_node_types,
       skip_node_types,
       maxTokens,
       language
