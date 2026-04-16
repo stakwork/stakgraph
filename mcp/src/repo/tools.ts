@@ -446,7 +446,7 @@ export async function get_tools(
           args.max_tokens ?? 15000,
           (args.method ?? "hybrid") as any,
           "json",
-          false,
+          [],
           args.language
         );
         if (!Array.isArray(results)) return "No results";
