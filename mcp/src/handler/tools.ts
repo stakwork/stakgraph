@@ -54,11 +54,11 @@ export async function learnConcept(params: { id: string; repo?: string }): Promi
       type: "text" as const,
       text: `# ${feature.name}\n\n${feature.description || ""}\n\n## Documentation\n\n${documentation}\n\n## Metadata\n\n${JSON.stringify({
         id: response.feature.id,
-        ref_id: response.feature.ref_id,
-        prCount: response.feature.prNumbers.length,
-        commitCount: response.feature.commitShas.length,
-        createdAt: response.feature.createdAt,
-        lastUpdated: response.feature.lastUpdated,
+        ref_id: feature.ref_id,
+        prCount: feature.prNumbers.length,
+        commitCount: feature.commitShas?.length ?? 0,
+        createdAt: feature.createdAt,
+        lastUpdated: feature.lastUpdated,
       }, null, 2)}`
     }],
   };
