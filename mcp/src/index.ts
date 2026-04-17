@@ -39,7 +39,13 @@ import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
-import { getBus, verifyEventsToken, pipeToSSE } from "./repo/events.js";
+import {
+  getBus,
+  verifyEventsToken,
+  pipeToSSE,
+  signApiToken,
+} from "./repo/events.js";
+import fs from "fs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -117,8 +123,35 @@ app.use("/textarea", express.static(path.join(__dirname, "../textarea")));
 app.use("/app", express.static(path.join(__dirname, "../app")));
 app.use("/demo", express.static(path.join(__dirname, "../app/vendor")));
 
-// Vite/React static app - serve built assets (JS, CSS, images, etc.)
-app.use(express.static(path.join(__dirname, "../web/dist")));
+// Vite/React static app
+// Public: hashed assets (JS/CSS/images) — safe, contain no secrets
+const webDist = path.join(__dirname, "../web/dist");
+app.use("/assets", express.static(path.join(webDist, "assets")));
+app.get("/favicon.ico", (_req: Request, res: Response) => {
+  res.sendFile(path.join(webDist, "favicon.ico"));
+});
+
+// Gated: index.html — requires API_TOKEN auth, then injects a short-lived JWT
+app.get(["/", "/index.html"], r.authMiddleware, (_req: Request, res: Response) => {
+  const indexPath = path.join(webDist, "index.html");
+  fs.readFile(indexPath, "utf8", (err, html) => {
+    if (err) {
+      res.status(500).send("Error loading app");
+      return;
+    }
+    let token = "";
+    try {
+      token = signApiToken("1h");
+    } catch (_) {
+      // API_TOKEN not set (dev mode) — leave token empty; API calls will pass through
+    }
+    const injected = html.replace(
+      "</head>",
+      `<script>window.__AUTH_TOKEN__=${JSON.stringify(token)}</script></head>`,
+    );
+    res.type("html").send(injected);
+  });
+});
 app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 
@@ -234,16 +267,6 @@ app.get("/_cache/info", cacheInfo);
 app.post("/_cache/clear", (_req: Request, res: Response): void => {
   clearCache();
   res.json({ message: "Cache cleared" });
-});
-
-// SPA fallback: any GET that didn't match an API route serves the React app
-const spaIndex = path.join(__dirname, "../web/dist/index.html");
-app.get("*", (_req: Request, res: Response) => {
-  res.sendFile(spaIndex, (err) => {
-    if (err) {
-      res.status(200).send("OK");
-    }
-  });
 });
 
 const port = parseInt(process.env.PORT || "3355", 10);

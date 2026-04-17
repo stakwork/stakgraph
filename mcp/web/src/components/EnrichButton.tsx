@@ -6,6 +6,7 @@ import { useServerConfig } from "../stores/useServerConfig";
 import { useGraphData } from "@/stores/useGraphData";
 import { toast } from "sonner";
 import { resolveRepoUrl } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -98,7 +99,7 @@ export function EnrichButton() {
 
     const pollInterval = window.setInterval(async () => {
       try {
-        const pollRes = await fetch(`${API_BASE}/progress?request_id=${reqId}`);
+        const pollRes = await apiFetch(`${API_BASE}/progress?request_id=${reqId}`);
         if (!pollRes.ok) return;
 
         const progressData = await pollRes.json();
@@ -211,7 +212,7 @@ export function EnrichButton() {
       };
       if (apiKey) body.apiKey = apiKey;
 
-      const res = await fetch(`${API_BASE}/repo/describe`, {
+      const res = await apiFetch(`${API_BASE}/repo/describe`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

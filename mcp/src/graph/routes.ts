@@ -28,6 +28,7 @@ import {
 import fs from "fs/promises";
 import * as G from "./graph.js";
 import { db } from "./neo4j.js";
+import { verifyApiToken } from "../repo/events.js";
 import { parseServiceFile, extractContainersFromCompose } from "./service.js";
 import * as path from "path";
 import {
@@ -105,8 +106,20 @@ export function authMiddleware(
     return next();
   }
 
-  // Check for Basic Auth header
   const authHeader = req.header("Authorization") || req.header("authorization");
+
+  // Check for Bearer JWT (used by the SPA)
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    const token = authHeader.substring(7);
+    try {
+      verifyApiToken(token);
+      return next();
+    } catch (_) {
+      // Fall through to other auth methods / 401
+    }
+  }
+
+  // Check for Basic Auth header
   if (authHeader && authHeader.startsWith("Basic ")) {
     try {
       const base64Credentials = authHeader.substring(6);
@@ -120,6 +133,13 @@ export function authMiddleware(
     } catch (error) {
       // Invalid base64 encoding
     }
+  }
+
+  // For HTML requests (browser navigating to the SPA), trigger a Basic Auth prompt
+  if (req.accepts(["html", "json"]) === "html") {
+    res.set("WWW-Authenticate", 'Basic realm="stakgraph", charset="UTF-8"');
+    res.status(401).send("Unauthorized");
+    return;
   }
 
   res.status(401).json({ error: "Unauthorized: Invalid API token" });

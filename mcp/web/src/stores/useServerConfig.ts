@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -25,7 +26,7 @@ export const useServerConfig = create<ServerConfigState>((set, get) => ({
     set({ loading: true });
 
     try {
-      const res = await fetch(`${API_BASE}/server-config`);
+      const res = await apiFetch(`${API_BASE}/server-config`);
       const data = await res.json().catch(() => ({}));
       const providers =
         data && typeof data.providers === "object" && data.providers

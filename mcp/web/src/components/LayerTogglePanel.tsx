@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useApi } from "@/hooks/useApi";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const SEARCH_LIMIT = 8;
@@ -140,7 +141,7 @@ export function LayerTogglePanel() {
           sort_by: searchSortBy,
         });
 
-        const res = await fetch(`${API_BASE}/search?${params.toString()}`, {
+        const res = await apiFetch(`${API_BASE}/search?${params.toString()}`, {
           signal: controller.signal,
         });
 
@@ -201,7 +202,7 @@ export function LayerTogglePanel() {
       let node = nodesNormalized.get(refId);
       if (!node) {
         try {
-          const res = await fetch(
+          const res = await apiFetch(
             `${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`,
           );
           if (res.ok) {

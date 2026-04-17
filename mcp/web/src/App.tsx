@@ -13,6 +13,7 @@ import { SettingsToggle } from "@/components/chat/Settings";
 import { SyncButton } from "@/components/SyncButton";
 import { EnrichButton } from "@/components/EnrichButton";
 import { Toaster } from "@/components/ui/sonner";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -28,7 +29,7 @@ function App() {
     let cancelled = false;
     async function checkGraph() {
       try {
-        const res = await fetch(`${API_BASE}/graph?limit=1&no_body=true`);
+        const res = await apiFetch(`${API_BASE}/graph?limit=1&no_body=true`);
         if (cancelled) return;
         if (res.ok) {
           const data = await res.json();
@@ -74,7 +75,7 @@ function App() {
     setView("doc");
 
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/gitree/features/${encodeURIComponent(id)}`,
       );
       if (res.ok) {

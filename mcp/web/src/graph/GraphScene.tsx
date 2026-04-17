@@ -18,6 +18,7 @@ import {
   CAMERA_SMOOTH_TIME,
   AUTO_ROTATE_SPEED,
 } from "./config";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 const ZOOM_DISTANCE = 400;
@@ -107,10 +108,10 @@ export const GraphScene = memo(() => {
             : "";
 
         const [codeRes, featuresRes] = await Promise.all([
-          fetch(
+          apiFetch(
             `${API_BASE}/graph?edges=true&no_body=true&limit=500&limit_mode=per_type&node_types=${nodeTypesParam}${sinceParam}`,
           ),
-          fetch(
+          apiFetch(
             `${API_BASE}/gitree/all-features-graph?no_body=true&node_types=${nodeTypesParam}`,
           ),
         ]);
