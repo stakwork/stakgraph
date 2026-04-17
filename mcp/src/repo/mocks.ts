@@ -5,6 +5,7 @@ import { get_context } from "./agent.js";
 import { startTracking, endTracking } from "../busy.js";
 import { db } from "../graph/neo4j.js";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 
 export interface MockInfo {
   name: string;
@@ -48,6 +49,7 @@ export async function mocks_agent(req: Request, res: Response) {
   const sync = req.query.sync === "true" || req.query.sync === "1";
 
   const request_id = asyncReqs.startReq();
+  const sessionId = randomUUID();
   const opId = startTracking("mocks_agent");
   try {
     cloneOrUpdateRepo(repoUrl, username, pat)
@@ -82,6 +84,8 @@ export async function mocks_agent(req: Request, res: Response) {
           pat,
           systemOverride: MOCKS_SYSTEM,
           schema,
+          sessionId,
+          source: "mocks_agent",
         });
         return { mocksResult: result.content as MocksResult, minimalMocks, usage: result.usage };
       })

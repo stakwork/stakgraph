@@ -13,6 +13,8 @@ import path from "path";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
+const sessionMeta = new Map<string, { source: string; start_time: string }>();
+
 export interface Session {
   id: string;
   messages: ModelMessage[];
@@ -42,16 +44,36 @@ function getSessionFile(sessionId: string): string {
  * If an ID is provided, use it; otherwise generate a random UUID.
  * Optionally writes the system prompt as the first JSONL entry.
  */
-export function createSession(id?: string, system?: string): string {
+export function createSession(
+  id?: string,
+  system?: string,
+  source?: string,
+): string {
   const sessionId = id || randomUUID();
+  sessionMeta.set(sessionId, {
+    source: source || "unknown",
+    start_time: new Date().toISOString(),
+  });
   const filePath = getSessionFile(sessionId);
   if (system) {
     const systemMsg: ModelMessage = { role: "system", content: system };
     appendFileSync(filePath, JSON.stringify(systemMsg) + "\n");
-  } else {
-    appendFileSync(filePath, "");
   }
   return sessionId;
+}
+
+/**
+ * Append end-of-session metadata (timing, model, token usage).
+ */
+export function appendSessionEnd(
+  sessionId: string,
+  opts: { end_time: string; model?: string; token_usage?: { input: number; output: number; total: number } }
+): void {
+  const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
+  sessionMeta.delete(sessionId);
+  const filePath = getSessionFile(sessionId);
+  const meta = { role: "metadata", source: stored.source, start_time: stored.start_time, ...opts };
+  appendFileSync(filePath, JSON.stringify(meta) + "\n");
 }
 
 /**
@@ -67,7 +89,9 @@ export function loadSession(sessionId: string): ModelMessage[] {
   const content = readFileSync(filePath, "utf-8");
   const lines = content.split("\n").filter((line) => line.trim());
 
-  return lines.map((line) => JSON.parse(line) as ModelMessage);
+  return lines
+    .map((line) => JSON.parse(line) as ModelMessage)
+    .filter((msg) => (msg.role as string) !== "metadata");
 }
 
 /**

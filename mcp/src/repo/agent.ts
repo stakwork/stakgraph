@@ -29,6 +29,7 @@ import {
 import { LanguageModel } from "ai";
 import {
   createSession as createNewSession,
+  appendSessionEnd,
   loadSessionMessages,
   appendMessages,
   sessionExists,
@@ -180,6 +181,8 @@ export interface GetContextOptions {
   ggnn?: GgnnConfig;
   // Real-time step event callback (for SSE streaming)
   onStepEvent?: (content: any[]) => void;
+  // Source label persisted to the session file
+  source?: string;
 }
 
 interface PreparedAgent {
@@ -297,7 +300,7 @@ Apply the guidance from each skill throughout your response.`;
       sessionId = inputSessionId;
       previousMessages = loadSessionMessages(sessionId);
     } else {
-      sessionId = createNewSession(inputSessionId, instructions);
+      sessionId = createNewSession(inputSessionId, instructions, opts.source);
     }
   }
 
@@ -377,6 +380,15 @@ export async function get_context(
       sessionConfig
     );
     appendMessages(sessionId, newMessages);
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      token_usage: {
+        input: totalUsage.inputTokens || 0,
+        output: totalUsage.outputTokens || 0,
+        total: totalUsage.totalTokens || 0,
+      },
+    });
   }
 
   const final = extractFinalAnswer(steps);

@@ -27,20 +27,44 @@ function parseSessionFile(filePath: string): {
   answerPreview: string;
   toolSequence: string[];
   toolCallCount: number;
+  source: string;
+  model: string;
+  start_time: string;
+  duration_ms: number;
+  token_usage: { input: number; output: number; total: number };
 } {
   let userPromptPreview = "";
   let answerPreview = "";
   const toolSequence: string[] = [];
+  let source = "unknown";
+  let model = "";
+  let start_time = "";
+  let end_time = "";
+  let token_usage = { input: 0, output: 0, total: 0 };
 
   try {
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n").filter((l) => l.trim());
     for (const line of lines) {
       try {
-        const msg = JSON.parse(line) as { role?: string; content?: unknown };
+        const msg = JSON.parse(line) as { role?: string; content?: unknown; [key: string]: unknown };
         const role = msg.role ?? "";
         const msgContent = msg.content;
 
+        if (role === "metadata") {
+          if (msg.source) source = String(msg.source);
+          if (msg.start_time) start_time = String(msg.start_time);
+          if (msg.model) model = String(msg.model);
+          if (msg.end_time) end_time = String(msg.end_time);
+          if (msg.token_usage && typeof msg.token_usage === "object") {
+            const tu = msg.token_usage as any;
+            token_usage = {
+              input: tu.input || 0,
+              output: tu.output || 0,
+              total: tu.total || 0,
+            };
+          }
+        }
         if (!userPromptPreview && role === "user") {
           userPromptPreview = getText(msgContent).slice(0, 200);
         }
@@ -72,6 +96,13 @@ function parseSessionFile(filePath: string): {
     answerPreview,
     toolSequence,
     toolCallCount: toolSequence.length,
+    source,
+    model,
+    start_time,
+    duration_ms: start_time && end_time
+      ? new Date(end_time).getTime() - new Date(start_time).getTime()
+      : 0,
+    token_usage,
   };
 }
 
@@ -88,17 +119,17 @@ export async function list_sessions(_req: Request, res: Response) {
     const id = file.replace(/\.jsonl$/, "");
     const fullPath = path.join(dir, file);
     const stat = statSync(fullPath);
-    const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+    const { userPromptPreview, answerPreview, toolSequence, toolCallCount, source, model, start_time, duration_ms, token_usage } =
       parseSessionFile(fullPath);
 
     return {
       id,
-      source: "session" as const,
+      source,
       repo: "",
-      model: "",
-      timestamp: stat.mtime.toISOString(),
-      duration_ms: 0,
-      token_usage: { input: 0, output: 0, total: 0 },
+      model,
+      timestamp: start_time || stat.mtime.toISOString(),
+      duration_ms,
+      token_usage,
       tool_sequence: toolSequence,
       tool_call_count: toolCallCount,
       user_prompt_preview: userPromptPreview,
@@ -125,7 +156,7 @@ export async function get_session(req: Request, res: Response) {
   }
 
   const stat = statSync(filePath);
-  const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+  const { userPromptPreview, answerPreview, toolSequence, toolCallCount, source, model, start_time, duration_ms, token_usage } =
     parseSessionFile(filePath);
 
   const content = readFileSync(filePath, "utf-8");
@@ -143,12 +174,12 @@ export async function get_session(req: Request, res: Response) {
 
   res.json({
     id,
-    source: "session" as const,
+    source,
     repo: "",
-    model: "",
-    timestamp: stat.mtime.toISOString(),
-    duration_ms: 0,
-    token_usage: { input: 0, output: 0, total: 0 },
+    model,
+    timestamp: start_time || stat.mtime.toISOString(),
+    duration_ms,
+    token_usage,
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
     user_prompt_preview: userPromptPreview,
