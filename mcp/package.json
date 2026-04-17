@@ -33,14 +33,15 @@
     "copydir": "node docs/copydir/index.js",
     "build-app1": "tsc --noEmit && tsc --target esnext --module commonjs --outDir build/app app/app.ts",
     "build-app": "node build-app.js",
-    "build-web": "cd web && npm install && npm run build"
+    "build-web": "cd web && npm install && npm run build",
+    "build-benchmark": "cd benchmark && npm install && npm run build",
+    "build-all": "npm run build && npm run build-web && npm run build-benchmark"
   },
   "bin": {
     "cursor-tools": "./build/index.js",
     "gitree": "./build/gitree/cli.js"
   },
   "dependencies": {
-    "p-queue": "^6.6.2",
     "@ai-sdk/anthropic": "3.0.37",
     "@ai-sdk/mcp": "1.0.18",
     "@anthropic-ai/sdk": "0.37.0",
@@ -70,6 +71,7 @@
     "nanoid": "5.1.6",
     "neo4j-driver": "5.28.3",
     "node-cache": "5.1.2",
+    "p-queue": "^6.6.2",
     "simple-git": "3.30.0",
     "uuid": "11.1.0",
     "zod": "4.3.6"

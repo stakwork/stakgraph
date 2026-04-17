@@ -33,6 +33,7 @@ import { cacheMiddleware, cacheInfo, clearCache } from "./graph/cache.js";
 import { evalRoutes } from "./eval/route.js";
 import { test_routes } from "./eval/tests.js";
 import * as rr from "./repo/index.js";
+import { benchmarkRouter } from "./benchmark/router.js";
 import * as importance from "./importance/index.js";
 import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
@@ -135,6 +136,14 @@ app.get("/busy", (req: Request, res: Response) => {
 app.get("/gitsee/events/:owner/:repo", r.gitseeEvents);
 app.get("/server-config", r.server_config);
 
+// Sessions API routes are public (pre-auth)
+app.use("/api", benchmarkRouter());
+const benchmarkDist = path.join(__dirname, "../benchmark/dist");
+app.use("/sessions", express.static(benchmarkDist));
+app.get(["/sessions", "/sessions/", "/sessions/*"], (_req: Request, res: Response) => {
+  res.sendFile(path.join(benchmarkDist, "index.html"));
+});
+
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);
 app.get("/nodes", r.get_nodes);
@@ -172,6 +181,7 @@ app.post("/gitsee", r.gitsee);
 app.get("/progress", r.get_script_progress);
 app.get("/leaks", rr.get_leaks);
 app.post("/repo/agent", rr.repo_agent);
+
 app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/repo/agent/session", rr.get_agent_session);
 app.get("/repo/agent/validate_session", rr.validate_agent_session);

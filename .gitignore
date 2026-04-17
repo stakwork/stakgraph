@@ -59,6 +59,8 @@ package-lock.json
 .neo4j
 .neo4j-*
 
+data/benchmark/
+
 # Tests
 standalone/tests/maps/map-*.html
 standalone.log
