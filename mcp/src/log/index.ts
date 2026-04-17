@@ -3,6 +3,7 @@ import { log_agent_context } from "./agent.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import { ModelName } from "../aieo/src/index.js";
+import { randomUUID } from "crypto";
 import { SessionConfig } from "../repo/session.js";
 import { listCloudwatchLogStreams } from "./cloudwatch.js";
 import { createRunLogsDir, cleanupRunLogsDir } from "./utils.js";
@@ -30,7 +31,7 @@ export async function logs_agent(req: Request, res: Response) {
   const apiKey = req.body.apiKey as string | undefined;
   const logs = req.body.logs as boolean | undefined;
   const swarmName = req.body.swarmName as string | undefined;
-  const sessionId = req.body.sessionId as string | undefined;
+  const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const stakworkApiKey = req.body.stakworkApiKey as string | undefined;
   const stakworkRuns = req.body.stakworkRuns as StakworkRunSummary[] | undefined;
@@ -106,7 +107,7 @@ export async function logs_agent(req: Request, res: Response) {
   const opId = startTracking("logs_agent");
 
   try {
-    log_agent_context(finalPrompt, { modelName, apiKey, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress })
+    log_agent_context(finalPrompt, { modelName, apiKey, logs, sessionId, sessionConfig, stakworkApiKey, stakworkRuns, logsDir, printAgentProgress, source: "logs_agent" })
       .then((result) => {
         asyncReqs.finishReq(request_id, {
           success: true,
@@ -130,7 +131,7 @@ export async function logs_agent(req: Request, res: Response) {
         }
       });
 
-    res.json({ request_id, status: "pending" });
+    res.json({ request_id, status: "pending", sessionId });
   } catch (error: any) {
     console.error("Error in logs_agent", error);
     asyncReqs.failReq(request_id, error);

@@ -309,7 +309,7 @@ function Section({
           <span style={labelStyle}>{title}</span>
           {badge !== undefined && <span style={muted}>{badge}</span>}
         </div>
-        <span style={{ fontSize: "11px", color: "#52525b" }}>\u25be</span>
+        <span style={{ fontSize: "11px", color: "#52525b" }}>{"\u25be"}</span>
       </summary>
       <div>{children}</div>
     </details>
@@ -533,7 +533,7 @@ export function Sessions() {
         </button>
 
         {loading ? (
-          <p style={muted}>Loading\u2026</p>
+          <p style={muted}>{"Loading\u2026"}</p>
         ) : runs.length === 0 ? (
           <p style={muted}>No sessions yet.</p>
         ) : (
@@ -548,7 +548,7 @@ export function Sessions() {
               }}
             >
               <input
-                placeholder="Filter by repo\u2026"
+                placeholder={"Filter by repo\u2026"}
                 value={repoSearch}
                 onChange={(e) => setRepoSearch(e.target.value)}
                 list="repo-options"
@@ -615,7 +615,7 @@ export function Sessions() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {new Date(r.timestamp).toLocaleString()} \u00b7{" "}
+                      {new Date(r.timestamp).toLocaleString()} {"\u00b7"}{" "}
                       {r.tool_call_count} calls
                     </p>
                     {r.user_prompt_preview && (
@@ -668,8 +668,8 @@ export function Sessions() {
                 {selected.repo}
               </p>
               <p style={{ ...muted, marginTop: "3px" }}>
-                {new Date(selected.timestamp).toLocaleString()} \u00b7{" "}
-                {selected.model} \u00b7 {selected.token_usage.total} tokens
+                {new Date(selected.timestamp).toLocaleString()} {"\u00b7"}{" "}
+                {selected.model} {"\u00b7"} {selected.token_usage.total} tokens
               </p>
               {(diagnostics.counts.oversized > 0 ||
                 diagnostics.counts.fallback > 0 ||
@@ -781,7 +781,11 @@ export function Sessions() {
               <Section title="User prompt" badge="input" defaultOpen={false}>
                 <pre style={preStyle}>{prompt}</pre>
               </Section>
-              <Section title="Answer preview" badge="output" defaultOpen={false}>
+              <Section
+                title="Answer preview"
+                badge="output"
+                defaultOpen={false}
+              >
                 <pre style={preStyle}>{answer}</pre>
               </Section>
             </div>
@@ -799,7 +803,13 @@ export function Sessions() {
                 badge={String(parsed.calls.length)}
                 defaultOpen={true}
               >
-                <div style={{ maxHeight: "28rem", overflowY: "auto", minHeight: 0 }}>
+                <div
+                  style={{
+                    maxHeight: "28rem",
+                    overflowY: "auto",
+                    minHeight: 0,
+                  }}
+                >
                   {parsed.calls.length === 0 ? (
                     <p style={{ ...muted, padding: "10px 14px" }}>
                       No tool calls in trace.
@@ -823,7 +833,13 @@ export function Sessions() {
                 badge={String(parsed.results.length)}
                 defaultOpen={true}
               >
-                <div style={{ maxHeight: "28rem", overflowY: "auto", minHeight: 0 }}>
+                <div
+                  style={{
+                    maxHeight: "28rem",
+                    overflowY: "auto",
+                    minHeight: 0,
+                  }}
+                >
                   {parsed.results.length === 0 ? (
                     <p style={{ ...muted, padding: "10px 14px" }}>
                       No tool results in trace.

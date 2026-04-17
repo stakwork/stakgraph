@@ -11,6 +11,7 @@ import {
   createSession as createNewSession,
   loadSessionMessages,
   appendMessages,
+  appendSessionEnd,
   sessionExists,
   SessionConfig,
 } from "../repo/session.js";
@@ -48,6 +49,7 @@ export interface LogAgentOptions {
   stakworkRuns?: StakworkRunSummary[];
   logsDir: string;
   printAgentProgress?: boolean;
+  source?: string;
 }
 
 export async function log_agent_context(
@@ -88,7 +90,7 @@ export async function log_agent_context(
       sessionId = opts.sessionId;
       previousMessages = loadSessionMessages(sessionId);
     } else {
-      sessionId = createNewSession(opts.sessionId, SYSTEM);
+      sessionId = createNewSession(opts.sessionId, SYSTEM, opts.source);
     }
   }
 
@@ -113,6 +115,16 @@ export async function log_agent_context(
       opts.sessionConfig
     );
     appendMessages(sessionId, newMessages);
+    const { modelId } = getModelDetails(opts.modelName, opts.apiKey);
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      token_usage: {
+        input: totalUsage.inputTokens || 0,
+        output: totalUsage.outputTokens || 0,
+        total: totalUsage.totalTokens || 0,
+      },
+    });
   }
 
   const final = extractFinalAnswer(steps);
