@@ -31,6 +31,7 @@ import { Feature } from "./types.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
+import { randomUUID } from "crypto";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -1027,8 +1028,11 @@ export async function gitree_create_feature(req: Request, res: Response) {
         console.log(`===> Repository cloned/updated at ${repoDir}`);
 
         // Call get_context to generate documentation
+        const sessionId = randomUUID();
         const contextResult = await get_context(prompt, repoDir, {
           pat,
+          sessionId,
+          source: "gitree_create_feature",
         });
         const documentation = contextResult.content;
 
