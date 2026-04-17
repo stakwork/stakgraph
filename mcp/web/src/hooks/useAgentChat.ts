@@ -4,6 +4,7 @@ import { useIngestion } from "@/stores/useIngestion";
 import { useGraphData } from "@/stores/useGraphData";
 import { useSettings } from "@/stores/useSettings";
 import { resolveRepoUrl } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -89,7 +90,7 @@ export function useAgentChat() {
         if (model) body.model = model;
         if (apiKey) body.apiKey = apiKey;
 
-        const res = await fetch(`${API_BASE}/repo/agent`, {
+        const res = await apiFetch(`${API_BASE}/repo/agent`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

@@ -9,6 +9,7 @@ import type {
 } from "@/graph/types";
 
 import { LAYER_ORDER } from "@/graph/config";
+import { apiFetch } from "@/lib/api";
 
 // Re-export for consumers that import from here
 export { LAYER_ORDER };
@@ -328,7 +329,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   hydrateNodeNeighborhood: async (refId: string) => {
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`,
       );
       if (!res.ok) return;
@@ -357,7 +358,7 @@ export const useGraphData = create<GraphDataState>((set) => ({
 
   fetchNodeBody: async (refId: string) => {
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`,
       );
       if (!res.ok) return;

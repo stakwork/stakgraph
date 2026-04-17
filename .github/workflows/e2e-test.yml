@@ -104,7 +104,7 @@ jobs:
         working-directory: ./mcp
         run: |
           tail -n +1 -f server.log &
-          npx wait-on http://localhost:3355 -t 120000
+          npx wait-on http://localhost:3355/health -t 120000
 
       - name: Upload data
         run: |

@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { useIngestion } from "@/stores/useIngestion";
 import { useSettings } from "@/stores/useSettings";
 import { ImportanceLens } from "@/components/ImportanceLens";
+import { apiFetch } from "@/lib/api";
 import type { Doc, FeaturesResponse, FeatureSummary } from "@/types";
 
 // GET /docs returns: [ { "repo-name": { documentation: "..." } }, ... ]
@@ -106,7 +107,7 @@ export function Sidebar({
         if (settingsModel) body.model = settingsModel;
         if (settingsApiKey) body.apiKey = settingsApiKey;
 
-        const res = await fetch(`${API_BASE}/learn_docs`, {
+        const res = await apiFetch(`${API_BASE}/learn_docs`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -245,7 +246,7 @@ export function Sidebar({
       qp.set("token", githubToken);
       const url = `${API_BASE}/gitree/process?${qp.toString()}`;
 
-      fetch(url, { method: "POST" })
+      apiFetch(url, { method: "POST" })
         .then(async (r) => {
           console.log("[concepts] POST /gitree/process response:", r.status, r.ok);
           if (!r.ok) {

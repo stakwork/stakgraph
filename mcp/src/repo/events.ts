@@ -33,6 +33,35 @@ export function verifyEventsToken(token: string): EventsTokenPayload {
   return jwt.verify(token, getSecret()) as EventsTokenPayload;
 }
 
+// ── Generic API access tokens (for browser SPA) ──────────────────────────
+
+export interface ApiTokenPayload {
+  scope: "api";
+  iat?: number;
+  exp?: number;
+}
+
+/**
+ * Sign a short-lived JWT granting general API access.
+ * Injected into the SPA's index.html after Basic Auth / x-api-token passes.
+ */
+export function signApiToken(expiresIn: jwt.SignOptions["expiresIn"] = "1h"): string {
+  return jwt.sign({ scope: "api" } as ApiTokenPayload, getSecret(), {
+    expiresIn,
+  });
+}
+
+/**
+ * Verify an API access JWT. Throws if invalid/expired.
+ */
+export function verifyApiToken(token: string): ApiTokenPayload {
+  const payload = jwt.verify(token, getSecret()) as ApiTokenPayload;
+  if (payload.scope !== "api") {
+    throw new Error("Invalid token scope");
+  }
+  return payload;
+}
+
 // ── Per-request event bus ────────────────────────────────────────────────
 
 export type StepEventType = "tool_call" | "text" | "done" | "error";

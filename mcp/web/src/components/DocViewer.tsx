@@ -3,6 +3,7 @@ import { X, Eye, Loader2 } from "lucide-react";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { ProvenanceTree } from "@/components/ProvenanceTree";
 import type { ProvenanceData } from "@/components/ProvenanceTree";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -39,7 +40,7 @@ export function DocViewer({ activeItem, onClose }: DocViewerProps) {
     async function fetchProvenance() {
       setProvenanceLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/gitree/provenance`, {
+        const res = await apiFetch(`${API_BASE}/gitree/provenance`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ conceptIds: [conceptId] }),

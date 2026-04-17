@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useGraphData, getColorForType } from "@/stores/useGraphData";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -61,7 +62,7 @@ export function ImportanceLens() {
     if (data[tag]) return;
     setLoading((p) => ({ ...p, [tag]: true }));
     try {
-      const res = await fetch(`${API_BASE}/importance/tag?tag=${tag}&limit=200`);
+      const res = await apiFetch(`${API_BASE}/importance/tag?tag=${tag}&limit=200`);
       if (res.ok) {
         const json: TagResponse = await res.json();
         setData((p) => ({ ...p, [tag]: json.nodes }));
@@ -93,7 +94,7 @@ export function ImportanceLens() {
       let node = nodesNormalized.get(refId);
       if (!node) {
         try {
-          const res = await fetch(
+          const res = await apiFetch(
             `${API_BASE}/subgraph?ref_id=${encodeURIComponent(refId)}`,
           );
           if (res.ok) {

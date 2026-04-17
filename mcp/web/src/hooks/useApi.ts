@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { apiFetch } from "@/lib/api";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "";
 
@@ -15,7 +16,7 @@ export function useApi<T>(path: string) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`${API_BASE}${path}`);
+        const res = await apiFetch(`${API_BASE}${path}`);
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const json = await res.json();
         if (!cancelled) setData(json);

@@ -105,7 +105,7 @@ jobs:
       - name: Wait for Node server
         run: |
           tail -n +1 -f ./mcp/server.log &
-          npx wait-on http://localhost:3355 -t 120000
+          npx wait-on http://localhost:3355/health -t 120000
 
       - name: Ingest repo data with standalone server
         run: |
