@@ -824,10 +824,18 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
       }
     }
 
-    // TODO: Implement depth filtering
-    // The depth parameter would require traversing the graph relationships
-    // from Features -> Files -> Contained nodes, limiting the traversal depth
-    // This would need to be implemented in the GraphStorage layer
+    // Depth filtering: 1=features only, 2=+files+MODIFIES, 3(default)=+containedNodes+CONTAINS
+    if (depth === 1) {
+      data.files = [];
+      data.containedNodes = [];
+      data.modifiesEdges = [];
+      data.containsEdges = [];
+      allNodes = [...data.features];
+    } else if (depth === 2) {
+      data.containedNodes = [];
+      data.containsEdges = [];
+      allNodes = [...data.features, ...data.files];
+    }
 
     // Apply global limit if specified (after per-type limits)
     if (limit) {
