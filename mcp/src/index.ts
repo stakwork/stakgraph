@@ -57,6 +57,11 @@ function swagger(_: Request, res: Response) {
 const app = express();
 app.use(cors());
 
+// Public health check — no auth required. Used by CI (wait-on) and uptime probes.
+app.get("/health", (_req: Request, res: Response) => {
+  res.json({ ok: true });
+});
+
 // SSE routes must come before body parsing middleware to preserve raw streams
 graph_sse_routes(app);
 
