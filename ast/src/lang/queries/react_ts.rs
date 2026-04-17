@@ -213,6 +213,14 @@ impl Stack for TypeScriptReact {
                             )
                         ) @{VARIABLE_DECLARATION}
                     
+                )
+                (program
+                    (expression_statement
+                        (assignment_expression
+                            left: (member_expression) @{VARIABLE_NAME}
+                            right: [{types}(call_expression)]+ @{VARIABLE_VALUE}
+                        )
+                    ) @{VARIABLE_DECLARATION}
                 )"#,
         ))
     }

@@ -674,7 +674,7 @@ impl Repo {
 
         link_tests(graph)?;
 
-        graph.prune_orphan_nested_functions();
+        graph.prune_orphan_functions(&self.lang);
 
         self.lang
             .lang()

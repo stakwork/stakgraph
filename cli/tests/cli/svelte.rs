@@ -12,7 +12,7 @@ fn smoke_test_person_svelte_exact_counts() {
     assert_eq!(count_prefix(&out.stdout, "Import:"), 1);
     assert_eq!(count_prefix(&out.stdout, "Class:"), 1);
     assert_eq!(count_prefix(&out.stdout, "Datamodel:"), 3);
-    assert_eq!(count_prefix(&out.stdout, "Function:"), 4);
+    assert_eq!(count_prefix(&out.stdout, "Function:"), 0);
 }
 
 #[test]
@@ -35,7 +35,7 @@ fn parse_stats_svelte_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             2"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             14"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             10"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                4"), "stdout: {}", out.stdout);
 }
 

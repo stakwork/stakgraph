@@ -59,8 +59,8 @@ pub async fn test_svelte_generic<G: Graph + Sync>() -> Result<()> {
     nodes_count += functions.len();
     assert_eq!(
         functions.len(),
-        13,
-        "Expected 13 functions extracted from script blocks"
+        5,
+        "Expected 5 functions extracted from script blocks"
     );
 
     let unit_tests = graph.find_nodes_by_type(NodeType::UnitTest);
@@ -101,7 +101,7 @@ pub async fn test_svelte_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 78, "Expected 78 contains edges");
+    assert_eq!(contains, 70, "Expected 70 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
