@@ -36,9 +36,17 @@ import {
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
 
-const DEFAULT_SYSTEM = `You are a code exploration assistant with access to a **code knowledge graph**. Use graph tools whenever possible — they are faster, more precise, and understand code relationships.
+function DEFAULT_SYSTEM(toolsConfig?: ToolsConfig) {
 
-### Graph Tools (use first)
+  const learn_concepts = toolsConfig?.learn_concept || toolsConfig?.list_concepts || toolsConfig?.learn_concepts
+
+  return `You are a code exploration assistant with access to a **code knowledge graph**. Use graph tools whenever possible — they are faster, more precise, and understand code relationships.
+
+Try to match the tone of the user. If the user is asking a technical question, research deeper, and respond with technical details. If the user's question is high-level (non-specific), then do not answer with too much detail!
+
+${learn_concepts ? "Use list_concepts and learn_concept tools first, to learn about high-level features in the codebase." : ""}
+
+### Graph Tools
 - \`repo_overview\` — Use only for broad orientation or architecture questions; it returns a compact, de-noised repo tree.
 - \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["DataModel"]\`, \`["UnitTest"]\`).
 - \`stakgraph_map\` — Trace relationships from a node. Use \`direction: "up"\` for callers, \`"down"\` for callees.
@@ -98,6 +106,8 @@ The prompt prepended to your instructions tells you which repos are graph-backed
 CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
 
 Write your answer directly as text and end with [END_OF_ANSWER].`;
+
+};
 
 const ASK_CLARIFYING_QUESTIONS_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
 
@@ -229,7 +239,7 @@ async function prepareAgent(
     console.log(`[MCP] Merged ${Object.keys(mcpTools).length} MCP tools`);
   }
 
-  let instructions = systemOverride || DEFAULT_SYSTEM;
+  let instructions = systemOverride || DEFAULT_SYSTEM(toolsConfig);
 
   // Append sub-agent instructions if any sub-agents are registered
   if (subAgents && subAgents.length > 0) {
