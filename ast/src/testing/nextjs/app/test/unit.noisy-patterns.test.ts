@@ -2,6 +2,10 @@
 import { createApiHandlers, deepConfig, apiService } from "../../lib/noisy-patterns";
 
 describe("unit: noisy patterns - category 3 (returned from function)", () => {
+  function helperInsideDescribe(data: any) {
+    return createApiHandlers().onSuccess(data);
+  }
+
   it("calls onSuccess handler", () => {
     const handlers = createApiHandlers();
     const result = handlers.onSuccess({ amount: 42 });

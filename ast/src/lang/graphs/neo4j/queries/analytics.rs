@@ -172,3 +172,13 @@ pub fn prune_orphan_nested_functions_query() -> String {
      DETACH DELETE f"
         .to_string()
 }
+
+pub fn prune_functions_in_test_ranges_query() -> String {
+    "MATCH (t)
+     WHERE t:UnitTest OR t:IntegrationTest OR t:E2eTest
+     WITH collect({file: t.file, start: t.start, end: t.end}) AS tests
+     MATCH (f:Function)
+     WHERE ANY(t IN tests WHERE f.file = t.file AND f.start >= t.start AND f.end <= t.end)
+     DETACH DELETE f"
+        .to_string()
+}

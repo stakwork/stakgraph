@@ -447,37 +447,6 @@ pub fn find_group_function_query(group_function_name: &str) -> (String, BoltMap)
     (query.to_string(), params)
 }
 
-pub fn delete_functions_by_keys_query(nodes: &[NodeData]) -> Option<(String, BoltMap)> {
-    if nodes.is_empty() {
-        return None;
-    }
-    let mut params = BoltMap::new();
-    let keys_list: Vec<BoltType> = nodes
-        .iter()
-        .map(|n| {
-            let mut m = BoltMap::new();
-            boltmap_insert_str(&mut m, "name", &n.name);
-            boltmap_insert_str(&mut m, "file", &n.file);
-            boltmap_insert_int(&mut m, "start", n.start as i64);
-            BoltType::Map(m)
-        })
-        .collect();
-    boltmap_insert_list(&mut params, "keys", keys_list);
-    let query = "UNWIND $keys AS k
-     MATCH (f:Function {name: k.name, file: k.file, start: k.start})
-     DETACH DELETE f"
-        .to_string();
-    Some((query, params))
-}
-
-pub fn find_orphan_functions_query() -> (String, BoltMap) {
-    let query = "MATCH (f:Function)
-     WHERE NOT ()-[:HANDLER|CALLS|RENDERS]->(f)
-       AND NOT (f)-[:CALLS|HANDLER]->()
-     RETURN f AS n";
-    (query.to_string(), BoltMap::new())
-}
-
 pub fn find_top_level_functions_query() -> (String, BoltMap) {
     let query = format!(
         "MATCH (n:Function)

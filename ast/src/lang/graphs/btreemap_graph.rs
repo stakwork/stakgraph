@@ -750,7 +750,7 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    fn prune_orphan_functions(&mut self, lang: &Lang) {
+    fn prune_orphan_functions(&mut self, _lang: &Lang) {
         let func_prefix = format!("{:?}-", NodeType::Function).to_lowercase();
         let func_keys: HashSet<String> = self
             .nodes
@@ -789,22 +789,40 @@ impl Graph for BTreeMapGraph {
             .map(|(src, _)| src.clone())
             .collect();
 
-        // Source B: Functions in dedicated test files (per-language convention).
-        let in_test_file_keys: HashSet<String> = self
+        // Source B: Functions spatially inside test node ranges (unconditional pruning).
+        let test_ranges: Vec<(String, usize, usize)> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                matches!(
+                    n.node_type,
+                    NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest
+                )
+            })
+            .map(|(_, n)| (n.node_data.file.clone(), n.node_data.start, n.node_data.end))
+            .collect();
+
+        let in_test_range_keys: HashSet<String> = self
             .nodes
             .range(func_prefix.clone()..)
             .take_while(|(k, _)| k.starts_with(&func_prefix))
-            .filter(|(_, n)| lang.lang().is_test_file(&n.node_data.file))
+            .filter(|(_, n)| {
+                test_ranges.iter().any(|(tf, ts, te)| {
+                    n.node_data.file == *tf
+                        && n.node_data.start >= *ts
+                        && n.node_data.end <= *te
+                })
+            })
             .map(|(k, _)| k.clone())
             .collect();
 
-        // Union of both candidate sets.
-        let candidates: HashSet<String> = nested_in_func_keys
-            .union(&in_test_file_keys)
+        // Source A candidates go through edge checking; Source B is unconditional.
+        let source_a_candidates: HashSet<String> = nested_in_func_keys
+            .difference(&in_test_range_keys)
             .cloned()
             .collect();
 
-        if candidates.is_empty() {
+        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() {
             return;
         }
 
@@ -812,7 +830,7 @@ impl Graph for BTreeMapGraph {
             .edges
             .iter()
             .filter(|(_, dst, et)| {
-                candidates.contains(dst)
+                source_a_candidates.contains(dst)
                     && matches!(et, EdgeType::Handler | EdgeType::Calls | EdgeType::Renders)
             })
             .map(|(_, dst, _)| dst.clone())
@@ -822,15 +840,20 @@ impl Graph for BTreeMapGraph {
             .edges
             .iter()
             .filter(|(src, _, et)| {
-                candidates.contains(src)
+                source_a_candidates.contains(src)
                     && matches!(et, EdgeType::Calls | EdgeType::Handler)
             })
             .map(|(src, _, _)| src.clone())
             .collect();
 
-        let to_remove: Vec<String> = candidates
+        let source_a_remove: Vec<String> = source_a_candidates
             .into_iter()
             .filter(|k| !has_incoming.contains(k) && !has_outgoing_calls.contains(k))
+            .collect();
+
+        let to_remove: HashSet<String> = source_a_remove
+            .into_iter()
+            .chain(in_test_range_keys.into_iter())
             .collect();
 
         for key in &to_remove {

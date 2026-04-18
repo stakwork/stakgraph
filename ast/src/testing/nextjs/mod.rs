@@ -180,8 +180,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            154,
-            "Expected 154 Function nodes without LSP, found {}",
+            168,
+            "Expected 168 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -349,6 +349,14 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         );
     }
 
+    let helper_inside_describe = functions
+        .iter()
+        .find(|f| f.name == "helperInsideDescribe" && f.file.ends_with("unit.noisy-patterns.test.ts"));
+    assert!(
+        helper_inside_describe.is_none(),
+        "helperInsideDescribe should be pruned — it lives inside a describe() test range"
+    );
+
     let pages = graph.find_nodes_by_type(NodeType::Page);
     nodes += pages.len();
     assert_eq!(pages.len(), 10, "Expected 10 Page nodes");
@@ -466,18 +474,18 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     edges += calls;
 
     if use_lsp {
-        assert_eq!(calls, 316, "Expected 316 Calls edges");
+        assert_eq!(calls, 317, "Expected 317 Calls edges");
     } else {
         #[cfg(not(feature = "neo4j"))]
-        assert_eq!(calls, 243, "Expected 243 Calls edges");
+        assert_eq!(calls, 244, "Expected 244 Calls edges");
     }
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
     if use_lsp {
-        assert_eq!(contains, 551, "Expected 551 Contains edges with LSP");
+        assert_eq!(contains, 565, "Expected 565 Contains edges with LSP");
     } else {
-        assert_eq!(contains, 533, "Expected 533 Contains edges");
+        assert_eq!(contains, 547, "Expected 547 Contains edges");
     }
 
 
@@ -689,14 +697,14 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     if use_lsp {
-        assert_eq!(nested_in, 68, "Expected 68 NestedIn edges with LSP");
+        assert_eq!(nested_in, 73, "Expected 73 NestedIn edges with LSP");
     } else {
-        assert_eq!(nested_in, 54, "Expected 54 NestedIn edges");
+        assert_eq!(nested_in, 59, "Expected 59 NestedIn edges");
     }
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);
     edges += operand;
-    assert_eq!(operand, 31, "Expected 31 Operand edges");
+    assert_eq!(operand, 34, "Expected 34 Operand edges");
 
     let renders = graph.count_edges_of_type(EdgeType::Renders);
     edges += renders;

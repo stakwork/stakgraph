@@ -741,7 +741,7 @@ impl Graph for ArrayGraph {
         }
     }
 
-    fn prune_orphan_functions(&mut self, lang: &Lang) {
+    fn prune_orphan_functions(&mut self, _lang: &Lang) {
         let func_keys: HashSet<String> = self
             .nodes
             .iter()
@@ -779,24 +779,38 @@ impl Graph for ArrayGraph {
             .map(|(src, _)| src.clone())
             .collect();
 
-        // Source B: Functions in dedicated test files (per-language convention).
-        let in_test_file_keys: HashSet<String> = self
+        let test_ranges: Vec<(&str, usize, usize)> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n.node_type,
+                    NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest
+                )
+            })
+            .map(|n| (n.node_data.file.as_str(), n.node_data.start, n.node_data.end))
+            .collect();
+
+        let in_test_range_keys: HashSet<String> = self
             .nodes
             .iter()
             .filter(|n| {
                 n.node_type == NodeType::Function
-                    && lang.lang().is_test_file(&n.node_data.file)
+                    && test_ranges.iter().any(|(tf, ts, te)| {
+                        n.node_data.file.as_str() == *tf
+                            && n.node_data.start >= *ts
+                            && n.node_data.end <= *te
+                    })
             })
             .map(create_node_key)
             .collect();
 
-        // Union of both candidate sets.
-        let candidates: HashSet<String> = nested_in_func_keys
-            .union(&in_test_file_keys)
+        let source_a_candidates: HashSet<String> = nested_in_func_keys
+            .difference(&in_test_range_keys)
             .cloned()
             .collect();
 
-        if candidates.is_empty() {
+        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() {
             return;
         }
 
@@ -805,7 +819,7 @@ impl Graph for ArrayGraph {
             .iter()
             .filter(|e| {
                 let dst_key = create_node_key_from_ref(&e.target);
-                candidates.contains(&dst_key)
+                source_a_candidates.contains(&dst_key)
                     && matches!(e.edge, EdgeType::Handler | EdgeType::Calls | EdgeType::Renders)
             })
             .map(|e| create_node_key_from_ref(&e.target))
@@ -816,15 +830,20 @@ impl Graph for ArrayGraph {
             .iter()
             .filter(|e| {
                 let src_key = create_node_key_from_ref(&e.source);
-                candidates.contains(&src_key)
+                source_a_candidates.contains(&src_key)
                     && matches!(e.edge, EdgeType::Calls | EdgeType::Handler)
             })
             .map(|e| create_node_key_from_ref(&e.source))
             .collect();
 
-        let to_remove: HashSet<String> = candidates
+        let source_a_remove: HashSet<String> = source_a_candidates
             .into_iter()
             .filter(|k| !has_incoming.contains(k) && !has_outgoing_calls.contains(k))
+            .collect();
+
+        let to_remove: HashSet<String> = source_a_remove
+            .union(&in_test_range_keys)
+            .cloned()
             .collect();
 
         self.nodes

@@ -683,7 +683,7 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn prune_orphan_functions_async(&self, lang: &Lang) -> Result<()> {
+    pub async fn prune_orphan_functions_async(&self, _lang: &Lang) -> Result<()> {
         let Ok(connection) = self.ensure_connected().await else {
             return Ok(());
         };
@@ -692,18 +692,10 @@ impl Neo4jGraph {
         txn_manager.add_query((prune_orphan_nested_functions_query(), BoltMap::new()));
         txn_manager.execute().await?;
 
-        // Source B: orphan functions in test files
-        let (q, p) = find_orphan_functions_query();
-        let orphan_fns = execute_node_query(&connection, q, p).await;
-        let to_delete: Vec<NodeData> = orphan_fns
-            .into_iter()
-            .filter(|n| lang.lang().is_test_file(&n.file))
-            .collect();
-        if let Some(q) = delete_functions_by_keys_query(&to_delete) {
-            let mut txn_manager2 = TransactionManager::new(&connection);
-            txn_manager2.add_query(q);
-            txn_manager2.execute().await?;
-        }
+        let mut txn_manager2 = TransactionManager::new(&connection);
+        txn_manager2.add_query((prune_functions_in_test_ranges_query(), BoltMap::new()));
+        txn_manager2.execute().await?;
+
         Ok(())
     }
 

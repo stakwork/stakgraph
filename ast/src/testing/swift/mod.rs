@@ -159,7 +159,7 @@ end
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
     nodes_count += functions.len();
-    assert_eq!(functions.len(), 26, "Expected 26 functions");
+    assert_eq!(functions.len(), 28, "Expected 28 functions");
 
     let mut sorted_functions = functions.clone();
     sorted_functions.sort_by(|a, b| a.name.cmp(&b.name));
@@ -297,7 +297,7 @@ end
 
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains;
-    assert_eq!(contains, 100, "Expected 100 contains edges");
+    assert_eq!(contains, 102, "Expected 102 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -305,7 +305,7 @@ end
 
     let operands = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operands;
-    assert_eq!(operands, 22, "Expected 22 operand edges");
+    assert_eq!(operands, 24, "Expected 24 operand edges");
 
     let handlers = graph.count_edges_of_type(EdgeType::Handler);
     edges_count += handlers;
@@ -313,7 +313,7 @@ end
 
     let operand_edges =
         graph.find_nodes_with_edge_type(NodeType::Class, NodeType::Function, EdgeType::Operand);
-    assert_eq!(operand_edges.len(), 22, "Expected 22 operand edges");
+    assert_eq!(operand_edges.len(), 24, "Expected 24 operand edges");
 
     let api_operand = operand_edges
         .iter()
@@ -482,7 +482,7 @@ pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
 
     let contains_edges = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges;
-    assert_eq!(contains_edges, 59, "Expected 59 contains edges");
+    assert_eq!(contains_edges, 60, "Expected 60 contains edges");
 
     let of_edges = graph.count_edges_of_type(EdgeType::Of);
     edges_count += of_edges;
@@ -490,7 +490,7 @@ pub async fn test_swift_modern_generic<G: Graph + Sync>() -> Result<()> {
 
     let operand_edges = graph.count_edges_of_type(EdgeType::Operand);
     edges_count += operand_edges;
-    assert_eq!(operand_edges, 6, "Expected 6 operand edges");
+    assert_eq!(operand_edges, 7, "Expected 7 operand edges");
 
     let call_edges = graph.count_edges_of_type(EdgeType::Calls);
     edges_count += call_edges;

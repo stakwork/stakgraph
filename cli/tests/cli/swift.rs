@@ -40,7 +40,7 @@ fn parse_stats_swift_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Class                26"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             35"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             38"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("UnitTest             6"), "stdout: {}", out.stdout);
 }
 
