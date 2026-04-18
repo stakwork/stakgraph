@@ -1,6 +1,5 @@
 use crate::lang::{
-    helpers::{boltmap_insert_int, boltmap_insert_str},
-    EdgeType, NodeData, NodeType,
+    EdgeType, NodeData, NodeType, helpers::{boltmap_insert_int, boltmap_insert_str}, queries::skips::summary
 };
 use neo4rs::BoltMap;
 
@@ -165,12 +164,22 @@ pub fn find_endpoint_query(name: &str, file: &str, verb: &str) -> (String, BoltM
 }
 
 pub fn prune_orphan_nested_functions_query() -> String {
-    "MATCH (f:Function)-[:NESTED_IN]->(parent:Function)
-     WHERE NOT (parent)-[:NESTED_IN]->(:Var)
+    "MATCH (f:Function)-[:NESTED_IN]->(parent)
+     WHERE (parent:Function OR parent:Var)
+       AND NOT (parent:Function AND (parent)-[:NESTED_IN]->(:Var))
        AND NOT ()-[:HANDLER|CALLS|RENDERS]->(f)
        AND NOT (f)-[:CALLS|HANDLER]->()
      DETACH DELETE f"
         .to_string()
+}
+
+pub fn prune_var_nested_in_test_files_query() -> String {
+    let regex = summary::test_file_patterns_regex();
+    format!(
+        "MATCH (f:Function)-[:NESTED_IN]->(v:Var)
+         WHERE f.file =~ '.*({regex})$'
+         DETACH DELETE f"
+    )
 }
 
 pub fn prune_functions_in_test_ranges_query() -> String {

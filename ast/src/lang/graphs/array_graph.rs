@@ -1,6 +1,7 @@
 use super::{graph::Graph, *};
 use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
+use crate::lang::queries::skips::summary;
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
@@ -805,12 +806,30 @@ impl Graph for ArrayGraph {
             .map(create_node_key)
             .collect();
 
+
+        let var_nested_in_test_file_keys: HashSet<String> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.node_type == NodeType::Function
+                    && parents_in_var.contains(&create_node_key(n))
+                    && summary::is_test_file(&n.node_data.file)
+            })
+            .map(create_node_key)
+            .collect();
+
         let source_a_candidates: HashSet<String> = nested_in_func_keys
+            .union(&parents_in_var)
+            .cloned()
+            .collect::<HashSet<_>>()
             .difference(&in_test_range_keys)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&var_nested_in_test_file_keys)
             .cloned()
             .collect();
 
-        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() {
+        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() && var_nested_in_test_file_keys.is_empty() {
             return;
         }
 
@@ -843,6 +862,9 @@ impl Graph for ArrayGraph {
 
         let to_remove: HashSet<String> = source_a_remove
             .union(&in_test_range_keys)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .union(&var_nested_in_test_file_keys)
             .cloned()
             .collect();
 

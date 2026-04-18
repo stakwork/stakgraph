@@ -1,4 +1,5 @@
 use super::{graph::Graph, *};
+use crate::lang::queries::skips::summary;
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
@@ -816,13 +817,30 @@ impl Graph for BTreeMapGraph {
             .map(|(k, _)| k.clone())
             .collect();
 
-        // Source A candidates go through edge checking; Source B is unconditional.
-        let source_a_candidates: HashSet<String> = nested_in_func_keys
-            .difference(&in_test_range_keys)
+        let var_nested_in_test_file_keys: HashSet<String> = parents_in_var
+            .iter()
+            .filter(|key| {
+                self.nodes
+                    .get(*key)
+                    .map(|n| summary::is_test_file(&n.node_data.file))
+                    .unwrap_or(false)
+            })
             .cloned()
             .collect();
 
-        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() {
+        // Source A candidates go through edge checking; Source B and C are unconditional.
+        let source_a_candidates: HashSet<String> = nested_in_func_keys
+            .union(&parents_in_var)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&in_test_range_keys)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&var_nested_in_test_file_keys)
+            .cloned()
+            .collect();
+
+        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() && var_nested_in_test_file_keys.is_empty() {
             return;
         }
 
@@ -854,6 +872,7 @@ impl Graph for BTreeMapGraph {
         let to_remove: HashSet<String> = source_a_remove
             .into_iter()
             .chain(in_test_range_keys.into_iter())
+            .chain(var_nested_in_test_file_keys.into_iter())
             .collect();
 
         for key in &to_remove {

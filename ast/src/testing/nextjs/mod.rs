@@ -180,8 +180,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     } else {
         assert_eq!(
             functions.len(),
-            168,
-            "Expected 168 Function nodes without LSP, found {}",
+            156,
+            "Expected 156 Function nodes without LSP, found {}",
             functions.len()
         );
     }
@@ -209,32 +209,32 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     #[cfg(not(feature = "neo4j"))]
     let edge_vec = graph.get_edges_vec();
 
+    if use_lsp {
+        assert!(
+            noisy_pattern_functions.iter().all(|f| f.name != "json"),
+            "Cat1: 'json' is pruned with LSP (response.json() resolves correctly, no false-positive edge)"
+        );
+    } else {
+        assert!(
+            noisy_pattern_functions.iter().any(|f| f.name == "json"),
+            "Cat1: 'json' survives without LSP (false-positive Calls from response.json())"
+        );
+    }
     assert!(
-        noisy_pattern_functions.iter().any(|f| f.name == "json"),
-        "Cat1: 'json' survives (NestedIn → Var, Var-protected)"
-    );
-    assert!(
-        noisy_pattern_functions.iter().any(|f| f.name == "text"),
-        "Cat1: 'text' survives (NestedIn → Var, Var-protected)"
-    );
-    #[cfg(not(feature = "neo4j"))]
-    assert!(
-        edge_vec.iter().any(|e| {
-            e.edge == EdgeType::NestedIn
-                && e.source.node_data.name == "json"
-                && e.source.node_data.file.ends_with(noisy_pattern_file)
-        }),
-        "Cat1: 'json' has NestedIn edge to global.fetch Var"
+        noisy_pattern_functions.iter().all(|f| f.name != "text"),
+        "Cat1: 'text' is pruned (NestedIn → Var, no edges)"
     );
     #[cfg(not(feature = "neo4j"))]
-    assert!(
-        edge_vec.iter().any(|e| {
-            e.edge == EdgeType::NestedIn
-                && e.source.node_data.name == "text"
-                && e.source.node_data.file.ends_with(noisy_pattern_file)
-        }),
-        "Cat1: 'text' has NestedIn edge to global.fetch Var"
-    );
+    if !use_lsp {
+        assert!(
+            edge_vec.iter().any(|e| {
+                e.edge == EdgeType::NestedIn
+                    && e.source.node_data.name == "json"
+                    && e.source.node_data.file.ends_with(noisy_pattern_file)
+            }),
+            "Cat1: 'json' has NestedIn edge to global.fetch Var"
+        );
+    }
 
     assert!(
         noisy_pattern_functions.iter().any(|f| f.name == "fetchUser"),
@@ -483,9 +483,9 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let contains = graph.count_edges_of_type(EdgeType::Contains);
     edges += contains;
     if use_lsp {
-        assert_eq!(contains, 565, "Expected 565 Contains edges with LSP");
+        assert_eq!(contains, 550, "Expected 550 Contains edges with LSP");
     } else {
-        assert_eq!(contains, 547, "Expected 547 Contains edges");
+        assert_eq!(contains, 534, "Expected 534 Contains edges");
     }
 
 
@@ -697,9 +697,9 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let nested_in = graph.count_edges_of_type(EdgeType::NestedIn);
     edges += nested_in;
     if use_lsp {
-        assert_eq!(nested_in, 73, "Expected 73 NestedIn edges with LSP");
+        assert_eq!(nested_in, 59, "Expected 59 NestedIn edges with LSP");
     } else {
-        assert_eq!(nested_in, 59, "Expected 59 NestedIn edges");
+        assert_eq!(nested_in, 47, "Expected 47 NestedIn edges");
     }
 
     let operand = graph.count_edges_of_type(EdgeType::Operand);

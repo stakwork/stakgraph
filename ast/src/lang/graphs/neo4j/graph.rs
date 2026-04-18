@@ -696,6 +696,10 @@ impl Neo4jGraph {
         txn_manager2.add_query((prune_functions_in_test_ranges_query(), BoltMap::new()));
         txn_manager2.execute().await?;
 
+        let mut txn_manager3 = TransactionManager::new(&connection);
+        txn_manager3.add_query((prune_var_nested_in_test_files_query(), BoltMap::new()));
+        txn_manager3.execute().await?;
+
         Ok(())
     }
 
