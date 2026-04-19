@@ -1,6 +1,7 @@
 use super::{graph::Graph, *};
 use crate::lang::asg::TestRecord;
 use crate::lang::linker::normalize_backend_path;
+use crate::lang::queries::skips::summary;
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
@@ -741,7 +742,7 @@ impl Graph for ArrayGraph {
         }
     }
 
-    fn prune_orphan_nested_functions(&mut self) {
+    fn prune_orphan_functions(&mut self, _lang: &Lang) {
         let func_keys: HashSet<String> = self
             .nodes
             .iter()
@@ -749,8 +750,7 @@ impl Graph for ArrayGraph {
             .map(create_node_key)
             .collect();
 
-        // Only consider NestedIn edges where BOTH src AND dst are Function nodes.
-        // This excludes Var-nested functions (Zustand store methods etc.).
+        // Source A: Functions with NestedIn→Function (excludes Var-nested functions).
         let nested_in_func_edges: Vec<(String, String)> = self
             .edges
             .iter()
@@ -762,12 +762,6 @@ impl Graph for ArrayGraph {
             .map(|e| (create_node_key_from_ref(&e.source), create_node_key_from_ref(&e.target)))
             .collect();
 
-        if nested_in_func_edges.is_empty() {
-            return;
-        }
-
-        // Parent functions that are themselves nested inside a Var (e.g. Zustand factory arrows).
-        // Children of these should not be pruned.
         let var_prefix = format!("{:?}-", NodeType::Var).to_lowercase();
         let parents_in_var: HashSet<String> = self
             .edges
@@ -786,7 +780,56 @@ impl Graph for ArrayGraph {
             .map(|(src, _)| src.clone())
             .collect();
 
-        if nested_in_func_keys.is_empty() {
+        let test_ranges: Vec<(&str, usize, usize)> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                matches!(
+                    n.node_type,
+                    NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest
+                )
+            })
+            .map(|n| (n.node_data.file.as_str(), n.node_data.start, n.node_data.end))
+            .collect();
+
+        let in_test_range_keys: HashSet<String> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.node_type == NodeType::Function
+                    && test_ranges.iter().any(|(tf, ts, te)| {
+                        n.node_data.file.as_str() == *tf
+                            && n.node_data.start >= *ts
+                            && n.node_data.end <= *te
+                    })
+            })
+            .map(create_node_key)
+            .collect();
+
+
+        let var_nested_in_test_file_keys: HashSet<String> = self
+            .nodes
+            .iter()
+            .filter(|n| {
+                n.node_type == NodeType::Function
+                    && parents_in_var.contains(&create_node_key(n))
+                    && summary::is_test_file(&n.node_data.file)
+            })
+            .map(create_node_key)
+            .collect();
+
+        let source_a_candidates: HashSet<String> = nested_in_func_keys
+            .union(&parents_in_var)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&in_test_range_keys)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&var_nested_in_test_file_keys)
+            .cloned()
+            .collect();
+
+        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() && var_nested_in_test_file_keys.is_empty() {
             return;
         }
 
@@ -795,7 +838,7 @@ impl Graph for ArrayGraph {
             .iter()
             .filter(|e| {
                 let dst_key = create_node_key_from_ref(&e.target);
-                nested_in_func_keys.contains(&dst_key)
+                source_a_candidates.contains(&dst_key)
                     && matches!(e.edge, EdgeType::Handler | EdgeType::Calls | EdgeType::Renders)
             })
             .map(|e| create_node_key_from_ref(&e.target))
@@ -806,15 +849,23 @@ impl Graph for ArrayGraph {
             .iter()
             .filter(|e| {
                 let src_key = create_node_key_from_ref(&e.source);
-                nested_in_func_keys.contains(&src_key)
+                source_a_candidates.contains(&src_key)
                     && matches!(e.edge, EdgeType::Calls | EdgeType::Handler)
             })
             .map(|e| create_node_key_from_ref(&e.source))
             .collect();
 
-        let to_remove: HashSet<String> = nested_in_func_keys
+        let source_a_remove: HashSet<String> = source_a_candidates
             .into_iter()
             .filter(|k| !has_incoming.contains(k) && !has_outgoing_calls.contains(k))
+            .collect();
+
+        let to_remove: HashSet<String> = source_a_remove
+            .union(&in_test_range_keys)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .union(&var_nested_in_test_file_keys)
+            .cloned()
             .collect();
 
         self.nodes
