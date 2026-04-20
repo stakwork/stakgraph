@@ -10,6 +10,7 @@ import { Octokit } from "@octokit/rest";
 import {
   getApiKeyForProvider,
   getModel,
+  getModelDetails,
   Provider,
 } from "../aieo/src/provider.js";
 import { generateObject, jsonSchema } from "ai";
@@ -32,6 +33,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
 import { randomUUID } from "crypto";
+import { createSession, appendSessionEnd } from "../repo/session.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -155,6 +157,9 @@ export async function gitree_process(req: Request, res: Response) {
 
     (async () => {
       try {
+        const sessionId = randomUUID();
+        createSession(sessionId, undefined, "gitree_process");
+        const { modelId } = getModelDetails();
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -238,11 +243,22 @@ export async function gitree_process(req: Request, res: Response) {
         // Get the new cumulative total
         const cumulativeUsage = await storage.getTotalUsage(repoId);
 
+        appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          token_usage: {
+            input: totalUsage.inputTokens,
+            output: totalUsage.outputTokens,
+            total: totalUsage.totalTokens,
+          },
+        });
+
         const result: any = {
           status: "success",
           message: messageParts.join(", "),
           usage: totalUsage,
           cumulativeUsage: cumulativeUsage,
+          sessionId,
         };
 
         if (linkResult) {
@@ -621,6 +637,9 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
     // Summarize in background
     (async () => {
       try {
+        const sessionId = randomUUID();
+        createSession(sessionId, undefined, "gitree_summarize_feature");
+        const { modelId } = getModelDetails();
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -628,10 +647,21 @@ export async function gitree_summarize_feature(req: Request, res: Response) {
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
         const usage = await summarizer.summarizeFeature(featureId);
 
+        appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          token_usage: {
+            input: usage.inputTokens,
+            output: usage.outputTokens,
+            total: usage.totalTokens,
+          },
+        });
+
         asyncReqs.finishReq(request_id, {
           status: "success",
           message: `Summarized feature ${featureId}`,
           usage,
+          sessionId,
         });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
@@ -658,6 +688,9 @@ export async function gitree_summarize_all(req: Request, res: Response) {
     // Summarize in background
     (async () => {
       try {
+        const sessionId = randomUUID();
+        createSession(sessionId, undefined, "gitree_summarize_all");
+        const { modelId } = getModelDetails();
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -665,10 +698,21 @@ export async function gitree_summarize_all(req: Request, res: Response) {
         const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
         const usage = await summarizer.summarizeAllFeatures();
 
+        appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          token_usage: {
+            input: usage.inputTokens,
+            output: usage.outputTokens,
+            total: usage.totalTokens,
+          },
+        });
+
         asyncReqs.finishReq(request_id, {
           status: "success",
           message: "Summarized all features",
           usage,
+          sessionId,
         });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
@@ -948,11 +992,24 @@ Please analyze the user's prompt and the list of available features. Return an a
       required: ["relevantFeatureIds"],
       additionalProperties: false,
     };
+    const sessionId = randomUUID();
+    createSession(sessionId, undefined, "gitree_relevant_features");
+    const { modelId } = getModelDetails();
 
     const result = await generateObject({
       model,
       prompt: aiPrompt,
       schema: jsonSchema(schema),
+    });
+
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      token_usage: {
+        input: result.usage?.inputTokens || 0,
+        output: result.usage?.outputTokens || 0,
+        total: result.usage?.totalTokens || 0,
+      },
     });
 
     const relevantFeatureIds =
@@ -984,6 +1041,7 @@ Please analyze the user's prompt and the list of available features. Return an a
       featureIds: relevantFeatureIds,
       conceptIds: relevantFeatureIds,
       refIds: relevantFeatures.map((f) => f.feature.ref_id),
+      sessionId,
     });
   } catch (error: any) {
     console.error("Error getting relevant features:", error);
@@ -1116,6 +1174,9 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
 
     (async () => {
       try {
+        const sessionId = randomUUID();
+        createSession(sessionId, undefined, "gitree_analyze_clues");
+        const { modelId } = getModelDetails();
         // Clone or update repository
         const repoPath = await cloneOrUpdateRepo(
           `https://github.com/${owner}/${repo}`,
@@ -1154,7 +1215,17 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
           result = { usage, message: "Analyzed all features" + (autoLink ? " and linked clues" : "") };
         }
 
-        asyncReqs.finishReq(request_id, result);
+        appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          token_usage: {
+            input: result.usage.inputTokens,
+            output: result.usage.outputTokens,
+            total: result.usage.totalTokens,
+          },
+        });
+
+        asyncReqs.finishReq(request_id, { ...result, sessionId });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
       }
@@ -1197,6 +1268,9 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 
     (async () => {
       try {
+        const sessionId = randomUUID();
+        createSession(sessionId, undefined, "gitree_analyze_changes");
+        const { modelId } = getModelDetails();
         // Clone or update repository
         const repoPath = await cloneOrUpdateRepo(
           `https://github.com/${owner}/${repo}`,
@@ -1269,15 +1343,22 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
             return false;
           });
         }
+        modelId;
 
         if (changesToProcess.length === 0) {
           console.log("✅ No new changes to analyze!");
+          appendSessionEnd(sessionId, {
+            end_time: new Date().toISOString(),
+            model: modelId,
+            token_usage: { input: 0, output: 0, total: 0 },
+          });
           asyncReqs.finishReq(request_id, {
             status: "success",
             message: "No new changes to analyze",
             totalClues: 0,
             totalChanges: 0,
             usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            sessionId,
           });
           return;
         }
@@ -1374,9 +1455,19 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
           }
         }
 
-        console.log("🎉 Analysis complete!");
+        console.log(`\n Analysis complete!`);
         console.log(`   Total clues created: ${totalClues}`);
         console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
+
+        appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          token_usage: {
+            input: totalUsage.inputTokens,
+            output: totalUsage.outputTokens,
+            total: totalUsage.totalTokens,
+          },
+        });
 
         asyncReqs.finishReq(request_id, {
           status: "success",
@@ -1384,6 +1475,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
           totalClues,
           totalChanges: changesToProcess.length,
           usage: totalUsage,
+          sessionId,
         });
       } catch (error) {
         console.error("Error in gitree_analyze_changes:", error);
