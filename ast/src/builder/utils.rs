@@ -5,11 +5,65 @@ use crate::utils::create_node_key;
 use lsp::{strip_tmp, Language};
 use rayon::prelude::*;
 use shared::error::Result;
-use std::collections::{HashSet, BTreeMap};
+use std::any::type_name;
+use std::collections::{HashMap, HashSet, BTreeMap};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 pub const MAX_FILE_SIZE: u64 = 500_000;
+
+pub struct StageRunner<'a> {
+    repo: &'a Repo,
+    pub name: &'static str,
+    step: u32,
+    pub start: Instant,
+    use_parallel: bool,
+}
+
+impl<'a> StageRunner<'a> {
+    pub fn new<G: Graph>(repo: &'a Repo, name: &'static str, step: u32) -> Self {
+        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && repo.lsp_tx.is_none();
+        repo.send_status_update(name, step);
+        Self {
+            repo,
+            name,
+            step,
+            start: Instant::now(),
+            use_parallel,
+        }
+    }
+
+    pub fn run_parallel<T, F, P>(
+        &self,
+        filez: &[(String, String)],
+        filter_fn: P,
+        process_fn: F,
+    ) -> Result<Vec<T>>
+    where
+        F: Fn(&(String, String)) -> Result<T> + Sync,
+        P: Fn(&(String, String)) -> bool + Sync,
+        T: Send,
+    {
+        process_files(filez, self.use_parallel, self.name, filter_fn, process_fn)
+    }
+
+    pub fn progress(&self, i: usize, total: usize, cadence: usize) {
+        if total > 0 && (i % cadence == 0 || i == total) {
+            self.repo.send_status_progress(i, total, self.step);
+        }
+    }
+
+    pub fn finish(self, stats: HashMap<String, usize>) {
+        let summary = stats
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join(";");
+        self.repo.send_status_with_stats(stats);
+        self.repo.send_status_progress(100, 100, self.step);
+        log_stage_timing(self.name, self.start, Some(&summary));
+    }
+}
 
 pub fn process_files<T, F, P>(
     filez: &[(String, String)],

@@ -8,7 +8,8 @@ use crate::lang::{
 use crate::repo::Repo;
 use shared::error::Result;
 use std::time::Instant;
-use std::{any::type_name, collections::{HashMap, HashSet}, path::Path};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use tracing::{debug, info};
 
 impl Repo {
@@ -17,16 +18,12 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_libraries", 3);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_libraries", 3);
         let mut i = 0;
         let mut lib_count = 0;
 
-        let pkg_files_res: Vec<_> = process_files(
+        let pkg_files_res: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_libraries",
             |(f, _)| self.lang.kind.is_package_file(f),
             |(pkg_file, code)| {
                 let mut file_data = self.prepare_file_data(pkg_file, code);
@@ -40,9 +37,7 @@ impl Repo {
         let total_pkg_files = pkg_files_res.len();
         for (pkg_file, file_data, parent_type, parent_file, libs) in pkg_files_res {
             i += 1;
-            if i % 2 == 0 || i == total_pkg_files {
-                self.send_status_progress(i, total_pkg_files, 5);
-            }
+            runner.progress(i, total_pkg_files, 2);
 
             info!("=> get_packages in... {:?}", pkg_file);
 
@@ -57,11 +52,8 @@ impl Repo {
 
         let mut stats = HashMap::new();
         stats.insert("libraries".to_string(), lib_count);
-        self.send_status_with_stats(stats);
-
-        self.send_status_progress(100, 100, 3);
         info!("=> got {} libs", lib_count);
-        log_stage_timing("process_libraries", stage_start, Some(&format!("libs={}", lib_count)));
+        runner.finish(stats);
         Ok(())
     }
     pub fn process_import_sections<G: Graph + Sync>(
@@ -69,9 +61,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_imports", 4);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_imports", 4);
         let mut i = 0;
         let mut import_count = 0;
         let total = filez.len();
@@ -79,10 +69,8 @@ impl Repo {
         info!("=> get_imports...");
 
         let lang = &self.lang;
-        let results: Vec<_> = process_files(
+        let results: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_imports",
             |_| true,
             |(filename, code)| {
                 let imports = lang.get_imports::<G>(code, filename)?;
@@ -93,9 +81,7 @@ impl Repo {
 
         for ((filename, _), import_section) in filez.iter().zip(results.into_iter()) {
             i += 1;
-            if i % 20 == 0 || i == total {
-                self.send_status_progress(i, total, 6);
-            }
+            runner.progress(i, total, 20);
             import_count += import_section.len();
 
             for import in import_section {
@@ -114,10 +100,8 @@ impl Repo {
 
         let mut stats = HashMap::new();
         stats.insert("imports".to_string(), import_count);
-        self.send_status_with_stats(stats);
-        self.send_status_progress(100, 100, 4);
         info!("=> got {} import sections", import_count);
-        log_stage_timing("process_import_sections", stage_start, Some(&format!("imports={}", import_count)));
+        runner.finish(stats);
         Ok(())
     }
     pub fn process_variables<G: Graph + Sync>(
@@ -125,9 +109,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_variables", 5);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_variables", 5);
         let mut i = 0;
         let mut var_count = 0;
         let total = filez.len();
@@ -135,10 +117,8 @@ impl Repo {
         info!("=> get_vars...");
 
         let lang = &self.lang;
-        let results: Vec<_> = process_files(
+        let results: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_variables",
             |_| true,
             |(filename, code)| {
                 let variables = lang.get_vars::<G>(code, filename)?;
@@ -148,9 +128,7 @@ impl Repo {
 
         for variables in results {
             i += 1;
-            if i % 20 == 0 || i == total {
-                self.send_status_progress(i, total, 7);
-            }
+            runner.progress(i, total, 20);
 
             var_count += variables.len();
             for variable in variables {
@@ -165,11 +143,8 @@ impl Repo {
 
         let mut stats = HashMap::new();
         stats.insert("variables".to_string(), var_count);
-        self.send_status_with_stats(stats);
-        self.send_status_progress(100, 100, 5);
-
         info!("=> got {} all vars", var_count);
-        log_stage_timing("process_variables", stage_start, Some(&format!("vars={}", var_count)));
+        runner.finish(stats);
         Ok(())
     }
     pub fn process_instances_and_traits<G: Graph + Sync>(
@@ -177,9 +152,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_instances_and_traits", 7);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_instances_and_traits", 7);
         let mut cnt = 0;
         let mut instance_count = 0;
         let mut trait_count = 0;
@@ -188,10 +161,8 @@ impl Repo {
         info!("=> get_instances...");
 
         let lang = &self.lang;
-        let results: Vec<_> = process_files(
+        let results: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_instances_and_traits",
             |(filename, _)| lang.kind.is_source_file(filename),
             |(filename, code)| {
                 let q_inst = lang.lang().instance_definition_query();
@@ -205,9 +176,7 @@ impl Repo {
 
         for (instances, traits) in results {
             cnt += 1;
-            if cnt % 20 == 0 || cnt == total {
-                self.send_status_progress(cnt, total, 9);
-            }
+            runner.progress(cnt, total, 20);
 
             instance_count += instances.len();
             graph.add_instances(&instances);
@@ -221,11 +190,8 @@ impl Repo {
         let mut stats = HashMap::new();
         stats.insert("instances".to_string(), instance_count);
         stats.insert("traits".to_string(), trait_count);
-        self.send_status_with_stats(stats);
-        self.send_status_progress(100, 100, 7);
-
         info!("=> got {} traits", trait_count);
-        log_stage_timing("process_instances_and_traits", stage_start, Some(&format!("instances={};traits={}", instance_count, trait_count)));
+        runner.finish(stats);
         Ok(())
     }
     pub fn process_data_models<G: Graph + Sync>(
@@ -233,24 +199,19 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_data_models", 8);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_data_models", 8);
         let mut i = 0;
         let mut datamodel_count = 0;
         let total = filez.len();
 
-        info!("=> get_structs...");
         info!("=> get_structs...");
 
         let lang = &self.lang;
         let graph_ref = &*graph;
 
         let no_nested = self.no_nested;
-        let results: Vec<_> = process_files(
+        let results: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_data_models",
             |(filename, _)| {
                 if !lang.kind.is_source_file(filename) {
                     return false;
@@ -278,9 +239,7 @@ impl Repo {
 
         for (structs, edges) in results {
             i += 1;
-            if i % 20 == 0 || i == total {
-                self.send_status_progress(i, total, 10);
-            }
+            runner.progress(i, total, 20);
 
             let structs = if self.no_nested {
                 let containers: Vec<NodeData> = graph
@@ -312,11 +271,8 @@ impl Repo {
 
         let mut stats = HashMap::new();
         stats.insert("data_models".to_string(), datamodel_count);
-        self.send_status_with_stats(stats);
-        self.send_status_progress(100, 100, 8);
-
         info!("=> got {} data models", datamodel_count);
-        log_stage_timing("process_data_models", stage_start, Some(&format!("data_models={}", datamodel_count)));
+        runner.finish(stats);
         Ok(())
     }
     pub async fn process_functions_and_tests<G: Graph + Sync>(
@@ -324,9 +280,7 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_functions_and_tests", 9);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_functions_and_tests", 9);
         let mut i = 0;
         let mut function_count = 0;
         let mut test_count = 0;
@@ -338,19 +292,15 @@ impl Repo {
         let lsp_tx = &self.lsp_tx;
         let graph_ref = &*graph;
 
-        let results: Vec<_> = process_files(
+        let results: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_functions_and_tests",
             |(filename, _)| lang.kind.is_source_file(filename),
             |(filename, code)| lang.get_functions_and_tests(code, filename, graph_ref, lsp_tx),
         )?;
 
         for (funcs, tests) in results {
             i += 1;
-            if i % 10 == 0 || i == total {
-                self.send_status_progress(i, total, 11);
-            }
+            runner.progress(i, total, 10);
 
             let funcs = if self.no_nested {
                 let nested: HashSet<(String, usize, usize)> = funcs
@@ -382,11 +332,8 @@ impl Repo {
         let mut stats = HashMap::new();
         stats.insert("functions".to_string(), function_count);
         stats.insert("tests".to_string(), test_count);
-        self.send_status_with_stats(stats);
-        self.send_status_progress(100, 100, 9);
-
         info!("=> got {} functions and tests", function_count + test_count);
-        log_stage_timing("process_functions_and_tests", stage_start, Some(&format!("functions={};tests={}", function_count, test_count)));
+        runner.finish(stats);
         Ok(())
     }
     pub fn process_pages_and_templates<G: Graph>(
@@ -517,19 +464,15 @@ impl Repo {
         graph: &mut G,
         filez: &[(String, String)],
     ) -> Result<()> {
-        let stage_start = Instant::now();
-        self.send_status_update("process_endpoints", 11);
-        let use_parallel = !type_name::<G>().contains("Neo4jGraph") && self.lsp_tx.is_none();
+        let runner = StageRunner::new::<G>(self, "process_endpoints", 11);
         info!("=> get_endpoints...");
 
         let lang = &self.lang;
         let lsp_tx = &self.lsp_tx;
         let graph_ref = &*graph;
 
-        let results: Vec<_> = process_files(
+        let results: Vec<_> = runner.run_parallel(
             filez,
-            use_parallel,
-            "process_endpoints",
             |_| true,
             |(filename, code)| {
                 let mut endpoints = Vec::new();
@@ -575,7 +518,7 @@ impl Repo {
             info!("=> get_data_models_within...");
             graph.get_data_models_within(&self.lang);
         }
-        log_stage_timing("process_endpoints", stage_start, None);
+        log_stage_timing("process_endpoints", runner.start, None);
         Ok(())
     }
     pub async fn finalize_graph<G: Graph>(

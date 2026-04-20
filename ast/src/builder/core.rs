@@ -458,7 +458,6 @@ impl Repo {
         let mut impl_relationships = Vec::new();
 
         info!("=> get_classes...");
-        info!("=> get_classes...");
 
         let lang = &self.lang;
 
