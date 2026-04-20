@@ -70,10 +70,9 @@ export function createSession(
  */
 export function appendSessionEnd(
   sessionId: string,
-  opts: { end_time: string; model?: string; token_usage?: { input: number; output: number; total: number } }
+  opts: { end_time: string; model?: string; duration_ms?: number; token_usage?: { input: number; output: number; total: number } }
 ): void {
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
-  sessionMeta.delete(sessionId);
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
   db?.upsert_agent_session({
@@ -82,7 +81,7 @@ export function appendSessionEnd(
     model: opts.model || "",
     start_time,
     end_time,
-    duration_ms: end_time - start_time,
+    duration_ms: opts.duration_ms ?? (end_time - start_time),
     input_tokens: opts.token_usage?.input || 0,
     output_tokens: opts.token_usage?.output || 0,
     total_tokens: opts.token_usage?.total || 0,

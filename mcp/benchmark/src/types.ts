@@ -1,6 +1,6 @@
 export interface ProductionRun {
   id: string;
-  source: "session";
+  source: string;
   repo: string;
   model: string;
   timestamp: string;

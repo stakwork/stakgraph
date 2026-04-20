@@ -61,6 +61,9 @@ import {
 } from "../gitsee/agent/index.js";
 import { GitSeeHandler } from "gitsee/server";
 import * as asyncReqs from "./reqs.js";
+import { randomUUID } from "crypto";
+import { createSession, appendSessionEnd } from "../repo/session.js";
+import { getModelDetails } from "../aieo/src/provider.js";
 import {
   prepareGitHubRepoNode,
   prepareContributorNode,
@@ -152,8 +155,16 @@ export async function explore(req: Request, res: Response) {
     res.status(400).json({ error: "Missing prompt" });
     return;
   }
+  const sessionId = randomUUID();
+  createSession(sessionId, undefined, "explore");
   try {
-    const result = await get_context_explore(prompt);
+    const result = await get_context_explore(prompt, false, false, undefined, undefined, sessionId);
+    const { modelId } = getModelDetails();
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      token_usage: { input: result.usage.inputTokens, output: result.usage.outputTokens, total: result.usage.totalTokens },
+    });
     res.json({ result: result.final, usage: result.usage });
   } catch (error) {
     console.error("Explore Error:", error);
@@ -283,14 +294,23 @@ export async function ask(req: Request, res: Response) {
       req.query.forceCache === "true" || req.query.forceCache === "1";
   }
 
+  const sessionId = randomUUID();
+  createSession(sessionId, undefined, "ask");
   try {
     const answer = await ask_prompt(
       question,
       model || provider,
       similarityThreshold,
       cacheControl,
-      apiKey
+      apiKey,
+      sessionId
     );
+    const { modelId } = getModelDetails(model || provider);
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      token_usage: { input: answer.usage.inputTokens, output: answer.usage.outputTokens, total: answer.usage.totalTokens },
+    });
     res.json(answer);
   } catch (error) {
     console.error("Ask Error:", error);

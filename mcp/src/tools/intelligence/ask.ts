@@ -182,7 +182,8 @@ export async function ask_question(
   provider?: string,
   originalPrompt?: string,
   persona?: Persona,
-  apiKey?: string
+  apiKey?: string,
+  sessionId?: string
 ): Promise<Answer> {
   const filtered = await filter_by_relevance_from_cache(
     question,
@@ -210,7 +211,7 @@ export async function ask_question(
     reexplore = true;
   }
   console.log(">> NEW question:", question);
-  const ctx = await get_context_explore(q, reexplore, false, provider, apiKey);
+  const ctx = await get_context_explore(q, reexplore, false, provider, apiKey, sessionId);
   const answer = ctx.final;
   const embeddings = await vectorizeQuery(question);
   const created = await db.create_hint(question, answer, embeddings, "PM");

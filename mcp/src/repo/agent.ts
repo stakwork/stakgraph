@@ -193,6 +193,8 @@ export interface GetContextOptions {
   onStepEvent?: (content: any[]) => void;
   // Source label persisted to the session file
   source?: string;
+  // Write messages to the session but don't load prior messages as context
+  isolatedContext?: boolean;
 }
 
 interface PreparedAgent {
@@ -204,7 +206,6 @@ interface PreparedAgent {
   previousMessages: ModelMessage[];
   userMessage: ModelMessage;
   sessionId: string | undefined;
-  sessionOwned: boolean;
   sessionConfig: SessionConfig | undefined;
   startTime: number;
 }
@@ -304,16 +305,14 @@ Apply the guidance from each skill throughout your response.`;
 
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
-  let sessionOwned = false;
   let previousMessages: ModelMessage[] = [];
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
-      previousMessages = loadSessionMessages(sessionId);
+      previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source);
-      sessionOwned = true;
     }
   }
 
@@ -352,7 +351,7 @@ Apply the guidance from each skill throughout your response.`;
     content: userMessageContent as string,
   };
 
-  return { agent, model, modelId, provider, finalPrompt, previousMessages, userMessage, sessionId, sessionOwned, sessionConfig, startTime };
+  return { agent, model, modelId, provider, finalPrompt, previousMessages, userMessage, sessionId, sessionConfig, startTime };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
@@ -377,12 +376,15 @@ export async function get_context(
   opts: GetContextOptions
 ): Promise<ContextResult> {
   const prepared = await prepareAgent(prompt, repoPath, opts);
-  const { agent, model, modelId, provider, finalPrompt, sessionId, sessionOwned, sessionConfig, userMessage, startTime } = prepared;
+  const { agent, model, modelId, provider, finalPrompt, sessionId, sessionConfig, userMessage, startTime } = prepared;
   const { schema } = opts;
 
   const result = await agent.generate(buildCallParams(prepared));
 
   const { steps, totalUsage } = result;
+
+  const endTime = Date.now();
+  const duration = endTime - startTime;
 
   // Save to session if enabled
   if (sessionId) {
@@ -392,17 +394,16 @@ export async function get_context(
       sessionConfig
     );
     appendMessages(sessionId, newMessages);
-    if (sessionOwned) {
-      appendSessionEnd(sessionId, {
-        end_time: new Date().toISOString(),
-        model: modelId,
-        token_usage: {
-          input: totalUsage.inputTokens || 0,
-          output: totalUsage.outputTokens || 0,
-          total: totalUsage.totalTokens || 0,
-        },
-      });
-    }
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      duration_ms: duration,
+      token_usage: {
+        input: totalUsage.inputTokens || 0,
+        output: totalUsage.outputTokens || 0,
+        total: totalUsage.totalTokens || 0,
+      },
+    });
   }
 
   const final = extractFinalAnswer(steps);
@@ -417,9 +418,6 @@ export async function get_context(
       model
     );
   }
-
-  const endTime = Date.now();
-  const duration = endTime - startTime;
   console.log(
     `⏱️ get_context completed in ${duration}ms (${(duration / 1000).toFixed(
       2

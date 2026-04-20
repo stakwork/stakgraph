@@ -311,12 +311,15 @@ RETURN h
 export const UPSERT_AGENT_SESSION_QUERY = `
 MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
-  n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source
-SET n.source = $source, n.model = $model,
-    n.start_time = toInteger($start_time), n.end_time = toInteger($end_time),
-    n.duration_ms = toInteger($duration_ms),
-    n.input_tokens = toInteger($input_tokens), n.output_tokens = toInteger($output_tokens),
-    n.total_tokens = toInteger($total_tokens)
+  n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
+  n.source = $source, n.model = $model,
+  n.start_time = toInteger($start_time),
+  n.input_tokens = 0, n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0
+SET n.end_time = toInteger($end_time),
+    n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
+    n.output_tokens = coalesce(n.output_tokens, 0) + toInteger($output_tokens),
+    n.total_tokens = coalesce(n.total_tokens, 0) + toInteger($total_tokens),
+    n.duration_ms = coalesce(n.duration_ms, 0) + toInteger($duration_ms)
 RETURN n
 `;
 

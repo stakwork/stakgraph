@@ -136,6 +136,7 @@ export class ClueAnalyzer {
       schema,
       systemOverride: this.buildSystemPrompt(),
       sessionId: this.sessionId,
+      isolatedContext: true,
     });
 
     const decision = result.content as any;
@@ -388,6 +389,7 @@ export class ClueAnalyzer {
       schema,
       systemOverride: this.buildChangeSystemPrompt(),
       sessionId: this.sessionId,
+      isolatedContext: true,
     });
 
     const decision = result.content as any;

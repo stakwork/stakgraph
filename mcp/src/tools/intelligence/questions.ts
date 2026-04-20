@@ -5,7 +5,8 @@ export async function decomposeAndAsk(
   prompt: string,
   threshold: number,
   provider?: string,
-  apiKey?: string
+  apiKey?: string,
+  sessionId?: string
 ): Promise<Answer[]> {
   const answers: Answer[] = [];
   const dq = await decomposeQuestion(prompt, provider, apiKey);
@@ -14,7 +15,7 @@ export async function decomposeAndAsk(
     console.log(" ======== Q:", q);
   });
   for (const q of dq.questions) {
-    const answer = await ask_question(q, threshold, provider, prompt, undefined, apiKey);
+    const answer = await ask_question(q, threshold, provider, prompt, undefined, apiKey, sessionId);
     if (answers.find((a) => a.hint_ref_id === answer.hint_ref_id)) {
       continue;
     }

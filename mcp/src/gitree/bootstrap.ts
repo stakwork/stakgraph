@@ -210,6 +210,7 @@ export async function bootstrapFeatures(
     schema: BOOTSTRAP_SCHEMA,
     systemOverride: `You are a software architect analyzing a codebase to identify its core features. Use the provided tools to explore the repository structure, read key files (README, entry points, route definitions, main modules), and identify the distinct user-facing capabilities this software provides. Be thorough but focused — read enough to understand what each feature does, but don't try to read every file.`,
     sessionId,
+    isolatedContext: true,
   });
 
   const decision = result.content as {
@@ -305,6 +306,7 @@ Target length: 30-80 lines of markdown.`,
     {
       systemOverride: `You are a software architect generating concise feature documentation. Use the provided tools to explore the repository and find the key files, components, and patterns related to this feature. Be thorough but focused.`,
       sessionId,
+      isolatedContext: true,
     }
   );
 

@@ -33,7 +33,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
 import { randomUUID } from "crypto";
-import { createSession, appendSessionEnd } from "../repo/session.js";
+import { createSession } from "../repo/session.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -242,16 +242,6 @@ export async function gitree_process(req: Request, res: Response) {
         
         // Get the new cumulative total
         const cumulativeUsage = await storage.getTotalUsage(repoId);
-
-        appendSessionEnd(sessionId, {
-          end_time: new Date().toISOString(),
-          model: modelId,
-          token_usage: {
-            input: totalUsage.inputTokens,
-            output: totalUsage.outputTokens,
-            total: totalUsage.totalTokens,
-          },
-        });
 
         const result: any = {
           status: "success",
