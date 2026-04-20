@@ -184,6 +184,7 @@ app.get(["/sessions", "/sessions/", "/sessions/*"], (_req: Request, res: Respons
 
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);
+app.get("/repos", r.get_repos);
 app.get("/nodes", r.get_nodes);
 app.post("/nodes", r.post_nodes);
 app.get("/edges", r.get_edges);

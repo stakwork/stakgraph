@@ -686,6 +686,20 @@ export async function search(req: Request, res: Response) {
   }
 }
 
+export async function get_repos(_req: Request, res: Response) {
+  try {
+    const nodes = await db.nodes_by_types_per_type(["Repository"], 100);
+    const repos = nodes.map((n) => ({
+      name: n.properties.name,
+      url: n.properties.source_link || `https://github.com/${n.properties.name}`,
+    }));
+    res.json(repos);
+  } catch (error) {
+    console.error("Error fetching repos:", error);
+    res.status(500).json({ error: "Failed to fetch repos" });
+  }
+}
+
 export async function server_config(_req: Request, res: Response) {
   try {
     const providers = Object.fromEntries(
