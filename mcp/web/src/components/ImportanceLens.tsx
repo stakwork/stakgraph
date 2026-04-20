@@ -55,6 +55,7 @@ export function ImportanceLens() {
 
   const nodesNormalized = useGraphData((s) => s.nodesNormalized);
   const setSelectedNode = useGraphData((s) => s.setSelectedNode);
+  const setHoveredNode = useGraphData((s) => s.setHoveredNode);
   const setImportanceFilter = useGraphData((s) => s.setImportanceFilter);
   const importanceFilter = useGraphData((s) => s.importanceFilter);
 
@@ -129,6 +130,14 @@ export function ImportanceLens() {
       if (node) setSelectedNode(node);
     },
     [nodesNormalized, setSelectedNode],
+  );
+
+  const handleNodeHover = useCallback(
+    (refId: string) => {
+      const node = nodesNormalized.get(refId);
+      setHoveredNode(node ?? null);
+    },
+    [nodesNormalized, setHoveredNode],
   );
 
   const handleFilterToggle = useCallback(
@@ -271,6 +280,8 @@ export function ImportanceLens() {
                         <button
                           key={n.ref_id}
                           onClick={() => handleNodeClick(n.ref_id)}
+                          onMouseEnter={() => handleNodeHover(n.ref_id)}
+                          onMouseLeave={() => setHoveredNode(null)}
                           className="w-full text-left p-1.5 rounded-md text-xs bg-muted/30 hover:bg-muted/50 transition-colors flex items-center gap-2"
                         >
                           <span

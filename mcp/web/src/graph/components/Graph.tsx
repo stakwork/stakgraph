@@ -6,6 +6,7 @@ import { Edges } from "./Edges";
 import { LayerLabels } from "./LayerLabels";
 import { LayerHoverHighlight } from "./LayerHoverHighlight";
 import { NodeDetailsPanel } from "./NodeDetailsPanel";
+import { NodeHoverHighlight } from "./NodeHoverHighlight";
 import { useGraphData } from "@/stores/useGraphData";
 import { nodePositions, useSimulation } from "@/stores/useSimulation";
 import { useLayerVisibility } from "@/stores/useLayerVisibility";
@@ -135,6 +136,7 @@ export const Graph = memo(() => {
       <Edges />
       <LayerLabels />
       <LayerHoverHighlight />
+      <NodeHoverHighlight />
       <NodeDetailsPanel />
     </group>
   );
