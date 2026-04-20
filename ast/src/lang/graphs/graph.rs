@@ -94,7 +94,7 @@ pub trait Graph: Default + Debug {
     );
     fn remove_node(&mut self, node_type: NodeType, node_data: &NodeData);
     fn deduplicate_nodes(&mut self, remove_type: NodeType, keep_type: NodeType, _operation: &str);
-    fn prune_orphan_nested_functions(&mut self);
+    fn prune_orphan_functions(&mut self, lang: &Lang);
     fn get_data_models_within(&mut self, lang: &Lang);
 
     //Specific

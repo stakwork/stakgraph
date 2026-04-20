@@ -209,7 +209,7 @@ impl Repo {
             ctx.flushed_node_count = ctx.flushed_node_count.min(graph.iter_all_nodes().count());
             ctx.flushed_edge_count = ctx.flushed_edge_count.min(graph.get_edge_keys().len());
             flush_stage_nodes_and_edges(ctx, &graph, "finalize").await?;
-            ctx.neo.prune_orphan_nested_functions_async().await?;
+            ctx.neo.prune_orphan_functions_async(&self.lang).await?;
         }
 
         let root_str = self.root.to_string_lossy().to_string();

@@ -139,7 +139,7 @@ import NewPerson from "./components/NewPerson";"#
     if use_lsp == true {
         assert_eq!(functions.len(), 22, "Expected 22 functions/components");
     } else {
-        assert_eq!(functions.len(), 61, "Expected 61 functions/components");
+        assert_eq!(functions.len(), 59, "Expected 59 functions/components");
     }
 
     let classes = graph.find_nodes_by_type(NodeType::Class);
@@ -502,8 +502,8 @@ import NewPerson from "./components/NewPerson";"#
     let contains_edges_count = graph.count_edges_of_type(EdgeType::Contains);
     edges_count += contains_edges_count;
     assert_eq!(
-        contains_edges_count, 223,
-        "Expected 223 contains edges, got {}",
+        contains_edges_count, 221,
+        "Expected 221 contains edges, got {}",
         contains_edges_count
     );
 

@@ -107,6 +107,12 @@ pub const TEST_FILE_PATTERNS: &[&str] = &[
     ".test.jsx",
     ".spec.ts",
     ".spec.js",
+    ".spec.tsx",
+    ".spec.jsx",
+    ".e2e.ts",
+    ".e2e.tsx",
+    ".e2e.jsx",
+    ".e2e.js",
     "test_.py",
 ];
 
@@ -149,4 +155,12 @@ pub fn is_junk_file(name: &str) -> bool {
 
 pub fn is_test_file(name: &str) -> bool {
     TEST_FILE_PATTERNS.iter().any(|p| name.contains(p))
+}
+
+pub fn test_file_patterns_regex() -> String {
+    TEST_FILE_PATTERNS
+        .iter()
+        .map(|p| p.replace(".", "\\."))
+        .collect::<Vec<_>>()
+        .join("|")
 }

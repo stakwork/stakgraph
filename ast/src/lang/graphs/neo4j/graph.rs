@@ -683,13 +683,24 @@ impl Neo4jGraph {
         Ok(())
     }
 
-    pub async fn prune_orphan_nested_functions_async(&self) -> Result<()> {
+    pub async fn prune_orphan_functions_async(&self, _lang: &Lang) -> Result<()> {
         let Ok(connection) = self.ensure_connected().await else {
             return Ok(());
         };
+        // Source A: nested-in-function orphans (Cypher query)
         let mut txn_manager = TransactionManager::new(&connection);
         txn_manager.add_query((prune_orphan_nested_functions_query(), BoltMap::new()));
-        txn_manager.execute().await
+        txn_manager.execute().await?;
+
+        let mut txn_manager2 = TransactionManager::new(&connection);
+        txn_manager2.add_query((prune_functions_in_test_ranges_query(), BoltMap::new()));
+        txn_manager2.execute().await?;
+
+        let mut txn_manager3 = TransactionManager::new(&connection);
+        txn_manager3.add_query((prune_var_nested_in_test_files_query(), BoltMap::new()));
+        txn_manager3.execute().await?;
+
+        Ok(())
     }
 
     pub async fn process_endpoint_groups_async(&self, eg: &[NodeData], lang: &Lang) -> Result<()> {
@@ -1263,9 +1274,9 @@ impl Graph for Neo4jGraph {
         });
     }
 
-    fn prune_orphan_nested_functions(&mut self) {
+    fn prune_orphan_functions(&mut self, lang: &Lang) {
         sync_fn(|| async {
-            self.prune_orphan_nested_functions_async()
+            self.prune_orphan_functions_async(lang)
                 .await
                 .unwrap_or_default()
         });

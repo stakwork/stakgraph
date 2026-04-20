@@ -1,4 +1,5 @@
 use super::{graph::Graph, *};
+use crate::lang::queries::skips::summary;
 use crate::lang::{Function, FunctionCall, Lang};
 use crate::utils::{create_node_key, create_node_key_from_ref, sanitize_string};
 use lsp::Language;
@@ -750,7 +751,7 @@ impl Graph for BTreeMapGraph {
         }
     }
 
-    fn prune_orphan_nested_functions(&mut self) {
+    fn prune_orphan_functions(&mut self, _lang: &Lang) {
         let func_prefix = format!("{:?}-", NodeType::Function).to_lowercase();
         let func_keys: HashSet<String> = self
             .nodes
@@ -759,8 +760,7 @@ impl Graph for BTreeMapGraph {
             .map(|(k, _)| k.clone())
             .collect();
 
-        // Only consider NestedIn edges where BOTH src AND dst are Function nodes.
-        // This excludes Var-nested functions (Zustand store methods etc.).
+        // Source A: Functions with NestedIn→Function (excludes Var-nested functions).
         let nested_in_func_edges: Vec<(String, String)> = self
             .edges
             .iter()
@@ -772,13 +772,6 @@ impl Graph for BTreeMapGraph {
             .map(|(src, dst, _)| (src.clone(), dst.clone()))
             .collect();
 
-        if nested_in_func_edges.is_empty() {
-            return;
-        }
-
-        // The parent functions that are themselves nested inside a Var node.
-        // Children of such parents (e.g. Zustand store method bodies inside a factory arrow)
-        // should be preserved even if they have no graph connections.
         let var_prefix = format!("{:?}-", NodeType::Var).to_lowercase();
         let parents_in_var: HashSet<String> = self
             .edges
@@ -797,7 +790,57 @@ impl Graph for BTreeMapGraph {
             .map(|(src, _)| src.clone())
             .collect();
 
-        if nested_in_func_keys.is_empty() {
+        // Source B: Functions spatially inside test node ranges (unconditional pruning).
+        let test_ranges: Vec<(String, usize, usize)> = self
+            .nodes
+            .iter()
+            .filter(|(_, n)| {
+                matches!(
+                    n.node_type,
+                    NodeType::UnitTest | NodeType::IntegrationTest | NodeType::E2eTest
+                )
+            })
+            .map(|(_, n)| (n.node_data.file.clone(), n.node_data.start, n.node_data.end))
+            .collect();
+
+        let in_test_range_keys: HashSet<String> = self
+            .nodes
+            .range(func_prefix.clone()..)
+            .take_while(|(k, _)| k.starts_with(&func_prefix))
+            .filter(|(_, n)| {
+                test_ranges.iter().any(|(tf, ts, te)| {
+                    n.node_data.file == *tf
+                        && n.node_data.start >= *ts
+                        && n.node_data.end <= *te
+                })
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        let var_nested_in_test_file_keys: HashSet<String> = parents_in_var
+            .iter()
+            .filter(|key| {
+                self.nodes
+                    .get(*key)
+                    .map(|n| summary::is_test_file(&n.node_data.file))
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+
+        // Source A candidates go through edge checking; Source B and C are unconditional.
+        let source_a_candidates: HashSet<String> = nested_in_func_keys
+            .union(&parents_in_var)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&in_test_range_keys)
+            .cloned()
+            .collect::<HashSet<_>>()
+            .difference(&var_nested_in_test_file_keys)
+            .cloned()
+            .collect();
+
+        if source_a_candidates.is_empty() && in_test_range_keys.is_empty() && var_nested_in_test_file_keys.is_empty() {
             return;
         }
 
@@ -805,7 +848,7 @@ impl Graph for BTreeMapGraph {
             .edges
             .iter()
             .filter(|(_, dst, et)| {
-                nested_in_func_keys.contains(dst)
+                source_a_candidates.contains(dst)
                     && matches!(et, EdgeType::Handler | EdgeType::Calls | EdgeType::Renders)
             })
             .map(|(_, dst, _)| dst.clone())
@@ -815,15 +858,21 @@ impl Graph for BTreeMapGraph {
             .edges
             .iter()
             .filter(|(src, _, et)| {
-                nested_in_func_keys.contains(src)
+                source_a_candidates.contains(src)
                     && matches!(et, EdgeType::Calls | EdgeType::Handler)
             })
             .map(|(src, _, _)| src.clone())
             .collect();
 
-        let to_remove: Vec<String> = nested_in_func_keys
+        let source_a_remove: Vec<String> = source_a_candidates
             .into_iter()
             .filter(|k| !has_incoming.contains(k) && !has_outgoing_calls.contains(k))
+            .collect();
+
+        let to_remove: HashSet<String> = source_a_remove
+            .into_iter()
+            .chain(in_test_range_keys.into_iter())
+            .chain(var_nested_in_test_file_keys.into_iter())
             .collect();
 
         for key in &to_remove {
