@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
+import { db } from "../graph/neo4j.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -22,49 +23,29 @@ function getText(content: unknown): string {
   return "";
 }
 
-function parseSessionFile(filePath: string): {
+function parseSessionMessages(filePath: string): {
   userPromptPreview: string;
   answerPreview: string;
   toolSequence: string[];
   toolCallCount: number;
-  source: string;
-  model: string;
-  start_time: string;
-  duration_ms: number;
-  token_usage: { input: number; output: number; total: number };
 } {
   let userPromptPreview = "";
   let answerPreview = "";
   const toolSequence: string[] = [];
-  let source = "unknown";
-  let model = "";
-  let start_time = "";
-  let end_time = "";
-  let token_usage = { input: 0, output: 0, total: 0 };
 
   try {
     const content = readFileSync(filePath, "utf-8");
     const lines = content.split("\n").filter((l) => l.trim());
     for (const line of lines) {
       try {
-        const msg = JSON.parse(line) as { role?: string; content?: unknown; [key: string]: unknown };
+        const msg = JSON.parse(line) as {
+          role?: string;
+          content?: unknown;
+          [key: string]: unknown;
+        };
         const role = msg.role ?? "";
         const msgContent = msg.content;
 
-        if (role === "metadata") {
-          if (msg.source) source = String(msg.source);
-          if (msg.start_time) start_time = String(msg.start_time);
-          if (msg.model) model = String(msg.model);
-          if (msg.end_time) end_time = String(msg.end_time);
-          if (msg.token_usage && typeof msg.token_usage === "object") {
-            const tu = msg.token_usage as any;
-            token_usage = {
-              input: tu.input || 0,
-              output: tu.output || 0,
-              total: tu.total || 0,
-            };
-          }
-        }
         if (!userPromptPreview && role === "user") {
           userPromptPreview = getText(msgContent).slice(0, 200);
         }
@@ -96,18 +77,69 @@ function parseSessionFile(filePath: string): {
     answerPreview,
     toolSequence,
     toolCallCount: toolSequence.length,
-    source,
-    model,
-    start_time,
-    duration_ms: start_time && end_time
-      ? new Date(end_time).getTime() - new Date(start_time).getTime()
-      : 0,
-    token_usage,
   };
+}
+
+function toNum(v: any): number {
+  if (v == null) return 0;
+  if (typeof v === "object" && typeof v.toNumber === "function")
+    return v.toNumber();
+  return Number(v) || 0;
 }
 
 export async function list_sessions(_req: Request, res: Response) {
   const dir = sessionsDir();
+
+  // Try Neo4j first
+  if (db) {
+    try {
+      const sessions = await db.list_agent_sessions();
+      const runs = sessions.map((s) => {
+        const id = String(s.node_key ?? s.name ?? "");
+        const filePath = path.join(dir, `${id}.jsonl`);
+        const {
+          userPromptPreview,
+          answerPreview,
+          toolSequence,
+          toolCallCount,
+        } = existsSync(filePath)
+          ? parseSessionMessages(filePath)
+          : {
+              userPromptPreview: "",
+              answerPreview: "",
+              toolSequence: [],
+              toolCallCount: 0,
+            };
+        const startTimeMs = toNum(s.start_time);
+        return {
+          id,
+          source: String(s.source ?? "unknown"),
+          repo: "",
+          model: String(s.model ?? ""),
+          timestamp: startTimeMs
+            ? new Date(startTimeMs).toISOString()
+            : new Date().toISOString(),
+          duration_ms: toNum(s.duration_ms),
+          token_usage: {
+            input: toNum(s.input_tokens),
+            output: toNum(s.output_tokens),
+            total: toNum(s.total_tokens),
+          },
+          tool_sequence: toolSequence,
+          tool_call_count: toolCallCount,
+          user_prompt_preview: userPromptPreview,
+          answer_preview: answerPreview,
+        };
+      });
+      runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      res.json(runs);
+      return;
+    } catch (e) {
+      console.error("[sessions] Neo4j query failed, falling back to JSONL:", e);
+    }
+  }
+
+  // Fallback: JSONL-only (no Neo4j)
   if (!existsSync(dir)) {
     res.json([]);
     return;
@@ -119,17 +151,17 @@ export async function list_sessions(_req: Request, res: Response) {
     const id = file.replace(/\.jsonl$/, "");
     const fullPath = path.join(dir, file);
     const stat = statSync(fullPath);
-    const { userPromptPreview, answerPreview, toolSequence, toolCallCount, source, model, start_time, duration_ms, token_usage } =
-      parseSessionFile(fullPath);
+    const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+      parseSessionMessages(fullPath);
 
     return {
       id,
-      source,
+      source: "unknown",
       repo: "",
-      model,
-      timestamp: start_time || stat.mtime.toISOString(),
-      duration_ms,
-      token_usage,
+      model: "",
+      timestamp: stat.mtime.toISOString(),
+      duration_ms: 0,
+      token_usage: { input: 0, output: 0, total: 0 },
       tool_sequence: toolSequence,
       tool_call_count: toolCallCount,
       user_prompt_preview: userPromptPreview,
@@ -155,10 +187,7 @@ export async function get_session(req: Request, res: Response) {
     return;
   }
 
-  const stat = statSync(filePath);
-  const { userPromptPreview, answerPreview, toolSequence, toolCallCount, source, model, start_time, duration_ms, token_usage } =
-    parseSessionFile(filePath);
-
+  // Read trace from JSONL
   const content = readFileSync(filePath, "utf-8");
   const trace = content
     .split("\n")
@@ -172,14 +201,50 @@ export async function get_session(req: Request, res: Response) {
     })
     .filter(Boolean);
 
+  const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+    parseSessionMessages(filePath);
+
+  if (db) {
+    try {
+      const s = await db.get_agent_session(id);
+      if (s) {
+        const startTimeMs = toNum(s.start_time);
+        res.json({
+          id,
+          source: String(s.source ?? "unknown"),
+          repo: "",
+          model: String(s.model ?? ""),
+          timestamp: startTimeMs
+            ? new Date(startTimeMs).toISOString()
+            : new Date().toISOString(),
+          duration_ms: toNum(s.duration_ms),
+          token_usage: {
+            input: toNum(s.input_tokens),
+            output: toNum(s.output_tokens),
+            total: toNum(s.total_tokens),
+          },
+          tool_sequence: toolSequence,
+          tool_call_count: toolCallCount,
+          user_prompt_preview: userPromptPreview,
+          answer_preview: answerPreview,
+          trace,
+        });
+        return;
+      }
+    } catch (e) {
+      console.error("[sessions] Neo4j get_session failed, falling back:", e);
+    }
+  }
+
+  const stat = statSync(filePath);
   res.json({
     id,
-    source,
+    source: "unknown",
     repo: "",
-    model,
-    timestamp: start_time || stat.mtime.toISOString(),
-    duration_ms,
-    token_usage,
+    model: "",
+    timestamp: stat.mtime.toISOString(),
+    duration_ms: 0,
+    token_usage: { input: 0, output: 0, total: 0 },
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
     user_prompt_preview: userPromptPreview,

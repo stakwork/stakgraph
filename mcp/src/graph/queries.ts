@@ -308,6 +308,26 @@ WHERE NOT (h)-[:SIBLING]-(:Hint)
 RETURN h
 `;
 
+export const UPSERT_AGENT_SESSION_QUERY = `
+MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
+ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
+  n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source
+SET n.source = $source, n.model = $model,
+    n.start_time = toInteger($start_time), n.end_time = toInteger($end_time),
+    n.duration_ms = toInteger($duration_ms),
+    n.input_tokens = toInteger($input_tokens), n.output_tokens = toInteger($output_tokens),
+    n.total_tokens = toInteger($total_tokens)
+RETURN n
+`;
+
+export const LIST_AGENT_SESSIONS_QUERY = `
+MATCH (n:AgentSession) RETURN n ORDER BY n.start_time DESC
+`;
+
+export const GET_AGENT_SESSION_QUERY = `
+MATCH (n:AgentSession {node_key: $session_id}) RETURN n
+`;
+
 export const CREATE_SIBLING_EDGE_QUERY = `
 MATCH (a:Hint {ref_id: $source_ref_id})
 MATCH (b:Hint {ref_id: $target_ref_id})

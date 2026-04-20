@@ -10,6 +10,7 @@ import {
 } from "fs";
 import { randomUUID } from "crypto";
 import path from "path";
+import { db } from "../graph/neo4j.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -58,6 +59,8 @@ export function createSession(
   if (system) {
     const systemMsg: ModelMessage = { role: "system", content: system };
     appendFileSync(filePath, JSON.stringify(systemMsg) + "\n");
+  } else {
+    appendFileSync(filePath, "");
   }
   return sessionId;
 }
@@ -71,9 +74,19 @@ export function appendSessionEnd(
 ): void {
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
   sessionMeta.delete(sessionId);
-  const filePath = getSessionFile(sessionId);
-  const meta = { role: "metadata", source: stored.source, start_time: stored.start_time, ...opts };
-  appendFileSync(filePath, JSON.stringify(meta) + "\n");
+  const start_time = new Date(stored.start_time).getTime();
+  const end_time = new Date(opts.end_time).getTime();
+  db?.upsert_agent_session({
+    session_id: sessionId,
+    source: stored.source,
+    model: opts.model || "",
+    start_time,
+    end_time,
+    duration_ms: end_time - start_time,
+    input_tokens: opts.token_usage?.input || 0,
+    output_tokens: opts.token_usage?.output || 0,
+    total_tokens: opts.token_usage?.total || 0,
+  }).catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
 }
 
 /**
@@ -89,9 +102,7 @@ export function loadSession(sessionId: string): ModelMessage[] {
   const content = readFileSync(filePath, "utf-8");
   const lines = content.split("\n").filter((line) => line.trim());
 
-  return lines
-    .map((line) => JSON.parse(line) as ModelMessage)
-    .filter((msg) => (msg.role as string) !== "metadata");
+  return lines.map((line) => JSON.parse(line) as ModelMessage);
 }
 
 /**
@@ -137,7 +148,10 @@ export function deleteSession(sessionId: string): void {
   }
 }
 
-const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_MAX_AGE_MS = parseInt(
+  process.env.SESSION_MAX_AGE_MS || String(30 * 24 * 60 * 60 * 1000),
+  10
+); // default 30 days, configurable via SESSION_MAX_AGE_MS env var
 
 /**
  * Delete session files older than SESSION_MAX_AGE_MS.

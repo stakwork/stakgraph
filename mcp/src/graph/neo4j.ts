@@ -1074,6 +1074,9 @@ class Db {
       await session.run(Q.FULLTEXT_NAME_INDEX_QUERY);
       await session.run(Q.FULLTEXT_COMPOSITE_INDEX_QUERY);
       await session.run(Q.VECTOR_INDEX_QUERY);
+      await session.run(
+        "CREATE INDEX agent_session_id_index IF NOT EXISTS FOR (n:AgentSession) ON (n.node_key)"
+      );
     } finally {
       if (session) {
         await session.close();
@@ -1486,6 +1489,49 @@ class Db {
       }));
     } finally {
       await session.close();
+    }
+  }
+
+  async upsert_agent_session(params: {
+    session_id: string;
+    source: string;
+    model: string;
+    start_time: number;
+    end_time: number;
+    duration_ms: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  }): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run(Q.UPSERT_AGENT_SESSION_QUERY, {
+        ...params,
+        ts: Date.now() / 1000,
+      });
+    } finally {
+      await session.close();
+    }
+  }
+
+  async list_agent_sessions(): Promise<any[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY);
+      return result.records.map((r) => r.get("n").properties);
+    } finally {
+      await session.close();
+    }
+  }
+
+  async get_agent_session(session_id: string): Promise<any | null> {
+    const neo4jSession = this.driver.session();
+    try {
+      const result = await neo4jSession.run(Q.GET_AGENT_SESSION_QUERY, { session_id });
+      if (!result.records.length) return null;
+      return result.records[0].get("n").properties;
+    } finally {
+      await neo4jSession.close();
     }
   }
 

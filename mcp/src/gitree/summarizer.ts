@@ -3,6 +3,7 @@ import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
 import { DOC_GUIDELINES } from "./llm.js";
+import { appendMessages } from "../repo/session.js";
 
 /**
  * Generates comprehensive documentation for features based on their PR and commit history
@@ -17,7 +18,7 @@ export class Summarizer {
   /**
    * Generate documentation for a single feature
    */
-  async summarizeFeature(featureId: string): Promise<Usage> {
+  async summarizeFeature(featureId: string, sessionId?: string): Promise<Usage> {
     // Load feature
     const feature = await this.storage.getFeature(featureId);
     if (!feature) {
@@ -71,6 +72,13 @@ export class Summarizer {
       prompt,
     });
 
+    if (sessionId) {
+      appendMessages(sessionId, [
+        { role: "user", content: prompt },
+        { role: "assistant", content: result.text },
+      ]);
+    }
+
     const documentation = result.text.trim();
 
     // LLM responded "OK" — existing docs are still accurate, no update needed
@@ -95,7 +103,7 @@ export class Summarizer {
   /**
    * Generate documentation for specific modified features
    */
-  async summarizeModifiedFeatures(featureIds: string[]): Promise<Usage> {
+  async summarizeModifiedFeatures(featureIds: string[], sessionId?: string): Promise<Usage> {
     if (featureIds.length === 0) {
       console.log(`\n⏭️  No features to summarize`);
       return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
@@ -123,7 +131,7 @@ export class Summarizer {
       console.log(`${progress} Processing: ${feature.name} (${feature.id})`);
 
       try {
-        const usage = await this.summarizeFeature(feature.id);
+        const usage = await this.summarizeFeature(feature.id, sessionId);
         totalUsage.inputTokens += usage.inputTokens;
         totalUsage.outputTokens += usage.outputTokens;
         totalUsage.totalTokens += usage.totalTokens;

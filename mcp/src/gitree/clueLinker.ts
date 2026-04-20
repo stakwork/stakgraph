@@ -2,12 +2,13 @@ import { Storage } from "./store/index.js";
 import { Clue, Usage } from "./types.js";
 import { generateObject, jsonSchema } from "ai";
 import { getApiKeyForProvider, getModel, Provider } from "../aieo/src/provider.js";
+import { appendMessages } from "../repo/session.js";
 
 /**
  * Links clues to relevant features based on semantic similarity and context
  */
 export class ClueLinker {
-  constructor(private storage: Storage) {}
+  constructor(private storage: Storage, private sessionId?: string) {}
 
   /**
    * Link specific clues to relevant features
@@ -27,7 +28,7 @@ export class ClueLinker {
       `\n🔗 Linking ${cluesToLink.length} new clue(s) to ${features.length} features...\n`
     );
 
-    const result = await this.linkClueBatch(cluesToLink, features, false);
+    const result = await this.linkClueBatch(cluesToLink, features, false, this.sessionId);
 
     console.log(
       `\n✅ Linked ${cluesToLink.length} clue(s)!`
@@ -65,7 +66,7 @@ export class ClueLinker {
       console.log(`${progress} Processing batch...`);
 
       try {
-        const result = await this.linkClueBatch(batch, features, force);
+        const result = await this.linkClueBatch(batch, features, force, this.sessionId);
         totalUsage.inputTokens += result.usage.inputTokens;
         totalUsage.outputTokens += result.usage.outputTokens;
         totalUsage.totalTokens += result.usage.totalTokens;
@@ -87,7 +88,8 @@ export class ClueLinker {
   private async linkClueBatch(
     clues: Clue[],
     features: any[],
-    force: boolean
+    force: boolean,
+    sessionId?: string
   ): Promise<{ usage: Usage }> {
     // Skip clues that already have multiple links (unless force)
     const cluesToLink = force
@@ -119,6 +121,13 @@ export class ClueLinker {
     });
 
     const decision = result.object as any;
+
+    if (sessionId) {
+      appendMessages(sessionId, [
+        { role: "user", content: prompt },
+        { role: "assistant", content: JSON.stringify(decision) },
+      ]);
+    }
 
     // Update clues with new links
     for (const link of decision.links || []) {

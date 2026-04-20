@@ -2,6 +2,7 @@ import { z } from "zod";
 import { callGenerateObject } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { LLMDecision, Usage } from "./types.js";
+import { appendMessages } from "../repo/session.js";
 
 /**
  * Shared documentation guidelines used by bootstrap, summarizer, and exploreNewFeature
@@ -70,7 +71,8 @@ export class LLMClient {
    */
   async decide(
     prompt: string,
-    retries = 3
+    retries = 3,
+    sessionId?: string
   ): Promise<{ decision: LLMDecision; usage: Usage }> {
     let lastError: Error | undefined;
 
@@ -82,6 +84,13 @@ export class LLMClient {
           prompt,
           schema: LLMDecisionSchema,
         });
+
+        if (sessionId) {
+          appendMessages(sessionId, [
+            { role: "user", content: prompt },
+            { role: "assistant", content: JSON.stringify(result.object) },
+          ]);
+        }
 
         return {
           decision: result.object as LLMDecision,

@@ -21,6 +21,7 @@ import { exploreNewFeature } from "./bootstrap.js";
 export class StreamingFeatureBuilder {
   private clueAnalyzer?: ClueAnalyzer; // ClueAnalyzer instance (lazily initialized)
   private repo: string = ""; // Repository identifier "owner/repo"
+  private sessionId?: string;
 
   constructor(
     private storage: Storage,
@@ -33,9 +34,10 @@ export class StreamingFeatureBuilder {
   /**
    * Main entry point: process a repo (both PRs and commits chronologically)
    */
-  async processRepo(owner: string, repo: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
+  async processRepo(owner: string, repo: string, sessionId?: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
     // Set repo identifier for use throughout processing
     this.repo = `${owner}/${repo}`;
+    this.sessionId = sessionId;
     
     const totalUsage: Usage = {
       inputTokens: 0,
@@ -397,7 +399,7 @@ export class StreamingFeatureBuilder {
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const { decision, usage } = await this.llm.decide(prompt);
+    const { decision, usage } = await this.llm.decide(prompt, undefined, this.sessionId);
 
     // Apply decision (pass usage to save with PR record)
     await this.applyPrDecision(owner, repo, pr, decision, modifiedFeatureIds, usage);
@@ -622,7 +624,7 @@ ${DECISION_GUIDELINES}`;
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const { decision, usage } = await this.llm.decide(prompt);
+    const { decision, usage } = await this.llm.decide(prompt, undefined, this.sessionId);
 
     // Apply decision (pass usage to save with commit record)
     await this.applyCommitDecision(owner, repo, commit, decision, modifiedFeatureIds, usage);
@@ -810,7 +812,7 @@ ${DECISION_GUIDELINES}`;
 
             // Explore codebase to generate initial docs (only if we have a local clone)
             if (this.repoPath) {
-              await exploreNewFeature(newFeature, this.repoPath, this.storage);
+              await exploreNewFeature(newFeature, this.repoPath, this.storage, this.sessionId);
             }
           }
         }
@@ -961,7 +963,7 @@ ${DECISION_GUIDELINES}`;
         return clueUsage;
       }
       const { ClueAnalyzer } = await import("./clueAnalyzer.js");
-      this.clueAnalyzer = new ClueAnalyzer(this.storage, this.repoPath);
+      this.clueAnalyzer = new ClueAnalyzer(this.storage, this.repoPath, undefined, this.sessionId);
     }
 
     // Analyze change (pass featureIds to scope clues)
@@ -977,7 +979,7 @@ ${DECISION_GUIDELINES}`;
 
       // Auto-link clues to relevant features
       const { ClueLinker } = await import("./clueLinker.js");
-      const linker = new ClueLinker(this.storage);
+      const linker = new ClueLinker(this.storage, this.sessionId);
       const clueIds = result.clues.map((c: any) => c.id);
 
       console.log(

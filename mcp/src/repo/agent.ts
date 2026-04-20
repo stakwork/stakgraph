@@ -204,6 +204,7 @@ interface PreparedAgent {
   previousMessages: ModelMessage[];
   userMessage: ModelMessage;
   sessionId: string | undefined;
+  sessionOwned: boolean;
   sessionConfig: SessionConfig | undefined;
   startTime: number;
 }
@@ -303,6 +304,7 @@ Apply the guidance from each skill throughout your response.`;
 
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
+  let sessionOwned = false;
   let previousMessages: ModelMessage[] = [];
 
   if (inputSessionId) {
@@ -311,6 +313,7 @@ Apply the guidance from each skill throughout your response.`;
       previousMessages = loadSessionMessages(sessionId);
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source);
+      sessionOwned = true;
     }
   }
 
@@ -349,7 +352,7 @@ Apply the guidance from each skill throughout your response.`;
     content: userMessageContent as string,
   };
 
-  return { agent, model, modelId, provider, finalPrompt, previousMessages, userMessage, sessionId, sessionConfig, startTime };
+  return { agent, model, modelId, provider, finalPrompt, previousMessages, userMessage, sessionId, sessionOwned, sessionConfig, startTime };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
@@ -374,7 +377,7 @@ export async function get_context(
   opts: GetContextOptions
 ): Promise<ContextResult> {
   const prepared = await prepareAgent(prompt, repoPath, opts);
-  const { agent, model, modelId, provider, finalPrompt, sessionId, sessionConfig, userMessage, startTime } = prepared;
+  const { agent, model, modelId, provider, finalPrompt, sessionId, sessionOwned, sessionConfig, userMessage, startTime } = prepared;
   const { schema } = opts;
 
   const result = await agent.generate(buildCallParams(prepared));
@@ -383,22 +386,23 @@ export async function get_context(
 
   // Save to session if enabled
   if (sessionId) {
-    // Extract messages from this turn (user + assistant + tool)
     const newMessages = extractMessagesFromSteps(
       userMessage,
       steps,
       sessionConfig
     );
     appendMessages(sessionId, newMessages);
-    appendSessionEnd(sessionId, {
-      end_time: new Date().toISOString(),
-      model: modelId,
-      token_usage: {
-        input: totalUsage.inputTokens || 0,
-        output: totalUsage.outputTokens || 0,
-        total: totalUsage.totalTokens || 0,
-      },
-    });
+    if (sessionOwned) {
+      appendSessionEnd(sessionId, {
+        end_time: new Date().toISOString(),
+        model: modelId,
+        token_usage: {
+          input: totalUsage.inputTokens || 0,
+          output: totalUsage.outputTokens || 0,
+          total: totalUsage.totalTokens || 0,
+        },
+      });
+    }
   }
 
   const final = extractFinalAnswer(steps);
