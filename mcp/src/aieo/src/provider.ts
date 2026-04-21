@@ -35,7 +35,7 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
     gpt: "gpt-5",
   },
   openrouter: {
-    kimi: "moonshotai/kimi-k2.5"
+    kimi: "moonshotai/kimi-k2.6"
   }
 };
 
@@ -51,7 +51,7 @@ const LIGHT_MODELS: Record<Provider, string> = {
   anthropic: "claude-haiku-4-5",
   google: "gemini-2.0-flash",
   openai: "gpt-4.1-mini",
-  openrouter: "moonshotai/kimi-k2.5",
+  openrouter: "moonshotai/kimi-k2.6",
 };
 
 export function getLightModelForProvider(provider: Provider): string {
@@ -64,7 +64,7 @@ export interface TokenPricing {
 }
 
 export function getProviderForModel(modelName?: ModelName | string): Provider {
-  // Handle format like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.5"
+  // Handle format like "anthropic/claude-sonnet-4-5" or "openrouter/moonshotai/kimi-k2.6"
   if (modelName && modelName.includes("/")) {
     const provider = modelName.split("/")[0] as Provider;
     if (PROVIDERS.includes(provider)) {
@@ -290,7 +290,7 @@ const MODEL_CONTEXT_LIMITS: Record<string, number> = {
   "gpt-5": 128_000,
   "gpt-4.1-mini": 1_000_000,
   // OpenRouter
-  "moonshotai/kimi-k2.5": 128_000,
+  "moonshotai/kimi-k2.6": 128_000,
 };
 
 const DEFAULT_CONTEXT_LIMITS: Record<Provider, number> = {
