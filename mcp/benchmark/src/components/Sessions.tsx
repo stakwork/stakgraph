@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
 import type { ProductionRun } from "../types";
@@ -47,6 +48,14 @@ function formatDuration(durationMs: number): string {
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes % 60;
   return `${hours}h ${remMinutes}m`;
+}
+
+function getRangeStart(range: "24h" | "7d" | "30d" | "all"): number | null {
+  const now = Date.now();
+  if (range === "24h") return now - 24 * 60 * 60 * 1000;
+  if (range === "7d") return now - 7 * 24 * 60 * 60 * 1000;
+  if (range === "30d") return now - 30 * 24 * 60 * 60 * 1000;
+  return null;
 }
 
 function formatSourceLabel(source: string): string {
@@ -1051,10 +1060,16 @@ function TurnCard({ turn }: { turn: TraceTurn }) {
 // ── component ─────────────────────────────────────────────────────────────────
 
 export function Sessions() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<ProductionRun[]>([]);
   const [selected, setSelected] = useState<ProductionRun | null>(null);
   const [loading, setLoading] = useState(true);
-  const [repoSearch, setRepoSearch] = useState("");
+  const [repoSearch, setRepoSearch] = useState(searchParams.get("repo") || "");
+  const [sourceFilter, setSourceFilter] = useState(searchParams.get("source") || "all");
+  const [rangeFilter, setRangeFilter] = useState<"24h" | "7d" | "30d" | "all">(
+    (searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all",
+  );
+  const [dayFilter, setDayFilter] = useState(searchParams.get("day") || "");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1103,14 +1118,44 @@ export function Sessions() {
     [runs],
   );
 
+  const sourceOptions = useMemo(
+    () => [...new Set(runs.map((r) => r.source || "unknown"))].sort(),
+    [runs],
+  );
+
+  useEffect(() => {
+    setRepoSearch(searchParams.get("repo") || "");
+    setSourceFilter(searchParams.get("source") || "all");
+    setRangeFilter(
+      (searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all",
+    );
+    setDayFilter(searchParams.get("day") || "");
+  }, [searchParams]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+    if (repoSearch) nextParams.set("repo", repoSearch);
+    if (sourceFilter !== "all") nextParams.set("source", sourceFilter);
+    if (rangeFilter !== "all") nextParams.set("range", rangeFilter);
+    if (dayFilter) nextParams.set("day", dayFilter);
+    setSearchParams(nextParams, { replace: true });
+  }, [dayFilter, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
+
   const filteredRuns = useMemo(
     () =>
       runs.filter((r) => {
+        if (sourceFilter !== "all" && (r.source || "unknown") !== sourceFilter)
+          return false;
         if (repoSearch && !r.repo.toLowerCase().includes(repoSearch.toLowerCase()))
+          return false;
+        if (dayFilter && new Date(r.timestamp).toISOString().slice(0, 10) !== dayFilter)
+          return false;
+        const rangeStart = getRangeStart(rangeFilter);
+        if (rangeStart && new Date(r.timestamp).getTime() < rangeStart)
           return false;
         return true;
       }),
-    [runs, repoSearch],
+    [runs, dayFilter, repoSearch, rangeFilter, sourceFilter],
   );
 
   const inputStyle: React.CSSProperties = {
@@ -1133,6 +1178,17 @@ export function Sessions() {
     color: "#ededed",
     cursor: "pointer",
     width: "100%",
+  };
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    padding: "6px 8px",
+  };
+
+  const clearFilters = () => {
+    setRepoSearch("");
+    setSourceFilter("all");
+    setRangeFilter("all");
+    setDayFilter("");
   };
 
   return (
@@ -1174,15 +1230,48 @@ export function Sessions() {
                 list="repo-options"
                 style={inputStyle}
               />
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="all">All sources</option>
+                {sourceOptions.map((source) => (
+                  <option key={source} value={source}>
+                    {formatSourceLabel(source)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={rangeFilter}
+                onChange={(e) => {
+                  setRangeFilter(
+                    e.target.value as "24h" | "7d" | "30d" | "all",
+                  );
+                  setDayFilter("");
+                }}
+                style={selectStyle}
+              >
+                <option value="all">All time</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7d</option>
+                <option value="30d">Last 30d</option>
+              </select>
               <datalist id="repo-options">
                 {repoOptions.map((r) => (
                   <option key={r} value={r} />
                 ))}
               </datalist>
-              {repoSearch && (
-                <p style={{ ...muted, textAlign: "center" }}>
-                  {filteredRuns.length} / {runs.length} sessions
-                </p>
+              {(repoSearch || sourceFilter !== "all" || rangeFilter !== "all" || dayFilter) && (
+                <>
+                  <p style={{ ...muted, textAlign: "center" }}>
+                    {dayFilter ? `Day ${dayFilter} · ` : ""}
+                    {filteredRuns.length} / {runs.length} sessions
+                  </p>
+                  <button onClick={clearFilters} style={btnStyle}>
+                    Clear filters
+                  </button>
+                </>
               )}
             </div>
 
