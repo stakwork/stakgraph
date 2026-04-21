@@ -182,7 +182,7 @@ export async function repo_agent(req: Request, res: Response) {
       const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
-      const streamResult = await stream_context(
+      const { streamResult, finalizeSession } = await stream_context(
         promptWithRepoInfo,
         repoDir,
         {
@@ -239,7 +239,10 @@ export async function repo_agent(req: Request, res: Response) {
             res.end();
           }
         })
-        .finally(() => endTracking(opId));
+        .finally(async () => {
+          await finalizeSession();
+          endTracking(opId);
+        });
 
       return;
     } catch (error: any) {

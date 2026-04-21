@@ -235,7 +235,17 @@ async function prepareAgent(
   console.log("===> model", model, "contextLimit", contextLimit);
 
   const messagesRef: MessagesRef = { current: [] };
-  let tools = await get_tools(repoPath, apiKey, pat, toolsConfig, provider, repos, subAgents, ggnn, messagesRef);
+  let tools = await get_tools(
+    repoPath,
+    apiKey,
+    pat,
+    toolsConfig,
+    provider,
+    repos,
+    subAgents,
+    ggnn,
+    messagesRef,
+  );
 
   // Load and merge MCP server tools if configured
   if (mcpServers && mcpServers.length > 0) {
@@ -351,7 +361,18 @@ Apply the guidance from each skill throughout your response.`;
     content: userMessageContent as string,
   };
 
-  return { agent, model, modelId, provider, finalPrompt, previousMessages, userMessage, sessionId, sessionConfig, startTime };
+  return {
+    agent,
+    model,
+    modelId,
+    provider,
+    finalPrompt,
+    previousMessages,
+    userMessage,
+    sessionId,
+    sessionConfig,
+    startTime,
+  };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
@@ -376,7 +397,17 @@ export async function get_context(
   opts: GetContextOptions
 ): Promise<ContextResult> {
   const prepared = await prepareAgent(prompt, repoPath, opts);
-  const { agent, model, modelId, provider, finalPrompt, sessionId, sessionConfig, userMessage, startTime } = prepared;
+  const {
+    agent,
+    model,
+    modelId,
+    provider,
+    finalPrompt,
+    sessionId,
+    sessionConfig,
+    userMessage,
+    startTime,
+  } = prepared;
   const { schema } = opts;
 
   const result = await agent.generate(buildCallParams(prepared));
@@ -394,7 +425,7 @@ export async function get_context(
       sessionConfig
     );
     appendMessages(sessionId, newMessages);
-    appendSessionEnd(sessionId, {
+    await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
       duration_ms: duration,
@@ -442,8 +473,8 @@ export async function get_context(
 
 /**
  * Streaming variant of get_context.
- * Returns a StreamTextResult that can be piped to an HTTP response
- * via .toUIMessageStreamResponse().
+ * Returns an object with the stream result and a finalizeSession() function
+ * that must be called after the stream is fully consumed to persist the session.
  */
 export async function stream_context(
   prompt: string | ModelMessage[],
@@ -451,7 +482,45 @@ export async function stream_context(
   opts: GetContextOptions
 ) {
   const prepared = await prepareAgent(prompt, repoPath, opts);
-  return prepared.agent.stream(buildCallParams(prepared));
+  const {
+    sessionId,
+    sessionConfig,
+    userMessage,
+    modelId,
+    startTime,
+  } = prepared;
+  const streamResult = await prepared.agent.stream(buildCallParams(prepared));
+
+  return {
+    streamResult,
+    async finalizeSession() {
+      if (!sessionId) return;
+      try {
+        const steps = await (streamResult as any).steps;
+        const usage = await (streamResult as any).usage;
+        const endTime = Date.now();
+        const duration = endTime - startTime;
+        const newMessages = extractMessagesFromSteps(
+          userMessage,
+          steps ?? [],
+          sessionConfig,
+        );
+        appendMessages(sessionId, newMessages);
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          duration_ms: duration,
+          token_usage: {
+            input: usage?.inputTokens || 0,
+            output: usage?.outputTokens || 0,
+            total: usage?.totalTokens || 0,
+          },
+        });
+      } catch (e) {
+        console.error("[stream_context] Failed to finalize session:", e);
+      }
+    },
+  };
 }
 
 /*

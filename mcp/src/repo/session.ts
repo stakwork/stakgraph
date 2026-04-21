@@ -68,14 +68,14 @@ export function createSession(
 /**
  * Append end-of-session metadata (timing, model, token usage).
  */
-export function appendSessionEnd(
+export async function appendSessionEnd(
   sessionId: string,
   opts: { end_time: string; model?: string; duration_ms?: number; token_usage?: { input: number; output: number; total: number } }
-): void {
+): Promise<void> {
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
-  db?.upsert_agent_session({
+  await db?.upsert_agent_session({
     session_id: sessionId,
     source: stored.source,
     model: opts.model || "",
