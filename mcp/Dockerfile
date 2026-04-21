@@ -86,8 +86,9 @@ COPY ./benchmark ./benchmark
 RUN cd benchmark && npm install && npm run build
 
 # Install agent skills
-RUN npx skills add https://github.com/anthropics/skills --skill frontend-design -y -g
-RUN npx skills add https://github.com/getsentry/skills --skill code-simplifier -y -g
+RUN npx -y skills add https://github.com/anthropics/skills --skill frontend-design -y -g
+RUN npx -y skills add https://github.com/getsentry/skills --skill code-simplifier -y -g
+RUN npx -y skills add https://github.com/getsentry/skills --skill security-review -y -g
 
 # Download fastembed models (~128MB) - only on amd64
 RUN ARCH=$(dpkg --print-architecture) && \
