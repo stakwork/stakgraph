@@ -16,6 +16,10 @@ interface Person {
   email: string;
 }
 
+// @ast node: Function "Person"
+// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/person/page.tsx"
+// @ast edge: Renders <- Page "person" "src/testing/nextjs/app/person/page.tsx"
+// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
 function Person() {
   const [people, setPeople] = useState<Person[]>([]);
   const [form, setForm] = useState<Person>({ name: "", age: 0, email: "" });

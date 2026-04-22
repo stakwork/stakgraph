@@ -6,6 +6,8 @@ const people = [
   { id: "3", name: "Charlie", age: 35, email: "charlie@example.com" },
 ];
 
+// @ast node: Function "GET"
+// @ast edge: Contains <- File "route.ts" "src/testing/nextjs/app/api/person/[id]/route.ts"
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -19,6 +21,8 @@ export async function GET(
   return NextResponse.json(person);
 }
 
+// @ast node: Function "DELETE"
+// @ast edge: Contains <- File "route.ts" "src/testing/nextjs/app/api/person/[id]/route.ts"
 export async function DELETE(
   request: Request,
   { params }: { params: { id: string } }

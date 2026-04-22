@@ -24,6 +24,8 @@ interface BountySortParams {
   order: "asc" | "desc";
 }
 
+// @ast node: Var "bountyKeys"
+// @ast edge: Contains <- File "useBountyQueries.ts" "src/testing/nextjs/lib/hooks/useBountyQueries.ts"
 export const bountyKeys = {
   all: ["bounties"] as const,
   lists: () => [...bountyKeys.all, "list"] as const,

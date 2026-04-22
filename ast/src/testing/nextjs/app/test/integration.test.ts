@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { fetchItems, createItem } from "./helpers/test-utils";
 
+// @ast node: IntegrationTest "integration: /api/items"
+// @ast edge: Contains <- File "integration.test.ts" "src/testing/nextjs/app/test/integration.test.ts"
 describe("integration: /api/items", () => {
   it("GET returns items list via helper", async () => {
     const res = await fetchItems();

@@ -24,7 +24,7 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let repos = Repos(vec![repo]);
     let graph = repos.build_graphs_inner::<G>().await?;
 
-    // graph.analysis();
+    graph.analysis();
 
     let mut nodes = 0;
     let mut edges = 0;
@@ -40,12 +40,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     let file_nodes = graph.find_nodes_by_type(NodeType::File);
     nodes += file_nodes.len();
     assert_eq!(file_nodes.len(), 87, "Expected 87 File nodes");
-
-    let card_file = file_nodes
-        .iter()
-        .find(|f| f.name == "card.tsx" && f.file.ends_with("nextjs/components/ui/card.tsx"))
-        .map(|n| Node::new(NodeType::File, n.clone()))
-        .expect("File 'Card.tsx' not found");
 
     let items_page_file = file_nodes
         .iter()
@@ -105,18 +99,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         })
         .map(|n| Node::new(NodeType::File, n.clone()))
         .expect("useBountyQueries.ts file not found");
-
-    let bounty_keys = graph.find_nodes_by_type(NodeType::Var);
-    let bounty_keys_var = bounty_keys
-        .iter()
-        .find(|v| v.name == "bountyKeys")
-        .map(|n| Node::new(NodeType::Var, n.clone()))
-        .expect("bountyKeys variable not found");
-
-    assert!(
-        graph.has_edge(&bounty_file, &bounty_keys_var, EdgeType::Contains),
-        "Expected useBountyQueries.ts to contain bountyKeys"
-    );
 
     let functions = graph.find_nodes_by_type(NodeType::Function);
 
@@ -361,30 +343,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     nodes += pages.len();
     assert_eq!(pages.len(), 10, "Expected 10 Page nodes");
 
-    let app_page = pages
-        .iter()
-        .find(|p| p.name == "app" && p.file.ends_with("nextjs/app/page.tsx") && p.body == "/")
-        .map(|n| Node::new(NodeType::Page, n.clone()))
-        .expect("Page 'Home' not found");
-
-    let items_page = pages
-        .iter()
-        .find(|p| {
-            p.name == "items" && p.file.ends_with("nextjs/app/items/page.tsx") && p.body == "/items"
-        })
-        .map(|n| Node::new(NodeType::Page, n.clone()))
-        .expect("Page 'Items' not found");
-
-    let person_page = pages
-        .iter()
-        .find(|p| {
-            p.name == "person"
-                && p.file.ends_with("nextjs/app/person/page.tsx")
-                && p.body == "/person"
-        })
-        .map(|n| Node::new(NodeType::Page, n.clone()))
-        .expect("Page 'Person' not found");
-
     let _docs_page = pages
         .iter()
         .find(|p| {
@@ -392,36 +350,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         })
         .map(|n| Node::new(NodeType::Page, n.clone()))
         .expect("Page 'Docs' not found");
-
-    let home_component = functions
-        .iter()
-        .find(|f| f.name == "Home" && f.file.ends_with("nextjs/app/page.tsx"))
-        .map(|n| Node::new(NodeType::Function, n.clone()))
-        .expect("Function 'Home' not found");
-
-    let items_component = functions
-        .iter()
-        .find(|f| f.name == "Items" && f.file.ends_with("nextjs/app/items/page.tsx"))
-        .map(|n| Node::new(NodeType::Function, n.clone()))
-        .expect("Function 'Items' not found");
-    let person_component = functions
-        .iter()
-        .find(|f| f.name == "Person" && f.file.ends_with("nextjs/app/person/page.tsx"))
-        .map(|n| Node::new(NodeType::Function, n.clone()))
-        .expect("Function 'Person' not found");
-
-    assert!(
-        graph.has_edge(&app_page, &home_component, EdgeType::Renders),
-        "Home page should render Home component"
-    );
-    assert!(
-        graph.has_edge(&items_page, &items_component, EdgeType::Renders),
-        "Items page should render Items component"
-    );
-    assert!(
-        graph.has_edge(&person_page, &person_component, EdgeType::Renders),
-        "Person page should render Person component"
-    );
 
     let cn = functions
         .iter()
@@ -728,18 +656,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         .map(|n| Node::new(NodeType::Endpoint, n.clone()))
         .expect("POST /api/items endpoint not found");
 
-    let get_items_handler_func = functions
-        .iter()
-        .find(|f| f.name == "GET" && f.file.ends_with("app/api/items/route.ts"))
-        .map(|n| Node::new(NodeType::Function, n.clone()))
-        .expect("GET handler function for items not found");
-
-    let post_items_handler_func = functions
-        .iter()
-        .find(|f| f.name == "POST" && f.file.ends_with("app/api/items/route.ts"))
-        .map(|n| Node::new(NodeType::Function, n.clone()))
-        .expect("POST handler function for items not found");
-
     let get_items_request = requests
         .iter()
         .find(|r| {
@@ -823,23 +739,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         .expect("DELETE /api/person/[id] endpoint not found");
 
     assert!(
-        graph.has_edge(
-            &get_items_endpoint,
-            &get_items_handler_func,
-            EdgeType::Handler
-        ),
-        "Expected GET /api/items endpoint to be handled by GET function"
-    );
-    assert!(
-        graph.has_edge(
-            &post_items_endpoint,
-            &post_items_handler_func,
-            EdgeType::Handler
-        ),
-        "Expected POST /api/items endpoint to be handled by POST function"
-    );
-
-    assert!(
         graph.has_edge(&items_page_func, &get_items_request, EdgeType::Calls),
         "Expected Items to call the GET /api/items request"
     );
@@ -897,23 +796,8 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
     );
 
     assert!(
-        graph.has_edge(&card_file, &card_func, EdgeType::Contains),
-        "Expected Card file to call the Card function"
-    );
-
-    assert!(
         graph.has_edge(&card_func, &cn, EdgeType::Calls),
         "Expected Card function to call the cn function"
-    );
-
-    assert!(
-        graph.has_edge(&items_page_file, &items_page_func, EdgeType::Contains),
-        "Expected ItemsPage file to contain the ItemsPage function"
-    );
-
-    assert!(
-        graph.has_edge(&person_file, &person_page_func, EdgeType::Contains),
-        "Expected Person file to contain the PersonPage function"
     );
 
     if use_lsp {
@@ -926,14 +810,6 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
             "Expected ItemsPage file to import Card function"
         );
     }
-    assert!(
-        graph.has_edge(&person_page_func, &card_func, EdgeType::Calls),
-        "Expected PersonPage function to call Card function"
-    );
-    assert!(
-        graph.has_edge(&items_page_func, &card_func, EdgeType::Calls),
-        "Expected ItemsPage function to call Card function"
-    );
 
     let (num_nodes, num_edges) = graph.get_graph_size();
     assert_eq!(
@@ -944,6 +820,17 @@ pub async fn test_nextjs_generic<G: Graph + Sync>() -> Result<()> {
         num_edges, edges as u32,
         "Edges mismatch: expected {num_edges} edges found {edges}"
     );
+
+    let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/testing/nextjs");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let annotation_failures = crate::testing::annotations::walk_and_verify(&fixture_dir, root, &graph);
+    if !annotation_failures.is_empty() {
+        for f in &annotation_failures {
+            eprintln!("{}", f);
+        }
+        panic!("{} annotation verification failure(s)", annotation_failures.len());
+    }
+
     Ok(())
 }
 

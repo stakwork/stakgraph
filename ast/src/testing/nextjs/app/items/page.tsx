@@ -16,6 +16,10 @@ interface Item {
   price: number;
 }
 
+// @ast node: Function "Items"
+// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/items/page.tsx"
+// @ast edge: Renders <- Page "items" "src/testing/nextjs/app/items/page.tsx"
+// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
 function Items() {
   const [items, setItems] = useState<Item[]>([]);
   const [form, setForm] = useState<Omit<Item, "id">>({

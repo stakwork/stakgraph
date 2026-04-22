@@ -3,6 +3,9 @@ import { useEffect } from "react";
 import Image from "next/image";
 import { analytics } from "../lib/services/analytics";
 
+// @ast node: Function "Home"
+// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/page.tsx"
+// @ast edge: Renders <- Page "app" "src/testing/nextjs/app/page.tsx"
 export default function Home() {
   useEffect(() => {
     analytics.page("Home");

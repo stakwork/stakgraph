@@ -2,6 +2,9 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
+// @ast node: Function "Card"
+// @ast edge: Contains <- File "card.tsx" "src/testing/nextjs/components/ui/card.tsx"
+
 // Card component container
 // Provides base styling and layout
 function Card({ className, ...props }: React.ComponentProps<"div">) {
