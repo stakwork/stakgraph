@@ -1580,7 +1580,9 @@ class Db {
     const session = this.driver.session();
     try {
       const result = await session.run(Q.LIST_AGENT_SESSIONS_QUERY);
-      return result.records.map((r) => r.get("n").properties);
+      return result.records.map((r) => ({
+        ...r.get("n").properties,
+      }));
     } finally {
       await session.close();
     }
@@ -1591,7 +1593,9 @@ class Db {
     try {
       const result = await neo4jSession.run(Q.GET_AGENT_SESSION_QUERY, { session_id });
       if (!result.records.length) return null;
-      return result.records[0].get("n").properties;
+      return {
+        ...result.records[0].get("n").properties,
+      };
     } finally {
       await neo4jSession.close();
     }

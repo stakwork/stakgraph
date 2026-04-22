@@ -586,6 +586,8 @@ function SourceBadge({ source }: { source: string }) {
         fontSize: "11px",
         fontWeight: 600,
         textTransform: "lowercase",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
       }}
     >
       {formatSourceLabel(source)}
@@ -1196,7 +1198,7 @@ export function Sessions() {
       {/* LEFT: sidebar */}
       <div
         style={{
-          width: "280px",
+          width: "320px",
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
@@ -1262,7 +1264,10 @@ export function Sessions() {
                   <option key={r} value={r} />
                 ))}
               </datalist>
-              {(repoSearch || sourceFilter !== "all" || rangeFilter !== "all" || dayFilter) && (
+              {(repoSearch ||
+                sourceFilter !== "all" ||
+                rangeFilter !== "all" ||
+                dayFilter) && (
                 <>
                   <p style={{ ...muted, textAlign: "center" }}>
                     {dayFilter ? `Day ${dayFilter} · ` : ""}
@@ -1288,18 +1293,21 @@ export function Sessions() {
               {filteredRuns.length === 0 ? (
                 <p style={muted}>No sessions match the filter.</p>
               ) : (
-                filteredRuns.map((r) => (
+                filteredRuns.map((run) => (
                   <button
-                    key={r.id}
-                    onClick={() => loadDetail(r)}
+                    key={run.id}
+                    onClick={() => void loadDetail(run)}
                     style={{
                       textAlign: "left",
                       borderRadius: "6px",
-                      border: `1px solid ${selected?.id === r.id ? "#52525b" : "#27272a"}`,
+                      border: `1px solid ${
+                        selected?.id === run.id ? "#52525b" : "#27272a"
+                      }`,
                       backgroundColor:
-                        selected?.id === r.id ? "#27272a" : "#111113",
+                        selected?.id === run.id ? "#27272a" : "#111113",
                       padding: "8px 10px",
                       cursor: "pointer",
+                      width: "100%",
                     }}
                   >
                     <div
@@ -1310,16 +1318,26 @@ export function Sessions() {
                         gap: "8px",
                       }}
                     >
-                      <SourceBadge source={r.source} />
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          minWidth: 0,
+                        }}
+                      >
+                        <SourceBadge source={run.source} />
+                      </div>
                       <span
                         style={{
                           fontSize: "10px",
                           color: "#71717a",
                           fontFamily: "ui-monospace, monospace",
+                          flexShrink: 0,
                         }}
-                        title={r.id}
+                        title={run.id}
                       >
-                        {shortId(r.id)}
+                        {shortId(run.id)}
                       </span>
                     </div>
                     <span
@@ -1334,7 +1352,7 @@ export function Sessions() {
                         marginTop: "8px",
                       }}
                     >
-                      {r.repo || "No repo captured"}
+                      {run.repo || "No repo captured"}
                     </span>
                     <p
                       style={{
@@ -1345,11 +1363,11 @@ export function Sessions() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {new Date(r.timestamp).toLocaleString()} {"\u00b7"}{" "}
-                      {r.tool_call_count} calls {"\u00b7"}{" "}
-                      {formatNumber(r.token_usage.total)} tokens
+                      {new Date(run.timestamp).toLocaleString()} {"\u00b7"}{" "}
+                      {run.tool_call_count} calls {"\u00b7"}{" "}
+                      {formatNumber(run.token_usage.total)} tokens
                     </p>
-                    {r.user_prompt_preview && (
+                    {run.user_prompt_preview && (
                       <p
                         style={{
                           ...muted,
@@ -1359,7 +1377,7 @@ export function Sessions() {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {r.user_prompt_preview}
+                        {run.user_prompt_preview}
                       </p>
                     )}
                   </button>
@@ -1376,6 +1394,7 @@ export function Sessions() {
           <div
             style={{
               display: "flex",
+              overflow: "hidden",
               flexDirection: "column",
               gap: "10px",
               minHeight: 0,
@@ -1415,6 +1434,8 @@ export function Sessions() {
                       fontSize: "18px",
                       fontWeight: 700,
                       color: "#ededed",
+                      flexShrink: 0,
+                      whiteSpace: "nowrap",
                       margin: 0,
                       lineHeight: 1.2,
                     }}
@@ -1440,7 +1461,10 @@ export function Sessions() {
                       label="duration"
                       value={formatDuration(selected.duration_ms)}
                     />
-                    <MetaPill label="turns" value={String(parsed.turns.length)} />
+                    <MetaPill
+                      label="turns"
+                      value={String(parsed.turns.length)}
+                    />
                     <MetaPill
                       label="calls"
                       value={String(selected.tool_call_count)}
@@ -1548,12 +1572,18 @@ export function Sessions() {
                     No trace events available.
                   </p>
                 ) : (
-                  parsed.turns.map((turn) => <TurnCard key={turn.id} turn={turn} />)
+                  parsed.turns.map((turn) => (
+                    <TurnCard key={turn.id} turn={turn} />
+                  ))
                 )}
               </div>
             </Section>
 
-            <Section title="Session highlights" badge="summary" defaultOpen={false}>
+            <Section
+              title="Session highlights"
+              badge="summary"
+              defaultOpen={false}
+            >
               <div
                 style={{
                   display: "grid",
@@ -1563,19 +1593,29 @@ export function Sessions() {
                 }}
               >
                 <div>
-                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>Prompt</p>
+                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
+                    Prompt
+                  </p>
                   <pre style={preStyle}>{prompt}</pre>
                 </div>
                 <div>
-                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>Final answer</p>
+                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
+                    Final answer
+                  </p>
                   <pre style={preStyle}>{answer}</pre>
                 </div>
               </div>
             </Section>
 
-            <Section title="Tool analysis" badge={String(freq.length)} defaultOpen={false}>
+            <Section
+              title="Tool analysis"
+              badge={String(freq.length)}
+              defaultOpen={false}
+            >
               <div style={{ padding: "12px 14px" }}>
-                <p style={{ ...labelStyle, marginBottom: "8px" }}>Tool frequency</p>
+                <p style={{ ...labelStyle, marginBottom: "8px" }}>
+                  Tool frequency
+                </p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                   {freq.length === 0 ? (
                     <p style={muted}>No tool activity in this session.</p>
