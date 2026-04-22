@@ -5,6 +5,8 @@ import { convertSatsToUSD } from "../../lib/currency";
 // mockBody is a pair arrow function that returns a literal — no real outgoing Calls,
 // and nothing in this file calls res.mockBody() — so it is pure noise.
 // It should be pruned from the graph.
+// @ast node: UnitTest "notifications api client"
+// @ast edge: Contains <- File "mock-fetch.test.ts" "src/testing/nextjs/app/test/mock-fetch.test.ts"
 describe("notifications api client", () => {
   const mockNotification = { id: 1, title: "New Bounty", amount: 5000 };
 

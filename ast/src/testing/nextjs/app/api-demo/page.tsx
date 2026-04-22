@@ -10,6 +10,12 @@ import {
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 
+// @ast node: Function "APIDemo"
+// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/api-demo/page.tsx"
+// @ast edge: Renders <- Page "api-demo" "src/testing/nextjs/app/api-demo/page.tsx"
+// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
+// @ast edge: Calls -> Function "Button" "src/testing/nextjs/components/ui/button.tsx"
+// @ast edge: Calls -> Function "Input" "src/testing/nextjs/components/ui/input.tsx"
 function APIDemo() {
   const [users, setUsers] = useState<any[]>([]);
   const [posts, setPosts] = useState<any[]>([]);

@@ -20,6 +20,12 @@ interface Item {
 // @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/items/page.tsx"
 // @ast edge: Renders <- Page "items" "src/testing/nextjs/app/items/page.tsx"
 // @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
+// @ast edge: Calls -> Request "/api/items" "src/testing/nextjs/app/items/page.tsx" [verb=GET]
+// @ast edge: Calls -> Request "/api/items" "src/testing/nextjs/app/items/page.tsx" [verb=POST]
+// @ast node: Request "/api/items" [verb=GET]
+// @ast edge: Calls -> Endpoint "/api/items" "src/testing/nextjs/app/api/items/route.ts" [verb=GET]
+// @ast node: Request "/api/items" [verb=POST]
+// @ast edge: Calls -> Endpoint "/api/items" "src/testing/nextjs/app/api/items/route.ts" [verb=POST]
 function Items() {
   const [items, setItems] = useState<Item[]>([]);
   const [form, setForm] = useState<Omit<Item, "id">>({

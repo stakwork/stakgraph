@@ -10,6 +10,12 @@ import {
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 
+// @ast node: Function "Simulation"
+// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/simulation/page.tsx"
+// @ast edge: Renders <- Page "simulation" "src/testing/nextjs/app/simulation/page.tsx"
+// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
+// @ast edge: Calls -> Function "Button" "src/testing/nextjs/components/ui/button.tsx"
+// @ast edge: Calls -> Function "Input" "src/testing/nextjs/components/ui/input.tsx"
 function Simulation() {
   const [forceStrength, setForceStrength] = useState(0.5);
   const store = useSimulationStore();

@@ -1,8 +1,10 @@
-describe('integration: api and page mix', () => {
-  describe('nested unit block', () => {
-    it('does simple assertion', () => {});
+// @ast node: IntegrationTest "integration: api and page mix"
+// @ast edge: Contains <- File "mixed.nested.test.ts" "src/testing/nextjs/app/test/mixed.nested.test.ts"
+describe("integration: api and page mix", () => {
+  describe("nested unit block", () => {
+    it("does simple assertion", () => {});
   });
-  it('hits api', async () => {
-    await fetch('http://localhost:3000/api/items');
+  it("hits api", async () => {
+    await fetch("http://localhost:3000/api/items");
   });
 });

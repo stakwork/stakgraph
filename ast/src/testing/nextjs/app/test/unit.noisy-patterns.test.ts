@@ -1,4 +1,11 @@
 // @ts-nocheck
+// @ast node: UnitTest "unit: noisy patterns - category 3 (returned from function)"
+// @ast edge: Contains <- File "unit.noisy-patterns.test.ts" "src/testing/nextjs/app/test/unit.noisy-patterns.test.ts"
+// @ast node: UnitTest "unit: noisy patterns - category 4 (deep config)"
+// @ast edge: Contains <- File "unit.noisy-patterns.test.ts" "src/testing/nextjs/app/test/unit.noisy-patterns.test.ts"
+// @ast node: UnitTest "unit: noisy patterns - category 5 (class method return)"
+// @ast edge: Contains <- File "unit.noisy-patterns.test.ts" "src/testing/nextjs/app/test/unit.noisy-patterns.test.ts"
+// @ast absent: Function "helperInsideDescribe" "src/testing/nextjs/app/test/unit.noisy-patterns.test.ts"
 import { createApiHandlers, deepConfig, apiService } from "../../lib/noisy-patterns";
 
 describe("unit: noisy patterns - category 3 (returned from function)", () => {

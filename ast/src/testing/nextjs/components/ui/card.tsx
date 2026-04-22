@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 
 // @ast node: Function "Card"
 // @ast edge: Contains <- File "card.tsx" "src/testing/nextjs/components/ui/card.tsx"
+// @ast edge: Calls -> Function "cn" "src/testing/nextjs/lib/utils.ts"
 
 // Card component container
 // Provides base styling and layout

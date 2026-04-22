@@ -3,7 +3,7 @@ use crate::lang::{Edge, Lang, Node, NodeType};
 use crate::lang::{Function, FunctionCall};
 use lsp::Language;
 use shared::Result;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Debug;
 
 use super::{EdgeType, NodeData, NodeKeys};
@@ -161,6 +161,23 @@ pub trait Graph: Default + Debug {
         self.find_nodes_by_name(node_type, name)
             .into_iter()
             .find(|node| node.file.ends_with(suffix))
+    }
+
+    fn find_node_by_name_file_and_meta(
+        &self,
+        node_type: NodeType,
+        name: &str,
+        suffix: &str,
+        meta_filter: &BTreeMap<String, String>,
+    ) -> Option<NodeData> {
+        self.find_nodes_by_name(node_type, name)
+            .into_iter()
+            .find(|node| {
+                node.file.ends_with(suffix)
+                    && meta_filter
+                        .iter()
+                        .all(|(k, v)| node.meta.get(k).map(|s| s == v).unwrap_or(false))
+            })
     }
 
     fn find_node_by_name_and_file_contains(

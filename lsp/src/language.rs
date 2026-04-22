@@ -40,6 +40,12 @@ pub const PROGRAMMING_LANGUAGES: [Language; 14] = [
 ];
 
 impl Language {
+    pub fn annotation_prefix(&self) -> &'static str {
+        match self {
+            Self::Python | Self::Ruby => "# @ast ",
+            _ => "// @ast ",
+        }
+    }
     pub fn is_frontend(&self) -> bool {
         matches!(self, Self::Typescript | Self::Kotlin | Self::Swift)
     }

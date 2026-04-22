@@ -8,6 +8,7 @@ const people = [
 
 // @ast node: Function "GET"
 // @ast edge: Contains <- File "route.ts" "src/testing/nextjs/app/api/person/[id]/route.ts"
+// @ast edge: Handler <- Endpoint "/api/person/[id]" "src/testing/nextjs/app/api/person/[id]/route.ts"
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -23,6 +24,7 @@ export async function GET(
 
 // @ast node: Function "DELETE"
 // @ast edge: Contains <- File "route.ts" "src/testing/nextjs/app/api/person/[id]/route.ts"
+// @ast edge: Handler <- Endpoint "/api/person/[id]" "src/testing/nextjs/app/api/person/[id]/route.ts"
 export async function DELETE(
   request: Request,
   { params }: { params: { id: string } }

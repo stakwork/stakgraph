@@ -1,6 +1,9 @@
 // @ts-nocheck
 import { useAuth } from "../../lib/context/AuthContext";
 
+// @ast node: UnitTest "unit: auth context"
+// @ast edge: Contains <- File "unit.context.test.ts" "src/testing/nextjs/app/test/unit.context.test.ts"
+// @ast edge: Calls -> Function "useAuth" "src/testing/nextjs/lib/context/AuthContext.tsx"
 describe("unit: auth context", () => {
   it("logs in user", async () => {
     const auth = useAuth();
