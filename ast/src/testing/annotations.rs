@@ -3,8 +3,10 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::lang::graphs::{EdgeType, Node, NodeType};
-use crate::lang::Graph;
+use crate::lang::{Graph, Lang};
+use crate::repo::{Repo, Repos};
 use lsp::Language;
+use shared::error::Result;
 
 #[derive(Debug, Clone)]
 enum Direction {
@@ -328,4 +330,32 @@ fn walk_impl(
             failures.extend(verify_file(&src, &suffix, graph, lang));
         }
     }
+}
+
+pub async fn run_fixture_test<G: Graph + Sync>(
+    subdir: &str,
+    lang: &str,
+    annotation_lang: Language,
+) -> Result<()> {
+    let repo = Repo::new(
+        subdir,
+        Lang::from_str(lang).unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+    let repos = Repos(vec![repo]);
+    let graph = repos.build_graphs_inner::<G>().await?;
+    graph.analysis();
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(subdir);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let failures = walk_and_verify(&fixture_dir, root, &graph, &annotation_lang);
+    if !failures.is_empty() {
+        for f in &failures {
+            eprintln!("{}", f);
+        }
+        panic!("{} annotation verification failure(s)", failures.len());
+    }
+    Ok(())
 }
