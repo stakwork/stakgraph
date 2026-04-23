@@ -8,6 +8,7 @@ interface User {
 
 const users: User[] = [];
 
+// @ast node: Function "GET"
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const id = searchParams.get("id");
@@ -20,6 +21,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(users);
 }
 
+// @ast node: Function "POST"
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const newUser: User = {
@@ -31,6 +33,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(newUser, { status: 201 });
 }
 
+// @ast node: Function "PUT"
 export async function PUT(request: NextRequest) {
   const body = await request.json();
   const index = users.findIndex((u) => u.id === body.id);
@@ -41,6 +44,7 @@ export async function PUT(request: NextRequest) {
   return NextResponse.json({ error: "Not found" }, { status: 404 });
 }
 
+// @ast node: Function "DELETE"
 export async function DELETE(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const id = searchParams.get("id");
@@ -57,6 +61,7 @@ export async function DELETE(request: NextRequest) {
   return NextResponse.json({ error: "Not found" }, { status: 404 });
 }
 
+// @ast node: Function "PATCH"
 export async function PATCH(request: NextRequest) {
   const body = await request.json();
   const index = users.findIndex((u) => u.id === body.id);

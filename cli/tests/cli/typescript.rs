@@ -20,8 +20,8 @@ fn routes_ts_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&routes]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Endpoint: POST /people/new (18)"), true);
-    assert_eq!(out.stdout.contains("Function: getPerson (32-49)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: POST /people/new (19)"), true);
+    assert_eq!(out.stdout.contains("Function: getPerson (37-54)"), true);
     assert_eq!(out.stdout.contains("Datamodel: PersonRequest (6)"), true);
 }
 
@@ -35,7 +35,7 @@ fn comma_separated_single_arg_runs_both_files() {
     assert_eq!(out.exit_code, 0);
     assert_eq!(count_prefix(&out.stdout, "File:"), 2);
     assert_eq!(out.stdout.contains("Datamodel: Item (55)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: POST /people/new (18)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: POST /people/new (19)"), true);
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn multiple_separate_args_runs_both_files() {
     assert_eq!(out.exit_code, 0);
     assert_eq!(count_prefix(&out.stdout, "File:"), 2);
     assert_eq!(out.stdout.contains("Datamodel: Item (55)"), true);
-    assert_eq!(out.stdout.contains("Function: getPerson (32-49)"), true);
+    assert_eq!(out.stdout.contains("Function: getPerson (37-54)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────

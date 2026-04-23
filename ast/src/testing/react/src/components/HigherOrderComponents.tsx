@@ -18,6 +18,7 @@ export const AuthContext = createContext<AuthContextType>({
 });
 
 // Higher-Order Component for authentication
+// @ast node: Function "withAuth"
 export function withAuth<P extends object>(WrappedComponent: ComponentType<P>) {
   return function WithAuthComponent(props: P) {
     const auth = useContext(AuthContext);
@@ -31,7 +32,8 @@ export function withAuth<P extends object>(WrappedComponent: ComponentType<P>) {
 }
 
 // Higher-Order Component for loading state
-export function withLoading<P extends { loading?: boolean }>(
+// @ast node: Function "withLoading"
+export function withLoading<P extends { loading?: boolean }>( 
   WrappedComponent: ComponentType<P>
 ) {
   return function WithLoadingComponent(props: P) {
@@ -48,6 +50,7 @@ interface MemoizedCardProps {
   content: string;
 }
 
+// @ast node: Function "MemoizedCard"
 export const MemoizedCard = memo(function MemoizedCard({
   title,
   content,
@@ -66,6 +69,7 @@ interface InputProps {
   placeholder?: string;
 }
 
+// @ast node: Function "ForwardedInput"
 export const ForwardedInput = forwardRef<HTMLInputElement, InputProps>(
   function ForwardedInput({ label, placeholder }, ref) {
     return (
@@ -82,6 +86,7 @@ interface AuthProviderProps {
   children: React.ReactNode;
 }
 
+// @ast node: Function "AuthProvider"
 export function AuthProvider({ children }: AuthProviderProps) {
   const value: AuthContextType = {
     isAuthenticated: true,
@@ -92,6 +97,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 }
 
 // Hook using the context
+// @ast node: Function "useAuth"
 export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) {

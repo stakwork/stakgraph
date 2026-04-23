@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { registerRoutes } from "../../src/routes";
 
+// @ast node: IntegrationTest "integration: /person endpoint"
 describe("integration: /person endpoint", () => {
   it("POST creates person via API", async () => {
     const res = await fetch("http://localhost:3000/person", {
@@ -17,6 +18,7 @@ describe("integration: /person endpoint", () => {
   });
 });
 
+// @ast node: IntegrationTest "integration: /api/admin endpoints"
 describe("integration: /api/admin endpoints", () => {
   it("GET lists users", async () => {
     const res = await fetch("http://localhost:3000/api/admin/users");

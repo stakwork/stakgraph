@@ -25,6 +25,7 @@ userRouter.use("/:userId/posts", postRouter);
 app.use(errorHandler);
 
 // Another pattern - router factory
+// @ast node: Function "createApiRouter"
 function createApiRouter(prefix: string) {
   const apiRouter = express.Router();
   apiRouter.get("/", (req, res) => res.json({ message: `API at ${prefix}` }));
@@ -34,6 +35,7 @@ function createApiRouter(prefix: string) {
 // Mount a generated router
 app.use("/api/v2", createApiRouter("/api/v2"));
 
+// @ast node: Function "initDatabases"
 async function initDatabases() {
   try {
     await sequelize.sync();

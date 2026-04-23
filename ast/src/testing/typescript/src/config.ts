@@ -3,12 +3,14 @@ import { DataSource } from "typeorm";
 import { PrismaClient } from "@prisma/client";
 import { TypeORMPerson } from "./model.js";
 
+// @ast node: Var "sequelize"
 export const sequelize = new Sequelize({
   dialect: "sqlite",
   storage: "./database.sqlite",
   logging: false,
 });
 
+// @ast node: Var "AppDataSource"
 export const AppDataSource = new DataSource({
   type: "sqlite",
   database: "./database.sqlite",
@@ -17,4 +19,5 @@ export const AppDataSource = new DataSource({
   logging: false,
 });
 
+// @ast node: Var "prisma"
 export const prisma = new PrismaClient();

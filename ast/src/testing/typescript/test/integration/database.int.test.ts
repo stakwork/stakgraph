@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { sequelize } from "../../src/config";
 
+// @ast node: IntegrationTest "integration: database connection"
 describe("integration: database connection", () => {
   it("connects to database", async () => {
     await sequelize.authenticate();

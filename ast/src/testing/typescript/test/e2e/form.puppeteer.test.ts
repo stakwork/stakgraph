@@ -1,6 +1,7 @@
 // @ts-nocheck
 import puppeteer from "puppeteer";
 
+// @ast node: E2eTest "e2e: form submission"
 describe("e2e: form submission", () => {
   it("submits contact form", async () => {
     const browser = await puppeteer.launch();

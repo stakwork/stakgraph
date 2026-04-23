@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 
+// @ast node: E2eTest "Dashboard E2E Tests"
 test.describe("Dashboard E2E Tests", () => {
   test("should navigate to dashboard", async ({ page }) => {
     await page.goto("http://localhost:3000/dashboard");
@@ -26,6 +27,7 @@ test.describe("Dashboard E2E Tests", () => {
   });
 });
 
+// @ast node: E2eTest "Authentication Flow"
 test.describe("Authentication Flow", () => {
   test("should redirect unauthenticated users", async ({ page }) => {
     await page.goto("http://localhost:3000/admin");

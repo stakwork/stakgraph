@@ -1,9 +1,11 @@
 import React from "react";
 
+// @ast node: DataModel "DashboardProps"
 interface DashboardProps {
   title?: string;
 }
 
+// @ast node: Function "DashboardPage"
 export default function DashboardPage({ title = "Dashboard" }: DashboardProps) {
   return (
     <div className="dashboard">

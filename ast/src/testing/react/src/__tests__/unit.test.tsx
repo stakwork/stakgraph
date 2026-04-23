@@ -2,6 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoizedCard } from "../components/HigherOrderComponents";
 
+// @ast node: UnitTest "MemoizedCard Component"
 describe("MemoizedCard Component", () => {
   test("renders title and content", () => {
     render(<MemoizedCard title="Test Title" content="Test Content" />);
@@ -24,6 +25,7 @@ describe("MemoizedCard Component", () => {
   test.todo("implement accessibility tests");
 });
 
+// @ast node: UnitTest "Form Validation"
 describe("Form Validation", () => {
   test.only("validates required fields", () => {
     // Only this test runs when using .only
@@ -38,6 +40,7 @@ describe("Form Validation", () => {
   });
 });
 
+// @ast node: UnitTest "Utility Functions"
 describe("Utility Functions", () => {
   test("formats currency correctly", () => {
     const formatCurrency = (amount: number) => `$${amount.toFixed(2)}`;

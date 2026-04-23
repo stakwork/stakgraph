@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
 // Custom data fetching hook with axios
+// @ast node: Function "useFetch"
 export function useFetch<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -25,6 +26,7 @@ export function useFetch<T>(url: string) {
 }
 
 // Local storage hook
+// @ast node: Function "useLocalStorage"
 export function useLocalStorage<T>(key: string, initialValue: T) {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
@@ -49,6 +51,7 @@ export function useLocalStorage<T>(key: string, initialValue: T) {
 }
 
 // Debounce hook
+// @ast node: Function "useDebounce"
 export function useDebounce<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
@@ -64,6 +67,7 @@ export function useDebounce<T>(value: T, delay: number): T {
 }
 
 // Previous value hook
+// @ast node: Function "usePrevious"
 export function usePrevious<T>(value: T): T | undefined {
   const ref = useRef<T>();
 

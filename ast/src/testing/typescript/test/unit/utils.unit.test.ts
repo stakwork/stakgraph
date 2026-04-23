@@ -4,6 +4,7 @@ function formatDate(date: Date): string {
   return date.toISOString();
 }
 
+// @ast node: UnitTest "unit: formatDate utility"
 describe("unit: formatDate utility", () => {
   it("formats date correctly", () => {
     const date = new Date("2024-01-01");

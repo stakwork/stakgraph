@@ -1,12 +1,14 @@
 import React, { useState, useCallback } from "react";
 
 // Generic React Hook
+// @ast node: Function "useGenericState"
 export function useGenericState<T>(initialValue: T): [T, (value: T) => void] {
   const [state, setState] = useState<T>(initialValue);
   return [state, setState];
 }
 
 // Generic Component Props
+// @ast node: DataModel "ListProps"
 interface ListProps<T> {
   items: T[];
   renderItem: (item: T, index: number) => React.ReactNode;
@@ -14,6 +16,7 @@ interface ListProps<T> {
 }
 
 // Generic Component
+// @ast node: Function "GenericList"
 export function GenericList<T>({
   items,
   renderItem,
@@ -29,6 +32,7 @@ export function GenericList<T>({
 }
 
 // Generic Higher-Order Component
+// @ast node: Function "withLoading"
 export function withLoading<T extends object>(
   WrappedComponent: React.ComponentType<T>
 ): React.FC<T & { isLoading: boolean }> {
@@ -39,6 +43,7 @@ export function withLoading<T extends object>(
 }
 
 // Generic data fetching hook
+// @ast node: Function "useFetch"
 export function useFetch<T>(url: string): {
   data: T | null;
   loading: boolean;

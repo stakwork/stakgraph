@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { SequelizePerson } from "../../src/model";
 
+// @ast node: UnitTest "unit: SequelizePerson model"
 describe("unit: SequelizePerson model", () => {
   it("has required fields", () => {
     expect(SequelizePerson).toBeDefined();
