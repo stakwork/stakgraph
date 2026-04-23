@@ -1,5 +1,6 @@
 import React from "react";
 
+// @ast node: Function "AboutPage"
 export default function AboutPage() {
   return (
     <div className="about-page">

@@ -1,5 +1,8 @@
 import { Calculator } from '../../lib/calculator';
 
+// @ast node: UnitTest "unit: Calculator class"
+// @ast edge: Contains <- File "unit.class.test.ts" "src/testing/nextjs/app/test/unit.class.test.ts"
+// @ast edge: Calls -> Class "Calculator" "src/testing/nextjs/lib/calculator.ts"
 describe('unit: Calculator class', () => {
   it('performs arithmetic operations', () => {
     const calc = new Calculator();

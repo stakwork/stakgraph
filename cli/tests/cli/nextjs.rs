@@ -19,8 +19,8 @@ fn users_route_nextjs_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Function: POST (1-4)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: POST /api/users (1-4)"), true);
+    assert_eq!(out.stdout.contains("Function: POST (4-7)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: POST /api/users (4-7)"), true);
 }
 
 // ── parse: --type filter ──────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ import { adminRouter } from "./admin-routes.js";
 type PersonRequest = Request<{}, {}, { name: string; email: string }>;
 type PersonResponse = Response<PersonData | { error: string }>;
 
+// @ast node: DataModel "ResponseStatus"
 export enum ResponseStatus {
   SUCCESS = 200,
   CREATED = 201,
@@ -18,6 +19,7 @@ const peopleRouter = express.Router();
 peopleRouter.post("/new", createNewPerson);
 peopleRouter.get("/recent", getRecentPeople);
 
+// @ast node: Function "registerRoutes"
 export function registerRoutes(app) {
   app.get("/person/:id", getPerson);
 
@@ -29,6 +31,9 @@ export function registerRoutes(app) {
   app.use("/api/admin", adminRouter);
 }
 
+// @ast node: Endpoint "/person/:id" [verb=GET]
+// @ast node: Function "getPerson"
+// @ast edge: Handler <- Endpoint "/person/:id" "routes.ts" [verb=GET]
 async function getPerson(req: Request, res: Response) {
   const { id } = req.params;
 
@@ -51,6 +56,9 @@ async function getPerson(req: Request, res: Response) {
 /**
  * Create a new person.
  */
+// @ast node: Endpoint "/person" [verb=POST]
+// @ast node: Function "createPerson"
+// @ast edge: Handler <- Endpoint "/person" "routes.ts" [verb=POST]
 async function createPerson(req: PersonRequest, res: PersonResponse) {
   const { name, email } = req.body;
   try {
@@ -64,6 +72,9 @@ async function createPerson(req: PersonRequest, res: PersonResponse) {
   }
 }
 
+// @ast node: Endpoint "/people/new" [verb=POST]
+// @ast node: Function "createNewPerson"
+// @ast edge: Handler <- Endpoint "/people/new" "routes.ts" [verb=POST]
 async function createNewPerson(req: PersonRequest, res: PersonResponse) {
   const { name, email } = req.body;
   try {
@@ -77,6 +88,9 @@ async function createNewPerson(req: PersonRequest, res: PersonResponse) {
   }
 }
 
+// @ast node: Endpoint "/people/recent" [verb=GET]
+// @ast node: Function "getRecentPeople"
+// @ast edge: Handler <- Endpoint "/people/recent" "routes.ts" [verb=GET]
 async function getRecentPeople(req: Request, res: Response) {
   try {
     return res.json([]);

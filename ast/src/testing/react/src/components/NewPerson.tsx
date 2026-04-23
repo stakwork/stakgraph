@@ -37,6 +37,7 @@ const Input = styled.input`
   font-size: 16px;
 `;
 
+// @ast node: Function "SubmitButton"
 const SubmitButton = styled.button`
   width: 100%;
   padding: 10px;
@@ -52,6 +53,7 @@ const SubmitButton = styled.button`
   }
 `;
 
+// @ast node: Function "NewPerson"
 function NewPerson() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -65,6 +67,7 @@ function NewPerson() {
     };
 
     try {
+      // @ast node: Request "${api.host}/person" [verb=POST]
       const response = await fetch(`${api.host}/person`, {
         method: "POST",
         headers: {

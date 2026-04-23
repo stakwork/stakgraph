@@ -1,6 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";
 
 // Interface with optional fields
+// @ast node: DataModel "UserDTO"
 export interface UserDTO {
   id: number;
   name: string;
@@ -10,6 +11,7 @@ export interface UserDTO {
 }
 
 // Type alias with generics
+// @ast node: DataModel "ApiResponse"
 export type ApiResponse<T> = {
   data: T;
   status: number;
@@ -21,9 +23,11 @@ export type ApiResponse<T> = {
 };
 
 // Type alias for union
+// @ast node: DataModel "UserRole"
 export type UserRole = "admin" | "user" | "guest";
 
 // Enum with string values
+// @ast node: DataModel "UserStatus"
 export enum UserStatus {
   Active = "ACTIVE",
   Inactive = "INACTIVE",
@@ -33,6 +37,7 @@ export enum UserStatus {
 
 // Entity decorator pattern (TypeORM)
 @Entity()
+// @ast node: Class "UserEntity"
 export class UserEntity {
   @PrimaryGeneratedColumn()
   id!: number;
@@ -48,12 +53,14 @@ export class UserEntity {
 }
 
 // Class extending Model pattern
+// @ast node: Class "Model"
 export class Model {
   id!: number;
   createdAt!: Date;
   updatedAt!: Date;
 }
 
+// @ast node: Class "Product"
 export class Product extends Model {
   name!: string;
   price!: number;
@@ -61,6 +68,7 @@ export class Product extends Model {
 }
 
 // Complex type with nested structure
+// @ast node: DataModel "OrderWithDetails"
 export type OrderWithDetails = {
   id: number;
   user: UserDTO;
@@ -73,6 +81,7 @@ export type OrderWithDetails = {
 };
 
 // Interface extending another
+// @ast node: DataModel "AdminUser"
 export interface AdminUser extends UserDTO {
   permissions: string[];
   department: string;

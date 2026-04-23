@@ -11,15 +11,23 @@ enum APP_NAMES{
 }
 
 // The name of the application
+// @ast node: Var "AppName"
 export const AppName: string = APP_NAMES.MyReactApp;
+// @ast node: Var "hostPort"
 export const hostPort: string = "http://localhost:5002";
 
+// @ast node: Class "TestThing"
 class TestThing() {
   constructor() {
     super();
   }
 }
 
+// @ast node: Function "App"
+// @ast node: Page "/people"
+// @ast edge: Renders -> Function "People" "People.tsx"
+// @ast node: Page "/new-person"
+// @ast edge: Renders -> Function "NewPerson" "NewPerson.tsx"
 function App() {
 
   const testThing = new TestThing();

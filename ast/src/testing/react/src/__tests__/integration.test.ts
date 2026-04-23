@@ -1,6 +1,7 @@
 import request from "supertest";
 import { app } from "../api/routes";
 
+// @ast node: IntegrationTest "Users API Integration Tests"
 describe("Users API Integration Tests", () => {
   test("GET /api/users returns user list", async () => {
     const response = await request(app)
@@ -39,6 +40,7 @@ describe("Users API Integration Tests", () => {
   });
 });
 
+// @ast node: IntegrationTest "API Error Handling"
 describe("API Error Handling", () => {
   test("returns 404 for non-existent user", async () => {
     await request(app).get("/api/users/99999").expect(404);

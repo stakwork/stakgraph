@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 
+// @ast node: Function "authenticate"
 export function authenticate(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
@@ -9,6 +10,7 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// @ast node: Function "validateRequest"
 export function validateRequest(req: Request, res: Response, next: NextFunction) {
   if (!req.body || Object.keys(req.body).length === 0) {
     return res.status(400).json({ error: 'Request body is required' });
@@ -16,6 +18,7 @@ export function validateRequest(req: Request, res: Response, next: NextFunction)
   next();
 }
 
+// @ast node: Function "errorHandler"
 export function errorHandler(err: Error, req: Request, res: Response, next: NextFunction) {
   console.error(err);
   res.status(500).json({ error: 'Internal server error' });

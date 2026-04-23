@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { test, expect } from "@playwright/test";
 
+// @ast node: E2eTest "e2e: user management flow"
 test.describe("e2e: user management flow", () => {
   test("creates and lists users", async ({ page }) => {
     await page.goto("http://localhost:3000");

@@ -1,5 +1,6 @@
 // @ts-nocheck
 
+// @ast node: E2eTest "e2e: checkout flow"
 describe("e2e: checkout flow", () => {
   it("completes checkout process", () => {
     cy.visit("/checkout");

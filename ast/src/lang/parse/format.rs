@@ -1403,7 +1403,14 @@ impl Lang {
             }
         }
 
-        cleaned_comments.join("\n").trim().to_string()
+        cleaned_comments
+            .join("\n")
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("@ast "))
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim()
+            .to_string()
     }
 
     fn clean_comment(&self, comment: &str) -> String {

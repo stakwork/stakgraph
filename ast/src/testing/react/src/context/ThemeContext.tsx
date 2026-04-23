@@ -7,6 +7,7 @@ import React, {
 } from "react";
 
 // Theme Context
+// @ast node: DataModel "Theme"
 export type Theme = "light" | "dark" | "system";
 
 interface ThemeContextType {
@@ -22,6 +23,7 @@ interface ThemeProviderProps {
   defaultTheme?: Theme;
 }
 
+// @ast node: Function "ThemeProvider"
 export function ThemeProvider({
   children,
   defaultTheme = "light",
@@ -48,6 +50,7 @@ export function ThemeProvider({
   );
 }
 
+// @ast node: Function "useTheme"
 export function useTheme(): ThemeContextType {
   const context = useContext(ThemeContext);
   if (!context) {
@@ -73,6 +76,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(
   undefined
 );
 
+// @ast node: Function "NotificationProvider"
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
@@ -97,6 +101,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   );
 }
 
+// @ast node: Function "useNotifications"
 export function useNotifications(): NotificationContextType {
   const context = useContext(NotificationContext);
   if (!context) {

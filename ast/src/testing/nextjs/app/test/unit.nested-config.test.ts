@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { authOptions, apiConfig, routerConfig } from '../../lib/nested-config';
 
+// @ast node: UnitTest "Nested Config Tests"
+// @ast edge: Contains <- File "unit.nested-config.test.ts" "src/testing/nextjs/app/test/unit.nested-config.test.ts"
 describe('Nested Config Tests', () => {
   it('should call signIn callback from authOptions', async () => {
     const signInCallback = authOptions.callbacks.signIn;

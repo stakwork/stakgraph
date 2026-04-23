@@ -3,6 +3,8 @@ export type ActionResult<T> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+// @ast node: Function "handleAction"
+// @ast edge: Contains <- File "generics.ts" "src/testing/nextjs/lib/generics.ts"
 export async function handleAction<T>(
   action: () => Promise<T>
 ): Promise<ActionResult<T>> {
@@ -45,6 +47,8 @@ export abstract class BaseService<T extends { id: string }> {
 }
 
 // Cache utilities
+// @ast node: Class "Cache"
+// @ast edge: Contains <- File "generics.ts" "src/testing/nextjs/lib/generics.ts"
 export class Cache<K extends string, V> {
   private cache = new Map<K, { value: V; expiry: number }>();
 

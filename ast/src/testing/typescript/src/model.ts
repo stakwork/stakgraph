@@ -8,6 +8,8 @@ interface PersonAttributes {
   email: string;
 }
 
+// @ast node: DataModel "PersonAttributes"
+// @ast node: Class "SequelizePerson"
 export class SequelizePerson
   extends Model<PersonAttributes>
   implements PersonAttributes
@@ -40,6 +42,7 @@ SequelizePerson.init(
 );
 
 @Entity("persons")
+// @ast node: Class "TypeORMPerson"
 export class TypeORMPerson {
   @PrimaryGeneratedColumn()
   id!: number;
@@ -52,6 +55,7 @@ export class TypeORMPerson {
 }
 
 // Trait but is not implemented on a class || Unfortunately get's picked up as a data model as well. Till we find a way to filter it out... ideally treesitter queries
+// @ast node: DataModel "CarType"
 type CarType = {
   model: string;
   year: number;

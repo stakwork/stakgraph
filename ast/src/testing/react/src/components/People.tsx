@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Person, useStore } from "./Person";
 import * as api from "../api";
 
+// @ast node: Function "People"
 function People() {
   const { state, setPeople, setLoading } = useStore();
   const { people, loading } = state;
@@ -9,6 +10,7 @@ function People() {
   useEffect(() => {
     setLoading(true);
     // Fetch people data
+    // @ast node: Request "${api.host}/people" [verb=GET]
     fetch(`${api.host}/people`)
       .then((response) => response.json())
       .then((data: Person[]) => {
