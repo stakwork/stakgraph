@@ -30,56 +30,55 @@ Pre-built binaries for **Linux** (x86_64, aarch64), **macOS** (Intel, Apple Sili
 
 ## CLI
 
-Point `stakgraph` at any file or directory. It parses the code, extracts every meaningful entity, maps their call relationships, and prints a structured summary.
+Point `stakgraph` at a file, directory, or git scope to inspect code structure instead of raw text.
 
-### Parse a file
+### Most useful commands
 
-```
-$ stakgraph src/routes.ts
+Parse a file and print extracted nodes:
+
+```bash
+stakgraph mcp/src/index.ts
+stakgraph cli/src/main.rs --stats
 ```
 
 <img src="./mcp/docs/screenshot/file.png" alt="stakgraph file output" width="700">
 
-Functions, endpoints, data models, classes, traits, tests -- all extracted with **line numbers**, **doc comments**, **signatures**, and **call edges** (`→`).
+Get a compact repo overview:
 
-### Track code changes
-
-See what actually changed at the structural level -- not line diffs, but which **functions, endpoints, and classes** were added, removed, or modified:
-
+```bash
+stakgraph overview .
 ```
-$ stakgraph changes diff --last 5 mcp/src/
+
+Search for endpoints, functions, models, or tests:
+
+```bash
+stakgraph search GET --type Endpoint mcp/src
+stakgraph search batch_process --context ast/src
+```
+
+Inspect structural git changes:
+
+```bash
+stakgraph changes diff --last 5 mcp/src/
+stakgraph changes list cli/src
 ```
 
 <img src="./mcp/docs/screenshot/diff.png" alt="stakgraph changes diff output" width="700">
 
-Works with `--staged`, `--last N`, `--since <ref>`, or `--range HEAD~5..HEAD`. Builds before/after AST graphs from git blobs and computes the structural delta.
+Trace dependencies forward or backward:
 
-### Summarize a project
-
-Get a token-budget-aware overview of any project, designed to fit into LLM context windows:
-
-```
-$ stakgraph summarize ./my-project --max-tokens 2000
+```bash
+stakgraph deps batch_process ast/src
+stakgraph impact --name cn cli/
 ```
 
-Adaptive directory tree depth, file scoring (entry points first), and token counting via tiktoken. Shows functions, classes, endpoints, data models, and call edges within your budget.
+Useful flags:
 
-### CLI options
-
-```
-stakgraph <files/dirs>                   # parse and print graph summary
-stakgraph <files/dirs> --allow           # include unverified function calls
-stakgraph <files/dirs> --skip-calls      # skip call graph extraction
-stakgraph <files/dirs> --no-nested       # exclude nested nodes
-
-stakgraph summarize <dir>               # token-budget project summary
-stakgraph summarize <dir> --max-tokens N # set token budget (default: 5000)
-
-stakgraph changes list <paths>           # list commits touching paths
-stakgraph changes diff --staged          # graph diff of staged changes
-stakgraph changes diff --last 3          # diff last 3 commits
-stakgraph changes diff --since main      # diff since branch point
-stakgraph changes diff --range a..b      # diff between two refs
+```bash
+stakgraph <path> --json        # machine-readable output
+stakgraph <path> --type Class  # filter node types
+stakgraph <path> --name main   # print a single named node
+stakgraph completions zsh      # shell completions
 ```
 
 ---
