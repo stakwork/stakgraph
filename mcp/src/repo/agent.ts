@@ -48,7 +48,7 @@ ${learn_concepts ? "Use list_concepts and learn_concept tools first, to learn ab
 
 ### Graph Tools
 - \`repo_overview\` — Use only for broad orientation or architecture questions; it returns a compact, de-noised repo tree.
-- \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["DataModel"]\`, \`["UnitTest"]\`).
+- \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["Datamodel"]\`, \`["UnitTest"]\`).
 - \`stakgraph_map\` — Trace relationships from a node. Use \`direction: "up"\` for callers, \`"down"\` for callees.
 - \`stakgraph_code\` — Read source code of a specific node. Pass \`ref_id\` from search results or \`name\` + \`node_type\`.
 
@@ -100,7 +100,7 @@ The prompt prepended to your instructions tells you which repos are graph-backed
 - **Find endpoints** → \`stakgraph_search({ query: "bounty", node_types: ["Endpoint"] })\`
 - **How does X work?** → \`stakgraph_search({ query: "X" })\` → \`stakgraph_code({ ref_id: "..." })\` on each result
 - **What calls Y?** → \`stakgraph_map({ name: "Y", node_type: "Function", direction: "up" })\`
-- **List data models** → \`stakgraph_search({ query: "model", node_types: ["DataModel"] })\`
+- **List data models** → \`stakgraph_search({ query: "model", node_types: ["Datamodel"] })\`
 - **Find tests** → \`stakgraph_search({ query: "X", node_types: ["UnitTest", "IntegrationTest"] })\`
 
 CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
