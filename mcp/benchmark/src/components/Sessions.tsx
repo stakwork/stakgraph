@@ -29,6 +29,52 @@ function previewStr(value: unknown): string {
   return s.length > 160 ? s.slice(0, 160) + "\u2026" : s || "\u2014";
 }
 
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value || 0);
+}
+
+function formatDuration(durationMs: number): string {
+  if (!durationMs) return "\u2014";
+  if (durationMs < 1000) return `${durationMs} ms`;
+
+  const totalSeconds = Math.round(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes === 0) return `${totalSeconds}s`;
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return `${hours}h ${remMinutes}m`;
+}
+
+function formatSourceLabel(source: string): string {
+  return (source || "unknown").replace(/[_-]+/g, " ");
+}
+
+function shortId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}\u2026${id.slice(-4)}` : id;
+}
+
+function sourceTheme(source: string): {
+  fg: string;
+  bg: string;
+  border: string;
+} {
+  const key = (source || "unknown").toLowerCase();
+  if (key.includes("gitree")) {
+    return { fg: "#f5d08a", bg: "rgba(120,53,15,0.28)", border: "#78350f" };
+  }
+  if (key.includes("ask") || key.includes("explore")) {
+    return { fg: "#93c5fd", bg: "rgba(30,64,175,0.28)", border: "#1e40af" };
+  }
+  if (key.includes("log")) {
+    return { fg: "#86efac", bg: "rgba(21,128,61,0.24)", border: "#166534" };
+  }
+  return { fg: "#d4d4d8", bg: "rgba(63,63,70,0.32)", border: "#3f3f46" };
+}
+
 function getContent(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -57,6 +103,37 @@ type ResultEntry = {
   toolName: string;
   output: unknown;
   index: number;
+};
+type TraceEventKind =
+  | "system"
+  | "user"
+  | "assistant-text"
+  | "assistant"
+  | "tool-call"
+  | "tool-result"
+  | "tool";
+type TraceTurnKind = "setup" | "direct" | "tool";
+type TraceEvent = {
+  id: string;
+  index: number;
+  role: string;
+  kind: TraceEventKind;
+  text: string;
+  payload: unknown;
+  toolName?: string;
+  toolCallId?: string;
+};
+type TraceTurn = {
+  id: string;
+  index: number;
+  kind: TraceTurnKind;
+  title: string;
+  preview: string;
+  outputPreview: string;
+  toolNames: string[];
+  eventCount: number;
+  toolCount: number;
+  events: TraceEvent[];
 };
 type IssueKind =
   | "empty"
@@ -190,21 +267,109 @@ function analyzeTrace(
   return { steps, counts };
 }
 
+function createTraceEvent(
+  index: number,
+  role: string,
+  kind: TraceEventKind,
+  payload: unknown,
+  text = "",
+  toolName?: string,
+  toolCallId?: string,
+): TraceEvent {
+  return {
+    id: `${kind}-${index}`,
+    index,
+    role,
+    kind,
+    text,
+    payload,
+    toolName,
+    toolCallId,
+  };
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  return [...new Set(values.filter(Boolean) as string[])];
+}
+
+function findLastToolResult(events: TraceEvent[]): TraceEvent | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.kind === "tool-result") return event;
+  }
+  return undefined;
+}
+
+function finalizeTurn(index: number, events: TraceEvent[]): TraceTurn {
+  const toolNames = uniqueStrings(
+    events
+      .filter((event) => event.kind === "tool-call" || event.kind === "tool-result")
+      .map((event) => event.toolName),
+  );
+  const firstUser = events.find((event) => event.kind === "user")?.text ?? "";
+  const assistantTexts = events
+    .filter((event) => event.kind === "assistant-text")
+    .map((event) => event.text)
+    .filter(Boolean);
+  const lastAssistant = assistantTexts[assistantTexts.length - 1] ?? "";
+  const firstSystem = events.find((event) => event.kind === "system")?.text ?? "";
+  const kind: TraceTurnKind = firstSystem
+    ? "setup"
+    : toolNames.length > 0
+      ? "tool"
+      : "direct";
+  const title =
+    kind === "setup"
+      ? "System instructions"
+      : firstUser || lastAssistant || toolNames.join(", ") || `Turn ${index}`;
+  const preview =
+    kind === "setup"
+      ? firstSystem
+      : firstUser || assistantTexts[0] || toolNames.join(", ") || "No prompt";
+  const outputPreview =
+    lastAssistant ||
+    previewStr(findLastToolResult(events)?.payload ?? "");
+
+  return {
+    id: `turn-${index}`,
+    index,
+    kind,
+    title: previewStr(title),
+    preview: previewStr(preview),
+    outputPreview: outputPreview || "\u2014",
+    toolNames,
+    eventCount: events.length,
+    toolCount: toolNames.length,
+    events,
+  };
+}
+
 function parseTrace(trace: unknown): {
   userPrompt: string;
   answer: string;
   calls: CallEntry[];
   results: ResultEntry[];
+  events: TraceEvent[];
+  turns: TraceTurn[];
 } {
   if (!Array.isArray(trace))
-    return { userPrompt: "", answer: "", calls: [], results: [] };
+    return {
+      userPrompt: "",
+      answer: "",
+      calls: [],
+      results: [],
+      events: [],
+      turns: [],
+    };
 
   let userPrompt = "";
   let answer = "";
   const calls: CallEntry[] = [];
   const results: ResultEntry[] = [];
+  const events: TraceEvent[] = [];
   let ci = 0,
-    ri = 0;
+    ri = 0,
+    ei = 0;
 
   for (const msg of trace) {
     if (!msg || typeof msg !== "object") continue;
@@ -221,10 +386,33 @@ function parseTrace(trace: unknown): {
       if (t) answer = t;
     }
 
+    if (role === "system" && typeof content === "string") {
+      ei += 1;
+      events.push(createTraceEvent(ei, role, "system", content, content));
+    }
+    if (role === "user") {
+      const text = getContent(content) || (typeof content === "string" ? content : "");
+      ei += 1;
+      events.push(createTraceEvent(ei, role, "user", content, text));
+    }
+    if (role === "assistant" && typeof content === "string") {
+      ei += 1;
+      events.push(createTraceEvent(ei, role, "assistant-text", content, content));
+    }
+    if (role === "tool" && typeof content === "string") {
+      ei += 1;
+      events.push(createTraceEvent(ei, role, "tool", content, content));
+    }
+
     if (!Array.isArray(content)) continue;
     for (const item of content) {
       if (!item || typeof item !== "object") continue;
       const e = item as Record<string, unknown>;
+      if (role === "assistant" && e.type === "text") {
+        const text = String(e.text ?? "");
+        ei += 1;
+        events.push(createTraceEvent(ei, role, "assistant-text", e, text));
+      }
       if (e.type === "tool-call") {
         ci++;
         calls.push({
@@ -233,6 +421,18 @@ function parseTrace(trace: unknown): {
           input: normalise(e.input),
           index: ci,
         });
+        ei += 1;
+        events.push(
+          createTraceEvent(
+            ei,
+            role,
+            "tool-call",
+            normalise(e.input),
+            String(e.toolName ?? "?"),
+            String(e.toolName ?? "?"),
+            String(e.toolCallId ?? `c${ci}`),
+          ),
+        );
       }
       if (e.type === "tool-result") {
         ri++;
@@ -242,11 +442,51 @@ function parseTrace(trace: unknown): {
           output: normalise(e.output ?? e.result ?? e.content),
           index: ri,
         });
+        ei += 1;
+        events.push(
+          createTraceEvent(
+            ei,
+            role,
+            "tool-result",
+            normalise(e.output ?? e.result ?? e.content),
+            String(e.toolName ?? "?"),
+            String(e.toolName ?? "?"),
+            String(e.toolCallId ?? `r${ri}`),
+          ),
+        );
       }
     }
   }
 
-  return { userPrompt, answer, calls, results };
+  const turns: TraceTurn[] = [];
+  let currentTurnEvents: TraceEvent[] = [];
+
+  const flushTurn = () => {
+    if (currentTurnEvents.length === 0) return;
+    turns.push(finalizeTurn(turns.length + 1, currentTurnEvents));
+    currentTurnEvents = [];
+  };
+
+  for (const event of events) {
+    if (event.kind === "system") {
+      flushTurn();
+      turns.push(finalizeTurn(turns.length + 1, [event]));
+      continue;
+    }
+    if (event.kind === "user") {
+      flushTurn();
+      currentTurnEvents = [event];
+      continue;
+    }
+    if (currentTurnEvents.length === 0) {
+      currentTurnEvents = [event];
+      continue;
+    }
+    currentTurnEvents.push(event);
+  }
+  flushTurn();
+
+  return { userPrompt, answer, calls, results, events, turns };
 }
 
 // ── shared styles ─────────────────────────────────────────────────────────────
@@ -291,6 +531,103 @@ const preStyle: React.CSSProperties = {
   borderTop: "1px solid #27272a",
 };
 
+const pillBase: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "6px",
+  fontSize: "11px",
+  padding: "4px 10px",
+  borderRadius: "9999px",
+  border: "1px solid #27272a",
+  backgroundColor: "#18181b",
+  color: "#ededed",
+};
+
+function MetaPill({ label, value }: { label: string; value: string }) {
+  return (
+    <span style={pillBase}>
+      <span
+        style={{
+          color: "#71717a",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          fontSize: "10px",
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ color: "#ededed" }}>{value}</span>
+    </span>
+  );
+}
+
+function SourceBadge({ source }: { source: string }) {
+  const theme = sourceTheme(source);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "4px 10px",
+        borderRadius: "9999px",
+        border: `1px solid ${theme.border}`,
+        backgroundColor: theme.bg,
+        color: theme.fg,
+        fontSize: "11px",
+        fontWeight: 600,
+        textTransform: "lowercase",
+      }}
+    >
+      {formatSourceLabel(source)}
+    </span>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid #27272a",
+        borderRadius: "10px",
+        backgroundColor: "#111113",
+        padding: "12px 14px",
+        minWidth: 0,
+      }}
+    >
+      <p
+        style={{
+          margin: 0,
+          fontSize: "10px",
+          letterSpacing: "0.14em",
+          textTransform: "uppercase",
+          color: "#71717a",
+        }}
+      >
+        {label}
+      </p>
+      <p
+        style={{
+          margin: "8px 0 0 0",
+          fontSize: "18px",
+          fontWeight: 700,
+          color: "#f5f5f5",
+          lineHeight: 1.1,
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
 function Section({
   title,
   badge,
@@ -309,7 +646,7 @@ function Section({
           <span style={labelStyle}>{title}</span>
           {badge !== undefined && <span style={muted}>{badge}</span>}
         </div>
-        <span style={{ fontSize: "11px", color: "#52525b" }}>\u25be</span>
+        <span style={{ fontSize: "11px", color: "#52525b" }}>{"\u25be"}</span>
       </summary>
       <div>{children}</div>
     </details>
@@ -428,6 +765,289 @@ function EntryRow({
   );
 }
 
+function TurnBadge({ kind }: { kind: TraceTurnKind }) {
+  const color =
+    kind === "setup"
+      ? { fg: "#d4d4d8", bg: "#18181b", border: "#3f3f46" }
+      : kind === "tool"
+        ? { fg: "#93c5fd", bg: "rgba(30,64,175,0.18)", border: "#1e40af" }
+        : { fg: "#c4b5fd", bg: "rgba(76,29,149,0.18)", border: "#4c1d95" };
+
+  return (
+    <span
+      style={{
+        fontSize: "10px",
+        lineHeight: 1,
+        padding: "4px 8px",
+        borderRadius: "9999px",
+        border: `1px solid ${color.border}`,
+        color: color.fg,
+        backgroundColor: color.bg,
+        textTransform: "lowercase",
+      }}
+    >
+      {kind}
+    </span>
+  );
+}
+
+function EventBadge({ event }: { event: TraceEvent }) {
+  const label = event.kind.replace(/-/g, " ");
+  const color =
+    event.kind === "system"
+      ? { fg: "#d4d4d8", bg: "#18181b", border: "#3f3f46" }
+      : event.kind === "user"
+        ? { fg: "#86efac", bg: "rgba(21,128,61,0.18)", border: "#166534" }
+        : event.kind === "assistant-text" || event.kind === "assistant"
+          ? { fg: "#c4b5fd", bg: "rgba(76,29,149,0.18)", border: "#4c1d95" }
+          : { fg: "#93c5fd", bg: "rgba(30,64,175,0.18)", border: "#1e40af" };
+
+  return (
+    <span
+      style={{
+        fontSize: "10px",
+        lineHeight: 1,
+        padding: "4px 8px",
+        borderRadius: "9999px",
+        border: `1px solid ${color.border}`,
+        color: color.fg,
+        backgroundColor: color.bg,
+        textTransform: "lowercase",
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
+// ── display units (render layer only) ────────────────────────────────────────
+
+type StandaloneUnit = { kind: "standalone"; event: TraceEvent };
+type PairedUnit = { kind: "paired"; call: TraceEvent; result: TraceEvent | undefined };
+type DisplayUnit = StandaloneUnit | PairedUnit;
+
+function groupEvents(events: TraceEvent[]): DisplayUnit[] {
+  const resultsByCallId = new Map<string, TraceEvent>();
+  for (const event of events) {
+    if (event.kind === "tool-result" && event.toolCallId) {
+      resultsByCallId.set(event.toolCallId, event);
+    }
+  }
+
+  const units: DisplayUnit[] = [];
+  const consumed = new Set<string>();
+
+  for (const event of events) {
+    if (consumed.has(event.id)) continue;
+
+    if (event.kind === "tool-call") {
+      const result = event.toolCallId ? resultsByCallId.get(event.toolCallId) : undefined;
+      consumed.add(event.id);
+      if (result) consumed.add(result.id);
+      units.push({ kind: "paired", call: event, result });
+      continue;
+    }
+
+    if (event.kind === "tool-result") continue; // already consumed by its call
+
+    consumed.add(event.id);
+    units.push({ kind: "standalone", event });
+  }
+
+  return units;
+}
+
+const unitIndexStyle: React.CSSProperties = {
+  display: "inline-block",
+  width: "28px",
+  flexShrink: 0,
+  fontSize: "10px",
+  fontWeight: 700,
+  color: "#52525b",
+};
+
+const subLabelStyle: React.CSSProperties = {
+  fontSize: "10px",
+  textTransform: "uppercase",
+  letterSpacing: "0.1em",
+  color: "#52525b",
+  padding: "8px 14px 4px 14px",
+};
+
+function DisplayUnitRow({ unit, unitIndex }: { unit: DisplayUnit; unitIndex: number }) {
+  if (unit.kind === "paired") {
+    return (
+      <details style={{ borderTop: "1px solid #1f1f22" }}>
+        <summary
+          style={{
+            listStyle: "none",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "9px 14px",
+            cursor: "pointer",
+            userSelect: "none",
+          }}
+        >
+          <span style={unitIndexStyle}>{unitIndex}</span>
+          <span
+            style={{
+              fontSize: "10px",
+              lineHeight: 1,
+              padding: "4px 8px",
+              borderRadius: "9999px",
+              border: "1px solid #1e40af",
+              color: "#93c5fd",
+              backgroundColor: "rgba(30,64,175,0.18)",
+              textTransform: "lowercase",
+              flexShrink: 0,
+            }}
+          >
+            tool
+          </span>
+          <span
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              fontFamily: "ui-monospace,monospace",
+              color: "#ededed",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {unit.call.toolName ?? "?"}
+          </span>
+          <span style={muted}>{unit.result ? "→ result" : "pending"}</span>
+        </summary>
+        <div style={{ borderTop: "1px solid #1f1f22" }}>
+          <p style={subLabelStyle}>Input</p>
+          <pre style={preStyle}>{stringify(unit.call.payload)}</pre>
+          {unit.result && (
+            <>
+              <p style={{ ...subLabelStyle, borderTop: "1px solid #1f1f22" }}>Output</p>
+              <pre style={preStyle}>{stringify(unit.result.payload)}</pre>
+            </>
+          )}
+        </div>
+      </details>
+    );
+  }
+
+  const { event } = unit;
+  const name = event.toolName || event.role;
+
+  return (
+    <details style={{ borderTop: "1px solid #1f1f22" }}>
+      <summary
+        style={{
+          listStyle: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          padding: "9px 14px",
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <span style={unitIndexStyle}>{unitIndex}</span>
+        <EventBadge event={event} />
+        <span
+          style={{
+            fontSize: "12px",
+            fontWeight: 600,
+            fontFamily: "ui-monospace,monospace",
+            color: "#ededed",
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {name}
+        </span>
+        <span
+          style={{
+            ...muted,
+            maxWidth: "260px",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {previewStr(event.text || event.payload)}
+        </span>
+      </summary>
+      <pre style={preStyle}>{stringify(event.payload)}</pre>
+    </details>
+  );
+}
+
+function TurnCard({ turn }: { turn: TraceTurn }) {
+  const units = groupEvents(turn.events);
+  return (
+    <details style={card}>
+      <summary
+        style={{
+          listStyle: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          padding: "10px 14px",
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0 }}>
+          <span
+            style={{
+              fontSize: "10px",
+              color: "#52525b",
+              textTransform: "uppercase",
+              letterSpacing: "0.14em",
+              flexShrink: 0,
+            }}
+          >
+            {turn.index}
+          </span>
+          <TurnBadge kind={turn.kind} />
+          <span
+            style={{
+              fontSize: "12px",
+              fontWeight: 600,
+              color: "#ededed",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {turn.title}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+          {turn.toolCount > 0 && (
+            <span style={muted}>{turn.toolCount} tools</span>
+          )}
+          <span style={muted}>{units.length} steps</span>
+        </div>
+      </summary>
+      <div style={{ borderTop: "1px solid #1f1f22" }}>
+        {units.map((unit, i) => (
+          <DisplayUnitRow
+            key={unit.kind === "paired" ? unit.call.id : unit.event.id}
+            unit={unit}
+            unitIndex={i + 1}
+          />
+        ))}
+      </div>
+    </details>
+  );
+}
+
 // ── component ─────────────────────────────────────────────────────────────────
 
 export function Sessions() {
@@ -464,7 +1084,7 @@ export function Sessions() {
   const freq = selected ? buildToolFrequency(selected.tool_sequence) : [];
   const parsed = selected
     ? parseTrace(selected.trace)
-    : { userPrompt: "", answer: "", calls: [], results: [] };
+    : { userPrompt: "", answer: "", calls: [], results: [], events: [], turns: [] };
   const prompt =
     parsed.userPrompt || selected?.user_prompt_preview || "No prompt preview";
   const answer =
@@ -533,7 +1153,7 @@ export function Sessions() {
         </button>
 
         {loading ? (
-          <p style={muted}>Loading\u2026</p>
+          <p style={muted}>{"Loading\u2026"}</p>
         ) : runs.length === 0 ? (
           <p style={muted}>No sessions yet.</p>
         ) : (
@@ -548,7 +1168,7 @@ export function Sessions() {
               }}
             >
               <input
-                placeholder="Filter by repo\u2026"
+                placeholder={"Filter by repo\u2026"}
                 value={repoSearch}
                 onChange={(e) => setRepoSearch(e.target.value)}
                 list="repo-options"
@@ -593,18 +1213,39 @@ export function Sessions() {
                       cursor: "pointer",
                     }}
                   >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                      }}
+                    >
+                      <SourceBadge source={r.source} />
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          color: "#71717a",
+                          fontFamily: "ui-monospace, monospace",
+                        }}
+                        title={r.id}
+                      >
+                        {shortId(r.id)}
+                      </span>
+                    </div>
                     <span
                       style={{
                         fontSize: "11px",
-                        fontFamily: "monospace",
+                        fontFamily: "ui-monospace, monospace",
                         color: "#ededed",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
                         display: "block",
+                        marginTop: "8px",
                       }}
                     >
-                      {r.repo}
+                      {r.repo || "No repo captured"}
                     </span>
                     <p
                       style={{
@@ -615,8 +1256,9 @@ export function Sessions() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {new Date(r.timestamp).toLocaleString()} \u00b7{" "}
-                      {r.tool_call_count} calls
+                      {new Date(r.timestamp).toLocaleString()} {"\u00b7"}{" "}
+                      {r.tool_call_count} calls {"\u00b7"}{" "}
+                      {formatNumber(r.token_usage.total)} tokens
                     </p>
                     {r.user_prompt_preview && (
                       <p
@@ -654,23 +1296,93 @@ export function Sessions() {
             <div
               style={{
                 ...card,
-                padding: "14px 16px",
+                padding: "16px",
               }}
             >
-              <p
+              <div
                 style={{
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  color: "#ededed",
-                  margin: 0,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "16px",
+                  flexWrap: "wrap",
+                  alignItems: "flex-start",
                 }}
               >
-                {selected.repo}
-              </p>
-              <p style={{ ...muted, marginTop: "3px" }}>
-                {new Date(selected.timestamp).toLocaleString()} \u00b7{" "}
-                {selected.model} \u00b7 {selected.token_usage.total} tokens
-              </p>
+                <div style={{ flex: "1 1 360px", minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                      marginBottom: "10px",
+                    }}
+                  >
+                    <SourceBadge source={selected.source} />
+                    <MetaPill label="session" value={shortId(selected.id)} />
+                  </div>
+                  <p
+                    style={{
+                      fontSize: "18px",
+                      fontWeight: 700,
+                      color: "#ededed",
+                      margin: 0,
+                      lineHeight: 1.2,
+                    }}
+                  >
+                    {selected.repo || "Session without repo label"}
+                  </p>
+                  <p style={{ ...muted, marginTop: "6px", fontSize: "12px" }}>
+                    Started {new Date(selected.timestamp).toLocaleString()}
+                  </p>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      flexWrap: "wrap",
+                      marginTop: "12px",
+                    }}
+                  >
+                    <MetaPill
+                      label="model"
+                      value={selected.model || "unknown"}
+                    />
+                    <MetaPill
+                      label="duration"
+                      value={formatDuration(selected.duration_ms)}
+                    />
+                    <MetaPill label="turns" value={String(parsed.turns.length)} />
+                    <MetaPill
+                      label="calls"
+                      value={String(selected.tool_call_count)}
+                    />
+                  </div>
+                </div>
+                <div
+                  style={{
+                    flex: "0 1 420px",
+                    minWidth: 0,
+                    display: "grid",
+                    gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))",
+                    gap: "10px",
+                    width: "100%",
+                    maxWidth: "420px",
+                  }}
+                >
+                  <StatTile
+                    label="Total Tokens"
+                    value={formatNumber(selected.token_usage.total)}
+                  />
+                  <StatTile
+                    label="Input"
+                    value={formatNumber(selected.token_usage.input)}
+                  />
+                  <StatTile
+                    label="Output"
+                    value={formatNumber(selected.token_usage.output)}
+                  />
+                </div>
+              </div>
               {(diagnostics.counts.oversized > 0 ||
                 diagnostics.counts.fallback > 0 ||
                 diagnostics.counts.repeat > 0 ||
@@ -729,64 +1441,92 @@ export function Sessions() {
               )}
             </div>
 
-            {/* tool frequency */}
-            <div style={{ ...card, padding: "12px 14px" }}>
-              <p style={{ ...labelStyle, marginBottom: "8px" }}>
-                Tool frequency
-              </p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {freq.map(({ toolName, count }) => (
-                  <span
-                    key={toolName}
-                    title={`${count} call${count === 1 ? "" : "s"}`}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      fontSize: "11px",
-                      padding: "3px 10px",
-                      borderRadius: "9999px",
-                      border: "1px solid #27272a",
-                      backgroundColor: "#18181b",
-                      color: "#ededed",
-                    }}
-                  >
-                    {toolName}
-                    <span
-                      style={{
-                        fontSize: "10px",
-                        fontWeight: 700,
-                        backgroundColor: "#3f3f46",
-                        borderRadius: "9999px",
-                        padding: "1px 6px",
-                        color: "#ededed",
-                      }}
-                    >
-                      {count}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* prompt + answer */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "10px",
-                minHeight: 0,
-              }}
+            <Section
+              title="Trace timeline"
+              badge={`${parsed.turns.length} turns / ${parsed.events.length} events`}
+              defaultOpen={true}
             >
-              <Section title="User prompt" badge="input" defaultOpen={false}>
-                <pre style={preStyle}>{prompt}</pre>
-              </Section>
-              <Section title="Answer preview" badge="output" defaultOpen={false}>
-                <pre style={preStyle}>{answer}</pre>
-              </Section>
-            </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "8px",
+                  padding: "10px",
+                }}
+              >
+                {parsed.turns.length === 0 ? (
+                  <p style={{ ...muted, padding: "10px 4px" }}>
+                    No trace events available.
+                  </p>
+                ) : (
+                  parsed.turns.map((turn) => <TurnCard key={turn.id} turn={turn} />)
+                )}
+              </div>
+            </Section>
 
-            {/* tool calls + results */}
+            <Section title="Session highlights" badge="summary" defaultOpen={false}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "10px",
+                  minHeight: 0,
+                }}
+              >
+                <div>
+                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>Prompt</p>
+                  <pre style={preStyle}>{prompt}</pre>
+                </div>
+                <div>
+                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>Final answer</p>
+                  <pre style={preStyle}>{answer}</pre>
+                </div>
+              </div>
+            </Section>
+
+            <Section title="Tool analysis" badge={String(freq.length)} defaultOpen={false}>
+              <div style={{ padding: "12px 14px" }}>
+                <p style={{ ...labelStyle, marginBottom: "8px" }}>Tool frequency</p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                  {freq.length === 0 ? (
+                    <p style={muted}>No tool activity in this session.</p>
+                  ) : (
+                    freq.map(({ toolName, count }) => (
+                      <span
+                        key={toolName}
+                        title={`${count} call${count === 1 ? "" : "s"}`}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          fontSize: "11px",
+                          padding: "3px 10px",
+                          borderRadius: "9999px",
+                          border: "1px solid #27272a",
+                          backgroundColor: "#18181b",
+                          color: "#ededed",
+                        }}
+                      >
+                        {toolName}
+                        <span
+                          style={{
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            backgroundColor: "#3f3f46",
+                            borderRadius: "9999px",
+                            padding: "1px 6px",
+                            color: "#ededed",
+                          }}
+                        >
+                          {count}
+                        </span>
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+            </Section>
+
             <div
               style={{
                 display: "grid",
@@ -797,9 +1537,15 @@ export function Sessions() {
               <Section
                 title="Tool calls"
                 badge={String(parsed.calls.length)}
-                defaultOpen={true}
+                defaultOpen={false}
               >
-                <div style={{ maxHeight: "28rem", overflowY: "auto", minHeight: 0 }}>
+                <div
+                  style={{
+                    maxHeight: "28rem",
+                    overflowY: "auto",
+                    minHeight: 0,
+                  }}
+                >
                   {parsed.calls.length === 0 ? (
                     <p style={{ ...muted, padding: "10px 14px" }}>
                       No tool calls in trace.
@@ -821,9 +1567,15 @@ export function Sessions() {
               <Section
                 title="Tool results"
                 badge={String(parsed.results.length)}
-                defaultOpen={true}
+                defaultOpen={false}
               >
-                <div style={{ maxHeight: "28rem", overflowY: "auto", minHeight: 0 }}>
+                <div
+                  style={{
+                    maxHeight: "28rem",
+                    overflowY: "auto",
+                    minHeight: 0,
+                  }}
+                >
                   {parsed.results.length === 0 ? (
                     <p style={{ ...muted, padding: "10px 14px" }}>
                       No tool results in trace.

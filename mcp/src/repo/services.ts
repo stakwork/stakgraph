@@ -4,6 +4,7 @@ import { cloneOrUpdateRepo } from "./clone.js";
 import { get_context } from "./agent.js";
 import { startTracking, endTracking } from "../busy.js";
 import { parse_files_contents } from "../gitsee/agent/index.js";
+import { randomUUID } from "crypto";
 
 // curl "http://localhost:3355/progress?request_id=123"
 export async function services_agent(req: Request, res: Response) {
@@ -17,6 +18,7 @@ export async function services_agent(req: Request, res: Response) {
   const pat = req.query.pat as string | undefined;
 
   const request_id = asyncReqs.startReq();
+  const sessionId = randomUUID();
   const opId = startTracking("services_agent");
   try {
     cloneOrUpdateRepo(`https://github.com/${owner}/${repoName}`, username, pat)
@@ -29,6 +31,8 @@ export async function services_agent(req: Request, res: Response) {
         const text_of_files = await get_context(prompt, repoDir, {
           pat,
           systemOverride: SERVICES_SYSTEM,
+          sessionId,
+          source: "services_agent",
         });
         return { content: text_of_files.content, usage: text_of_files.usage };
       })

@@ -75,7 +75,8 @@ export async function ask_prompt(
   provider?: string,
   similarityThreshold: number = QUESTION_SIMILARITY_THRESHOLD,
   cacheControl?: CacheControlOptions,
-  apiKey?: string
+  apiKey?: string,
+  sessionId?: string
 ): Promise<RecomposedAnswer> {
   // first get a 0.95 match
   const existing = await G.search(
@@ -214,7 +215,8 @@ export async function ask_prompt(
       prompt,
       similarityThreshold,
       provider,
-      apiKey
+      apiKey,
+      sessionId
     );
     const answer = await recomposeAnswer(prompt, answers, provider, apiKey);
 

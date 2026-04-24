@@ -12,7 +12,8 @@ export class ClueAnalyzer {
   constructor(
     private storage: Storage,
     private repoPath: string,
-    repo?: string
+    repo?: string,
+    private sessionId?: string
   ) {
     this.repo = repo;
   }
@@ -134,6 +135,8 @@ export class ClueAnalyzer {
     const result = await get_context(prompt, this.repoPath, {
       schema,
       systemOverride: this.buildSystemPrompt(),
+      sessionId: this.sessionId,
+      isolatedContext: true,
     });
 
     const decision = result.content as any;
@@ -385,6 +388,8 @@ export class ClueAnalyzer {
     const result = await get_context(prompt, this.repoPath, {
       schema,
       systemOverride: this.buildChangeSystemPrompt(),
+      sessionId: this.sessionId,
+      isolatedContext: true,
     });
 
     const decision = result.content as any;

@@ -10,6 +10,7 @@ import { Octokit } from "@octokit/rest";
 import {
   getApiKeyForProvider,
   getModel,
+  getModelDetails,
   Provider,
 } from "../aieo/src/provider.js";
 import { generateObject, jsonSchema } from "ai";
@@ -31,6 +32,8 @@ import { Feature } from "./types.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
+import { randomUUID } from "crypto";
+import { createSession } from "../repo/session.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -154,6 +157,9 @@ export async function gitree_process(req: Request, res: Response) {
 
     (async () => {
       try {
+        const sessionId = randomUUID();
+        createSession(sessionId, undefined, "gitree_process");
+        const { modelId } = getModelDetails();
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -176,7 +182,7 @@ export async function gitree_process(req: Request, res: Response) {
         // Bootstrap: seed initial features by exploring the codebase
         let bootstrapUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
         if (isNewRepo && repoPath) {
-          const bootstrapResult = await bootstrapFeatures(owner, repo, repoPath, storage);
+          const bootstrapResult = await bootstrapFeatures(owner, repo, repoPath, storage, sessionId);
           bootstrapUsage = bootstrapResult.usage;
         }
 
@@ -190,7 +196,7 @@ export async function gitree_process(req: Request, res: Response) {
           shouldAnalyzeClues
         );
 
-        const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo);
+        const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo, sessionId);
 
         let summarizeUsage = null;
         let linkResult = null;
@@ -199,7 +205,7 @@ export async function gitree_process(req: Request, res: Response) {
         if (shouldSummarize && modifiedFeatureIds.size > 0) {
           console.log(`===> Starting feature summarization for ${modifiedFeatureIds.size} modified feature(s)...`);
           const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
-          summarizeUsage = await summarizer.summarizeModifiedFeatures(Array.from(modifiedFeatureIds));
+          summarizeUsage = await summarizer.summarizeModifiedFeatures(Array.from(modifiedFeatureIds), sessionId);
         }
 
         // If link flag is set, link files to features
@@ -242,6 +248,7 @@ export async function gitree_process(req: Request, res: Response) {
           message: messageParts.join(", "),
           usage: totalUsage,
           cumulativeUsage: cumulativeUsage,
+          sessionId,
         };
 
         if (linkResult) {
@@ -947,7 +954,6 @@ Please analyze the user's prompt and the list of available features. Return an a
       required: ["relevantFeatureIds"],
       additionalProperties: false,
     };
-
     const result = await generateObject({
       model,
       prompt: aiPrompt,
@@ -1035,8 +1041,11 @@ export async function gitree_create_feature(req: Request, res: Response) {
         console.log(`===> Repository cloned/updated at ${repoDir}`);
 
         // Call get_context to generate documentation
+        const sessionId = randomUUID();
         const contextResult = await get_context(prompt, repoDir, {
           pat,
+          sessionId,
+          source: "gitree_create_feature",
         });
         const documentation = contextResult.content;
 
@@ -1150,7 +1159,7 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
           result = { usage, message: "Analyzed all features" + (autoLink ? " and linked clues" : "") };
         }
 
-        asyncReqs.finishReq(request_id, result);
+        asyncReqs.finishReq(request_id, { ...result });
       } catch (error) {
         asyncReqs.failReq(request_id, error);
       }
@@ -1265,7 +1274,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
             return false;
           });
         }
-
+        
         if (changesToProcess.length === 0) {
           console.log("✅ No new changes to analyze!");
           asyncReqs.finishReq(request_id, {
@@ -1370,7 +1379,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
           }
         }
 
-        console.log("🎉 Analysis complete!");
+        console.log(`\n Analysis complete!`);
         console.log(`   Total clues created: ${totalClues}`);
         console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
 

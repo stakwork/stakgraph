@@ -10,8 +10,11 @@ import {
 } from "fs";
 import { randomUUID } from "crypto";
 import path from "path";
+import { db } from "../graph/neo4j.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
+
+const sessionMeta = new Map<string, { source: string; start_time: string }>();
 
 export interface Session {
   id: string;
@@ -42,8 +45,16 @@ function getSessionFile(sessionId: string): string {
  * If an ID is provided, use it; otherwise generate a random UUID.
  * Optionally writes the system prompt as the first JSONL entry.
  */
-export function createSession(id?: string, system?: string): string {
+export function createSession(
+  id?: string,
+  system?: string,
+  source?: string,
+): string {
   const sessionId = id || randomUUID();
+  sessionMeta.set(sessionId, {
+    source: source || "unknown",
+    start_time: new Date().toISOString(),
+  });
   const filePath = getSessionFile(sessionId);
   if (system) {
     const systemMsg: ModelMessage = { role: "system", content: system };
@@ -52,6 +63,29 @@ export function createSession(id?: string, system?: string): string {
     appendFileSync(filePath, "");
   }
   return sessionId;
+}
+
+/**
+ * Append end-of-session metadata (timing, model, token usage).
+ */
+export async function appendSessionEnd(
+  sessionId: string,
+  opts: { end_time: string; model?: string; duration_ms?: number; token_usage?: { input: number; output: number; total: number } }
+): Promise<void> {
+  const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
+  const start_time = new Date(stored.start_time).getTime();
+  const end_time = new Date(opts.end_time).getTime();
+  await db?.upsert_agent_session({
+    session_id: sessionId,
+    source: stored.source,
+    model: opts.model || "",
+    start_time,
+    end_time,
+    duration_ms: opts.duration_ms ?? (end_time - start_time),
+    input_tokens: opts.token_usage?.input || 0,
+    output_tokens: opts.token_usage?.output || 0,
+    total_tokens: opts.token_usage?.total || 0,
+  }).catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
 }
 
 /**
@@ -113,7 +147,10 @@ export function deleteSession(sessionId: string): void {
   }
 }
 
-const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const SESSION_MAX_AGE_MS = parseInt(
+  process.env.SESSION_MAX_AGE_MS || String(30 * 24 * 60 * 60 * 1000),
+  10
+); // default 30 days, configurable via SESSION_MAX_AGE_MS env var
 
 /**
  * Delete session files older than SESSION_MAX_AGE_MS.

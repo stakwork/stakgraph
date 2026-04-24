@@ -21,6 +21,7 @@ import { exploreNewFeature } from "./bootstrap.js";
 export class StreamingFeatureBuilder {
   private clueAnalyzer?: ClueAnalyzer; // ClueAnalyzer instance (lazily initialized)
   private repo: string = ""; // Repository identifier "owner/repo"
+  private sessionId?: string;
 
   constructor(
     private storage: Storage,
@@ -33,9 +34,10 @@ export class StreamingFeatureBuilder {
   /**
    * Main entry point: process a repo (both PRs and commits chronologically)
    */
-  async processRepo(owner: string, repo: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
+  async processRepo(owner: string, repo: string, sessionId?: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
     // Set repo identifier for use throughout processing
     this.repo = `${owner}/${repo}`;
+    this.sessionId = sessionId;
     
     const totalUsage: Usage = {
       inputTokens: 0,
@@ -397,7 +399,7 @@ export class StreamingFeatureBuilder {
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const { decision, usage } = await this.llm.decide(prompt);
+    const { decision, usage } = await this.llm.decide(prompt, undefined, this.sessionId);
 
     // Apply decision (pass usage to save with PR record)
     await this.applyPrDecision(owner, repo, pr, decision, modifiedFeatureIds, usage);
@@ -417,7 +419,7 @@ export class StreamingFeatureBuilder {
           per_page: 100,
         });
 
-        await this.analyzeChangeForClues({
+        const clueUsage = await this.analyzeChangeForClues({
           type: "pr" as const,
           identifier: `#${pr.number}`,
           title: pr.title,
@@ -428,6 +430,9 @@ export class StreamingFeatureBuilder {
           date: pr.mergedAt,
           id: pr.number.toString(),
         }, featureIds);
+        usage.inputTokens += clueUsage.inputTokens;
+        usage.outputTokens += clueUsage.outputTokens;
+        usage.totalTokens += clueUsage.totalTokens;
       } catch (error) {
         console.error(`   ⚠️  Clue analysis failed:`, error);
         // Continue processing
@@ -619,7 +624,7 @@ ${DECISION_GUIDELINES}`;
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const { decision, usage } = await this.llm.decide(prompt);
+    const { decision, usage } = await this.llm.decide(prompt, undefined, this.sessionId);
 
     // Apply decision (pass usage to save with commit record)
     await this.applyCommitDecision(owner, repo, commit, decision, modifiedFeatureIds, usage);
@@ -639,7 +644,7 @@ ${DECISION_GUIDELINES}`;
         });
         const files = commitData.files || [];
 
-        await this.analyzeChangeForClues({
+        const clueUsage = await this.analyzeChangeForClues({
           type: "commit" as const,
           identifier: commit.sha.substring(0, 7),
           title: commit.message.split("\n")[0],
@@ -650,6 +655,9 @@ ${DECISION_GUIDELINES}`;
           date: commit.committedAt,
           id: commit.sha,
         }, featureIds);
+        usage.inputTokens += clueUsage.inputTokens;
+        usage.outputTokens += clueUsage.outputTokens;
+        usage.totalTokens += clueUsage.totalTokens;
       } catch (error) {
         console.error(`   ⚠️  Clue analysis failed:`, error);
         // Continue processing
@@ -804,7 +812,7 @@ ${DECISION_GUIDELINES}`;
 
             // Explore codebase to generate initial docs (only if we have a local clone)
             if (this.repoPath) {
-              await exploreNewFeature(newFeature, this.repoPath, this.storage);
+              await exploreNewFeature(newFeature, this.repoPath, this.storage, this.sessionId);
             }
           }
         }
@@ -944,21 +952,25 @@ ${DECISION_GUIDELINES}`;
     },
     checkpoint: { date: Date; id: string },
     featureIds?: string[]
-  ): Promise<void> {
+  ): Promise<Usage> {
+    const clueUsage: Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     console.log(`   💡 Analyzing for clues...`);
 
     // Initialize clue analyzer if needed
     if (!this.clueAnalyzer) {
       if (!this.repoPath) {
         console.log(`   ⏭️  Skipping clue analysis (no repo path)`);
-        return;
+        return clueUsage;
       }
       const { ClueAnalyzer } = await import("./clueAnalyzer.js");
-      this.clueAnalyzer = new ClueAnalyzer(this.storage, this.repoPath);
+      this.clueAnalyzer = new ClueAnalyzer(this.storage, this.repoPath, undefined, this.sessionId);
     }
 
     // Analyze change (pass featureIds to scope clues)
     const result = await this.clueAnalyzer.analyzeChange(changeContext, featureIds);
+    clueUsage.inputTokens += result.usage.inputTokens;
+    clueUsage.outputTokens += result.usage.outputTokens;
+    clueUsage.totalTokens += result.usage.totalTokens;
 
     if (result.clues.length === 0) {
       console.log(`   ℹ️  No new clues found`);
@@ -967,17 +979,21 @@ ${DECISION_GUIDELINES}`;
 
       // Auto-link clues to relevant features
       const { ClueLinker } = await import("./clueLinker.js");
-      const linker = new ClueLinker(this.storage);
+      const linker = new ClueLinker(this.storage, this.sessionId);
       const clueIds = result.clues.map((c: any) => c.id);
 
       console.log(
         `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`
       );
-      await linker.linkClues(clueIds);
+      const linkUsage = await linker.linkClues(clueIds);
+      clueUsage.inputTokens += linkUsage.inputTokens;
+      clueUsage.outputTokens += linkUsage.outputTokens;
+      clueUsage.totalTokens += linkUsage.totalTokens;
     }
 
     // Save checkpoint after analyzing (regardless of whether clues were found)
     await this.updateClueAnalysisCheckpoint(checkpoint.date, checkpoint.id);
+    return clueUsage;
   }
 
   /**

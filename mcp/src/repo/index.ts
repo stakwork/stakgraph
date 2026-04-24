@@ -3,6 +3,7 @@ import { get_context, stream_context } from "./agent.js";
 import { ToolsConfig, SkillsConfig, GgnnConfig, getDefaultToolDescriptions, normalizeToolsConfig } from "./tools.js";
 import { type SubAgent, normalizeSubAgent } from "./subagent.js";
 import { Request, Response } from "express";
+import { randomUUID } from "crypto";
 import { gitleaksDetect, gitleaksProtect } from "./gitleaks.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
@@ -118,7 +119,7 @@ function parseAgentBody(req: Request) {
   const modelName = req.body.model as ModelName | undefined;
   const apiKey = req.body.apiKey as string | undefined;
   const logs = req.body.logs as boolean | undefined;
-  const sessionId = req.body.sessionId as string | undefined;
+  const sessionId = (req.body.sessionId as string | undefined) || randomUUID();
   const sessionConfig = req.body.sessionConfig as SessionConfig | undefined;
   const mcpServers = req.body.mcpServers as McpServer[] | undefined;
   const systemOverride = req.body.systemOverride as string | undefined;
@@ -181,7 +182,7 @@ export async function repo_agent(req: Request, res: Response) {
       const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
 
-      const streamResult = await stream_context(
+      const { streamResult, finalizeSession } = await stream_context(
         promptWithRepoInfo,
         repoDir,
         {
@@ -199,6 +200,7 @@ export async function repo_agent(req: Request, res: Response) {
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
+          source: "repo_agent",
         },
       );
 
@@ -206,6 +208,7 @@ export async function repo_agent(req: Request, res: Response) {
 
       // Forward status + headers
       res.status(streamResponse.status);
+      res.setHeader("X-Session-Id", body.sessionId);
       streamResponse.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value);
       });
@@ -236,7 +239,10 @@ export async function repo_agent(req: Request, res: Response) {
             res.end();
           }
         })
-        .finally(() => endTracking(opId));
+        .finally(async () => {
+          await finalizeSession();
+          endTracking(opId);
+        });
 
       return;
     } catch (error: any) {
@@ -283,6 +289,7 @@ export async function repo_agent(req: Request, res: Response) {
           skills: body.skills,
           subAgents: body.subAgents,
           ggnn: body.ggnn,
+          source: "repo_agent",
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
@@ -317,7 +324,7 @@ export async function repo_agent(req: Request, res: Response) {
       .finally(() => {
         endTracking(opId);
       });
-    res.json({ request_id, status: "pending", ...(events_token && { events_token }) });
+    res.json({ request_id, status: "pending", sessionId: body.sessionId, ...(events_token && { events_token }) });
   } catch (error) {
     console.log("===> error");
     asyncReqs.failReq(request_id, error);

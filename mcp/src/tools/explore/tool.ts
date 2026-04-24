@@ -1,4 +1,4 @@
-import { generateText, tool, hasToolCall, ModelMessage } from "ai";
+import { generateText, tool, hasToolCall, ModelMessage, ToolSet, StepResult } from "ai";
 import { resolveLLMConfig } from "../../aieo/src/provider.js";
 import {
   EXPLORER,
@@ -10,6 +10,8 @@ import {
 import { z } from "zod";
 import * as G from "../../graph/graph.js";
 import { ContextResult } from "../types.js";
+import { appendMessages } from "../../repo/session.js";
+import { extractMessagesFromSteps } from "../../repo/utils.js";
 
 /*
 curl "http://localhost:3000/explore?prompt=how%20does%20auth%20work%20in%20the%20repo"
@@ -46,7 +48,8 @@ export async function get_context_explore(
   re_explore: boolean = false,
   general_explore: boolean = false,
   provider?: string,
-  apiKey?: string
+  apiKey?: string,
+  sessionId?: string
 ): Promise<ContextResult> {
   const llm = resolveLLMConfig({ provider, apiKey });
   const model = llm.model;
@@ -170,6 +173,13 @@ export async function get_context_explore(
       logStep(sf.content);
     },
   });
+
+  if (sessionId && steps.length > 0) {
+    const userMessage: ModelMessage = typeof prompt === "string"
+      ? { role: "user", content: prompt }
+      : (prompt[prompt.length - 1] as ModelMessage);
+    appendMessages(sessionId, extractMessagesFromSteps(userMessage, steps as unknown as StepResult<ToolSet>[]));
+  }
   let final = "";
   let lastText = "";
   for (const step of steps) {

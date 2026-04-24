@@ -163,7 +163,7 @@ export async function get_tools(
   repos?: string[],
   subAgents?: SubAgent[],
   ggnn?: GgnnConfig,
-  messagesRef?: MessagesRef
+  messagesRef?: MessagesRef,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -185,13 +185,19 @@ export async function get_tools(
     return null;
   }
 
-  const web_search_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "webSearch") : undefined
-  const bash_tool = provider==="anthropic" ? getProviderTool(provider, apiKey, "bash") : undefined
+  const web_search_tool =
+    provider === "anthropic"
+      ? getProviderTool(provider, apiKey, "webSearch")
+      : undefined;
+  const bash_tool =
+    provider === "anthropic"
+      ? getProviderTool(provider, apiKey, "bash")
+      : undefined;
 
   console.log("===> web_search_tool type:", web_search_tool?.type);
   console.log(
     "===> web_search_tool structure:",
-    JSON.stringify(web_search_tool, null, 2)
+    JSON.stringify(web_search_tool, null, 2),
   );
 
   const defaultDescriptions: Record<ToolName, string> = {
@@ -219,7 +225,7 @@ export async function get_tools(
         hypothesis: z
           .string()
           .describe(
-            "What you think this file might contain or handle, based on its name/location"
+            "What you think this file might contain or handle, based on its name/location",
           ),
       }),
       execute: async ({ file_path }: { file_path: string }) => {
@@ -239,11 +245,17 @@ export async function get_tools(
       description: defaultDescriptions.recent_commits,
       inputSchema: z.object({
         limit: z.number().optional().default(10),
-        repo: z.string().optional().describe("Repository in 'owner/name' format. Required for multi-repo contexts."),
+        repo: z
+          .string()
+          .optional()
+          .describe(
+            "Repository in 'owner/name' format. Required for multi-repo contexts.",
+          ),
       }),
       execute: async ({ limit, repo }: { limit?: number; repo?: string }) => {
         const resolved = resolveRepo(repo);
-        if (!resolved) return "Could not determine repository. Provide a repo in 'owner/name' format.";
+        if (!resolved)
+          return "Could not determine repository. Provide a repo in 'owner/name' format.";
         try {
           const analyzer = new RepoAnalyzer({
             githubToken: pat,
@@ -253,7 +265,7 @@ export async function get_tools(
             resolved.name,
             {
               limit: limit || 10,
-            }
+            },
           );
           return coms;
         } catch (e) {
@@ -267,11 +279,25 @@ export async function get_tools(
       inputSchema: z.object({
         user: z.string(),
         limit: z.number().optional().default(5),
-        repo: z.string().optional().describe("Repository in 'owner/name' format. Required for multi-repo contexts."),
+        repo: z
+          .string()
+          .optional()
+          .describe(
+            "Repository in 'owner/name' format. Required for multi-repo contexts.",
+          ),
       }),
-      execute: async ({ user, limit, repo }: { user: string; limit?: number; repo?: string }) => {
+      execute: async ({
+        user,
+        limit,
+        repo,
+      }: {
+        user: string;
+        limit?: number;
+        repo?: string;
+      }) => {
         const resolved = resolveRepo(repo);
-        if (!resolved) return "Could not determine repository. Provide a repo in 'owner/name' format.";
+        if (!resolved)
+          return "Could not determine repository. Provide a repo in 'owner/name' format.";
         try {
           const analyzer = new RepoAnalyzer({
             githubToken: pat,
@@ -280,7 +306,7 @@ export async function get_tools(
             resolved.owner,
             resolved.name,
             user,
-            limit || 5
+            limit || 5,
           );
           return output;
         } catch (e) {
@@ -366,24 +392,32 @@ export async function get_tools(
         inputSchema: z.object({}),
         execute: async () => {
           const workflows = await db.get_all_workflows();
-          return workflows.map(w => ({ workflow_name: w.workflow_name, node_key: w.node_key }));
+          return workflows.map((w) => ({
+            workflow_name: w.workflow_name,
+            node_key: w.node_key,
+          }));
         },
       });
       allTools.learn_workflow = tool({
         description: defaultDescriptions.learn_workflow,
-        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
+        inputSchema: z.object({
+          node_key: z.string().describe("node_key of the Workflow"),
+        }),
         execute: async ({ node_key }) => {
           const doc = await db.get_workflow_documentation(node_key);
-          if (!doc) return { error: 'No documentation found for this workflow' };
+          if (!doc)
+            return { error: "No documentation found for this workflow" };
           return { body: doc.body };
         },
       });
       allTools.read_workflow_json = tool({
         description: defaultDescriptions.read_workflow_json,
-        inputSchema: z.object({ node_key: z.string().describe('node_key of the Workflow') }),
+        inputSchema: z.object({
+          node_key: z.string().describe("node_key of the Workflow"),
+        }),
         execute: async ({ node_key }) => {
           const workflow = await db.get_workflow_by_key(node_key);
-          if (!workflow) return { error: 'Workflow not found' };
+          if (!workflow) return { error: "Workflow not found" };
           return { workflow_json: workflow.workflow_json };
         },
       });
@@ -398,23 +432,50 @@ export async function get_tools(
   if (db) {
     const embeddingsCount = await db.count_nodes_with_embeddings();
     if (embeddingsCount > 0) {
-      console.log(`===> ${embeddingsCount} nodes with embeddings found, registering vector_search tool`);
+      console.log(
+        `===> ${embeddingsCount} nodes with embeddings found, registering vector_search tool`,
+      );
       allTools.vector_search = tool({
         description: defaultDescriptions.vector_search,
         inputSchema: z.object({
-          query: z.string().describe("A natural language description of the code you are looking for"),
-          limit: z.number().optional().default(10).describe("Maximum number of results to return"),
+          query: z
+            .string()
+            .describe(
+              "A natural language description of the code you are looking for",
+            ),
+          limit: z
+            .number()
+            .optional()
+            .default(10)
+            .describe("Maximum number of results to return"),
         }),
-        execute: async ({ query, limit }: { query: string; limit?: number }) => {
+        execute: async ({
+          query,
+          limit,
+        }: {
+          query: string;
+          limit?: number;
+        }) => {
           try {
             const codeNodeTypes = [
-              "Function", "Class", "Endpoint", "Datamodel", "Request", "Page",
-              "Trait", "Var",
+              "Function",
+              "Class",
+              "Endpoint",
+              "Datamodel",
+              "Request",
+              "Page",
+              "Trait",
+              "Var",
             ];
-            const results = await db.vectorSearch(query, limit || 10, codeNodeTypes as any);
+            const results = await db.vectorSearch(
+              query,
+              limit || 10,
+              codeNodeTypes as any,
+            );
             return results.map((node) => ({
               name: node.properties.name,
-              node_type: node.labels.find(l => l !== "Data_Bank") || node.labels[0],
+              node_type:
+                node.labels.find((l) => l !== "Data_Bank") || node.labels[0],
               file: node.properties.file,
               line: node.properties.start,
               score: node.score,
@@ -426,7 +487,9 @@ export async function get_tools(
         },
       });
     } else {
-      console.log("===> no nodes with embeddings found, skipping vector_search tool");
+      console.log(
+        "===> no nodes with embeddings found, skipping vector_search tool",
+      );
     }
   } else {
     console.log("===> no db found, skipping vector_search tool");
@@ -435,7 +498,8 @@ export async function get_tools(
   // Register stakgraph graph tools (requires Neo4j connection)
   if (db) {
     allTools.stakgraph_search = tool({
-      description: "Search the code graph by keyword, semantic meaning, or hybrid. Returns compact results with name, file, ref_id, and description. Use stakgraph_code with a ref_id to read full source.",
+      description:
+        "Search the code graph by keyword, semantic meaning, or hybrid. Returns compact results with name, file, ref_id, and description. Use stakgraph_code with a ref_id to read full source.",
       inputSchema: stak.SearchSchema,
       execute: async (args: z.infer<typeof stak.SearchSchema>) => {
         const results = await graphSearch(
@@ -447,17 +511,20 @@ export async function get_tools(
           (args.method ?? "hybrid") as any,
           "json",
           [],
-          args.language
+          args.language,
         );
         if (!Array.isArray(results)) return "No results";
-        return JSON.stringify(results.map((node: any) => ({
-          name: node.properties?.name,
-          node_type: node.node_type,
-          file: node.properties?.file,
-          lines: `${node.properties?.start ?? "?"}-${node.properties?.end ?? "?"}`,
-          ref_id: node.ref_id,
-          description: node.properties?.description || node.properties?.docs || "",
-        })));
+        return JSON.stringify(
+          results.map((node: any) => ({
+            name: node.properties?.name,
+            node_type: node.node_type,
+            file: node.properties?.file,
+            lines: `${node.properties?.start ?? "?"}-${node.properties?.end ?? "?"}`,
+            ref_id: node.ref_id,
+            description:
+              node.properties?.description || node.properties?.docs || "",
+          })),
+        );
       },
     });
     allTools.stakgraph_map = tool({
@@ -469,14 +536,17 @@ export async function get_tools(
       },
     });
     allTools.stakgraph_code = tool({
-      description: "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
+      description:
+        "Retrieve actual source code for a specific node. Use ref_id from search results, or name+node_type to identify the node. Defaults to depth 1 (just the node itself).",
       inputSchema: stak.GetCodeSchema,
       execute: async (args: z.infer<typeof stak.GetCodeSchema>) => {
         const result = await stak.getCode(args);
         return result.content?.[0]?.text ?? "";
       },
     });
-    console.log("===> registered stakgraph graph tools: stakgraph_search, stakgraph_map, stakgraph_code");
+    console.log(
+      "===> registered stakgraph graph tools: stakgraph_search, stakgraph_map, stakgraph_code",
+    );
   }
 
   // Register sub-agent tools (remote agent delegation)
@@ -486,14 +556,18 @@ export async function get_tools(
       if (!subAgent.name || !subAgent.url || !subAgent.apiToken) {
         console.warn(
           `[sub-agent] Skipping invalid sub-agent config: missing name, url, or apiToken/apiKey`,
-          { name: subAgent.name, hasUrl: !!subAgent.url, hasToken: !!subAgent.apiToken }
+          {
+            name: subAgent.name,
+            hasUrl: !!subAgent.url,
+            hasToken: !!subAgent.apiToken,
+          },
         );
         continue;
       }
       // Validate name is a safe tool identifier (alphanumeric + underscores)
       if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(subAgent.name)) {
         console.warn(
-          `[sub-agent] Skipping sub-agent with invalid name "${subAgent.name}" — must be alphanumeric/underscores starting with a letter`
+          `[sub-agent] Skipping sub-agent with invalid name "${subAgent.name}" — must be alphanumeric/underscores starting with a letter`,
         );
         continue;
       }
@@ -502,7 +576,7 @@ export async function get_tools(
         new URL(subAgent.url);
       } catch {
         console.warn(
-          `[sub-agent] Skipping sub-agent "${subAgent.name}" with invalid URL: ${subAgent.url}`
+          `[sub-agent] Skipping sub-agent "${subAgent.name}" with invalid URL: ${subAgent.url}`,
         );
         continue;
       }
@@ -520,14 +594,15 @@ export async function get_tools(
           prompt: z
             .string()
             .describe(
-              "A focused, specific question or task to delegate to the sub-agent"
+              "A focused, specific question or task to delegate to the sub-agent",
             ),
         }),
         execute: async ({ prompt }: { prompt: string }) => {
           console.log(
-            `[sub-agent:${sa.name}] Executing with prompt: ${prompt.slice(0, 200)}...`
+            `[sub-agent:${sa.name}] Executing with prompt: ${prompt.slice(0, 200)}...`,
           );
-          return await callRemoteAgent(sa, prompt);
+          const answer = await callRemoteAgent(sa, prompt);
+          return answer;
         },
       });
       console.log(`===> registered sub-agent tool: ${sa.name}`);
@@ -552,9 +627,15 @@ export async function get_tools(
         allTools[gt.name] = tool({
           description: gt.description,
           inputSchema: z.object({
-            task_description: z.string().describe("Description of the task about to be executed"),
+            task_description: z
+              .string()
+              .describe("Description of the task about to be executed"),
           }),
-          execute: async ({ task_description }: { task_description: string }) => {
+          execute: async ({
+            task_description,
+          }: {
+            task_description: string;
+          }) => {
             console.log(`[ggnn:${gt.name}] POST ${url}`);
             const res = await fetch(url, {
               method: "POST",
@@ -562,7 +643,10 @@ export async function get_tools(
               body: JSON.stringify({ task_description, languages }),
             });
             const data = await res.json();
-            console.log(`[ggnn:${gt.name}] response:`, JSON.stringify(data, null, 2));
+            console.log(
+              `[ggnn:${gt.name}] response:`,
+              JSON.stringify(data, null, 2),
+            );
             return data;
           },
         });
@@ -571,20 +655,35 @@ export async function get_tools(
         allTools[gt.name] = tool({
           description: gt.description,
           inputSchema: z.object({
-            task_description: z.string().describe("Description of the current task"),
+            task_description: z
+              .string()
+              .describe("Description of the current task"),
           }),
-          execute: async ({ task_description }: { task_description: string }) => {
+          execute: async ({
+            task_description,
+          }: {
+            task_description: string;
+          }) => {
             const trace = messagesRef?.current ?? [];
-            console.log(`[ggnn:${gt.name}] POST ${url} (${trace.length} messages in trace)`);
+            console.log(
+              `[ggnn:${gt.name}] POST ${url} (${trace.length} messages in trace)`,
+            );
             const res = await fetch(url, {
               method: "POST",
               headers: ggnnHeaders,
-              body: JSON.stringify({ task_description, languages, trace_so_far: trace }),
+              body: JSON.stringify({
+                task_description,
+                languages,
+                trace_so_far: trace,
+              }),
             });
             const data = await res.json();
             // Strip node_assessments to reduce token noise
             const { node_assessments, ...summary } = data;
-            console.log(`[ggnn:${gt.name}] response:`, JSON.stringify(summary, null, 2));
+            console.log(
+              `[ggnn:${gt.name}] response:`,
+              JSON.stringify(summary, null, 2),
+            );
             return summary;
           },
         });
@@ -596,7 +695,13 @@ export async function get_tools(
             task_description: z.string().describe("Description of the task"),
             plan: z.string().describe("The step-by-step plan to score"),
           }),
-          execute: async ({ task_description, plan }: { task_description: string; plan: string }) => {
+          execute: async ({
+            task_description,
+            plan,
+          }: {
+            task_description: string;
+            plan: string;
+          }) => {
             console.log(`[ggnn:${gt.name}] POST ${url}`);
             const res = await fetch(url, {
               method: "POST",
@@ -604,7 +709,10 @@ export async function get_tools(
               body: JSON.stringify({ task_description, languages, plan }),
             });
             const data = await res.json();
-            console.log(`[ggnn:${gt.name}] response:`, JSON.stringify(data, null, 2));
+            console.log(
+              `[ggnn:${gt.name}] response:`,
+              JSON.stringify(data, null, 2),
+            );
             return data;
           },
         });
@@ -639,14 +747,14 @@ export async function get_tools(
                   .array(z.string())
                   .optional()
                   .describe(
-                    "Options - either simple strings or rich objects with artifacts"
+                    "Options - either simple strings or rich objects with artifacts",
                   ),
                 questionArtifact: artifactSchema
                   .optional()
                   .describe(
-                    "Artifact to display alongside the question (e.g., mermaid diagram)"
+                    "Artifact to display alongside the question (e.g., mermaid diagram)",
                   ),
-              })
+              }),
             )
             .describe("The questions to ask the user (MAXIMUM 4 QUESTIONS)"),
         }),
@@ -656,7 +764,11 @@ export async function get_tools(
       });
     }
     // concepts
-    if (toolsConfig.learn_concept || toolsConfig.list_concepts || toolsConfig.learn_concepts) {
+    if (
+      toolsConfig.learn_concept ||
+      toolsConfig.list_concepts ||
+      toolsConfig.learn_concepts
+    ) {
       allTools.list_concepts = tool({
         description: defaultDescriptions.list_concepts,
         inputSchema: z.object({}),
@@ -678,7 +790,7 @@ export async function get_tools(
             return "Could not retrieve concepts";
           }
         },
-      })
+      });
       allTools.learn_concept = tool({
         description: defaultDescriptions.learn_concept,
         inputSchema: z.object({
@@ -699,7 +811,7 @@ export async function get_tools(
             return "Could not retrieve concept";
           }
         },
-      })
+      });
     }
   }
 
@@ -708,7 +820,7 @@ export async function get_tools(
 
   for (const [toolName, config] of Object.entries(toolsConfig) as [
     ToolName,
-    string | boolean | null
+    string | boolean | null,
   ][]) {
     const originalTool = allTools[toolName];
     if (!originalTool) continue;
