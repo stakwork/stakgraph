@@ -1,3 +1,16 @@
+// @ast node: Endpoint "/person/:id" [verb=GET]
+// @ast edge: Handler -> Function "get_person" "axum_routes.rs"
+// @ast node: Endpoint "/person" [verb=POST]
+// @ast edge: Handler -> Function "create_person" "axum_routes.rs"
+// @ast node: Endpoint "/user/profile" [verb=GET]
+// @ast edge: Handler -> Function "get_profile" "axum_routes.rs"
+// @ast node: Endpoint "/user/profile/update" [verb=POST]
+// @ast edge: Handler -> Function "update_profile" "axum_routes.rs"
+// @ast node: Function "create_router"
+// @ast node: Function "get_person"
+// @ast node: Function "create_person"
+// @ast node: Function "get_profile"
+// @ast node: Function "update_profile"
 use anyhow::Result;
 use axum::{
     extract::{Json, Path},

@@ -1,3 +1,8 @@
+// @ast node: DataModel "Register"
+// @ast node: Class "Register"
+// @ast node: Function "read"
+// @ast node: Function "write"
+// @ast node: Function "init"
 #[repr(C)]
 pub struct Register {
     value: u32,

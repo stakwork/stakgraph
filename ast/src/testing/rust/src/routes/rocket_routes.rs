@@ -1,3 +1,16 @@
+// @ast node: Endpoint "/person/<id>" [verb=GET]
+// @ast edge: Handler -> Function "get_person" "rocket_routes.rs"
+// @ast node: Endpoint "/person"
+// @ast edge: Handler -> Function "create_person" "rocket_routes.rs"
+// @ast node: Endpoint "/user/profile" [verb=GET]
+// @ast edge: Handler -> Function "get_profile" "rocket_routes.rs"
+// @ast node: Endpoint "/user/profile/update"
+// @ast edge: Handler -> Function "update_profile" "rocket_routes.rs"
+// @ast node: Function "get_person"
+// @ast node: Function "create_person"
+// @ast node: Function "get_profile"
+// @ast node: Function "update_profile"
+// @ast node: Function "create_rocket"
 use rocket::http::Status;
 use rocket::response::status;
 use rocket::{get, post, routes, serde::json::Json};

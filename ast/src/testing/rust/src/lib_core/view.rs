@@ -1,3 +1,7 @@
+// @ast node: DataModel "View"
+// @ast node: Class "View"
+// @ast node: Function "new"
+// @ast node: Function "access"
 use std::marker::PhantomData;
 
 pub struct View<'a, T> {

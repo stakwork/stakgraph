@@ -1,3 +1,10 @@
+// @ast node: Endpoint "/admin/users" [verb=GET]
+// @ast edge: Handler -> Function "list_users" "admin_actix.rs"
+// @ast node: Endpoint "/admin/users/{id}" [verb=DELETE]
+// @ast edge: Handler -> Function "delete_user" "admin_actix.rs"
+// @ast node: Function "list_users"
+// @ast node: Function "delete_user"
+// @ast node: Function "admin_config"
 use actix_web::{delete, get, web, HttpResponse, Responder};
 use serde_json::json;
 

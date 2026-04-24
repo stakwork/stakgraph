@@ -1,4 +1,5 @@
 use crate::lang::{ArrayGraph, Lang, NodeData, BTreeMapGraph};
+use crate::repo::Repo;
 use lsp::Language;
 use std::env;
 use std::str::FromStr;
@@ -22,7 +23,6 @@ pub mod monorepo;
 pub mod php;
 pub mod python;
 pub mod ruby;
-pub mod rust_test;
 pub mod svelte;
 pub mod swift;
 pub mod test_backend;
@@ -149,12 +149,18 @@ async fn test_go_non_web() {
     }
 }
 
-pub fn _print_nodes(nodes: Vec<NodeData>) {
-    println!(
-        "{:#?}",
-        nodes
-            .iter()
-            .map(|n| (n.name.clone(), n.file.clone()))
-            .collect::<Vec<(String, String)>>()
-    );
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_rust() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+    }
 }

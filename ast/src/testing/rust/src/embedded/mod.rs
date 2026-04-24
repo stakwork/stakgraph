@@ -1,3 +1,4 @@
+// @ast node: Function "init"
 pub mod interrupts;
 pub mod registers;
 

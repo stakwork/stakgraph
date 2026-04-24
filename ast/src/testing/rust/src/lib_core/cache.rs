@@ -1,3 +1,11 @@
+// @ast node: DataModel "Cache"
+// @ast node: Class "Cache"
+// @ast edge: Operand -> Function "new" "cache.rs"
+// @ast edge: Operand -> Function "insert" "cache.rs"
+// @ast edge: Operand -> Function "get" "cache.rs"
+// @ast node: Function "new"
+// @ast node: Function "insert"
+// @ast node: Function "get"
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;

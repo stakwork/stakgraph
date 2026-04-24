@@ -1,6 +1,12 @@
+// @ast node: IntegrationTest "integration_test_database_full_flow"
+// @ast node: IntegrationTest "integration_test_multiple_database_operations"
+// @ast node: IntegrationTest "integration_test_database_with_serialization"
+// @ast node: IntegrationTest "integration_test_types_with_traits"
+// @ast node: IntegrationTest "integration_test_cache_with_processor"
+// @ast node: IntegrationTest "integration_test_api_result_with_cache"
+// @ast node: IntegrationTest "integration_test_concurrent_database_access"
+// @ast node: IntegrationTest "integration_test_database_error_handling"
 use anyhow::Result;
-use rust::db::{init_db, Database, Person};
-use rust::types::{process, Cache, ApiResult};
 use rust::traits::{Greeter, Greet, SimpleProcessor, Processor};
 
 #[tokio::test]

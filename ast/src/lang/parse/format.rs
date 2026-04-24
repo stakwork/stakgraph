@@ -714,18 +714,17 @@ impl Lang {
                     file,
                     &func.name,
                     &|name| {
-                        graph
-                            .find_nodes_by_name(NodeType::Class, name)
-                            .first()
-                            .cloned()
-                            .map(|n| (n, NodeType::Class))
-                            .or_else(|| {
-                                graph
-                                    .find_nodes_by_name(NodeType::DataModel, name)
-                                    .first()
-                                    .cloned()
-                                    .map(|n| (n, NodeType::DataModel))
-                            })
+                        let classes = graph.find_nodes_by_name(NodeType::Class, name);
+                        let class_node = classes.iter().find(|n| n.file == file)
+                            .or_else(|| classes.first())
+                            .cloned();
+                        class_node.map(|n| (n, NodeType::Class)).or_else(|| {
+                            let dms = graph.find_nodes_by_name(NodeType::DataModel, name);
+                            let dm_node = dms.iter().find(|n| n.file == file)
+                                .or_else(|| dms.first())
+                                .cloned();
+                            dm_node.map(|n| (n, NodeType::DataModel))
+                        })
                     },
                     parent_type.as_deref(),
                 )?;

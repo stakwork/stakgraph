@@ -1,3 +1,9 @@
+// @ast node: Endpoint "/admin/users" [verb=GET]
+// @ast edge: Handler -> Function "list_users" "admin_rocket.rs"
+// @ast node: Endpoint "/admin/users/<id>" [verb=DELETE]
+// @ast edge: Handler -> Function "delete_user" "admin_rocket.rs"
+// @ast node: Function "list_users"
+// @ast node: Function "delete_user"
 use rocket::{delete, get, serde::json::Json};
 use serde_json::json;
 

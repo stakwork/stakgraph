@@ -1,3 +1,4 @@
+// @ast node: Function "start_worker"
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;

@@ -1,3 +1,6 @@
+// @ast node: Trait "Container"
+// @ast node: Function "get"
+// @ast node: Function "set"
 pub mod cache;
 pub mod view;
 
