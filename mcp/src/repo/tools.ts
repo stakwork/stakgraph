@@ -14,6 +14,7 @@ import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, type SubAgent } from "./subagent.js";
 import * as stak from "../tools/stakgraph/index.js";
 import { search as graphSearch } from "../graph/graph.js";
+import { relevant_node_types } from "../graph/types.js";
 
 export interface GgnnTool {
   name: string;          // tool name, e.g. "ggnn_check"
@@ -502,10 +503,12 @@ export async function get_tools(
         "Search the code graph by keyword, semantic meaning, or hybrid. Returns compact results with name, file, ref_id, and description. Use stakgraph_code with a ref_id to read full source.",
       inputSchema: stak.SearchSchema,
       execute: async (args: z.infer<typeof stak.SearchSchema>) => {
+        const valid = new Set(relevant_node_types());
+        const filtered_node_types = (args.node_types ?? []).filter(t => valid.has(t as any)) as any[];
         const results = await graphSearch(
           args.query,
           args.limit ?? 10,
-          (args.node_types ?? []) as any[],
+          filtered_node_types,
           false,
           args.max_tokens ?? 15000,
           (args.method ?? "hybrid") as any,

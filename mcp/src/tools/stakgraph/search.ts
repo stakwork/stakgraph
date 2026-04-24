@@ -24,9 +24,9 @@ export const SearchSchema = z.object({
       "Whether to return a concise response (only the name and filename). Set to false to include full code body."
     ),
   node_types: z
-    .array(z.enum(relevant_node_types() as [string, ...string[]]))
+    .array(z.string())
     .optional()
-    .describe("Filter by only these node types."),
+    .describe(`Filter by only these node types. Valid values: ${relevant_node_types().join(", ")}.`),
   limit: z
     .number()
     .optional()
@@ -59,10 +59,12 @@ export const SearchTool: Tool = {
 
 export async function search(args: z.infer<typeof SearchSchema>) {
   console.log("=> Running stakgraph search tool with args:", args);
+  const valid = new Set(relevant_node_types());
+  const filtered_node_types = (args.node_types ?? []).filter(t => valid.has(t as NodeType)) as NodeType[];
   const result = await G.search(
     args.query,
     args.limit ?? 25,
-    (args.node_types as NodeType[]) ?? [],
+    filtered_node_types,
     args.concise ?? false,
     args.max_tokens ?? 100000,
     args.method ?? "hybrid",
