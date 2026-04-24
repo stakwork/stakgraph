@@ -5,15 +5,15 @@ const items = [
 ];
 
 // @ast node: Function "GET"
-// @ast edge: Contains <- File "route.ts" "src/testing/nextjs/app/api/items/route.ts"
-// @ast edge: Handler <- Endpoint "/api/items" "src/testing/nextjs/app/api/items/route.ts"
+// @ast edge: Contains <- File "route.ts" "app/api/items/route.ts"
+// @ast edge: Handler <- Endpoint "/api/items" "app/api/items/route.ts"
 export async function GET() {
   return NextResponse.json(items);
 }
 
 // @ast node: Function "POST"
-// @ast edge: Contains <- File "route.ts" "src/testing/nextjs/app/api/items/route.ts"
-// @ast edge: Handler <- Endpoint "/api/items" "src/testing/nextjs/app/api/items/route.ts"
+// @ast edge: Contains <- File "route.ts" "app/api/items/route.ts"
+// @ast edge: Handler <- Endpoint "/api/items" "app/api/items/route.ts"
 export async function POST(request: Request) {
   const body = await request.json();
   const newItem = {

@@ -9,7 +9,7 @@ interface MutationResult<T> {
 }
 
 // @ast node: Function "useMutation"
-// @ast edge: Contains <- File "useMutation.ts" "src/testing/nextjs/lib/hooks/useMutation.ts"
+// @ast edge: Contains <- File "useMutation.ts" "lib/hooks/useMutation.ts"
 export function useMutation<T>(endpoint: string): MutationResult<T> {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

@@ -18,7 +18,7 @@ interface Comment {
 }
 
 // @ast node: Class "UsersAPI"
-// @ast edge: Contains <- File "apiClient.ts" "src/testing/nextjs/lib/api/apiClient.ts"
+// @ast edge: Contains <- File "apiClient.ts" "lib/api/apiClient.ts"
 class UsersAPI {
   async get(id: string): Promise<User> {
     const response = await fetch(`/api/users/${id}`);
@@ -63,7 +63,7 @@ class UsersAPI {
 }
 
 // @ast node: Class "PostsAPI"
-// @ast edge: Contains <- File "apiClient.ts" "src/testing/nextjs/lib/api/apiClient.ts"
+// @ast edge: Contains <- File "apiClient.ts" "lib/api/apiClient.ts"
 class PostsAPI {
   async get(id: string): Promise<Post> {
     const response = await fetch(`/api/posts/${id}`);
@@ -97,7 +97,7 @@ class PostsAPI {
 }
 
 // @ast node: Class "CommentsAPI"
-// @ast edge: Contains <- File "apiClient.ts" "src/testing/nextjs/lib/api/apiClient.ts"
+// @ast edge: Contains <- File "apiClient.ts" "lib/api/apiClient.ts"
 class CommentsAPI {
   async list(postId: string): Promise<Comment[]> {
     const response = await fetch(`/api/posts/${postId}/comments`);
@@ -124,7 +124,7 @@ class CommentsAPI {
 }
 
 // @ast node: Class "APIClient"
-// @ast edge: Contains <- File "apiClient.ts" "src/testing/nextjs/lib/api/apiClient.ts"
+// @ast edge: Contains <- File "apiClient.ts" "lib/api/apiClient.ts"
 class APIClient {
   users = new UsersAPI();
   posts = new PostsAPI();
@@ -132,7 +132,7 @@ class APIClient {
 }
 
 // @ast node: Var "api"
-// @ast edge: Contains <- File "apiClient.ts" "src/testing/nextjs/lib/api/apiClient.ts"
+// @ast edge: Contains <- File "apiClient.ts" "lib/api/apiClient.ts"
 export const api = new APIClient();
 // @ast node: Function "get"
 // @ast node: Function "list"

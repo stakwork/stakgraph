@@ -2,7 +2,7 @@
 import { analytics } from "../../lib/services/analytics";
 
 // @ast node: UnitTest "unit: analytics service"
-// @ast edge: Contains <- File "unit.analytics.test.ts" "src/testing/nextjs/app/test/unit.analytics.test.ts"
+// @ast edge: Contains <- File "unit.analytics.test.ts" "app/test/unit.analytics.test.ts"
 describe("unit: analytics service", () => {
   beforeEach(() => {
     analytics.reset();

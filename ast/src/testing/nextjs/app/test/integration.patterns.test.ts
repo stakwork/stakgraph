@@ -2,7 +2,7 @@ import { ApiClient } from './helpers/api-client';
 import { API_ENDPOINTS, TEST_PRODUCT, TEST_CATEGORY, TEST_COMMENT, TEST_REVIEW } from './fixtures/api-fixtures';
 
 // @ast node: Function "createProduct"
-// @ast edge: Contains <- File "integration.patterns.test.ts" "src/testing/nextjs/app/test/integration.patterns.test.ts"
+// @ast edge: Contains <- File "integration.patterns.test.ts" "app/test/integration.patterns.test.ts"
 async function createProduct(data: any) {
   return fetch('http://localhost:3000/api/products', {
     method: 'POST',
@@ -12,13 +12,13 @@ async function createProduct(data: any) {
 }
 
 // @ast node: Function "listProducts"
-// @ast edge: Contains <- File "integration.patterns.test.ts" "src/testing/nextjs/app/test/integration.patterns.test.ts"
+// @ast edge: Contains <- File "integration.patterns.test.ts" "app/test/integration.patterns.test.ts"
 async function listProducts() {
   return fetch('http://localhost:3000/api/products');
 }
 
 // @ast node: Function "apiPost"
-// @ast edge: Contains <- File "integration.patterns.test.ts" "src/testing/nextjs/app/test/integration.patterns.test.ts"
+// @ast edge: Contains <- File "integration.patterns.test.ts" "app/test/integration.patterns.test.ts"
 async function apiPost(path: string, data: any) {
   return fetch(`http://localhost:3000${path}`, {
     method: 'POST',
@@ -28,13 +28,13 @@ async function apiPost(path: string, data: any) {
 }
 
 // @ast node: Function "createComment"
-// @ast edge: Contains <- File "integration.patterns.test.ts" "src/testing/nextjs/app/test/integration.patterns.test.ts"
+// @ast edge: Contains <- File "integration.patterns.test.ts" "app/test/integration.patterns.test.ts"
 async function createComment(text: string) {
   return apiPost('/api/comments', { text });
 }
 
 // @ast node: Class "ReviewBuilder"
-// @ast edge: Contains <- File "integration.patterns.test.ts" "src/testing/nextjs/app/test/integration.patterns.test.ts"
+// @ast edge: Contains <- File "integration.patterns.test.ts" "app/test/integration.patterns.test.ts"
 class ReviewBuilder {
   review: any;
   
@@ -62,7 +62,7 @@ class ReviewBuilder {
 }
 
 // @ast node: IntegrationTest "integration: pattern 1 - helper functions"
-// @ast edge: Contains <- File "integration.patterns.test.ts" "src/testing/nextjs/app/test/integration.patterns.test.ts"
+// @ast edge: Contains <- File "integration.patterns.test.ts" "app/test/integration.patterns.test.ts"
 describe('integration: pattern 1 - helper functions', () => {
   it('creates product via helper', async () => {
     const res = await createProduct(TEST_PRODUCT);

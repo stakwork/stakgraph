@@ -22,11 +22,11 @@ interface ItemData {
 }
 
 // @ast node: Function "MutationDemo"
-// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/mutation/page.tsx"
-// @ast edge: Renders <- Page "mutation" "src/testing/nextjs/app/mutation/page.tsx"
-// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
-// @ast edge: Calls -> Function "Button" "src/testing/nextjs/components/ui/button.tsx"
-// @ast edge: Calls -> Function "Input" "src/testing/nextjs/components/ui/input.tsx"
+// @ast edge: Contains <- File "page.tsx" "app/mutation/page.tsx"
+// @ast edge: Renders <- Page "mutation" "app/mutation/page.tsx"
+// @ast edge: Calls -> Function "Card" "components/ui/card.tsx"
+// @ast edge: Calls -> Function "Button" "components/ui/button.tsx"
+// @ast edge: Calls -> Function "Input" "components/ui/input.tsx"
 function MutationDemo() {
   const userMutation = useMutation<UserData>("/api/users");
   const itemMutation = useMutation<ItemData>("/api/items");

@@ -1,5 +1,5 @@
 // @ast node: Class "ApiClient"
-// @ast edge: Contains <- File "api-client.ts" "src/testing/nextjs/app/test/helpers/api-client.ts"
+// @ast edge: Contains <- File "api-client.ts" "app/test/helpers/api-client.ts"
 export class ApiClient {
   async get(endpoint: string) {
     return fetch(`http://localhost:3000${endpoint}`);

@@ -18,7 +18,7 @@ export const metadata: Metadata = {
 };
 
 // @ast node: Function "RootLayout"
-// @ast edge: Contains <- File "layout.tsx" "src/testing/nextjs/app/layout.tsx"
+// @ast edge: Contains <- File "layout.tsx" "app/layout.tsx"
 export default function RootLayout({
   children,
 }: Readonly<{

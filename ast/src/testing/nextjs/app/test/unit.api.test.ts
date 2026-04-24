@@ -2,7 +2,7 @@
 import { api } from "../../lib/api/apiClient";
 
 // @ast node: UnitTest "unit: api client - users"
-// @ast edge: Contains <- File "unit.api.test.ts" "src/testing/nextjs/app/test/unit.api.test.ts"
+// @ast edge: Contains <- File "unit.api.test.ts" "app/test/unit.api.test.ts"
 describe("unit: api client - users", () => {
   it("gets user by id", async () => {
     const userId = "user-123";

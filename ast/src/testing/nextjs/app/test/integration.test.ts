@@ -2,7 +2,7 @@
 import { fetchItems, createItem } from "./helpers/test-utils";
 
 // @ast node: IntegrationTest "integration: /api/items"
-// @ast edge: Contains <- File "integration.test.ts" "src/testing/nextjs/app/test/integration.test.ts"
+// @ast edge: Contains <- File "integration.test.ts" "app/test/integration.test.ts"
 describe("integration: /api/items", () => {
   it("GET returns items list via helper", async () => {
     const res = await fetchItems();
@@ -52,4 +52,4 @@ describe("integration: /api/orders with query params", () => {
 });
 // @ast node: IntegrationTest "integration: /api/person and /api/person/[id]"
 // @ast node: IntegrationTest "integration: /api/orders with query params"
-// @ast edge: Calls -> Endpoint "/api/orders" "src/testing/nextjs/app/api/orders/route.ts" [verb=PUT]
+// @ast edge: Calls -> Endpoint "/api/orders" "app/api/orders/route.ts" [verb=PUT]

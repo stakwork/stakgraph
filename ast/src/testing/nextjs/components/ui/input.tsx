@@ -3,8 +3,8 @@ import * as React from "react"
 import { cn } from "@/lib/utils"
 
 // @ast node: Function "Input"
-// @ast edge: Contains <- File "input.tsx" "src/testing/nextjs/components/ui/input.tsx"
-// @ast edge: Calls -> Function "cn" "src/testing/nextjs/lib/utils.ts"
+// @ast edge: Contains <- File "input.tsx" "components/ui/input.tsx"
+// @ast edge: Calls -> Function "cn" "lib/utils.ts"
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <input
