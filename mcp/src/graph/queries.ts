@@ -324,7 +324,9 @@ RETURN n
 `;
 
 export const LIST_AGENT_SESSIONS_QUERY = `
-MATCH (n:AgentSession) RETURN n ORDER BY n.start_time DESC
+MATCH (n:AgentSession)
+RETURN n
+ORDER BY n.start_time DESC
 `;
 
 export const GET_AGENT_SESSION_QUERY = `

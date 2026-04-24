@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
 import type { ProductionRun } from "../types";
@@ -47,6 +48,14 @@ function formatDuration(durationMs: number): string {
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes % 60;
   return `${hours}h ${remMinutes}m`;
+}
+
+function getRangeStart(range: "24h" | "7d" | "30d" | "all"): number | null {
+  const now = Date.now();
+  if (range === "24h") return now - 24 * 60 * 60 * 1000;
+  if (range === "7d") return now - 7 * 24 * 60 * 60 * 1000;
+  if (range === "30d") return now - 30 * 24 * 60 * 60 * 1000;
+  return null;
 }
 
 function formatSourceLabel(source: string): string {
@@ -577,6 +586,8 @@ function SourceBadge({ source }: { source: string }) {
         fontSize: "11px",
         fontWeight: 600,
         textTransform: "lowercase",
+        whiteSpace: "nowrap",
+        flexShrink: 0,
       }}
     >
       {formatSourceLabel(source)}
@@ -1051,10 +1062,16 @@ function TurnCard({ turn }: { turn: TraceTurn }) {
 // ── component ─────────────────────────────────────────────────────────────────
 
 export function Sessions() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<ProductionRun[]>([]);
   const [selected, setSelected] = useState<ProductionRun | null>(null);
   const [loading, setLoading] = useState(true);
-  const [repoSearch, setRepoSearch] = useState("");
+  const [repoSearch, setRepoSearch] = useState(searchParams.get("repo") || "");
+  const [sourceFilter, setSourceFilter] = useState(searchParams.get("source") || "all");
+  const [rangeFilter, setRangeFilter] = useState<"24h" | "7d" | "30d" | "all">(
+    (searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all",
+  );
+  const [dayFilter, setDayFilter] = useState(searchParams.get("day") || "");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1103,14 +1120,44 @@ export function Sessions() {
     [runs],
   );
 
+  const sourceOptions = useMemo(
+    () => [...new Set(runs.map((r) => r.source || "unknown"))].sort(),
+    [runs],
+  );
+
+  useEffect(() => {
+    setRepoSearch(searchParams.get("repo") || "");
+    setSourceFilter(searchParams.get("source") || "all");
+    setRangeFilter(
+      (searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all",
+    );
+    setDayFilter(searchParams.get("day") || "");
+  }, [searchParams]);
+
+  useEffect(() => {
+    const nextParams = new URLSearchParams();
+    if (repoSearch) nextParams.set("repo", repoSearch);
+    if (sourceFilter !== "all") nextParams.set("source", sourceFilter);
+    if (rangeFilter !== "all") nextParams.set("range", rangeFilter);
+    if (dayFilter) nextParams.set("day", dayFilter);
+    setSearchParams(nextParams, { replace: true });
+  }, [dayFilter, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
+
   const filteredRuns = useMemo(
     () =>
       runs.filter((r) => {
+        if (sourceFilter !== "all" && (r.source || "unknown") !== sourceFilter)
+          return false;
         if (repoSearch && !r.repo.toLowerCase().includes(repoSearch.toLowerCase()))
+          return false;
+        if (dayFilter && new Date(r.timestamp).toISOString().slice(0, 10) !== dayFilter)
+          return false;
+        const rangeStart = getRangeStart(rangeFilter);
+        if (rangeStart && new Date(r.timestamp).getTime() < rangeStart)
           return false;
         return true;
       }),
-    [runs, repoSearch],
+    [runs, dayFilter, repoSearch, rangeFilter, sourceFilter],
   );
 
   const inputStyle: React.CSSProperties = {
@@ -1134,13 +1181,24 @@ export function Sessions() {
     cursor: "pointer",
     width: "100%",
   };
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    padding: "6px 8px",
+  };
+
+  const clearFilters = () => {
+    setRepoSearch("");
+    setSourceFilter("all");
+    setRangeFilter("all");
+    setDayFilter("");
+  };
 
   return (
     <div style={{ display: "flex", gap: "16px", flex: 1, minHeight: 0 }}>
       {/* LEFT: sidebar */}
       <div
         style={{
-          width: "280px",
+          width: "320px",
           flexShrink: 0,
           display: "flex",
           flexDirection: "column",
@@ -1174,15 +1232,51 @@ export function Sessions() {
                 list="repo-options"
                 style={inputStyle}
               />
+              <select
+                value={sourceFilter}
+                onChange={(e) => setSourceFilter(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="all">All sources</option>
+                {sourceOptions.map((source) => (
+                  <option key={source} value={source}>
+                    {formatSourceLabel(source)}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={rangeFilter}
+                onChange={(e) => {
+                  setRangeFilter(
+                    e.target.value as "24h" | "7d" | "30d" | "all",
+                  );
+                  setDayFilter("");
+                }}
+                style={selectStyle}
+              >
+                <option value="all">All time</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7d</option>
+                <option value="30d">Last 30d</option>
+              </select>
               <datalist id="repo-options">
                 {repoOptions.map((r) => (
                   <option key={r} value={r} />
                 ))}
               </datalist>
-              {repoSearch && (
-                <p style={{ ...muted, textAlign: "center" }}>
-                  {filteredRuns.length} / {runs.length} sessions
-                </p>
+              {(repoSearch ||
+                sourceFilter !== "all" ||
+                rangeFilter !== "all" ||
+                dayFilter) && (
+                <>
+                  <p style={{ ...muted, textAlign: "center" }}>
+                    {dayFilter ? `Day ${dayFilter} · ` : ""}
+                    {filteredRuns.length} / {runs.length} sessions
+                  </p>
+                  <button onClick={clearFilters} style={btnStyle}>
+                    Clear filters
+                  </button>
+                </>
               )}
             </div>
 
@@ -1199,18 +1293,21 @@ export function Sessions() {
               {filteredRuns.length === 0 ? (
                 <p style={muted}>No sessions match the filter.</p>
               ) : (
-                filteredRuns.map((r) => (
+                filteredRuns.map((run) => (
                   <button
-                    key={r.id}
-                    onClick={() => loadDetail(r)}
+                    key={run.id}
+                    onClick={() => void loadDetail(run)}
                     style={{
                       textAlign: "left",
                       borderRadius: "6px",
-                      border: `1px solid ${selected?.id === r.id ? "#52525b" : "#27272a"}`,
+                      border: `1px solid ${
+                        selected?.id === run.id ? "#52525b" : "#27272a"
+                      }`,
                       backgroundColor:
-                        selected?.id === r.id ? "#27272a" : "#111113",
+                        selected?.id === run.id ? "#27272a" : "#111113",
                       padding: "8px 10px",
                       cursor: "pointer",
+                      width: "100%",
                     }}
                   >
                     <div
@@ -1221,16 +1318,26 @@ export function Sessions() {
                         gap: "8px",
                       }}
                     >
-                      <SourceBadge source={r.source} />
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          minWidth: 0,
+                        }}
+                      >
+                        <SourceBadge source={run.source} />
+                      </div>
                       <span
                         style={{
                           fontSize: "10px",
                           color: "#71717a",
                           fontFamily: "ui-monospace, monospace",
+                          flexShrink: 0,
                         }}
-                        title={r.id}
+                        title={run.id}
                       >
-                        {shortId(r.id)}
+                        {shortId(run.id)}
                       </span>
                     </div>
                     <span
@@ -1245,7 +1352,7 @@ export function Sessions() {
                         marginTop: "8px",
                       }}
                     >
-                      {r.repo || "No repo captured"}
+                      {run.repo || "No repo captured"}
                     </span>
                     <p
                       style={{
@@ -1256,11 +1363,11 @@ export function Sessions() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {new Date(r.timestamp).toLocaleString()} {"\u00b7"}{" "}
-                      {r.tool_call_count} calls {"\u00b7"}{" "}
-                      {formatNumber(r.token_usage.total)} tokens
+                      {new Date(run.timestamp).toLocaleString()} {"\u00b7"}{" "}
+                      {run.tool_call_count} calls {"\u00b7"}{" "}
+                      {formatNumber(run.token_usage.total)} tokens
                     </p>
-                    {r.user_prompt_preview && (
+                    {run.user_prompt_preview && (
                       <p
                         style={{
                           ...muted,
@@ -1270,7 +1377,7 @@ export function Sessions() {
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {r.user_prompt_preview}
+                        {run.user_prompt_preview}
                       </p>
                     )}
                   </button>
@@ -1287,6 +1394,7 @@ export function Sessions() {
           <div
             style={{
               display: "flex",
+              overflow: "hidden",
               flexDirection: "column",
               gap: "10px",
               minHeight: 0,
@@ -1326,6 +1434,8 @@ export function Sessions() {
                       fontSize: "18px",
                       fontWeight: 700,
                       color: "#ededed",
+                      flexShrink: 0,
+                      whiteSpace: "nowrap",
                       margin: 0,
                       lineHeight: 1.2,
                     }}
@@ -1351,7 +1461,10 @@ export function Sessions() {
                       label="duration"
                       value={formatDuration(selected.duration_ms)}
                     />
-                    <MetaPill label="turns" value={String(parsed.turns.length)} />
+                    <MetaPill
+                      label="turns"
+                      value={String(parsed.turns.length)}
+                    />
                     <MetaPill
                       label="calls"
                       value={String(selected.tool_call_count)}
@@ -1459,12 +1572,18 @@ export function Sessions() {
                     No trace events available.
                   </p>
                 ) : (
-                  parsed.turns.map((turn) => <TurnCard key={turn.id} turn={turn} />)
+                  parsed.turns.map((turn) => (
+                    <TurnCard key={turn.id} turn={turn} />
+                  ))
                 )}
               </div>
             </Section>
 
-            <Section title="Session highlights" badge="summary" defaultOpen={false}>
+            <Section
+              title="Session highlights"
+              badge="summary"
+              defaultOpen={false}
+            >
               <div
                 style={{
                   display: "grid",
@@ -1474,19 +1593,29 @@ export function Sessions() {
                 }}
               >
                 <div>
-                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>Prompt</p>
+                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
+                    Prompt
+                  </p>
                   <pre style={preStyle}>{prompt}</pre>
                 </div>
                 <div>
-                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>Final answer</p>
+                  <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
+                    Final answer
+                  </p>
                   <pre style={preStyle}>{answer}</pre>
                 </div>
               </div>
             </Section>
 
-            <Section title="Tool analysis" badge={String(freq.length)} defaultOpen={false}>
+            <Section
+              title="Tool analysis"
+              badge={String(freq.length)}
+              defaultOpen={false}
+            >
               <div style={{ padding: "12px 14px" }}>
-                <p style={{ ...labelStyle, marginBottom: "8px" }}>Tool frequency</p>
+                <p style={{ ...labelStyle, marginBottom: "8px" }}>
+                  Tool frequency
+                </p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                   {freq.length === 0 ? (
                     <p style={muted}>No tool activity in this session.</p>
