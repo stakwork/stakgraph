@@ -2,6 +2,7 @@
 import { registerRoutes } from "../../src/routes";
 
 // @ast node: IntegrationTest "integration: /person endpoint"
+// @ast edge: Calls -> Endpoint "/person" "routes.ts" [verb=POST]
 describe("integration: /person endpoint", () => {
   it("POST creates person via API", async () => {
     const res = await fetch("http://localhost:3000/person", {
@@ -19,6 +20,7 @@ describe("integration: /person endpoint", () => {
 });
 
 // @ast node: IntegrationTest "integration: /api/admin endpoints"
+// @ast edge: Calls -> Endpoint "/api/admin/users" "admin-routes.ts" [verb=GET]
 describe("integration: /api/admin endpoints", () => {
   it("GET lists users", async () => {
     const res = await fetch("http://localhost:3000/api/admin/users");

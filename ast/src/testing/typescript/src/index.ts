@@ -53,6 +53,7 @@ async function initDatabases() {
 
 initDatabases();
 // @ast node: Function "get_handler_L30"
+// @ast edge: Handler <- Endpoint "/" "index.ts"
 // @ast node: Endpoint "/"
 // @ast node: Request "/"
 // @ast node: Var "port"

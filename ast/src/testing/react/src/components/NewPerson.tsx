@@ -54,6 +54,11 @@ const SubmitButton = styled.button`
 `;
 
 // @ast node: Function "NewPerson"
+// @ast edge: Calls -> Function "FormContainer" "NewPerson.tsx"
+// @ast edge: Calls -> Function "FormTitle" "NewPerson.tsx"
+// @ast edge: Calls -> Function "FormGroup" "NewPerson.tsx"
+// @ast edge: Calls -> Function "Label" "NewPerson.tsx"
+// @ast edge: Calls -> Function "Input" "NewPerson.tsx"
 function NewPerson() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

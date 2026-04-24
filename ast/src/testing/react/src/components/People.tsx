@@ -3,6 +3,7 @@ import { Person, useStore } from "./Person";
 import * as api from "../api";
 
 // @ast node: Function "People"
+// @ast edge: Calls -> Function "useStore" "Person.tsx"
 function People() {
   const { state, setPeople, setLoading } = useStore();
   const { people, loading } = state;

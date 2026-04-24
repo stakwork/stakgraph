@@ -24,6 +24,7 @@ class TestThing() {
 }
 
 // @ast node: Function "App"
+// @ast edge: Calls -> Class "TestThing" "App.tsx"
 // @ast node: Page "/people"
 // @ast edge: Renders -> Function "People" "People.tsx"
 // @ast node: Page "/new-person"

@@ -2,6 +2,10 @@ import request from "supertest";
 import { app } from "../api/routes";
 
 // @ast node: IntegrationTest "Users API Integration Tests"
+// @ast edge: Calls -> Endpoint "/users" "routes.ts" [verb=GET]
+// @ast edge: Calls -> Endpoint "/users" "routes.ts" [verb=POST]
+// @ast edge: Calls -> Endpoint "/users/:id" "routes.ts" [verb=PUT]
+// @ast edge: Calls -> Endpoint "/users/:id" "routes.ts" [verb=DELETE]
 describe("Users API Integration Tests", () => {
   test("GET /api/users returns user list", async () => {
     const response = await request(app)
@@ -41,6 +45,8 @@ describe("Users API Integration Tests", () => {
 });
 
 // @ast node: IntegrationTest "API Error Handling"
+// @ast edge: Calls -> Endpoint "/users" "routes.ts" [verb=GET]
+// @ast edge: Calls -> Endpoint "/users" "routes.ts" [verb=POST]
 describe("API Error Handling", () => {
   test("returns 404 for non-existent user", async () => {
     await request(app).get("/api/users/99999").expect(404);

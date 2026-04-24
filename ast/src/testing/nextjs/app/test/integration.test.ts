@@ -52,3 +52,4 @@ describe("integration: /api/orders with query params", () => {
 });
 // @ast node: IntegrationTest "integration: /api/person and /api/person/[id]"
 // @ast node: IntegrationTest "integration: /api/orders with query params"
+// @ast edge: Calls -> Endpoint "/api/orders" "src/testing/nextjs/app/api/orders/route.ts" [verb=PUT]

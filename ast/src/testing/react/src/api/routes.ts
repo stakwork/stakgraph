@@ -42,7 +42,11 @@ router.use("/admin", (req, res, next) => {
 
 export default router;
 // @ast node: Function "get_users_handler_L5"
+// @ast edge: Handler <- Endpoint "/users" "routes.ts" [verb=GET]
 // @ast node: Function "post_users_handler_L11"
+// @ast edge: Handler <- Endpoint "/users" "routes.ts" [verb=POST]
 // @ast node: Function "put_users_param_id_handler_L18"
+// @ast edge: Handler <- Endpoint "/users/:id" "routes.ts" [verb=PUT]
 // @ast node: Function "delete_users_param_id_handler_L25"
+// @ast edge: Handler <- Endpoint "/users/:id" "routes.ts" [verb=DELETE]
 // @ast node: Function "use_admin_handler_L37"
