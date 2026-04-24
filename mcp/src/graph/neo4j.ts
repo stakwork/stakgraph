@@ -1435,6 +1435,68 @@ class Db {
     }
   }
 
+  /**
+   * Delete all graph nodes belonging to a repo (e.g. "owner/repo").
+   * Removes:
+   *   - Data_Bank nodes whose file path starts with the repo prefix
+   *     (Function, Class, File, Endpoint, Repository, etc.)
+   *   - Feature and Clue nodes tagged with f.repo = $repo (and id prefix fallback)
+   * Returns counts for each category.
+   */
+  async delete_repo(
+    repo: string,
+  ): Promise<{ file_nodes: number; features: number; clues: number }> {
+    if (!repo || !repo.trim()) {
+      throw new Error("repo is required");
+    }
+    const prefix = repo.trim();
+    const session = this.driver.session();
+    try {
+      const fileRes = await session.run(
+        `
+        MATCH (n:Data_Bank)
+        WHERE n.file STARTS WITH $prefix
+        WITH collect(n) as nodes, count(n) as deleted_count
+        FOREACH (x IN nodes | DETACH DELETE x)
+        RETURN deleted_count
+        `,
+        { prefix },
+      );
+      const file_nodes =
+        fileRes.records[0]?.get("deleted_count")?.toNumber?.() ?? 0;
+
+      const featureRes = await session.run(
+        `
+        MATCH (f:Feature)
+        WHERE f.repo = $prefix OR f.id STARTS WITH $idPrefix
+        WITH collect(f) as nodes, count(f) as deleted_count
+        FOREACH (x IN nodes | DETACH DELETE x)
+        RETURN deleted_count
+        `,
+        { prefix, idPrefix: `${prefix}/` },
+      );
+      const features =
+        featureRes.records[0]?.get("deleted_count")?.toNumber?.() ?? 0;
+
+      const clueRes = await session.run(
+        `
+        MATCH (c:Clue)
+        WHERE c.repo = $prefix OR c.id STARTS WITH $idPrefix
+        WITH collect(c) as nodes, count(c) as deleted_count
+        FOREACH (x IN nodes | DETACH DELETE x)
+        RETURN deleted_count
+        `,
+        { prefix, idPrefix: `${prefix}/` },
+      );
+      const clues =
+        clueRes.records[0]?.get("deleted_count")?.toNumber?.() ?? 0;
+
+      return { file_nodes, features, clues };
+    } finally {
+      await session.close();
+    }
+  }
+
   async get_top_nodes_by_importance(
     limit: number,
   ): Promise<ImportanceTopNode[]> {
