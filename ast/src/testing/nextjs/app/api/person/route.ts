@@ -17,3 +17,6 @@ export async function POST(request: Request) {
   people.push(body);
   return NextResponse.json(body, { status: 201 });
 }
+// @ast node: Endpoint "/api/person" [verb=GET]
+// @ast node: Endpoint "/api/person" [verb=POST]
+// @ast node: Var "people"

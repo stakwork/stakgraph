@@ -23,3 +23,6 @@ export async function POST(request: Request) {
   items.push(newItem);
   return NextResponse.json(newItem, { status: 201 });
 }
+// @ast node: Endpoint "/api/items" [verb=GET]
+// @ast node: Endpoint "/api/items" [verb=POST]
+// @ast node: Var "items"

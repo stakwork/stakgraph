@@ -71,3 +71,6 @@ type CarType = {
 // }
 
 // TO FIGURE OUT QUERY THAT DOES NOT PICK IT UP AS DM
+// @ast node: DataModel "SequelizePerson"
+// @ast node: DataModel "TypeORMPerson"
+// @ast node: Trait "CarType"

@@ -50,3 +50,5 @@ describe("integration: /api/orders with query params", () => {
     console.log("PUT /api/orders?orderId=123 should return 200");
   });
 });
+// @ast node: IntegrationTest "integration: /api/person and /api/person/[id]"
+// @ast node: IntegrationTest "integration: /api/orders with query params"

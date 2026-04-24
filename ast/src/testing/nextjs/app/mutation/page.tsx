@@ -172,3 +172,6 @@ function MutationDemo() {
 }
 
 export { MutationDemo as default };
+// @ast node: Page "mutation"
+// @ast node: DataModel "UserData"
+// @ast node: DataModel "ItemData"

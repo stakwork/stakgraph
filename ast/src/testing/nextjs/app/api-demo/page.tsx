@@ -231,3 +231,8 @@ function APIDemo() {
 }
 
 export { APIDemo as default };
+// @ast node: Function "loadData"
+// @ast node: Function "handleUpdateUser"
+// @ast node: Function "handleDeleteUser"
+// @ast node: Function "handleDeletePost"
+// @ast node: Page "api-demo"

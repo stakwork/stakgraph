@@ -50,3 +50,7 @@ describe("mocked module factory", () => {
     expect(true).toBe(true);
   });
 });
+// @ast node: UnitTest "mocked api client usage"
+// @ast node: UnitTest "mocked module factory"
+// @ast node: Function "status"
+// @ast node: Var "mockApiClient"

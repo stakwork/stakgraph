@@ -136,3 +136,5 @@ describe("unit: useGetBounties hook", () => {
     console.log("useGetBounties with sort:", sort);
   });
 });
+// @ast node: UnitTest "unit: useGetBounties hook"
+// @ast node: IntegrationTest "unit: useGetBounty hook"

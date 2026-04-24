@@ -38,3 +38,6 @@ export async function DELETE(
   people.splice(index, 1);
   return NextResponse.json({ success: true });
 }
+// @ast node: Endpoint "/api/person/[id]" [verb=GET]
+// @ast node: Endpoint "/api/person/[id]" [verb=DELETE]
+// @ast node: Var "people"

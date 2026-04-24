@@ -117,3 +117,11 @@ async function findUserByEmail(email: string) {
 async function createUser(user: any) {
   return user;
 }
+// @ast node: Function "signIn"
+// @ast node: Function "list"
+// @ast node: Function "create"
+// @ast node: Function "list"
+// @ast node: Function "auth"
+// @ast node: Request "/api/users"
+// @ast node: Request "/api/users"
+// @ast node: Request "/api/posts"

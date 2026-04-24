@@ -158,3 +158,16 @@ describe('integration: pattern 6 - builder pattern', () => {
     expect(res.status).toBe(200);
   });
 });
+// @ast node: IntegrationTest "integration: pattern 2 - api client class"
+// @ast node: IntegrationTest "integration: pattern 3 - fixtures and constants"
+// @ast node: IntegrationTest "integration: pattern 4 - setup and teardown"
+// @ast node: IntegrationTest "integration: pattern 5 - nested helpers"
+// @ast node: IntegrationTest "integration: pattern 6 - builder pattern"
+// @ast node: Function "constructor"
+// @ast node: Function "withRating"
+// @ast node: Function "withComment"
+// @ast node: Function "create"
+// @ast node: Request "http://localhost:3000/api/products"
+// @ast node: Request "http://localhost:3000/api/products"
+// @ast node: Request "http://localhost:3000${path}"
+// @ast node: Request "http://localhost:3000/api/reviews"

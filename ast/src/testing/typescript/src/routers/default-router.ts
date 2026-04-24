@@ -18,3 +18,9 @@ router.post("/", async (req: Request, res: Response) => {
 });
 
 export default router;
+// @ast node: Function "get_handler_L5"
+// @ast node: Function "get_param_id_handler_L10"
+// @ast node: Function "post_handler_L15"
+// @ast node: Endpoint "/api/settings/" [verb=GET]
+// @ast node: Endpoint "/api/settings/:id" [verb=GET]
+// @ast node: Endpoint "/api/settings/" [verb=POST]

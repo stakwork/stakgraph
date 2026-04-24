@@ -128,3 +128,10 @@ function Simulation() {
 }
 
 export { Simulation as default };
+// @ast node: Function "handleAddCluster"
+// @ast node: Function "handleAddGravity"
+// @ast node: Function "handleRemoveForce"
+// @ast node: Function "handleStart"
+// @ast node: Function "handleStop"
+// @ast node: Function "handleReset"
+// @ast node: Page "simulation"

@@ -126,3 +126,4 @@ function QueryDemo() {
 }
 
 export { QueryDemo as default };
+// @ast node: Page "query"

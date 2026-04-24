@@ -96,3 +96,9 @@ export {
   CardDescription,
   CardContent,
 }
+// @ast node: Function "CardHeader"
+// @ast node: Function "CardTitle"
+// @ast node: Function "CardDescription"
+// @ast node: Function "CardAction"
+// @ast node: Function "CardContent"
+// @ast node: Function "CardFooter"

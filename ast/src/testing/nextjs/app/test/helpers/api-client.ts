@@ -27,3 +27,11 @@ export class ApiClient {
     });
   }
 }
+// @ast node: Function "get"
+// @ast node: Function "post"
+// @ast node: Function "put"
+// @ast node: Function "delete"
+// @ast node: Request "http://localhost:3000${endpoint}"
+// @ast node: Request "http://localhost:3000${endpoint}"
+// @ast node: Request "http://localhost:3000${endpoint}"
+// @ast node: Request "http://localhost:3000${endpoint}"

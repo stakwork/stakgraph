@@ -52,3 +52,7 @@ async function initDatabases() {
 }
 
 initDatabases();
+// @ast node: Function "get_handler_L30"
+// @ast node: Endpoint "/"
+// @ast node: Request "/"
+// @ast node: Var "port"

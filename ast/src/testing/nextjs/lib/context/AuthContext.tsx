@@ -87,3 +87,6 @@ export function useAuth() {
   }
   return context;
 }
+// @ast node: DataModel "User"
+// @ast node: DataModel "Credentials"
+// @ast node: DataModel "AuthContextType"

@@ -25,3 +25,4 @@ test.describe.only('Dashboard', () => {
     await expect(page.getByTestId('user-stats')).toBeVisible()
   })
 })
+// @ast node: UnitTest "Composer"

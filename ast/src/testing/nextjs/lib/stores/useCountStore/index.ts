@@ -27,3 +27,5 @@ export const useCountStore = create<CountStore>((set, get) => ({
     return get().count
   },
 }))
+// @ast node: Function "useCountStore"
+// @ast node: DataModel "CountStore"

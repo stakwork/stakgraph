@@ -4,3 +4,4 @@
 export async function GET() {
   return Response.json({ id: 1, name: "Electronics" });
 }
+// @ast node: Endpoint "/api/categories/[id]" [verb=GET]

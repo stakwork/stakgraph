@@ -157,3 +157,7 @@ function ActionsDemo() {
 }
 
 export { ActionsDemo as default };
+// @ast node: Function "handleRemoveViaObject"
+// @ast node: Function "handleAddViaDestructured"
+// @ast node: Function "handleClearViaDestructured"
+// @ast node: Page "actions"

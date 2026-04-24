@@ -57,3 +57,4 @@ export function useMutation<T>(endpoint: string): MutationResult<T> {
     data,
   };
 }
+// @ast node: DataModel "MutationResult"

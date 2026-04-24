@@ -12,3 +12,5 @@ export async function PUT(request: Request) {
 export async function DELETE() {
   return Response.json({ success: true });
 }
+// @ast node: Endpoint "/api/users/[id]" [verb=PUT]
+// @ast node: Endpoint "/api/users/[id]" [verb=DELETE]

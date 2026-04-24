@@ -34,3 +34,4 @@ export default function RootLayout({
     </html>
   );
 }
+// @ast node: Var "metadata"

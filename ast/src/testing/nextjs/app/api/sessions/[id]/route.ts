@@ -4,3 +4,4 @@
 export async function DELETE() {
   return Response.json({ success: true });
 }
+// @ast node: Endpoint "/api/sessions/[id]" [verb=DELETE]

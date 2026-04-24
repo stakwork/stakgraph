@@ -23,3 +23,4 @@ export default function DashboardPage({ title = "Dashboard" }: DashboardProps) {
     </div>
   );
 }
+// @ast node: Page "dashboard"

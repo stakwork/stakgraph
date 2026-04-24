@@ -101,3 +101,7 @@ async function getRecentPeople(req: Request, res: Response) {
       .json({ error: "Internal server error" });
   }
 }
+// @ast node: Request "/person/:id"
+// @ast node: Request "/person"
+// @ast node: DataModel "PersonRequest"
+// @ast node: DataModel "PersonResponse"

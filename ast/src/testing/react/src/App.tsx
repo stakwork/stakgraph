@@ -48,3 +48,5 @@ function App() {
 }
 
 export default App;
+// @ast node: Function "constructor"
+// @ast node: DataModel "APP_NAMES"

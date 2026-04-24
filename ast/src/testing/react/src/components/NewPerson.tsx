@@ -117,3 +117,9 @@ function NewPerson() {
 }
 
 export default NewPerson;
+// @ast node: Function "FormContainer"
+// @ast node: Function "FormTitle"
+// @ast node: Function "FormGroup"
+// @ast node: Function "Label"
+// @ast node: Function "Input"
+// @ast node: Function "handleSubmit"

@@ -66,3 +66,9 @@ export class Cache<K extends string, V> {
     return entry.value;
   }
 }
+// @ast node: Function "findOrCreate"
+// @ast node: Function "set"
+// @ast node: Function "get"
+// @ast node: DataModel "ActionResult"
+// @ast node: DataModel "ApiResponse"
+// @ast node: DataModel "PaginatedResult"

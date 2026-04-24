@@ -12,3 +12,5 @@ export async function POST(request: Request) {
   const body = await request.json();
   return Response.json({ id: 1, ...body }, { status: 201 });
 }
+// @ast node: Endpoint "/api/products" [verb=GET]
+// @ast node: Endpoint "/api/products" [verb=POST]

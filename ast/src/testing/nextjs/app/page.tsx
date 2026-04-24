@@ -131,3 +131,6 @@ interface Props {
 export function TestComponent({ params, searchParams }: Props) {
   return <div>Hello</div>;
 }
+// @ast node: Function "TestComponent"
+// @ast node: Page "app"
+// @ast node: DataModel "Props"

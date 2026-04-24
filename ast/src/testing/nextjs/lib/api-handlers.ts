@@ -9,3 +9,4 @@ export const bountyHandlers = {
   format: (sats: number) => convertSatsToUSD(sats),
   display: (num: number) => formatNumber(num),
 };
+// @ast node: Var "bountyHandlers"

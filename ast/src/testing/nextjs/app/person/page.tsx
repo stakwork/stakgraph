@@ -208,3 +208,13 @@ async function TestComponent() {
 
 export { TestComponent };
 export default Person;
+// @ast node: Function "handleSubmit"
+// @ast node: Function "handleFindPerson"
+// @ast node: Function "handleDeletePerson"
+// @ast node: Function "TestComponent"
+// @ast node: Request "/api/person"
+// @ast node: Request "/api/person"
+// @ast node: Request "/api/person"
+// @ast node: Request "/api/person"
+// @ast node: Page "person"
+// @ast node: DataModel "Person"

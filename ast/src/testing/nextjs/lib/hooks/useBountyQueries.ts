@@ -185,3 +185,19 @@ export function useGetBounties(
     refetch,
   };
 }
+// @ast node: Function "list"
+// @ast node: Function "assignee"
+// @ast node: Function "creator"
+// @ast node: Function "useGetBounty"
+// @ast node: Function "fetchBounty"
+// @ast node: Function "refetch"
+// @ast node: Function "useGetBounties"
+// @ast node: Function "fetchBounties"
+// @ast node: Function "refetch"
+// @ast node: DataModel "Bounty"
+// @ast node: DataModel "BountyFilters"
+// @ast node: DataModel "PaginationParams"
+// @ast node: DataModel "BountySortParams"
+// @ast node: DataModel "QueryResult"
+// @ast node: Request "/api/bounties/${id}"
+// @ast node: Request "/api/bounties?${params.toString()}"

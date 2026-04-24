@@ -8,3 +8,4 @@ export async function PUT(req: NextRequest) {
   const body = await req.json();
   return Response.json({ orderId, status: body.status });
 }
+// @ast node: Endpoint "/api/orders" [verb=PUT]

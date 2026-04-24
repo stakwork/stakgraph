@@ -163,3 +163,5 @@ describe("unit: actions hook - pattern comparison", () => {
     console.log("Chained destructured pattern calls successful");
   });
 });
+// @ast node: UnitTest "unit: actions hook - destructured pattern"
+// @ast node: UnitTest "unit: actions hook - pattern comparison"

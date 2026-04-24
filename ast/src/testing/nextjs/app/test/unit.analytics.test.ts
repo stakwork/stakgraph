@@ -178,3 +178,6 @@ describe("unit: analytics properties", () => {
     console.log("Page with properties tracked");
   });
 });
+// @ast node: UnitTest "unit: analytics workflows"
+// @ast node: UnitTest "unit: analytics batching"
+// @ast node: UnitTest "unit: analytics properties"

@@ -86,3 +86,5 @@ export interface AdminUser extends UserDTO {
   permissions: string[];
   department: string;
 }
+// @ast node: DataModel "UserEntity"
+// @ast node: DataModel "Product"

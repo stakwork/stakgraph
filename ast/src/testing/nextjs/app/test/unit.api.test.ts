@@ -208,3 +208,6 @@ describe("unit: api client - chained operations", () => {
     console.log("Chained multiple API calls successfully");
   });
 });
+// @ast node: UnitTest "unit: api client - posts"
+// @ast node: UnitTest "unit: api client - comments"
+// @ast node: UnitTest "unit: api client - chained operations"

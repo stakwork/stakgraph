@@ -64,3 +64,5 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
+// @ast node: Function "json"
+// @ast node: Var "global.fetch"

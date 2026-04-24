@@ -53,3 +53,5 @@ export interface Config {
 export interface IGreeter {
   greet(name: string): string;
 }
+// @ast node: DataModel "Logger"
+// @ast node: DataModel "IGreeter"

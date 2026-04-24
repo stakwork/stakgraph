@@ -38,3 +38,14 @@ router.route('/:postId/like')
   });
 
 export default router;
+// @ast node: Function "get_handler_L8"
+// @ast node: Function "get_param_postId_handler_L15"
+// @ast node: Function "post_handler_L22"
+// @ast node: Function "post_param_postId_like_handler_L30"
+// @ast node: Function "delete_param_postId_like_handler_L34"
+// @ast node: Endpoint "/:userId/posts/" [verb=GET]
+// @ast node: Endpoint "/:userId/posts/" [verb=POST]
+// @ast node: Endpoint "/:userId/posts/:postId" [verb=GET]
+// @ast node: Endpoint "/:userId/posts/:postId/like" [verb=POST]
+// @ast node: Endpoint "/:userId/posts/:postId/like" [verb=DELETE]
+// @ast node: Var "postService"

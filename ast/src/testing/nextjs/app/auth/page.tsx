@@ -103,3 +103,8 @@ function AuthPage() {
 }
 
 export { AuthPage as default };
+// @ast node: Function "handleLogin"
+// @ast node: Function "handleLogout"
+// @ast node: Function "handleRefresh"
+// @ast node: Function "handleUpdateProfile"
+// @ast node: Page "auth"

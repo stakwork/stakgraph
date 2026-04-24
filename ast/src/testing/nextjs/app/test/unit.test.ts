@@ -32,3 +32,6 @@ describe("unit: types exist", () => {
     console.log("buttonVariants keys:", Object.keys(buttonVariants || {}));
   });
 });
+// @ast node: UnitTest "unit: types exist"
+// @ast node: Function "formatTestOutput"
+// @ast node: Function "waitForCondition"
