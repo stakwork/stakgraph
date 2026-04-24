@@ -1,5 +1,12 @@
 package main
 
+// @ast node: UnitTest "TestBuildCommands"
+// @ast edge: Calls -> Function "BuildCommands" "cli.go"
+// @ast node: UnitTest "TestPing"
+// @ast edge: Calls -> Function "Ping" "cli.go"
+// @ast node: UnitTest "TestVersion"
+// @ast edge: Calls -> Function "Version" "cli.go"
+
 import (
 	"testing"
 )

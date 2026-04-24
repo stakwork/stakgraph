@@ -1,5 +1,11 @@
 package main
 
+// @ast node: DataModel "Job"
+// @ast node: DataModel "Result"
+// @ast node: Function "StartPipeline"
+// @ast edge: Calls -> Function "worker" "pipeline.go"
+// @ast node: Function "worker"
+
 import "sync"
 
 type Job struct {

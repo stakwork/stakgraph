@@ -1,5 +1,19 @@
 package main
 
+// @ast node: Endpoint "/person/{id}" [verb=GET]
+// @ast edge: Handler -> Function "GetPerson" "routes.go"
+// @ast node: Endpoint "/person" [verb=POST]
+// @ast edge: Handler -> Function "CreatePerson" "routes.go"
+// @ast node: Endpoint "/leaderboard" [verb=GET]
+// @ast edge: Handler -> Function "GetLeaderboard" "db.go"
+// @ast node: Function "NewRouter"
+// @ast edge: Calls -> Function "initChi" "routes.go"
+// @ast node: Function "GetPerson"
+// @ast edge: Calls -> Function "GetPersonById" "db.go"
+// @ast node: Function "CreatePerson"
+// @ast edge: Calls -> Function "NewPerson" "db.go"
+// @ast node: Function "initChi"
+
 import (
 	"encoding/json"
 	"fmt"

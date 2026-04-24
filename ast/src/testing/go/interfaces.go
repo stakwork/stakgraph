@@ -1,5 +1,20 @@
 package main
 
+// @ast node: Trait "Shape"
+// @ast node: DataModel "Shape"
+// @ast node: Class "Rectangle"
+// @ast node: DataModel "Rectangle"
+// @ast node: Class "Circle"
+// @ast node: DataModel "Circle"
+// @ast node: Class "ColoredShape"
+// @ast edge: Operand -> Function "Describe" "interfaces.go"
+// @ast node: DataModel "ColoredShape"
+// @ast node: Function "Area"
+// @ast node: Function "Area"
+// @ast node: Function "Perimeter"
+// @ast node: Function "Perimeter"
+// @ast node: Function "Describe"
+
 import "math"
 
 // Shape is a geometric shape interface

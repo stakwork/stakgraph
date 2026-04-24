@@ -1,5 +1,11 @@
 package main
 
+// @ast node: DataModel "Job"
+// @ast node: DataModel "Result"
+// @ast node: Function "Worker"
+// @ast node: Function "StartWorkerPool"
+// @ast edge: Calls -> Function "Worker" "concurrency.go"
+
 import (
 	"fmt"
 	"sync"

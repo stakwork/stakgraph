@@ -1,5 +1,9 @@
 package tests
 
+// @ast node: Function "Add"
+// @ast node: UnitTest "TestAdd"
+// @ast node: UnitTest "BenchmarkAdd"
+
 import (
 	"testing"
 )

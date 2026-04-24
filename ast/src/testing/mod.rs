@@ -117,6 +117,38 @@ async fn test_nextjs() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_go() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/go", "go", Language::Go).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/go", "go", Language::Go).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/go", "go", Language::Go).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_go_non_web() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/go_non_web", "go", Language::Go).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/go_non_web", "go", Language::Go).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/go_non_web", "go", Language::Go).await.unwrap();
+    }
+}
+
 pub fn _print_nodes(nodes: Vec<NodeData>) {
     println!(
         "{:#?}",

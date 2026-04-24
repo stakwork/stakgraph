@@ -4,7 +4,6 @@ use crate::utils::get_use_lsp;
 use crate::{lang::Lang, repo::Repo};
 use shared::error::Result;
 use std::str::FromStr;
-use test_log::test;
 
 pub async fn test_go_generic<G: Graph + Sync>() -> Result<()> {
     let use_lsp = get_use_lsp();
@@ -525,27 +524,4 @@ pub async fn test_go_non_web_generic<G: Graph + Sync>() -> Result<()> {
     );
 
     Ok(())
-}
-
-#[test(tokio::test(flavor = "multi_thread", worker_threads = 2))]
-async fn test_go() {
-    #[cfg(not(feature = "neo4j"))]
-    {
-        use crate::lang::graphs::{ArrayGraph, BTreeMapGraph};
-        test_go_generic::<ArrayGraph>().await.unwrap();
-        test_go_generic::<BTreeMapGraph>().await.unwrap();
-
-        test_go_non_web_generic::<ArrayGraph>().await.unwrap();
-        test_go_non_web_generic::<BTreeMapGraph>().await.unwrap();
-    }
-
-    #[cfg(feature = "neo4j")]
-    {
-        use crate::lang::graphs::Neo4jGraph;
-        let graph = Neo4jGraph::default();
-        graph.clear().await.unwrap();
-        test_go_generic::<Neo4jGraph>().await.unwrap();
-        graph.clear().await.unwrap();
-        test_go_non_web_generic::<Neo4jGraph>().await.unwrap();
-    }
 }
