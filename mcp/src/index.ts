@@ -39,13 +39,8 @@ import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
-import {
-  getBus,
-  verifyEventsToken,
-  pipeToSSE,
-  signApiToken,
-} from "./repo/events.js";
-import fs from "fs";
+import { getBus, verifyEventsToken, pipeToSSE } from "./repo/events.js";
+import { sendIndexWithToken } from "./utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -137,26 +132,11 @@ app.get("/favicon.ico", (_req: Request, res: Response) => {
 });
 
 // Gated: index.html — requires API_TOKEN auth, then injects a short-lived JWT
-app.get(["/", "/index.html"], r.authMiddleware, (_req: Request, res: Response) => {
-  const indexPath = path.join(webDist, "index.html");
-  fs.readFile(indexPath, "utf8", (err, html) => {
-    if (err) {
-      res.status(500).send("Error loading app");
-      return;
-    }
-    let token = "";
-    try {
-      token = signApiToken("1h");
-    } catch (_) {
-      // API_TOKEN not set (dev mode) — leave token empty; API calls will pass through
-    }
-    const injected = html.replace(
-      "</head>",
-      `<script>window.__AUTH_TOKEN__=${JSON.stringify(token)}</script></head>`,
-    );
-    res.type("html").send(injected);
-  });
-});
+app.get(
+  ["/", "/index.html"],
+  r.authMiddleware,
+  sendIndexWithToken(path.join(webDist, "index.html")),
+);
 app.get("/schema", r.schema);
 app.get("/ontology", r.schema);
 
@@ -177,10 +157,17 @@ app.get("/server-config", r.server_config);
 // Sessions API routes are public (pre-auth)
 app.use("/api", benchmarkRouter());
 const benchmarkDist = path.join(__dirname, "../benchmark/dist");
-app.use("/sessions", express.static(benchmarkDist));
-app.get(["/sessions", "/sessions/", "/sessions/*"], (_req: Request, res: Response) => {
-  res.sendFile(path.join(benchmarkDist, "index.html"));
-});
+// Public: hashed assets (JS/CSS/images) — safe, contain no secrets
+app.use(
+  "/sessions",
+  express.static(benchmarkDist, { index: false, extensions: [] }),
+);
+// Gated: index.html — requires API_TOKEN auth, then injects a short-lived JWT
+app.get(
+  ["/sessions", "/sessions/", "/sessions/*"],
+  r.authMiddleware,
+  sendIndexWithToken(path.join(benchmarkDist, "index.html")),
+);
 
 app.use(r.authMiddleware);
 app.use(r.logEndpoint);
