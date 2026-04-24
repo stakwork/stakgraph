@@ -395,6 +395,34 @@ export async function get_leaks(req: Request, res: Response) {
   }
 }
 
+// curl -X DELETE "http://localhost:3355/repo?repo=stakwork/hive"
+// curl -X DELETE "http://localhost:3355/repo?repo_url=https://github.com/stakwork/hive"
+export async function delete_repo(req: Request, res: Response) {
+  const repoParam =
+    (req.query.repo as string | undefined) ||
+    (req.query.repo_url as string | undefined) ||
+    (req.body && (req.body.repo as string | undefined)) ||
+    (req.body && (req.body.repo_url as string | undefined));
+
+  const repo = normalizeRepoRef(repoParam || "");
+  if (!repo || !repo.includes("/")) {
+    res.status(400).json({
+      error:
+        "Missing or invalid repo. Provide ?repo=owner/repo or ?repo_url=https://github.com/owner/repo",
+    });
+    return;
+  }
+
+  console.log(`===> DELETE /repo ${repo}`);
+  try {
+    const counts = await db.delete_repo(repo);
+    res.json({ success: true, repo, ...counts });
+  } catch (e: any) {
+    console.error("[delete_repo] Failed:", e);
+    res.status(500).json({ error: e?.message || "Internal server error" });
+  }
+}
+
 export async function get_agent_file(req: Request, res: Response) {
   const filePath = req.query.path as string;
   console.log("===> GET /repo/agent/file", { filePath });
