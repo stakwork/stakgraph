@@ -17,15 +17,15 @@ interface Person {
 }
 
 // @ast node: Function "Person"
-// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/person/page.tsx"
-// @ast edge: Renders <- Page "person" "src/testing/nextjs/app/person/page.tsx"
-// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
-// @ast edge: Calls -> Request "/api/person/${searchId}" "src/testing/nextjs/app/person/page.tsx" [verb=GET]
-// @ast edge: Calls -> Request "/api/person/${id}" "src/testing/nextjs/app/person/page.tsx" [verb=DELETE]
+// @ast edge: Contains <- File "page.tsx" "app/person/page.tsx"
+// @ast edge: Renders <- Page "person" "app/person/page.tsx"
+// @ast edge: Calls -> Function "Card" "components/ui/card.tsx"
+// @ast edge: Calls -> Request "/api/person/${searchId}" "app/person/page.tsx" [verb=GET]
+// @ast edge: Calls -> Request "/api/person/${id}" "app/person/page.tsx" [verb=DELETE]
 // @ast node: Request "/api/person/${searchId}" [verb=GET]
-// @ast edge: Calls -> Endpoint "/api/person/[id]" "src/testing/nextjs/app/api/person/[id]/route.ts" [verb=GET]
+// @ast edge: Calls -> Endpoint "/api/person/[id]" "app/api/person/[id]/route.ts" [verb=GET]
 // @ast node: Request "/api/person/${id}" [verb=DELETE]
-// @ast edge: Calls -> Endpoint "/api/person/[id]" "src/testing/nextjs/app/api/person/[id]/route.ts" [verb=DELETE]
+// @ast edge: Calls -> Endpoint "/api/person/[id]" "app/api/person/[id]/route.ts" [verb=DELETE]
 function Person() {
   const [people, setPeople] = useState<Person[]>([]);
   const [form, setForm] = useState<Person>({ name: "", age: 0, email: "" });
@@ -208,3 +208,13 @@ async function TestComponent() {
 
 export { TestComponent };
 export default Person;
+// @ast node: Function "handleSubmit"
+// @ast node: Function "handleFindPerson"
+// @ast node: Function "handleDeletePerson"
+// @ast node: Function "TestComponent"
+// @ast node: Request "/api/person"
+// @ast node: Request "/api/person"
+// @ast node: Request "/api/person"
+// @ast node: Request "/api/person"
+// @ast node: Page "person"
+// @ast node: DataModel "Person"

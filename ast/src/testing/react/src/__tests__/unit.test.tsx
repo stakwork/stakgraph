@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoizedCard } from "../components/HigherOrderComponents";
 
 // @ast node: UnitTest "MemoizedCard Component"
+// @ast edge: Calls -> Function "MemoizedCard" "HigherOrderComponents.tsx"
 describe("MemoizedCard Component", () => {
   test("renders title and content", () => {
     render(<MemoizedCard title="Test Title" content="Test Content" />);

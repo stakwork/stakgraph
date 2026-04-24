@@ -16,8 +16,8 @@ async function waitForCondition(condition: () => boolean, timeout: number = 1000
 }
 
 // @ast node: UnitTest "unit: utils.cn"
-// @ast edge: Contains <- File "unit.test.ts" "src/testing/nextjs/app/test/unit.test.ts"
-// @ast edge: Calls -> Function "cn" "src/testing/nextjs/lib/utils.ts"
+// @ast edge: Contains <- File "unit.test.ts" "app/test/unit.test.ts"
+// @ast edge: Calls -> Function "cn" "lib/utils.ts"
 describe("unit: utils.cn", () => {
   it("merges class names", () => {
     const result = cn("btn", "btn-primary");
@@ -32,3 +32,6 @@ describe("unit: types exist", () => {
     console.log("buttonVariants keys:", Object.keys(buttonVariants || {}));
   });
 });
+// @ast node: UnitTest "unit: types exist"
+// @ast node: Function "formatTestOutput"
+// @ast node: Function "waitForCondition"

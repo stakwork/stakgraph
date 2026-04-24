@@ -10,7 +10,7 @@ interface UserIdentity {
 }
 
 // @ast node: Class "AnalyticsService"
-// @ast edge: Contains <- File "analytics.ts" "src/testing/nextjs/lib/services/analytics.ts"
+// @ast edge: Contains <- File "analytics.ts" "lib/services/analytics.ts"
 class AnalyticsService {
   private events: AnalyticsEvent[] = [];
   private currentUser: UserIdentity | null = null;
@@ -56,5 +56,14 @@ class AnalyticsService {
 }
 
 // @ast node: Var "analytics"
-// @ast edge: Contains <- File "analytics.ts" "src/testing/nextjs/lib/services/analytics.ts"
+// @ast edge: Contains <- File "analytics.ts" "lib/services/analytics.ts"
 export const analytics = new AnalyticsService();
+// @ast node: Function "track"
+// @ast node: Function "identify"
+// @ast node: Function "page"
+// @ast node: Function "reset"
+// @ast node: Function "getEvents"
+// @ast node: Function "getCurrentUser"
+// @ast node: Function "flush"
+// @ast node: DataModel "AnalyticsEvent"
+// @ast node: DataModel "UserIdentity"

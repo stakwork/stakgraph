@@ -1,5 +1,8 @@
 package tests
 
+// @ast node: E2eTest "TestUserLoginFlow_E2E"
+// @ast node: E2eTest "TestWithPlaywright"
+
 import (
 	"context"
 	"testing"

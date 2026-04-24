@@ -1,5 +1,12 @@
 package main
 
+// @ast node: DataModel "Command"
+// @ast node: Function "BuildCommands"
+// @ast node: Function "Execute"
+// @ast edge: Calls -> Function "BuildCommands" "cli.go"
+// @ast node: Function "Ping"
+// @ast node: Function "Version"
+
 import "fmt"
 
 type Command struct {

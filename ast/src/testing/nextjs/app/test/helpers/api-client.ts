@@ -1,5 +1,5 @@
 // @ast node: Class "ApiClient"
-// @ast edge: Contains <- File "api-client.ts" "src/testing/nextjs/app/test/helpers/api-client.ts"
+// @ast edge: Contains <- File "api-client.ts" "app/test/helpers/api-client.ts"
 export class ApiClient {
   async get(endpoint: string) {
     return fetch(`http://localhost:3000${endpoint}`);
@@ -27,3 +27,11 @@ export class ApiClient {
     });
   }
 }
+// @ast node: Function "get"
+// @ast node: Function "post"
+// @ast node: Function "put"
+// @ast node: Function "delete"
+// @ast node: Request "http://localhost:3000${endpoint}"
+// @ast node: Request "http://localhost:3000${endpoint}"
+// @ast node: Request "http://localhost:3000${endpoint}"
+// @ast node: Request "http://localhost:3000${endpoint}"

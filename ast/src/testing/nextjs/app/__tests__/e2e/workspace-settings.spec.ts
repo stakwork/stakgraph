@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
  * 4. Verifying the changes were applied successfully
  */
 // @ast node: E2eTest "Workspace Settings"
-// @ast edge: Contains <- File "workspace-settings.spec.ts" "src/testing/nextjs/app/__tests__/e2e/workspace-settings.spec.ts"
+// @ast edge: Contains <- File "workspace-settings.spec.ts" "app/__tests__/e2e/workspace-settings.spec.ts"
 test.describe("Workspace Settings", () => {
   // Test data
   const workspaceName = "Mock Workspace 123";

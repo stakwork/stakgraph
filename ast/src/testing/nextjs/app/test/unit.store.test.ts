@@ -2,7 +2,7 @@
 import { useSimulationStore } from "../../lib/stores/simulationStore";
 
 // @ast node: UnitTest "unit: simulation store"
-// @ast edge: Contains <- File "unit.store.test.ts" "src/testing/nextjs/app/test/unit.store.test.ts"
+// @ast edge: Contains <- File "unit.store.test.ts" "app/test/unit.store.test.ts"
 describe("unit: simulation store", () => {
   beforeEach(() => {
     const store = useSimulationStore.getState();
@@ -100,3 +100,4 @@ describe("unit: store method composition", () => {
     console.log("Chained operations successful");
   });
 });
+// @ast node: UnitTest "unit: store method composition"

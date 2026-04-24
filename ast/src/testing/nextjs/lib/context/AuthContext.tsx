@@ -24,7 +24,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // @ast node: Function "AuthProvider"
-// @ast edge: Contains <- File "AuthContext.tsx" "src/testing/nextjs/lib/context/AuthContext.tsx"
+// @ast edge: Contains <- File "AuthContext.tsx" "lib/context/AuthContext.tsx"
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 }
 
 // @ast node: Function "useAuth"
-// @ast edge: Contains <- File "AuthContext.tsx" "src/testing/nextjs/lib/context/AuthContext.tsx"
+// @ast edge: Contains <- File "AuthContext.tsx" "lib/context/AuthContext.tsx"
 export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
@@ -87,3 +87,6 @@ export function useAuth() {
   }
   return context;
 }
+// @ast node: DataModel "User"
+// @ast node: DataModel "Credentials"
+// @ast node: DataModel "AuthContextType"

@@ -16,7 +16,7 @@ interface QueryResult {
 }
 
 // @ast node: Function "useUserQuery"
-// @ast edge: Contains <- File "useUserQuery.ts" "src/testing/nextjs/lib/hooks/useUserQuery.ts"
+// @ast edge: Contains <- File "useUserQuery.ts" "lib/hooks/useUserQuery.ts"
 export function useUserQuery(userId: string): QueryResult {
   const [data, setData] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -75,3 +75,8 @@ export function useUserQuery(userId: string): QueryResult {
     reset,
   };
 }
+// @ast node: Function "fetchUser"
+// @ast node: Function "refetch"
+// @ast node: DataModel "User"
+// @ast node: DataModel "QueryResult"
+// @ast node: Request "/api/users/${userId}"

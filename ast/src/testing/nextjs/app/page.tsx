@@ -4,8 +4,8 @@ import Image from "next/image";
 import { analytics } from "../lib/services/analytics";
 
 // @ast node: Function "Home"
-// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/page.tsx"
-// @ast edge: Renders <- Page "app" "src/testing/nextjs/app/page.tsx"
+// @ast edge: Contains <- File "page.tsx" "app/page.tsx"
+// @ast edge: Renders <- Page "app" "app/page.tsx"
 export default function Home() {
   useEffect(() => {
     analytics.page("Home");
@@ -131,3 +131,6 @@ interface Props {
 export function TestComponent({ params, searchParams }: Props) {
   return <div>Hello</div>;
 }
+// @ast node: Function "TestComponent"
+// @ast node: Page "app"
+// @ast node: DataModel "Props"

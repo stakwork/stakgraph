@@ -3,6 +3,7 @@ import axios from "axios";
 
 // Custom data fetching hook with axios
 // @ast node: Function "useFetch"
+// @ast edge: Calls -> Function "fetchData" "useCustomHooks.ts"
 export function useFetch<T>(url: string) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
@@ -77,3 +78,4 @@ export function usePrevious<T>(value: T): T | undefined {
 
   return ref.current;
 }
+// @ast node: Function "fetchData"

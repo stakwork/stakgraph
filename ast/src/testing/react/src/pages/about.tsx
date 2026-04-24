@@ -13,3 +13,4 @@ export default function AboutPage() {
     </div>
   );
 }
+// @ast node: Page "about"

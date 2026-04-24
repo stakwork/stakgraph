@@ -9,10 +9,10 @@ import {
 import { Button } from "../../components/ui/button";
 
 // @ast node: Function "ActionsDemo"
-// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/actions/page.tsx"
-// @ast edge: Renders <- Page "actions" "src/testing/nextjs/app/actions/page.tsx"
-// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
-// @ast edge: Calls -> Function "Button" "src/testing/nextjs/components/ui/button.tsx"
+// @ast edge: Contains <- File "page.tsx" "app/actions/page.tsx"
+// @ast edge: Renders <- Page "actions" "app/actions/page.tsx"
+// @ast edge: Calls -> Function "Card" "components/ui/card.tsx"
+// @ast edge: Calls -> Function "Button" "components/ui/button.tsx"
 function ActionsDemo() {
   const actionsObj = useActions();
   const { addForce, removeForce, clearAll, getCount } = useActions();
@@ -157,3 +157,7 @@ function ActionsDemo() {
 }
 
 export { ActionsDemo as default };
+// @ast node: Function "handleRemoveViaObject"
+// @ast node: Function "handleAddViaDestructured"
+// @ast node: Function "handleClearViaDestructured"
+// @ast node: Page "actions"

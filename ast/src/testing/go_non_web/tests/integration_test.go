@@ -1,5 +1,8 @@
 package tests
 
+// @ast node: IntegrationTest "TestStdlibHandler_Integration"
+// @ast edge: Calls -> Endpoint "/health" "http_stdlib.go"
+
 import (
 	"net/http"
 	"net/http/httptest"

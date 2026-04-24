@@ -1,5 +1,7 @@
 package tests
 
+// @ast node: IntegrationTest "TestHealthCheckHandler_Integration"
+
 import (
 	"net/http"
 	"net/http/httptest"

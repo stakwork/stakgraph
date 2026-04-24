@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 // @ast node: E2eTest "e2e: user flows"
-// @ast edge: Contains <- File "e2e.test.ts" "src/testing/nextjs/app/test/e2e.test.ts"
+// @ast edge: Contains <- File "e2e.test.ts" "app/test/e2e.test.ts"
 describe("e2e: user flows", () => {
   it("navigates to /items and adds an item", async () => {
     await page.goto("http://localhost:3000/items");

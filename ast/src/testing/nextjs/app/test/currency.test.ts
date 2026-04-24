@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { convertSatsToUSD } from '@/lib/currency'
 
 // @ast node: UnitTest "unit: currency conversion"
-// @ast edge: Contains <- File "currency.test.ts" "src/testing/nextjs/app/test/currency.test.ts"
-// @ast edge: Calls -> Function "convertSatsToUSD" "src/testing/nextjs/lib/currency.ts"
+// @ast edge: Contains <- File "currency.test.ts" "app/test/currency.test.ts"
+// @ast edge: Calls -> Function "convertSatsToUSD" "lib/currency.ts"
 describe('unit: currency conversion', () => {
   it('should convert small amounts correctly', () => {
     expect(convertSatsToUSD(1, 50000)).toBe('0.00')

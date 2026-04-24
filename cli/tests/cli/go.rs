@@ -20,9 +20,9 @@ fn routes_go_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&routes]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Endpoint: GET /person/{id} (22)"), true);
-    assert_eq!(out.stdout.contains("Function: NewRouter (18-45)"), true);
-    assert_eq!(out.stdout.contains("Function: initChi (83-98)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: GET /person/{id} (36)"), true);
+    assert_eq!(out.stdout.contains("Function: NewRouter (32-59)"), true);
+    assert_eq!(out.stdout.contains("Function: initChi (97-112)"), true);
 }
 
 #[test]
@@ -39,25 +39,25 @@ fn no_nested_filters_nested_functions_exactly() {
     assert_eq!(
         normal
             .stdout
-            .contains("Function: GET_anon-get_func_L8 (9-11)"),
+            .contains("Function: GET_anon-get_func_L16 (17-19)"),
         true
     );
     assert_eq!(
         normal
             .stdout
-            .contains("Function: POST_anon-post_func_L13 (14-16)"),
+            .contains("Function: POST_anon-post_func_L21 (22-24)"),
         true
     );
     assert_eq!(
         filtered
             .stdout
-            .contains("Function: GET_anon-get_func_L8 (9-11)"),
+            .contains("Function: GET_anon-get_func_L16 (17-19)"),
         false
     );
     assert_eq!(
         filtered
             .stdout
-            .contains("Function: POST_anon-post_func_L13 (14-16)"),
+            .contains("Function: POST_anon-post_func_L21 (22-24)"),
         false
     );
 }

@@ -4,7 +4,7 @@ export type ActionResult<T> =
   | { success: false; error: string };
 
 // @ast node: Function "handleAction"
-// @ast edge: Contains <- File "generics.ts" "src/testing/nextjs/lib/generics.ts"
+// @ast edge: Contains <- File "generics.ts" "lib/generics.ts"
 export async function handleAction<T>(
   action: () => Promise<T>
 ): Promise<ActionResult<T>> {
@@ -48,7 +48,7 @@ export abstract class BaseService<T extends { id: string }> {
 
 // Cache utilities
 // @ast node: Class "Cache"
-// @ast edge: Contains <- File "generics.ts" "src/testing/nextjs/lib/generics.ts"
+// @ast edge: Contains <- File "generics.ts" "lib/generics.ts"
 export class Cache<K extends string, V> {
   private cache = new Map<K, { value: V; expiry: number }>();
 
@@ -66,3 +66,9 @@ export class Cache<K extends string, V> {
     return entry.value;
   }
 }
+// @ast node: Function "findOrCreate"
+// @ast node: Function "set"
+// @ast node: Function "get"
+// @ast node: DataModel "ActionResult"
+// @ast node: DataModel "ApiResponse"
+// @ast node: DataModel "PaginatedResult"

@@ -54,6 +54,11 @@ const SubmitButton = styled.button`
 `;
 
 // @ast node: Function "NewPerson"
+// @ast edge: Calls -> Function "FormContainer" "NewPerson.tsx"
+// @ast edge: Calls -> Function "FormTitle" "NewPerson.tsx"
+// @ast edge: Calls -> Function "FormGroup" "NewPerson.tsx"
+// @ast edge: Calls -> Function "Label" "NewPerson.tsx"
+// @ast edge: Calls -> Function "Input" "NewPerson.tsx"
 function NewPerson() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -117,3 +122,9 @@ function NewPerson() {
 }
 
 export default NewPerson;
+// @ast node: Function "FormContainer"
+// @ast node: Function "FormTitle"
+// @ast node: Function "FormGroup"
+// @ast node: Function "Label"
+// @ast node: Function "Input"
+// @ast node: Function "handleSubmit"

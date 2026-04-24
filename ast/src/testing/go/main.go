@@ -1,5 +1,9 @@
 package main
 
+// @ast node: Function "main"
+// @ast edge: Calls -> Function "InitDB" "db.go"
+// @ast edge: Calls -> Function "NewRouter" "routes.go"
+
 import (
 	"context"
 	"fmt"

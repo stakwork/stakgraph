@@ -33,6 +33,7 @@ type IdType = number | string;
 
 /** Interface for Person Service */
 // @ast node: Trait "PersonService"
+// @ast node: DataModel "PersonService"
 export interface PersonService {
   getById(id: IdType): Promise<PersonData | null>;
   create(personData: PersonData): Promise<PersonData>;

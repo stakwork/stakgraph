@@ -91,3 +91,7 @@ export const useSimulationStore = create<SimulationStore>((set) => ({
     })
   },
 }))
+// @ast node: Function "useSimulationStore"
+// @ast node: DataModel "Force"
+// @ast node: DataModel "Simulation"
+// @ast node: DataModel "SimulationStore")

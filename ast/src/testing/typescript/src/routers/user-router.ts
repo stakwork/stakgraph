@@ -39,3 +39,17 @@ router.delete('/:id', async (req, res) => {
 });
 
 export default router;
+// @ast node: Function "get_handler_L11"
+// @ast edge: Handler <- Endpoint "/api/users/" "user-router.ts" [verb=GET]
+// @ast node: Function "get_param_id_handler_L17"
+// @ast edge: Handler <- Endpoint "/api/users/:id" "user-router.ts" [verb=GET]
+// @ast node: Function "post_handler_L23"
+// @ast node: Function "put_param_id_handler_L29"
+// @ast node: Function "delete_param_id_handler_L35"
+// @ast edge: Handler <- Endpoint "/api/users/:id" "user-router.ts" [verb=DELETE]
+// @ast node: Endpoint "/api/users/" [verb=GET]
+// @ast node: Endpoint "/api/users/:id" [verb=GET]
+// @ast node: Endpoint "/api/users/" [verb=POST]
+// @ast node: Endpoint "/api/users/:id" [verb=PUT]
+// @ast node: Endpoint "/api/users/:id" [verb=DELETE]
+// @ast node: Var "userService"

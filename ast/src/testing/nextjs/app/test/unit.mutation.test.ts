@@ -106,3 +106,7 @@ describe("unit: mutation error handling", () => {
     console.log("Error state reset");
   });
 });
+// @ast node: IntegrationTest "unit: mutation hook"
+// @ast node: IntegrationTest "unit: mutation with different endpoints"
+// @ast node: IntegrationTest "unit: mutation error handling"
+// @ast node: DataModel "TestData"

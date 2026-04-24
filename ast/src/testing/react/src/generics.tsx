@@ -69,5 +69,7 @@ export function useFetch<T>(url: string): {
 }
 
 // Generic utility types for React
+// @ast node: DataModel "PropsWithChildren"
 export type PropsWithChildren<P = unknown> = P & { children?: React.ReactNode };
+// @ast node: DataModel "Dispatch"
 export type Dispatch<A> = (action: A) => void;

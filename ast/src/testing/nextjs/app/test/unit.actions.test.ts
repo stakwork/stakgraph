@@ -2,8 +2,8 @@
 import { useActions } from "../../lib/hooks/useActions";
 
 // @ast node: UnitTest "unit: actions hook - object pattern"
-// @ast edge: Contains <- File "unit.actions.test.ts" "src/testing/nextjs/app/test/unit.actions.test.ts"
-// @ast edge: Calls -> Function "useActions" "src/testing/nextjs/lib/hooks/useActions.ts"
+// @ast edge: Contains <- File "unit.actions.test.ts" "app/test/unit.actions.test.ts"
+// @ast edge: Calls -> Function "useActions" "lib/hooks/useActions.ts"
 describe("unit: actions hook - object pattern", () => {
   it("adds force via object access", () => {
     const actions = useActions();
@@ -163,3 +163,5 @@ describe("unit: actions hook - pattern comparison", () => {
     console.log("Chained destructured pattern calls successful");
   });
 });
+// @ast node: UnitTest "unit: actions hook - destructured pattern"
+// @ast node: UnitTest "unit: actions hook - pattern comparison"

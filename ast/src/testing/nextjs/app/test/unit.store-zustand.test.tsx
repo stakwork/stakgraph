@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useCountStore } from '@/lib/stores/useCountStore';
 
 // @ast node: UnitTest "unit: zustand count store"
-// @ast edge: Contains <- File "unit.store-zustand.test.tsx" "src/testing/nextjs/app/test/unit.store-zustand.test.tsx"
+// @ast edge: Contains <- File "unit.store-zustand.test.tsx" "app/test/unit.store-zustand.test.tsx"
 describe('unit: zustand count store', () => {
   beforeEach(() => {
     useCountStore.getState().reset();

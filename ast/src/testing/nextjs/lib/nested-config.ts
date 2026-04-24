@@ -1,5 +1,5 @@
 // @ast node: Var "authOptions"
-// @ast edge: Contains <- File "nested-config.ts" "src/testing/nextjs/lib/nested-config.ts"
+// @ast edge: Contains <- File "nested-config.ts" "lib/nested-config.ts"
 export const authOptions = {
   providers: [
     {
@@ -44,7 +44,7 @@ export const authOptions = {
 };
 
 // @ast node: Var "apiConfig"
-// @ast edge: Contains <- File "nested-config.ts" "src/testing/nextjs/lib/nested-config.ts"
+// @ast edge: Contains <- File "nested-config.ts" "lib/nested-config.ts"
 export const apiConfig = {
   endpoints: {
     users: {
@@ -82,7 +82,7 @@ export const apiConfig = {
 };
 
 // @ast node: Var "routerConfig"
-// @ast edge: Contains <- File "nested-config.ts" "src/testing/nextjs/lib/nested-config.ts"
+// @ast edge: Contains <- File "nested-config.ts" "lib/nested-config.ts"
 export const routerConfig = {
   routes: {
     home: "/",
@@ -107,13 +107,21 @@ export const routerConfig = {
 };
 
 // @ast node: Function "findUserByEmail"
-// @ast edge: Contains <- File "nested-config.ts" "src/testing/nextjs/lib/nested-config.ts"
+// @ast edge: Contains <- File "nested-config.ts" "lib/nested-config.ts"
 async function findUserByEmail(email: string) {
   return null;
 }
 
 // @ast node: Function "createUser"
-// @ast edge: Contains <- File "nested-config.ts" "src/testing/nextjs/lib/nested-config.ts"
+// @ast edge: Contains <- File "nested-config.ts" "lib/nested-config.ts"
 async function createUser(user: any) {
   return user;
 }
+// @ast node: Function "signIn"
+// @ast node: Function "list"
+// @ast node: Function "create"
+// @ast node: Function "list"
+// @ast node: Function "auth"
+// @ast node: Request "/api/users"
+// @ast node: Request "/api/users"
+// @ast node: Request "/api/posts"

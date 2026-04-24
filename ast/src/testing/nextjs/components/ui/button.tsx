@@ -36,8 +36,8 @@ const buttonVariants = cva(
 )
 
 // @ast node: Function "Button"
-// @ast edge: Contains <- File "button.tsx" "src/testing/nextjs/components/ui/button.tsx"
-// @ast edge: Calls -> Function "cn" "src/testing/nextjs/lib/utils.ts"
+// @ast edge: Contains <- File "button.tsx" "components/ui/button.tsx"
+// @ast edge: Calls -> Function "cn" "lib/utils.ts"
 function Button({
   className,
   variant,

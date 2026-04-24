@@ -1,5 +1,8 @@
 package main
 
+// @ast node: UnitTest "TestWorker"
+// @ast edge: Calls -> Function "worker" "pipeline.go"
+
 import (
 	"sync"
 	"testing"

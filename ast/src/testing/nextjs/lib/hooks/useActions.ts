@@ -15,7 +15,7 @@ interface ActionsResult {
 }
 
 // @ast node: Function "useActions"
-// @ast edge: Contains <- File "useActions.ts" "src/testing/nextjs/lib/hooks/useActions.ts"
+// @ast edge: Contains <- File "useActions.ts" "lib/hooks/useActions.ts"
 export function useActions(): ActionsResult {
   const [actions, setActions] = useState<Action[]>([]);
 
@@ -53,3 +53,7 @@ export function useActions(): ActionsResult {
     getCount,
   };
 }
+// @ast node: Function "addForce"
+// @ast node: Function "clearAll"
+// @ast node: DataModel "Action"
+// @ast node: DataModel "ActionsResult"

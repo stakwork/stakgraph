@@ -71,3 +71,12 @@ export async function PATCH(request: NextRequest) {
   }
   return NextResponse.json({ error: "Not found" }, { status: 404 });
 }
+// @ast node: Endpoint "/api/users.ts" [verb=GET]
+// @ast node: Endpoint "/api/users.ts" [verb=POST]
+// @ast node: Endpoint "/api/users.ts" [verb=PUT]
+// @ast node: Endpoint "/api/users.ts" [verb=DELETE]
+// @ast node: Endpoint "/api/users.ts" [verb=PATCH]
+// @ast node: Request "id"
+// @ast node: Request "id"
+// @ast node: Var "users"
+// @ast node: DataModel "User"

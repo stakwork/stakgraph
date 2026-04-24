@@ -99,3 +99,5 @@ export type UserUpdate = Partial<UserDTO>;
 export type UserKeys = keyof UserDTO;
 // @ast node: DataModel "ReadonlyUser"
 export type ReadonlyUser = Readonly<UserDTO>;
+// @ast node: DataModel "Repository"
+// @ast node: DataModel "Mapper"

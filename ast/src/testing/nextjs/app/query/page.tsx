@@ -11,11 +11,11 @@ import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 
 // @ast node: Function "QueryDemo"
-// @ast edge: Contains <- File "page.tsx" "src/testing/nextjs/app/query/page.tsx"
-// @ast edge: Renders <- Page "query" "src/testing/nextjs/app/query/page.tsx"
-// @ast edge: Calls -> Function "Card" "src/testing/nextjs/components/ui/card.tsx"
-// @ast edge: Calls -> Function "Button" "src/testing/nextjs/components/ui/button.tsx"
-// @ast edge: Calls -> Function "Input" "src/testing/nextjs/components/ui/input.tsx"
+// @ast edge: Contains <- File "page.tsx" "app/query/page.tsx"
+// @ast edge: Renders <- Page "query" "app/query/page.tsx"
+// @ast edge: Calls -> Function "Card" "components/ui/card.tsx"
+// @ast edge: Calls -> Function "Button" "components/ui/button.tsx"
+// @ast edge: Calls -> Function "Input" "components/ui/input.tsx"
 function QueryDemo() {
   const [userId, setUserId] = useState("user-123");
   const [inputValue, setInputValue] = useState("user-123");
@@ -126,3 +126,4 @@ function QueryDemo() {
 }
 
 export { QueryDemo as default };
+// @ast node: Page "query"

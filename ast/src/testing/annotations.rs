@@ -3,8 +3,10 @@ use std::path::Path;
 use std::str::FromStr;
 
 use crate::lang::graphs::{EdgeType, Node, NodeType};
-use crate::lang::Graph;
+use crate::lang::{Graph, Lang};
+use crate::repo::{Repo, Repos};
 use lsp::Language;
+use shared::error::Result;
 
 #[derive(Debug, Clone)]
 enum Direction {
@@ -184,11 +186,16 @@ fn parse_file_annotations(
     result
 }
 
-pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, lang: &Language) -> Vec<String> {
+pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, lang: &Language) -> (Vec<String>, BTreeMap<NodeType, usize>) {
     let prefix = lang.annotation_prefix();
     let groups = parse_file_annotations(source, prefix);
     let absent = parse_absent_annotations(source, prefix);
     let mut failures = Vec::new();
+    let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
+
+    for (node_type, _, _, _) in &groups {
+        *counts.entry(node_type.clone()).or_insert(0) += 1;
+    }
 
     for a in &absent {
         if graph
@@ -274,15 +281,29 @@ pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, lang: &L
             }
         }
     }
-    failures
+    (failures, counts)
 }
 
 pub fn walk_and_verify(fixture_dir: &Path, root: &Path, graph: &impl Graph, lang: &Language) -> Vec<String> {
     let mut failures = Vec::new();
+    let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
     let exts: Vec<&str> = lang.exts();
     let skip_dirs: Vec<&str> = lang.skip_dirs();
     let prefix = lang.annotation_prefix();
-    walk_impl(fixture_dir, root, graph, &mut failures, &exts, &skip_dirs, prefix, lang);
+    walk_impl(fixture_dir, root, graph, &mut failures, &mut counts, &exts, &skip_dirs, prefix, lang);
+    for (node_type, expected) in &counts {
+        let actual = graph
+            .find_nodes_by_type(node_type.clone())
+            .iter()
+            .filter(|n| !n.name.contains('\n'))
+            .count();
+        if actual != *expected {
+            failures.push(format!(
+                "FAIL count: {:?} expected {} got {}",
+                node_type, expected, actual
+            ));
+        }
+    }
     failures
 }
 
@@ -291,6 +312,7 @@ fn walk_impl(
     root: &Path,
     graph: &impl Graph,
     failures: &mut Vec<String>,
+    counts: &mut BTreeMap<NodeType, usize>,
     exts: &[&str],
     skip_dirs: &[&str],
     prefix: &str,
@@ -309,7 +331,7 @@ fn walk_impl(
             if skip_dirs.contains(&dir_name) {
                 continue;
             }
-            walk_impl(&path, root, graph, failures, exts, skip_dirs, prefix, lang);
+            walk_impl(&path, root, graph, failures, counts, exts, skip_dirs, prefix, lang);
         } else {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !exts.contains(&ext) {
@@ -325,7 +347,39 @@ fn walk_impl(
                 .strip_prefix(root)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| path.to_string_lossy().to_string());
-            failures.extend(verify_file(&src, &suffix, graph, lang));
+            let (file_failures, file_counts) = verify_file(&src, &suffix, graph, lang);
+            failures.extend(file_failures);
+            for (nt, n) in file_counts {
+                *counts.entry(nt).or_insert(0) += n;
+            }
         }
     }
+}
+
+pub async fn run_fixture_test<G: Graph + Sync>(
+    subdir: &str,
+    lang: &str,
+    annotation_lang: Language,
+) -> Result<()> {
+    let repo = Repo::new(
+        subdir,
+        Lang::from_str(lang).unwrap(),
+        false,
+        Vec::new(),
+        Vec::new(),
+    )
+    .unwrap();
+    let repos = Repos(vec![repo]);
+    let graph = repos.build_graphs_inner::<G>().await?;
+    graph.analysis();
+    let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(subdir);
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let failures = walk_and_verify(&fixture_dir, root, &graph, &annotation_lang);
+    if !failures.is_empty() {
+        for f in &failures {
+            eprintln!("{}", f);
+        }
+        panic!("{} annotation verification failure(s)", failures.len());
+    }
+    Ok(())
 }

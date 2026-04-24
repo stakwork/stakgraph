@@ -111,7 +111,12 @@ impl Repos {
         memory::log_memory("repos_init");
         let start_rss = memory::get_rss_mb();
 
-        let mut graph = G::new(String::new(), Language::Typescript);
+        let lang = self
+            .0
+            .first()
+            .map(|r| r.lang.kind.clone())
+            .unwrap_or(Language::Typescript);
+        let mut graph = G::new(String::new(), lang);
         if let Some(first_repo) = self.0.first() {
             graph.set_allow_unverified_calls(first_repo.allow_unverified_calls);
         }

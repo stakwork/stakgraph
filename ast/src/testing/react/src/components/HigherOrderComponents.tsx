@@ -105,3 +105,8 @@ export function useAuth() {
   }
   return context;
 }
+// @ast node: Function "AuthContext"
+// @ast node: DataModel "AuthContextType"
+// @ast node: DataModel "MemoizedCardProps"
+// @ast node: DataModel "InputProps"
+// @ast node: DataModel "AuthProviderProps"

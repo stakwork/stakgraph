@@ -6,8 +6,8 @@ import {
 } from "../../lib/hooks/useBountyQueries";
 
 // @ast node: UnitTest "unit: bountyKeys query key factory"
-// @ast edge: Contains <- File "unit.bounty-queries.test.ts" "src/testing/nextjs/app/test/unit.bounty-queries.test.ts"
-// @ast edge: Calls -> Function "detail" "src/testing/nextjs/lib/hooks/useBountyQueries.ts"
+// @ast edge: Contains <- File "unit.bounty-queries.test.ts" "app/test/unit.bounty-queries.test.ts"
+// @ast edge: Calls -> Function "detail" "lib/hooks/useBountyQueries.ts"
 describe("unit: bountyKeys query key factory", () => {
   it("generates correct key for all bounties", () => {
     const key = bountyKeys.all;
@@ -136,3 +136,5 @@ describe("unit: useGetBounties hook", () => {
     console.log("useGetBounties with sort:", sort);
   });
 });
+// @ast node: UnitTest "unit: useGetBounties hook"
+// @ast node: IntegrationTest "unit: useGetBounty hook"

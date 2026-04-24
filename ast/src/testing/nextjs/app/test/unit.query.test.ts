@@ -169,3 +169,7 @@ describe("unit: query error handling", () => {
     console.log("Refetch after error completed");
   });
 });
+// @ast node: IntegrationTest "unit: user query hook"
+// @ast node: IntegrationTest "unit: query hook workflows"
+// @ast node: IntegrationTest "unit: multiple query instances"
+// @ast node: IntegrationTest "unit: query error handling"

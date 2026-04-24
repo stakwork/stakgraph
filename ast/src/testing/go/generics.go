@@ -1,5 +1,13 @@
 package main
 
+// @ast node: Class "Stack"
+// @ast edge: Operand -> Function "Push" "generics.go"
+// @ast edge: Operand -> Function "Pop" "generics.go"
+// @ast node: DataModel "Stack"
+// @ast node: Function "Push"
+// @ast node: Function "Pop"
+// @ast node: Function "Map"
+
 // Stack is a generic stack implementation
 type Stack[T any] struct {
 	items []T
