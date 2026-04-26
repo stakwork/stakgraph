@@ -1,4 +1,10 @@
 
+# @ast node: Function "cli"
+# @ast node: Function "deploy"
+# @ast edge: Calls -> Function "deploy_service" "utils.py"
+# @ast edge: Calls -> Function "from_yaml" "config.py"
+# @ast node: Function "logs"
+# @ast edge: Calls -> Function "fetch_logs" "utils.py"
 import click
 import asyncio
 from .config import AppConfig

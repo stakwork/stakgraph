@@ -1,3 +1,9 @@
+# @ast node: Function "get_db"
+# @ast edge: Contains -> Var "SessionLocal" "database.py"
+# @ast node: Function "db_session"
+# @ast edge: Contains -> Var "SessionLocal" "database.py"
+# @ast node: Function "get_person_by_id"
+# @ast node: Function "create_new_person"
 from contextlib import contextmanager
 from sqlalchemy.exc import IntegrityError
 from database import SessionLocal, engine

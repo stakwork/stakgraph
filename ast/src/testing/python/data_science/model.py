@@ -1,4 +1,12 @@
 
+# @ast node: Class "FraudDetector"
+# @ast edge: Operand -> Function "__init__" "model.py"
+# @ast edge: Operand -> Function "forward" "model.py"
+# @ast edge: Operand -> Function "threshold" "model.py"
+# @ast node: Function "__init__"
+# @ast node: Function "forward"
+# @ast node: Function "threshold"
+# @ast node: Function "threshold"
 import torch
 import torch.nn as nn
 from torch.nn import functional as F

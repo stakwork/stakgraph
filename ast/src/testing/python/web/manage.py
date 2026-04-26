@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+# @ast node: Function "main"
 import os
 import sys
 

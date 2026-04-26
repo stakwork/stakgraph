@@ -1,3 +1,14 @@
+# @ast node: Var "processes"
+# @ast node: Var "address"
+# @ast node: Var "ports"
+# @ast node: Var "fastapi_app"
+# @ast node: Var "flask_app"
+# @ast node: Function "cleanup"
+# @ast edge: Calls -> Function "process" "modern.py"
+# @ast node: Function "signal_handler"
+# @ast edge: Calls -> Function "cleanup" "main.py"
+# @ast node: Function "run_servers"
+# @ast edge: Calls -> Function "cleanup" "main.py"
 import os
 import signal
 import subprocess

@@ -1,3 +1,7 @@
+# @ast node: Var "SQLALCHEMY_DATABASE_URL"
+# @ast node: Var "engine"
+# @ast node: Var "SessionLocal"
+# @ast node: Var "Base"
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker

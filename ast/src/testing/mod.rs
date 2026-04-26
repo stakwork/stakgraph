@@ -21,7 +21,6 @@ pub mod kotlin;
 #[cfg(test)]
 pub mod monorepo;
 pub mod php;
-pub mod python;
 pub mod ruby;
 pub mod svelte;
 pub mod swift;
@@ -162,5 +161,53 @@ async fn test_rust() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         annotations::run_fixture_test::<Neo4jGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_python_web() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/python/web", "python", Language::Python).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/python/web", "python", Language::Python).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/python/web", "python", Language::Python).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_python_data_science() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/python/data_science", "python", Language::Python).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/python/data_science", "python", Language::Python).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/python/data_science", "python", Language::Python).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_python_cli() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/python/cli", "python", Language::Python).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/python/cli", "python", Language::Python).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/python/cli", "python", Language::Python).await.unwrap();
     }
 }

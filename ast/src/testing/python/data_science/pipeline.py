@@ -1,4 +1,13 @@
 
+# @ast node: Var "DEFAULT_SCALING_FACTOR"
+# @ast node: Class "DataPipeline"
+# @ast edge: Operand -> Function "__init__" "pipeline.py"
+# @ast edge: Operand -> Function "normalize" "pipeline.py"
+# @ast edge: Operand -> Function "extract_features" "pipeline.py"
+# @ast node: Function "__init__"
+# @ast node: Function "normalize"
+# @ast node: Function "extract_features"
+# @ast node: Function "clean_data"
 import pandas as pd
 import numpy as np
 from typing import List, Optional

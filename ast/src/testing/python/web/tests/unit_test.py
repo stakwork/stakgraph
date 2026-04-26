@@ -1,4 +1,12 @@
 
+# @ast node: Class "TestPerson"
+# @ast node: DataModel "TestPerson"
+# @ast node: UnitTest "test_person_creation"
+# @ast node: UnitTest "test_person_str"
+# @ast node: UnitTest "test_puppy_creation"
+# @ast edge: Calls -> Function "create_puppy" "model.py"
+# @ast node: UnitTest "test_animal_info_cache"
+# @ast edge: Calls -> Function "get_animal_info" "model.py"
 import unittest
 from model import Person, create_puppy, get_animal_info
 

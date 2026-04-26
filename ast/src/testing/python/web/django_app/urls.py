@@ -1,3 +1,6 @@
+# @ast node: Endpoint "person/<int:id>/" [verb=GET]
+# @ast node: Endpoint "person/" [verb=POST]
+# @ast node: Var "urlpatterns"
 from django.urls import path
 from django_app import views
 
