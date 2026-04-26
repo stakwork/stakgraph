@@ -1,3 +1,4 @@
+// @ast node: Trait "PersonRepository"
 package graph.stakgraph.java.repository;
 
 import graph.stakgraph.java.model.Person;

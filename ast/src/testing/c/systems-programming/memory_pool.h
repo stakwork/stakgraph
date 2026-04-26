@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+// @ast node: Class "MemoryPool"
 typedef struct MemoryPool MemoryPool;
 
 /**

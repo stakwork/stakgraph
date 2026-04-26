@@ -10,6 +10,14 @@
 extern uint32_t _estack;
 
 // Simulated main function for embedded system
+// @ast node: Function "main"
+// @ast edge: Calls -> Function "uart_init" "uart.c"
+// @ast edge: Calls -> Function "spi_init" "spi.c"
+// @ast edge: Calls -> Function "gpio_init" "gpio.c"
+// @ast edge: Calls -> Function "temp_sensor_init" "sensors.c"
+// @ast edge: Calls -> Function "temp_sensor_read" "sensors.c"
+// @ast edge: Calls -> Function "uart_puts" "uart.c"
+// @ast edge: Calls -> Function "gpio_toggle" "gpio.c"
 int main(void) {
     // 1. Initialize Peripherals
     uart_init(1, 115200);

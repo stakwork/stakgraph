@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+// @ast node: Class "ThreadPool"
 struct ThreadPool {
     pthread_t *threads;
     int num_threads;
@@ -10,12 +11,14 @@ struct ThreadPool {
     pthread_cond_t cond;
 };
 
+// @ast node: Function "worker_thread"
 static void* worker_thread(void *arg) {
     ThreadPool *pool = (ThreadPool*)arg;
     (void)pool; // Unused in this simulation
     return NULL;
 }
 
+// @ast node: Function "thread_pool_create"
 ThreadPool* thread_pool_create(int num_threads) {
     ThreadPool *pool = malloc(sizeof(ThreadPool));
     pool->num_threads = num_threads;
@@ -29,6 +32,7 @@ ThreadPool* thread_pool_create(int num_threads) {
     return pool;
 }
 
+// @ast node: Function "thread_pool_submit"
 void thread_pool_submit(ThreadPool *pool, task_fn task, void *arg) {
     if (!pool || !task) return;
     
@@ -39,6 +43,7 @@ void thread_pool_submit(ThreadPool *pool, task_fn task, void *arg) {
     pthread_mutex_unlock(&pool->lock);
 }
 
+// @ast node: Function "thread_pool_shutdown"
 void thread_pool_shutdown(ThreadPool *pool) {
     if (!pool) return;
     

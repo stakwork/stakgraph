@@ -3,7 +3,11 @@
 #include <stdio.h>
 #include <string.h>
 
+// @ast node: UnitTest "test_create_user"
+// @ast edge: Calls -> Function "create_user" "models.c"
 void test_create_user(void) {
+    // @ast node: Instance "u"
+    // @ast edge: Of -> Class "User" "models.h"
     User u = create_user(42, "Alice Smith", "alice@example.com");
     
     assert(u.id == 42 && "User ID should be set correctly");
@@ -13,11 +17,14 @@ void test_create_user(void) {
     printf("PASS: test_create_user\n");
 }
 
+// @ast node: UnitTest "test_create_user_with_long_name"
 void test_create_user_with_long_name(void) {
     char long_name[200];
     memset(long_name, 'A', 199);
     long_name[199] = '\0';
     
+    // @ast node: Instance "u"
+    // @ast edge: Of -> Class "User" "models.h"
     User u = create_user(1, long_name, "test@example.com");
     
     assert(u.id == 1 && "User ID should be set");
@@ -26,7 +33,11 @@ void test_create_user_with_long_name(void) {
     printf("PASS: test_create_user_with_long_name\n");
 }
 
+// @ast node: UnitTest "test_create_product"
+// @ast edge: Calls -> Function "create_product" "models.c"
 void test_create_product(void) {
+    // @ast node: Instance "p"
+    // @ast edge: Of -> Class "Product" "models.h"
     Product p = create_product(101, "Laptop", 999.99);
     
     assert(p.id == 101 && "Product ID should be set correctly");
@@ -37,7 +48,11 @@ void test_create_product(void) {
     printf("PASS: test_create_product\n");
 }
 
+// @ast node: UnitTest "test_create_product_with_decimal_price"
+// @ast edge: Calls -> Function "create_product" "models.c"
 void test_create_product_with_decimal_price(void) {
+    // @ast node: Instance "p"
+    // @ast edge: Of -> Class "Product" "models.h"
     Product p = create_product(202, "Coffee Mug", 12.50);
     
     assert(p.id == 202 && "Product ID should be set");
@@ -46,8 +61,14 @@ void test_create_product_with_decimal_price(void) {
     printf("PASS: test_create_product_with_decimal_price\n");
 }
 
+// @ast node: UnitTest "test_multiple_users"
+// @ast edge: Calls -> Function "create_user" "models.c"
 void test_multiple_users(void) {
+    // @ast node: Instance "u1"
+    // @ast edge: Of -> Class "User" "models.h"
     User u1 = create_user(1, "User One", "one@test.com");
+    // @ast node: Instance "u2"
+    // @ast edge: Of -> Class "User" "models.h"
     User u2 = create_user(2, "User Two", "two@test.com");
     
     assert(u1.id != u2.id && "Users should have different IDs");
@@ -56,6 +77,7 @@ void test_multiple_users(void) {
     printf("PASS: test_multiple_users\n");
 }
 
+// @ast node: UnitTest "main"
 int main(void) {
     printf("Running models unit tests...\n");
     test_create_user();

@@ -2,16 +2,20 @@
 #include <stddef.h>
 #include <stdlib.h>
 
+// @ast node: Class "Node"
+// @ast node: Class "Node"
 typedef struct Node {
     void *data;
     _Atomic(struct Node*) next;
 } Node;
 
+// @ast node: Class "LockFreeQueue"
 typedef struct {
     _Atomic(Node*) head;
     _Atomic(Node*) tail;
 } LockFreeQueue;
 
+// @ast node: Function "queue_create"
 LockFreeQueue* queue_create(void) {
     LockFreeQueue *q = malloc(sizeof(LockFreeQueue));
     Node *dummy = malloc(sizeof(Node));
@@ -21,6 +25,7 @@ LockFreeQueue* queue_create(void) {
     return q;
 }
 
+// @ast node: Function "queue_enqueue"
 void queue_enqueue(LockFreeQueue *q, void *data) {
     Node *new_node = malloc(sizeof(Node));
     new_node->data = data;

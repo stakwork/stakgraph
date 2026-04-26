@@ -1,11 +1,13 @@
 #include "i2c.h"
 #include <stdio.h>
 
+// @ast node: Function "i2c_init"
 status_t i2c_init(uint8_t bus_id) {
     printf("Initializing I2C bus %d\n", bus_id);
     return STATUS_OK;
 }
 
+// @ast node: Function "i2c_write"
 status_t i2c_write(uint8_t bus_id, uint8_t addr, const uint8_t *data, size_t len) {
     if (!data || len == 0) return STATUS_ERROR;
     
@@ -17,6 +19,7 @@ status_t i2c_write(uint8_t bus_id, uint8_t addr, const uint8_t *data, size_t len
     return STATUS_OK;
 }
 
+// @ast node: Function "i2c_read"
 status_t i2c_read(uint8_t bus_id, uint8_t addr, uint8_t *data, size_t len) {
     if (!data || len == 0) return STATUS_ERROR;
     

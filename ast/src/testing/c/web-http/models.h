@@ -6,6 +6,7 @@
 /**
  * @brief Represents a user in the system.
  */
+// @ast node: Class "User"
 typedef struct {
     int id;             /**< Unique user identifier */
     char name[100];     /**< User's full name */
@@ -15,6 +16,7 @@ typedef struct {
 /**
  * @brief Represents a product in the catalog.
  */
+// @ast node: Class "Product"
 typedef struct {
     int id;             /**< Unique product identifier */
     char name[100];     /**< Product name */

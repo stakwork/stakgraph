@@ -5,6 +5,8 @@
 
 static GPIO_TypeDef test_port;
 
+// @ast node: UnitTest "test_gpio_init"
+// @ast edge: Calls -> Function "gpio_init" "gpio.c"
 void test_gpio_init(void) {
     memset(&test_port, 0, sizeof(GPIO_TypeDef));
     gpio_init(&test_port, GPIO_PIN_5, GPIO_MODE_OUTPUT);
@@ -14,6 +16,9 @@ void test_gpio_init(void) {
     printf("PASS: test_gpio_init\n");
 }
 
+// @ast node: UnitTest "test_gpio_write"
+// @ast edge: Calls -> Function "gpio_init" "gpio.c"
+// @ast edge: Calls -> Function "gpio_write" "gpio.c"
 void test_gpio_write(void) {
     memset(&test_port, 0, sizeof(GPIO_TypeDef));
     gpio_init(&test_port, GPIO_PIN_3, GPIO_MODE_OUTPUT);
@@ -27,6 +32,8 @@ void test_gpio_write(void) {
     printf("PASS: test_gpio_write\n");
 }
 
+// @ast node: UnitTest "test_gpio_read"
+// @ast edge: Calls -> Function "gpio_read" "gpio.c"
 void test_gpio_read(void) {
     memset(&test_port, 0, sizeof(GPIO_TypeDef));
     test_port.IDR = (1 << 7);
@@ -40,6 +47,9 @@ void test_gpio_read(void) {
     printf("PASS: test_gpio_read\n");
 }
 
+// @ast node: UnitTest "test_gpio_toggle"
+// @ast edge: Calls -> Function "gpio_init" "gpio.c"
+// @ast edge: Calls -> Function "gpio_toggle" "gpio.c"
 void test_gpio_toggle(void) {
     memset(&test_port, 0, sizeof(GPIO_TypeDef));
     gpio_init(&test_port, GPIO_PIN_1, GPIO_MODE_OUTPUT);
@@ -53,6 +63,7 @@ void test_gpio_toggle(void) {
     printf("PASS: test_gpio_toggle\n");
 }
 
+// @ast node: UnitTest "main"
 int main(void) {
     printf("Running GPIO unit tests...\n");
     test_gpio_init();

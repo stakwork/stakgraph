@@ -1,3 +1,13 @@
+// @ast node: Class "AnonymousRoutes"
+// @ast node: Function "anonymousRouter"
+// @ast node: Function "GET_anon_get_lambda_L24"
+// @ast edge: NestedIn -> Function "anonymousRouter" "AnonymousRoutes.java"
+// @ast node: Function "POST_anon_post_lambda_L28"
+// @ast edge: NestedIn -> Function "anonymousRouter" "AnonymousRoutes.java"
+// @ast node: Endpoint "/anon-get" [verb=GET]
+// @ast edge: Handler -> Function "GET_anon_get_lambda_L24" "AnonymousRoutes.java"
+// @ast node: Endpoint "/anon-post" [verb=POST]
+// @ast edge: Handler -> Function "POST_anon_post_lambda_L28" "AnonymousRoutes.java"
 package com.example.routes;
 
 import org.springframework.context.annotation.Bean;
