@@ -1,3 +1,6 @@
+// @ast node: IntegrationTest "integration_test_vector_add_kernel"
+// @ast node: IntegrationTest "integration_test_matrix_mul_kernel"
+// @ast node: UnitTest "main"
 #include <cassert>
 #include <cuda_runtime.h>
 

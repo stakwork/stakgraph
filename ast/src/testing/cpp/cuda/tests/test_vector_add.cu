@@ -1,3 +1,6 @@
+// @ast node: UnitTest "test_host_launcher_vector_add"
+// @ast node: UnitTest "test_host_launcher_zeroed_output"
+// @ast node: UnitTest "main"
 #include <cassert>
 #include <cuda_runtime.h>
 

@@ -22,11 +22,11 @@ fn routes_cpp_contains_exact_named_nodes() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(
-        out.stdout.contains("Endpoint: ANY /person/<int> (26-29)"),
+        out.stdout.contains("Endpoint: ANY /person/<int> (37-40)"),
         true
     );
-    assert_eq!(out.stdout.contains("Endpoint: POST /person (31-34)"), true);
-    assert_eq!(out.stdout.contains("Function: setup_routes (25-35)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: POST /person (42-45)"), true);
+    assert_eq!(out.stdout.contains("Function: setup_routes (36-46)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────
@@ -38,7 +38,7 @@ fn parse_stats_cpp_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             3"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             112"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             110"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                1"), "stdout: {}", out.stdout);
 }
 

@@ -414,7 +414,12 @@ impl Stack for Cpp {
         path: &str,
         line: usize,
     ) -> Option<String> {
-        let clean_method = method.to_uppercase();
+        let c = method.trim();
+        let clean_method = if let Some(stripped) = c.strip_suffix("_METHOD") {
+            trim_quotes(stripped).to_uppercase()
+        } else {
+            trim_quotes(c).to_uppercase()
+        };
         let clean_path = path
             .replace("/", "_")
             .replace(":", "param_")

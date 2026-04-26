@@ -1,3 +1,6 @@
+// @ast node: UnitTest "test_database_create_and_fetch"
+// @ast node: UnitTest "test_database_missing_person"
+// @ast node: UnitTest "main"
 #include "../model.h"
 #include <cassert>
 
