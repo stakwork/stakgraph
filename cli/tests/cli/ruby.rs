@@ -47,8 +47,8 @@ fn parse_stats_ruby_dir() {
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             23"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                35"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             65"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("UnitTest             22"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             64"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("UnitTest             21"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

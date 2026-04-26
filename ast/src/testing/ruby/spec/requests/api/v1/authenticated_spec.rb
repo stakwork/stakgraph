@@ -1,3 +1,11 @@
+# @ast node: IntegrationTest "Authenticated API Endpoints"
+# @ast edge: Calls -> Endpoint "/" "routes.rb" [verb=GET]
+# @ast edge: Calls -> Endpoint "/dashboard" "routes.rb" [verb=GET]
+# @ast edge: Calls -> Endpoint "/dashboard" "routes.rb" [verb=PUT]
+# @ast edge: Calls -> Endpoint "/people/:id" "routes.rb" [verb=DELETE]
+# @ast edge: Calls -> Endpoint "/people/:id/articles" "routes.rb" [verb=POST]
+# @ast edge: Calls -> Endpoint "/profile" "routes.rb" [verb=PUT]
+# @ast edge: Calls -> Endpoint "/profile" "routes.rb" [verb=GET]
 RSpec.describe "Authenticated API Endpoints", type: :request do
   let(:user) { create(:person) }
   

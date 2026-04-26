@@ -1,3 +1,9 @@
+# @ast node: UnitTest "PersonService"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "PersonService" "person_service.rb"
+# @ast edge: Calls -> Function "get_person_by_id" "person_service.rb"
+# @ast edge: Calls -> Function "new_person" "person_service.rb"
+# @ast edge: Calls -> Function "delete" "person_service.rb"
 RSpec.describe PersonService, type: :service do
   describe ".get_person_by_id" do
     let(:person) { create(:person) }

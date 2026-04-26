@@ -1,4 +1,6 @@
 # Integration (request)
+# @ast node: IntegrationTest "Articles API"
+# @ast edge: Calls -> Endpoint "/" "routes.rb" [verb=GET]
 RSpec.describe "Articles API", type: :request do
   describe "GET /articles" do
     context "with no articles" do

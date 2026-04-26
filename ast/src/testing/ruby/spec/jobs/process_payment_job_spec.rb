@@ -1,3 +1,5 @@
+# @ast node: IntegrationTest "ProcessPaymentJob"
+# @ast edge: Calls -> Class "ProcessPaymentJob" "process_payment_job.rb"
 RSpec.describe ProcessPaymentJob, type: :job do
   describe "#perform" do
     let(:person) { create(:person, email: "buyer@example.com") }

@@ -1,3 +1,6 @@
+# @ast node: IntegrationTest "API V1 People"
+# @ast edge: Calls -> Endpoint "/" "routes.rb" [verb=GET]
+# @ast edge: Calls -> Endpoint "/people/:id" "routes.rb" [verb=DELETE]
 RSpec.describe "API V1 People", type: :request do
   let(:base_url) { "/api/v1/people" }
   

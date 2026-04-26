@@ -1,3 +1,5 @@
+# @ast node: IntegrationTest "UserMailer"
+# @ast edge: Calls -> Class "UserMailer" "user_mailer.rb"
 RSpec.describe UserMailer, type: :mailer do
   describe "#welcome_email" do
     let(:person) { create(:person, email: "newuser@example.com", name: "John Doe") }

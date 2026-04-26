@@ -1,3 +1,10 @@
+# @ast node: UnitTest "creates valid article with title and body"
+# @ast edge: Calls -> Class "Article" "article.rb"
+# @ast node: UnitTest "requires title"
+# @ast edge: Calls -> Class "Article" "article.rb"
+# @ast node: UnitTest "belongs to person"
+# @ast edge: Calls -> Class "Article" "article.rb"
+# @ast edge: Calls -> Class "Person" "person.rb"
 require 'test_helper'
 
 class ArticleMinitestDslTest < Minitest::Test

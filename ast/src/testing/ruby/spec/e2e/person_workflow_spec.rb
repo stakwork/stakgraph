@@ -1,3 +1,4 @@
+# @ast node: E2eTest "Person Workflow"
 RSpec.describe "Person Workflow", type: :request do
   describe "complete person CRUD workflow" do
     it "creates, retrieves, updates, and deletes a person via API" do
