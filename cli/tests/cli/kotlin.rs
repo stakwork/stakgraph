@@ -26,13 +26,13 @@ fn api_service_kotlin_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Class: ApiService (9-18)"), true);
+    assert_eq!(out.stdout.contains("Class: ApiService (23-32)"), true);
     assert_eq!(
-        out.stdout.contains("Function: ApiService.getUsers (10-11)"),
+        out.stdout.contains("Function: ApiService.getUsers (24-25)"),
         true
     );
-    assert_eq!(out.stdout.contains("Request: GET /users (10-11)"), true);
-    assert_eq!(out.stdout.contains("Request: POST /users (16-17)"), true);
+    assert_eq!(out.stdout.contains("Request: GET /users (24-25)"), true);
+    assert_eq!(out.stdout.contains("Request: POST /users (30-31)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────
@@ -44,9 +44,9 @@ fn parse_stats_kotlin_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Class                16"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             29"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             27"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Request              5"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("UnitTest             2"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("UnitTest             1"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

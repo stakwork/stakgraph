@@ -1,4 +1,6 @@
 package com.kotlintestapp.ui.theme
+// @ast node: Var "Typography"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappuithemetypekt-0"
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle

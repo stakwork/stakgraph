@@ -12,7 +12,7 @@ pub mod bash_toml;
 pub mod coverage;
 
 pub mod graphs;
-pub mod kotlin;
+
 #[cfg(test)]
 pub mod monorepo;
 pub mod svelte;

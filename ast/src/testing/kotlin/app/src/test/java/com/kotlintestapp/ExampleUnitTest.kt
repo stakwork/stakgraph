@@ -1,4 +1,7 @@
 package com.kotlintestapp
+// @ast node: Class "ExampleUnitTest"
+// @ast node: UnitTest "addition_isCorrect"
+// @ast node: Import "import-imports-srctestingkotlinappsrctestjavacomkotlintestappexampleunittestkt-0"
 
 import org.junit.Test
 

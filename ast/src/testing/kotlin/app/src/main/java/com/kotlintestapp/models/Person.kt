@@ -1,4 +1,14 @@
 package com.kotlintestapp.models
+// @ast node: Class "Animal"
+// @ast edge: ParentOf -> Class "Dog" "Person.kt"
+// @ast node: Class "Dog"
+// @ast node: Class "Person"
+// @ast node: DataModel "Animal"
+// @ast node: DataModel "Dog"
+// @ast node: DataModel "Person"
+// @ast node: Function "speak"
+// @ast node: Function "speak"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappmodelspersonkt-0"
 
 data class Person(
     val id: Int,

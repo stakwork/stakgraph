@@ -1,4 +1,11 @@
 package com.kotlintestapp.data.repository
+// @ast node: Class "UserRepository"
+// @ast edge: Operand -> Function "addUser" "UserRepository.kt"
+// @ast edge: Operand -> Function "getUsers" "UserRepository.kt"
+// @ast node: Function "addUser"
+// @ast edge: Calls -> Function "createUser" "ApiService.kt"
+// @ast node: Function "getUsers"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappdatarepositoryuserrepositorykt-0"
 
 import com.kotlintestapp.data.api.ApiService
 import com.kotlintestapp.data.models.ApiResult
