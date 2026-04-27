@@ -3,6 +3,13 @@ import { Router } from '@angular/router'; // Import the Router
 import { PeopleService } from '../people.service';
 import { Person } from '../models/person.model';
 import { FormsModule } from '@angular/forms';
+// @ast node: Class "AddPersonComponent"
+// @ast node: Function "constructor"
+// @ast node: Function "addPerson"
+// @ast edge: Calls -> Request "this.peopleService.addPerson" "add-person.component.ts"
+// @ast edge: Calls -> Request "this.router.navigate" "add-person.component.ts"
+// @ast node: Import "import-imports-srctestingangularsrcappaddpersonaddpersoncomponentts-0"
+// @ast node: Page "AddPersonComponent"
 
 
 @Component({

@@ -186,11 +186,18 @@ fn parse_file_annotations(
     result
 }
 
-pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, lang: &Language) -> (Vec<String>, BTreeMap<NodeType, usize>) {
-    let prefix = lang.annotation_prefix();
+fn annotation_prefix_for_ext(ext: &str, default: &'static str) -> &'static str {
+    match ext {
+        "html" => "<!-- @ast ",
+        "css" | "scss" | "sass" | "less" => "/* @ast ",
+        _ => default,
+    }
+}
+
+pub fn verify_file(source: &str, file_suffix: &str, graph: &impl Graph, prefix: &str) -> (Vec<String>, BTreeMap<NodeType, usize>) {
     let groups = parse_file_annotations(source, prefix);
     let absent = parse_absent_annotations(source, prefix);
-    let mut failures = Vec::new();
+    let mut failures: Vec<String> = Vec::new();
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
 
     for (node_type, _, _, _) in &groups {
@@ -289,8 +296,7 @@ pub fn walk_and_verify(fixture_dir: &Path, root: &Path, graph: &impl Graph, lang
     let mut counts: BTreeMap<NodeType, usize> = BTreeMap::new();
     let exts: Vec<&str> = lang.exts();
     let skip_dirs: Vec<&str> = lang.skip_dirs();
-    let prefix = lang.annotation_prefix();
-    walk_impl(fixture_dir, root, graph, &mut failures, &mut counts, &exts, &skip_dirs, prefix, lang);
+    walk_impl(fixture_dir, root, graph, &mut failures, &mut counts, &exts, &skip_dirs, lang);
     for (node_type, expected) in &counts {
         let actual = graph
             .find_nodes_by_type(node_type.clone())
@@ -315,7 +321,6 @@ fn walk_impl(
     counts: &mut BTreeMap<NodeType, usize>,
     exts: &[&str],
     skip_dirs: &[&str],
-    prefix: &str,
     lang: &Language,
 ) {
     let Ok(read) = std::fs::read_dir(dir) else {
@@ -331,7 +336,7 @@ fn walk_impl(
             if skip_dirs.contains(&dir_name) {
                 continue;
             }
-            walk_impl(&path, root, graph, failures, counts, exts, skip_dirs, prefix, lang);
+            walk_impl(&path, root, graph, failures, counts, exts, skip_dirs, lang);
         } else {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
             if !exts.contains(&ext) {
@@ -340,14 +345,15 @@ fn walk_impl(
             let Ok(src) = std::fs::read_to_string(&path) else {
                 continue;
             };
-            if !src.contains(prefix.trim()) {
+            if !src.contains("@ast ") {
                 continue;
             }
             let suffix = path
                 .strip_prefix(root)
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| path.to_string_lossy().to_string());
-            let (file_failures, file_counts) = verify_file(&src, &suffix, graph, lang);
+            let file_prefix = annotation_prefix_for_ext(ext, lang.annotation_prefix());
+            let (file_failures, file_counts) = verify_file(&src, &suffix, graph, file_prefix);
             failures.extend(file_failures);
             for (nt, n) in file_counts {
                 *counts.entry(nt).or_insert(0) += n;

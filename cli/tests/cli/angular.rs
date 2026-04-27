@@ -21,8 +21,8 @@ fn app_routes_angular_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Var: routes (6-10)"), true);
-    assert_eq!(out.stdout.contains("Class: AppRoutingModule (16)"), true);
+    assert_eq!(out.stdout.contains("Var: routes (9-13)"), true);
+    assert_eq!(out.stdout.contains("Class: AppRoutingModule (19)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────
@@ -34,9 +34,9 @@ fn parse_stats_angular_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             1"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             14"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             13"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                5"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("UnitTest             5"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("UnitTest             4"), "stdout: {}", out.stdout);
 }
 
 #[test]

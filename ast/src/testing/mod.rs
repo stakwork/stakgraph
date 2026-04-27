@@ -4,7 +4,6 @@ use std::env;
 use std::str::FromStr;
 // use tracing_test::traced_test;
 
-pub mod angular;
 pub mod annotations;
 pub mod bash_toml;
 
@@ -317,5 +316,21 @@ async fn test_swift() {
         annotations::run_fixture_test::<Neo4jGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
         graph.clear().await.unwrap();
         annotations::run_fixture_test::<Neo4jGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_angular() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
     }
 }
