@@ -16,7 +16,6 @@ pub mod graphs;
 #[cfg(test)]
 pub mod monorepo;
 pub mod svelte;
-pub mod swift;
 pub mod test_backend;
 pub mod test_frontend;
 #[cfg(test)]
@@ -298,5 +297,25 @@ async fn test_csharp() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         annotations::run_fixture_test::<Neo4jGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_swift() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
     }
 }

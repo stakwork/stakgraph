@@ -1,4 +1,8 @@
 import SwiftUI
+// @ast node: Class "ProfileView"
+// @ast edge: Operand -> Function "loadProfile" "ProfileView.swift"
+// @ast node: Function "loadProfile"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofileviewswift-0"
 
 struct ProfileView: View {
     @State private var profile: Profile?

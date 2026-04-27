@@ -7,6 +7,18 @@
 
 import UIKit
 import CoreData
+// @ast node: Class "AppDelegate"
+// @ast edge: Operand -> Function "application" "AppDelegate.swift"
+// @ast edge: Operand -> Function "application" "AppDelegate.swift"
+// @ast edge: Operand -> Function "application" "AppDelegate.swift"
+// @ast edge: Operand -> Function "saveContext" "AppDelegate.swift"
+// @ast node: Function "application"
+// @ast node: Function "application"
+// @ast node: Function "application"
+// @ast node: Function "saveContext"
+// @ast node: Var "Name"
+// @ast node: Var "Version"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappappdelegateswift-7"
 
 let Name = "StakGraph"
 var Version = "1.0.0"

@@ -1,4 +1,10 @@
 import Foundation
+// @ast node: Class "ProfileService"
+// @ast edge: Operand -> Function "fetchProfile" "ProfileService.swift"
+// @ast edge: Operand -> Function "updateStatus" "ProfileService.swift"
+// @ast node: Function "fetchProfile"
+// @ast node: Function "updateStatus"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofileserviceswift-0"
 
 actor ProfileService {
     private let apiClient: APIClient<Profile>

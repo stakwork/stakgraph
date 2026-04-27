@@ -1,5 +1,11 @@
 import XCTest
 @testable import ModernApp
+// @ast node: Class "ProfileTests"
+// @ast edge: Operand -> Function "setUp" "ProfileTests.swift"
+// @ast node: Function "setUp"
+// @ast node: UnitTest "testFetchProfile"
+// @ast node: UnitTest "testStatusUpdate"
+// @ast node: Import "import-imports-srctestingswiftmodernapptestsmodernapptestsprofiletestsswift-0"
 
 final class ProfileTests: XCTestCase {
     var service: ProfileService!

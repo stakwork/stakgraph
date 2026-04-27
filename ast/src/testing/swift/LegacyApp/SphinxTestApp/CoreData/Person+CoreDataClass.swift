@@ -8,6 +8,11 @@
 
 import Foundation
 import CoreData
+// @ast node: Class "Person"
+// @ast edge: Operand -> Function "fetchAllObjects" "Person+CoreDataClass.swift"
+// @ast node: DataModel "Person"
+// @ast node: Function "fetchAllObjects"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappcoredatapersoncoredataclassswift-8"
 
 @objc(Person)
 public class Person: NSManagedObject {

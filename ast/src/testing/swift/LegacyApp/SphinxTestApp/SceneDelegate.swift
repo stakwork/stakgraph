@@ -6,6 +6,20 @@
 //
 
 import UIKit
+// @ast node: Class "SceneDelegate"
+// @ast edge: Operand -> Function "scene" "SceneDelegate.swift"
+// @ast edge: Operand -> Function "sceneDidDisconnect" "SceneDelegate.swift"
+// @ast edge: Operand -> Function "sceneDidBecomeActive" "SceneDelegate.swift"
+// @ast edge: Operand -> Function "sceneWillResignActive" "SceneDelegate.swift"
+// @ast edge: Operand -> Function "sceneWillEnterForeground" "SceneDelegate.swift"
+// @ast edge: Operand -> Function "sceneDidEnterBackground" "SceneDelegate.swift"
+// @ast node: Function "scene"
+// @ast node: Function "sceneDidDisconnect"
+// @ast node: Function "sceneDidBecomeActive"
+// @ast node: Function "sceneWillResignActive"
+// @ast node: Function "sceneWillEnterForeground"
+// @ast node: Function "sceneDidEnterBackground"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappscenedelegateswift-7"
 
 class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 

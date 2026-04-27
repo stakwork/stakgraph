@@ -2,6 +2,8 @@
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
+// @ast node: Var "package"
+// @ast node: Import "import-imports-srctestingswiftmodernapppackageswift-3"
 
 let package = Package(
     name: "ModernApp",

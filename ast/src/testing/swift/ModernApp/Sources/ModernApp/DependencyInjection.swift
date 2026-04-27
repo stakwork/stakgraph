@@ -1,5 +1,7 @@
 import Foundation
 import Combine
+// @ast node: Class "DependencyContainer"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesmodernappdependencyinjectionswift-0"
 
 class DependencyContainer: ObservableObject {
     let profileService: ProfileService

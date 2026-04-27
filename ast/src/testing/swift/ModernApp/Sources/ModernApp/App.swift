@@ -1,4 +1,7 @@
 import SwiftUI
+// @ast node: Class "ModernApp"
+// @ast node: Class "ContentView"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesmodernappappswift-0"
 
 @main
 struct ModernApp: App {

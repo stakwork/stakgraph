@@ -1,5 +1,9 @@
 import XCTest
 @testable import SphinxTestApp
+// @ast node: Class "PersonTests"
+// @ast node: UnitTest "testPersonInitialization"
+// @ast node: UnitTest "testPersonDescription"
+// @ast node: Import "import-imports-srctestingswiftlegacyapptestspersontestsswift-0"
 
 final class PersonTests: XCTestCase {
     

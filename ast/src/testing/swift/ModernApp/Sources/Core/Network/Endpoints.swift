@@ -1,4 +1,6 @@
 import Foundation
+// @ast node: Class "Endpoint"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcescorenetworkendpointsswift-0"
 
 enum Endpoint {
     case userProfile(id: String)

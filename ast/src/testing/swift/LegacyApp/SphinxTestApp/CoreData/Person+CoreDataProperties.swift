@@ -8,6 +8,9 @@
 
 import Foundation
 import CoreData
+// @ast node: Class "Person"
+// @ast node: Function "fetchRequest"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappcoredatapersoncoredatapropertiesswift-8"
 
 
 extension Person {
