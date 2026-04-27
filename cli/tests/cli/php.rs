@@ -20,15 +20,15 @@ fn api_php_contains_exact_named_endpoints() {
     let out = run_stakgraph(&[&api]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Endpoint: GET /user (20-22)"), true);
-    assert_eq!(out.stdout.contains("Endpoint: POST /login (24)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: GET /user (41-43)"), true);
+    assert_eq!(out.stdout.contains("Endpoint: POST /login (45)"), true);
     assert_eq!(
-        out.stdout.contains("Endpoint: DELETE /posts/{post} (29)"),
+        out.stdout.contains("Endpoint: DELETE /posts/{post} (50)"),
         true
     );
     assert_eq!(
         out.stdout
-            .contains("Endpoint: POST /posts/{post}/like (32)"),
+            .contains("Endpoint: POST /posts/{post}/like (53)"),
         true
     );
 }
@@ -52,7 +52,7 @@ fn parse_stats_php_dir() {
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             41"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                9"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             23"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             22"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

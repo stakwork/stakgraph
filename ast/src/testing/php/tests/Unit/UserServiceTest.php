@@ -1,4 +1,10 @@
 <?php
+// @ast node: Class "UserServiceTest"
+// @ast node: UnitTest "it_calculates_total_correctly"
+// @ast node: UnitTest "test_it_can_instantiate_service"
+// @ast node: UnitTest "testBasicAssertions"
+// @ast node: Var "$service"
+// @ast node: Import "import-imports-srctestingphptestsunituserservicetestphp-10"
 
 namespace Tests\Unit;
 

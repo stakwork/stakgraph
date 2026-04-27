@@ -1,4 +1,17 @@
 <?php
+// @ast node: Class "UserController"
+// @ast edge: Operand -> Function "index" "UserController.php"
+// @ast edge: Operand -> Function "show" "UserController.php"
+// @ast edge: Operand -> Function "store" "UserController.php"
+// @ast edge: ParentOf <- Class "Controller" "Controller.php"
+// @ast node: Function "__construct"
+// @ast node: Function "index"
+// @ast node: Function "show"
+// @ast node: Function "store"
+// @ast edge: Calls -> Function "registerUser" "UserService.php"
+// @ast node: Var "$users"
+// @ast node: Var "$validated"
+// @ast node: Import "import-imports-srctestingphpapphttpcontrollersusercontrollerphp-17"
 
 namespace App\Http\Controllers;
 

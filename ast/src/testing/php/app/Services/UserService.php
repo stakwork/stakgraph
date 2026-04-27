@@ -1,4 +1,14 @@
 <?php
+// @ast node: Class "UserService"
+// @ast edge: Operand -> Function "getUser" "UserService.php"
+// @ast edge: Operand -> Function "registerUser" "UserService.php"
+// @ast node: Function "__construct"
+// @ast node: Function "getUser"
+// @ast edge: Calls -> Function "find" "UserRepository.php"
+// @ast node: Function "registerUser"
+// @ast edge: Calls -> Function "create" "UserRepository.php"
+// @ast node: Var "$user"
+// @ast node: Import "import-imports-srctestingphpappservicesuserservicephp-14"
 
 namespace App\Services;
 

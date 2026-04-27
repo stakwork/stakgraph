@@ -1,4 +1,8 @@
 <?php
+// @ast node: Class "UserRepository"
+// @ast node: Function "create"
+// @ast node: Function "find"
+// @ast node: Import "import-imports-srctestingphpappservicesuserrepositoryphp-8"
 
 namespace App\Services;
 

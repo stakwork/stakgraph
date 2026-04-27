@@ -15,7 +15,6 @@ pub mod graphs;
 pub mod kotlin;
 #[cfg(test)]
 pub mod monorepo;
-pub mod php;
 pub mod svelte;
 pub mod swift;
 pub mod test_backend;

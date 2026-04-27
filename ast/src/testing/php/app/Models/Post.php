@@ -1,4 +1,8 @@
 <?php
+// @ast node: Class "Post"
+// @ast edge: Operand -> Function "user" "Post.php"
+// @ast node: Function "user"
+// @ast node: Import "import-imports-srctestingphpappmodelspostphp-8"
 
 namespace App\Models;
 
