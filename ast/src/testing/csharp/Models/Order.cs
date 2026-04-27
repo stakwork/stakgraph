@@ -1,3 +1,17 @@
+// @ast node: Class "Address"
+// @ast node: Class "Order"
+// @ast node: Class "OrderItem"
+// @ast node: Class "OrderStatus"
+// @ast node: Class "PaymentMethod"
+// @ast node: Class "TrackingEvent"
+// @ast node: Class "TrackingInfo"
+// @ast node: Function "CalculateTotals"
+// @ast node: Function "Cancel"
+// @ast node: Function "Confirm"
+// @ast node: Function "Deliver"
+// @ast node: Function "Ship"
+// @ast node: DataModel "Order"
+// @ast node: Import "import-imports-srctestingcsharpmodelsordercs-14"
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 

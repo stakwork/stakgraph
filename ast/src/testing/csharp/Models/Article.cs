@@ -1,3 +1,16 @@
+// @ast node: Class "Article"
+// @ast node: Class "ArticleLike"
+// @ast node: Class "ArticleStatus"
+// @ast node: Class "Category"
+// @ast node: Class "Comment"
+// @ast node: Class "Tag"
+// @ast node: Function "AddLike"
+// @ast node: Function "GenerateSlug"
+// @ast node: Function "IncrementViewCount"
+// @ast node: Function "Publish"
+// @ast node: Function "Unpublish"
+// @ast node: DataModel "Article"
+// @ast node: Import "import-imports-srctestingcsharpmodelsarticlecs-13"
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 

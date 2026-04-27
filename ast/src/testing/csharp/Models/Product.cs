@@ -1,3 +1,14 @@
+// @ast node: Class "Brand"
+// @ast node: Class "Country"
+// @ast node: Class "Product"
+// @ast node: Class "ProductImage"
+// @ast node: Class "ProductReview"
+// @ast node: Class "ProductVariant"
+// @ast node: Function "DecrementStock"
+// @ast node: Function "IncrementStock"
+// @ast node: Function "UpdateStock"
+// @ast node: DataModel "Product"
+// @ast node: Import "import-imports-srctestingcsharpmodelsproductcs-11"
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 

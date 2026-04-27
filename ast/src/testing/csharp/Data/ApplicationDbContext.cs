@@ -1,3 +1,23 @@
+// @ast node: Class "ApplicationDbContext"
+// @ast node: Function "ApplicationDbContext"
+// @ast node: Function "OnModelCreating"
+// @ast node: Function "SeedData"
+// @ast node: DataModel "Article"
+// @ast node: DataModel "ArticleLike"
+// @ast node: DataModel "Brand"
+// @ast node: DataModel "Category"
+// @ast node: DataModel "Comment"
+// @ast node: DataModel "Country"
+// @ast node: DataModel "Order"
+// @ast node: DataModel "OrderItem"
+// @ast node: DataModel "Person"
+// @ast node: DataModel "Product"
+// @ast node: DataModel "ProductImage"
+// @ast node: DataModel "ProductReview"
+// @ast node: DataModel "ProductVariant"
+// @ast node: DataModel "Tag"
+// @ast node: DataModel "UserProfile"
+// @ast node: Import "import-imports-srctestingcsharpdataapplicationdbcontextcs-20"
 using Microsoft.EntityFrameworkCore;
 using CSharpTestServer.Models;
 

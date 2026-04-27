@@ -1,3 +1,18 @@
+// @ast node: Class "HealthController"
+// @ast node: Class "HealthStatus"
+// @ast node: Class "ReadinessStatus"
+// @ast node: Function "Get"
+// @ast node: Function "HealthController"
+// @ast node: Function "LiveCheck"
+// @ast node: Function "ReadyCheck"
+// @ast node: Endpoint "Get"
+// @ast edge: Handler -> Function "Get" "HealthController.cs"
+// @ast node: Endpoint "live"
+// @ast edge: Handler -> Function "LiveCheck" "HealthController.cs"
+// @ast node: Endpoint "ready"
+// @ast edge: Handler -> Function "ReadyCheck" "HealthController.cs"
+// @ast node: Var "_logger"
+// @ast node: Import "import-imports-srctestingcsharpcontrollershealthcontrollercs-15"
 using Microsoft.AspNetCore.Mvc;
 
 namespace CSharpTestServer.Controllers;

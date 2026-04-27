@@ -10,7 +10,7 @@ pub mod bash_toml;
 
 #[cfg(test)]
 pub mod coverage;
-pub mod csharp;
+
 pub mod graphs;
 pub mod kotlin;
 #[cfg(test)]
@@ -283,5 +283,21 @@ async fn test_java() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         annotations::run_fixture_test::<Neo4jGraph>("src/testing/java", "java", Language::Java).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_csharp() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
     }
 }
