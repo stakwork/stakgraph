@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { db } from "../graph/neo4j.js";
+import { loadStepMeta } from "../repo/session.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -204,6 +205,8 @@ export async function get_session(req: Request, res: Response) {
   const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
     parseSessionMessages(filePath);
 
+  const step_meta = loadStepMeta(id);
+
   if (db) {
     try {
       const s = await db.get_agent_session(id);
@@ -227,6 +230,7 @@ export async function get_session(req: Request, res: Response) {
           tool_call_count: toolCallCount,
           user_prompt_preview: userPromptPreview,
           answer_preview: answerPreview,
+          step_meta,
           trace,
         });
         return;
@@ -249,6 +253,7 @@ export async function get_session(req: Request, res: Response) {
     tool_call_count: toolCallCount,
     user_prompt_preview: userPromptPreview,
     answer_preview: answerPreview,
+    step_meta,
     trace,
   });
 }

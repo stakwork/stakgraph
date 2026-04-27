@@ -32,8 +32,10 @@ import {
   appendSessionEnd,
   loadSessionMessages,
   appendMessages,
+  appendStepMeta,
   sessionExists,
   SessionConfig,
+  StepMeta,
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
 
@@ -208,6 +210,8 @@ interface PreparedAgent {
   sessionId: string | undefined;
   sessionConfig: SessionConfig | undefined;
   startTime: number;
+  stepMetas: StepMeta[];
+  turnIndex: number;
 }
 
 async function prepareAgent(
@@ -330,6 +334,12 @@ Apply the guidance from each skill throughout your response.`;
     console.log("===> tool", tool, "===>", tools[tool].description);
   }
 
+  const stepMetas: StepMeta[] = [];
+  let cumInput = 0;
+  let cumOutput = 0;
+  const turnIndex =
+    previousMessages.filter((m) => m.role === "user").length + 2;
+
   const agent = new ToolLoopAgent({
     model,
     instructions,
@@ -341,6 +351,22 @@ Apply the guidance from each skill throughout your response.`;
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
+      const u = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      cumInput += u.inputTokens ?? 0;
+      cumOutput += u.outputTokens ?? 0;
+      stepMetas.push({
+        step: stepMetas.length,
+        turn: turnIndex,
+        usage: {
+          inputTokens: u.inputTokens ?? 0,
+          outputTokens: u.outputTokens ?? 0,
+          totalTokens: u.totalTokens ?? 0,
+        },
+        cumulativeInput: cumInput,
+        cumulativeOutput: cumOutput,
+        toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
+        timestamp: new Date().toISOString(),
+      });
     },
     prepareStep: async ({ steps, messages }) => {
       messagesRef.current = messages as ModelMessage[];
@@ -372,6 +398,8 @@ Apply the guidance from each skill throughout your response.`;
     sessionId,
     sessionConfig,
     startTime,
+    stepMetas,
+    turnIndex,
   };
 }
 
@@ -407,6 +435,7 @@ export async function get_context(
     sessionConfig,
     userMessage,
     startTime,
+    stepMetas,
   } = prepared;
   const { schema } = opts;
 
@@ -425,6 +454,7 @@ export async function get_context(
       sessionConfig
     );
     appendMessages(sessionId, newMessages);
+    appendStepMeta(sessionId, stepMetas);
     await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
@@ -488,6 +518,7 @@ export async function stream_context(
     userMessage,
     modelId,
     startTime,
+    stepMetas,
   } = prepared;
   const streamResult = await prepared.agent.stream(buildCallParams(prepared));
 
@@ -506,6 +537,7 @@ export async function stream_context(
           sessionConfig,
         );
         appendMessages(sessionId, newMessages);
+        appendStepMeta(sessionId, stepMetas);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,

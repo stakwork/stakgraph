@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
-import type { ProductionRun } from "../types";
+import type { ProductionRun, StepMeta } from "../types";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -997,8 +997,85 @@ function DisplayUnitRow({ unit, unitIndex }: { unit: DisplayUnit; unitIndex: num
   );
 }
 
-function TurnCard({ turn }: { turn: TraceTurn }) {
+function StepDivider({ meta }: { meta: StepMeta }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "4px 14px",
+        fontSize: "10px",
+        fontFamily: "ui-monospace,monospace",
+        color: "#71717a",
+        background: "rgba(163,230,53,0.04)",
+        borderTop: "1px solid #2a2a2e",
+      }}
+    >
+      <span style={{ color: "#52525b", fontWeight: 700, minWidth: 20 }}>S{meta.step}</span>
+      <span style={{ color: "#a3e635" }}>↑{formatNumber(meta.usage.inputTokens)}</span>
+      <span style={{ color: "#fb923c" }}>↓{formatNumber(meta.usage.outputTokens)}</span>
+      <span style={{ color: "#71717a" }}>Σ{formatNumber(meta.cumulativeInput)} ctx</span>
+    </div>
+  );
+}
+
+function interleaveUnitsWithSteps(units: DisplayUnit[], metas: StepMeta[]): React.ReactNode[] {
+  if (metas.length === 0) {
+    return units.map((unit, i) => (
+      <DisplayUnitRow
+        key={unit.kind === "paired" ? unit.call.id : unit.event.id}
+        unit={unit}
+        unitIndex={i + 1}
+      />
+    ));
+  }
+
+  const nodes: React.ReactNode[] = [];
+  let metaIdx = 0;
+  let toolPtr = 0;
+  let unitNum = 0;
+
+  for (const unit of units) {
+    const isPaired = unit.kind === "paired";
+    if (isPaired && metaIdx < metas.length) {
+      const currentMeta = metas[metaIdx];
+      if (toolPtr === 0) {
+        nodes.push(<StepDivider key={`step-${currentMeta.step}`} meta={currentMeta} />);
+      }
+      toolPtr++;
+      if (toolPtr >= currentMeta.toolCalls.length) {
+        metaIdx++;
+        toolPtr = 0;
+      }
+    }
+    unitNum++;
+    nodes.push(
+      <DisplayUnitRow
+        key={unit.kind === "paired" ? unit.call.id : unit.event.id}
+        unit={unit}
+        unitIndex={unitNum}
+      />
+    );
+  }
+
+  // Final step with no tool calls (the text response)
+  if (metaIdx < metas.length) {
+    const finalMeta = metas[metaIdx];
+    if (finalMeta.toolCalls.length === 0) {
+      nodes.push(<StepDivider key={`step-${finalMeta.step}`} meta={finalMeta} />);
+    }
+  }
+
+  return nodes;
+}
+
+function TurnCard({ turn, stepMetas }: { turn: TraceTurn; stepMetas?: StepMeta[] }) {
   const units = groupEvents(turn.events);
+  const metas = stepMetas ?? [];
+  const totalIn = metas.reduce((s, m) => s + m.usage.inputTokens, 0);
+  const totalOut = metas.reduce((s, m) => s + m.usage.outputTokens, 0);
+  const cumInput = metas.length > 0 ? metas[metas.length - 1].cumulativeInput : null;
   return (
     <details style={card}>
       <summary
@@ -1044,16 +1121,31 @@ function TurnCard({ turn }: { turn: TraceTurn }) {
             <span style={muted}>{turn.toolCount} tools</span>
           )}
           <span style={muted}>{units.length} steps</span>
+          {metas.length > 0 && (
+            <span
+              style={{
+                fontSize: "10px",
+                padding: "2px 7px",
+                borderRadius: "9999px",
+                border: "1px solid #3f3f46",
+                color: "#a3e635",
+                backgroundColor: "rgba(163,230,53,0.08)",
+                fontFamily: "ui-monospace,monospace",
+                flexShrink: 0,
+              }}
+            >
+              {formatNumber(totalIn + totalOut)} tok
+              {cumInput !== null && (
+                <span style={{ color: "#71717a", marginLeft: 4 }}>
+                  ({formatNumber(cumInput)} ctx)
+                </span>
+              )}
+            </span>
+          )}
         </div>
       </summary>
       <div style={{ borderTop: "1px solid #1f1f22" }}>
-        {units.map((unit, i) => (
-          <DisplayUnitRow
-            key={unit.kind === "paired" ? unit.call.id : unit.event.id}
-            unit={unit}
-            unitIndex={i + 1}
-          />
-        ))}
+        {interleaveUnitsWithSteps(units, metas)}
       </div>
     </details>
   );
@@ -1573,7 +1665,11 @@ export function Sessions() {
                   </p>
                 ) : (
                   parsed.turns.map((turn) => (
-                    <TurnCard key={turn.id} turn={turn} />
+                    <TurnCard
+                      key={turn.id}
+                      turn={turn}
+                      stepMetas={selected?.step_meta?.filter((m) => m.turn === turn.index)}
+                    />
                   ))
                 )}
               </div>

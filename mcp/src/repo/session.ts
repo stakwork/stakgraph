@@ -27,6 +27,20 @@ export interface SessionConfig {
   maxToolResultChars?: number; // Default: 2000
 }
 
+export interface StepMeta {
+  step: number;
+  turn: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  cumulativeInput: number;
+  cumulativeOutput: number;
+  toolCalls: string[];
+  timestamp: string;
+}
+
 /**
  * Get the file path for a session
  */
@@ -145,6 +159,53 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(filePath)) {
     unlinkSync(filePath);
   }
+  const metaPath = getMetaFile(sessionId);
+  if (existsSync(metaPath)) {
+    unlinkSync(metaPath);
+  }
+}
+
+/**
+ * Get the file path for a session's per-step metadata sidecar.
+ * This is separate from the conversation JSONL to avoid corrupting session replay.
+ */
+function getMetaFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.meta.jsonl`);
+}
+
+/**
+ * Append per-step usage metadata for a turn.
+ * Written to a sidecar file — never to the conversation JSONL.
+ */
+export function appendStepMeta(sessionId: string, steps: StepMeta[]): void {
+  if (steps.length === 0) return;
+  const filePath = getMetaFile(sessionId);
+  const content = steps.map((s) => JSON.stringify(s)).join("\n") + "\n";
+  appendFileSync(filePath, content);
+}
+
+/**
+ * Load all per-step metadata for a session.
+ * Returns an empty array if no sidecar file exists (old sessions).
+ */
+export function loadStepMeta(sessionId: string): StepMeta[] {
+  const filePath = getMetaFile(sessionId);
+  if (!existsSync(filePath)) return [];
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    return content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as StepMeta);
+  } catch {
+    return [];
+  }
 }
 
 const SESSION_MAX_AGE_MS = parseInt(
@@ -165,12 +226,14 @@ export function pruneExpiredSessions(): number {
   const now = Date.now();
   let pruned = 0;
   for (const file of readdirSync(sessionDir)) {
-    if (!file.endsWith(".jsonl")) continue;
+    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl")) continue;
     const filePath = path.join(sessionDir, file);
     try {
       const { mtimeMs } = statSync(filePath);
       if (now - mtimeMs > SESSION_MAX_AGE_MS) {
         unlinkSync(filePath);
+        const metaPath = filePath.replace(/\.jsonl$/, ".meta.jsonl");
+        if (existsSync(metaPath)) unlinkSync(metaPath);
         pruned++;
       }
     } catch {
