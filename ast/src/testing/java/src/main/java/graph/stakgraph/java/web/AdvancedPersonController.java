@@ -1,3 +1,18 @@
+// @ast node: Class "AdvancedPersonController"
+// @ast node: Function "AdvancedPersonController"
+// @ast node: Function "getById"
+// @ast node: Function "createBulk"
+// @ast node: Function "search"
+// @ast node: Function "delete"
+// @ast node: Endpoint "/{id}" [verb=GET]
+// @ast edge: Handler -> Function "getById" "AdvancedPersonController.java"
+// @ast node: Endpoint "/bulk" [verb=POST]
+// @ast edge: Handler -> Function "createBulk" "AdvancedPersonController.java"
+// @ast node: Endpoint "/search" [verb=GET]
+// @ast edge: Handler -> Function "search" "AdvancedPersonController.java"
+// @ast node: Endpoint "/{id}" [verb=DELETE]
+// @ast edge: Handler -> Function "delete" "AdvancedPersonController.java"
+// @ast node: Var "localPeople"
 package graph.stakgraph.java.web;
 
 import graph.stakgraph.java.model.Person;

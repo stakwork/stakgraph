@@ -1,3 +1,4 @@
+# @ast node: E2eTest "test_login_flow"
 require 'minitest/autorun'
 class UserFlowsTest < Minitest::Test
   def test_login_flow

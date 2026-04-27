@@ -1,3 +1,9 @@
+# @ast node: Function "get_person"
+# @ast edge: Calls -> Function "db_session" "db.py"
+# @ast edge: Calls -> Function "get_person_by_id" "db.py"
+# @ast node: Function "create_person"
+# @ast edge: Calls -> Function "db_session" "db.py"
+# @ast edge: Calls -> Function "create_new_person" "db.py"
 import json
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt

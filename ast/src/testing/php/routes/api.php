@@ -1,4 +1,25 @@
 <?php
+// @ast node: Endpoint "/login" [verb=POST]
+// @ast node: Endpoint "/posts" [verb=GET]
+// @ast node: Endpoint "/posts" [verb=POST]
+// @ast node: Endpoint "/posts/{post}" [verb=DELETE]
+// @ast node: Endpoint "/posts/{post}" [verb=GET]
+// @ast node: Endpoint "/posts/{post}" [verb=PUT]
+// @ast node: Endpoint "/posts/{post}/comments" [verb=GET]
+// @ast node: Endpoint "/posts/{post}/like" [verb=POST]
+// @ast node: Endpoint "/register" [verb=POST]
+// @ast node: Endpoint "/user" [verb=GET]
+// @ast edge: Handler -> Function "get_user_handler_L40" "api.php"
+// @ast node: Endpoint "/users" [verb=GET]
+// @ast edge: Handler -> Function "index" "UserController.php"
+// @ast node: Endpoint "/users" [verb=POST]
+// @ast edge: Handler -> Function "store" "UserController.php"
+// @ast node: Endpoint "/users/{user}" [verb=DELETE]
+// @ast node: Endpoint "/users/{user}" [verb=GET]
+// @ast edge: Handler -> Function "show" "UserController.php"
+// @ast node: Endpoint "/users/{user}" [verb=PUT]
+// @ast node: Function "get_user_handler_L40"
+// @ast node: Import "import-imports-srctestingphproutesapiphp-23"
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;

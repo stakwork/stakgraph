@@ -19,9 +19,9 @@ fn main_py_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&main_py]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Function: cleanup (37-41)"), true);
-    assert_eq!(out.stdout.contains("Function: run_servers (52-91)"), true);
-    assert_eq!(out.stdout.contains("Var: fastapi_app (26-29)"), true);
+    assert_eq!(out.stdout.contains("Function: cleanup (48-52)"), true);
+    assert_eq!(out.stdout.contains("Function: run_servers (63-102)"), true);
+    assert_eq!(out.stdout.contains("Var: fastapi_app (37-40)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────

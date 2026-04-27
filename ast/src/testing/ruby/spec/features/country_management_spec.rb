@@ -1,4 +1,5 @@
 # Feature (E2E)
+# @ast node: E2eTest "Country management"
 RSpec.describe "Country management", type: :feature do
   let(:admin_user) { create(:person, role: :admin) }
   

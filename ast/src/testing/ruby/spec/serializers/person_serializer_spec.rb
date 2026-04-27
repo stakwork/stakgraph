@@ -1,3 +1,5 @@
+# @ast node: UnitTest "PersonSerializer"
+# @ast edge: Calls -> Class "PersonSerializer" "person_serializer.rb"
 RSpec.describe PersonSerializer, type: :serializer do
   let(:person) { create(:person, name: "John Doe", email: "john@example.com") }
   let(:serializer) { PersonSerializer.new(person) }

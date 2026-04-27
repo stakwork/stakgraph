@@ -1,4 +1,23 @@
 package com.kotlintestapp.viewModels
+// @ast node: Class "PersonViewModel"
+// @ast edge: Operand -> Function "fetchAndStorePersons" "PersonViewModel.kt"
+// @ast edge: Operand -> Function "fetchPersonsFromApi" "PersonViewModel.kt"
+// @ast edge: Operand -> Function "insertPersonsIntoDatabase" "PersonViewModel.kt"
+// @ast edge: Operand -> Function "updatePerson" "PersonViewModel.kt"
+// @ast node: Function "fetchAndStorePersons"
+// @ast edge: Calls -> Function "clearDatabase" "DatabaseHelper.kt"
+// @ast edge: Calls -> Function "getAllPersons" "DatabaseHelper.kt"
+// @ast node: Function "fetchPeople"
+// @ast edge: Calls -> Request "https://people.sphinx.chat/people" "PersonViewModel.kt"
+// @ast node: Function "fetchPersonsFromApi"
+// @ast node: Function "insertPersonsIntoDatabase"
+// @ast edge: Calls -> Function "insertPerson" "DatabaseHelper.kt"
+// @ast node: Function "postUpdateProfile"
+// @ast edge: Calls -> Request "https://people.sphinx.chat/person?token=testToken" "PersonViewModel.kt"
+// @ast node: Function "updatePerson"
+// @ast node: Request "https://people.sphinx.chat/people"
+// @ast node: Request "https://people.sphinx.chat/person?token=testToken"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappviewmodelspersonviewmodelkt-0"
 
 import android.content.Context
 import androidx.compose.runtime.mutableStateOf

@@ -24,7 +24,7 @@ fn billing_service_java_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Class: BillingService (9-15)"), true);
+    assert_eq!(out.stdout.contains("Class: BillingService (19-25)"), true);
     assert_eq!(
         out.stdout
             .contains("import graph.stakgraph.java.model.Person;"),
@@ -41,8 +41,7 @@ fn parse_stats_java_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Class                10"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             1"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("UnitTest             1"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Import               14"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

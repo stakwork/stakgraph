@@ -6,6 +6,12 @@
 //
 
 import UIKit
+// @ast node: Class "PersonTableViewCell"
+// @ast edge: Operand -> Function "awakeFromNib" "PersonTableViewCell.swift"
+// @ast edge: Operand -> Function "setSelected" "PersonTableViewCell.swift"
+// @ast node: Function "awakeFromNib"
+// @ast node: Function "setSelected"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestapppersontableviewcellswift-7"
 
 class PersonTableViewCell: UITableViewCell {
 

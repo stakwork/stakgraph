@@ -1,4 +1,10 @@
 <?php
+// @ast node: IntegrationTest ""
+// @ast node: IntegrationTest ""
+// @ast node: IntegrationTest ""
+// @ast node: Var "$response"
+// @ast node: Var "$user"
+// @ast node: Import "import-imports-srctestingphptestsfeatureuserapitestphp-8"
 
 use App\Models\User;
 

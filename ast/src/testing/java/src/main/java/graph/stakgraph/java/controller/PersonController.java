@@ -1,3 +1,21 @@
+// @ast node: Class "PersonController"
+// @ast node: Function "PersonController"
+// @ast node: Function "getPerson"
+// @ast edge: Calls -> Function "getPersonById" "PersonController.java"
+// @ast node: Function "createPerson"
+// @ast edge: Calls -> Function "newPerson" "PersonController.java"
+// @ast node: Function "getPersonById"
+// @ast node: Function "newPerson"
+// @ast node: Endpoint "/person/{id}" [verb=GET]
+// @ast edge: Handler -> Function "getPerson" "PersonController.java"
+// @ast node: Endpoint "/person" [verb=POST]
+// @ast edge: Handler -> Function "createPerson" "PersonController.java"
+// @ast node: Instance "examplePerson"
+// @ast edge: Of -> Class "Person" "Person.java"
+// @ast node: Var "appName"
+// @ast node: Var "examplePerson"
+// @ast node: Var "person"
+// @ast node: Var "repository"
 package graph.stakgraph.java.controller;
 
 import graph.stakgraph.java.model.Person;

@@ -1,5 +1,12 @@
+// @ast node: E2eTest "e2e_test_full_crud_workflow"
+// @ast node: E2eTest "e2e_test_user_journey_create_multiple_and_retrieve"
+// @ast node: E2eTest "e2e_test_error_scenario_not_found"
+// @ast node: E2eTest "e2e_test_data_persistence_verification"
+// @ast node: E2eTest "e2e_test_sequential_operations"
+// @ast node: E2eTest "e2e_test_empty_database_query"
+// @ast node: E2eTest "e2e_test_long_running_operation"
+// @ast node: E2eTest "e2e_test_system_configuration"
 use anyhow::Result;
-use rust::db::{init_db, Database, Person};
 
 #[tokio::test]
 async fn e2e_test_full_crud_workflow() -> Result<()> {

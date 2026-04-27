@@ -1,3 +1,23 @@
+# @ast node: IntegrationTest "welcome_email sends to new user"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "UserMailer" "user_mailer.rb"
+# @ast edge: Calls -> Function "welcome_email" "user_mailer.rb"
+# @ast node: IntegrationTest "welcome_email includes signup confirmation"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "UserMailer" "user_mailer.rb"
+# @ast edge: Calls -> Function "welcome_email" "user_mailer.rb"
+# @ast node: IntegrationTest "password_reset includes reset token"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "UserMailer" "user_mailer.rb"
+# @ast edge: Calls -> Function "password_reset" "user_mailer.rb"
+# @ast node: IntegrationTest "password_reset expires in 2 hours"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "UserMailer" "user_mailer.rb"
+# @ast edge: Calls -> Function "password_reset" "user_mailer.rb"
+# @ast node: IntegrationTest "notification_email contains article title"
+# @ast edge: Calls -> Class "Article" "article.rb"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "UserMailer" "user_mailer.rb"
 require 'test_helper'
 
 class UserMailerTest < ActionMailer::TestCase

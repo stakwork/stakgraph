@@ -1,3 +1,4 @@
+# @ast node: E2eTest "User Authentication"
 require 'rails_helper'
 
 feature "User Authentication" do

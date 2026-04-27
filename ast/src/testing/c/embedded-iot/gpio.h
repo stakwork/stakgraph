@@ -4,6 +4,7 @@
 #include "types.h"
 
 // Simulated register map
+// @ast node: Class "GPIO_TypeDef"
 typedef struct {
     volatile uint32_t MODER;    // Mode register
     volatile uint32_t OTYPER;   // Output type register
@@ -19,6 +20,7 @@ typedef enum {
     GPIO_PIN_2 = 2,
     // ...
     GPIO_PIN_13 = 13,
+// @ast node: Class "gpio_pin_t"
 } gpio_pin_t;
 
 typedef enum {
@@ -26,6 +28,7 @@ typedef enum {
     GPIO_MODE_OUTPUT = 1,
     GPIO_MODE_AF = 2,
     GPIO_MODE_ANALOG = 3,
+// @ast node: Class "gpio_mode_t"
 } gpio_mode_t;
 
 void gpio_init(GPIO_TypeDef *port, gpio_pin_t pin, gpio_mode_t mode);

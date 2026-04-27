@@ -1,4 +1,10 @@
 package com.kotlintestapp.ui.screens
+// @ast node: Function "HomeScreen"
+// @ast edge: Calls -> Function "UserList" "HomeScreen.kt"
+// @ast node: Function "UserList"
+// @ast edge: Calls -> Function "UserRow" "HomeScreen.kt"
+// @ast node: Function "UserRow"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappuiscreenshomescreenkt-0"
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.lazy.LazyColumn

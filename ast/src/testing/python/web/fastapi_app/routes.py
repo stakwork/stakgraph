@@ -1,3 +1,14 @@
+# @ast node: Var "router"
+# @ast node: Endpoint "/person/{id}" [verb=GET]
+# @ast edge: Handler -> Function "get_person" "fastapi_app/routes.py"
+# @ast node: Endpoint "/person/" [verb=POST]
+# @ast edge: Handler -> Function "create_person" "fastapi_app/routes.py"
+# @ast node: Function "get_person"
+# @ast edge: Calls -> Function "get_person_by_id" "db.py"
+# @ast edge: Contains -> DataModel "PersonResponse" "model.py"
+# @ast node: Function "create_person"
+# @ast edge: Calls -> Function "create_new_person" "db.py"
+# @ast edge: Contains -> DataModel "PersonResponse" "model.py"
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from model import CreateOrEditPerson, PersonResponse

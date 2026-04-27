@@ -1,5 +1,12 @@
 import XCTest
 @testable import SphinxTestApp
+// @ast node: Class "APIIntegrationTests"
+// @ast edge: Operand -> Function "setUp" "APIIntegrationTests.swift"
+// @ast edge: Operand -> Function "tearDown" "APIIntegrationTests.swift"
+// @ast node: Function "setUp"
+// @ast node: Function "tearDown"
+// @ast node: UnitTest "testFetchUsersIntegration"
+// @ast node: Import "import-imports-srctestingswiftlegacyapptestsapiintegrationtestsswift-0"
 
 final class APIIntegrationTests: XCTestCase {
     

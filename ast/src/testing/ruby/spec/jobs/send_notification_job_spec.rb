@@ -1,3 +1,6 @@
+# @ast node: IntegrationTest "SendNotificationJob"
+# @ast edge: Calls -> Class "SendNotificationJob" "send_notification_job.rb"
+# @ast edge: Calls -> Endpoint "/" "routes.rb" [verb=GET]
 RSpec.describe SendNotificationJob, type: :job do
   describe "#perform" do
     let(:person) { create(:person, email: "user@example.com") }

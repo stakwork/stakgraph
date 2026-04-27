@@ -1,4 +1,10 @@
 <?php
+// @ast node: Class "BlogController"
+// @ast node: Endpoint "/"
+// @ast node: Endpoint "/posts/{id}"
+// @ast node: Function "index"
+// @ast node: Function "show"
+// @ast node: Var "$message"
 
 namespace SymfonyApp\Controller;
 

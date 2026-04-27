@@ -1,3 +1,9 @@
+// @ast node: Class "StripePaymentGateway"
+// @ast edge: Implements -> Trait "PaymentGateway" "PaymentGateway.java"
+// @ast node: Function "StripePaymentGateway"
+// @ast node: Function "charge"
+// @ast node: Var "accountBalances"
+// @ast node: Var "current"
 package graph.stakgraph.java.nonweb;
 
 import java.util.HashMap;

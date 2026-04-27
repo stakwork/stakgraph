@@ -1,11 +1,13 @@
 #include "spi.h"
 #include <stdio.h>
 
+// @ast node: Function "spi_init"
 status_t spi_init(uint8_t spi_id) {
     printf("Initializing SPI %d\n", spi_id);
     return STATUS_OK;
 }
 
+// @ast node: Function "spi_transfer"
 status_t spi_transfer(uint8_t spi_id, const uint8_t *tx_data, uint8_t *rx_data, size_t len) {
     if (!tx_data || len == 0) return STATUS_ERROR;
     

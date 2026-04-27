@@ -1,3 +1,14 @@
+// @ast node: Function "get_person_by_id"
+// @ast node: Function "new_person"
+// @ast node: Endpoint "/person/<int>" [verb=ANY]
+// @ast edge: Handler -> Function "get_person_by_id" "routes.cpp"
+// @ast node: Endpoint "/person" [verb=POST]
+// @ast edge: Handler -> Function "POST_person_lambda_L42" "routes.cpp"
+// @ast node: Function "POST_person_lambda_L42"
+// @ast edge: NestedIn -> Function "setup_routes" "routes.cpp"
+// @ast node: Function "setup_routes"
+// @ast edge: Calls -> Function "get_person_by_id" "routes.cpp"
+// @ast edge: Calls -> Function "new_person" "routes.cpp"
 #include "routes.h"
 #include <nlohmann/json.hpp>
 

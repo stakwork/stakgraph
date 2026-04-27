@@ -1,3 +1,14 @@
+# @ast node: Endpoint "/person/<int:id>"
+# @ast edge: Handler -> Function "get_person" "flask_app/routes.py"
+# @ast node: Endpoint "/person/"
+# @ast edge: Handler -> Function "create_person" "flask_app/routes.py"
+# @ast node: Var "flask_bp"
+# @ast node: Function "get_person"
+# @ast edge: Calls -> Function "db_session" "db.py"
+# @ast edge: Calls -> Function "get_person_by_id" "db.py"
+# @ast node: Function "create_person"
+# @ast edge: Calls -> Function "db_session" "db.py"
+# @ast edge: Calls -> Function "create_new_person" "db.py"
 from flask import Blueprint, request, jsonify
 from db import db_session, get_person_by_id, create_new_person
 from model import CreateOrEditPerson

@@ -1,4 +1,5 @@
 # E2E/system (Capybara)
+# @ast node: E2eTest "User login"
 RSpec.describe "User login", type: :system, js: true do
   let(:user) { create(:person, email: "user@example.com", password: "password123") }
   

@@ -1,4 +1,8 @@
 package com.kotlintestapp.ui.theme
+// @ast node: Function "KotlinTestAppTheme"
+// @ast node: Var "DarkColorScheme"
+// @ast node: Var "LightColorScheme"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappuithemethemekt-0"
 
 import android.app.Activity
 import android.os.Build

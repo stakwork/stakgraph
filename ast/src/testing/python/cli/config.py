@@ -1,4 +1,13 @@
 
+# @ast node: Class "AppConfig"
+# @ast edge: Operand -> Function "check_api_key" "config.py"
+# @ast edge: Operand -> Function "from_yaml" "config.py"
+# @ast node: Function "check_api_key"
+# @ast node: Function "from_yaml"
+# @ast node: Var "host"
+# @ast node: Var "port"
+# @ast node: Var "debug"
+# @ast node: Var "api_key"
 from pydantic import BaseModel, Field, validator
 from typing import Optional
 import yaml

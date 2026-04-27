@@ -1,5 +1,8 @@
 import { TestBed } from '@angular/core/testing';
 import { AppComponent } from './app.component';
+// @ast node: UnitTest "AppComponent"
+// @ast edge: Calls -> Class "AppComponent" "app.component.ts"
+// @ast node: Import "import-imports-srctestingangularsrcappappcomponentspects-0"
 
 describe('AppComponent', () => {
   beforeEach(async () => {

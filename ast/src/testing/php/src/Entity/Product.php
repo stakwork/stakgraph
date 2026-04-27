@@ -1,4 +1,8 @@
 <?php
+// @ast node: Class "Product"
+// @ast node: Function "getId"
+// @ast node: Function "getName"
+// @ast node: Function "setName"
 
 namespace SymfonyApp\Entity;
 

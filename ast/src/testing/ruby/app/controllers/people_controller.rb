@@ -1,3 +1,4 @@
+# @ast node: Var "MAX_PEOPLE"
 # Max people limit
 MAX_PEOPLE = 100
 

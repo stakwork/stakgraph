@@ -7,6 +7,19 @@
 
 import Alamofire
 import SwiftyJSON
+// @ast node: Class "API"
+// @ast edge: Operand -> Function "createRequest" "API.swift"
+// @ast edge: Operand -> Function "getPeopleList" "API.swift"
+// @ast edge: Operand -> Function "updatePeopleProfileWith" "API.swift"
+// @ast node: Class "Static"
+// @ast node: Function "createRequest"
+// @ast node: Function "getPeopleList"
+// @ast edge: Calls -> Request "/people" "API.swift"
+// @ast node: Function "updatePeopleProfileWith"
+// @ast edge: Calls -> Request "/person" "API.swift"
+// @ast node: Request "/people"
+// @ast node: Request "/person"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappapiswift-7"
 
 class API {
     class var sharedInstance : API {

@@ -348,7 +348,7 @@ async fn test_nodes_integration_test_type() -> Result<()> {
         )
         .await?;
 
-    assert_eq!(count, 22, "Should have 22 IntegrationTest nodes");
+    assert_eq!(count, 23, "Should have 23 IntegrationTest nodes");
 
     Ok(())
 }
@@ -440,8 +440,8 @@ async fn test_nodes_all_test_types() -> Result<()> {
         )
         .await?;
 
-    // 21 + 22 + 10 = 53
-    assert_eq!(count, 53, "Should have all test types combined");
+    // 21 + 23 + 10 = 54
+    assert_eq!(count, 54, "Should have all test types combined");
 
     Ok(())
 }

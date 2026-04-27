@@ -1,4 +1,12 @@
 <script>
+// @ast node: Class ""
+// @ast node: DataModel "<script>"
+// @ast node: DataModel "<svelte:head>"
+// @ast node: DataModel "<div>"
+// @ast node: Function "unction testPerson"
+// @ast node: Function "unction testPersonValidat"
+// @ast node: Function "unction testPersonValidateReje"
+// @ast node: Function "unction testPersonValidateReje"
   import { describe, test, expect } from 'vitest';
   import { Person } from '../src/lib/Person.js';
 

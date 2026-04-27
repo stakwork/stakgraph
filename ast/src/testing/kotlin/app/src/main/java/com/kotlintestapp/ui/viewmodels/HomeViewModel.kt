@@ -1,4 +1,11 @@
 package com.kotlintestapp.ui.viewmodels
+// @ast node: Class "HomeViewModel"
+// @ast edge: Operand -> Function "fetchUsers" "HomeViewModel.kt"
+// @ast edge: Operand -> Function "onUserClicked" "HomeViewModel.kt"
+// @ast node: DataModel "HomeViewModel"
+// @ast node: Function "fetchUsers"
+// @ast node: Function "onUserClicked"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappuiviewmodelshomeviewmodelkt-0"
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope

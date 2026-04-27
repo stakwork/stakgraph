@@ -1,3 +1,4 @@
+# @ast node: E2eTest "JS modal"
 RSpec.describe "JS modal", type: :system, js: true do
   let(:user) { create(:person) }
   

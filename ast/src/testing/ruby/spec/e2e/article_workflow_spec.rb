@@ -1,3 +1,4 @@
+# @ast node: E2eTest "Article Workflow"
 RSpec.describe "Article Workflow", type: :request do
   describe "complete article creation and management workflow" do
     it "creates person and adds multiple articles via API" do

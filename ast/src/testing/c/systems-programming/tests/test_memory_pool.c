@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdint.h>
 
+// @ast node: UnitTest "test_pool_create"
+// @ast edge: Calls -> Function "pool_create" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_destroy" "memory_pool.c"
 void test_pool_create(void) {
     MemoryPool *pool = pool_create(64, 10);
     assert(pool != NULL && "Pool creation should succeed");
@@ -10,6 +13,10 @@ void test_pool_create(void) {
     printf("PASS: test_pool_create\n");
 }
 
+// @ast node: UnitTest "test_pool_alloc_single"
+// @ast edge: Calls -> Function "pool_create" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_alloc" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_destroy" "memory_pool.c"
 void test_pool_alloc_single(void) {
     MemoryPool *pool = pool_create(128, 5);
     void *block = pool_alloc(pool);
@@ -18,6 +25,10 @@ void test_pool_alloc_single(void) {
     printf("PASS: test_pool_alloc_single\n");
 }
 
+// @ast node: UnitTest "test_pool_alloc_multiple"
+// @ast edge: Calls -> Function "pool_create" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_alloc" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_destroy" "memory_pool.c"
 void test_pool_alloc_multiple(void) {
     MemoryPool *pool = pool_create(32, 3);
     void *block1 = pool_alloc(pool);
@@ -34,6 +45,10 @@ void test_pool_alloc_multiple(void) {
     printf("PASS: test_pool_alloc_multiple\n");
 }
 
+// @ast node: UnitTest "test_pool_alloc_exhaustion"
+// @ast edge: Calls -> Function "pool_create" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_alloc" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_destroy" "memory_pool.c"
 void test_pool_alloc_exhaustion(void) {
     MemoryPool *pool = pool_create(16, 2);
     void *block1 = pool_alloc(pool);
@@ -48,6 +63,11 @@ void test_pool_alloc_exhaustion(void) {
     printf("PASS: test_pool_alloc_exhaustion\n");
 }
 
+// @ast node: UnitTest "test_pool_free_and_realloc"
+// @ast edge: Calls -> Function "pool_create" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_alloc" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_free" "memory_pool.c"
+// @ast edge: Calls -> Function "pool_destroy" "memory_pool.c"
 void test_pool_free_and_realloc(void) {
     MemoryPool *pool = pool_create(64, 3);
     void *block1 = pool_alloc(pool);
@@ -63,6 +83,7 @@ void test_pool_free_and_realloc(void) {
     printf("PASS: test_pool_free_and_realloc\n");
 }
 
+// @ast node: UnitTest "main"
 int main(void) {
     printf("Running memory pool unit tests...\n");
     test_pool_create();

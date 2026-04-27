@@ -1,3 +1,5 @@
+# @ast node: UnitTest "Person"
+# @ast edge: Calls -> Class "Person" "person.rb"
 RSpec.describe Person, type: :model do
   subject { build(:person) }
   

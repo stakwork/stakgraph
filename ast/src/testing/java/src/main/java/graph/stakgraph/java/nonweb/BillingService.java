@@ -1,3 +1,13 @@
+// @ast node: Class "BillingService"
+// @ast node: Function "BillingService"
+// @ast node: Function "chargePerson"
+// @ast edge: Calls -> Function "getEmail" "Person.java"
+// @ast edge: Calls -> Function "findCustomer" "BillingService.java"
+// @ast node: Function "findCustomer"
+// @ast edge: Calls -> Function "getEmail" "Person.java"
+// @ast node: Var "customers"
+// @ast node: Var "found"
+// @ast node: Var "gateway"
 package graph.stakgraph.java.nonweb;
 
 import graph.stakgraph.java.model.Person;

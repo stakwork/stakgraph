@@ -1,6 +1,9 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { PeopleListComponent } from './people-list.component';
+// @ast node: UnitTest "PeopleListComponent"
+// @ast edge: Calls -> Class "PeopleListComponent" "people-list.component.ts"
+// @ast node: Import "import-imports-srctestingangularsrcapppeoplelistpeoplelistcomponentspects-0"
 
 describe('PeopleListComponent', () => {
   let component: PeopleListComponent;

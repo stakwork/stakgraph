@@ -11,6 +11,7 @@
  * @param email The user's email address.
  * @return User The initialized user struct.
  */
+// @ast node: Function "create_user"
 User create_user(int id, const char* name, const char* email) {
     User u;
     u.id = id;
@@ -21,12 +22,13 @@ User create_user(int id, const char* name, const char* email) {
 
 /**
  * @brief Creates a new product with the given details.
- * 
+ *
  * @param id The unique product ID.
  * @param name The product name.
  * @param price The product price.
  * @return Product The initialized product struct.
  */
+// @ast node: Function "create_product"
 Product create_product(int id, const char* name, float price) {
     Product p;
     p.id = id;
@@ -36,6 +38,7 @@ Product create_product(int id, const char* name, float price) {
     return p;
 }
 
+// @ast node: Function "print_user"
 void print_user(const User* u) {
     if (u) {
         printf("User: %s (%s)\n", u->name, u->email);

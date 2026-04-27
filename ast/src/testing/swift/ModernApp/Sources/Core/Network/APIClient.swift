@@ -1,4 +1,11 @@
 import Foundation
+// @ast node: Class "APIError"
+// @ast node: Class "APIClient"
+// @ast edge: Operand -> Function "fetch" "APIClient.swift"
+// @ast edge: Operand -> Function "post" "APIClient.swift"
+// @ast node: Function "fetch"
+// @ast node: Function "post"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcescorenetworkapiclientswift-0"
 
 enum APIError: Error {
     case invalidURL

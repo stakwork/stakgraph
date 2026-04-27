@@ -1,4 +1,7 @@
 
+# @ast node: DataModel "DeploymentError"
+# @ast node: Function "fetch_logs"
+# @ast node: Function "deploy_service"
 import asyncio
 import random
 

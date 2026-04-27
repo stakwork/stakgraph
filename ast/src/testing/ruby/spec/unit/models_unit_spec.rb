@@ -1,3 +1,8 @@
+# @ast node: UnitTest "Person"
+# @ast edge: Calls -> Class "Article" "article.rb"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast node: UnitTest "Article"
+# @ast edge: Calls -> Class "Article" "article.rb"
 RSpec.describe Person, type: :model do
   describe "validations" do
     it "validates presence of name" do

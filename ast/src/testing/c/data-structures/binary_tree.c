@@ -1,11 +1,16 @@
 #include <stdlib.h>
 
+// @ast node: Class "TreeNode"
+// @ast node: Class "Node"
+// @ast node: Class "Node"
+// @ast node: Class "Node"
 typedef struct Node {
     int value;
     struct Node *left;
     struct Node *right;
 } TreeNode;
 
+// @ast node: Function "tree_insert"
 TreeNode* tree_insert(TreeNode *root, int value) {
     if (!root) {
         TreeNode *n = malloc(sizeof(TreeNode));
@@ -22,6 +27,7 @@ TreeNode* tree_insert(TreeNode *root, int value) {
     return root;
 }
 
+// @ast node: Function "tree_free"
 void tree_free(TreeNode *root) {
     if (root) {
         tree_free(root->left);

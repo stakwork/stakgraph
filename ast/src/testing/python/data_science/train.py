@@ -1,4 +1,7 @@
 
+# @ast node: Function "train_model"
+# @ast edge: Calls -> Function "clean_data" "pipeline.py"
+# @ast edge: Calls -> Function "extract_features" "pipeline.py"
 import torch
 import pandas as pd
 from .model import FraudDetector

@@ -1,3 +1,10 @@
+// @ast node: Endpoint "/anon-get" [verb=GET]
+// @ast node: Endpoint "/anon-post" [verb=POST]
+// @ast node: Endpoint "/anon-move" [verb=GET]
+// @ast node: Function "create_anonymous_router"
+// @ast node: Function "GET_anon-get_closure_L16"
+// @ast node: Function "POST_anon-post_closure_L20"
+// @ast node: Function "GET_anon-move_closure_L23"
 use axum::{
     routing::{get, post},
     Router,

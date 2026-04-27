@@ -1,3 +1,18 @@
+# @ast node: IntegrationTest "processes payment for person"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "ProcessPaymentJob" "process_payment_job.rb"
+# @ast node: IntegrationTest "performs payment processing immediately"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "ProcessPaymentJob" "process_payment_job.rb"
+# @ast node: IntegrationTest "calls payment gateway with correct arguments"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "ProcessPaymentJob" "process_payment_job.rb"
+# @ast node: IntegrationTest "sends confirmation email after successful payment"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "ProcessPaymentJob" "process_payment_job.rb"
+# @ast node: IntegrationTest "retries on payment failure"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "ProcessPaymentJob" "process_payment_job.rb"
 require 'test_helper'
 
 class ProcessPaymentJobTest < ActiveJob::TestCase

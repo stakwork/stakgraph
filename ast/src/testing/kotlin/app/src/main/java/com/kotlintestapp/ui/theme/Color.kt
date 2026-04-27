@@ -1,4 +1,11 @@
 package com.kotlintestapp.ui.theme
+// @ast node: Var "Pink40"
+// @ast node: Var "Pink80"
+// @ast node: Var "Purple40"
+// @ast node: Var "Purple80"
+// @ast node: Var "PurpleGrey40"
+// @ast node: Var "PurpleGrey80"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappuithemecolorkt-0"
 
 import androidx.compose.ui.graphics.Color
 

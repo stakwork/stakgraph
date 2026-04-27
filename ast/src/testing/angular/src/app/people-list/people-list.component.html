@@ -3,6 +3,7 @@
   <ul>
     <li *ngFor="let person of people">
       {{ person.name }} ({{ person.age }})
+<!-- @ast node: Page "people-list.component.html" -->
       <button (click)="deletePerson(person.id)">Delete</button>
     </li>
   </ul>

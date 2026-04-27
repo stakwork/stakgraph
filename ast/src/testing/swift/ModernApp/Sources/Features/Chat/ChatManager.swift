@@ -1,4 +1,8 @@
 import Foundation
+// @ast node: Class "ChatManager"
+// @ast edge: Operand -> Function "send" "ChatManager.swift"
+// @ast node: Function "send"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeatureschatchatmanagerswift-0"
 
 protocol ChatManagerDelegate: AnyObject {
     func didReceiveMessage(_ message: String)

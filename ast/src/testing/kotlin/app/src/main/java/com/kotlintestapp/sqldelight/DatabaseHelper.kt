@@ -1,4 +1,14 @@
 package com.kotlintestapp.sqldelight
+// @ast node: Class "DatabaseHelper"
+// @ast edge: Operand -> Function "clearDatabase" "DatabaseHelper.kt"
+// @ast edge: Operand -> Function "getAllPersons" "DatabaseHelper.kt"
+// @ast edge: Operand -> Function "insertPerson" "DatabaseHelper.kt"
+// @ast edge: Operand -> Function "updatePerson" "DatabaseHelper.kt"
+// @ast node: Function "clearDatabase"
+// @ast node: Function "getAllPersons"
+// @ast node: Function "insertPerson"
+// @ast node: Function "updatePerson"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappsqldelightdatabasehelperkt-0"
 
 import android.content.Context
 import app.cash.sqldelight.db.SqlDriver

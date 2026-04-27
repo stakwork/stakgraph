@@ -1,4 +1,7 @@
 import Foundation
+// @ast node: Class "Profile"
+// @ast node: Class "Status"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeaturesprofileprofilemodelswift-0"
 
 struct Profile: Codable, Identifiable {
     let id: String

@@ -1,3 +1,15 @@
+# @ast node: Var "BASE_DIR"
+# @ast node: Var "SECRET_KEY"
+# @ast node: Var "DEBUG"
+# @ast node: Var "ALLOWED_HOSTS"
+# @ast node: Var "INSTALLED_APPS"
+# @ast node: Var "MIDDLEWARE"
+# @ast node: Var "DATABASES"
+# @ast node: Var "ROOT_URLCONF"
+# @ast node: Var "STATIC_URL"
+# @ast node: Var "DEFAULT_AUTO_FIELD"
+# @ast node: Var "TEMPLATES"
+# @ast node: Var "WSGI_APPLICATION"
 import os
 
 

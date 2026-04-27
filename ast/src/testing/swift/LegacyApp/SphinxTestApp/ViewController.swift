@@ -7,6 +7,24 @@
 
 import UIKit
 import SwiftyJSON
+// @ast node: Class "ViewController"
+// @ast node: Class "ViewController"
+// @ast edge: Operand -> Function "viewDidLoad" "ViewController.swift"
+// @ast edge: Operand -> Function "configureTableView" "ViewController.swift"
+// @ast edge: Operand -> Function "getPeopleAndSave" "ViewController.swift"
+// @ast edge: Operand -> Function "deleteObject" "ViewController.swift"
+// @ast edge: Operand -> Function "updateTableView" "ViewController.swift"
+// @ast edge: Operand -> Function "updateProfile" "ViewController.swift"
+// @ast node: Function "viewDidLoad"
+// @ast node: Function "configureTableView"
+// @ast node: Function "getPeopleAndSave"
+// @ast node: Function "deleteObject"
+// @ast node: Function "updateTableView"
+// @ast node: Function "updateProfile"
+// @ast node: Function "tableView"
+// @ast node: Function "tableView"
+// @ast node: Function "tableView"
+// @ast node: Import "import-imports-srctestingswiftlegacyappsphinxtestappviewcontrollerswift-7"
 
 class ViewController: UIViewController {
 

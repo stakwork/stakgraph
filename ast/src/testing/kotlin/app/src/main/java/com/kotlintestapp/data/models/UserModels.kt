@@ -1,4 +1,15 @@
 package com.kotlintestapp.data.models
+// @ast node: Class "ApiResult"
+// @ast node: Class "Error"
+// @ast node: Class "Success"
+// @ast node: Class "User"
+// @ast node: Class "UserRole"
+// @ast node: DataModel "ApiResult"
+// @ast node: DataModel "Error"
+// @ast node: DataModel "Success"
+// @ast node: DataModel "User"
+// @ast node: DataModel "UserRole"
+// @ast node: Import "import-imports-srctestingkotlinappsrcmainjavacomkotlintestappdatamodelsusermodelskt-0"
 
 data class User(
     val id: String,

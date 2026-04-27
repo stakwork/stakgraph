@@ -1,4 +1,7 @@
 import SwiftUI
+// @ast node: Class "ChatView"
+// @ast node: Class "ChatViewModel"
+// @ast node: Import "import-imports-srctestingswiftmodernappsourcesfeatureschatchatviewswift-0"
 
 struct ChatView: View {
     @StateObject private var viewModel = ChatViewModel()

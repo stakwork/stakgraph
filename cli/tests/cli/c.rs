@@ -21,16 +21,16 @@ fn routes_c_contains_exact_named_functions() {
 
     assert_eq!(out.exit_code, 0);
     assert_eq!(
-        out.stdout.contains("Function: handler_get_user (5-18)"),
+        out.stdout.contains("Function: handler_get_user (7-22)"),
         true
     );
     assert_eq!(
-        out.stdout.contains("Function: handler_post_user (20-33)"),
+        out.stdout.contains("Function: handler_post_user (26-41)"),
         true
     );
     assert_eq!(
         out.stdout
-            .contains("Function: handler_list_products (35-39)"),
+            .contains("Function: handler_list_products (45-51)"),
         true
     );
 }
@@ -45,7 +45,7 @@ fn parse_stats_c_dir() {
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Class                23"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Endpoint             4"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             47"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             46"), "stdout: {}", out.stdout);
 }
 
 // ── search ────────────────────────────────────────────────────────────────────

@@ -1,3 +1,10 @@
+# @ast node: IntegrationTest "People API"
+# @ast edge: Calls -> Endpoint "/" "routes.rb" [verb=GET]
+# @ast edge: Calls -> Endpoint "/people/articles" "routes.rb" [verb=GET]
+# @ast edge: Calls -> Endpoint "/people/:id" "routes.rb" [verb=DELETE]
+# @ast edge: Calls -> Endpoint "/people/:id/articles" "routes.rb" [verb=POST]
+# @ast edge: Calls -> Endpoint "/person" "routes.rb" [verb=POST]
+# @ast edge: Calls -> Endpoint "/person/:id" "routes.rb" [verb=GET]
 RSpec.describe "People API", type: :request do
   describe "GET /person/:id" do
     let(:person) { create(:person) }

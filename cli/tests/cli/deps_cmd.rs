@@ -71,7 +71,7 @@ fn deps_allow_true_includes_verified_and_unverified_python_calls() {
     let out = run_stakgraph(&["deps", "run_servers", "--allow", "true", &file]);
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(
-        out.stdout.contains("cleanup  [") && out.stdout.contains("main.py:37"),
+        out.stdout.contains("cleanup  [") && out.stdout.contains("main.py:48"),
         "stdout: {}",
         out.stdout
     );
@@ -84,7 +84,7 @@ fn deps_allow_false_prefers_verified_python_calls() {
     let out = run_stakgraph(&["deps", "run_servers", "--allow", "false", &file]);
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("cleanup"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("main.py:37"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("main.py:48"), "stdout: {}", out.stdout);
     assert!(
         !out.stdout.contains("cleanup  [unverified]"),
         "stdout: {}",

@@ -1,3 +1,8 @@
+// @ast node: Class "JavaApplication"
+// @ast node: Function "main"
+// @ast node: Instance "testPerson"
+// @ast edge: Of -> Class "Person" "Person.java"
+// @ast node: Var "testPerson"
 package graph.stakgraph.java;
 
 import graph.stakgraph.java.model.Person;

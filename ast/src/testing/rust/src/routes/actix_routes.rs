@@ -1,3 +1,16 @@
+// @ast node: Endpoint "/api/person/{id}" [verb=GET]
+// @ast edge: Handler -> Function "get_person" "actix_routes.rs"
+// @ast node: Endpoint "/api/person" [verb=POST]
+// @ast edge: Handler -> Function "create_person" "actix_routes.rs"
+// @ast node: Endpoint "/user/profile" [verb=GET]
+// @ast edge: Handler -> Function "get_profile" "actix_routes.rs"
+// @ast node: Endpoint "/user/profile/update"
+// @ast edge: Handler -> Function "update_profile" "actix_routes.rs"
+// @ast node: Function "get_person"
+// @ast node: Function "create_person"
+// @ast node: Function "get_profile"
+// @ast node: Function "update_profile"
+// @ast node: Function "config"
 use crate::db::{Database, Person};
 use crate::routes::admin_actix::admin_config;
 use actix_web::{get, post, web, HttpResponse, Responder};

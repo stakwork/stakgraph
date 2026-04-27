@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+// @ast node: Class "MemoryPool"
 struct MemoryPool {
     size_t block_size;
     size_t num_blocks;
@@ -9,6 +10,7 @@ struct MemoryPool {
     uint8_t *bitmap;
 };
 
+// @ast node: Function "pool_create"
 MemoryPool* pool_create(size_t block_size, size_t num_blocks) {
     MemoryPool *pool = malloc(sizeof(MemoryPool));
     if (!pool) return NULL;
@@ -21,6 +23,7 @@ MemoryPool* pool_create(size_t block_size, size_t num_blocks) {
     return pool;
 }
 
+// @ast node: Function "pool_alloc"
 void* pool_alloc(MemoryPool *pool) {
     if (!pool) return NULL;
     
@@ -37,6 +40,7 @@ void* pool_alloc(MemoryPool *pool) {
     return NULL;
 }
 
+// @ast node: Function "pool_free"
 void pool_free(MemoryPool *pool, void *ptr) {
     if (!pool || !ptr) return;
     
@@ -48,6 +52,7 @@ void pool_free(MemoryPool *pool, void *ptr) {
     }
 }
 
+// @ast node: Function "pool_destroy"
 void pool_destroy(MemoryPool *pool) {
     if (pool) {
         free(pool->memory);

@@ -1,3 +1,6 @@
+# @ast node: UnitTest "PersonPolicy"
+# @ast edge: Calls -> Class "Person" "person.rb"
+# @ast edge: Calls -> Class "PersonPolicy" "person_policy.rb"
 RSpec.describe PersonPolicy, type: :policy do
   subject { described_class }
 

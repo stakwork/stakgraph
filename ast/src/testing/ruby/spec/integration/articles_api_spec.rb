@@ -1,5 +1,8 @@
+# @ast node: IntegrationTest "Articles API"
+# @ast edge: Calls -> Endpoint "/" "routes.rb" [verb=GET]
+# @ast edge: Calls -> Endpoint "/people/articles" "routes.rb" [verb=GET]
+# @ast node: IntegrationTest "POST /people/:id/articles"
 RSpec.describe "Articles API", type: :request do
-  describe "GET /people/articles" do
     context "when no articles exist" do
       before { get "/people/articles" }
       

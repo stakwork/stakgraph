@@ -5,10 +5,12 @@
 
 static onion *o = NULL;
 
+// @ast node: Function "shutdown_server"
 void shutdown_server(int _) {
     if (o) onion_listen_stop(o);
 }
 
+// @ast node: Function "main"
 int main(int argc, char **argv) {
     signal(SIGINT, shutdown_server);
     signal(SIGTERM, shutdown_server);
@@ -21,8 +23,14 @@ int main(int argc, char **argv) {
     onion_url *urls = onion_root_url(o);
 
     // Register routes
+    // @ast node: Endpoint "^users/([0-9]+)$"
+    // @ast edge: Handler -> Function "handler_get_user" "routes.c"
     onion_url_add(urls, "^users/([0-9]+)$", handler_get_user);
+    // @ast node: Endpoint "^users$"
+    // @ast edge: Handler -> Function "handler_post_user" "routes.c"
     onion_url_add(urls, "^users$", handler_post_user);
+    // @ast node: Endpoint "^products$"
+    // @ast edge: Handler -> Function "handler_list_products" "routes.c"
     onion_url_add(urls, "^products$", handler_list_products);
 
     // Anonymous handler for health check
@@ -33,6 +41,8 @@ int main(int argc, char **argv) {
                                               // if we use a specific macro.
     
     // Let's add a proper handler with data to test the third argument capture
+    // @ast node: Endpoint "^static/.*"
+    // @ast edge: Handler -> Function "handler_list_products" "routes.c"
     onion_url_add_with_data(urls, "^static/.*", handler_list_products, NULL, NULL);
 
     state_t s = onion_listen(o);

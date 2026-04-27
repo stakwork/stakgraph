@@ -1,3 +1,5 @@
+# @ast node: UnitTest "Country"
+# @ast edge: Calls -> Class "Country" "country.rb"
 require 'rails_helper'
 
 describe Country do

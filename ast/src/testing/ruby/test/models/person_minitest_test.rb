@@ -1,3 +1,8 @@
+# @ast node: UnitTest "test_valid_person"
+# @ast node: UnitTest "test_requires_name"
+# @ast node: UnitTest "test_requires_email"
+# @ast node: UnitTest "test_email_uniqueness"
+# @ast edge: Calls -> Class "Person" "person.rb"
 require 'test_helper'
 
 class PersonMinitestTest < Minitest::Test

@@ -1,4 +1,13 @@
-
+# @ast node: Var "typed_global"
+# @ast node: Class "User"
+# @ast edge: Operand -> Function "get_info" "modern.py"
+# @ast node: Var "name"
+# @ast node: Var "age"
+# @ast node: Function "get_info"
+# @ast node: Function "fetch_data"
+# @ast node: Class "AsyncProcessor"
+# @ast edge: Operand -> Function "process" "modern.py"
+# @ast node: Function "process"
 from dataclasses import dataclass
 import asyncio
 

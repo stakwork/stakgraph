@@ -1,3 +1,15 @@
+// @ast node: Class "FunctionalMethodRefRoutes"
+// @ast node: Function "router"
+// @ast node: Function "handleGet"
+// @ast node: Function "handlePost"
+// @ast node: Function "PUT_fn_put_lambda_L28"
+// @ast edge: NestedIn -> Function "router" "FunctionalMethodRefRoutes.java"
+// @ast node: Endpoint "/fn-get" [verb=GET]
+// @ast edge: Handler -> Function "handleGet" "FunctionalMethodRefRoutes.java"
+// @ast node: Endpoint "/fn-post" [verb=POST]
+// @ast edge: Handler -> Function "handlePost" "FunctionalMethodRefRoutes.java"
+// @ast node: Endpoint "/fn-put" [verb=PUT]
+// @ast edge: Handler -> Function "PUT_fn_put_lambda_L28" "FunctionalMethodRefRoutes.java"
 package graph.stakgraph.java.web;
 
 import org.springframework.context.annotation.Bean;

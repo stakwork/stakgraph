@@ -1,3 +1,11 @@
+// @ast node: Class "NotificationPreferences"
+// @ast node: Class "Person"
+// @ast node: Class "UserProfile"
+// @ast node: Function "CalculateAge"
+// @ast node: Function "Deactivate"
+// @ast node: Function "UpdateEmail"
+// @ast node: DataModel "Person"
+// @ast node: Import "import-imports-srctestingcsharpmodelspersoncs-8"
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 

@@ -1,4 +1,11 @@
 
+# @ast node: Var "client"
+# @ast node: IntegrationTest "test_create_person_api"
+# @ast edge: Calls -> Endpoint "/person/" "fastapi_app/routes.py" [verb=POST]
+# @ast node: IntegrationTest "test_get_person_api"
+# @ast node: Class "TestFlaskIntegration"
+# @ast node: DataModel "TestFlaskIntegration"
+# @ast node: UnitTest "test_flask_route"
 import pytest
 from fastapi.testclient import TestClient
 from fastapi_app.routes import router as fastapi_router

@@ -1,3 +1,5 @@
+// @ast node: DataModel "Person"
+// @ast node: Class "Database"
 #pragma once
 #include <string>
 #include <sqlite3.h>

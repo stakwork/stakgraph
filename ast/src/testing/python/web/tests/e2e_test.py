@@ -1,4 +1,9 @@
 
+# @ast node: E2eTest "test_homepage_has_title"
+# @ast node: E2eTest "test_create_user_flow"
+# @ast node: Class "TestUserFlows"
+# @ast node: DataModel "TestUserFlows"
+# @ast node: E2eTest "test_login_and_dashboard"
 from playwright.sync_api import Page, expect
 
 def test_homepage_has_title(page: Page):

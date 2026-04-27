@@ -1,30 +1,19 @@
-use crate::lang::{ArrayGraph, Lang, NodeData, BTreeMapGraph};
+use crate::lang::{ArrayGraph, BTreeMapGraph, Lang};
 use lsp::Language;
 use std::env;
 use std::str::FromStr;
 // use tracing_test::traced_test;
 
-pub mod angular;
 pub mod annotations;
 pub mod bash_toml;
 
-pub mod c;
 #[cfg(test)]
 pub mod coverage;
-pub mod cpp;
-pub mod csharp;
-pub mod go;
+
 pub mod graphs;
-pub mod java;
-pub mod kotlin;
+
 #[cfg(test)]
 pub mod monorepo;
-pub mod php;
-pub mod python;
-pub mod ruby;
-pub mod rust_test;
-pub mod svelte;
-pub mod swift;
 pub mod test_backend;
 pub mod test_frontend;
 #[cfg(test)]
@@ -149,12 +138,214 @@ async fn test_go_non_web() {
     }
 }
 
-pub fn _print_nodes(nodes: Vec<NodeData>) {
-    println!(
-        "{:#?}",
-        nodes
-            .iter()
-            .map(|n| (n.name.clone(), n.file.clone()))
-            .collect::<Vec<(String, String)>>()
-    );
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_rust() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/rust", "rust", Language::Rust).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_python_web() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/python/web", "python", Language::Python).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/python/web", "python", Language::Python).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/python/web", "python", Language::Python).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_python_data_science() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/python/data_science", "python", Language::Python).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/python/data_science", "python", Language::Python).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/python/data_science", "python", Language::Python).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_python_cli() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/python/cli", "python", Language::Python).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/python/cli", "python", Language::Python).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/python/cli", "python", Language::Python).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_ruby() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/ruby", "ruby", Language::Ruby).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/ruby", "ruby", Language::Ruby).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/ruby", "ruby", Language::Ruby).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_c() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/c", "c", Language::C).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/c", "c", Language::C).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/c", "c", Language::C).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_cpp_web_api() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/cpp/web_api", "cpp", Language::Cpp).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/cpp/web_api", "cpp", Language::Cpp).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/cpp/web_api", "cpp", Language::Cpp).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_cpp_cuda() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/cpp/cuda", "cpp", Language::Cpp).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/cpp/cuda", "cpp", Language::Cpp).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/cpp/cuda", "cpp", Language::Cpp).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_java() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/java", "java", Language::Java).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/java", "java", Language::Java).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/java", "java", Language::Java).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_csharp() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/csharp", "csharp", Language::CSharp).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_swift() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/swift/LegacyApp", "swift", Language::Swift).await.unwrap();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/swift/ModernApp", "swift", Language::Swift).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_angular() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_svelte() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/svelte", "svelte", Language::Svelte).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/svelte", "svelte", Language::Svelte).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/svelte", "svelte", Language::Svelte).await.unwrap();
+    }
 }

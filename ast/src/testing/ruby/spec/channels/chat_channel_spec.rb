@@ -1,3 +1,5 @@
+# @ast node: IntegrationTest "ChatChannel"
+# @ast edge: Calls -> Class "ChatChannel" "chat_channel.rb"
 RSpec.describe ChatChannel, type: :channel do
   let(:person) { create(:person, name: "Alice") }
 

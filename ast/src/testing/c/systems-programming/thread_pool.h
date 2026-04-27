@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 
+// @ast node: Class "ThreadPool"
 typedef struct ThreadPool ThreadPool;
 typedef void (*task_fn)(void*);
 

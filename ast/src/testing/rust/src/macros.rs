@@ -1,3 +1,9 @@
+// @ast node: Function "say_hello"
+// @ast node: Function "create_function"
+// @ast node: Function "log_expr"
+// @ast node: Function "make_struct"
+// @ast node: Function "impl_display"
+// @ast node: Function "use_macros"
 macro_rules! say_hello {
     () => {
         println!("Hello!");

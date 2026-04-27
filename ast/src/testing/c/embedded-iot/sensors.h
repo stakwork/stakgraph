@@ -8,6 +8,7 @@
  * 
  * This struct defines the interface that all driver implementations must support.
  */
+// @ast node: Class "SensorOps"
 typedef struct {
     status_t (*init)(void);         /**< Initialize the sensor hardware */
     status_t (*read)(float *value); /**< Read a value from the sensor */
@@ -18,6 +19,7 @@ typedef struct {
 /**
  * @brief Represents a physical sensor instance.
  */
+// @ast node: Class "Sensor"
 typedef struct {
     uint8_t id;         /**< Unique sensor ID */
     char name[32];      /**< Human-readable name */

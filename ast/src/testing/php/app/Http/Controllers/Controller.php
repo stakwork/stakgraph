@@ -1,4 +1,6 @@
 <?php
+// @ast node: Class "Controller"
+// @ast node: Import "import-imports-srctestingphpapphttpcontrollerscontrollerphp-6"
 
 namespace App\Http\Controllers;
 
