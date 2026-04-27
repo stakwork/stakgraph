@@ -1,4 +1,14 @@
 <script>
+// @ast node: Class ""
+// @ast node: DataModel "<script>"
+// @ast node: DataModel "<svelte:head>"
+// @ast node: DataModel "<div>"
+// @ast node: Function "  const test_get_people_"
+// @ast edge: Calls -> Request "const test_get_people_" "integration_api.svelte"
+// @ast node: Function "  const test_post_people_v"
+// @ast edge: Calls -> Request "const test_post_people_v" "integration_api.svelte"
+// @ast node: Function "  const test_post_people_rejects"
+// @ast edge: Calls -> Request "const test_post_people_rejects" "integration_api.svelte"
   // Integration tests for API endpoints
   const test_get_people_endpoint = async () => {
     const response = await fetch('http://localhost:5173/api/people');

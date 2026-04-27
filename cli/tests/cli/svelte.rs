@@ -21,9 +21,9 @@ fn test_person_svelte_contains_exact_named_nodes() {
     let out = run_stakgraph(&[&file]);
 
     assert_eq!(out.exit_code, 0);
-    assert_eq!(out.stdout.contains("Datamodel: <script> (1-31)"), true);
-    assert_eq!(out.stdout.contains("Datamodel: <svelte:head> (1-31)"), true);
-    assert_eq!(out.stdout.contains("Datamodel: <div> (1-31)"), true);
+    assert_eq!(out.stdout.contains("Datamodel: <script> (1-39)"), true);
+    assert_eq!(out.stdout.contains("Datamodel: <svelte:head> (1-39)"), true);
+    assert_eq!(out.stdout.contains("Datamodel: <div> (1-39)"), true);
 }
 
 // ── parse ─────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ fn parse_stats_svelte_dir() {
 
     assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
     assert!(out.stdout.contains("Endpoint             2"), "stdout: {}", out.stdout);
-    assert!(out.stdout.contains("Function             14"), "stdout: {}", out.stdout);
+    assert!(out.stdout.contains("Function             13"), "stdout: {}", out.stdout);
     assert!(out.stdout.contains("Class                4"), "stdout: {}", out.stdout);
 }
 

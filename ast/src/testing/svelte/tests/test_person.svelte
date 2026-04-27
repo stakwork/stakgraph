@@ -1,4 +1,12 @@
 <script>
+// @ast node: Class ""
+// @ast node: DataModel "<script>"
+// @ast node: DataModel "<svelte:head>"
+// @ast node: DataModel "<div>"
+// @ast node: Function "  const test_person_"
+// @ast node: Function "  const test_person_validate"
+// @ast node: Function "  const test_person_validate_rejec"
+// @ast node: Function "  const test_person_validate_rejec"
   import Person from '../src/lib/Person.js';
 
   // Unit tests for Person class

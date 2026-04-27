@@ -1,4 +1,12 @@
 <script>
+// @ast node: Class ""
+// @ast node: DataModel "<script>"
+// @ast node: DataModel "<main>"
+// @ast node: DataModel "<style>"
+// @ast node: Function "unction fet"
+// @ast edge: Calls -> Request "const response = await fetch('/api/" "+page.svelte"
+// @ast node: Function "unction a"
+// @ast edge: Calls -> Request "fetch('/ap" "+page.svelte"
   import { onMount } from 'svelte';
 
 

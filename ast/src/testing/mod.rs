@@ -14,7 +14,6 @@ pub mod graphs;
 
 #[cfg(test)]
 pub mod monorepo;
-pub mod svelte;
 pub mod test_backend;
 pub mod test_frontend;
 #[cfg(test)]
@@ -332,5 +331,21 @@ async fn test_angular() {
         let graph = Neo4jGraph::default();
         graph.clear().await.unwrap();
         annotations::run_fixture_test::<Neo4jGraph>("src/testing/angular", "angular", Language::Angular).await.unwrap();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_svelte() {
+    #[cfg(not(feature = "neo4j"))]
+    {
+        annotations::run_fixture_test::<ArrayGraph>("src/testing/svelte", "svelte", Language::Svelte).await.unwrap();
+        annotations::run_fixture_test::<BTreeMapGraph>("src/testing/svelte", "svelte", Language::Svelte).await.unwrap();
+    }
+    #[cfg(feature = "neo4j")]
+    {
+        use crate::lang::graphs::Neo4jGraph;
+        let graph = Neo4jGraph::default();
+        graph.clear().await.unwrap();
+        annotations::run_fixture_test::<Neo4jGraph>("src/testing/svelte", "svelte", Language::Svelte).await.unwrap();
     }
 }

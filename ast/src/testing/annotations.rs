@@ -66,6 +66,11 @@ fn parse_quoted_tokens(s: &str) -> Vec<String> {
                 loop {
                     match chars.next() {
                         None | Some('"') => break,
+                        Some('\\') => {
+                            if let Some(escaped) = chars.next() {
+                                tok.push(escaped);
+                            }
+                        }
                         Some(ch) => tok.push(ch),
                     }
                 }
