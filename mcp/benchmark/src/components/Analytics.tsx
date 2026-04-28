@@ -14,7 +14,18 @@ type AggregateRow = {
   avgTokens: number;
   toolCalls: number;
   avgDurationMs: number;
+  totalCost: number;
   lastSeen: string | null;
+};
+
+type ModelRow = {
+  model: string;
+  provider: string;
+  sessions: number;
+  totalTokens: number;
+  totalCacheRead: number;
+  totalCacheWrite: number;
+  totalCost: number;
 };
 
 const card: React.CSSProperties = {
@@ -78,6 +89,7 @@ function aggregateBy(
       avgTokens: 0,
       toolCalls: 0,
       avgDurationMs: 0,
+      totalCost: 0,
       lastSeen: null,
     };
 
@@ -85,6 +97,7 @@ function aggregateBy(
     existing.totalTokens += run.token_usage.total || 0;
     existing.toolCalls += run.tool_call_count || 0;
     existing.avgDurationMs += run.duration_ms || 0;
+    existing.totalCost += run.cost_usd || 0;
     if (!existing.lastSeen || new Date(run.timestamp).getTime() > new Date(existing.lastSeen).getTime()) {
       existing.lastSeen = run.timestamp;
     }
@@ -297,15 +310,21 @@ export function Analytics() {
     const totalSessions = filteredRuns.length;
     const totalTokens = filteredRuns.reduce((sum, run) => sum + (run.token_usage.total || 0), 0);
     const totalInput = filteredRuns.reduce((sum, run) => sum + (run.token_usage.input || 0), 0);
+    const totalCacheRead = filteredRuns.reduce((sum, run) => sum + (run.token_usage.cache_read || 0), 0);
+    const totalCacheWrite = filteredRuns.reduce((sum, run) => sum + (run.token_usage.cache_write || 0), 0);
     const totalOutput = filteredRuns.reduce((sum, run) => sum + (run.token_usage.output || 0), 0);
     const totalCalls = filteredRuns.reduce((sum, run) => sum + (run.tool_call_count || 0), 0);
     const totalDuration = filteredRuns.reduce((sum, run) => sum + (run.duration_ms || 0), 0);
+    const totalCost = filteredRuns.reduce((sum, run) => sum + (run.cost_usd || 0), 0);
     return {
       totalSessions,
       totalTokens,
       totalInput,
+      totalCacheRead,
+      totalCacheWrite,
       totalOutput,
       totalCalls,
+      totalCost,
       avgDuration: totalSessions ? totalDuration / totalSessions : 0,
     };
   }, [filteredRuns]);
@@ -319,6 +338,29 @@ export function Analytics() {
     () => aggregateBy(filteredRuns, (run) => run.repo || "unknown"),
     [filteredRuns],
   );
+
+  const modelRows = useMemo((): ModelRow[] => {
+    const grouped = new Map<string, ModelRow>();
+    for (const run of filteredRuns) {
+      const key = `${run.provider || "unknown"}::${run.model || "unknown"}`;
+      const existing = grouped.get(key) ?? {
+        model: run.model || "unknown",
+        provider: run.provider || "unknown",
+        sessions: 0,
+        totalTokens: 0,
+        totalCacheRead: 0,
+        totalCacheWrite: 0,
+        totalCost: 0,
+      };
+      existing.sessions += 1;
+      existing.totalTokens += run.token_usage.total || 0;
+      existing.totalCacheRead += run.token_usage.cache_read || 0;
+      existing.totalCacheWrite += run.token_usage.cache_write || 0;
+      existing.totalCost += run.cost_usd || 0;
+      grouped.set(key, existing);
+    }
+    return [...grouped.values()].sort((a, b) => b.totalCost - a.totalCost);
+  }, [filteredRuns]);
 
   const dailyRows = useMemo(() => {
     const grouped = new Map<string, { day: string; sessions: number; tokens: number; calls: number }>();
@@ -390,7 +432,8 @@ export function Analytics() {
             }}
           >
             <StatTile label="Sessions" value={formatNumber(totals.totalSessions)} />
-            <StatTile label="Total tokens" value={formatNumber(totals.totalTokens)} detail={`${formatNumber(totals.totalInput)} in / ${formatNumber(totals.totalOutput)} out`} />
+            <StatTile label="Total tokens" value={formatNumber(totals.totalTokens)} detail={`${formatNumber(totals.totalInput)} in / ${formatNumber(totals.totalOutput)} out${totals.totalCacheRead ? ` / ${formatNumber(totals.totalCacheRead)} cache read` : ""}${totals.totalCacheWrite ? ` / ${formatNumber(totals.totalCacheWrite)} cache write` : ""}`} />
+            <StatTile label="Total cost" value={`$${totals.totalCost.toFixed(4)}`} />
             <StatTile label="Tool calls" value={formatNumber(totals.totalCalls)} />
             <StatTile label="Avg duration" value={formatDuration(Math.round(totals.avgDuration))} />
           </div>
@@ -398,7 +441,7 @@ export function Analytics() {
           <TableCard
             title="By source"
             badge={`${sourceRows.length} groups`}
-            columns={["Source", "Sessions", "Tokens", "Avg tokens", "Calls", "Avg duration", "Last seen"]}
+            columns={["Source", "Sessions", "Tokens", "Avg tokens", "Cost", "Calls", "Avg duration", "Last seen"]}
             rows={sourceRows.map((row) => (
               <tr key={row.key}>
                 <td style={tdStyle(true)}>
@@ -409,9 +452,27 @@ export function Analytics() {
                 <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
                 <td style={tdStyle()}>{formatNumber(Math.round(row.avgTokens))}</td>
+                <td style={tdStyle()}>${row.totalCost.toFixed(4)}</td>
                 <td style={tdStyle()}>{formatNumber(row.toolCalls)}</td>
                 <td style={tdStyle()}>{formatDuration(Math.round(row.avgDurationMs))}</td>
                 <td style={tdStyle()}>{row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}</td>
+              </tr>
+            ))}
+          />
+
+          <TableCard
+            title="By model"
+            badge={`${modelRows.length} models`}
+            columns={["Model", "Provider", "Sessions", "Tokens", "Cache read", "Cache write", "Cost"]}
+            rows={modelRows.map((row) => (
+              <tr key={`${row.provider}::${row.model}`}>
+                <td style={tdStyle(true)}>{row.model}</td>
+                <td style={tdStyle()}>{row.provider}</td>
+                <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
+                <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
+                <td style={tdStyle()}>{formatNumber(row.totalCacheRead)}</td>
+                <td style={tdStyle()}>{formatNumber(row.totalCacheWrite)}</td>
+                <td style={tdStyle()}>${row.totalCost.toFixed(4)}</td>
               </tr>
             ))}
           />

@@ -159,11 +159,12 @@ export async function explore(req: Request, res: Response) {
   createSession(sessionId, undefined, "explore");
   try {
     const result = await get_context_explore(prompt, false, false, undefined, undefined, sessionId);
-    const { modelId } = getModelDetails();
+    const { modelId, provider: resolvedProvider } = getModelDetails();
     appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
-      token_usage: { input: result.usage.inputTokens, output: result.usage.outputTokens, total: result.usage.totalTokens },
+      provider: resolvedProvider,
+      token_usage: { input: result.usage.inputTokens, cache_read: 0, cache_write: 0, output: result.usage.outputTokens, total: result.usage.totalTokens },
     });
     res.json({ result: result.final, usage: result.usage });
   } catch (error) {
@@ -305,11 +306,12 @@ export async function ask(req: Request, res: Response) {
       apiKey,
       sessionId
     );
-    const { modelId } = getModelDetails(model || provider);
+    const { modelId, provider: resolvedProvider } = getModelDetails(model || provider);
     appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
-      token_usage: { input: answer.usage.inputTokens, output: answer.usage.outputTokens, total: answer.usage.totalTokens },
+      provider: resolvedProvider,
+      token_usage: { input: answer.usage.inputTokens, cache_read: 0, cache_write: 0, output: answer.usage.outputTokens, total: answer.usage.totalTokens },
     });
     res.json(answer);
   } catch (error) {

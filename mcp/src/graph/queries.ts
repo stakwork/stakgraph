@@ -312,11 +312,14 @@ export const UPSERT_AGENT_SESSION_QUERY = `
 MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
-  n.source = $source, n.model = $model,
+  n.source = $source, n.model = $model, n.provider = $provider,
   n.start_time = toInteger($start_time),
-  n.input_tokens = 0, n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0
+  n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
+  n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0
 SET n.end_time = toInteger($end_time),
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
+    n.cache_read_tokens = coalesce(n.cache_read_tokens, 0) + toInteger($cache_read_tokens),
+    n.cache_write_tokens = coalesce(n.cache_write_tokens, 0) + toInteger($cache_write_tokens),
     n.output_tokens = coalesce(n.output_tokens, 0) + toInteger($output_tokens),
     n.total_tokens = coalesce(n.total_tokens, 0) + toInteger($total_tokens),
     n.duration_ms = coalesce(n.duration_ms, 0) + toInteger($duration_ms)
@@ -331,6 +334,15 @@ ORDER BY n.start_time DESC
 
 export const GET_AGENT_SESSION_QUERY = `
 MATCH (n:AgentSession {node_key: $session_id}) RETURN n
+`;
+
+export const GET_SESSION_STATS_QUERY = `
+MATCH (n:AgentSession)
+WHERE ($since IS NULL OR n.start_time >= toInteger($since))
+  AND ($source IS NULL OR n.source = $source)
+  AND ($provider IS NULL OR n.provider = $provider)
+  AND ($model IS NULL OR n.model = $model)
+RETURN n
 `;
 
 export const CREATE_SIBLING_EDGE_QUERY = `

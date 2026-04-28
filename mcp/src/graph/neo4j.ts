@@ -1558,10 +1558,13 @@ class Db {
     session_id: string;
     source: string;
     model: string;
+    provider: string;
     start_time: number;
     end_time: number;
     duration_ms: number;
     input_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
     output_tokens: number;
     total_tokens: number;
   }): Promise<void> {
@@ -1598,6 +1601,26 @@ class Db {
       };
     } finally {
       await neo4jSession.close();
+    }
+  }
+
+  async get_session_stats(filters: {
+    since?: number | null;
+    source?: string | null;
+    provider?: string | null;
+    model?: string | null;
+  }): Promise<any[]> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run(Q.GET_SESSION_STATS_QUERY, {
+        since: filters.since ?? null,
+        source: filters.source ?? null,
+        provider: filters.provider ?? null,
+        model: filters.model ?? null,
+      });
+      return result.records.map((r) => ({ ...r.get("n").properties }));
+    } finally {
+      await session.close();
     }
   }
 

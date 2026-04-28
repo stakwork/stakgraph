@@ -115,12 +115,15 @@ export async function log_agent_context(
       opts.sessionConfig
     );
     appendMessages(sessionId, newMessages);
-    const { modelId } = getModelDetails(opts.modelName, opts.apiKey);
+    const { modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
     appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
+      provider,
       token_usage: {
-        input: totalUsage.inputTokens || 0,
+        input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
+        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
+        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens || 0,
         output: totalUsage.outputTokens || 0,
         total: totalUsage.totalTokens || 0,
       },

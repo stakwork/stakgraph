@@ -11,6 +11,7 @@ import {
 import { randomUUID } from "crypto";
 import path from "path";
 import { db } from "../graph/neo4j.js";
+import { getProviderForModel } from "../aieo/src/provider.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -84,19 +85,29 @@ export function createSession(
  */
 export async function appendSessionEnd(
   sessionId: string,
-  opts: { end_time: string; model?: string; duration_ms?: number; token_usage?: { input: number; output: number; total: number } }
+  opts: {
+    end_time: string;
+    model?: string;
+    provider?: string;
+    duration_ms?: number;
+    token_usage?: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+  }
 ): Promise<void> {
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
+  const resolvedProvider = opts.provider || getProviderForModel(opts.model);
   await db?.upsert_agent_session({
     session_id: sessionId,
     source: stored.source,
     model: opts.model || "",
+    provider: resolvedProvider,
     start_time,
     end_time,
     duration_ms: opts.duration_ms ?? (end_time - start_time),
     input_tokens: opts.token_usage?.input || 0,
+    cache_read_tokens: opts.token_usage?.cache_read || 0,
+    cache_write_tokens: opts.token_usage?.cache_write || 0,
     output_tokens: opts.token_usage?.output || 0,
     total_tokens: opts.token_usage?.total || 0,
   }).catch((e) => console.error("[sessions] Neo4j upsert failed:", e));

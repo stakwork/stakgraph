@@ -458,9 +458,12 @@ export async function get_context(
     await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
+      provider,
       duration_ms: duration,
       token_usage: {
-        input: totalUsage.inputTokens || 0,
+        input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
+        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
+        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens || 0,
         output: totalUsage.outputTokens || 0,
         total: totalUsage.totalTokens || 0,
       },
@@ -517,6 +520,7 @@ export async function stream_context(
     sessionConfig,
     userMessage,
     modelId,
+    provider,
     startTime,
     stepMetas,
   } = prepared;
@@ -541,9 +545,12 @@ export async function stream_context(
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
+          provider,
           duration_ms: duration,
           token_usage: {
-            input: usage?.inputTokens || 0,
+            input: usage?.inputTokenDetails?.noCacheTokens || usage?.inputTokens || 0,
+            cache_read: usage?.inputTokenDetails?.cacheReadTokens || 0,
+            cache_write: usage?.inputTokenDetails?.cacheWriteTokens || 0,
             output: usage?.outputTokens || 0,
             total: usage?.totalTokens || 0,
           },

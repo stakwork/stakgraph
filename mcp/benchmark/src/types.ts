@@ -17,9 +17,11 @@ export interface ProductionRun {
   source: string;
   repo: string;
   model: string;
+  provider?: string;
+  cost_usd?: number;
   timestamp: string;
   duration_ms: number;
-  token_usage: { input: number; output: number; total: number };
+  token_usage: { input: number; cache_read: number; cache_write: number; output: number; total: number };
   tool_sequence: string[];
   tool_call_count: number;
   user_prompt_preview: string;
