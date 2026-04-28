@@ -61,6 +61,25 @@ export function getLightModelForProvider(provider: Provider): string {
 export interface TokenPricing {
   inputTokenPrice: number;
   outputTokenPrice: number;
+  cacheReadPrice?: number;
+  cacheWritePrice?: number;
+}
+
+export interface TokenUsageForCost {
+  input: number;
+  cache_read: number;
+  cache_write: number;
+  output: number;
+}
+
+export function computeSessionCost(provider: Provider, usage: TokenUsageForCost): number {
+  const pricing = TOKEN_PRICING[provider];
+  if (!pricing) return 0;
+  const inputCost = (usage.input / 1_000_000) * pricing.inputTokenPrice;
+  const cacheReadCost = (usage.cache_read / 1_000_000) * (pricing.cacheReadPrice ?? pricing.inputTokenPrice);
+  const cacheWriteCost = (usage.cache_write / 1_000_000) * (pricing.cacheWritePrice ?? pricing.inputTokenPrice);
+  const outputCost = (usage.output / 1_000_000) * pricing.outputTokenPrice;
+  return inputCost + cacheReadCost + cacheWriteCost + outputCost;
 }
 
 export function getProviderForModel(modelName?: ModelName | string): Provider {
@@ -314,6 +333,8 @@ const TOKEN_PRICING: Record<Provider, TokenPricing> = {
   anthropic: {
     inputTokenPrice: 3.0,
     outputTokenPrice: 15.0,
+    cacheReadPrice: 0.3,
+    cacheWritePrice: 3.75,
   },
   google: {
     inputTokenPrice: 1.25,

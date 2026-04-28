@@ -11,6 +11,7 @@ import {
 import { randomUUID } from "crypto";
 import path from "path";
 import { db } from "../graph/neo4j.js";
+import { getProviderForModel } from "../aieo/src/provider.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -25,6 +26,20 @@ export interface SessionConfig {
   truncateToolResults?: boolean; // Enable truncation (default: false)
   maxToolResultLines?: number; // Default: 50
   maxToolResultChars?: number; // Default: 2000
+}
+
+export interface StepMeta {
+  step: number;
+  turn: number;
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  cumulativeInput: number;
+  cumulativeOutput: number;
+  toolCalls: string[];
+  timestamp: string;
 }
 
 /**
@@ -70,19 +85,29 @@ export function createSession(
  */
 export async function appendSessionEnd(
   sessionId: string,
-  opts: { end_time: string; model?: string; duration_ms?: number; token_usage?: { input: number; output: number; total: number } }
+  opts: {
+    end_time: string;
+    model?: string;
+    provider?: string;
+    duration_ms?: number;
+    token_usage?: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+  }
 ): Promise<void> {
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
+  const resolvedProvider = opts.provider || getProviderForModel(opts.model);
   await db?.upsert_agent_session({
     session_id: sessionId,
     source: stored.source,
     model: opts.model || "",
+    provider: resolvedProvider,
     start_time,
     end_time,
     duration_ms: opts.duration_ms ?? (end_time - start_time),
     input_tokens: opts.token_usage?.input || 0,
+    cache_read_tokens: opts.token_usage?.cache_read || 0,
+    cache_write_tokens: opts.token_usage?.cache_write || 0,
     output_tokens: opts.token_usage?.output || 0,
     total_tokens: opts.token_usage?.total || 0,
   }).catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
@@ -145,6 +170,53 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(filePath)) {
     unlinkSync(filePath);
   }
+  const metaPath = getMetaFile(sessionId);
+  if (existsSync(metaPath)) {
+    unlinkSync(metaPath);
+  }
+}
+
+/**
+ * Get the file path for a session's per-step metadata sidecar.
+ * This is separate from the conversation JSONL to avoid corrupting session replay.
+ */
+function getMetaFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.meta.jsonl`);
+}
+
+/**
+ * Append per-step usage metadata for a turn.
+ * Written to a sidecar file — never to the conversation JSONL.
+ */
+export function appendStepMeta(sessionId: string, steps: StepMeta[]): void {
+  if (steps.length === 0) return;
+  const filePath = getMetaFile(sessionId);
+  const content = steps.map((s) => JSON.stringify(s)).join("\n") + "\n";
+  appendFileSync(filePath, content);
+}
+
+/**
+ * Load all per-step metadata for a session.
+ * Returns an empty array if no sidecar file exists (old sessions).
+ */
+export function loadStepMeta(sessionId: string): StepMeta[] {
+  const filePath = getMetaFile(sessionId);
+  if (!existsSync(filePath)) return [];
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    return content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as StepMeta);
+  } catch {
+    return [];
+  }
 }
 
 const SESSION_MAX_AGE_MS = parseInt(
@@ -165,12 +237,14 @@ export function pruneExpiredSessions(): number {
   const now = Date.now();
   let pruned = 0;
   for (const file of readdirSync(sessionDir)) {
-    if (!file.endsWith(".jsonl")) continue;
+    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl")) continue;
     const filePath = path.join(sessionDir, file);
     try {
       const { mtimeMs } = statSync(filePath);
       if (now - mtimeMs > SESSION_MAX_AGE_MS) {
         unlinkSync(filePath);
+        const metaPath = filePath.replace(/\.jsonl$/, ".meta.jsonl");
+        if (existsSync(metaPath)) unlinkSync(metaPath);
         pruned++;
       }
     } catch {

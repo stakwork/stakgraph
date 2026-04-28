@@ -1,8 +1,10 @@
-import { getTokenPricing, Provider } from "../aieo/src/provider.js";
+import { computeSessionCost, Provider } from "../aieo/src/provider.js";
 
 export interface BudgetTracker {
   budgetLimit: number;
   inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   totalTokens: number;
   provider: Provider;
@@ -24,6 +26,8 @@ export function createBudgetTracker(
   return {
     budgetLimit: budgetDollars,
     inputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
     provider,
@@ -46,11 +50,12 @@ export function addUsage(
 }
 
 export function getTotalCost(tracker: BudgetTracker): number {
-  const pricing = getTokenPricing(tracker.provider);
-  const inputCost = (tracker.inputTokens / 1_000_000) * pricing.inputTokenPrice;
-  const outputCost =
-    (tracker.outputTokens / 1_000_000) * pricing.outputTokenPrice;
-  return inputCost + outputCost;
+  return computeSessionCost(tracker.provider, {
+    input: tracker.inputTokens,
+    cache_read: tracker.cacheReadTokens,
+    cache_write: tracker.cacheWriteTokens,
+    output: tracker.outputTokens,
+  });
 }
 
 export function isBudgetExceeded(tracker: BudgetTracker): boolean {
