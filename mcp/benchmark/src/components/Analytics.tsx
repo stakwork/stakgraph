@@ -1,20 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Area,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { toast } from "sonner";
 import { api } from "../api";
 import type { ProductionRun } from "../types";
-
-type RangeKey = "24h" | "7d" | "30d" | "3m" | "1y" | "all";
+import {
+  type RangeKey,
+  type DayRow,
+  formatNumber,
+  formatDuration,
+  formatSourceLabel,
+  getRangeStart,
+} from "../utils";
+import { card, muted, StatTile, FilterSelect, TableCard, tdStyle } from "./ui";
+import { TokensChart } from "./TokensChart";
+import { ActivityHeatmap } from "./ActivityHeatmap";
 
 type AggregateRow = {
   key: string;
@@ -39,51 +38,6 @@ type ModelRow = {
   totalCost: number;
   cacheHitRate: number | null;
 };
-
-const card: React.CSSProperties = {
-  border: "1px solid #27272a",
-  borderRadius: "12px",
-  backgroundColor: "#111113",
-};
-
-const muted: React.CSSProperties = {
-  color: "#71717a",
-  fontSize: "12px",
-};
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value || 0);
-}
-
-function formatDuration(durationMs: number): string {
-  if (!durationMs) return "-";
-  if (durationMs < 1000) return `${durationMs} ms`;
-
-  const totalSeconds = Math.round(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-
-  if (minutes === 0) return `${totalSeconds}s`;
-  if (minutes < 60) return `${minutes}m ${seconds}s`;
-
-  const hours = Math.floor(minutes / 60);
-  const remMinutes = minutes % 60;
-  return `${hours}h ${remMinutes}m`;
-}
-
-function formatSourceLabel(source: string): string {
-  return (source || "unknown").replace(/[_-]+/g, " ");
-}
-
-function getRangeStart(range: RangeKey): number | null {
-  const now = Date.now();
-  if (range === "24h") return now - 24 * 60 * 60 * 1000;
-  if (range === "7d") return now - 7 * 24 * 60 * 60 * 1000;
-  if (range === "30d") return now - 30 * 24 * 60 * 60 * 1000;
-  if (range === "3m") return now - 90 * 24 * 60 * 60 * 1000;
-  if (range === "1y") return now - 365 * 24 * 60 * 60 * 1000;
-  return null;
-}
 
 function aggregateBy(
   runs: ProductionRun[],
@@ -126,240 +80,6 @@ function aggregateBy(
       avgDurationMs: row.sessions ? row.avgDurationMs / row.sessions : 0,
     }))
     .sort((a, b) => b.sessions - a.sessions || b.totalTokens - a.totalTokens);
-}
-
-function formatXAxisTick(day: string, range: RangeKey): string {
-  const date = new Date(day + "T00:00:00");
-  if (range === "1y" || range === "all") {
-    return date.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-  }
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function formatK(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
-  return String(value);
-}
-
-type DayRow = { day: string; sessions: number; tokens: number; calls: number; cost: number };
-
-function TokensChart({ data, range }: { data: DayRow[]; range: RangeKey }) {
-  if (data.length === 0) return null;
-
-  const tickInterval =
-    data.length > 90
-      ? Math.floor(data.length / 10)
-      : data.length > 30
-        ? Math.floor(data.length / 8)
-        : ("preserveStartEnd" as const);
-
-  return (
-    <div style={{ ...card, padding: "14px" }}>
-      <p style={{ margin: "0 0 14px 0", fontSize: "13px", fontWeight: 700, color: "#ededed" }}>
-        Tokens per day
-      </p>
-      <ResponsiveContainer width="100%" height={320}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-          <defs>
-            <linearGradient id="tokensGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-              <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
-          <XAxis
-            dataKey="day"
-            tick={{ fill: "#71717a", fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            interval={tickInterval}
-            tickFormatter={(v) => formatXAxisTick(v, range)}
-          />
-          <YAxis
-            yAxisId="tokens"
-            tick={{ fill: "#71717a", fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={formatK}
-            width={48}
-          />
-          <YAxis
-            yAxisId="sessions"
-            orientation="right"
-            tick={{ fill: "#71717a", fontSize: 11 }}
-            tickLine={false}
-            axisLine={false}
-            width={32}
-          />
-          <Tooltip
-            content={({ active, payload, label }) => {
-              if (!active || !payload || payload.length === 0) return null;
-              const row = payload[0].payload as DayRow;
-              return (
-                <div
-                  style={{
-                    backgroundColor: "#18181b",
-                    border: "1px solid #27272a",
-                    borderRadius: "8px",
-                    fontSize: "12px",
-                    padding: "8px 12px",
-                    lineHeight: "1.8",
-                  }}
-                >
-                  <p style={{ margin: "0 0 6px 0", color: "#ededed", fontWeight: 600 }}>{label}</p>
-                  <p style={{ margin: 0, color: "#6366f1" }}>Tokens: {formatK(row.tokens)}</p>
-                  <p style={{ margin: 0, color: "#22d3ee" }}>Sessions: {row.sessions}</p>
-                  <p style={{ margin: 0, color: "#a3e635" }}>Cost: ${row.cost.toFixed(4)}</p>
-                </div>
-              );
-            }}
-          />
-          <Area
-            yAxisId="tokens"
-            type="monotone"
-            dataKey="tokens"
-            stroke="#6366f1"
-            strokeWidth={2}
-            fill="url(#tokensGradient)"
-            dot={false}
-            activeDot={{ r: 4 }}
-          />
-          <Line
-            yAxisId="sessions"
-            type="monotone"
-            dataKey="sessions"
-            stroke="#22d3ee"
-            strokeWidth={1.5}
-            strokeDasharray="4 2"
-            dot={false}
-            activeDot={{ r: 3 }}
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
-      <div style={{ display: "flex", gap: "16px", marginTop: "10px", justifyContent: "flex-end" }}>
-        <span style={{ fontSize: "11px", color: "#71717a", display: "flex", alignItems: "center", gap: "5px" }}>
-          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#6366f1" }} />
-          Tokens
-        </span>
-        <span style={{ fontSize: "11px", color: "#71717a", display: "flex", alignItems: "center", gap: "5px" }}>
-          <span style={{ display: "inline-block", width: 10, height: 2, background: "#22d3ee" }} />
-          Sessions
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return (
-    <div style={{ ...card, padding: "14px" }}>
-      <p style={{ ...muted, margin: 0 }}>{label}</p>
-      <p style={{ margin: "6px 0 0 0", fontSize: "22px", fontWeight: 700, color: "#ededed" }}>
-        {value}
-      </p>
-      {detail && <p style={{ ...muted, margin: "6px 0 0 0" }}>{detail}</p>}
-    </div>
-  );
-}
-
-function FilterSelect({
-  value,
-  onChange,
-  options,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-}) {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        fontSize: "12px",
-        borderRadius: "8px",
-        padding: "8px 10px",
-        backgroundColor: "#18181b",
-        color: "#ededed",
-        border: "1px solid #27272a",
-        outline: "none",
-      }}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function TableCard({
-  title,
-  badge,
-  columns,
-  rows,
-}: {
-  title: string;
-  badge?: string;
-  columns: string[];
-  rows: React.ReactNode;
-}) {
-  return (
-    <div style={card}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: "8px",
-          padding: "12px 14px",
-          borderBottom: "1px solid #27272a",
-        }}
-      >
-        <p style={{ margin: 0, fontSize: "13px", fontWeight: 700, color: "#ededed" }}>{title}</p>
-        {badge && <span style={muted}>{badge}</span>}
-      </div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr>
-              {columns.map((column) => (
-                <th
-                  key={column}
-                  style={{
-                    textAlign: "left",
-                    fontSize: "11px",
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    color: "#71717a",
-                    padding: "10px 14px",
-                    borderBottom: "1px solid #1f1f22",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>{rows}</tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function tdStyle(emphasis = false): React.CSSProperties {
-  return {
-    padding: "10px 14px",
-    borderBottom: "1px solid #1a1a1d",
-    fontSize: "12px",
-    color: emphasis ? "#ededed" : "#d4d4d8",
-    fontWeight: emphasis ? 600 : 400,
-    whiteSpace: "nowrap",
-  };
 }
 
 export function Analytics() {
@@ -651,6 +371,8 @@ export function Analytics() {
           />
 
           <TokensChart data={dailyRows} range={range} />
+
+          <ActivityHeatmap data={dailyRows} onDayClick={(day) => openSessions({ day })} />
 
           <div
             style={{
