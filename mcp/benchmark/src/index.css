@@ -30,3 +30,11 @@ body {
 * {
   box-sizing: border-box;
 }
+
+.copy-btn {
+  opacity: 0;
+}
+
+.copyable-block:hover .copy-btn {
+  opacity: 1;
+}

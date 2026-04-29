@@ -11,7 +11,7 @@ import {
   ModelName,
   getModelDetails,
 } from "../aieo/src/index.js";
-import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef } from "./tools.js";
+import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
 import { SKILLS } from "./skills.js";
 import { type SubAgent } from "./subagent.js";
 import { ContextResult } from "../tools/types.js";
@@ -33,6 +33,7 @@ import {
   loadSessionMessages,
   appendMessages,
   appendStepMeta,
+  appendSearchProvenance,
   sessionExists,
   SessionConfig,
   StepMeta,
@@ -212,6 +213,7 @@ interface PreparedAgent {
   startTime: number;
   stepMetas: StepMeta[];
   turnIndex: number;
+  provenanceCollector: ProvenanceCollector;
 }
 
 async function prepareAgent(
@@ -239,6 +241,7 @@ async function prepareAgent(
   console.log("===> model", model, "contextLimit", contextLimit);
 
   const messagesRef: MessagesRef = { current: [] };
+  const provenanceCollector: ProvenanceCollector = { entries: [] };
   let tools = await get_tools(
     repoPath,
     apiKey,
@@ -249,6 +252,7 @@ async function prepareAgent(
     subAgents,
     ggnn,
     messagesRef,
+    provenanceCollector,
   );
 
   // Load and merge MCP server tools if configured
@@ -400,6 +404,7 @@ Apply the guidance from each skill throughout your response.`;
     startTime,
     stepMetas,
     turnIndex,
+    provenanceCollector,
   };
 }
 
@@ -436,6 +441,7 @@ export async function get_context(
     userMessage,
     startTime,
     stepMetas,
+    provenanceCollector,
   } = prepared;
   const { schema } = opts;
 
@@ -470,6 +476,9 @@ export async function get_context(
     );
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);
+    if (provenanceCollector.entries.length > 0) {
+      appendSearchProvenance(sessionId, provenanceCollector.entries);
+    }
     await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
@@ -539,6 +548,7 @@ export async function stream_context(
     provider,
     startTime,
     stepMetas,
+    provenanceCollector,
   } = prepared;
   const streamResult = await prepared.agent.stream(buildCallParams(prepared));
 
@@ -558,6 +568,9 @@ export async function stream_context(
         );
         appendMessages(sessionId, newMessages);
         appendStepMeta(sessionId, stepMetas);
+        if (provenanceCollector.entries.length > 0) {
+          appendSearchProvenance(sessionId, provenanceCollector.entries);
+        }
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,

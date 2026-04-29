@@ -2,13 +2,19 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
-import type { ProductionRun, StepMeta } from "../types";
+import type { ProductionRun, StepMeta, SearchProvenanceEntry } from "../types";
 import {
   formatNumber,
   formatDuration,
   formatSourceLabel,
   getRangeStart,
 } from "../utils";
+import { preStyle, shortId, CopyableBlock } from "./ui";
+import {
+  parseSearchToolResultRows,
+  SearchProvenancePanel,
+  FormattedSearchResults,
+} from "./Provenance";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,10 +40,6 @@ function stringify(value: unknown): string {
 function previewStr(value: unknown): string {
   const s = stringify(value).replace(/\s+/g, " ").trim();
   return s.length > 160 ? s.slice(0, 160) + "\u2026" : s || "\u2014";
-}
-
-function shortId(id: string): string {
-  return id.length > 12 ? `${id.slice(0, 8)}\u2026${id.slice(-4)}` : id;
 }
 
 function sourceTheme(source: string): {
@@ -499,20 +501,6 @@ const muted: React.CSSProperties = {
   color: "#71717a",
   margin: 0,
 };
-const preStyle: React.CSSProperties = {
-  fontSize: "11px",
-  lineHeight: 1.6,
-  whiteSpace: "pre-wrap",
-  overflowWrap: "break-word",
-  wordBreak: "break-word",
-  color: "#ededed",
-  margin: 0,
-  padding: "10px 14px",
-  maxHeight: "20rem",
-  overflowY: "auto",
-  backgroundColor: "#0d0d0f",
-  borderTop: "1px solid #27272a",
-};
 
 const pillBase: React.CSSProperties = {
   display: "inline-flex",
@@ -745,7 +733,7 @@ function EntryRow({
           </span>
         </span>
       </summary>
-      <pre style={preStyle}>{stringify(payload)}</pre>
+      <CopyableBlock value={payload} />
     </details>
   );
 }
@@ -859,8 +847,15 @@ const subLabelStyle: React.CSSProperties = {
   padding: "8px 14px 4px 14px",
 };
 
-function DisplayUnitRow({ unit, unitIndex }: { unit: DisplayUnit; unitIndex: number }) {
+
+function DisplayUnitRow({ unit, unitIndex, provenance }: { unit: DisplayUnit; unitIndex: number; provenance?: SearchProvenanceEntry }) {
   if (unit.kind === "paired") {
+    const isSearchTool = unit.call.toolName === "stakgraph_search";
+    const formattedResults =
+      isSearchTool && unit.result
+        ? parseSearchToolResultRows(unit.result.payload)
+        : null;
+
     return (
       <details style={{ borderTop: "1px solid #1f1f22" }}>
         <summary
@@ -909,11 +904,26 @@ function DisplayUnitRow({ unit, unitIndex }: { unit: DisplayUnit; unitIndex: num
         </summary>
         <div style={{ borderTop: "1px solid #1f1f22" }}>
           <p style={subLabelStyle}>Input</p>
-          <pre style={preStyle}>{stringify(unit.call.payload)}</pre>
+          <CopyableBlock value={unit.call.payload} />
           {unit.result && (
             <>
-              <p style={{ ...subLabelStyle, borderTop: "1px solid #1f1f22" }}>Output</p>
-              <pre style={preStyle}>{stringify(unit.result.payload)}</pre>
+              <p style={{ ...subLabelStyle, borderTop: "1px solid #1f1f22" }}>
+                Output
+              </p>
+              {formattedResults ? (
+                <FormattedSearchResults
+                  results={formattedResults}
+                  provenance={provenance}
+                  rawValue={unit.result.payload}
+                />
+              ) : (
+                <>
+                  {provenance && (
+                    <SearchProvenancePanel provenance={provenance} />
+                  )}
+                  <CopyableBlock value={unit.result.payload} />
+                </>
+              )}
             </>
           )}
         </div>
@@ -966,7 +976,7 @@ function DisplayUnitRow({ unit, unitIndex }: { unit: DisplayUnit; unitIndex: num
           {previewStr(event.text || event.payload)}
         </span>
       </summary>
-      <pre style={preStyle}>{stringify(event.payload)}</pre>
+      <CopyableBlock value={event.payload} />
     </details>
   );
 }
@@ -994,13 +1004,63 @@ function StepDivider({ meta }: { meta: StepMeta }) {
   );
 }
 
-function interleaveUnitsWithSteps(units: DisplayUnit[], metas: StepMeta[]): React.ReactNode[] {
+const SEARCH_TOOL_NAMES = new Set(["stakgraph_search", "fulltext_search"]);
+
+type ProvenanceMatchState = {
+  cursor: number;
+  consumed: Set<number>;
+};
+
+function matchProvenance(
+  unit: DisplayUnit,
+  provenanceEntries: SearchProvenanceEntry[],
+  matchState: ProvenanceMatchState,
+): SearchProvenanceEntry | undefined {
+  if (unit.kind !== "paired") return undefined;
+  const toolName = unit.call.toolName;
+  if (!toolName || !SEARCH_TOOL_NAMES.has(toolName)) return undefined;
+
+  if (unit.call.toolCallId) {
+    const exactIdx = provenanceEntries.findIndex(
+      (entry, idx) =>
+        !matchState.consumed.has(idx) &&
+        entry.tool_call_id === unit.call.toolCallId,
+    );
+    if (exactIdx >= 0) {
+      matchState.consumed.add(exactIdx);
+      return provenanceEntries[exactIdx];
+    }
+  }
+
+  for (let idx = matchState.cursor; idx < provenanceEntries.length; idx++) {
+    if (matchState.consumed.has(idx)) continue;
+    const entry = provenanceEntries[idx];
+    if (entry.tool_name && entry.tool_name !== toolName) continue;
+    matchState.consumed.add(idx);
+    matchState.cursor = idx + 1;
+    return entry;
+  }
+
+  return undefined;
+}
+
+function interleaveUnitsWithSteps(
+  units: DisplayUnit[],
+  metas: StepMeta[],
+  provenanceEntries: SearchProvenanceEntry[] = [],
+): React.ReactNode[] {
+  const matchState: ProvenanceMatchState = {
+    cursor: 0,
+    consumed: new Set<number>(),
+  };
+
   if (metas.length === 0) {
     return units.map((unit, i) => (
       <DisplayUnitRow
         key={unit.kind === "paired" ? unit.call.id : unit.event.id}
         unit={unit}
         unitIndex={i + 1}
+        provenance={matchProvenance(unit, provenanceEntries, matchState)}
       />
     ));
   }
@@ -1029,7 +1089,8 @@ function interleaveUnitsWithSteps(units: DisplayUnit[], metas: StepMeta[]): Reac
         key={unit.kind === "paired" ? unit.call.id : unit.event.id}
         unit={unit}
         unitIndex={unitNum}
-      />
+        provenance={matchProvenance(unit, provenanceEntries, matchState)}
+      />,
     );
   }
 
@@ -1044,7 +1105,7 @@ function interleaveUnitsWithSteps(units: DisplayUnit[], metas: StepMeta[]): Reac
   return nodes;
 }
 
-function TurnCard({ turn, stepMetas }: { turn: TraceTurn; stepMetas?: StepMeta[] }) {
+function TurnCard({ turn, stepMetas, provenanceEntries }: { turn: TraceTurn; stepMetas?: StepMeta[]; provenanceEntries?: SearchProvenanceEntry[] }) {
   const units = groupEvents(turn.events);
   const metas = stepMetas ?? [];
   const totalIn = metas.reduce((s, m) => s + m.usage.inputTokens, 0);
@@ -1119,7 +1180,7 @@ function TurnCard({ turn, stepMetas }: { turn: TraceTurn; stepMetas?: StepMeta[]
         </div>
       </summary>
       <div style={{ borderTop: "1px solid #1f1f22" }}>
-        {interleaveUnitsWithSteps(units, metas)}
+        {interleaveUnitsWithSteps(units, metas, provenanceEntries)}
       </div>
     </details>
   );
@@ -1573,6 +1634,12 @@ export function Sessions() {
                     label="Output"
                     value={formatNumber(selected.token_usage.output)}
                   />
+                  {selected.cost_usd != null && (
+                    <StatTile
+                      label="Cost"
+                      value={`$${selected.cost_usd.toFixed(4)}`}
+                    />
+                  )}
                 </div>
               </div>
               {(diagnostics.counts.oversized > 0 ||
@@ -1655,7 +1722,10 @@ export function Sessions() {
                     <TurnCard
                       key={turn.id}
                       turn={turn}
-                      stepMetas={selected?.step_meta?.filter((m) => m.turn === turn.index)}
+                      stepMetas={selected?.step_meta?.filter(
+                        (m) => m.turn === turn.index,
+                      )}
+                      provenanceEntries={selected?.search_provenance}
                     />
                   ))
                 )}

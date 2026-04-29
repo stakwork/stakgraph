@@ -33,7 +33,7 @@ import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
 import { randomUUID } from "crypto";
-import { createSession } from "../repo/session.js";
+import { createSession, appendSessionEnd } from "../repo/session.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
@@ -156,10 +156,11 @@ export async function gitree_process(req: Request, res: Response) {
     isProcessing = true;
 
     (async () => {
+      const sessionId = randomUUID();
+      const startTime = Date.now();
+      const { modelId, provider } = getModelDetails();
       try {
-        const sessionId = randomUUID();
         createSession(sessionId, undefined, "gitree_process");
-        const { modelId } = getModelDetails();
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();
@@ -256,11 +257,33 @@ export async function gitree_process(req: Request, res: Response) {
         }
 
         asyncReqs.finishReq(request_id, result);
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status: "success",
+          token_usage: {
+            input: totalUsage.inputTokens,
+            cache_read: 0,
+            cache_write: 0,
+            output: totalUsage.outputTokens,
+            total: totalUsage.totalTokens,
+          },
+        });
         isProcessing = false;
         endTracking(opId);
       } catch (error) {
         console.error("===> gitree_process background task failed:", error);
         asyncReqs.failReq(request_id, error);
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status: "error",
+          error_message: error instanceof Error ? error.message : String(error),
+        });
         isProcessing = false;
         endTracking(opId);
       }

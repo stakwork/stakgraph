@@ -12,6 +12,27 @@ export interface StepMeta {
   timestamp: string;
 }
 
+export interface SearchResultMeta {
+  ref_id: string;
+  sources: ("fulltext" | "vector")[];
+  rrf_score?: number;
+  fulltext_rank?: number;
+  fulltext_score?: number;
+  vector_rank?: number;
+  vector_score?: number;
+}
+
+export interface SearchProvenanceEntry {
+  tool_call_id?: string;
+  tool_name: string;
+  timestamp: string;
+  provenance: {
+    method: string;
+    query: string;
+    result_meta: SearchResultMeta[];
+  };
+}
+
 export interface ProductionRun {
   id: string;
   source: string;
@@ -29,5 +50,6 @@ export interface ProductionRun {
   user_prompt_preview: string;
   answer_preview: string;
   step_meta?: StepMeta[];
+  search_provenance?: SearchProvenanceEntry[];
   trace?: unknown;
 }
