@@ -97,12 +97,27 @@ export async function log_agent_context(
   const userMessage: ModelMessage = { role: "user", content: prompt };
 
   let result;
-  if (previousMessages.length > 0) {
-    result = await agent.generate({
-      messages: [...previousMessages, userMessage],
-    });
-  } else {
-    result = await agent.generate({ prompt });
+  try {
+    if (previousMessages.length > 0) {
+      result = await agent.generate({
+        messages: [...previousMessages, userMessage],
+      });
+    } else {
+      result = await agent.generate({ prompt });
+    }
+  } catch (err) {
+    if (sessionId) {
+      const { modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
+      await appendSessionEnd(sessionId, {
+        end_time: new Date().toISOString(),
+        model: modelId,
+        provider,
+        duration_ms: Date.now() - startTime,
+        status: "error",
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
   }
 
   const { steps, totalUsage } = result;
@@ -120,6 +135,7 @@ export async function log_agent_context(
       end_time: new Date().toISOString(),
       model: modelId,
       provider,
+      status: "success",
       token_usage: {
         input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
         cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,

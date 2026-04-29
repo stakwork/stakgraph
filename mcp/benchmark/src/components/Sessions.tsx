@@ -1419,6 +1419,19 @@ export function Sessions() {
                         }}
                       >
                         <SourceBadge source={run.source} />
+                        {run.status === "error" && (
+                          <span
+                            title={run.error_message || "Error"}
+                            style={{
+                              display: "inline-block",
+                              width: 8,
+                              height: 8,
+                              borderRadius: "50%",
+                              backgroundColor: "#ef4444",
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
                       </div>
                       <span
                         style={{

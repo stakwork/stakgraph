@@ -315,14 +315,17 @@ ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace 
   n.source = $source, n.model = $model, n.provider = $provider,
   n.start_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
-  n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0
+  n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
+  n.status = 'success', n.error_message = ''
 SET n.end_time = toInteger($end_time),
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
     n.cache_read_tokens = coalesce(n.cache_read_tokens, 0) + toInteger($cache_read_tokens),
     n.cache_write_tokens = coalesce(n.cache_write_tokens, 0) + toInteger($cache_write_tokens),
     n.output_tokens = coalesce(n.output_tokens, 0) + toInteger($output_tokens),
     n.total_tokens = coalesce(n.total_tokens, 0) + toInteger($total_tokens),
-    n.duration_ms = coalesce(n.duration_ms, 0) + toInteger($duration_ms)
+    n.duration_ms = coalesce(n.duration_ms, 0) + toInteger($duration_ms),
+    n.status = $status,
+    n.error_message = $error_message
 RETURN n
 `;
 

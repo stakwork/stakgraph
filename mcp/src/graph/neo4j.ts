@@ -1567,6 +1567,8 @@ class Db {
     cache_write_tokens: number;
     output_tokens: number;
     total_tokens: number;
+    status: string;
+    error_message: string;
   }): Promise<void> {
     const session = this.driver.session();
     try {

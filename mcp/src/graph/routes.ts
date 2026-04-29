@@ -164,11 +164,20 @@ export async function explore(req: Request, res: Response) {
       end_time: new Date().toISOString(),
       model: modelId,
       provider: resolvedProvider,
+      status: "success",
       token_usage: { input: result.usage.inputTokens, cache_read: 0, cache_write: 0, output: result.usage.outputTokens, total: result.usage.totalTokens },
     });
     res.json({ result: result.final, usage: result.usage });
   } catch (error) {
     console.error("Explore Error:", error);
+    const { modelId, provider: resolvedProvider } = getModelDetails();
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      provider: resolvedProvider,
+      status: "error",
+      error_message: error instanceof Error ? error.message : String(error),
+    });
     res.status(500).send("Internal Server Error");
   }
 }
@@ -311,11 +320,20 @@ export async function ask(req: Request, res: Response) {
       end_time: new Date().toISOString(),
       model: modelId,
       provider: resolvedProvider,
+      status: "success",
       token_usage: { input: answer.usage.inputTokens, cache_read: 0, cache_write: 0, output: answer.usage.outputTokens, total: answer.usage.totalTokens },
     });
     res.json(answer);
   } catch (error) {
     console.error("Ask Error:", error);
+    const { modelId, provider: resolvedProvider } = getModelDetails(model || provider);
+    appendSessionEnd(sessionId, {
+      end_time: new Date().toISOString(),
+      model: modelId,
+      provider: resolvedProvider,
+      status: "error",
+      error_message: error instanceof Error ? error.message : String(error),
+    });
     res.status(500).send("Internal Server Error");
   }
 }

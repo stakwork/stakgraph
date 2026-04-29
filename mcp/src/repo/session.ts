@@ -91,6 +91,8 @@ export async function appendSessionEnd(
     provider?: string;
     duration_ms?: number;
     token_usage?: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+    status?: "success" | "error";
+    error_message?: string;
   }
 ): Promise<void> {
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
@@ -110,6 +112,8 @@ export async function appendSessionEnd(
     cache_write_tokens: opts.token_usage?.cache_write || 0,
     output_tokens: opts.token_usage?.output || 0,
     total_tokens: opts.token_usage?.total || 0,
+    status: opts.status || "success",
+    error_message: opts.error_message || "",
   }).catch((e) => console.error("[sessions] Neo4j upsert failed:", e));
 }
 
