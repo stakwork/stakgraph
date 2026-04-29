@@ -210,6 +210,7 @@ export async function list_sessions(_req: Request, res: Response) {
         };
       });
       const neo4jIds = new Set(runs.map((r) => r.id));
+      let orphanCount = 0;
       if (existsSync(dir)) {
         for (const file of readdirSync(dir)) {
           if (
@@ -221,8 +222,10 @@ export async function list_sessions(_req: Request, res: Response) {
           const id = file.replace(/\.jsonl$/, "");
           if (neo4jIds.has(id)) continue;
           runs.push(buildOrphanRun(dir, file));
+          orphanCount++;
         }
       }
+      if (orphanCount > 0) console.log(`[sessions] merged ${orphanCount} orphan file-only session(s)`);
       runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
       res.json(runs);
       return;
@@ -325,19 +328,26 @@ export async function get_session(req: Request, res: Response) {
   }
 
   const stat = statSync(filePath);
+  const lastStep = step_meta.length > 0 ? step_meta[step_meta.length - 1] : null;
+  const firstStep = step_meta.length > 0 ? step_meta[0] : null;
+  const orphanInput = lastStep?.cumulativeInput ?? 0;
+  const orphanOutput = lastStep?.cumulativeOutput ?? 0;
+  const orphanDuration = firstStep && lastStep
+    ? new Date(lastStep.timestamp).getTime() - new Date(firstStep.timestamp).getTime()
+    : 0;
   res.json({
     id,
     source: "unknown",
     provider: "",
     model: "",
-    timestamp: stat.mtime.toISOString(),
-    duration_ms: 0,
+    timestamp: firstStep ? firstStep.timestamp : stat.mtime.toISOString(),
+    duration_ms: orphanDuration,
     token_usage: {
-      input: 0,
+      input: orphanInput,
       cache_read: 0,
       cache_write: 0,
-      output: 0,
-      total: 0,
+      output: orphanOutput,
+      total: orphanInput + orphanOutput,
     },
     cost_usd: 0,
     status: "success",
@@ -464,6 +474,50 @@ export async function session_stats(req: Request, res: Response) {
       }
     }
 
+    // Merge orphan file-only sessions into stats
+    const statsNeo4jIds = new Set(rows.map((s: any) => String(s.node_key ?? s.name ?? "")));
+    const dir = sessionsDir();
+    if (existsSync(dir)) {
+      for (const file of readdirSync(dir)) {
+        if (
+          !file.endsWith(".jsonl") ||
+          file.endsWith(".meta.jsonl") ||
+          file.endsWith(".provenance.jsonl")
+        )
+          continue;
+        const oid = file.replace(/\.jsonl$/, "");
+        if (statsNeo4jIds.has(oid)) continue;
+        const steps = loadStepMeta(oid);
+        if (steps.length === 0) continue;
+        const firstTs = new Date(steps[0].timestamp).getTime();
+        if (since && firstTs < since) continue;
+        const last = steps[steps.length - 1];
+        const input = last.cumulativeInput;
+        const output = last.cumulativeOutput;
+        total_input += input;
+        total_output += output;
+        total_all += input + output;
+        total_success++;
+        const key = "::"; // unknown provider + model
+        const existing = byModelMap.get(key);
+        if (existing) {
+          existing.sessions += 1;
+          existing.input_tokens += input;
+          existing.output_tokens += output;
+        } else {
+          byModelMap.set(key, {
+            model: "",
+            provider: "",
+            sessions: 1,
+            cost_usd: 0,
+            input_tokens: input,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            output_tokens: output,
+          });
+        }
+      }
+    }
     res.json({
       window,
       filters: {
@@ -471,7 +525,7 @@ export async function session_stats(req: Request, res: Response) {
         provider: providerFilter,
         model: modelFilter,
       },
-      total_sessions: rows.length,
+      total_sessions: total_success + total_error,
       total_cost_usd: parseFloat(total_cost_usd.toFixed(6)),
       total_tokens: {
         input: total_input,
