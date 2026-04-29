@@ -11,6 +11,48 @@ import {
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
+function buildOrphanRun(dir: string, file: string) {
+  const id = file.replace(/\.jsonl$/, "");
+  const fullPath = path.join(dir, file);
+  const stat = statSync(fullPath);
+  const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
+    parseSessionMessages(fullPath);
+  const steps = loadStepMeta(id);
+  let input = 0;
+  let output = 0;
+  let duration_ms = 0;
+  if (steps.length > 0) {
+    const last = steps[steps.length - 1];
+    input = last.cumulativeInput;
+    output = last.cumulativeOutput;
+    const first = steps[0];
+    duration_ms =
+      new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime();
+  }
+  return {
+    id,
+    source: "unknown",
+    provider: "",
+    model: "",
+    repo: "",
+    timestamp: steps.length > 0 ? steps[0].timestamp : stat.mtime.toISOString(),
+    duration_ms,
+    token_usage: {
+      input,
+      cache_read: 0,
+      cache_write: 0,
+      output,
+      total: input + output,
+    },
+    cost_usd: 0,
+    status: "success",
+    error_message: "",
+    tool_sequence: toolSequence,
+    tool_call_count: toolCallCount,
+    user_prompt_preview: userPromptPreview,
+    answer_preview: answerPreview,
+  };
+}
 function sessionsDir(): string {
   return path.isAbsolute(SESSIONS_DIR)
     ? SESSIONS_DIR
@@ -167,6 +209,20 @@ export async function list_sessions(_req: Request, res: Response) {
           answer_preview: answerPreview,
         };
       });
+      const neo4jIds = new Set(runs.map((r) => r.id));
+      if (existsSync(dir)) {
+        for (const file of readdirSync(dir)) {
+          if (
+            !file.endsWith(".jsonl") ||
+            file.endsWith(".meta.jsonl") ||
+            file.endsWith(".provenance.jsonl")
+          )
+            continue;
+          const id = file.replace(/\.jsonl$/, "");
+          if (neo4jIds.has(id)) continue;
+          runs.push(buildOrphanRun(dir, file));
+        }
+      }
       runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
       res.json(runs);
       return;
@@ -181,38 +237,14 @@ export async function list_sessions(_req: Request, res: Response) {
     return;
   }
 
-  const files = readdirSync(dir).filter((f) => f.endsWith(".jsonl"));
+  const files = readdirSync(dir).filter(
+    (f) =>
+      f.endsWith(".jsonl") &&
+      !f.endsWith(".meta.jsonl") &&
+      !f.endsWith(".provenance.jsonl"),
+  );
 
-  const runs = files.map((file) => {
-    const id = file.replace(/\.jsonl$/, "");
-    const fullPath = path.join(dir, file);
-    const stat = statSync(fullPath);
-    const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
-      parseSessionMessages(fullPath);
-
-    return {
-      id,
-      source: "unknown",
-      provider: "",
-      model: "",
-      timestamp: stat.mtime.toISOString(),
-      duration_ms: 0,
-      token_usage: {
-        input: 0,
-        cache_read: 0,
-        cache_write: 0,
-        output: 0,
-        total: 0,
-      },
-      cost_usd: 0,
-      status: "success",
-      error_message: "",
-      tool_sequence: toolSequence,
-      tool_call_count: toolCallCount,
-      user_prompt_preview: userPromptPreview,
-      answer_preview: answerPreview,
-    };
-  });
+  const runs = files.map((file) => buildOrphanRun(dir, file));
 
   runs.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
   res.json(runs);
