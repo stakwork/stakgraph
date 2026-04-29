@@ -1,10 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import {
+  Area,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { toast } from "sonner";
 import { api } from "../api";
 import type { ProductionRun } from "../types";
 
-type RangeKey = "24h" | "7d" | "30d" | "all";
+type RangeKey = "24h" | "7d" | "30d" | "3m" | "1y" | "all";
 
 type AggregateRow = {
   key: string;
@@ -68,6 +78,8 @@ function getRangeStart(range: RangeKey): number | null {
   if (range === "24h") return now - 24 * 60 * 60 * 1000;
   if (range === "7d") return now - 7 * 24 * 60 * 60 * 1000;
   if (range === "30d") return now - 30 * 24 * 60 * 60 * 1000;
+  if (range === "3m") return now - 90 * 24 * 60 * 60 * 1000;
+  if (range === "1y") return now - 365 * 24 * 60 * 60 * 1000;
   return null;
 }
 
@@ -112,6 +124,204 @@ function aggregateBy(
       avgDurationMs: row.sessions ? row.avgDurationMs / row.sessions : 0,
     }))
     .sort((a, b) => b.sessions - a.sessions || b.totalTokens - a.totalTokens);
+}
+
+function formatXAxisTick(day: string, range: RangeKey): string {
+  const date = new Date(day + "T00:00:00");
+  if (range === "1y" || range === "all") {
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      year: "2-digit",
+    });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function formatK(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(0)}k`;
+  return String(value);
+}
+
+type DayRow = {
+  day: string;
+  sessions: number;
+  tokens: number;
+  calls: number;
+  cost: number;
+};
+
+function TokensChart({ data, range }: { data: DayRow[]; range: RangeKey }) {
+  if (data.length === 0) return null;
+
+  const tickInterval =
+    data.length > 90
+      ? Math.floor(data.length / 10)
+      : data.length > 30
+        ? Math.floor(data.length / 8)
+        : ("preserveStartEnd" as const);
+
+  return (
+    <div style={{ ...card, padding: "14px" }}>
+      <p
+        style={{
+          margin: "0 0 14px 0",
+          fontSize: "13px",
+          fontWeight: 700,
+          color: "#ededed",
+        }}
+      >
+        Tokens per day
+      </p>
+      <ResponsiveContainer width="100%" height={320}>
+        <ComposedChart
+          data={data}
+          margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+        >
+          <defs>
+            <linearGradient id="tokensGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+              <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid
+            stroke="#27272a"
+            strokeDasharray="3 3"
+            vertical={false}
+          />
+          <XAxis
+            dataKey="day"
+            tick={{ fill: "#71717a", fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            interval={tickInterval}
+            tickFormatter={(v) => formatXAxisTick(v, range)}
+          />
+          <YAxis
+            yAxisId="tokens"
+            tick={{ fill: "#71717a", fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            tickFormatter={formatK}
+            width={48}
+          />
+          <YAxis
+            yAxisId="sessions"
+            orientation="right"
+            tick={{ fill: "#71717a", fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+            width={32}
+          />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload || payload.length === 0) return null;
+              const row = payload[0].payload as DayRow;
+              return (
+                <div
+                  style={{
+                    backgroundColor: "#18181b",
+                    border: "1px solid #27272a",
+                    borderRadius: "8px",
+                    fontSize: "12px",
+                    padding: "8px 12px",
+                    lineHeight: "1.8",
+                  }}
+                >
+                  <p
+                    style={{
+                      margin: "0 0 6px 0",
+                      color: "#ededed",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {label}
+                  </p>
+                  <p style={{ margin: 0, color: "#6366f1" }}>
+                    Tokens: {formatK(row.tokens)}
+                  </p>
+                  <p style={{ margin: 0, color: "#22d3ee" }}>
+                    Sessions: {row.sessions}
+                  </p>
+                  <p style={{ margin: 0, color: "#a3e635" }}>
+                    Cost: ${row.cost.toFixed(4)}
+                  </p>
+                </div>
+              );
+            }}
+          />
+          <Area
+            yAxisId="tokens"
+            type="monotone"
+            dataKey="tokens"
+            stroke="#6366f1"
+            strokeWidth={2}
+            fill="url(#tokensGradient)"
+            dot={false}
+            activeDot={{ r: 4 }}
+          />
+          <Line
+            yAxisId="sessions"
+            type="monotone"
+            dataKey="sessions"
+            stroke="#22d3ee"
+            strokeWidth={1.5}
+            strokeDasharray="4 2"
+            dot={false}
+            activeDot={{ r: 3 }}
+          />
+        </ComposedChart>
+      </ResponsiveContainer>
+      <div
+        style={{
+          display: "flex",
+          gap: "16px",
+          marginTop: "10px",
+          justifyContent: "flex-end",
+        }}
+      >
+        <span
+          style={{
+            fontSize: "11px",
+            color: "#71717a",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+          }}
+        >
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 10,
+              borderRadius: 2,
+              background: "#6366f1",
+            }}
+          />
+          Tokens
+        </span>
+        <span
+          style={{
+            fontSize: "11px",
+            color: "#71717a",
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+          }}
+        >
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 2,
+              background: "#22d3ee",
+            }}
+          />
+          Sessions
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
@@ -363,24 +573,68 @@ export function Analytics() {
   }, [filteredRuns]);
 
   const dailyRows = useMemo(() => {
-    const grouped = new Map<string, { day: string; sessions: number; tokens: number; calls: number }>();
+    const grouped = new Map<
+      string,
+      {
+        day: string;
+        sessions: number;
+        tokens: number;
+        calls: number;
+        cost: number;
+      }
+    >();
     for (const run of filteredRuns) {
       const day = new Date(run.timestamp).toISOString().slice(0, 10);
-      const existing = grouped.get(day) ?? { day, sessions: 0, tokens: 0, calls: 0 };
+      const existing = grouped.get(day) ?? {
+        day,
+        sessions: 0,
+        tokens: 0,
+        calls: 0,
+        cost: 0,
+      };
       existing.sessions += 1;
       existing.tokens += run.token_usage.total || 0;
       existing.calls += run.tool_call_count || 0;
+      existing.cost += run.cost_usd || 0;
       grouped.set(day, existing);
     }
-    return [...grouped.values()].sort((a, b) => b.day.localeCompare(a.day));
+    return [...grouped.values()].sort((a, b) => a.day.localeCompare(b.day));
   }, [filteredRuns]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px", minHeight: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <p style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#ededed" }}>Session analytics</p>
-          <p style={{ ...muted, margin: "4px 0 0 0" }}>Macro view across all saved session metadata.</p>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "18px",
+              fontWeight: 700,
+              color: "#ededed",
+            }}
+          >
+            Session analytics
+          </p>
+          <p style={{ ...muted, margin: "4px 0 0 0" }}>
+            Macro view across all saved session metadata.
+          </p>
         </div>
         <button
           onClick={load}
@@ -398,7 +652,15 @@ export function Analytics() {
         </button>
       </div>
 
-      <div style={{ ...card, padding: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+      <div
+        style={{
+          ...card,
+          padding: "12px",
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+        }}
+      >
         <FilterSelect
           value={range}
           onChange={(value) => setRange(value as RangeKey)}
@@ -406,13 +668,23 @@ export function Analytics() {
             { value: "24h", label: "Last 24h" },
             { value: "7d", label: "Last 7d" },
             { value: "30d", label: "Last 30d" },
+            { value: "3m", label: "Last 3 months" },
+            { value: "1y", label: "Last year" },
             { value: "all", label: "All time" },
           ]}
         />
-        <FilterSelect value={source} onChange={setSource} options={sourceOptions} />
+        <FilterSelect
+          value={source}
+          onChange={setSource}
+          options={sourceOptions}
+        />
         <FilterSelect value={repo} onChange={setRepo} options={repoOptions} />
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
-          <span style={muted}>{filteredRuns.length} / {runs.length} sessions</span>
+        <div
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}
+        >
+          <span style={muted}>
+            {filteredRuns.length} / {runs.length} sessions
+          </span>
         </div>
       </div>
 
@@ -431,31 +703,65 @@ export function Analytics() {
               gap: "10px",
             }}
           >
-            <StatTile label="Sessions" value={formatNumber(totals.totalSessions)} />
-            <StatTile label="Total tokens" value={formatNumber(totals.totalTokens)} detail={`${formatNumber(totals.totalInput)} in / ${formatNumber(totals.totalOutput)} out${totals.totalCacheRead ? ` / ${formatNumber(totals.totalCacheRead)} cache read` : ""}${totals.totalCacheWrite ? ` / ${formatNumber(totals.totalCacheWrite)} cache write` : ""}`} />
-            <StatTile label="Total cost" value={`$${totals.totalCost.toFixed(4)}`} />
-            <StatTile label="Tool calls" value={formatNumber(totals.totalCalls)} />
-            <StatTile label="Avg duration" value={formatDuration(Math.round(totals.avgDuration))} />
+            <StatTile
+              label="Sessions"
+              value={formatNumber(totals.totalSessions)}
+            />
+            <StatTile
+              label="Total tokens"
+              value={formatNumber(totals.totalTokens)}
+              detail={`${formatNumber(totals.totalInput)} in / ${formatNumber(totals.totalOutput)} out${totals.totalCacheRead ? ` / ${formatNumber(totals.totalCacheRead)} cache read` : ""}${totals.totalCacheWrite ? ` / ${formatNumber(totals.totalCacheWrite)} cache write` : ""}`}
+            />
+            <StatTile
+              label="Total cost"
+              value={`$${totals.totalCost.toFixed(4)}`}
+            />
+            <StatTile
+              label="Tool calls"
+              value={formatNumber(totals.totalCalls)}
+            />
+            <StatTile
+              label="Avg duration"
+              value={formatDuration(Math.round(totals.avgDuration))}
+            />
           </div>
 
           <TableCard
             title="By source"
             badge={`${sourceRows.length} groups`}
-            columns={["Source", "Sessions", "Tokens", "Avg tokens", "Cost", "Calls", "Avg duration", "Last seen"]}
+            columns={[
+              "Source",
+              "Sessions",
+              "Tokens",
+              "Avg tokens",
+              "Cost",
+              "Calls",
+              "Avg duration",
+              "Last seen",
+            ]}
             rows={sourceRows.map((row) => (
               <tr key={row.key}>
                 <td style={tdStyle(true)}>
-                  <button style={linkButtonStyle} onClick={() => openSessions({ source: row.key })}>
+                  <button
+                    style={linkButtonStyle}
+                    onClick={() => openSessions({ source: row.key })}
+                  >
                     {row.label}
                   </button>
                 </td>
                 <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
-                <td style={tdStyle()}>{formatNumber(Math.round(row.avgTokens))}</td>
+                <td style={tdStyle()}>
+                  {formatNumber(Math.round(row.avgTokens))}
+                </td>
                 <td style={tdStyle()}>${row.totalCost.toFixed(4)}</td>
                 <td style={tdStyle()}>{formatNumber(row.toolCalls)}</td>
-                <td style={tdStyle()}>{formatDuration(Math.round(row.avgDurationMs))}</td>
-                <td style={tdStyle()}>{row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}</td>
+                <td style={tdStyle()}>
+                  {formatDuration(Math.round(row.avgDurationMs))}
+                </td>
+                <td style={tdStyle()}>
+                  {row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}
+                </td>
               </tr>
             ))}
           />
@@ -463,7 +769,15 @@ export function Analytics() {
           <TableCard
             title="By model"
             badge={`${modelRows.length} models`}
-            columns={["Model", "Provider", "Sessions", "Tokens", "Cache read", "Cache write", "Cost"]}
+            columns={[
+              "Model",
+              "Provider",
+              "Sessions",
+              "Tokens",
+              "Cache read",
+              "Cache write",
+              "Cost",
+            ]}
             rows={modelRows.map((row) => (
               <tr key={`${row.provider}::${row.model}`}>
                 <td style={tdStyle(true)}>{row.model}</td>
@@ -476,6 +790,8 @@ export function Analytics() {
               </tr>
             ))}
           />
+
+          <TokensChart data={dailyRows} range={range} />
 
           <div
             style={{
@@ -491,14 +807,21 @@ export function Analytics() {
               rows={repoRows.slice(0, 20).map((row) => (
                 <tr key={row.key}>
                   <td style={tdStyle(true)}>
-                    <button style={linkButtonStyle} onClick={() => openSessions({ repo: row.key })}>
+                    <button
+                      style={linkButtonStyle}
+                      onClick={() => openSessions({ repo: row.key })}
+                    >
                       {row.label}
                     </button>
                   </td>
                   <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
                   <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
                   <td style={tdStyle()}>{formatNumber(row.toolCalls)}</td>
-                  <td style={tdStyle()}>{row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}</td>
+                  <td style={tdStyle()}>
+                    {row.lastSeen
+                      ? new Date(row.lastSeen).toLocaleString()
+                      : "-"}
+                  </td>
                 </tr>
               ))}
             />
@@ -507,10 +830,13 @@ export function Analytics() {
               title="Daily activity"
               badge={`${dailyRows.length} days`}
               columns={["Day", "Sessions", "Tokens", "Calls"]}
-              rows={dailyRows.map((row) => (
+              rows={[...dailyRows].reverse().map((row) => (
                 <tr key={row.day}>
                   <td style={tdStyle(true)}>
-                    <button style={linkButtonStyle} onClick={() => openSessions({ day: row.day })}>
+                    <button
+                      style={linkButtonStyle}
+                      onClick={() => openSessions({ day: row.day })}
+                    >
                       {row.day}
                     </button>
                   </td>

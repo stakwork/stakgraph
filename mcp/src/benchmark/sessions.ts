@@ -319,6 +319,8 @@ export async function session_stats(req: Request, res: Response) {
   if (window === "24h") since = Date.now() - 24 * 60 * 60 * 1000;
   else if (window === "7d") since = Date.now() - 7 * 24 * 60 * 60 * 1000;
   else if (window === "30d") since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  else if (window === "3m") since = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  else if (window === "1y") since = Date.now() - 365 * 24 * 60 * 60 * 1000;
 
   if (!db) {
     res.json({
