@@ -22,6 +22,8 @@ export interface ProductionRun {
   timestamp: string;
   duration_ms: number;
   token_usage: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+  status?: string;
+  error_message?: string;
   tool_sequence: string[];
   tool_call_count: number;
   user_prompt_preview: string;

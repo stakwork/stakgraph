@@ -159,6 +159,8 @@ export async function list_sessions(_req: Request, res: Response) {
           duration_ms: toNum(s.duration_ms),
           token_usage: { input, cache_read, cache_write, output, total },
           cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+          status: String(s.status ?? "success"),
+          error_message: String(s.error_message ?? ""),
           tool_sequence: toolSequence,
           tool_call_count: toolCallCount,
           user_prompt_preview: userPromptPreview,
@@ -203,6 +205,8 @@ export async function list_sessions(_req: Request, res: Response) {
         total: 0,
       },
       cost_usd: 0,
+      status: "success",
+      error_message: "",
       tool_sequence: toolSequence,
       tool_call_count: toolCallCount,
       user_prompt_preview: userPromptPreview,
@@ -270,6 +274,8 @@ export async function get_session(req: Request, res: Response) {
           duration_ms: toNum(s.duration_ms),
           token_usage: { input, cache_read, cache_write, output, total },
           cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+          status: String(s.status ?? "success"),
+          error_message: String(s.error_message ?? ""),
           tool_sequence: toolSequence,
           tool_call_count: toolCallCount,
           user_prompt_preview: userPromptPreview,
@@ -300,6 +306,8 @@ export async function get_session(req: Request, res: Response) {
       total: 0,
     },
     cost_usd: 0,
+    status: "success",
+    error_message: "",
     tool_sequence: toolSequence,
     tool_call_count: toolCallCount,
     user_prompt_preview: userPromptPreview,
@@ -319,6 +327,8 @@ export async function session_stats(req: Request, res: Response) {
   if (window === "24h") since = Date.now() - 24 * 60 * 60 * 1000;
   else if (window === "7d") since = Date.now() - 7 * 24 * 60 * 60 * 1000;
   else if (window === "30d") since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+  else if (window === "3m") since = Date.now() - 90 * 24 * 60 * 60 * 1000;
+  else if (window === "1y") since = Date.now() - 365 * 24 * 60 * 60 * 1000;
 
   if (!db) {
     res.json({
@@ -356,6 +366,8 @@ export async function session_stats(req: Request, res: Response) {
     let total_cache_write = 0;
     let total_output = 0;
     let total_all = 0;
+    let total_success = 0;
+    let total_error = 0;
     const byModelMap = new Map<
       string,
       {
@@ -391,6 +403,8 @@ export async function session_stats(req: Request, res: Response) {
       total_cache_write += cacheWrite;
       total_output += output;
       total_all += toNum(s.total_tokens);
+      if (String(s.status ?? "success") === "error") total_error++;
+      else total_success++;
 
       const key = `${prov}::${mod}`;
       const existing = byModelMap.get(key);
@@ -431,6 +445,7 @@ export async function session_stats(req: Request, res: Response) {
         output: total_output,
         total: total_all,
       },
+      by_status: { success: total_success, error: total_error },
       by_model: Array.from(byModelMap.values()).sort(
         (a, b) => b.cost_usd - a.cost_usd,
       ),

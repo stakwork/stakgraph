@@ -439,7 +439,22 @@ export async function get_context(
   } = prepared;
   const { schema } = opts;
 
-  const result = await agent.generate(buildCallParams(prepared));
+  let result;
+  try {
+    result = await agent.generate(buildCallParams(prepared));
+  } catch (err) {
+    if (sessionId) {
+      await appendSessionEnd(sessionId, {
+        end_time: new Date().toISOString(),
+        model: modelId,
+        provider,
+        duration_ms: Date.now() - startTime,
+        status: "error",
+        error_message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    throw err;
+  }
 
   const { steps, totalUsage } = result;
 
@@ -460,6 +475,7 @@ export async function get_context(
       model: modelId,
       provider,
       duration_ms: duration,
+      status: "success",
       token_usage: {
         input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
         cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
@@ -547,6 +563,7 @@ export async function stream_context(
           model: modelId,
           provider,
           duration_ms: duration,
+          status: "success",
           token_usage: {
             input: usage?.inputTokenDetails?.noCacheTokens || usage?.inputTokens || 0,
             cache_read: usage?.inputTokenDetails?.cacheReadTokens || 0,
@@ -557,6 +574,14 @@ export async function stream_context(
         });
       } catch (e) {
         console.error("[stream_context] Failed to finalize session:", e);
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status: "error",
+          error_message: e instanceof Error ? e.message : String(e),
+        }).catch(() => {});
       }
     },
   };
