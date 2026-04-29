@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { db } from "../graph/neo4j.js";
-import { loadStepMeta } from "../repo/session.js";
+import { loadStepMeta, loadSearchProvenance } from "../repo/session.js";
 import {
   getProviderForModel,
   computeSessionCost,
@@ -250,6 +250,7 @@ export async function get_session(req: Request, res: Response) {
     parseSessionMessages(filePath);
 
   const step_meta = loadStepMeta(id);
+  const search_provenance = loadSearchProvenance(id);
 
   if (db) {
     try {
@@ -281,6 +282,7 @@ export async function get_session(req: Request, res: Response) {
           user_prompt_preview: userPromptPreview,
           answer_preview: answerPreview,
           step_meta,
+          search_provenance,
           trace,
         });
         return;
@@ -313,6 +315,7 @@ export async function get_session(req: Request, res: Response) {
     user_prompt_preview: userPromptPreview,
     answer_preview: answerPreview,
     step_meta,
+    search_provenance,
     trace,
   });
 }

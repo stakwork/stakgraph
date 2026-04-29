@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export const card: React.CSSProperties = {
   border: "1px solid #27272a",
   borderRadius: "12px",
@@ -9,11 +11,26 @@ export const muted: React.CSSProperties = {
   fontSize: "12px",
 };
 
-export function StatTile({ label, value, detail }: { label: string; value: string; detail?: string }) {
+export function StatTile({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
   return (
     <div style={{ ...card, padding: "14px" }}>
       <p style={{ ...muted, margin: 0 }}>{label}</p>
-      <p style={{ margin: "6px 0 0 0", fontSize: "22px", fontWeight: 700, color: "#ededed" }}>
+      <p
+        style={{
+          margin: "6px 0 0 0",
+          fontSize: "22px",
+          fontWeight: 700,
+          color: "#ededed",
+        }}
+      >
         {value}
       </p>
       {detail && <p style={{ ...muted, margin: "6px 0 0 0" }}>{detail}</p>}
@@ -76,7 +93,16 @@ export function TableCard({
           borderBottom: "1px solid #27272a",
         }}
       >
-        <p style={{ margin: 0, fontSize: "13px", fontWeight: 700, color: "#ededed" }}>{title}</p>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "13px",
+            fontWeight: 700,
+            color: "#ededed",
+          }}
+        >
+          {title}
+        </p>
         {badge && <span style={muted}>{badge}</span>}
       </div>
       <div style={{ overflowX: "auto" }}>
@@ -118,4 +144,77 @@ export function tdStyle(emphasis = false): React.CSSProperties {
     fontWeight: emphasis ? 600 : 400,
     whiteSpace: "nowrap",
   };
+}
+
+export const preStyle: React.CSSProperties = {
+  fontSize: "11px",
+  lineHeight: 1.6,
+  whiteSpace: "pre-wrap",
+  overflowWrap: "break-word",
+  wordBreak: "break-word",
+  color: "#ededed",
+  margin: 0,
+  padding: "10px 14px",
+  maxHeight: "20rem",
+  overflowY: "auto",
+  backgroundColor: "#0d0d0f",
+  borderTop: "1px solid #27272a",
+};
+
+export function shortId(id: string): string {
+  return id.length > 12 ? `${id.slice(0, 8)}\u2026${id.slice(-4)}` : id;
+}
+
+function stringify(value: unknown): string {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+export function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      title="Copy"
+      style={{
+        position: "absolute",
+        top: 6,
+        right: 8,
+        background: "none",
+        border: "1px solid #3f3f46",
+        borderRadius: "4px",
+        color: copied ? "#4ade80" : "#71717a",
+        cursor: "pointer",
+        fontSize: "11px",
+        lineHeight: 1,
+        padding: "3px 6px",
+        opacity: undefined,
+        transition: "opacity 0.15s, color 0.15s",
+        fontFamily: "ui-monospace,monospace",
+      }}
+      className="copy-btn"
+    >
+      {copied ? "✓" : "⎘"}
+    </button>
+  );
+}
+
+export function CopyableBlock({ value }: { value: unknown }) {
+  const text = stringify(value);
+  return (
+    <div style={{ position: "relative" }} className="copyable-block">
+      <CopyButton text={text} />
+      <pre style={preStyle}>{text}</pre>
+    </div>
+  );
 }

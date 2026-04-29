@@ -18,6 +18,22 @@ import { generate_services_config } from "./service.js";
 export type SearchMethod = "vector" | "fulltext" | "hybrid";
 export type SearchSortBy = "relevance" | "pagerank";
 
+export interface SearchResultMeta {
+  ref_id: string;
+  sources: ("fulltext" | "vector")[];
+  rrf_score?: number;
+  fulltext_rank?: number;
+  fulltext_score?: number;
+  vector_rank?: number;
+  vector_score?: number;
+}
+
+export interface SearchProvenance {
+  method: SearchMethod;
+  query: string;
+  result_meta: SearchResultMeta[];
+}
+
 export { Data_Bank, Direction };
 
 export async function get_nodes(
@@ -156,6 +172,130 @@ export async function search(
     }
     return toNodes(result, concise, output);
   }
+}
+
+export async function searchWithProvenance(
+  query: string,
+  limit: number,
+  node_types: NodeType[],
+  concise: boolean,
+  maxTokens: number,
+  method: SearchMethod = "fulltext",
+  output: OutputFormat = "snippet",
+  skip_node_types: NodeType[] = [],
+  language?: string,
+  sortBy: SearchSortBy = "relevance"
+): Promise<{ results: any; provenance: SearchProvenance }> {
+  const effective_node_types =
+    node_types.length > 0 ? node_types : code_node_types();
+
+  const provenance: SearchProvenance = { method, query, result_meta: [] };
+
+  if (method === "vector") {
+    let result = await db.vectorSearch(
+      query, limit, effective_node_types, skip_node_types, maxTokens, language
+    );
+    if (sortBy === "pagerank") result = sortByPagerank(result);
+    provenance.result_meta = result.map((node, i) => ({
+      ref_id: node.properties.ref_id || node.properties.node_key || "",
+      sources: ["vector"] as ("fulltext" | "vector")[],
+      vector_rank: i + 1,
+      vector_score: node.score,
+    }));
+    return { results: toNodes(result, concise, output), provenance };
+  }
+
+  if (method === "hybrid") {
+    const [fulltextResults, vectorResults] = await Promise.all([
+      db.search(query, limit, effective_node_types, skip_node_types, 0, language),
+      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language),
+    ]);
+
+    const ftIndex = new Map<string, { rank: number; score?: number }>();
+    fulltextResults.forEach((node, i) => {
+      const key = node.properties.ref_id || node.properties.node_key;
+      ftIndex.set(key, { rank: i + 1, score: node.score });
+    });
+    const vecIndex = new Map<string, { rank: number; score?: number }>();
+    vectorResults.forEach((node, i) => {
+      const key = node.properties.ref_id || node.properties.node_key;
+      vecIndex.set(key, { rank: i + 1, score: node.score });
+    });
+
+    const merged = new Map<string, { node: Neo4jNode; score: number }>();
+    fulltextResults.forEach((node, i) => {
+      const key = node.properties.ref_id || node.properties.node_key;
+      merged.set(key, { node, score: 1 / (RRF_K + i + 1) });
+    });
+    vectorResults.forEach((node, i) => {
+      const key = node.properties.ref_id || node.properties.node_key;
+      const rrfScore = 1 / (RRF_K + i + 1);
+      const existing = merged.get(key);
+      if (existing) {
+        existing.score += rrfScore;
+      } else {
+        merged.set(key, { node, score: rrfScore });
+      }
+    });
+
+    let sortedEntries: { node: Neo4jNode; score: number }[] =
+      sortBy === "pagerank"
+        ? (() => {
+            const byPagerank = sortByPagerank(Array.from(merged.values()).map((e) => e.node));
+            return byPagerank.map((n) => {
+              const key = n.properties.ref_id || n.properties.node_key;
+              return { node: n, score: merged.get(key)?.score ?? 0 };
+            });
+          })()
+        : Array.from(merged.values()).sort((a, b) => b.score - a.score);
+
+    if (maxTokens) {
+      let totalTokens = 0;
+      sortedEntries = sortedEntries.filter((entry) => {
+        const tokenCount = entry.node.properties.token_count
+          ? parseInt(entry.node.properties.token_count.toString(), 10)
+          : 0;
+        if (totalTokens + tokenCount <= maxTokens) {
+          totalTokens += tokenCount;
+          return true;
+        }
+        return false;
+      });
+    }
+
+    const finalNodes = sortedEntries.map((e) => e.node);
+    provenance.result_meta = sortedEntries.map((entry) => {
+      const key = entry.node.properties.ref_id || entry.node.properties.node_key || "";
+      const ft = ftIndex.get(key);
+      const vec = vecIndex.get(key);
+      const sources: ("fulltext" | "vector")[] = [];
+      if (ft) sources.push("fulltext");
+      if (vec) sources.push("vector");
+      return {
+        ref_id: key,
+        sources,
+        rrf_score: entry.score,
+        fulltext_rank: ft?.rank,
+        fulltext_score: ft?.score,
+        vector_rank: vec?.rank,
+        vector_score: vec?.score,
+      };
+    });
+    return { results: toNodes(finalNodes as Neo4jNode[], concise, output), provenance };
+  }
+
+  // fulltext
+  let result = await db.search(
+    query, limit, effective_node_types, skip_node_types, maxTokens, language
+  );
+  if (sortBy === "pagerank") result = sortByPagerank(result);
+  provenance.result_meta = result.map((node, i) => ({
+    ref_id: node.properties.ref_id || node.properties.node_key || "",
+    sources: ["fulltext"] as ("fulltext" | "vector")[],
+    fulltext_rank: i + 1,
+    fulltext_score: node.score,
+  }));
+  return { results: toNodes(result, concise, output), provenance };
 }
 export async function get_rules_files() {
   const files = await db.get_rules_files();

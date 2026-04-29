@@ -178,6 +178,10 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(metaPath)) {
     unlinkSync(metaPath);
   }
+  const provPath = getProvenanceFile(sessionId);
+  if (existsSync(provPath)) {
+    unlinkSync(provPath);
+  }
 }
 
 /**
@@ -223,6 +227,49 @@ export function loadStepMeta(sessionId: string): StepMeta[] {
   }
 }
 
+function getProvenanceFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.provenance.jsonl`);
+}
+
+export interface SearchProvenanceEntry {
+  tool_call_id?: string;
+  tool_name: string;
+  timestamp: string;
+  provenance: import("../graph/graph.js").SearchProvenance;
+}
+
+export function appendSearchProvenance(
+  sessionId: string,
+  entries: SearchProvenanceEntry[],
+): void {
+  if (entries.length === 0) return;
+  const filePath = getProvenanceFile(sessionId);
+  const content = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  appendFileSync(filePath, content);
+}
+
+export function loadSearchProvenance(
+  sessionId: string,
+): SearchProvenanceEntry[] {
+  const filePath = getProvenanceFile(sessionId);
+  if (!existsSync(filePath)) return [];
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    return content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as SearchProvenanceEntry);
+  } catch {
+    return [];
+  }
+}
+
 const SESSION_MAX_AGE_MS = parseInt(
   process.env.SESSION_MAX_AGE_MS || String(30 * 24 * 60 * 60 * 1000),
   10
@@ -241,7 +288,7 @@ export function pruneExpiredSessions(): number {
   const now = Date.now();
   let pruned = 0;
   for (const file of readdirSync(sessionDir)) {
-    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl")) continue;
+    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl") || file.endsWith(".provenance.jsonl")) continue;
     const filePath = path.join(sessionDir, file);
     try {
       const { mtimeMs } = statSync(filePath);
@@ -249,6 +296,8 @@ export function pruneExpiredSessions(): number {
         unlinkSync(filePath);
         const metaPath = filePath.replace(/\.jsonl$/, ".meta.jsonl");
         if (existsSync(metaPath)) unlinkSync(metaPath);
+        const provPath = filePath.replace(/\.jsonl$/, ".provenance.jsonl");
+        if (existsSync(provPath)) unlinkSync(provPath);
         pruned++;
       }
     } catch {

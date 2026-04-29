@@ -13,8 +13,20 @@ import { listFeatures, getFeatureDocumentation } from "../gitree/service.js";
 import { db } from "../graph/neo4j.js";
 import { callRemoteAgent, type SubAgent } from "./subagent.js";
 import * as stak from "../tools/stakgraph/index.js";
-import { search as graphSearch } from "../graph/graph.js";
+import { search as graphSearch, searchWithProvenance } from "../graph/graph.js";
+import type { SearchProvenance } from "../graph/graph.js";
 import { relevant_node_types } from "../graph/types.js";
+
+export interface ProvenanceEntry {
+  tool_call_id?: string;
+  tool_name: string;
+  timestamp: string;
+  provenance: SearchProvenance;
+}
+
+export interface ProvenanceCollector {
+  entries: ProvenanceEntry[];
+}
 
 export interface GgnnTool {
   name: string;          // tool name, e.g. "ggnn_check"
@@ -165,6 +177,7 @@ export async function get_tools(
   subAgents?: SubAgent[],
   ggnn?: GgnnConfig,
   messagesRef?: MessagesRef,
+  provenanceCollector?: ProvenanceCollector,
 ) {
   const repoArr = repoPath.split("/");
   const isMultiRepo = repoPath === "/tmp";
@@ -505,7 +518,7 @@ export async function get_tools(
       execute: async (args: z.infer<typeof stak.SearchSchema>) => {
         const valid = new Set(relevant_node_types());
         const filtered_node_types = (args.node_types ?? []).filter(t => valid.has(t as any)) as any[];
-        const results = await graphSearch(
+        const { results, provenance } = await searchWithProvenance(
           args.query,
           args.limit ?? 10,
           filtered_node_types,
@@ -516,6 +529,13 @@ export async function get_tools(
           [],
           args.language,
         );
+        if (provenanceCollector) {
+          provenanceCollector.entries.push({
+            tool_name: "stakgraph_search",
+            timestamp: new Date().toISOString(),
+            provenance,
+          });
+        }
         if (!Array.isArray(results)) return "No results";
         return JSON.stringify(
           results.map((node: any) => ({
