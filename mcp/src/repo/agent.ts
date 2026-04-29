@@ -25,6 +25,7 @@ import {
   extractMessagesFromSteps,
   deepParseJsonStrings,
   truncateOldToolResults,
+  removeIrrelevantResults,
 } from "./utils.js";
 import { LanguageModel } from "ai";
 import {
@@ -90,6 +91,7 @@ The prompt prepended to your instructions tells you which repos are graph-backed
 
 **Always:**
 - Stop calling tools as soon as you have enough information to answer the question. More calls rarely improve a complete answer.
+- If a tool returns results that are clearly wrong, off-topic, or not useful for answering the question, call \`mark_irrelevant()\` immediately to remove it from context. Do not re-read the same file afterward.
 
 ## Workflow
 1. Check the repo context prepended to your prompt — identify which repos are graph-backed.
@@ -372,8 +374,9 @@ Apply the guidance from each skill throughout your response.`;
       messagesRef.current = messages as ModelMessage[];
       const lastStep = steps.length > 0 ? steps[steps.length - 1] : null;
       const inputTokens = lastStep?.usage?.inputTokens ?? 0;
-      const truncated = await truncateOldToolResults(messages, inputTokens, contextLimit);
-      if (truncated === messages) return undefined;
+      const cleaned = removeIrrelevantResults(messages as ModelMessage[]);
+      const truncated = await truncateOldToolResults(cleaned, inputTokens, contextLimit);
+      if (cleaned === messages && truncated === cleaned) return undefined;
       return { messages: truncated };
     },
   });

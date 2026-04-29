@@ -55,11 +55,23 @@ type ToolName =
 export type ToolsConfig = Partial<Record<ToolName, string | boolean | null>>;
 
 const TOOL_NAMES: Set<string> = new Set<string>([
-  "repo_overview", "file_summary", "recent_commits", "recent_contributions",
-  "fulltext_search", "web_search", "bash", "final_answer",
-  "ask_clarifying_questions", "list_concepts", "learn_concept",
-  "learn_concepts", "list_workflows", "learn_workflow", "read_workflow_json",
+  "repo_overview",
+  "file_summary",
+  "recent_commits",
+  "recent_contributions",
+  "fulltext_search",
+  "web_search",
+  "bash",
+  "final_answer",
+  "ask_clarifying_questions",
+  "list_concepts",
+  "learn_concept",
+  "learn_concepts",
+  "list_workflows",
+  "learn_workflow",
+  "read_workflow_json",
   "vector_search",
+  "mark_irrelevant",
 ]);
 
 export type SkillsConfig = Partial<Record<string, boolean>>;
@@ -342,6 +354,13 @@ export async function get_tools(
     //     return body.answer || "";
     //   },
     // }),
+    mark_irrelevant: tool({
+      description:
+        "Mark the immediately preceding tool result as irrelevant. Call this when a tool returned results that are wrong, off-topic, or not useful for answering the question.",
+      inputSchema: z.object({}),
+      execute: async () =>
+        "Previous tool result marked as irrelevant and removed from context.",
+    }),
   };
 
   // Skip provider-defined tools - not compatible with AI SDK v6 when mixed with regular tools???

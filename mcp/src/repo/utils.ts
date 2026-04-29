@@ -489,6 +489,84 @@ export async function truncateOldToolResults(
   return result;
 }
 
+const IRRELEVANT_MARKER = "[irrelevant — removed from context]";
+
+export function removeIrrelevantResults(
+  messages: ModelMessage[],
+): ModelMessage[] {
+  const markIndices: number[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i] as any;
+    if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+    if (
+      msg.content.some(
+        (p: any) => p.type === "tool-call" && p.toolName === "mark_irrelevant",
+      )
+    ) {
+      markIndices.push(i);
+    }
+  }
+
+  if (markIndices.length === 0) return messages;
+
+  const result = [...messages];
+  const toRemove = new Set<number>();
+
+  for (const markIdx of markIndices) {
+    // Replace preceding tool result with marker
+    for (let i = markIdx - 1; i >= 0; i--) {
+      if ((result[i] as any).role === "tool") {
+        const toolMsg = result[i] as any;
+        if (Array.isArray(toolMsg.content)) {
+          result[i] = {
+            ...toolMsg,
+            content: toolMsg.content.map((part: any) =>
+              part.type === "tool-result"
+                ? {
+                    ...part,
+                    output: { type: "text" as const, value: IRRELEVANT_MARKER },
+                  }
+                : part,
+            ),
+          } as ModelMessage;
+        }
+        break;
+      }
+    }
+
+    // Strip the mark_irrelevant tool-call from the assistant message
+    const assistantMsg = result[markIdx] as any;
+    result[markIdx] = {
+      ...assistantMsg,
+      content: assistantMsg.content.filter(
+        (p: any) =>
+          !(p.type === "tool-call" && p.toolName === "mark_irrelevant"),
+      ),
+    } as ModelMessage;
+
+    // Mark the mark_irrelevant tool-result message for removal
+    const nextIdx = markIdx + 1;
+    if (nextIdx < result.length) {
+      const nextMsg = result[nextIdx] as any;
+      if (
+        nextMsg.role === "tool" &&
+        Array.isArray(nextMsg.content) &&
+        nextMsg.content.some(
+          (p: any) =>
+            p.type === "tool-result" &&
+            typeof p.output?.value === "string" &&
+            p.output.value.includes("marked as irrelevant"),
+        )
+      ) {
+        toRemove.add(nextIdx);
+      }
+    }
+  }
+
+  if (toRemove.size === 0) return result;
+  return result.filter((_, i) => !toRemove.has(i));
+}
+
 export function deepParseJsonStrings(value: any): any {
   if (typeof value === "string") {
     const trimmed = value.trim();
