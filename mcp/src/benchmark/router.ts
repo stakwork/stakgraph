@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { list_sessions, get_session, session_stats } from "./sessions.js";
+import { list_sessions, get_session, session_stats, add_annotation } from "./sessions.js";
 
 export function benchmarkRouter(): Router {
   const router = Router();
@@ -8,6 +8,7 @@ export function benchmarkRouter(): Router {
   router.get("/sessions", list_sessions);
   router.get("/sessions/stats", session_stats);
   router.get("/sessions/:id", get_session);
+  router.post("/sessions/:id/annotations", add_annotation);
 
   return router;
 }

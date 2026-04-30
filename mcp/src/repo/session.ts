@@ -182,6 +182,10 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(provPath)) {
     unlinkSync(provPath);
   }
+  const annPath = getAnnotationsFile(sessionId);
+  if (existsSync(annPath)) {
+    unlinkSync(annPath);
+  }
 }
 
 /**
@@ -265,6 +269,52 @@ export function loadSearchProvenance(
       .split("\n")
       .filter((l) => l.trim())
       .map((l) => JSON.parse(l) as SearchProvenanceEntry);
+  } catch {
+    return [];
+  }
+}
+
+export type AnnotationMarker =
+  | "inefficient"
+  | "bad_search"
+  | "good_result"
+  | "loop"
+  | "wrong_tool"
+  | "wasted_tokens";
+
+export interface Annotation {
+  ts: string;
+  author?: string;
+  target: "session" | "tool_call";
+  target_id?: string;
+  marker: AnnotationMarker;
+  note?: string;
+}
+
+function getAnnotationsFile(sessionId: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}.annotations.jsonl`);
+}
+
+export function appendAnnotation(sessionId: string, annotation: Annotation): void {
+  const filePath = getAnnotationsFile(sessionId);
+  appendFileSync(filePath, JSON.stringify(annotation) + "\n");
+}
+
+export function loadAnnotations(sessionId: string): Annotation[] {
+  const filePath = getAnnotationsFile(sessionId);
+  if (!existsSync(filePath)) return [];
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    return content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as Annotation);
   } catch {
     return [];
   }

@@ -1,4 +1,4 @@
-import type { ProductionRun } from "./types";
+import type { ProductionRun, Annotation, AnnotationMarker } from "./types";
 
 const BASE = "/api";
 
@@ -18,5 +18,13 @@ export const api = {
   sessions: {
     list: () => req<ProductionRun[]>("/sessions"),
     get: (id: string) => req<ProductionRun>(`/sessions/${id}`),
+    annotate: (
+      id: string,
+      body: { target: "session" | "tool_call"; target_id?: string; marker: AnnotationMarker; note?: string; author?: string },
+    ) =>
+      req<Annotation>(`/sessions/${id}/annotations`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
   },
 };

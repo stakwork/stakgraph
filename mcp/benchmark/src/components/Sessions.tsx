@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
 import type { ProductionRun, StepMeta, SearchProvenanceEntry } from "../types";
+import { AnnotationBadge, AnnotationForm } from "./Annotations";
+import type { Annotation, AnnotationMarker } from "./Annotations";
 import {
   formatNumber,
   formatDuration,
@@ -848,86 +850,144 @@ const subLabelStyle: React.CSSProperties = {
 };
 
 
-function DisplayUnitRow({ unit, unitIndex, provenance }: { unit: DisplayUnit; unitIndex: number; provenance?: SearchProvenanceEntry }) {
+function DisplayUnitRow({
+  unit,
+  unitIndex,
+  provenance,
+  annotations,
+  onAnnotate,
+}: {
+  unit: DisplayUnit;
+  unitIndex: number;
+  provenance?: SearchProvenanceEntry;
+  annotations?: Annotation[];
+  onAnnotate?: (
+    marker: AnnotationMarker,
+    note: string,
+    toolCallId?: string,
+  ) => void;
+}) {
+  const [showAnnotationForm, setShowAnnotationForm] = useState(false);
+
   if (unit.kind === "paired") {
     const isSearchTool = unit.call.toolName === "stakgraph_search";
     const formattedResults =
       isSearchTool && unit.result
         ? parseSearchToolResultRows(unit.result.payload)
         : null;
+    const myAnnotations = (annotations ?? []).filter(
+      (a) => a.target === "tool_call" && a.target_id === unit.call.toolCallId,
+    );
 
     return (
-      <details style={{ borderTop: "1px solid #1f1f22" }}>
-        <summary
-          style={{
-            listStyle: "none",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "9px 14px",
-            cursor: "pointer",
-            userSelect: "none",
-          }}
-        >
-          <span style={unitIndexStyle}>{unitIndex}</span>
-          <span
+      <div style={{ borderTop: "1px solid #1f1f22" }}>
+        <details>
+          <summary
             style={{
-              fontSize: "10px",
-              lineHeight: 1,
-              padding: "4px 8px",
-              borderRadius: "9999px",
-              border: "1px solid #1e40af",
-              color: "#93c5fd",
-              backgroundColor: "rgba(30,64,175,0.18)",
-              textTransform: "lowercase",
-              flexShrink: 0,
+              listStyle: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "9px 14px",
+              cursor: "pointer",
+              userSelect: "none",
             }}
           >
-            tool
-          </span>
-          <span
-            style={{
-              fontSize: "12px",
-              fontWeight: 600,
-              fontFamily: "ui-monospace,monospace",
-              color: "#ededed",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-              minWidth: 0,
+            <span style={unitIndexStyle}>{unitIndex}</span>
+            <span
+              style={{
+                fontSize: "10px",
+                lineHeight: 1,
+                padding: "4px 8px",
+                borderRadius: "9999px",
+                border: "1px solid #1e40af",
+                color: "#93c5fd",
+                backgroundColor: "rgba(30,64,175,0.18)",
+                textTransform: "lowercase",
+                flexShrink: 0,
+              }}
+            >
+              tool
+            </span>
+            <span
+              style={{
+                fontSize: "12px",
+                fontWeight: 600,
+                fontFamily: "ui-monospace,monospace",
+                color: "#ededed",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                flex: 1,
+                minWidth: 0,
+              }}
+            >
+              {unit.call.toolName ?? "?"}
+            </span>
+            {myAnnotations.map((a) => (
+              <AnnotationBadge key={a.ts} marker={a.marker} note={a.note} />
+            ))}
+            {onAnnotate && (
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowAnnotationForm((f) => !f);
+                }}
+                title="Add annotation"
+                style={{
+                  fontSize: "11px",
+                  lineHeight: 1,
+                  padding: "3px 7px",
+                  borderRadius: "9999px",
+                  border: "1px solid #3f3f46",
+                  backgroundColor: "transparent",
+                  color: "#71717a",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                +
+              </button>
+            )}
+            <span style={muted}>{unit.result ? "→ result" : "pending"}</span>
+          </summary>
+          <div style={{ borderTop: "1px solid #1f1f22" }}>
+            <p style={subLabelStyle}>Input</p>
+            <CopyableBlock value={unit.call.payload} />
+            {unit.result && (
+              <>
+                <p style={{ ...subLabelStyle, borderTop: "1px solid #1f1f22" }}>
+                  Output
+                </p>
+                {formattedResults ? (
+                  <FormattedSearchResults
+                    results={formattedResults}
+                    provenance={provenance}
+                    rawValue={unit.result.payload}
+                  />
+                ) : (
+                  <>
+                    {provenance && (
+                      <SearchProvenancePanel provenance={provenance} />
+                    )}
+                    <CopyableBlock value={unit.result.payload} />
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </details>
+        {showAnnotationForm && (
+          <AnnotationForm
+            onSubmit={(marker, note) => {
+              onAnnotate?.(marker, note, unit.call.toolCallId);
+              setShowAnnotationForm(false);
             }}
-          >
-            {unit.call.toolName ?? "?"}
-          </span>
-          <span style={muted}>{unit.result ? "→ result" : "pending"}</span>
-        </summary>
-        <div style={{ borderTop: "1px solid #1f1f22" }}>
-          <p style={subLabelStyle}>Input</p>
-          <CopyableBlock value={unit.call.payload} />
-          {unit.result && (
-            <>
-              <p style={{ ...subLabelStyle, borderTop: "1px solid #1f1f22" }}>
-                Output
-              </p>
-              {formattedResults ? (
-                <FormattedSearchResults
-                  results={formattedResults}
-                  provenance={provenance}
-                  rawValue={unit.result.payload}
-                />
-              ) : (
-                <>
-                  {provenance && (
-                    <SearchProvenancePanel provenance={provenance} />
-                  )}
-                  <CopyableBlock value={unit.result.payload} />
-                </>
-              )}
-            </>
-          )}
-        </div>
-      </details>
+            onCancel={() => setShowAnnotationForm(false)}
+          />
+        )}
+      </div>
     );
   }
 
@@ -1048,6 +1108,12 @@ function interleaveUnitsWithSteps(
   units: DisplayUnit[],
   metas: StepMeta[],
   provenanceEntries: SearchProvenanceEntry[] = [],
+  annotations: Annotation[] = [],
+  onAnnotate?: (
+    marker: AnnotationMarker,
+    note: string,
+    toolCallId?: string,
+  ) => void,
 ): React.ReactNode[] {
   const matchState: ProvenanceMatchState = {
     cursor: 0,
@@ -1061,6 +1127,8 @@ function interleaveUnitsWithSteps(
         unit={unit}
         unitIndex={i + 1}
         provenance={matchProvenance(unit, provenanceEntries, matchState)}
+        annotations={annotations}
+        onAnnotate={onAnnotate}
       />
     ));
   }
@@ -1075,7 +1143,9 @@ function interleaveUnitsWithSteps(
     if (isPaired && metaIdx < metas.length) {
       const currentMeta = metas[metaIdx];
       if (toolPtr === 0) {
-        nodes.push(<StepDivider key={`step-${currentMeta.step}`} meta={currentMeta} />);
+        nodes.push(
+          <StepDivider key={`step-${currentMeta.step}`} meta={currentMeta} />,
+        );
       }
       toolPtr++;
       if (toolPtr >= currentMeta.toolCalls.length) {
@@ -1090,6 +1160,8 @@ function interleaveUnitsWithSteps(
         unit={unit}
         unitIndex={unitNum}
         provenance={matchProvenance(unit, provenanceEntries, matchState)}
+        annotations={annotations}
+        onAnnotate={onAnnotate}
       />,
     );
   }
@@ -1098,19 +1170,38 @@ function interleaveUnitsWithSteps(
   if (metaIdx < metas.length) {
     const finalMeta = metas[metaIdx];
     if (finalMeta.toolCalls.length === 0) {
-      nodes.push(<StepDivider key={`step-${finalMeta.step}`} meta={finalMeta} />);
+      nodes.push(
+        <StepDivider key={`step-${finalMeta.step}`} meta={finalMeta} />,
+      );
     }
   }
 
   return nodes;
 }
 
-function TurnCard({ turn, stepMetas, provenanceEntries }: { turn: TraceTurn; stepMetas?: StepMeta[]; provenanceEntries?: SearchProvenanceEntry[] }) {
+function TurnCard({
+  turn,
+  stepMetas,
+  provenanceEntries,
+  annotations,
+  onAnnotate,
+}: {
+  turn: TraceTurn;
+  stepMetas?: StepMeta[];
+  provenanceEntries?: SearchProvenanceEntry[];
+  annotations?: Annotation[];
+  onAnnotate?: (
+    marker: AnnotationMarker,
+    note: string,
+    toolCallId?: string,
+  ) => void;
+}) {
   const units = groupEvents(turn.events);
   const metas = stepMetas ?? [];
   const totalIn = metas.reduce((s, m) => s + m.usage.inputTokens, 0);
   const totalOut = metas.reduce((s, m) => s + m.usage.outputTokens, 0);
-  const cumInput = metas.length > 0 ? metas[metas.length - 1].cumulativeInput : null;
+  const cumInput =
+    metas.length > 0 ? metas[metas.length - 1].cumulativeInput : null;
   return (
     <details style={card}>
       <summary
@@ -1125,7 +1216,15 @@ function TurnCard({ turn, stepMetas, provenanceEntries }: { turn: TraceTurn; ste
           userSelect: "none",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
           <span
             style={{
               fontSize: "10px",
@@ -1151,7 +1250,14 @@ function TurnCard({ turn, stepMetas, provenanceEntries }: { turn: TraceTurn; ste
             {turn.title}
           </span>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            flexShrink: 0,
+          }}
+        >
           {turn.toolCount > 0 && (
             <span style={muted}>{turn.toolCount} tools</span>
           )}
@@ -1180,7 +1286,13 @@ function TurnCard({ turn, stepMetas, provenanceEntries }: { turn: TraceTurn; ste
         </div>
       </summary>
       <div style={{ borderTop: "1px solid #1f1f22" }}>
-        {interleaveUnitsWithSteps(units, metas, provenanceEntries)}
+        {interleaveUnitsWithSteps(
+          units,
+          metas,
+          provenanceEntries,
+          annotations,
+          onAnnotate,
+        )}
       </div>
     </details>
   );
@@ -1192,6 +1304,9 @@ export function Sessions() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [runs, setRuns] = useState<ProductionRun[]>([]);
   const [selected, setSelected] = useState<ProductionRun | null>(null);
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [showSessionAnnotationForm, setShowSessionAnnotationForm] =
+    useState(false);
   const [loading, setLoading] = useState(true);
   const [repoSearch, setRepoSearch] = useState(searchParams.get("repo") || "");
   const [sourceFilter, setSourceFilter] = useState(searchParams.get("source") || "all");
@@ -1220,10 +1335,33 @@ export function Sessions() {
     try {
       const detail = await api.sessions.get(run.id);
       setSelected(detail);
+      setAnnotations(detail.annotations ?? []);
+      setShowSessionAnnotationForm(false);
     } catch {
       setSelected(run);
+      setAnnotations(run.annotations ?? []);
+      setShowSessionAnnotationForm(false);
     }
   };
+
+  const handleAnnotate = useCallback(
+    async (marker: AnnotationMarker, note: string, toolCallId?: string) => {
+      if (!selected) return;
+      try {
+        const ann = await api.sessions.annotate(selected.id, {
+          target: toolCallId ? "tool_call" : "session",
+          target_id: toolCallId,
+          marker,
+          note: note || undefined,
+        });
+        setAnnotations((prev) => [...prev, ann]);
+        toast.success("Annotation saved");
+      } catch (e: any) {
+        toast.error(e.message);
+      }
+    },
+    [selected],
+  );
 
   const freq = selected ? buildToolFrequency(selected.tool_sequence) : [];
   const parsed = selected
@@ -1698,6 +1836,51 @@ export function Sessions() {
                     ))}
                 </div>
               )}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  flexWrap: "wrap",
+                  marginTop: "10px",
+                  paddingTop: "10px",
+                  borderTop: "1px solid #1f1f22",
+                }}
+              >
+                {annotations
+                  .filter((a) => a.target === "session")
+                  .map((a) => (
+                    <AnnotationBadge
+                      key={a.ts}
+                      marker={a.marker}
+                      note={a.note}
+                    />
+                  ))}
+                {showSessionAnnotationForm ? (
+                  <AnnotationForm
+                    onSubmit={(marker, note) => {
+                      void handleAnnotate(marker, note);
+                      setShowSessionAnnotationForm(false);
+                    }}
+                    onCancel={() => setShowSessionAnnotationForm(false)}
+                  />
+                ) : (
+                  <button
+                    onClick={() => setShowSessionAnnotationForm(true)}
+                    style={{
+                      fontSize: "11px",
+                      padding: "3px 10px",
+                      borderRadius: "9999px",
+                      border: "1px solid #3f3f46",
+                      backgroundColor: "transparent",
+                      color: "#71717a",
+                      cursor: "pointer",
+                    }}
+                  >
+                    + annotate session
+                  </button>
+                )}
+              </div>
             </div>
 
             <Section
@@ -1726,6 +1909,8 @@ export function Sessions() {
                         (m) => m.turn === turn.index,
                       )}
                       provenanceEntries={selected?.search_provenance}
+                      annotations={annotations}
+                      onAnnotate={handleAnnotate}
                     />
                   ))
                 )}
