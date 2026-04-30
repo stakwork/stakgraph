@@ -30,6 +30,7 @@ import { LanguageModel } from "ai";
 import {
   createSession as createNewSession,
   appendSessionEnd,
+  loadSession,
   loadSessionMessages,
   appendMessages,
   appendStepMeta,
@@ -329,13 +330,16 @@ Apply the guidance from each skill throughout your response.`;
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
+  let hasSystemTurn = false;
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
+      hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
       previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source);
+      hasSystemTurn = true;
     }
   }
 
@@ -347,7 +351,8 @@ Apply the guidance from each skill throughout your response.`;
   let cumInput = 0;
   let cumOutput = 0;
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length + 2;
+    previousMessages.filter((m) => m.role === "user").length +
+    (hasSystemTurn ? 2 : 1);
 
   const agent = new ToolLoopAgent({
     model,

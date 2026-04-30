@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import * as asyncReqs from "../graph/reqs.js";
 import { GraphStorage } from "./store/index.js";
-import { LLMClient } from "./llm.js";
+import { createGitreeSessionTracker, LLMClient } from "./llm.js";
 import { StreamingFeatureBuilder } from "./builder.js";
 import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
@@ -187,14 +187,17 @@ export async function gitree_process(req: Request, res: Response) {
           bootstrapUsage = bootstrapResult.usage;
         }
 
+        const sessionTracker = createGitreeSessionTracker(sessionId);
+
         const octokit = new Octokit({ auth: githubToken });
-        const llm = new LLMClient("anthropic", anthropicKey);
+        const llm = new LLMClient("anthropic", anthropicKey, sessionTracker);
         const builder = new StreamingFeatureBuilder(
           storage,
           llm,
           octokit,
           repoPath,
-          shouldAnalyzeClues
+          shouldAnalyzeClues,
+          sessionTracker,
         );
 
         const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo, sessionId);
@@ -205,7 +208,12 @@ export async function gitree_process(req: Request, res: Response) {
         // If summarize flag is set, run summarization after processing (only for modified features)
         if (shouldSummarize && modifiedFeatureIds.size > 0) {
           console.log(`===> Starting feature summarization for ${modifiedFeatureIds.size} modified feature(s)...`);
-          const summarizer = new Summarizer(storage, "anthropic", anthropicKey);
+          const summarizer = new Summarizer(
+            storage,
+            "anthropic",
+            anthropicKey,
+            sessionTracker,
+          );
           summarizeUsage = await summarizer.summarizeModifiedFeatures(Array.from(modifiedFeatureIds), sessionId);
         }
 

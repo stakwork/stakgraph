@@ -11,7 +11,7 @@ import {
   formatSourceLabel,
   getRangeStart,
 } from "../utils";
-import { preStyle, shortId, CopyableBlock } from "./ui";
+import { shortId, CopyableBlock } from "./ui";
 import {
   parseSearchToolResultRows,
   SearchProvenancePanel,
@@ -761,7 +761,7 @@ function TurnBadge({ kind }: { kind: TraceTurnKind }) {
         textTransform: "lowercase",
       }}
     >
-      {kind}
+      {kind === "setup" ? "setup" : "turn"}
     </span>
   );
 }
@@ -1042,6 +1042,8 @@ function DisplayUnitRow({
 }
 
 function StepDivider({ meta }: { meta: StepMeta }) {
+  const label = meta.label;
+  const isFinal = meta.toolCalls.length === 0 && !label;
   return (
     <div
       style={{
@@ -1056,10 +1058,38 @@ function StepDivider({ meta }: { meta: StepMeta }) {
         borderTop: "1px solid #2a2a2e",
       }}
     >
-      <span style={{ color: "#52525b", fontWeight: 700, minWidth: 20 }}>S{meta.step}</span>
-      <span style={{ color: "#a3e635" }}>↑{formatNumber(meta.usage.inputTokens)}</span>
-      <span style={{ color: "#fb923c" }}>↓{formatNumber(meta.usage.outputTokens)}</span>
-      <span style={{ color: "#71717a" }}>Σ{formatNumber(meta.cumulativeInput)} ctx</span>
+      <span style={{ color: "#52525b", fontWeight: 700, minWidth: 20 }}>
+        S{meta.step}
+      </span>
+      {label ? (
+        <span
+          title={label}
+          style={{
+            color: "#a3e635",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {label}
+        </span>
+      ) : null}
+      {!isFinal && (
+        <span style={{ color: "#a3e635" }}>
+          ↑{formatNumber(meta.usage.inputTokens)}
+        </span>
+      )}
+      {isFinal ? (
+        <span style={{ color: "#a3e635" }}>final answer</span>
+      ) : null}
+      <span style={{ color: "#fb923c" }}>
+        ↓{formatNumber(meta.usage.outputTokens)}
+      </span>
+      {!isFinal && (
+        <span style={{ color: "#71717a" }}>
+          Σ{formatNumber(meta.cumulativeInput)} ctx
+        </span>
+      )}
     </div>
   );
 }
@@ -1261,7 +1291,7 @@ function TurnCard({
           {turn.toolCount > 0 && (
             <span style={muted}>{turn.toolCount} tools</span>
           )}
-          <span style={muted}>{units.length} steps</span>
+          <span style={muted}>{units.length} events</span>
           {metas.length > 0 && (
             <span
               style={{
@@ -1934,13 +1964,13 @@ export function Sessions() {
                   <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
                     Prompt
                   </p>
-                  <pre style={preStyle}>{prompt}</pre>
+                  <CopyableBlock value={prompt} />
                 </div>
                 <div>
                   <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
                     Final answer
                   </p>
-                  <pre style={preStyle}>{answer}</pre>
+                  <CopyableBlock value={answer} />
                 </div>
               </div>
             </Section>
@@ -2066,7 +2096,7 @@ export function Sessions() {
             {/* raw trace */}
             {selected.trace != null && (
               <Section title="Raw trace" badge="debug" defaultOpen={false}>
-                <pre style={preStyle}>{stringify(selected.trace)}</pre>
+                <CopyableBlock value={selected.trace} maxHeight="28rem" />
               </Section>
             )}
           </div>

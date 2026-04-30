@@ -44,20 +44,6 @@ export async function services_agent(req: Request, res: Response) {
       .then(async (result) => {
         const files = parse_files_contents(result.content);
         asyncReqs.finishReq(request_id, { ...files, usage: result.usage });
-        await appendSessionEnd(sessionId, {
-          end_time: new Date().toISOString(),
-          model: result.usage.model || modelId,
-          provider: result.usage.provider || provider,
-          duration_ms: Date.now() - startTime,
-          status: "success",
-          token_usage: {
-            input: result.usage.inputTokens,
-            cache_read: 0,
-            cache_write: 0,
-            output: result.usage.outputTokens,
-            total: result.usage.totalTokens,
-          },
-        });
       })
       .catch(async (error) => {
         console.error("[repo_agent] Background work failed with error:", error);

@@ -130,20 +130,6 @@ export async function mocks_agent(req: Request, res: Response) {
 
         await persistMocksToGraph(mocksResult, minimalMocks, sync);
         asyncReqs.finishReq(request_id, { ...mocksResult, usage });
-        await appendSessionEnd(sessionId, {
-          end_time: new Date().toISOString(),
-          model: usage.model || modelId,
-          provider: usage.provider || provider,
-          duration_ms: Date.now() - startTime,
-          status: "success",
-          token_usage: {
-            input: usage.inputTokens,
-            cache_read: 0,
-            cache_write: 0,
-            output: usage.outputTokens,
-            total: usage.totalTokens,
-          },
-        });
       })
       .catch(async (error) => {
         console.error(

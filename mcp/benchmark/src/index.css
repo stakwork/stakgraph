@@ -38,3 +38,69 @@ body {
 .copyable-block:hover .copy-btn {
   opacity: 1;
 }
+
+.markdown-block > :first-child {
+  margin-top: 0;
+}
+
+.markdown-block > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-block p,
+.markdown-block ul,
+.markdown-block ol,
+.markdown-block blockquote,
+.markdown-block pre,
+.markdown-block table {
+  margin: 0 0 10px;
+}
+
+.markdown-block ul,
+.markdown-block ol {
+  padding-left: 20px;
+}
+
+.markdown-block code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: #f5f5f5;
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+.markdown-block pre {
+  overflow-x: auto;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.markdown-block pre code {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: pre-wrap;
+}
+
+.markdown-block table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.markdown-block th,
+.markdown-block td {
+  border: 1px solid #27272a;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.markdown-block blockquote {
+  border-left: 2px solid #3f3f46;
+  color: #d4d4d8;
+  padding-left: 10px;
+}

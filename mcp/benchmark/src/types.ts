@@ -18,6 +18,7 @@ export interface Annotation {
 export interface StepMeta {
   step: number;
   turn: number;
+  label?: string;
   usage: {
     inputTokens: number;
     outputTokens: number;
