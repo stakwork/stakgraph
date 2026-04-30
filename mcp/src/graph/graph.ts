@@ -136,12 +136,13 @@ export async function search(
       }
     });
 
-    let sorted =
+    let sorted = (
       sortBy === "pagerank"
         ? sortByPagerank(Array.from(merged.values()).map((entry) => entry.node))
         : Array.from(merged.values())
             .sort((a, b) => b.score - a.score)
-            .map((entry) => entry.node);
+            .map((entry) => entry.node)
+    ).slice(0, limit);
 
     if (maxTokens) {
       let totalTokens = 0;
@@ -238,7 +239,7 @@ export async function searchWithProvenance(
       }
     });
 
-    let sortedEntries: { node: Neo4jNode; score: number }[] =
+    let sortedEntries: { node: Neo4jNode; score: number }[] = (
       sortBy === "pagerank"
         ? (() => {
             const byPagerank = sortByPagerank(Array.from(merged.values()).map((e) => e.node));
@@ -247,7 +248,8 @@ export async function searchWithProvenance(
               return { node: n, score: merged.get(key)?.score ?? 0 };
             });
           })()
-        : Array.from(merged.values()).sort((a, b) => b.score - a.score);
+        : Array.from(merged.values()).sort((a, b) => b.score - a.score)
+    ).slice(0, limit);
 
     if (maxTokens) {
       let totalTokens = 0;
