@@ -1,4 +1,6 @@
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 export const card: React.CSSProperties = {
   border: "1px solid #27272a",
@@ -161,6 +163,21 @@ export const preStyle: React.CSSProperties = {
   borderTop: "1px solid #27272a",
 };
 
+const blockStyle: React.CSSProperties = {
+  overflowX: "auto",
+  backgroundColor: "#0d0d0f",
+  borderTop: "1px solid #27272a",
+};
+
+const markdownStyle: React.CSSProperties = {
+  fontSize: "12px",
+  lineHeight: 1.65,
+  color: "#ededed",
+  padding: "10px 14px",
+  overflowWrap: "break-word",
+  wordBreak: "break-word",
+};
+
 export function shortId(id: string): string {
   return id.length > 12 ? `${id.slice(0, 8)}\u2026${id.slice(-4)}` : id;
 }
@@ -172,6 +189,14 @@ function stringify(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function displayString(value: string): string {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\\r\\n/g, "\n")
+    .replace(/\\n/g, "\n");
 }
 
 export function CopyButton({ text }: { text: string }) {
@@ -209,12 +234,40 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function CopyableBlock({ value }: { value: unknown }) {
+export function CopyableBlock({
+  value,
+  maxHeight,
+}: {
+  value: unknown;
+  maxHeight?: React.CSSProperties["maxHeight"];
+}) {
   const text = stringify(value);
+  const isText = typeof value === "string";
+  const scrollStyle: React.CSSProperties = maxHeight
+    ? { maxHeight, overflowY: "auto" }
+    : {};
   return (
     <div style={{ position: "relative" }} className="copyable-block">
       <CopyButton text={text} />
-      <pre style={preStyle}>{text}</pre>
+      {isText ? (
+        <div style={{ ...blockStyle, ...scrollStyle }}>
+          <div style={markdownStyle} className="markdown-block">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {displayString(value)}
+            </ReactMarkdown>
+          </div>
+        </div>
+      ) : (
+        <pre
+          style={{
+            ...preStyle,
+            maxHeight,
+            overflowY: maxHeight ? "auto" : undefined,
+          }}
+        >
+          {text}
+        </pre>
+      )}
     </div>
   );
 }

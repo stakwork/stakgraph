@@ -12,8 +12,10 @@ import {
   loadSessionMessages,
   appendMessages,
   appendSessionEnd,
+  appendStepMeta,
   sessionExists,
   SessionConfig,
+  StepMeta,
 } from "../repo/session.js";
 import { StakworkRunSummary } from "./types.js";
 
@@ -72,13 +74,36 @@ export async function log_agent_context(
     console.log("===> log tool", t);
   }
 
+  const stepMetas: StepMeta[] = [];
+  let cumInput = 0;
+  let cumOutput = 0;
+  let turnIndex = 1;
+
   const agent = new ToolLoopAgent({
     model,
     instructions: SYSTEM,
     tools,
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
-    onStepFinish: (sf) => logStepMaybe(sf.content, opts.printAgentProgress), // dont log logs_agent logs!
+    onStepFinish: (sf) => {
+      logStepMaybe(sf.content, opts.printAgentProgress);
+      const usage = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      cumInput += usage.inputTokens ?? 0;
+      cumOutput += usage.outputTokens ?? 0;
+      stepMetas.push({
+        step: stepMetas.length,
+        turn: turnIndex,
+        usage: {
+          inputTokens: usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+          totalTokens: usage.totalTokens ?? 0,
+        },
+        cumulativeInput: cumInput,
+        cumulativeOutput: cumOutput,
+        toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
+        timestamp: new Date().toISOString(),
+      });
+    },
   });
 
   // Session handling (after instructions are final so we can persist them)
@@ -92,6 +117,7 @@ export async function log_agent_context(
     } else {
       sessionId = createNewSession(opts.sessionId, SYSTEM, opts.source);
     }
+    turnIndex = previousMessages.filter((m) => m.role === "user").length + 2;
   }
 
   const userMessage: ModelMessage = { role: "user", content: prompt };
@@ -130,6 +156,7 @@ export async function log_agent_context(
       opts.sessionConfig
     );
     appendMessages(sessionId, newMessages);
+    appendStepMeta(sessionId, stepMetas);
     const { modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
     appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),

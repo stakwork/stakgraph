@@ -1,6 +1,11 @@
 import { Octokit } from "@octokit/rest";
 import { Storage } from "./store/index.js";
-import { LLMClient, SYSTEM_PROMPT, DECISION_GUIDELINES } from "./llm.js";
+import {
+  GitreeSessionTracker,
+  LLMClient,
+  SYSTEM_PROMPT,
+  DECISION_GUIDELINES,
+} from "./llm.js";
 import {
   Feature,
   PRRecord,
@@ -28,17 +33,22 @@ export class StreamingFeatureBuilder {
     private llm: LLMClient,
     private octokit: Octokit,
     private repoPath?: string,
-    private shouldAnalyzeClues: boolean = false
+    private shouldAnalyzeClues: boolean = false,
+    private sessionTracker?: GitreeSessionTracker,
   ) {}
 
   /**
    * Main entry point: process a repo (both PRs and commits chronologically)
    */
-  async processRepo(owner: string, repo: string, sessionId?: string): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
+  async processRepo(
+    owner: string,
+    repo: string,
+    sessionId?: string,
+  ): Promise<{ usage: Usage; modifiedFeatureIds: Set<string> }> {
     // Set repo identifier for use throughout processing
     this.repo = `${owner}/${repo}`;
     this.sessionId = sessionId;
-    
+
     const totalUsage: Usage = {
       inputTokens: 0,
       outputTokens: 0,
@@ -79,17 +89,22 @@ export class StreamingFeatureBuilder {
         console.log(`\n${progress} Processing PR #${pr.number}: ${pr.title}`);
 
         try {
-          const usage = await this.processPR(owner, repo, pr, modifiedFeatureIds);
+          const usage = await this.processPR(
+            owner,
+            repo,
+            pr,
+            modifiedFeatureIds,
+          );
           totalUsage.inputTokens += usage.inputTokens;
           totalUsage.outputTokens += usage.outputTokens;
           totalUsage.totalTokens += usage.totalTokens;
           console.log(
-            `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+            `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
           );
         } catch (error) {
           console.error(
             `   ❌ Error processing PR #${pr.number}:`,
-            error instanceof Error ? error.message : error
+            error instanceof Error ? error.message : error,
           );
           console.log(`   ⏭️  Skipping and continuing with next change...`);
 
@@ -117,21 +132,26 @@ export class StreamingFeatureBuilder {
         console.log(
           `\n${progress} Processing commit ${commit.sha.substring(0, 7)}: ${
             commit.message.split("\n")[0]
-          }`
+          }`,
         );
 
         try {
-          const usage = await this.processCommit(owner, repo, commit, modifiedFeatureIds);
+          const usage = await this.processCommit(
+            owner,
+            repo,
+            commit,
+            modifiedFeatureIds,
+          );
           totalUsage.inputTokens += usage.inputTokens;
           totalUsage.outputTokens += usage.outputTokens;
           totalUsage.totalTokens += usage.totalTokens;
           console.log(
-            `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+            `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
           );
         } catch (error) {
           console.error(
             `   ❌ Error processing commit ${commit.sha.substring(0, 7)}:`,
-            error instanceof Error ? error.message : error
+            error instanceof Error ? error.message : error,
           );
           console.log(`   ⏭️  Skipping and continuing with next change...`);
 
@@ -161,7 +181,7 @@ export class StreamingFeatureBuilder {
     console.log(`   Total features: ${features.length}`);
     console.log(`   Modified features: ${modifiedFeatureIds.size}`);
     console.log(
-      `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`
+      `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`,
     );
 
     return { usage: totalUsage, modifiedFeatureIds };
@@ -173,7 +193,7 @@ export class StreamingFeatureBuilder {
   private async fetchAllChanges(
     owner: string,
     repo: string,
-    checkpoint: ChronologicalCheckpoint | null
+    checkpoint: ChronologicalCheckpoint | null,
   ): Promise<
     Array<{ type: "pr" | "commit"; data: any; date: Date; id: string }>
   > {
@@ -192,7 +212,7 @@ export class StreamingFeatureBuilder {
     console.log(
       `   Fetching changes since ${
         sinceDate ? sinceDate.toISOString() : "beginning"
-      }...`
+      }...`,
     );
 
     // Fetch PRs
@@ -253,7 +273,7 @@ export class StreamingFeatureBuilder {
         repo,
         per_page: 100,
         ...(sinceDate ? { since: sinceDate.toISOString() } : {}),
-      }
+      },
     );
     console.log(`   ✓ Fetched ${commits.length} total commits`);
 
@@ -271,7 +291,7 @@ export class StreamingFeatureBuilder {
         // Log progress every 50 commits
         if (processedCount % 50 === 0) {
           console.log(
-            `      Progress: ${processedCount}/${commits.length} commits checked (${standaloneCommits} standalone, ${skippedPRCommits} PR-associated)`
+            `      Progress: ${processedCount}/${commits.length} commits checked (${standaloneCommits} standalone, ${skippedPRCommits} PR-associated)`,
           );
         }
 
@@ -287,7 +307,7 @@ export class StreamingFeatureBuilder {
         // ONLY process commits that are not associated with any PR
         if (mergedPRs.length === 0) {
           const committedAt = new Date(
-            commit.commit.author?.date || Date.now()
+            commit.commit.author?.date || Date.now(),
           );
 
           // Filter by checkpoint
@@ -321,12 +341,12 @@ export class StreamingFeatureBuilder {
       } catch (error) {
         console.error(
           `   ❌ Error checking PR association for ${commit?.sha}:`,
-          error
+          error,
         );
       }
     }
     console.log(
-      `   ✓ Found ${standaloneCommits} standalone commits (skipped ${skippedPRCommits} PR-associated commits)`
+      `   ✓ Found ${standaloneCommits} standalone commits (skipped ${skippedPRCommits} PR-associated commits)`,
     );
 
     // Sort chronologically (oldest first)
@@ -336,7 +356,7 @@ export class StreamingFeatureBuilder {
     console.log(
       `   ✅ Found ${changes.filter((c) => c.type === "pr").length} PRs and ${
         changes.filter((c) => c.type === "commit").length
-      } commits to process`
+      } commits to process`,
     );
 
     return changes;
@@ -349,7 +369,7 @@ export class StreamingFeatureBuilder {
     owner: string,
     repo: string,
     pr: GitHubPR,
-    modifiedFeatureIds: Set<string>
+    modifiedFeatureIds: Set<string>,
   ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkip(pr)) {
@@ -391,7 +411,7 @@ export class StreamingFeatureBuilder {
       },
       {
         maxPatchLines: 100, // Reduce to 100 lines per file to save tokens
-      }
+      },
     );
 
     // Build decision prompt
@@ -399,16 +419,31 @@ export class StreamingFeatureBuilder {
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const { decision, usage } = await this.llm.decide(prompt, undefined, this.sessionId);
+    const { decision, usage } = await this.llm.decide(
+      prompt,
+      undefined,
+      this.sessionId,
+      `gitree decision: PR #${pr.number}`,
+    );
 
     // Apply decision (pass usage to save with PR record)
-    await this.applyPrDecision(owner, repo, pr, decision, modifiedFeatureIds, usage);
+    await this.applyPrDecision(
+      owner,
+      repo,
+      pr,
+      decision,
+      modifiedFeatureIds,
+      usage,
+    );
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
       try {
         // Get features linked to this PR (after decision has been applied)
-        const linkedFeatures = await this.storage.getFeaturesForPR(pr.number, this.repo);
+        const linkedFeatures = await this.storage.getFeaturesForPR(
+          pr.number,
+          this.repo,
+        );
         const featureIds = linkedFeatures.map((f) => f.id);
 
         // Fetch file list for context
@@ -419,17 +454,21 @@ export class StreamingFeatureBuilder {
           per_page: 100,
         });
 
-        const clueUsage = await this.analyzeChangeForClues({
-          type: "pr" as const,
-          identifier: `#${pr.number}`,
-          title: pr.title,
-          summary: decision.summary,
-          files: files.map((f) => f.filename),
-          fullContent: prContent,
-        }, {
-          date: pr.mergedAt,
-          id: pr.number.toString(),
-        }, featureIds);
+        const clueUsage = await this.analyzeChangeForClues(
+          {
+            type: "pr" as const,
+            identifier: `#${pr.number}`,
+            title: pr.title,
+            summary: decision.summary,
+            files: files.map((f) => f.filename),
+            fullContent: prContent,
+          },
+          {
+            date: pr.mergedAt,
+            id: pr.number.toString(),
+          },
+          featureIds,
+        );
         usage.inputTokens += clueUsage.inputTokens;
         usage.outputTokens += clueUsage.outputTokens;
         usage.totalTokens += clueUsage.totalTokens;
@@ -463,7 +502,7 @@ export class StreamingFeatureBuilder {
    */
   private async buildDecisionPrompt(
     prContent: string,
-    features: Feature[]
+    features: Feature[],
   ): Promise<string> {
     const themesContext = await this.formatThemeContext();
 
@@ -527,7 +566,7 @@ ${DECISION_GUIDELINES}`;
     pr: GitHubPR,
     decision: LLMDecision,
     modifiedFeatureIds: Set<string>,
-    usage?: Usage
+    usage?: Usage,
   ): Promise<void> {
     // Fetch file list for this PR
     const { data: files } = await this.octokit.pulls.listFiles({
@@ -552,21 +591,25 @@ ${DECISION_GUIDELINES}`;
     await this.storage.savePR(prRecord);
 
     // Apply the decision using shared logic
-    await this.applyDecisionToFeatures(decision, {
-      changeDate: pr.mergedAt,
-      addToFeature: async (feature) => {
-        if (!feature.prNumbers.includes(pr.number)) {
-          feature.prNumbers.push(pr.number);
-          return true;
-        }
-        return false;
+    await this.applyDecisionToFeatures(
+      decision,
+      {
+        changeDate: pr.mergedAt,
+        addToFeature: async (feature) => {
+          if (!feature.prNumbers.includes(pr.number)) {
+            feature.prNumbers.push(pr.number);
+            return true;
+          }
+          return false;
+        },
+        createFeatureWith: (baseFeature) => ({
+          ...baseFeature,
+          prNumbers: [pr.number],
+          commitShas: [],
+        }),
       },
-      createFeatureWith: (baseFeature) => ({
-        ...baseFeature,
-        prNumbers: [pr.number],
-        commitShas: [],
-      }),
-    }, modifiedFeatureIds);
+      modifiedFeatureIds,
+    );
   }
 
   /**
@@ -582,7 +625,7 @@ ${DECISION_GUIDELINES}`;
       committedAt: Date;
       url: string;
     },
-    modifiedFeatureIds: Set<string>
+    modifiedFeatureIds: Set<string>,
   ): Promise<Usage> {
     // Skip obvious noise
     if (this.shouldSkipCommit(commit)) {
@@ -616,7 +659,7 @@ ${DECISION_GUIDELINES}`;
       },
       {
         maxPatchLines: 100, // Same as PRs
-      }
+      },
     );
 
     // Build decision prompt
@@ -624,16 +667,31 @@ ${DECISION_GUIDELINES}`;
 
     // Ask LLM what to do
     console.log(`   🤖 Asking LLM for decision...`);
-    const { decision, usage } = await this.llm.decide(prompt, undefined, this.sessionId);
+    const { decision, usage } = await this.llm.decide(
+      prompt,
+      undefined,
+      this.sessionId,
+      `gitree decision: commit ${commit.sha.substring(0, 7)}`,
+    );
 
     // Apply decision (pass usage to save with commit record)
-    await this.applyCommitDecision(owner, repo, commit, decision, modifiedFeatureIds, usage);
+    await this.applyCommitDecision(
+      owner,
+      repo,
+      commit,
+      decision,
+      modifiedFeatureIds,
+      usage,
+    );
 
     // Analyze for clues if enabled
     if (this.shouldAnalyzeClues) {
       try {
         // Get features linked to this commit (after decision has been applied)
-        const linkedFeatures = await this.storage.getFeaturesForCommit(commit.sha, this.repo);
+        const linkedFeatures = await this.storage.getFeaturesForCommit(
+          commit.sha,
+          this.repo,
+        );
         const featureIds = linkedFeatures.map((f) => f.id);
 
         // Fetch file list for context
@@ -644,17 +702,21 @@ ${DECISION_GUIDELINES}`;
         });
         const files = commitData.files || [];
 
-        const clueUsage = await this.analyzeChangeForClues({
-          type: "commit" as const,
-          identifier: commit.sha.substring(0, 7),
-          title: commit.message.split("\n")[0],
-          summary: decision.summary,
-          files: files.map((f: any) => f.filename),
-          fullContent: commitContent,
-        }, {
-          date: commit.committedAt,
-          id: commit.sha,
-        }, featureIds);
+        const clueUsage = await this.analyzeChangeForClues(
+          {
+            type: "commit" as const,
+            identifier: commit.sha.substring(0, 7),
+            title: commit.message.split("\n")[0],
+            summary: decision.summary,
+            files: files.map((f: any) => f.filename),
+            fullContent: commitContent,
+          },
+          {
+            date: commit.committedAt,
+            id: commit.sha,
+          },
+          featureIds,
+        );
         usage.inputTokens += clueUsage.inputTokens;
         usage.outputTokens += clueUsage.outputTokens;
         usage.totalTokens += clueUsage.totalTokens;
@@ -698,7 +760,7 @@ ${DECISION_GUIDELINES}`;
     },
     decision: LLMDecision,
     modifiedFeatureIds: Set<string>,
-    usage?: Usage
+    usage?: Usage,
   ): Promise<void> {
     // Fetch file list for this commit
     const { data: commitData } = await this.octokit.repos.getCommit({
@@ -725,25 +787,29 @@ ${DECISION_GUIDELINES}`;
     await this.storage.saveCommit(commitRecord);
 
     // Apply the decision using shared logic
-    await this.applyDecisionToFeatures(decision, {
-      changeDate: commit.committedAt,
-      addToFeature: async (feature) => {
-        // Initialize commitShas if it doesn't exist (legacy features)
-        if (!feature.commitShas) {
-          feature.commitShas = [];
-        }
-        if (!feature.commitShas.includes(commit.sha)) {
-          feature.commitShas.push(commit.sha);
-          return true;
-        }
-        return false;
+    await this.applyDecisionToFeatures(
+      decision,
+      {
+        changeDate: commit.committedAt,
+        addToFeature: async (feature) => {
+          // Initialize commitShas if it doesn't exist (legacy features)
+          if (!feature.commitShas) {
+            feature.commitShas = [];
+          }
+          if (!feature.commitShas.includes(commit.sha)) {
+            feature.commitShas.push(commit.sha);
+            return true;
+          }
+          return false;
+        },
+        createFeatureWith: (baseFeature) => ({
+          ...baseFeature,
+          prNumbers: [],
+          commitShas: [commit.sha],
+        }),
       },
-      createFeatureWith: (baseFeature) => ({
-        ...baseFeature,
-        prNumbers: [],
-        commitShas: [commit.sha],
-      }),
-    }, modifiedFeatureIds);
+      modifiedFeatureIds,
+    );
   }
 
   /**
@@ -754,9 +820,11 @@ ${DECISION_GUIDELINES}`;
     config: {
       changeDate: Date;
       addToFeature: (feature: Feature) => Promise<boolean>;
-      createFeatureWith: (base: Omit<Feature, 'prNumbers' | 'commitShas'>) => Feature;
+      createFeatureWith: (
+        base: Omit<Feature, "prNumbers" | "commitShas">,
+      ) => Feature;
     },
-    modifiedFeatureIds: Set<string>
+    modifiedFeatureIds: Set<string>,
   ): Promise<void> {
     console.log(`   📝 Summary: ${decision.summary}`);
     console.log(`   💭 Reasoning: ${decision.reasoning}`);
@@ -786,7 +854,7 @@ ${DECISION_GUIDELINES}`;
               }
             } else {
               console.log(
-                `   ⚠️  Warning: Feature ${featureId} not found, skipping`
+                `   ⚠️  Warning: Feature ${featureId} not found, skipping`,
               );
             }
           }
@@ -812,7 +880,12 @@ ${DECISION_GUIDELINES}`;
 
             // Explore codebase to generate initial docs (only if we have a local clone)
             if (this.repoPath) {
-              await exploreNewFeature(newFeature, this.repoPath, this.storage, this.sessionId);
+              await exploreNewFeature(
+                newFeature,
+                this.repoPath,
+                this.storage,
+                this.sessionId,
+              );
             }
           }
         }
@@ -822,7 +895,10 @@ ${DECISION_GUIDELINES}`;
     // Update feature descriptions (and attach the PR/commit that caused the update)
     if (decision.updateFeatures && decision.updateFeatures.length > 0) {
       for (const update of decision.updateFeatures) {
-        const feature = await this.storage.getFeature(update.featureId, this.repo);
+        const feature = await this.storage.getFeature(
+          update.featureId,
+          this.repo,
+        );
         if (feature) {
           feature.description = update.newDescription;
           feature.lastUpdated = config.changeDate;
@@ -833,7 +909,7 @@ ${DECISION_GUIDELINES}`;
           console.log(`      ${update.reasoning}`);
         } else {
           console.log(
-            `   ⚠️  Warning: Cannot update feature ${update.featureId} - not found`
+            `   ⚠️  Warning: Cannot update feature ${update.featureId} - not found`,
           );
         }
       }
@@ -855,7 +931,7 @@ ${DECISION_GUIDELINES}`;
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
-    
+
     // Return repo-prefixed ID
     return `${this.repo}/${slug}`;
   }
@@ -872,7 +948,9 @@ ${DECISION_GUIDELINES}`;
       return null;
     }
 
-    console.log(`   Migrating old checkpoints to chronological format for ${this.repo}...`);
+    console.log(
+      `   Migrating old checkpoints to chronological format for ${this.repo}...`,
+    );
 
     // Get the dates of the last processed PR and commit
     let latestDate: Date | null = null;
@@ -905,7 +983,7 @@ ${DECISION_GUIDELINES}`;
 
     await this.storage.setChronologicalCheckpoint(this.repo, checkpoint);
     console.log(
-      `   Migrated to chronological checkpoint: ${checkpoint.lastProcessedTimestamp}`
+      `   Migrated to chronological checkpoint: ${checkpoint.lastProcessedTimestamp}`,
     );
 
     return checkpoint;
@@ -915,7 +993,9 @@ ${DECISION_GUIDELINES}`;
    * Update checkpoint after processing a change (per-repo)
    */
   private async updateCheckpoint(date: Date, id: string): Promise<void> {
-    const currentCheckpoint = await this.storage.getChronologicalCheckpoint(this.repo);
+    const currentCheckpoint = await this.storage.getChronologicalCheckpoint(
+      this.repo,
+    );
     const dateString = date.toISOString();
 
     if (
@@ -931,12 +1011,14 @@ ${DECISION_GUIDELINES}`;
       // Same timestamp - add to processedAtTimestamp array
       if (!currentCheckpoint.processedAtTimestamp.includes(id)) {
         currentCheckpoint.processedAtTimestamp.push(id);
-        await this.storage.setChronologicalCheckpoint(this.repo, currentCheckpoint);
+        await this.storage.setChronologicalCheckpoint(
+          this.repo,
+          currentCheckpoint,
+        );
       }
     }
     // If date < checkpoint, this is an old item (shouldn't happen, but ignore)
   }
-
 
   /**
    * Analyze change (PR or commit) for clues
@@ -951,9 +1033,13 @@ ${DECISION_GUIDELINES}`;
       fullContent?: string;
     },
     checkpoint: { date: Date; id: string },
-    featureIds?: string[]
+    featureIds?: string[],
   ): Promise<Usage> {
-    const clueUsage: Usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    const clueUsage: Usage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    };
     console.log(`   💡 Analyzing for clues...`);
 
     // Initialize clue analyzer if needed
@@ -963,11 +1049,19 @@ ${DECISION_GUIDELINES}`;
         return clueUsage;
       }
       const { ClueAnalyzer } = await import("./clueAnalyzer.js");
-      this.clueAnalyzer = new ClueAnalyzer(this.storage, this.repoPath, undefined, this.sessionId);
+      this.clueAnalyzer = new ClueAnalyzer(
+        this.storage,
+        this.repoPath,
+        undefined,
+        this.sessionId,
+      );
     }
 
     // Analyze change (pass featureIds to scope clues)
-    const result = await this.clueAnalyzer.analyzeChange(changeContext, featureIds);
+    const result = await this.clueAnalyzer.analyzeChange(
+      changeContext,
+      featureIds,
+    );
     clueUsage.inputTokens += result.usage.inputTokens;
     clueUsage.outputTokens += result.usage.outputTokens;
     clueUsage.totalTokens += result.usage.totalTokens;
@@ -979,11 +1073,15 @@ ${DECISION_GUIDELINES}`;
 
       // Auto-link clues to relevant features
       const { ClueLinker } = await import("./clueLinker.js");
-      const linker = new ClueLinker(this.storage, this.sessionId);
+      const linker = new ClueLinker(
+        this.storage,
+        this.sessionId,
+        this.sessionTracker,
+      );
       const clueIds = result.clues.map((c: any) => c.id);
 
       console.log(
-        `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`
+        `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`,
       );
       const linkUsage = await linker.linkClues(clueIds);
       clueUsage.inputTokens += linkUsage.inputTokens;
@@ -1001,10 +1099,11 @@ ${DECISION_GUIDELINES}`;
    */
   private async updateClueAnalysisCheckpoint(
     date: Date,
-    id: string
+    id: string,
   ): Promise<void> {
-    const currentCheckpoint =
-      await this.storage.getClueAnalysisCheckpoint(this.repo);
+    const currentCheckpoint = await this.storage.getClueAnalysisCheckpoint(
+      this.repo,
+    );
     const dateString = date.toISOString();
 
     if (
@@ -1020,7 +1119,10 @@ ${DECISION_GUIDELINES}`;
       // Same timestamp - add to processedAtTimestamp array
       if (!currentCheckpoint.processedAtTimestamp.includes(id)) {
         currentCheckpoint.processedAtTimestamp.push(id);
-        await this.storage.setClueAnalysisCheckpoint(this.repo, currentCheckpoint);
+        await this.storage.setClueAnalysisCheckpoint(
+          this.repo,
+          currentCheckpoint,
+        );
       }
     }
     // If date < checkpoint, this is an old item (shouldn't happen, but ignore)

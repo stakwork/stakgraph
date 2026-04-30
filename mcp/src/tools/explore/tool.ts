@@ -10,7 +10,7 @@ import {
 import { z } from "zod";
 import * as G from "../../graph/graph.js";
 import { ContextResult } from "../types.js";
-import { appendMessages } from "../../repo/session.js";
+import { appendMessages, appendStepMeta, loadSessionMessages, StepMeta } from "../../repo/session.js";
 import { extractMessagesFromSteps } from "../../repo/utils.js";
 
 /*
@@ -162,6 +162,12 @@ export async function get_context_explore(
     : re_explore
     ? RE_EXPLORER
     : EXPLORER;
+  const turnIndex = sessionId
+    ? loadSessionMessages(sessionId).filter((m) => m.role === "user").length + 1
+    : 1;
+  const stepMetas: StepMeta[] = [];
+  let cumInput = 0;
+  let cumOutput = 0;
   const { steps, totalUsage } = await generateText({
     model,
     tools,
@@ -171,6 +177,22 @@ export async function get_context_explore(
     onStepFinish: (sf) => {
       // console.log("step", JSON.stringify(sf.content, null, 2));
       logStep(sf.content);
+      const usage = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      cumInput += usage.inputTokens ?? 0;
+      cumOutput += usage.outputTokens ?? 0;
+      stepMetas.push({
+        step: stepMetas.length,
+        turn: turnIndex,
+        usage: {
+          inputTokens: usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+          totalTokens: usage.totalTokens ?? 0,
+        },
+        cumulativeInput: cumInput,
+        cumulativeOutput: cumOutput,
+        toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
+        timestamp: new Date().toISOString(),
+      });
     },
   });
 
@@ -179,6 +201,7 @@ export async function get_context_explore(
       ? { role: "user", content: prompt }
       : (prompt[prompt.length - 1] as ModelMessage);
     appendMessages(sessionId, extractMessagesFromSteps(userMessage, steps as unknown as StepResult<ToolSet>[]));
+    appendStepMeta(sessionId, stepMetas);
   }
   let final = "";
   let lastText = "";

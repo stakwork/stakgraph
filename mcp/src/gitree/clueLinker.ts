@@ -3,12 +3,17 @@ import { Clue, Usage } from "./types.js";
 import { generateObject, jsonSchema } from "ai";
 import { getApiKeyForProvider, getModel, Provider } from "../aieo/src/provider.js";
 import { appendMessages } from "../repo/session.js";
+import { appendGitreeLlmExchange, GitreeSessionTracker } from "./llm.js";
 
 /**
  * Links clues to relevant features based on semantic similarity and context
  */
 export class ClueLinker {
-  constructor(private storage: Storage, private sessionId?: string) {}
+  constructor(
+    private storage: Storage,
+    private sessionId?: string,
+    private sessionTracker?: GitreeSessionTracker,
+  ) {}
 
   /**
    * Link specific clues to relevant features
@@ -25,16 +30,19 @@ export class ClueLinker {
     const cluesToLink = allClues.filter((c) => clueIds.includes(c.id));
 
     console.log(
-      `\n🔗 Linking ${cluesToLink.length} new clue(s) to ${features.length} features...\n`
+      `\n🔗 Linking ${cluesToLink.length} new clue(s) to ${features.length} features...\n`,
     );
 
-    const result = await this.linkClueBatch(cluesToLink, features, false, this.sessionId);
-
-    console.log(
-      `\n✅ Linked ${cluesToLink.length} clue(s)!`
+    const result = await this.linkClueBatch(
+      cluesToLink,
+      features,
+      false,
+      this.sessionId,
     );
+
+    console.log(`\n✅ Linked ${cluesToLink.length} clue(s)!`);
     console.log(
-      `   Token usage: ${result.usage.totalTokens.toLocaleString()}\n`
+      `   Token usage: ${result.usage.totalTokens.toLocaleString()}\n`,
     );
 
     return result.usage;
@@ -49,7 +57,9 @@ export class ClueLinker {
     const features = await this.storage.getAllFeatures(repo);
     const allClues = await this.storage.getAllClues(repo);
 
-    console.log(`\n🔗 Linking ${allClues.length} clues to ${features.length} features...\n`);
+    console.log(
+      `\n🔗 Linking ${allClues.length} clues to ${features.length} features...\n`,
+    );
 
     const totalUsage: Usage = {
       inputTokens: 0,
@@ -66,18 +76,28 @@ export class ClueLinker {
       console.log(`${progress} Processing batch...`);
 
       try {
-        const result = await this.linkClueBatch(batch, features, force, this.sessionId);
+        const result = await this.linkClueBatch(
+          batch,
+          features,
+          force,
+          this.sessionId,
+        );
         totalUsage.inputTokens += result.usage.inputTokens;
         totalUsage.outputTokens += result.usage.outputTokens;
         totalUsage.totalTokens += result.usage.totalTokens;
       } catch (error) {
-        console.error(`   ❌ Error:`, error instanceof Error ? error.message : error);
+        console.error(
+          `   ❌ Error:`,
+          error instanceof Error ? error.message : error,
+        );
         console.log(`   ⏭️  Skipping batch and continuing...`);
       }
     }
 
     console.log(`\n✅ Done linking all clues!`);
-    console.log(`   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`);
+    console.log(
+      `   Total token usage: ${totalUsage.totalTokens.toLocaleString()}`,
+    );
 
     return totalUsage;
   }
@@ -89,7 +109,7 @@ export class ClueLinker {
     clues: Clue[],
     features: any[],
     force: boolean,
-    sessionId?: string
+    sessionId?: string,
   ): Promise<{ usage: Usage }> {
     // Skip clues that already have multiple links (unless force)
     const cluesToLink = force
@@ -122,10 +142,25 @@ export class ClueLinker {
 
     const decision = result.object as any;
 
-    if (sessionId) {
+    const response = JSON.stringify(decision);
+    const usage = {
+      inputTokens: result.usage?.inputTokens || 0,
+      outputTokens: result.usage?.outputTokens || 0,
+      totalTokens: result.usage?.totalTokens || 0,
+    };
+
+    if (this.sessionTracker) {
+      appendGitreeLlmExchange(
+        this.sessionTracker,
+        prompt,
+        response,
+        usage,
+        `gitree clue linking: ${cluesToLink.length} clues`,
+      );
+    } else if (sessionId) {
       appendMessages(sessionId, [
         { role: "user", content: prompt },
-        { role: "assistant", content: JSON.stringify(decision) },
+        { role: "assistant", content: response },
       ]);
     }
 
@@ -146,16 +181,12 @@ export class ClueLinker {
       await this.storage.saveClue(clue);
 
       console.log(
-        `   🔗 Linked "${clue.title}" to ${clue.relatedFeatures.length} feature(s)`
+        `   🔗 Linked "${clue.title}" to ${clue.relatedFeatures.length} feature(s)`,
       );
     }
 
     return {
-      usage: {
-        inputTokens: result.usage?.inputTokens || 0,
-        outputTokens: result.usage?.outputTokens || 0,
-        totalTokens: result.usage?.totalTokens || 0,
-      },
+      usage,
     };
   }
 
@@ -174,10 +205,10 @@ export class ClueLinker {
             .map(([type, values]) =>
               values && values.length > 0
                 ? `${type}=[${values.slice(0, 3).join(", ")}]`
-                : ""
+                : "",
             )
             .filter(Boolean)
-            .join(", ")}`
+            .join(", ")}`,
       )
       .join("\n\n");
 
@@ -188,7 +219,7 @@ export class ClueLinker {
           `    ${f.description}\n` +
           (f.documentation
             ? `    ${f.documentation.substring(0, 200)}...\n`
-            : "")
+            : ""),
       )
       .join("\n");
 

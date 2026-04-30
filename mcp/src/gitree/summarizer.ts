@@ -2,7 +2,11 @@ import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
-import { DOC_GUIDELINES } from "./llm.js";
+import {
+  appendGitreeLlmExchange,
+  DOC_GUIDELINES,
+  GitreeSessionTracker,
+} from "./llm.js";
 import { appendMessages } from "../repo/session.js";
 
 /**
@@ -12,13 +16,17 @@ export class Summarizer {
   constructor(
     private storage: Storage,
     private provider: Provider,
-    private apiKey: string
+    private apiKey: string,
+    private sessionTracker?: GitreeSessionTracker,
   ) {}
 
   /**
    * Generate documentation for a single feature
    */
-  async summarizeFeature(featureId: string, sessionId?: string): Promise<Usage> {
+  async summarizeFeature(
+    featureId: string,
+    sessionId?: string,
+  ): Promise<Usage> {
     // Load feature
     const feature = await this.storage.getFeature(featureId);
     if (!feature) {
@@ -38,12 +46,22 @@ export class Summarizer {
 
     // Sort PRs and commits chronologically
     const sortedPRs = allPRs.sort((a, b) => a.number - b.number);
-    const sortedCommits = allCommits.sort((a, b) => a.committedAt.getTime() - b.committedAt.getTime());
+    const sortedCommits = allCommits.sort(
+      (a, b) => a.committedAt.getTime() - b.committedAt.getTime(),
+    );
 
     // Combine and sort chronologically (oldest to newest)
     const combined = [
-      ...sortedPRs.map(pr => ({ type: 'pr' as const, data: pr, date: pr.mergedAt })),
-      ...sortedCommits.map(commit => ({ type: 'commit' as const, data: commit, date: commit.committedAt }))
+      ...sortedPRs.map((pr) => ({
+        type: "pr" as const,
+        data: pr,
+        date: pr.mergedAt,
+      })),
+      ...sortedCommits.map((commit) => ({
+        type: "commit" as const,
+        data: commit,
+        date: commit.committedAt,
+      })),
     ].sort((a, b) => a.date.getTime() - b.date.getTime());
 
     // Bookend strategy: First 8 (foundational) + Last 100 (recent) = 108 total
@@ -51,13 +69,13 @@ export class Summarizer {
     if (combined.length <= 108) {
       selected = combined; // Use all if under limit
     } else {
-      const first8 = combined.slice(0, 8);   // Foundation
-      const last100 = combined.slice(-100);  // Current state
+      const first8 = combined.slice(0, 8); // Foundation
+      const last100 = combined.slice(-100); // Current state
       selected = [...first8, ...last100];
     }
 
     console.log(
-      `   Found ${allPRs.length} PRs and ${allCommits.length} commits (using ${selected.length}: ${combined.length <= 108 ? 'all' : 'first 8 + last 100'})`
+      `   Found ${allPRs.length} PRs and ${allCommits.length} commits (using ${selected.length}: ${combined.length <= 108 ? "all" : "first 8 + last 100"})`,
     );
 
     // Build prompt with selected changes (in chronological order)
@@ -72,7 +90,15 @@ export class Summarizer {
       prompt,
     });
 
-    if (sessionId) {
+    if (this.sessionTracker) {
+      appendGitreeLlmExchange(
+        this.sessionTracker,
+        prompt,
+        result.text,
+        result.usage,
+        `gitree summary: ${feature.name}`,
+      );
+    } else if (sessionId) {
       appendMessages(sessionId, [
         { role: "user", content: prompt },
         { role: "assistant", content: result.text },
@@ -82,7 +108,10 @@ export class Summarizer {
     const documentation = result.text.trim();
 
     // LLM responded "OK" — existing docs are still accurate, no update needed
-    if (documentation.toUpperCase() === "OK" || documentation.toUpperCase() === "\`OK\`") {
+    if (
+      documentation.toUpperCase() === "OK" ||
+      documentation.toUpperCase() === "\`OK\`"
+    ) {
       console.log(`   ⏭️  No doc update needed (existing docs are current)`);
       return result.usage;
     }
@@ -95,7 +124,9 @@ export class Summarizer {
     // Save documentation as markdown file
     await this.storage.saveDocumentation(feature.id, documentation);
 
-    console.log(`   ✅ Documentation generated (${documentation.length} chars)`);
+    console.log(
+      `   ✅ Documentation generated (${documentation.length} chars)`,
+    );
 
     return result.usage;
   }
@@ -103,13 +134,18 @@ export class Summarizer {
   /**
    * Generate documentation for specific modified features
    */
-  async summarizeModifiedFeatures(featureIds: string[], sessionId?: string): Promise<Usage> {
+  async summarizeModifiedFeatures(
+    featureIds: string[],
+    sessionId?: string,
+  ): Promise<Usage> {
     if (featureIds.length === 0) {
       console.log(`\n⏭️  No features to summarize`);
       return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     }
 
-    console.log(`\n📚 Summarizing ${featureIds.length} modified feature(s)...\n`);
+    console.log(
+      `\n📚 Summarizing ${featureIds.length} modified feature(s)...\n`,
+    );
 
     // Accumulate usage across all features
     const totalUsage: Usage = {
@@ -136,12 +172,12 @@ export class Summarizer {
         totalUsage.outputTokens += usage.outputTokens;
         totalUsage.totalTokens += usage.totalTokens;
         console.log(
-          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
         );
       } catch (error) {
         console.error(
           `   ❌ Error:`,
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
         console.log(`   ⏭️  Skipping and continuing...`);
       }
@@ -180,12 +216,12 @@ export class Summarizer {
         totalUsage.outputTokens += usage.outputTokens;
         totalUsage.totalTokens += usage.totalTokens;
         console.log(
-          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`
+          `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
         );
       } catch (error) {
         console.error(
           `   ❌ Error:`,
-          error instanceof Error ? error.message : error
+          error instanceof Error ? error.message : error,
         );
         console.log(`   ⏭️  Skipping and continuing...`);
       }
@@ -201,18 +237,26 @@ export class Summarizer {
    */
   private buildSummaryPrompt(
     feature: Feature,
-    selected: Array<{ type: 'pr' | 'commit', data: PRRecord | CommitRecord, date: Date }>,
-    isBookended: boolean
+    selected: Array<{
+      type: "pr" | "commit";
+      data: PRRecord | CommitRecord;
+      date: Date;
+    }>,
+    isBookended: boolean,
   ): string {
     // Format changes in chronological order
     const formattedChanges = selected.map((item, index) => {
-      const content = item.type === 'pr'
-        ? this.formatPRForSummary(item.data as PRRecord)
-        : this.formatCommitForSummary(item.data as CommitRecord);
+      const content =
+        item.type === "pr"
+          ? this.formatPRForSummary(item.data as PRRecord)
+          : this.formatCommitForSummary(item.data as CommitRecord);
 
       // Add section marker after first 8 if bookended
       if (isBookended && index === 7) {
-        return content + '\n\n---\n**[NOTE: Gap in history - continuing with most recent 100 changes]**\n---';
+        return (
+          content +
+          "\n\n---\n**[NOTE: Gap in history - continuing with most recent 100 changes]**\n---"
+        );
       }
 
       return content;
@@ -221,14 +265,15 @@ export class Summarizer {
     const changesText = formattedChanges.join("\n\n");
     const totalChanges = selected.length;
 
-    const prs = selected.filter(c => c.type === 'pr');
-    const commits = selected.filter(c => c.type === 'commit');
+    const prs = selected.filter((c) => c.type === "pr");
+    const commits = selected.filter((c) => c.type === "commit");
 
-    const hasExistingDocs = feature.documentation && feature.documentation.trim().length > 0;
+    const hasExistingDocs =
+      feature.documentation && feature.documentation.trim().length > 0;
 
     const existingDocsSection = hasExistingDocs
       ? `\n## Existing Documentation\n\nThe following documentation already exists for this feature. Use it as your starting point — preserve what is still accurate, update what has changed, and add any new information from the changes below.\n\n${feature.documentation}\n\n---\n`
-      : '';
+      : "";
 
     const taskDescription = hasExistingDocs
       ? `**Your task**: UPDATE the existing documentation based on the new changes below. Preserve the structure and content that is still accurate. Integrate new information naturally — don't append a changelog, rewrite the relevant sections to reflect the current state.
@@ -243,8 +288,8 @@ If the new changes are minor (bug fixes, small tweaks, refactors) and the existi
 **Description**: ${feature.description}
 **Total changes in history**: ${totalChanges} (${prs.length} PRs, ${commits.length} commits)
 ${existingDocsSection}
-Below is ${isBookended ? 'the FOUNDATIONAL (first 8) and RECENT (last 100) changes' : 'the COMPLETE chronological history'} (PRs and commits) that built this feature (from oldest to newest):
-${isBookended ? '\n**NOTE**: The first 8 changes show initial architecture/foundation. After a gap, the remaining changes show the recent state.\n' : ''}
+Below is ${isBookended ? "the FOUNDATIONAL (first 8) and RECENT (last 100) changes" : "the COMPLETE chronological history"} (PRs and commits) that built this feature (from oldest to newest):
+${isBookended ? "\n**NOTE**: The first 8 changes show initial architecture/foundation. After a gap, the remaining changes show the recent state.\n" : ""}
 ${changesText}
 
 ---
@@ -295,7 +340,7 @@ Generate the documentation in markdown format:`;
    * Format a commit for the summary prompt (lighter weight than full markdown)
    */
   private formatCommitForSummary(commit: CommitRecord): string {
-    let content = `### Commit ${commit.sha.substring(0, 7)}: ${commit.message.split('\n')[0]}
+    let content = `### Commit ${commit.sha.substring(0, 7)}: ${commit.message.split("\n")[0]}
 **Author**: ${commit.author}
 **Committed**: ${commit.committedAt.toISOString().split("T")[0]}
 **Summary**: ${commit.summary}`;

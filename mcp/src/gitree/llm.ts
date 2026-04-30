@@ -2,7 +2,12 @@ import { z } from "zod";
 import { callGenerateObject } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
 import { LLMDecision, Usage } from "./types.js";
-import { appendMessages } from "../repo/session.js";
+import {
+  appendMessages,
+  appendStepMeta,
+  loadSessionMessages,
+  loadStepMeta,
+} from "../repo/session.js";
 
 /**
  * Shared documentation guidelines used by bootstrap, summarizer, and exploreNewFeature
@@ -23,6 +28,63 @@ export const DOC_GUIDELINES = {
 - Detailed API documentation
 - Step-by-step flows unless absolutely essential`,
 };
+
+export interface GitreeSessionTracker {
+  sessionId: string;
+  step: number;
+  turn: number;
+  cumulativeInput: number;
+  cumulativeOutput: number;
+}
+
+export function createGitreeSessionTracker(
+  sessionId: string,
+): GitreeSessionTracker {
+  const stepMeta = loadStepMeta(sessionId);
+  const lastMeta = stepMeta[stepMeta.length - 1];
+  return {
+    sessionId,
+    step: stepMeta.length,
+    turn:
+      loadSessionMessages(sessionId).filter((m) => m.role === "user").length +
+      1,
+    cumulativeInput: lastMeta?.cumulativeInput ?? 0,
+    cumulativeOutput: lastMeta?.cumulativeOutput ?? 0,
+  };
+}
+
+export function appendGitreeLlmExchange(
+  tracker: GitreeSessionTracker,
+  prompt: string,
+  response: string,
+  usage: Usage,
+  label?: string,
+): void {
+  appendMessages(tracker.sessionId, [
+    { role: "user", content: prompt },
+    { role: "assistant", content: response },
+  ]);
+  tracker.cumulativeInput += usage.inputTokens || 0;
+  tracker.cumulativeOutput += usage.outputTokens || 0;
+  appendStepMeta(tracker.sessionId, [
+    {
+      step: tracker.step,
+      turn: tracker.turn,
+      ...(label ? { label } : {}),
+      usage: {
+        inputTokens: usage.inputTokens || 0,
+        outputTokens: usage.outputTokens || 0,
+        totalTokens: usage.totalTokens || 0,
+      },
+      cumulativeInput: tracker.cumulativeInput,
+      cumulativeOutput: tracker.cumulativeOutput,
+      toolCalls: [],
+      timestamp: new Date().toISOString(),
+    },
+  ]);
+  tracker.step += 1;
+  tracker.turn += 1;
+}
 
 /**
  * Schema for LLM decision using Zod
@@ -64,7 +126,11 @@ const LLMDecisionSchema = z.object({
  * LLM client for making decisions about PRs
  */
 export class LLMClient {
-  constructor(private provider: Provider, private apiKey: string) {}
+  constructor(
+    private provider: Provider,
+    private apiKey: string,
+    private sessionTracker?: GitreeSessionTracker,
+  ) {}
 
   /**
    * Ask LLM to decide what to do with a PR
@@ -72,7 +138,8 @@ export class LLMClient {
   async decide(
     prompt: string,
     retries = 3,
-    sessionId?: string
+    sessionId?: string,
+    label?: string,
   ): Promise<{ decision: LLMDecision; usage: Usage }> {
     let lastError: Error | undefined;
 
@@ -85,10 +152,19 @@ export class LLMClient {
           schema: LLMDecisionSchema,
         });
 
-        if (sessionId) {
+        const response = JSON.stringify(result.object);
+        if (this.sessionTracker) {
+          appendGitreeLlmExchange(
+            this.sessionTracker,
+            prompt,
+            response,
+            result.usage,
+            label,
+          );
+        } else if (sessionId) {
           appendMessages(sessionId, [
             { role: "user", content: prompt },
-            { role: "assistant", content: JSON.stringify(result.object) },
+            { role: "assistant", content: response },
           ]);
         }
 
@@ -102,7 +178,7 @@ export class LLMClient {
         if (attempt < retries) {
           const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
           console.log(
-            `   ⚠️  Attempt ${attempt} failed, retrying in ${delay / 1000}s...`
+            `   ⚠️  Attempt ${attempt} failed, retrying in ${delay / 1000}s...`,
           );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
