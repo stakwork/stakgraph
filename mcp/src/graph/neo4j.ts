@@ -1759,20 +1759,31 @@ async function execute_batch(session: Session, batch: MergeQuery[]) {
  * Prepares a fulltext search query for Neo4j by properly handling special characters
  */
 export function prepareFulltextSearchQuery(searchTerm: string): string {
-  // console.log("===> prepareFulltextSearchQuery", searchTerm);
-  // Escape the raw search term first
-  const escapedTerm = escapeSearchTerm(searchTerm);
+  const words = searchTerm.trim().split(/\s+/).filter(Boolean);
 
-  // Build the query with proper structure
-  const queryParts = [
-    `name:${escapedTerm}^10`,
-    `file:*${escapedTerm}*^4`,
-    `body:${escapedTerm}^3`,
-    `name:${escapedTerm}*^2`,
-    `body:${escapedTerm}*^1`,
-  ];
+  if (words.length === 1) {
+    const word = escapeSearchTerm(words[0]);
+    const fieldMatches = [
+      `name:${word}^10`,
+      `file:*${word}*^4`,
+      `body:${word}^3`,
+      `name:${word}*^2`,
+      `body:${word}*^1`,
+    ];
+    return fieldMatches.join(" OR ");
+  }
 
-  return queryParts.join(" OR ");
+  // Multi-word: all words must appear somewhere in the document (AND),
+  // then boost exact phrase as a tiebreaker
+  const wordMatches = words.map((w) => {
+    const word = escapeSearchTerm(w);
+    return `(name:${word}^10 OR body:${word}^3 OR name:${word}*^2 OR body:${word}*^1)`;
+  });
+
+  const quotedPhrase = `"${searchTerm.replace(/"/g, '\\"')}"`;
+  const exactPhraseMatch = `(name:${quotedPhrase}^5 OR body:${quotedPhrase}^2)`;
+
+  return `(${wordMatches.join(" AND ")}) OR ${exactPhraseMatch}`;
 }
 
 /**
