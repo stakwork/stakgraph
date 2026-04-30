@@ -40,9 +40,38 @@ import {
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
 
+function SYSTEM_PROMPT_END(qs: boolean) {
+  const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
+
+  Write your answer directly as text and end with [END_OF_ANSWER].`;
+  
+  const qsEnd = `CRITICAL: When you finish exploring, you MUST do ONE of these:
+  
+  1. Write your complete answer as text, then output [END_OF_ANSWER] on a new line
+  2. Call ask_clarifying_questions tool with format: { "questions": [...] }
+  
+  Call ask_clarifying_questions when:
+  - The user's query is too general
+  - You can provide a better answer by first gathering more information from the user
+  - Your technical exploration has revealed multiple possible approaches, and you want the user's input on which to choose
+  - You want to validate a proposed flow or architecture before proceeding (use mermaid or comparison_table questionArtifact)
+  
+  WIDGET TYPES:
+  - Basic questions: Simple string options like ["Option A", "Option B"]
+  - Diagram confirmation: Use questionArtifact with type "mermaid" to show a flow diagram
+  - Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
+  - Color picker: Use questionArtifact with type "color_swatch" to show a color picker
+  
+  Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`
+
+  return qs ? qsEnd : normalEnd;
+}
+
 function DEFAULT_SYSTEM(toolsConfig?: ToolsConfig) {
 
   const learn_concepts = toolsConfig?.learn_concept || toolsConfig?.list_concepts || toolsConfig?.learn_concepts
+
+  const qs = toolsConfig?.ask_clarifying_questions ? true : false;
 
   return `You are a code exploration assistant with access to a **code knowledge graph**. Use graph tools whenever possible — they are faster, more precise, and understand code relationships.
 
@@ -107,32 +136,9 @@ The prompt prepended to your instructions tells you which repos are graph-backed
 - **List data models** → \`stakgraph_search({ query: "model", node_types: ["Datamodel"] })\`
 - **Find tests** → \`stakgraph_search({ query: "X", node_types: ["UnitTest", "IntegrationTest"] })\`
 
-CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
-
-Write your answer directly as text and end with [END_OF_ANSWER].`;
-
+${SYSTEM_PROMPT_END(qs)}
+`;
 };
-
-const ASK_CLARIFYING_QUESTIONS_SYSTEM = `You are a code exploration assistant. Please use the provided tools to answer the user's prompt.
-
-CRITICAL: When you finish exploring, you MUST do ONE of these:
-
-1. Write your complete answer as text, then output [END_OF_ANSWER] on a new line
-2. Call ask_clarifying_questions tool with format: { "questions": [...] }
-
-Call ask_clarifying_questions when:
- - The user's query is too general
- - You can provide a better answer by first gathering more information from the user
- - Your technical exploration has revealed multiple possible approaches, and you want the user's input on which to choose
- - You want to validate a proposed flow or architecture before proceeding (use mermaid or comparison_table questionArtifact)
-
-WIDGET TYPES:
-- Basic questions: Simple string options like ["Option A", "Option B"]
-- Diagram confirmation: Use questionArtifact with type "mermaid" to show a flow diagram
-- Comparison table: Use questionArtifact with type "comparison_table" to compare approaches with pros/cons
-- Color picker: Use questionArtifact with type "color_swatch" to show a color picker
-
-Otherwise, provide your answer directly followed by [END_OF_ANSWER]. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just write your answer.`;
 
 async function structureFinalAnswer(
   finalPrompt: string | ModelMessage[],
@@ -312,7 +318,6 @@ Apply the guidance from each skill throughout your response.`;
   let finalPrompt: string | ModelMessage[] = prompt;
 
   if (toolsConfig?.ask_clarifying_questions) {
-    instructions = ASK_CLARIFYING_QUESTIONS_SYSTEM;
     stopWhen = [hasEndMarker, hasAskQuestions];
 
     finalPrompt = appendTextToPrompt(
