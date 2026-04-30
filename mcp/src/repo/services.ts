@@ -5,6 +5,8 @@ import { get_context } from "./agent.js";
 import { startTracking, endTracking } from "../busy.js";
 import { parse_files_contents } from "../gitsee/agent/index.js";
 import { randomUUID } from "crypto";
+import { createSession, appendSessionEnd } from "./session.js";
+import { getModelDetails } from "../aieo/src/index.js";
 
 // curl "http://localhost:3355/progress?request_id=123"
 export async function services_agent(req: Request, res: Response) {
@@ -19,6 +21,9 @@ export async function services_agent(req: Request, res: Response) {
 
   const request_id = asyncReqs.startReq();
   const sessionId = randomUUID();
+  const startTime = Date.now();
+  const { modelId, provider } = getModelDetails();
+  createSession(sessionId, undefined, "services_agent");
   const opId = startTracking("services_agent");
   try {
     cloneOrUpdateRepo(`https://github.com/${owner}/${repoName}`, username, pat)
@@ -36,12 +41,34 @@ export async function services_agent(req: Request, res: Response) {
         });
         return { content: text_of_files.content, usage: text_of_files.usage };
       })
-      .then((result) => {
+      .then(async (result) => {
         const files = parse_files_contents(result.content);
         asyncReqs.finishReq(request_id, { ...files, usage: result.usage });
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: result.usage.model || modelId,
+          provider: result.usage.provider || provider,
+          duration_ms: Date.now() - startTime,
+          status: "success",
+          token_usage: {
+            input: result.usage.inputTokens,
+            cache_read: 0,
+            cache_write: 0,
+            output: result.usage.outputTokens,
+            total: result.usage.totalTokens,
+          },
+        });
       })
-      .catch((error) => {
+      .catch(async (error) => {
         console.error("[repo_agent] Background work failed with error:", error);
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status: "error",
+          error_message: error.message || error.toString(),
+        });
         asyncReqs.failReq(request_id, error.message || error.toString());
       })
       .finally(() => {

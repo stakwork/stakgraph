@@ -1,3 +1,20 @@
+export type AnnotationMarker =
+  | "inefficient"
+  | "bad_search"
+  | "good_result"
+  | "loop"
+  | "wrong_tool"
+  | "wasted_tokens";
+
+export interface Annotation {
+  ts: string;
+  author?: string;
+  target: "session" | "tool_call";
+  target_id?: string;
+  marker: AnnotationMarker;
+  note?: string;
+}
+
 export interface StepMeta {
   step: number;
   turn: number;
@@ -51,5 +68,6 @@ export interface ProductionRun {
   answer_preview: string;
   step_meta?: StepMeta[];
   search_provenance?: SearchProvenanceEntry[];
+  annotations?: Annotation[];
   trace?: unknown;
 }

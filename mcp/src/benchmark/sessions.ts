@@ -2,7 +2,14 @@ import { Request, Response } from "express";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import path from "path";
 import { db } from "../graph/neo4j.js";
-import { loadStepMeta, loadSearchProvenance } from "../repo/session.js";
+import {
+  loadStepMeta,
+  loadSearchProvenance,
+  loadAnnotations,
+  appendAnnotation,
+  type Annotation,
+  type AnnotationMarker,
+} from "../repo/session.js";
 import {
   getProviderForModel,
   computeSessionCost,
@@ -215,7 +222,8 @@ export async function list_sessions(_req: Request, res: Response) {
           if (
             !file.endsWith(".jsonl") ||
             file.endsWith(".meta.jsonl") ||
-            file.endsWith(".provenance.jsonl")
+            file.endsWith(".provenance.jsonl") ||
+            file.endsWith(".annotations.jsonl")
           )
             continue;
           const id = file.replace(/\.jsonl$/, "");
@@ -241,7 +249,8 @@ export async function list_sessions(_req: Request, res: Response) {
     (f) =>
       f.endsWith(".jsonl") &&
       !f.endsWith(".meta.jsonl") &&
-      !f.endsWith(".provenance.jsonl"),
+      !f.endsWith(".provenance.jsonl") &&
+      !f.endsWith(".annotations.jsonl"),
   );
 
   const runs = files.map((file) => buildOrphanRun(dir, file));
@@ -283,6 +292,7 @@ export async function get_session(req: Request, res: Response) {
 
   const step_meta = loadStepMeta(id);
   const search_provenance = loadSearchProvenance(id);
+  const annotations = loadAnnotations(id);
 
   if (db) {
     try {
@@ -315,6 +325,7 @@ export async function get_session(req: Request, res: Response) {
           answer_preview: answerPreview,
           step_meta,
           search_provenance,
+          annotations,
           trace,
         });
         return;
@@ -348,8 +359,47 @@ export async function get_session(req: Request, res: Response) {
     answer_preview: answerPreview,
     step_meta,
     search_provenance,
+    annotations,
     trace,
   });
+}
+
+export async function add_annotation(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!id || id.includes("..") || id.includes("/")) {
+    res.status(400).json({ error: "Invalid session id" });
+    return;
+  }
+
+  const VALID_MARKERS = new Set([
+    "inefficient", "bad_search", "good_result", "loop", "wrong_tool", "wasted_tokens",
+  ]);
+  const VALID_TARGETS = new Set(["session", "tool_call"]);
+
+  const body = req.body as Record<string, unknown>;
+  const target = body.target ? String(body.target) : "";
+  const marker = body.marker ? String(body.marker) : "";
+
+  if (!VALID_TARGETS.has(target)) {
+    res.status(400).json({ error: "Invalid target" });
+    return;
+  }
+  if (!VALID_MARKERS.has(marker)) {
+    res.status(400).json({ error: "Invalid marker" });
+    return;
+  }
+
+  const annotation: Annotation = {
+    ts: new Date().toISOString(),
+    author: body.author ? String(body.author).slice(0, 64) : undefined,
+    target: target as "session" | "tool_call",
+    target_id: body.target_id ? String(body.target_id).slice(0, 256) : undefined,
+    marker: marker as AnnotationMarker,
+    note: body.note ? String(body.note).slice(0, 1000) : undefined,
+  };
+
+  appendAnnotation(id, annotation);
+  res.status(201).json(annotation);
 }
 
 export async function session_stats(req: Request, res: Response) {
