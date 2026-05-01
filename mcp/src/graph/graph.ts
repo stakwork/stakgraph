@@ -483,7 +483,7 @@ export async function get_file_map(file_end: string): Promise<string> {
 
 export async function get_map(params: MapParams): Promise<string> {
   const record = await get_subtree(params);
-  // const pkg_files = await db.get_pkg_files();
+  const pkg_files = await db.get_pkg_files();
   const tokenizer = await getTokenizer();
 
   const tree = await buildTree(record, params.direction, tokenizer);
@@ -492,11 +492,11 @@ export async function get_map(params: MapParams): Promise<string> {
   const text = archy(tree.root);
   let themap = ``;
   themap += text;
-  // for (const file of pkg_files) {
-  //   const tokens = tokenizer.encode(file.properties.body || "", []);
-  //   themap += `File: ${toNode(file, true).file} (${tokens.length})\n`;
-  // }
-  const fulltext = extractNodesFromRecord(record);
+  for (const file of pkg_files) {
+    const tokens = tokenizer.encode(file.properties.body || "", []);
+    themap += `File: ${toNode(file, true).file} (${tokens.length})\n`;
+  }
+  const fulltext = extractNodesFromRecord(record, pkg_files);
   const tokens = tokenizer.encode(fulltext, []);
   themap += `Total tokens: ${tokens.length}`;
   return themap;
