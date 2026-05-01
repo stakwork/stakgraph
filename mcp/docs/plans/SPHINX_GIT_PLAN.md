@@ -1,5 +1,18 @@
 # sphinx-git CLI Implementation Plan
 
+## GitHub "Verified" badge — design note
+
+GitHub will only render the green "Verified" badge when, on a single GitHub account, all three line up: a valid signature, the signing public key uploaded as an SSH *signing* key, and the commit's committer email matches a verified email on that account. There is no catch-all / domain-wildcard verification for personal-account emails — every address has to be individually click-verified, and accounts have a low cap on verified emails. So the per-agent `<pubkey_hex>@agents.sphinx.chat` author email used elsewhere in this plan **cannot** be made GitHub-verified at scale.
+
+To still get the badge on GitHub, the practical shape is:
+
+- **Single shared verified email** on a bot-style GitHub account (e.g. `agents@<domain>`), used as the commit author/committer email for every agent's commit.
+- **Per-agent attribution lives in the author *name*** instead of the email: the name is `agent-<child>` (already the case), and that's where a human reader / external tooling reads the child index from.
+- Per-agent pubkey is uploaded as an SSH signing key on the bot account; GitHub then matches `(signature, key, email)` and flips the badge.
+- Pubkey-to-`(user, child)` mapping is still resolved off-GitHub via Hive; GitHub's badge is purely UX, not the auth boundary.
+
+This trades the original plan's "pubkey embedded in the email" property for a green checkmark on github.com. The CLI itself is unchanged either way — only the email-construction policy and the bot-account provisioning flow differ. Picking between the two (or supporting both via a flag) is out of scope for v0; documented here so the choice is explicit.
+
 ## Overview
 
 Build a new Node.js CLI under `mcp/src/sphinx-git/` that wraps the system `git` binary and transparently signs commits/tags with a per-agent ed25519 key. The CLI is intended to replace `git` on Sphinx sandbox AI-agent servers so that every commit, tag, and push is cryptographically attributable to a specific agent (and, through Hive's record of `(user, child) → pubkey`, to the human that owns it) without the agent ever acting as the human.
