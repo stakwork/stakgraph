@@ -9,6 +9,21 @@ Provide the final answer to the user. YOU **MUST** CALL THIS TOOL AT THE END OF 
 
 Return 2 files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in backticks. YOU MUST RETURN BOTH FILES!!!
 
+# Pod contract - mandatory
+
+The generated setup must run inside our pod/code-server environment. The repo is mounted at /workspaces/MY_REPO_NAME, so every pm2 cwd must start with /workspaces/MY_REPO_NAME. The docker-compose.yml must include the exact non-Android app service shown below. Do not replace it with a generic compose service. The app service is the long-running container where the repo code is mounted and pm2 commands run.
+
+# Local-only dependency policy
+
+The setup must boot without external accounts or real cloud credentials. For every external dependency, use a local docker service, local emulator, self-hosted dev stack, or deterministic dummy value.
+
+- If a dependency is needed for the server to start, configure a local equivalent in docker-compose.yml or PRE_START_COMMAND.
+- If a dependency is not needed for boot, set a realistic dummy env value so the app starts.
+- Do not emit cloud placeholders like your-project.supabase.co, Cloudflare R2 URLs, Stripe keys, Resend keys, Clerk keys, Auth0 domains, or LLM API keys as blockers.
+- Supabase example: set PRE_START_COMMAND to "npx supabase start" and hardcode these well-known local dev keys — SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL: "http://localhost:54321", anon key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRFA0NiK7kyqxFkbmvvkijhGUMOLBgJa1BJHDB_M7Aw", service_role key: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hj04zWl196z2-SB-E". These are always the same for every local Supabase instance.
+- S3/R2/GCS example: use dummy envs unless storage is required during startup. Do not add MinIO unless the app cannot boot without S3-compatible storage.
+- Postgres, Redis, MySQL, RabbitMQ, Elasticsearch, and similar infrastructure should use local docker-compose services.
+
 # pm2.config.js
 
 The actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. Each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, PRE_START_COMMAND, and POST_START_COMMAND if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). Please name one of the services "frontend" no matter what!!!
@@ -20,10 +35,15 @@ The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the fronten
 1. **name MUST be "frontend"** — always use "frontend" as the app name, regardless of the repo name.
 
 2. **Host binding** — the dev server MUST bind to 0.0.0.0:
-  - Next.js: append "-- -H 0.0.0.0" to the dev command
-  - Vite: append "-- --host 0.0.0.0" to the dev command
+  - Next.js: append "-- -H 0.0.0.0" to the dev command (e.g. "npm run dev -- -H 0.0.0.0")
+  - Vite: append "-- --host 0.0.0.0" to the dev command (e.g. "npm run dev -- --host 0.0.0.0")
+  - This flag is MANDATORY. Never omit it.
 
-3. **Environment variables**:
+3. **Package manager** — the script must match INSTALL_COMMAND. pnpm → "pnpm run dev -- ...". yarn → "yarn dev -- --host 0.0.0.0" (for Vite) or "yarn dev -- -H 0.0.0.0" (for Next.js). Never use "npm run ..." if INSTALL_COMMAND is not npm.
+
+4. **Use "dev" not "start"** — always prefer the dev script. Vite projects always have a "dev" script; never use "start" for Vite. Only fall back to "start" if package.json has no "dev" script at all.
+
+5. **Environment variables**:
   - For empty/placeholder values, generate realistic dev defaults
   - For secrets: "dev-secret-key-change-in-production-12345678901234567890"
   - For hex encryption keys: "bb54aa41a75298418586c5443f264338013520b3bad612fce9ac2fc32ed19882"
@@ -112,7 +132,7 @@ module.exports = {
   apps: [
     {
       name: "frontend",
-      script: "npm run dev",
+      script: "npm run dev -- -H 0.0.0.0",
       cwd: "/workspaces/MY_REPO_NAME",
       instances: 1,
       autorestart: true,
