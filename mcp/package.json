@@ -26,6 +26,7 @@
     "build": "tsc",
     "start": "node build/index.js",
     "gitree": "tsx src/gitree/cli.ts",
+    "sphinx-git": "tsx src/sphinx-git/bin.ts",
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
@@ -39,7 +40,8 @@
   },
   "bin": {
     "cursor-tools": "./build/index.js",
-    "gitree": "./build/gitree/cli.js"
+    "gitree": "./build/gitree/cli.js",
+    "sphinx-git": "./build/sphinx-git/bin.js"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "3.0.37",
@@ -50,6 +52,8 @@
     "@browserbasehq/stagehand": "3.0.8",
     "@microsoft/tiktokenizer": "1.0.10",
     "@modelcontextprotocol/sdk": "1.26.0",
+    "@noble/ed25519": "2.3.0",
+    "@noble/hashes": "1.7.1",
     "@octokit/rest": "22.0.1",
     "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
     "@playwright/test": "1.58.1",
