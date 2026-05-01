@@ -531,6 +531,16 @@ WHERE
     WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
     ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
   END
+  AND
+  CASE
+    WHEN $include_patterns IS NULL OR size($include_patterns) = 0 THEN true
+    ELSE node.file IS NOT NULL AND ANY(pat IN $include_patterns WHERE node.file CONTAINS pat)
+  END
+  AND
+  CASE
+    WHEN $exclude_patterns IS NULL OR size($exclude_patterns) = 0 THEN true
+    ELSE node.file IS NULL OR NOT ANY(pat IN $exclude_patterns WHERE node.file CONTAINS pat)
+  END
 RETURN node, score
 ORDER BY score DESC
 LIMIT toInteger($limit)`;
@@ -568,6 +578,16 @@ WHERE
   CASE
     WHEN $extensions IS NULL OR size($extensions) = 0 THEN true
     ELSE node.file IS NOT NULL AND ANY(ext IN $extensions WHERE node.file ENDS WITH ext)
+  END
+  AND
+  CASE
+    WHEN $include_patterns IS NULL OR size($include_patterns) = 0 THEN true
+    ELSE node.file IS NOT NULL AND ANY(pat IN $include_patterns WHERE node.file CONTAINS pat)
+  END
+  AND
+  CASE
+    WHEN $exclude_patterns IS NULL OR size($exclude_patterns) = 0 THEN true
+    ELSE node.file IS NULL OR NOT ANY(pat IN $exclude_patterns WHERE node.file CONTAINS pat)
   END
 RETURN node, score
 ORDER BY score DESC

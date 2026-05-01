@@ -528,6 +528,9 @@ export async function get_tools(
           "json",
           [],
           args.language,
+          "relevance",
+          args.include_patterns,
+          args.exclude_patterns,
         );
         if (provenanceCollector) {
           provenanceCollector.entries.push({

@@ -82,7 +82,7 @@ ${learn_concepts ? "Use list_concepts and learn_concept tools first, to learn ab
 
 ### Graph Tools
 - \`repo_overview\` — Use only for broad orientation or architecture questions; it returns a compact, de-noised repo tree.
-- \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["Datamodel"]\`, \`["UnitTest"]\`).
+- \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["Datamodel"]\`, \`["UnitTest"]\`) and \`include_patterns\` / \`exclude_patterns\` for path filters (e.g. \`["**/*.ts"]\`, \`["__tests__", "dist"]\`).
 - \`stakgraph_map\` — Trace relationships from a node. Use \`direction: "up"\` for callers, \`"down"\` for callees.
 - \`stakgraph_code\` — Read source code of a specific node. Pass \`ref_id\` from search results or \`name\` + \`node_type\`.
 

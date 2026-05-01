@@ -48,6 +48,14 @@ export const SearchSchema = z.object({
     .optional()
     .default([])
     .describe("Node types to exclude from search results (e.g. ['UnitTest', 'IntegrationTest', 'E2etest'])."),
+  include_patterns: z
+    .array(z.string())
+    .optional()
+    .describe("Glob-style path patterns to include. Only nodes whose file matches are returned. Examples: '**/*.ts' (TypeScript files only), 'stakwork/hive/**' (only files in this repo path)."),
+  exclude_patterns: z
+    .array(z.string())
+    .optional()
+    .describe("Glob-style path patterns to exclude. Nodes whose file matches are filtered out. Examples: '__tests__' (no test directories), 'dist' (no build output)."),
 });
 
 export const SearchTool: Tool = {
@@ -70,7 +78,10 @@ export async function search(args: z.infer<typeof SearchSchema>) {
     args.method ?? "hybrid",
     "snippet",
     (args.skip_node_types as NodeType[]) ?? [],
-    args.language
+    args.language,
+    "relevance",
+    args.include_patterns,
+    args.exclude_patterns,
   );
   return {
     content: [
