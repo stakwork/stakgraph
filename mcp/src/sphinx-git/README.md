@@ -107,3 +107,6 @@ documented as follow-ups in `SPHINX_GIT_PLAN.md` §7.
 
 `sphinx-git` only ever writes to `~/.config/sphinx/`. It makes no network
 calls beyond what the underlying `git` binary makes.
+
+<!-- signing smoketest: this commit should be SSH-signed by agent-1 -->
+
