@@ -7,35 +7,19 @@ import { parse_files_contents } from "../gitsee/agent/index.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd } from "./session.js";
 import { getModelDetails } from "../aieo/src/index.js";
-import { detectLanguagesAndPkgFiles, extractEnvVarsFromRepo } from "../graph/utils.js";
-import { EXPLORER, FINAL_ANSWER as GITSEE_FINAL_ANSWER } from "../gitsee/agent/prompts/services.js";
-
-async function buildRepoFacts(repoDir: string): Promise<string> {
-  const [detected, envVarsByFile] = await Promise.all([
-    detectLanguagesAndPkgFiles(repoDir),
-    extractEnvVarsFromRepo(repoDir),
-  ]);
-
-  const langLines = detected.map(({ language, pkgFile }) => {
-    const rel = pkgFile.replace(repoDir + "/", "");
-    return `  ${language} (${rel})`;
-  });
-
-  const envLines: string[] = [];
-  for (const [file, vars] of Object.entries(envVarsByFile)) {
-    const rel = file.replace(repoDir + "/", "");
-    const names = Array.from(vars);
-    envLines.push(`  ${rel}: [${names.join(", ")}]`);
-  }
-
-  const factsBlock = [
-    "REPO FACTS (pre-scanned, do not re-discover these — use them as ground truth):",
-    langLines.length > 0 ? `Languages detected:\n${langLines.join("\n")}` : "Languages detected: none",
-    envLines.length > 0 ? `Env vars by file:\n${envLines.join("\n")}` : "Env vars: none found",
-  ].join("\n\n");
-
-  return factsBlock;
-}
+import {
+  EXPLORER,
+  FINAL_ANSWER as GITSEE_FINAL_ANSWER,
+  SETUP_PROFILE,
+  SETUP_PROFILER,
+  SETUP_PROFILE_SCHEMA,
+} from "../gitsee/agent/prompts/services.js";
+import {
+  SetupProfile,
+  buildRepoFacts,
+  buildSelectedHints,
+  combineUsage,
+} from "./services_utils.js";
 
 // curl "http://localhost:3355/progress?request_id=123"
 export async function services_agent(req: Request, res: Response) {
@@ -59,11 +43,33 @@ export async function services_agent(req: Request, res: Response) {
       .then(async (repoDir) => {
         console.log(`===> services_agent cloned ${repoDir}`);
 
-        const factsBlock = await buildRepoFacts(repoDir);
+        const repoFacts = await buildRepoFacts(repoDir);
+
+        const profilePrompt = [
+          repoFacts.factsBlock,
+          "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend.",
+          SETUP_PROFILE,
+        ].join("\n\n");
+
+        const profileResult = await get_context(profilePrompt, repoDir, {
+          pat,
+          systemOverride: SETUP_PROFILER,
+          schema: SETUP_PROFILE_SCHEMA,
+          sessionId,
+          source: "services_agent_profile",
+        });
+
+        const setupProfile = profileResult.content as SetupProfile;
+        const selectedHints = buildSelectedHints(setupProfile);
 
         const fad = GITSEE_FINAL_ANSWER.replaceAll("MY_REPO_NAME", repoName);
         const prompt =
-          factsBlock +
+          "SETUP PROFILE (use this as ground truth for framework and dependency selection):\n" +
+          JSON.stringify(setupProfile, null, 2) +
+          "\n\n" +
+          selectedHints +
+          "\n\n" +
+          "Use required_local_services from the setup profile as the source of truth for docker-compose services. Do not add compose services for optional integrations that are not listed there." +
           "\n\n" +
           "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend." +
           "\n\nIMPORTANT: In pm2.config.js, any env var that points to a docker-compose service (e.g. DATABASE_URL, REDIS_URL) MUST use 'localhost' as the hostname, NOT the container service name. The 'app' container has extra_hosts configured so localhost resolves correctly to the host bridge. Never use the docker service name (e.g. 'postgres', 'redis') as a hostname." +
@@ -79,7 +85,7 @@ export async function services_agent(req: Request, res: Response) {
 
         const files = parse_files_contents(text_of_files.content);
 
-        return { files, usage: text_of_files.usage };
+        return { files, usage: combineUsage(profileResult.usage, text_of_files.usage) };
       })
       .then(async (result) => {
         await appendSessionEnd(sessionId, {
