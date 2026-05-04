@@ -234,6 +234,17 @@ export function CopyButton({ text }: { text: string }) {
   );
 }
 
+function looksLikeJson(s: string): boolean {
+  const t = s.trim();
+  if (t[0] !== "{" && t[0] !== "[") return false;
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function CopyableBlock({
   value,
   maxHeight,
@@ -243,17 +254,18 @@ export function CopyableBlock({
 }) {
   const text = stringify(value);
   const isText = typeof value === "string";
+  const isJson = isText && looksLikeJson(value as string);
   const scrollStyle: React.CSSProperties = maxHeight
     ? { maxHeight, overflowY: "auto" }
     : {};
   return (
     <div style={{ position: "relative" }} className="copyable-block">
       <CopyButton text={text} />
-      {isText ? (
+      {isText && !isJson ? (
         <div style={{ ...blockStyle, ...scrollStyle }}>
           <div style={markdownStyle} className="markdown-block">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {displayString(value)}
+              {displayString(value as string)}
             </ReactMarkdown>
           </div>
         </div>
@@ -265,7 +277,9 @@ export function CopyableBlock({
             overflowY: maxHeight ? "auto" : undefined,
           }}
         >
-          {text}
+          {isJson
+            ? JSON.stringify(JSON.parse((value as string).trim()), null, 2)
+            : text}
         </pre>
       )}
     </div>

@@ -398,7 +398,7 @@ function parseTrace(trace: unknown): {
       if (role === "assistant" && e.type === "text") {
         const text = String(e.text ?? "");
         ei += 1;
-        events.push(createTraceEvent(ei, role, "assistant-text", e, text));
+        events.push(createTraceEvent(ei, role, "assistant-text", text, text));
       }
       if (e.type === "tool-call") {
         ci++;
