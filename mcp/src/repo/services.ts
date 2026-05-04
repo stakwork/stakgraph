@@ -7,6 +7,19 @@ import { parse_files_contents } from "../gitsee/agent/index.js";
 import { randomUUID } from "crypto";
 import { createSession, appendSessionEnd } from "./session.js";
 import { getModelDetails } from "../aieo/src/index.js";
+import {
+  EXPLORER,
+  FINAL_ANSWER as GITSEE_FINAL_ANSWER,
+  SETUP_PROFILE,
+  SETUP_PROFILER,
+  SETUP_PROFILE_SCHEMA,
+} from "../gitsee/agent/prompts/services.js";
+import {
+  SetupProfile,
+  buildRepoFacts,
+  buildSelectedHints,
+  combineUsage,
+} from "./services_utils.js";
 
 // curl "http://localhost:3355/progress?request_id=123"
 export async function services_agent(req: Request, res: Response) {
@@ -28,25 +41,68 @@ export async function services_agent(req: Request, res: Response) {
   try {
     cloneOrUpdateRepo(`https://github.com/${owner}/${repoName}`, username, pat)
       .then(async (repoDir) => {
-        console.log(`===> POST /repo/agent ${repoDir}`);
-        const fad = FINAL_ANSWER.replaceAll("MY_REPO_NAME", repoName);
+        console.log(`===> services_agent cloned ${repoDir}`);
+
+        const repoFacts = await buildRepoFacts(repoDir);
+
+        const profilePrompt = [
+          repoFacts.factsBlock,
+          "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend.",
+          SETUP_PROFILE,
+        ].join("\n\n");
+
+        const profileResult = await get_context(profilePrompt, repoDir, {
+          pat,
+          systemOverride: SETUP_PROFILER,
+          schema: SETUP_PROFILE_SCHEMA,
+          sessionId,
+          source: "services_agent_profile",
+        });
+
+        const setupProfile = profileResult.content as SetupProfile;
+        const selectedHints = buildSelectedHints(setupProfile);
+
+        const fad = GITSEE_FINAL_ANSWER.replaceAll("MY_REPO_NAME", repoName);
         const prompt =
+          "SETUP PROFILE (use this as ground truth for framework and dependency selection):\n" +
+          JSON.stringify(setupProfile, null, 2) +
+          "\n\n" +
+          selectedHints +
+          "\n\n" +
+          "Use required_local_services from the setup profile as the source of truth for docker-compose services. Do not add compose services for optional integrations that are not listed there." +
+          "\n\n" +
           "How do I set up this repo? I want to run the project on my remote code-server environment. Please prioritize web services that I will be able to run there (so ignore fancy stuff like web extension, desktop app using electron, etc). Lets just focus on bare-bones setup to install, build, and run a web frontend, and supporting services like the backend." +
+          "\n\nIMPORTANT: In pm2.config.js, any env var that points to a docker-compose service (e.g. DATABASE_URL, REDIS_URL) MUST use 'localhost' as the hostname, NOT the container service name. The 'app' container has extra_hosts configured so localhost resolves correctly to the host bridge. Never use the docker service name (e.g. 'postgres', 'redis') as a hostname." +
+          "\n\n" +
           fad;
+
         const text_of_files = await get_context(prompt, repoDir, {
           pat,
-          systemOverride: SERVICES_SYSTEM,
+          systemOverride: EXPLORER,
           sessionId,
           source: "services_agent",
         });
-        return { content: text_of_files.content, usage: text_of_files.usage };
+
+        const files = parse_files_contents(text_of_files.content);
+
+        return { files, usage: combineUsage(profileResult.usage, text_of_files.usage) };
       })
       .then(async (result) => {
-        const files = parse_files_contents(result.content);
-        asyncReqs.finishReq(request_id, { ...files, usage: result.usage });
+        await appendSessionEnd(sessionId, {
+          end_time: new Date().toISOString(),
+          model: modelId,
+          provider,
+          duration_ms: Date.now() - startTime,
+          status: "success",
+        });
+        asyncReqs.finishReq(request_id, {
+          ...result.files,
+          usage: result.usage,
+          sessionId,
+        });
       })
       .catch(async (error) => {
-        console.error("[repo_agent] Background work failed with error:", error);
+        console.error("[services_agent] Background work failed with error:", error);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
@@ -64,99 +120,8 @@ export async function services_agent(req: Request, res: Response) {
   } catch (error) {
     console.log("===> error", error);
     asyncReqs.failReq(request_id, error);
-    console.error("Error in repo_agent", error);
+    console.error("Error in services_agent", error);
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);
   }
 }
-
-const SERVICES_SYSTEM = `
-You are a codebase exploration assistant. Your job is to identify the various services, integrations, and environment variables needed to setup and run this codebase. Take your time exploring the codebase to find the most likely setup services, and env vars. You might need to use the fulltext_search tool to find instance of "process.env." or other similar patterns, based on the coding language(s) used in the project. You will be asked to output actual configuration files at the end, so make sure you find everything you need to do that!
-`;
-
-const FINAL_ANSWER = `
-Return two files: a pm2.config.js and a docker-compose.yml. For each file, put "FILENAME: " followed by the filename (no markdown headers, just the plain filename), then the content in backticks. YOU MUST RETURN 2 FILES!!!
-
-- pm2.config.js: the actual dev services for running this project (MY_REPO_NAME). Often its just one single service! But sometimes the backend/frontend might be separate services. IMPORTANT: each service env should have a INSTALL_COMMAND so our sandbox system knows how to install dependencies! You can also add optional BUILD_COMMAND, TEST_COMMAND, E2E_TEST_COMMAND, and PRE_START_COMMAND env vars if you find those in the package file. (an example of a PRE_START_COMMAND is a db migration script). And of course add other env vars specific to the service. IMPORTANT: config env vars that point to other docker services (such as DATABASE_URL) can use "localhost", since the "app" container is using custom docker bridge network, and has extra_hosts configured. You SHOULD NOT reference the other container name as the hostname. Please name one of the services "frontend" no matter what. The cwd should start with /workspaces/MY_REPO_NAME. For instance, if the frontend is within a "frontend" dir, the cwd should be "/workspaces/MY_REPO_NAME/frontend".
-- docker-compose.yml: the auxiliary services needed to run the project, such as databases, caches, queues, etc. IMPORTANT: there is a special "app" service in the docker-compsose.yaml that you MUST include! It is the service in which the codebase is mounted. Here is the EXACT content that it should have:
-\`\`\`
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ../..:/workspaces:cached
-    command: sleep infinity
-    networks:
-      - app_network
-    extra_hosts:
-      - "localhost:172.17.0.1"
-      - "host.docker.internal:host-gateway"
-\`\`\`
-
-# HERE IS AN EXAMPLE OUTPUT:
-
-FILENAME: pm2.config.js
-
-\`\`\`js
-module.exports = {
-  apps: [
-    {
-      name: "frontend",
-      script: "npm run dev",
-      cwd: "/workspaces/MY_REPO_NAME",
-      instances: 1,
-      autorestart: true,
-      watch: false,
-      max_memory_restart: "1G",
-      env: {
-        PORT: "3000",
-        INSTALL_COMMAND: "npm install",
-        BUILD_COMMAND: "npm run build",
-        DATABASE_URL: "postgresql://postgres:password@localhost:5432/backend_db",
-        JWT_KEY: "your_jwt_secret_key"
-      }
-    }
-  ],
-};
-\`\`\`
-
-FILENAME: docker-compose.yml
-
-\`\`\`yaml
-version: '3.8'
-networks:
-  app_network:
-    driver: bridge
-services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    volumes:
-      - ../..:/workspaces:cached
-    command: sleep infinity
-    networks:
-      - app_network
-    extra_hosts:
-      - "localhost:172.17.0.1"
-      - "host.docker.internal:host-gateway"
-  postgres:
-    image: postgres:15
-    container_name: backend-postgres
-    environment:
-      - POSTGRES_DB=backend_db
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - app_network
-    restart: unless-stopped
-volumes:
-  postgres_data:
-\`\`\`
-
-`;
