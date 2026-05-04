@@ -136,6 +136,7 @@ function parseAgentBody(req: Request) {
   const ggnn = req.body.ggnn as GgnnConfig | undefined;
   const stream = req.body.stream as boolean | undefined;
   const maxTurns = typeof req.body.maxTurns === "number" ? req.body.maxTurns : undefined;
+  const contextMode = req.body.contextMode as "full" | "compiled" | undefined;
 
   const repoList = (repoUrl || "")
     .split(",")
@@ -145,7 +146,7 @@ function parseAgentBody(req: Request) {
   return {
     repoUrl, username, pat, commit, prompt, toolsConfig, schema,
     modelName, apiKey, logs, sessionId, sessionConfig, mcpServers,
-    systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns,
+    systemOverride, skills, subAgents, ggnn, stream, repoList, maxTurns, contextMode,
   };
 }
 
@@ -213,6 +214,7 @@ export async function repo_agent(req: Request, res: Response) {
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
+          contextMode: body.contextMode,
         },
       );
 
@@ -323,6 +325,7 @@ export async function repo_agent(req: Request, res: Response) {
           source: "repo_agent",
           abortSignal: abortController.signal,
           maxTurns: body.maxTurns,
+          contextMode: body.contextMode,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);

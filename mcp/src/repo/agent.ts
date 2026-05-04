@@ -42,8 +42,13 @@ import {
   sessionExists,
   SessionConfig,
   StepMeta,
+  emptyTokenUsage,
 } from "./session.js";
 import { McpServer, getMcpTools } from "./mcpServers.js";
+import {
+  loadCompiledSessionMessages,
+  updateSessionContext,
+} from "./context.js";
 
 function SYSTEM_PROMPT_END(qs: boolean) {
   const normalEnd = `CRITICAL: When you are ready to provide your final answer, output your complete response followed by [END_OF_ANSWER] on a new line. Don't start your answer with preamble like "Ok! I have all the information I need. Let me create a plan...". Just start with your answer.
@@ -215,6 +220,8 @@ export interface GetContextOptions {
   abortSignal?: AbortSignal;
   // Maximum number of agent steps (tool-call turns) before stopping
   maxTurns?: number;
+  // Use compact compiled session context instead of full transcript replay
+  contextMode?: "full" | "compiled";
 }
 
 interface PreparedAgent {
@@ -359,13 +366,21 @@ Apply the guidance from each skill throughout your response.`;
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
+  let sessionMessages: ModelMessage[] = [];
   let hasSystemTurn = false;
 
   if (inputSessionId) {
     if (sessionExists(inputSessionId)) {
       sessionId = inputSessionId;
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
-      previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
+      sessionMessages = loadSessionMessages(sessionId);
+      if (opts.isolatedContext) {
+        previousMessages = [];
+      } else if (opts.contextMode === "compiled") {
+        previousMessages = loadCompiledSessionMessages(sessionId);
+      } else {
+        previousMessages = sessionMessages;
+      }
     } else {
       sessionId = createNewSession(inputSessionId, instructions, opts.source);
       hasSystemTurn = true;
@@ -380,7 +395,7 @@ Apply the guidance from each skill throughout your response.`;
   let cumInput = 0;
   let cumOutput = 0;
   const turnIndex =
-    previousMessages.filter((m) => m.role === "user").length +
+    sessionMessages.filter((m) => m.role === "user").length +
     (hasSystemTurn ? 2 : 1);
 
   const agent = new ToolLoopAgent({
@@ -479,6 +494,7 @@ export async function get_context(
     userMessage,
     startTime,
     stepMetas,
+    turnIndex,
     provenanceCollector,
   } = prepared;
   const { schema } = opts;
@@ -502,9 +518,10 @@ export async function get_context(
   }
 
   const { steps, totalUsage } = result;
-  const usage = stepMetas.length > 0
+  const agentUsage = stepMetas.length > 0
     ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
     : normalizeUsage(totalUsage);
+  let contextSummaryUsage = emptyTokenUsage();
 
   const endTime = Date.now();
   const duration = endTime - startTime;
@@ -521,16 +538,21 @@ export async function get_context(
     if (provenanceCollector.entries.length > 0) {
       appendSearchProvenance(sessionId, provenanceCollector.entries);
     }
-
+    if (opts.contextMode === "compiled") {
+      contextSummaryUsage = await updateSessionContext(sessionId, newMessages, model, turnIndex) ?? emptyTokenUsage();
+    }
+    const combinedUsage = normalizeUsage(addUsage(agentUsage, contextSummaryUsage));
     await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
       provider,
       duration_ms: duration,
       status: "success",
-      token_usage: usage,
+      token_usage: agentUsage,
     });
   }
+
+  const combinedUsage = normalizeUsage(addUsage(agentUsage, contextSummaryUsage));
 
   const final = extractFinalAnswer(steps);
 
@@ -556,7 +578,9 @@ export async function get_context(
     tool_use: final.tool_use,
     content: finalAnswer,
     usage: {
-      ...usage,
+      ...combinedUsage,
+      agent: agentUsage,
+      contextSummary: normalizeUsage(contextSummaryUsage),
       model: modelId,
       provider,
     },
@@ -607,16 +631,21 @@ export async function stream_context(
         if (provenanceCollector.entries.length > 0) {
           appendSearchProvenance(sessionId, provenanceCollector.entries);
         }
-        const stepUsage = stepMetas.length > 0
+        const agentUsage = stepMetas.length > 0
           ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
           : normalizeUsage(usage);
+        let contextSummaryUsage = emptyTokenUsage();
+        if (opts.contextMode === "compiled") {
+          contextSummaryUsage = await updateSessionContext(sessionId, newMessages, prepared.model, prepared.turnIndex) ?? emptyTokenUsage();
+        }
+        const combinedUsage = normalizeUsage(addUsage(agentUsage, contextSummaryUsage));
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
           provider,
           duration_ms: duration,
           status: "success",
-          token_usage: stepUsage,
+          token_usage: agentUsage,
         });
       } catch (e) {
         const aborted = isAbortError(e);

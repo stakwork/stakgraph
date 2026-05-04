@@ -7,6 +7,8 @@ import type {
   StepMeta,
   SearchProvenanceEntry,
   TokenUsage,
+  ContextTimelineEntry,
+  SessionContextRef,
 } from "../types";
 import { AnnotationBadge, AnnotationForm } from "./Annotations";
 import type { Annotation, AnnotationMarker } from "./Annotations";
@@ -1246,12 +1248,312 @@ function interleaveUnitsWithSteps(
   return nodes;
 }
 
+// ── context snapshot modal ────────────────────────────────────────────────────
+
+function groupRefs(
+  refs: SessionContextRef[],
+): Record<string, SessionContextRef[]> {
+  return refs.reduce<Record<string, SessionContextRef[]>>((acc, ref) => {
+    const key = ref.kind || "other";
+    acc[key] = acc[key] ?? [];
+    acc[key].push(ref);
+    return acc;
+  }, {});
+}
+
+function ContextSnapshotModal({
+  entry,
+  turnIndex,
+  onClose,
+}: {
+  entry: ContextTimelineEntry;
+  turnIndex: number;
+  onClose: () => void;
+}) {
+  const after = entry.after;
+  const diff = entry.diff;
+
+  const addedCount = diff
+    ? Object.values(diff.added ?? {}).reduce(
+        (s, v) => s + (Array.isArray(v) ? v.length : 0),
+        0,
+      )
+    : 0;
+  const removedCount = diff
+    ? Object.values(diff.removed ?? {}).reduce(
+        (s, v) => s + (Array.isArray(v) ? v.length : 0),
+        0,
+      )
+    : 0;
+
+  const refGroups = groupRefs(after.importantRefs ?? []);
+  const refKinds = Object.keys(refGroups).sort();
+
+  const overlay: React.CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    backgroundColor: "rgba(0,0,0,0.72)",
+    zIndex: 1000,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "24px",
+  };
+  const modal: React.CSSProperties = {
+    backgroundColor: "#111113",
+    border: "1px solid #27272a",
+    borderRadius: "10px",
+    width: "100%",
+    maxWidth: "620px",
+    maxHeight: "82vh",
+    display: "flex",
+    flexDirection: "column",
+    overflow: "hidden",
+  };
+  const modalHeader: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "14px 18px",
+    borderBottom: "1px solid #27272a",
+    flexShrink: 0,
+  };
+  const modalBody: React.CSSProperties = {
+    overflowY: "auto",
+    padding: "16px 18px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "18px",
+  };
+  const sectionTitle: React.CSSProperties = {
+    fontSize: "10px",
+    textTransform: "uppercase",
+    letterSpacing: "0.12em",
+    color: "#52525b",
+    marginBottom: "8px",
+  };
+  const pill = (text: string, color: string, bg: string): React.ReactNode => (
+    <span
+      style={{
+        fontSize: "10px",
+        padding: "2px 7px",
+        borderRadius: "9999px",
+        border: `1px solid ${color}`,
+        color,
+        backgroundColor: bg,
+        fontFamily: "ui-monospace,monospace",
+      }}
+    >
+      {text}
+    </span>
+  );
+  const listItem = (v: string, i: number) => (
+    <div
+      key={i}
+      style={{
+        fontSize: "12px",
+        lineHeight: 1.5,
+        color: "#d4d4d8",
+        padding: "6px 10px",
+        backgroundColor: "#0d0d0f",
+        border: "1px solid #27272a",
+        borderRadius: "6px",
+      }}
+    >
+      {v}
+    </div>
+  );
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={modal} onClick={(e) => e.stopPropagation()}>
+        <div style={modalHeader}>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span
+              style={{ fontSize: "13px", fontWeight: 600, color: "#ededed" }}
+            >
+              Context — Turn {turnIndex}
+            </span>
+            {addedCount > 0 &&
+              pill(`+${addedCount}`, "#a3e635", "rgba(163,230,53,0.08)")}
+            {removedCount > 0 &&
+              pill(`-${removedCount}`, "#f87171", "rgba(248,113,113,0.08)")}
+            {entry.usage &&
+              pill(
+                `${formatNumber(entry.usage.total)} tok`,
+                "#a3e635",
+                "rgba(163,230,53,0.06)",
+              )}
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#71717a",
+              cursor: "pointer",
+              fontSize: "18px",
+              lineHeight: 1,
+              padding: "0 2px",
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <div style={modalBody}>
+          {after.summary && (
+            <div>
+              <p style={sectionTitle}>Summary</p>
+              <p
+                style={{
+                  fontSize: "12px",
+                  lineHeight: 1.6,
+                  color: "#d4d4d8",
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {after.summary}
+              </p>
+            </div>
+          )}
+          {after.goals && after.goals.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Goals</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
+                {after.goals.map(listItem)}
+              </div>
+            </div>
+          )}
+          {after.decisions && after.decisions.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Decisions</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
+                {after.decisions.map(listItem)}
+              </div>
+            </div>
+          )}
+          {refKinds.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Important Refs</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "10px" }}
+              >
+                {refKinds.map((kind) => (
+                  <div key={kind}>
+                    <p
+                      style={{
+                        fontSize: "10px",
+                        color: "#52525b",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.1em",
+                        margin: "0 0 5px 0",
+                      }}
+                    >
+                      {kind}
+                    </p>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                      }}
+                    >
+                      {refGroups[kind].map((ref, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            fontSize: "11px",
+                            fontFamily: "ui-monospace,monospace",
+                            color: "#93c5fd",
+                            padding: "5px 10px",
+                            backgroundColor: "#0d0d0f",
+                            border: "1px solid #27272a",
+                            borderRadius: "5px",
+                          }}
+                          title={ref.reason}
+                        >
+                          {ref.value}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {after.checked && after.checked.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Checked</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
+                {after.checked.map(listItem)}
+              </div>
+            </div>
+          )}
+          {after.openQuestions && after.openQuestions.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Open Questions</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
+                {after.openQuestions.map(listItem)}
+              </div>
+            </div>
+          )}
+          {after.warnings && after.warnings.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Warnings</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
+                {after.warnings.map((v, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      fontSize: "12px",
+                      lineHeight: 1.5,
+                      color: "#fbbf24",
+                      padding: "6px 10px",
+                      backgroundColor: "rgba(251,191,36,0.06)",
+                      border: "1px solid rgba(251,191,36,0.25)",
+                      borderRadius: "6px",
+                    }}
+                  >
+                    {v}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {after.nextSteps && after.nextSteps.length > 0 && (
+            <div>
+              <p style={sectionTitle}>Next Steps</p>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "5px" }}
+              >
+                {after.nextSteps.map(listItem)}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurnCard({
   turn,
   stepMetas,
   provenanceEntries,
   annotations,
   onAnnotate,
+  contextEntry,
 }: {
   turn: TraceTurn;
   stepMetas?: StepMeta[];
@@ -1262,7 +1564,9 @@ function TurnCard({
     note: string,
     toolCallId?: string,
   ) => void;
+  contextEntry?: ContextTimelineEntry;
 }) {
+  const [showCtx, setShowCtx] = useState(false);
   const units = groupEvents(turn.events);
   const metas = stepMetas ?? [];
   const turnUsage = metas.reduce(
@@ -1279,6 +1583,14 @@ function TurnCard({
     { input: 0, cache_read: 0, cache_write: 0, output: 0, total: 0 },
   );
   return (
+    <>
+      {showCtx && contextEntry && (
+        <ContextSnapshotModal
+          entry={contextEntry}
+          turnIndex={turn.index}
+          onClose={() => setShowCtx(false)}
+        />
+      )}
     <details style={card}>
       <summary
         style={{
@@ -1354,6 +1666,28 @@ function TurnCard({
               {formatUsageParts(turnUsage)}
             </span>
           )}
+          {contextEntry && (
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setShowCtx(true);
+              }}
+              style={{
+                fontSize: "10px",
+                padding: "2px 7px",
+                borderRadius: "9999px",
+                border: "1px solid #3b82f6",
+                color: "#93c5fd",
+                backgroundColor: "rgba(59,130,246,0.08)",
+                cursor: "pointer",
+                fontFamily: "ui-monospace,monospace",
+                flexShrink: 0,
+              }}
+            >
+              ctx
+            </button>
+          )}
         </div>
       </summary>
       <div style={{ borderTop: "1px solid #1f1f22" }}>
@@ -1366,6 +1700,7 @@ function TurnCard({
         )}
       </div>
     </details>
+    </>
   );
 }
 
@@ -1439,6 +1774,15 @@ export function Sessions() {
     ? parseTrace(selected.trace)
     : { userPrompt: "", answer: "", calls: [], results: [], events: [], turns: [] };
   const selectedUsage = selected ? usageOf(selected.token_usage) : null;
+  const selectedContextUsage = selected?.context_usage
+    ? usageOf(selected.context_usage)
+    : null;
+  const selectedAllInUsage = selected?.all_in_usage
+    ? usageOf(selected.all_in_usage)
+    : null;
+  const hasContextUsage = Boolean(
+    selectedContextUsage && selectedContextUsage.total > 0,
+  );
   const prompt =
     parsed.userPrompt || selected?.user_prompt_preview || "No prompt preview";
   const answer =
@@ -1833,7 +2177,7 @@ export function Sessions() {
                   }}
                 >
                   <StatTile
-                    label="Total Tokens"
+                    label="Agent Tokens"
                     value={formatNumber(selectedUsage?.total || 0)}
                   />
                   <StatTile
@@ -1854,12 +2198,75 @@ export function Sessions() {
                   />
                   {selected.cost_usd != null && (
                     <StatTile
-                      label="Cost"
+                      label="Agent Cost"
                       value={`$${selected.cost_usd.toFixed(4)}`}
                     />
                   )}
                 </div>
               </div>
+              {hasContextUsage && (
+                <div
+                  style={{
+                    marginTop: "12px",
+                    paddingTop: "12px",
+                    borderTop: "1px solid #27272a",
+                  }}
+                >
+                  <p
+                    style={{
+                      ...labelStyle,
+                      margin: "0 0 8px 0",
+                    }}
+                  >
+                    Context Maintenance
+                  </p>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(120px, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    <StatTile
+                      label="Updates"
+                      value={formatNumber(
+                        selected?.context_timeline?.length || 0,
+                      )}
+                    />
+                    <StatTile
+                      label="Context Tokens"
+                      value={formatNumber(selectedContextUsage?.total || 0)}
+                    />
+                    <StatTile
+                      label="Context Input"
+                      value={formatNumber(selectedContextUsage?.input || 0)}
+                    />
+                    <StatTile
+                      label="Context Output"
+                      value={formatNumber(selectedContextUsage?.output || 0)}
+                    />
+                    {selected.context_cost_usd != null && (
+                      <StatTile
+                        label="Context Cost"
+                        value={`$${selected.context_cost_usd.toFixed(4)}`}
+                      />
+                    )}
+                    {selected.all_in_cost_usd != null && (
+                      <StatTile
+                        label="All-in Cost"
+                        value={`$${selected.all_in_cost_usd.toFixed(4)}`}
+                      />
+                    )}
+                    {selectedAllInUsage && (
+                      <StatTile
+                        label="All-in Tokens"
+                        value={formatNumber(selectedAllInUsage.total)}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
               {(diagnostics.counts.oversized > 0 ||
                 diagnostics.counts.fallback > 0 ||
                 diagnostics.counts.repeat > 0 ||
@@ -1991,6 +2398,9 @@ export function Sessions() {
                       provenanceEntries={selected?.search_provenance}
                       annotations={annotations}
                       onAnnotate={handleAnnotate}
+                      contextEntry={selected?.context_timeline?.find(
+                        (e) => e.turn === turn.index,
+                      )}
                     />
                   ))
                 )}

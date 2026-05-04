@@ -5,6 +5,8 @@ import { db } from "../graph/neo4j.js";
 import {
   loadStepMeta,
   loadSearchProvenance,
+  loadCompiledContextState,
+  loadContextTimeline,
   loadAnnotations,
   appendAnnotation,
   type Annotation,
@@ -15,9 +17,35 @@ import {
   computeSessionCost,
   type Provider,
 } from "../aieo/src/provider.js";
-import { addUsage, emptyUsage, normalizeUsage } from "../aieo/src/usage.js";
+import {
+  addUsage,
+  emptyUsage,
+  normalizeUsage,
+  type AiUsage,
+} from "../aieo/src/usage.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
+
+function toTokenUsage(usage: AiUsage) {
+  return {
+    input: usage.input,
+    cache_read: usage.cache_read,
+    cache_write: usage.cache_write,
+    output: usage.output,
+    total: usage.total,
+  };
+}
+
+function usageFromSteps(sessionId: string): AiUsage | undefined {
+  const steps = loadStepMeta(sessionId);
+  if (steps.length === 0) return undefined;
+  return addUsage(...steps.map((step) => normalizeUsage(step.usage)));
+}
+
+function usageFromContextTimeline(sessionId: string): AiUsage {
+  const timeline = loadContextTimeline(sessionId);
+  return addUsage(...timeline.map((entry) => normalizeUsage(entry.usage)));
+}
 
 function buildOrphanRun(dir: string, file: string) {
   const id = file.replace(/\.jsonl$/, "");
@@ -35,6 +63,8 @@ function buildOrphanRun(dir: string, file: string) {
     duration_ms =
       new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime();
   }
+  const contextUsage = usageFromContextTimeline(id);
+  const allInUsage = addUsage(usage, contextUsage);
   return {
     id,
     source: "unknown",
@@ -50,7 +80,11 @@ function buildOrphanRun(dir: string, file: string) {
       output: usage.output,
       total: usage.total,
     },
+    context_usage: toTokenUsage(contextUsage),
+    all_in_usage: toTokenUsage(allInUsage),
     cost_usd: 0,
+    context_cost_usd: 0,
+    all_in_cost_usd: 0,
     status: "success",
     error_message: "",
     tool_sequence: toolSequence,
@@ -196,6 +230,10 @@ export async function list_sessions(_req: Request, res: Response) {
         const total = toNum(s.total_tokens);
         const prov = String(s.provider ?? "");
         const mod = String(s.model ?? "");
+        const storedUsage = { input, cache_read, cache_write, output, total };
+        const agentUsage = usageFromSteps(id) ?? storedUsage;
+        const contextUsage = usageFromContextTimeline(id);
+        const allInUsage = addUsage(agentUsage, contextUsage);
         return {
           id,
           source: String(s.source ?? "unknown"),
@@ -205,8 +243,33 @@ export async function list_sessions(_req: Request, res: Response) {
             ? new Date(startTimeMs).toISOString()
             : new Date().toISOString(),
           duration_ms: toNum(s.duration_ms),
-          token_usage: { input, cache_read, cache_write, output, total },
-          cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+          token_usage: toTokenUsage(agentUsage),
+          context_usage: toTokenUsage(contextUsage),
+          all_in_usage: toTokenUsage(allInUsage),
+          cost_usd: calcCost(
+            mod,
+            prov,
+            agentUsage.input,
+            agentUsage.cache_read,
+            agentUsage.cache_write,
+            agentUsage.output,
+          ),
+          context_cost_usd: calcCost(
+            mod,
+            prov,
+            contextUsage.input,
+            contextUsage.cache_read,
+            contextUsage.cache_write,
+            contextUsage.output,
+          ),
+          all_in_cost_usd: calcCost(
+            mod,
+            prov,
+            allInUsage.input,
+            allInUsage.cache_read,
+            allInUsage.cache_write,
+            allInUsage.output,
+          ),
           status: String(s.status ?? "success"),
           error_message: String(s.error_message ?? ""),
           tool_sequence: toolSequence,
@@ -222,7 +285,8 @@ export async function list_sessions(_req: Request, res: Response) {
             !file.endsWith(".jsonl") ||
             file.endsWith(".meta.jsonl") ||
             file.endsWith(".provenance.jsonl") ||
-            file.endsWith(".annotations.jsonl")
+            file.endsWith(".annotations.jsonl") ||
+            file.endsWith(".context.timeline.jsonl")
           )
             continue;
           const id = file.replace(/\.jsonl$/, "");
@@ -249,7 +313,8 @@ export async function list_sessions(_req: Request, res: Response) {
       f.endsWith(".jsonl") &&
       !f.endsWith(".meta.jsonl") &&
       !f.endsWith(".provenance.jsonl") &&
-      !f.endsWith(".annotations.jsonl"),
+        !f.endsWith(".annotations.jsonl") &&
+        !f.endsWith(".context.timeline.jsonl"),
   );
 
   const runs = files.map((file) => buildOrphanRun(dir, file));
@@ -292,6 +357,8 @@ export async function get_session(req: Request, res: Response) {
   const step_meta = loadStepMeta(id);
   const search_provenance = loadSearchProvenance(id);
   const annotations = loadAnnotations(id);
+  const context_state = loadCompiledContextState(id);
+  const context_timeline = loadContextTimeline(id);
 
   if (db) {
     try {
@@ -305,6 +372,10 @@ export async function get_session(req: Request, res: Response) {
         const total = toNum(s.total_tokens);
         const prov = String(s.provider ?? "");
         const mod = String(s.model ?? "");
+        const storedUsage = { input, cache_read, cache_write, output, total };
+        const agentUsage = usageFromSteps(id) ?? storedUsage;
+        const contextUsage = usageFromContextTimeline(id);
+        const allInUsage = addUsage(agentUsage, contextUsage);
         res.json({
           id,
           source: String(s.source ?? "unknown"),
@@ -314,8 +385,33 @@ export async function get_session(req: Request, res: Response) {
             ? new Date(startTimeMs).toISOString()
             : new Date().toISOString(),
           duration_ms: toNum(s.duration_ms),
-          token_usage: { input, cache_read, cache_write, output, total },
-          cost_usd: calcCost(mod, prov, input, cache_read, cache_write, output),
+          token_usage: toTokenUsage(agentUsage),
+          context_usage: toTokenUsage(contextUsage),
+          all_in_usage: toTokenUsage(allInUsage),
+          cost_usd: calcCost(
+            mod,
+            prov,
+            agentUsage.input,
+            agentUsage.cache_read,
+            agentUsage.cache_write,
+            agentUsage.output,
+          ),
+          context_cost_usd: calcCost(
+            mod,
+            prov,
+            contextUsage.input,
+            contextUsage.cache_read,
+            contextUsage.cache_write,
+            contextUsage.output,
+          ),
+          all_in_cost_usd: calcCost(
+            mod,
+            prov,
+            allInUsage.input,
+            allInUsage.cache_read,
+            allInUsage.cache_write,
+            allInUsage.output,
+          ),
           status: String(s.status ?? "success"),
           error_message: String(s.error_message ?? ""),
           tool_sequence: toolSequence,
@@ -324,6 +420,8 @@ export async function get_session(req: Request, res: Response) {
           answer_preview: answerPreview,
           step_meta,
           search_provenance,
+          context_state,
+          context_timeline,
           annotations,
           trace,
         });
@@ -335,6 +433,9 @@ export async function get_session(req: Request, res: Response) {
   }
 
   const stat = statSync(filePath);
+  const agentUsage = usageFromSteps(id) ?? emptyUsage();
+  const contextUsage = usageFromContextTimeline(id);
+  const allInUsage = addUsage(agentUsage, contextUsage);
   res.json({
     id,
     source: "unknown",
@@ -342,14 +443,12 @@ export async function get_session(req: Request, res: Response) {
     model: "",
     timestamp: stat.mtime.toISOString(),
     duration_ms: 0,
-    token_usage: {
-      input: 0,
-      cache_read: 0,
-      cache_write: 0,
-      output: 0,
-      total: 0,
-    },
+    token_usage: toTokenUsage(agentUsage),
+    context_usage: toTokenUsage(contextUsage),
+    all_in_usage: toTokenUsage(allInUsage),
     cost_usd: 0,
+    context_cost_usd: 0,
+    all_in_cost_usd: 0,
     status: "success",
     error_message: "",
     tool_sequence: toolSequence,
@@ -358,6 +457,8 @@ export async function get_session(req: Request, res: Response) {
     answer_preview: answerPreview,
     step_meta,
     search_provenance,
+    context_state,
+    context_timeline,
     annotations,
     trace,
   });

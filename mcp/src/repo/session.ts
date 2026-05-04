@@ -40,6 +40,62 @@ export interface StepMeta {
   timestamp: string;
 }
 
+export interface TokenUsageSummary {
+  input: number;
+  cache_read: number;
+  cache_write: number;
+  output: number;
+  total: number;
+}
+
+export interface ContextTimelineDiff {
+  added: Record<string, unknown[]>;
+  removed: Record<string, unknown[]>;
+}
+
+export interface ContextTimelineEntry {
+  turn: number;
+  timestamp: string;
+  before: unknown;
+  after: unknown;
+  usage?: TokenUsageSummary;
+  diff?: ContextTimelineDiff;
+  changedSummary?: boolean;
+  newMessagesPreview?: string;
+}
+
+export function emptyTokenUsage(): TokenUsageSummary {
+  return { input: 0, cache_read: 0, cache_write: 0, output: 0, total: 0 };
+}
+
+export function normalizeTokenUsage(usage?: any): TokenUsageSummary {
+  if (!usage) return emptyTokenUsage();
+  const input = usage.inputTokenDetails?.noCacheTokens || usage.inputTokens || 0;
+  const cache_read = usage.inputTokenDetails?.cacheReadTokens || 0;
+  const cache_write = usage.inputTokenDetails?.cacheWriteTokens || 0;
+  const output = usage.outputTokens || 0;
+  return {
+    input,
+    cache_read,
+    cache_write,
+    output,
+    total: usage.totalTokens ?? input + cache_read + cache_write + output,
+  };
+}
+
+export function addTokenUsage(...usages: TokenUsageSummary[]): TokenUsageSummary {
+  return usages.reduce(
+    (total, usage) => ({
+      input: total.input + usage.input,
+      cache_read: total.cache_read + usage.cache_read,
+      cache_write: total.cache_write + usage.cache_write,
+      output: total.output + usage.output,
+      total: total.total + usage.total,
+    }),
+    emptyTokenUsage(),
+  );
+}
+
 /**
  * Get the file path for a session
  */
@@ -51,6 +107,20 @@ function getSessionFile(sessionId: string): string {
     mkdirSync(sessionDir, { recursive: true });
   }
   return path.join(sessionDir, `${sessionId}.jsonl`);
+}
+
+export function getSessionSidecarFile(sessionId: string, suffix: string): string {
+  const sessionDir = path.isAbsolute(SESSIONS_DIR)
+    ? SESSIONS_DIR
+    : path.join(process.cwd(), SESSIONS_DIR);
+  if (!existsSync(sessionDir)) {
+    mkdirSync(sessionDir, { recursive: true });
+  }
+  return path.join(sessionDir, `${sessionId}${suffix}`);
+}
+
+function isContextTimelineFile(file: string): boolean {
+  return file.endsWith(".context.timeline.jsonl");
 }
 
 /**
@@ -191,6 +261,14 @@ export function deleteSession(sessionId: string): void {
   if (existsSync(annPath)) {
     unlinkSync(annPath);
   }
+  const contextPath = getSessionSidecarFile(sessionId, ".context.json");
+  if (existsSync(contextPath)) {
+    unlinkSync(contextPath);
+  }
+  const contextTimelinePath = getSessionSidecarFile(sessionId, ".context.timeline.jsonl");
+  if (existsSync(contextTimelinePath)) {
+    unlinkSync(contextTimelinePath);
+  }
 }
 
 /**
@@ -231,6 +309,38 @@ export function loadStepMeta(sessionId: string): StepMeta[] {
       .split("\n")
       .filter((l) => l.trim())
       .map((l) => JSON.parse(l) as StepMeta);
+  } catch {
+    return [];
+  }
+}
+
+export function loadCompiledContextState(sessionId: string): unknown | undefined {
+  const filePath = getSessionSidecarFile(sessionId, ".context.json");
+  if (!existsSync(filePath)) return undefined;
+  try {
+    return JSON.parse(readFileSync(filePath, "utf-8"));
+  } catch {
+    return undefined;
+  }
+}
+
+export function appendContextTimelineEntry(
+  sessionId: string,
+  entry: ContextTimelineEntry,
+): void {
+  const filePath = getSessionSidecarFile(sessionId, ".context.timeline.jsonl");
+  appendFileSync(filePath, JSON.stringify(entry) + "\n");
+}
+
+export function loadContextTimeline(sessionId: string): ContextTimelineEntry[] {
+  const filePath = getSessionSidecarFile(sessionId, ".context.timeline.jsonl");
+  if (!existsSync(filePath)) return [];
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    return content
+      .split("\n")
+      .filter((l) => l.trim())
+      .map((l) => JSON.parse(l) as ContextTimelineEntry);
   } catch {
     return [];
   }
@@ -343,7 +453,7 @@ export function pruneExpiredSessions(): number {
   const now = Date.now();
   let pruned = 0;
   for (const file of readdirSync(sessionDir)) {
-    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl") || file.endsWith(".provenance.jsonl")) continue;
+    if (!file.endsWith(".jsonl") || file.endsWith(".meta.jsonl") || file.endsWith(".provenance.jsonl") || isContextTimelineFile(file)) continue;
     const filePath = path.join(sessionDir, file);
     try {
       const { mtimeMs } = statSync(filePath);
@@ -353,6 +463,10 @@ export function pruneExpiredSessions(): number {
         if (existsSync(metaPath)) unlinkSync(metaPath);
         const provPath = filePath.replace(/\.jsonl$/, ".provenance.jsonl");
         if (existsSync(provPath)) unlinkSync(provPath);
+        const contextPath = filePath.replace(/\.jsonl$/, ".context.json");
+        if (existsSync(contextPath)) unlinkSync(contextPath);
+        const contextTimelinePath = filePath.replace(/\.jsonl$/, ".context.timeline.jsonl");
+        if (existsSync(contextTimelinePath)) unlinkSync(contextTimelinePath);
         pruned++;
       }
     } catch {

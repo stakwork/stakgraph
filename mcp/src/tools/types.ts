@@ -11,6 +11,8 @@ export interface Tool {
 export interface ContextResult {
   final: string;
   usage: AiUsageWithLegacy & {
+    agent?: AiUsageWithLegacy;
+    contextSummary?: AiUsageWithLegacy;
     model?: string;
     provider?: string;
   };
