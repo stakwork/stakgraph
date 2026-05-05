@@ -10,6 +10,7 @@ import {
 import {
   ModelName,
   getModelDetails,
+  getProviderOptions,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
 import { SKILLS } from "./skills.js";
@@ -420,18 +421,19 @@ Apply the guidance from each skill throughout your response.`;
 
 /** Build the generate/stream call params from the prepared agent state. */
 function buildCallParams(prepared: PreparedAgent) {
-  const { finalPrompt, previousMessages, userMessage } = prepared;
+  const { finalPrompt, previousMessages, userMessage, provider } = prepared;
+  const providerOptions = getProviderOptions(provider as any);
   if (previousMessages.length > 0) {
     const messagesToSend =
       typeof finalPrompt === "string"
         ? [...previousMessages, userMessage]
         : [...previousMessages, ...finalPrompt];
-    return { messages: messagesToSend };
+    return { messages: messagesToSend, providerOptions };
   }
   if (typeof finalPrompt === "string") {
-    return { prompt: finalPrompt };
+    return { prompt: finalPrompt, providerOptions };
   }
-  return { messages: finalPrompt };
+  return { messages: finalPrompt, providerOptions };
 }
 
 export async function get_context(
@@ -489,6 +491,7 @@ export async function get_context(
     if (provenanceCollector.entries.length > 0) {
       appendSearchProvenance(sessionId, provenanceCollector.entries);
     }
+
     await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
@@ -496,11 +499,11 @@ export async function get_context(
       duration_ms: duration,
       status: "success",
       token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens || 0,
-        output: totalUsage.outputTokens || 0,
-        total: totalUsage.totalTokens || 0,
+        input: totalUsage.inputTokenDetails?.noCacheTokens ?? totalUsage.inputTokens ?? 0,
+        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens ?? 0,
+        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens ?? 0,
+        output: totalUsage.outputTokens ?? 0,
+        total: totalUsage.totalTokens ?? 0,
       },
     });
   }
@@ -588,11 +591,11 @@ export async function stream_context(
           duration_ms: duration,
           status: "success",
           token_usage: {
-            input: usage?.inputTokenDetails?.noCacheTokens || usage?.inputTokens || 0,
-            cache_read: usage?.inputTokenDetails?.cacheReadTokens || 0,
-            cache_write: usage?.inputTokenDetails?.cacheWriteTokens || 0,
-            output: usage?.outputTokens || 0,
-            total: usage?.totalTokens || 0,
+            input: usage?.inputTokenDetails?.noCacheTokens ?? usage?.inputTokens ?? 0,
+            cache_read: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
+            cache_write: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
+            output: usage?.outputTokens ?? 0,
+            total: usage?.totalTokens ?? 0,
           },
         });
       } catch (e) {
