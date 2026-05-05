@@ -25,11 +25,11 @@
   "license": "ISC",
   "description": "typescript ai utils",
   "dependencies": {
-    "@ai-sdk/anthropic": "3.0.37",
-    "@ai-sdk/google": "3.0.21",
-    "@ai-sdk/openai": "3.0.25",
+    "@ai-sdk/anthropic": "3.0.75",
+    "@ai-sdk/google": "3.0.67",
+    "@ai-sdk/openai": "3.0.61",
     "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
-    "ai": "6.0.72",
+    "ai": "6.0.175",
     "zod": "4.3.6"
   },
   "devDependencies": {

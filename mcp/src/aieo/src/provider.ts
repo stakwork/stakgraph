@@ -361,22 +361,31 @@ export function getProviderOptions(
   thinkingSpeed?: ThinkingSpeed
 ) {
   const fast = thinkingSpeed === "fast";
-  const budget = fast ? 0 : 24000;
+  const explicitThinking = thinkingSpeed === "thinking";
+  // Budget only applies when thinking is explicitly enabled.
+  // For Google we still need a numeric value; use 0 for fast, otherwise let it think.
+  const googleBudget = fast ? 0 : 24000;
   switch (provider) {
     case "anthropic":
-      let thinking = fast
-        ? { type: "disabled" as const }
-        : { type: "enabled" as const, budgetTokens: budget };
+      let thinking: AnthropicProviderOptions["thinking"];
+      if (fast) {
+        thinking = { type: "disabled" };
+      } else if (explicitThinking) {
+        thinking = { type: "enabled", budgetTokens: 24000 };
+      } else {
+        // Default: let the model decide, with summarized thinking output.
+        thinking = { type: "adaptive", display: "summarized" };
+      }
       return {
         anthropic: {
           thinking,
-          cacheControl: { type: 'ephemeral' }
+          cacheControl: { type: "ephemeral" },
         } satisfies AnthropicProviderOptions,
       };
     case "google":
       return {
         google: {
-          thinkingConfig: { thinkingBudget: budget },
+          thinkingConfig: { thinkingBudget: googleBudget },
         } satisfies GoogleGenerativeAIProviderOptions,
       };
     case "openai":

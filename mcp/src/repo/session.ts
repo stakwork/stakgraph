@@ -96,6 +96,8 @@ export async function appendSessionEnd(
     error_message?: string;
   }
 ): Promise<void> {
+  console.log("===> totalUsage", JSON.stringify(opts.token_usage, null, 2));
+
   const stored = sessionMeta.get(sessionId) ?? { source: "unknown", start_time: opts.end_time };
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
