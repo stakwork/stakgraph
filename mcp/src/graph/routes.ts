@@ -109,6 +109,19 @@ export function authMiddleware(
     return next();
   }
 
+  // Check for ?token=<jwt> query param (used for iframe embeds where the
+  // parent site mints a JWT and embeds it in the iframe src). The SPA
+  // strips this from the URL on load so it doesn't leak via Referer/history.
+  const queryToken = req.query.token as string | undefined;
+  if (queryToken) {
+    try {
+      verifyApiToken(queryToken);
+      return next();
+    } catch (_) {
+      // Fall through
+    }
+  }
+
   const authHeader = req.header("Authorization") || req.header("authorization");
 
   // Check for Bearer JWT (used by the SPA)

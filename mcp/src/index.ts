@@ -39,7 +39,12 @@ import { getBusy, busyMiddleware } from "./busy.js";
 import { mcp_routes } from "./handler/index.js";
 import { logs_agent } from "./log/index.js";
 import { pruneExpiredSessions } from "./repo/session.js";
-import { getBus, verifyEventsToken, pipeToSSE } from "./repo/events.js";
+import {
+  getBus,
+  verifyEventsToken,
+  pipeToSSE,
+  signApiToken,
+} from "./repo/events.js";
 import { sendIndexWithToken } from "./utils.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -153,6 +158,35 @@ app.get("/busy", (req: Request, res: Response) => {
 
 app.get("/gitsee/events/:owner/:repo", r.gitseeEvents);
 app.get("/server-config", r.server_config);
+
+// Mint a short-lived JWT for iframe embedding. The parent site authenticates
+// itself with the raw API_TOKEN (server-to-server), and gets back a JWT it
+// can put in `?token=` on the iframe src so the page loads without a Basic
+// Auth prompt. The SPA strips the token from the URL on load.
+//
+// Auth: requires `x-api-token: <API_TOKEN>` header *only* — deliberately not
+// using r.authMiddleware (which would also accept a Bearer JWT). Allowing JWT
+// auth here would let any holder of a valid JWT renew it indefinitely,
+// defeating the short-expiry guarantee. Only the raw API_TOKEN can mint.
+// If API_TOKEN is unset (dev mode), this endpoint is disabled.
+app.post("/mint-token", (req: Request, res: Response): void => {
+  const apiToken = process.env.API_TOKEN;
+  if (!apiToken) {
+    res.status(503).json({ error: "API_TOKEN not configured" });
+    return;
+  }
+  if (req.header("x-api-token") !== apiToken) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  const expiresIn = (req.body?.expires_in as string | undefined) || "1h";
+  try {
+    const token = signApiToken(expiresIn as any);
+    res.json({ token, expires_in: expiresIn });
+  } catch (e) {
+    res.status(500).json({ error: "Failed to mint token" });
+  }
+});
 
 // Sessions API routes are public (pre-auth)
 app.use("/api", benchmarkRouter());
