@@ -370,6 +370,7 @@ export function getProviderOptions(
       return {
         anthropic: {
           thinking,
+          cacheControl: { type: 'ephemeral' }
         } satisfies AnthropicProviderOptions,
       };
     case "google":
