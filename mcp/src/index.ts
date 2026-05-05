@@ -207,6 +207,7 @@ app.post("/gitsee", r.gitsee);
 app.get("/progress", r.get_script_progress);
 app.get("/leaks", rr.get_leaks);
 app.post("/repo/agent", rr.repo_agent);
+app.post("/repo/agent/abort", rr.abort_agent);
 
 app.get("/repo/agent/tools", rr.get_agent_tools);
 app.get("/repo/agent/session", rr.get_agent_session);

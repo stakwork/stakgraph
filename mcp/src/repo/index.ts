@@ -14,7 +14,14 @@ import { SessionConfig, loadSession, sessionExists } from "./session.js";
 import { McpServer } from "./mcpServers.js";
 import { existsSync } from "fs";
 import path from "path";
-import { createBus, filterStepContent, signEventsToken } from "./events.js";
+import {
+  createBus,
+  filterStepContent,
+  signEventsToken,
+  registerAbortController,
+  unregisterAbortController,
+  abortRequest,
+} from "./events.js";
 import { db } from "../graph/neo4j.js";
 
 import { describe_nodes_agent, embed_nodes_agent } from "./descriptions.js";
@@ -178,6 +185,8 @@ export async function repo_agent(req: Request, res: Response) {
   // ── Streaming path: direct SSE response ──────────────────────────────
   if (body.stream) {
     const opId = startTracking("repo_agent_stream");
+    // Register abort controller keyed by sessionId so a separate request can cancel it
+    const abortController = registerAbortController(body.sessionId);
     try {
       const repoDir = await repoDirPromise;
       console.log(`===> POST /repo/agent (stream) ${repoDir}`);
@@ -201,6 +210,7 @@ export async function repo_agent(req: Request, res: Response) {
           subAgents: body.subAgents,
           ggnn: body.ggnn,
           source: "repo_agent",
+          abortSignal: abortController.signal,
         },
       );
 
@@ -221,6 +231,15 @@ export async function repo_agent(req: Request, res: Response) {
         return;
       }
 
+      // If the client disconnects mid-stream, abort the in-flight agent run
+      const onClientClose = () => {
+        if (!abortController.signal.aborted) {
+          console.log(`[repo_agent] Client disconnected; aborting session ${body.sessionId}`);
+          try { abortController.abort(); } catch (_) {}
+        }
+      };
+      res.on("close", onClientClose);
+
       const pump = async () => {
         while (true) {
           const { done, value } = await reader.read();
@@ -240,13 +259,16 @@ export async function repo_agent(req: Request, res: Response) {
           }
         })
         .finally(async () => {
+          res.off("close", onClientClose);
           await finalizeSession();
+          unregisterAbortController(body.sessionId);
           endTracking(opId);
         });
 
       return;
     } catch (error: any) {
       console.error("[repo_agent] Stream setup error:", error);
+      unregisterAbortController(body.sessionId);
       endTracking(opId);
       if (!res.headersSent) {
         res.status(500).json({ error: error.message || "Internal server error" });
@@ -261,6 +283,13 @@ export async function repo_agent(req: Request, res: Response) {
 
   // Create an event bus for real-time SSE streaming of this request
   const bus = createBus(request_id);
+
+  // Register abort controller keyed by request_id (so /repo/agent/abort can cancel it).
+  // Also mirror under sessionId for callers who only have that.
+  const abortController = registerAbortController(request_id);
+  if (body.sessionId && body.sessionId !== request_id) {
+    registerAbortController(body.sessionId, abortController);
+  }
 
   // Generate a short-lived JWT scoped to this request_id (only if API_TOKEN is set)
   let events_token: string | undefined;
@@ -290,6 +319,7 @@ export async function repo_agent(req: Request, res: Response) {
           subAgents: body.subAgents,
           ggnn: body.ggnn,
           source: "repo_agent",
+          abortSignal: abortController.signal,
           onStepEvent: (content) => {
             const events = filterStepContent(content);
             for (const ev of events) bus.emit(ev);
@@ -313,15 +343,30 @@ export async function repo_agent(req: Request, res: Response) {
         });
       })
       .catch((error) => {
-        console.error("[repo_agent] Background work failed with error:", error);
-        asyncReqs.failReq(request_id, error.message || error.toString());
-        bus.emit({
-          type: "error",
-          error: error.message || error.toString(),
-          timestamp: new Date().toISOString(),
-        });
+        const aborted = abortController.signal.aborted;
+        if (aborted) {
+          console.log(`[repo_agent] Run aborted: ${request_id}`);
+          asyncReqs.failReq(request_id, "aborted");
+          bus.emit({
+            type: "error",
+            error: "aborted",
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          console.error("[repo_agent] Background work failed with error:", error);
+          asyncReqs.failReq(request_id, error.message || error.toString());
+          bus.emit({
+            type: "error",
+            error: error.message || error.toString(),
+            timestamp: new Date().toISOString(),
+          });
+        }
       })
       .finally(() => {
+        unregisterAbortController(request_id);
+        if (body.sessionId && body.sessionId !== request_id) {
+          unregisterAbortController(body.sessionId);
+        }
         endTracking(opId);
       });
     res.json({ request_id, status: "pending", sessionId: body.sessionId, ...(events_token && { events_token }) });
@@ -329,9 +374,42 @@ export async function repo_agent(req: Request, res: Response) {
     console.log("===> error");
     asyncReqs.failReq(request_id, error);
     console.error("Error in repo_agent", error);
+    unregisterAbortController(request_id);
+    if (body.sessionId && body.sessionId !== request_id) {
+      unregisterAbortController(body.sessionId);
+    }
     res.status(500).json({ error: "Internal server error" });
     endTracking(opId);
   }
+}
+
+// curl -X POST -H "Content-Type: application/json" \
+//   -d '{"request_id":"<id>"}' \
+//   "http://localhost:3355/repo/agent/abort"
+// curl -X POST -H "Content-Type: application/json" \
+//   -d '{"sessionId":"<id>"}' \
+//   "http://localhost:3355/repo/agent/abort"
+export async function abort_agent(req: Request, res: Response) {
+  const request_id =
+    (req.body?.request_id as string | undefined) ||
+    (req.query?.request_id as string | undefined);
+  const sessionId =
+    (req.body?.sessionId as string | undefined) ||
+    (req.body?.session_id as string | undefined) ||
+    (req.query?.sessionId as string | undefined) ||
+    (req.query?.session_id as string | undefined);
+  const key = request_id || sessionId;
+  console.log("===> POST /repo/agent/abort", { request_id, sessionId });
+  if (!key) {
+    res.status(400).json({ error: "Provide request_id or sessionId" });
+    return;
+  }
+  const aborted = abortRequest(key);
+  if (!aborted) {
+    res.status(404).json({ aborted: false, error: "No active run found for the given key" });
+    return;
+  }
+  res.json({ aborted: true, key });
 }
 
 export async function get_agent_tools(req: Request, res: Response) {
