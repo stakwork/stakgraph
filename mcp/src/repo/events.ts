@@ -138,6 +138,54 @@ export function getBus(request_id: string): RequestEventBus | undefined {
   return buses.get(request_id);
 }
 
+// ── Abort controller registry ────────────────────────────────────────────
+
+/**
+ * Per-request AbortController registry, keyed by request_id (or session_id).
+ * Used to cancel an in-flight agent run from a separate HTTP request.
+ */
+const abortControllers = new Map<string, AbortController>();
+
+export function registerAbortController(
+  key: string,
+  controller?: AbortController,
+): AbortController {
+  // If a stale controller exists for this key, abort it first (only when
+  // we're creating a fresh one — aliasing should not abort an existing run).
+  if (!controller) {
+    const existing = abortControllers.get(key);
+    if (existing && !existing.signal.aborted) {
+      try { existing.abort(); } catch (_) {}
+    }
+  }
+  const ctl = controller ?? new AbortController();
+  abortControllers.set(key, ctl);
+  return ctl;
+}
+
+export function getAbortController(key: string): AbortController | undefined {
+  return abortControllers.get(key);
+}
+
+export function unregisterAbortController(key: string): void {
+  abortControllers.delete(key);
+}
+
+/**
+ * Abort an in-flight request. Returns true if a controller was found and aborted.
+ */
+export function abortRequest(key: string): boolean {
+  const controller = abortControllers.get(key);
+  if (!controller) return false;
+  if (controller.signal.aborted) return true;
+  try {
+    controller.abort();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 // ── SSE helper ───────────────────────────────────────────────────────────
 
 /**

@@ -206,6 +206,8 @@ export interface GetContextOptions {
   source?: string;
   // Write messages to the session but don't load prior messages as context
   isolatedContext?: boolean;
+  // Abort signal for cancelling in-flight requests
+  abortSignal?: AbortSignal;
 }
 
 interface PreparedAgent {
@@ -222,6 +224,19 @@ interface PreparedAgent {
   stepMetas: StepMeta[];
   turnIndex: number;
   provenanceCollector: ProvenanceCollector;
+  abortSignal: AbortSignal | undefined;
+}
+
+/** Returns true if the error was caused by an AbortSignal. */
+function isAbortError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof Error) {
+    if (err.name === "AbortError") return true;
+    const cause: any = (err as any).cause;
+    if (cause && cause.name === "AbortError") return true;
+    if (/abort/i.test(err.message)) return true;
+  }
+  return false;
 }
 
 async function prepareAgent(
@@ -416,24 +431,26 @@ Apply the guidance from each skill throughout your response.`;
     stepMetas,
     turnIndex,
     provenanceCollector,
+    abortSignal: opts.abortSignal,
   };
 }
 
 /** Build the generate/stream call params from the prepared agent state. */
 function buildCallParams(prepared: PreparedAgent) {
-  const { finalPrompt, previousMessages, userMessage, provider } = prepared;
+  const { finalPrompt, previousMessages, userMessage, provider, abortSignal } = prepared;
   const providerOptions = getProviderOptions(provider as any);
+  const base = abortSignal ? { providerOptions, abortSignal } : { providerOptions };
   if (previousMessages.length > 0) {
     const messagesToSend =
       typeof finalPrompt === "string"
         ? [...previousMessages, userMessage]
         : [...previousMessages, ...finalPrompt];
-    return { messages: messagesToSend, providerOptions };
+    return { messages: messagesToSend, ...base };
   }
   if (typeof finalPrompt === "string") {
-    return { prompt: finalPrompt, providerOptions };
+    return { prompt: finalPrompt, ...base };
   }
-  return { messages: finalPrompt, providerOptions };
+  return { messages: finalPrompt, ...base };
 }
 
 export async function get_context(
@@ -461,13 +478,14 @@ export async function get_context(
   try {
     result = await agent.generate(buildCallParams(prepared));
   } catch (err) {
+    const aborted = isAbortError(err);
     if (sessionId) {
       await appendSessionEnd(sessionId, {
         end_time: new Date().toISOString(),
         model: modelId,
         provider,
         duration_ms: Date.now() - startTime,
-        status: "error",
+        status: aborted ? "aborted" : "error",
         error_message: err instanceof Error ? err.message : String(err),
       });
     }
@@ -599,13 +617,18 @@ export async function stream_context(
           },
         });
       } catch (e) {
-        console.error("[stream_context] Failed to finalize session:", e);
+        const aborted = isAbortError(e);
+        if (aborted) {
+          console.log("[stream_context] Stream aborted by client");
+        } else {
+          console.error("[stream_context] Failed to finalize session:", e);
+        }
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
           provider,
           duration_ms: Date.now() - startTime,
-          status: "error",
+          status: aborted ? "aborted" : "error",
           error_message: e instanceof Error ? e.message : String(e),
         }).catch(() => {});
       }
@@ -634,6 +657,10 @@ curl -X POST \
     }
   }' \
   "http://localhost:3355/repo/agent"
+
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"request_id":"09e94379-78d4-4d02-b032-3868a7322cc9"}' \
+  http://localhost:3355/repo/agent/abort
 
 curl -X POST \
   -H "Content-Type: application/json" \
