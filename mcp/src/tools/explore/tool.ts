@@ -1,5 +1,6 @@
 import { generateText, tool, hasToolCall, ModelMessage, ToolSet, StepResult } from "ai";
 import { getProviderOptions, resolveLLMConfig } from "../../aieo/src/provider.js";
+import { normalizeUsage } from "../../aieo/src/usage.js";
 import {
   EXPLORER,
   RE_EXPLORER,
@@ -233,11 +234,7 @@ export async function get_context_explore(
   return {
     final,
     content: final,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage: normalizeUsage(totalUsage),
   };
 }
 

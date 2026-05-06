@@ -12,6 +12,7 @@ import {
   ModelName,
   getModelDetails,
   getProviderOptions,
+  normalizeUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
 import { SKILLS } from "./skills.js";
@@ -527,13 +528,7 @@ export async function get_context(
       provider,
       duration_ms: duration,
       status: "success",
-      token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens ?? totalUsage.inputTokens ?? 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens ?? 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens ?? 0,
-        output: totalUsage.outputTokens ?? 0,
-        total: totalUsage.totalTokens ?? 0,
-      },
+      token_usage: normalizeUsage(totalUsage),
     });
   }
 
@@ -561,9 +556,7 @@ export async function get_context(
     tool_use: final.tool_use,
     content: finalAnswer,
     usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
+      ...normalizeUsage(totalUsage),
       model: modelId,
       provider,
     },
@@ -620,13 +613,7 @@ export async function stream_context(
           provider,
           duration_ms: duration,
           status: "success",
-          token_usage: {
-            input: usage?.inputTokenDetails?.noCacheTokens ?? usage?.inputTokens ?? 0,
-            cache_read: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
-            cache_write: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
-            output: usage?.outputTokens ?? 0,
-            total: usage?.totalTokens ?? 0,
-          },
+          token_usage: normalizeUsage(usage),
         });
       } catch (e) {
         const aborted = isAbortError(e);
