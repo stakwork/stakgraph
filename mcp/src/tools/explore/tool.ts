@@ -1,5 +1,5 @@
 import { generateText, tool, hasToolCall, ModelMessage, ToolSet, StepResult } from "ai";
-import { resolveLLMConfig } from "../../aieo/src/provider.js";
+import { getProviderOptions, resolveLLMConfig } from "../../aieo/src/provider.js";
 import {
   EXPLORER,
   RE_EXPLORER,
@@ -173,6 +173,7 @@ export async function get_context_explore(
     tools,
     prompt,
     system,
+    providerOptions: getProviderOptions(llm.provider) as any,
     stopWhen: hasToolCall("final_answer"),
     onStepFinish: (sf) => {
       // console.log("step", JSON.stringify(sf.content, null, 2));

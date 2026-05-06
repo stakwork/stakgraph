@@ -92,10 +92,12 @@ export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
   usage: { inputTokens: number; outputTokens: number; totalTokens: number };
 }> {
   const model = await getModel(args.provider, args.apiKey);
+  const providerOptions = getProviderOptions(args.provider, "fast");
   const { object, usage } = await generateObject({
     model,
     schema: args.schema,
     prompt: args.prompt,
+    providerOptions: providerOptions as any,
   });
   return {
     object,

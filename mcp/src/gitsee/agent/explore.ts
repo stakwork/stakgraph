@@ -1,5 +1,5 @@
 import { generateText, tool, hasToolCall, ModelMessage } from "ai";
-import { resolveLLMConfig } from "../../aieo/src/index.js";
+import { getProviderOptions, resolveLLMConfig } from "../../aieo/src/index.js";
 import * as prompts from "./prompts/index.js";
 import { z } from "zod";
 import { getRepoMap, getFileSummary, fulltextSearch } from "./tools.js";
@@ -152,6 +152,7 @@ export async function gitsee_context(
     tools,
     prompt,
     system: overrides?.system_prompt || CONF.system,
+    providerOptions: getProviderOptions(llm.provider) as any,
     stopWhen: hasToolCall("final_answer"),
     onStepFinish: (sf) => logStep(sf.content),
   });

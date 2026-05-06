@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
-import { resolveLLMConfig } from "../aieo/src/index.js";
+import { getProviderOptions, resolveLLMConfig } from "../aieo/src/index.js";
 
 export async function learn_docs_agent(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
@@ -12,6 +12,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
   const reqApiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
   const llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey });
   const model = llm.model;
+  const providerOptions = getProviderOptions(llm.provider);
 
   try {
     const allRepos = await db.get_repositories();
@@ -84,6 +85,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
         const result = await generateText({
           model,
           prompt,
+          providerOptions: providerOptions as any,
         });
         totalInputTokens += result.usage?.inputTokens || 0;
         totalOutputTokens += result.usage?.outputTokens || 0;

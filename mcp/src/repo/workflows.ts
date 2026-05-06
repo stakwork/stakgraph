@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../graph/neo4j.js';
 import { generateText } from 'ai';
-import { resolveLLMConfig } from '../aieo/src/index.js';
+import { getProviderOptions, resolveLLMConfig } from '../aieo/src/index.js';
 import * as asyncReqs from '../graph/reqs.js';
 
 function buildPrompt(workflow_json: string): string {
@@ -30,9 +30,10 @@ export async function document_workflow(req: Request, res: Response) {
   res.json({ request_id, status: 'pending' });
 
   const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey });
+  const providerOptions = getProviderOptions(llm.provider);
   (async () => {
     try {
-      const result = await generateText({ model: llm.model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)) });
+      const result = await generateText({ model: llm.model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)), providerOptions: providerOptions as any });
       const name = `Documentation for ${workflow.workflow_name || workflow.node_key}`;
       await db.upsert_workflow_documentation(workflow.ref_id, name, result.text);
       asyncReqs.finishReq(request_id, {
@@ -55,6 +56,7 @@ export async function document_workflows(req: Request, res: Response) {
 
   const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey });
   const model = llm.model;
+  const providerOptions = getProviderOptions(llm.provider);
   (async () => {
     try {
       const workflows = await db.get_all_workflows();
@@ -62,7 +64,7 @@ export async function document_workflows(req: Request, res: Response) {
       for (const workflow of workflows) {
         const existing = await db.get_workflow_documentation(workflow.node_key);
         if (existing) { skipped++; continue; }
-        const result = await generateText({ model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)) });
+        const result = await generateText({ model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)), providerOptions: providerOptions as any });
         const name = `Documentation for ${workflow.workflow_name || workflow.node_key}`;
         await db.upsert_workflow_documentation(workflow.ref_id, name, result.text);
         totalInputTokens += result.usage?.inputTokens || 0;
