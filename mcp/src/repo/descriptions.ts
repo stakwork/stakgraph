@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
-import { resolveLLMConfig, getTokenPricing } from "../aieo/src/index.js";
+import { resolveLLMConfig, getTokenPricing, getProviderOptions } from "../aieo/src/index.js";
 import { vectorizeBatch } from "../vector/index.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
@@ -98,6 +98,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     let totalTokens = { input: 0, output: 0 };
     const pricing = getTokenPricing(llm.provider);
     const model = llm.model;
+    const providerOptions = getProviderOptions(llm.provider);
 
     // Loop until cost limit reached or no more nodes
     while (true) {
@@ -171,7 +172,7 @@ Docs: ${existingDocs}
 Code:
 ${content.slice(0, 2000)}`;
             try {
-              const { text, usage } = await generateText({ model, prompt });
+              const { text, usage } = await generateText({ model, prompt, providerOptions: providerOptions as any });
               const inputCost =
                 ((usage.inputTokens || 0) / 1000000) * pricing.inputTokenPrice;
               const outputCost =

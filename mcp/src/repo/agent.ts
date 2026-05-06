@@ -147,7 +147,8 @@ async function structureFinalAnswer(
   finalPrompt: string | ModelMessage[],
   finalAnswer: string,
   schema: { [key: string]: any },
-  model: LanguageModel
+  model: LanguageModel,
+  provider: string
 ): Promise<any> {
   const msgs: ModelMessage[] = [];
 
@@ -174,6 +175,7 @@ async function structureFinalAnswer(
   const { output } = await generateText({
     model,
     prompt: msgs,
+    providerOptions: getProviderOptions(provider as any, "fast") as any,
     output: Output.object({ schema: jsonSchema(normalizedSchema) }),
   });
 
@@ -544,7 +546,8 @@ export async function get_context(
       finalPrompt,
       finalAnswer,
       schema,
-      model
+      model,
+      provider
     );
   }
   console.log(

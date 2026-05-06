@@ -11,6 +11,7 @@ import {
   getApiKeyForProvider,
   getModel,
   getModelDetails,
+  getProviderOptions,
   Provider,
 } from "../aieo/src/provider.js";
 import { generateObject, jsonSchema } from "ai";
@@ -965,7 +966,8 @@ export async function gitree_relevant_features(req: Request, res: Response) {
     // Use AI to determine relevant features
     const provider = process.env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
-    const model = await getModel(provider as Provider, apiKey as string);
+    const typedProvider = provider as Provider;
+    const model = await getModel(typedProvider, apiKey as string);
 
     const aiPrompt = `<prompt>${prompt}</prompt>
 <features>${JSON.stringify(featuresWithoutDocs, null, 2)}</features>
@@ -989,6 +991,7 @@ Please analyze the user's prompt and the list of available features. Return an a
       model,
       prompt: aiPrompt,
       schema: jsonSchema(schema),
+      providerOptions: getProviderOptions(typedProvider, "fast") as any,
     });
 
     const relevantFeatureIds =

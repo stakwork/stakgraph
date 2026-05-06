@@ -1,7 +1,7 @@
 import { Storage } from "./store/index.js";
 import { Clue, Usage } from "./types.js";
 import { generateObject, jsonSchema } from "ai";
-import { getApiKeyForProvider, getModel, Provider } from "../aieo/src/provider.js";
+import { getApiKeyForProvider, getModel, getProviderOptions, Provider } from "../aieo/src/provider.js";
 import { appendMessages } from "../repo/session.js";
 import { appendGitreeLlmExchange, GitreeSessionTracker } from "./llm.js";
 
@@ -131,13 +131,15 @@ export class ClueLinker {
     // Use generateObject instead of get_context (no codebase reading needed)
     const provider = process.env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
-    const model = getModel(provider as Provider, apiKey as string);
+    const typedProvider = provider as Provider;
+    const model = getModel(typedProvider, apiKey as string);
 
     const result = await generateObject({
       model,
       system: this.buildSystemPrompt(),
       prompt,
       schema: jsonSchema(schema),
+      providerOptions: getProviderOptions(typedProvider, "fast") as any,
     });
 
     const decision = result.object as any;

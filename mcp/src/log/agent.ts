@@ -1,5 +1,5 @@
 import { ToolLoopAgent, ModelMessage } from "ai";
-import { ModelName, getModelDetails } from "../aieo/src/index.js";
+import { ModelName, getModelDetails, getProviderOptions } from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -59,7 +59,7 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
-  const { model } = getModelDetails(opts.modelName, opts.apiKey);
+  const { model, provider } = getModelDetails(opts.modelName, opts.apiKey);
   console.log("===> log_agent model", model);
 
   const tools = get_log_tools({
@@ -83,6 +83,7 @@ export async function log_agent_context(
     model,
     instructions: SYSTEM,
     tools,
+    providerOptions: getProviderOptions(provider) as any,
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {

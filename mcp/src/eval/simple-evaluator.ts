@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 import { generateObject } from "ai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
-import { getModel } from "../aieo/src/provider.js";
+import { getModel, getProviderOptions } from "../aieo/src/provider.js";
 
 // Load environment variables
 dotenv.config();
@@ -182,6 +182,7 @@ export class SimpleEvaluator {
           prompt: userMessage,
           schema: StepGenerationSchema,
           temperature: 0.1,
+          providerOptions: getProviderOptions(this.currentProvider, "fast") as any,
         });
 
         console.log(
@@ -247,6 +248,7 @@ export class SimpleEvaluator {
           prompt: userMessage,
           schema: StepGenerationSchema,
           temperature: 0.1,
+          providerOptions: getProviderOptions(fallbackProvider, "fast") as any,
         });
 
         console.log(

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { db } from "./neo4j.js";
 import { vectorizeQuery } from "../vector/index.js";
 import { generateObject, jsonSchema } from "ai";
-import { resolveLLMConfig } from "../aieo/src/provider.js";
+import { getProviderOptions, resolveLLMConfig } from "../aieo/src/provider.js";
 
 // === Learning + Scope routes ===
 
@@ -90,6 +90,7 @@ export async function post_relevant_learnings(req: Request, res: Response) {
   try {
     const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey, light: true });
     const model = llm.model;
+    const providerOptions = getProviderOptions(llm.provider);
 
     // 1. List all scopes
     const allScopes = await db.get_all_scopes();
@@ -121,6 +122,7 @@ Given the user's prompt, pick the most relevant scopes from the list. Return up 
       model,
       prompt: scopePrompt,
       schema: jsonSchema(scopeSchema),
+      providerOptions: providerOptions as any,
     });
 
     const relevantScopes =
@@ -169,6 +171,7 @@ Given the user's prompt, pick the most relevant learnings from the list. Return 
       model,
       prompt: learningPrompt,
       schema: jsonSchema(learningSchema),
+      providerOptions: providerOptions as any,
     });
 
     const relevantIds =
