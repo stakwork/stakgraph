@@ -88,13 +88,6 @@ export async function services_agent(req: Request, res: Response) {
         return { files, usage: combineUsage(profileResult.usage, text_of_files.usage) };
       })
       .then(async (result) => {
-        await appendSessionEnd(sessionId, {
-          end_time: new Date().toISOString(),
-          model: modelId,
-          provider,
-          duration_ms: Date.now() - startTime,
-          status: "success",
-        });
         asyncReqs.finishReq(request_id, {
           ...result.files,
           usage: result.usage,

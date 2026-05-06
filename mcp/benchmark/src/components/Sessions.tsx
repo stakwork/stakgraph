@@ -398,7 +398,7 @@ function parseTrace(trace: unknown): {
       if (role === "assistant" && e.type === "text") {
         const text = String(e.text ?? "");
         ei += 1;
-        events.push(createTraceEvent(ei, role, "assistant-text", e, text));
+        events.push(createTraceEvent(ei, role, "assistant-text", text, text));
       }
       if (e.type === "tool-call") {
         ci++;
@@ -562,9 +562,11 @@ function SourceBadge({ source }: { source: string }) {
 function StatTile({
   label,
   value,
+  detail,
 }: {
   label: string;
   value: string;
+  detail?: string;
 }) {
   return (
     <div
@@ -599,8 +601,55 @@ function StatTile({
       >
         {value}
       </p>
+      {detail ? (
+        <p
+          style={{
+            margin: "6px 0 0 0",
+            fontSize: "11px",
+            color: "#71717a",
+            lineHeight: 1.25,
+          }}
+        >
+          {detail}
+        </p>
+      ) : null}
     </div>
   );
+}
+
+function usageSplitDetail(usage: ProductionRun["token_usage"]): string {
+  return `${formatNumber(usage.input)} base / ${formatNumber(usage.cache_read)} read / ${formatNumber(usage.cache_write)} write`;
+}
+
+function usageValue(value: number | undefined): number {
+  return value ?? 0;
+}
+
+function getStepUsage(meta: StepMeta): {
+  input: number;
+  cacheRead: number;
+  cacheWrite: number;
+  output: number;
+  totalInput: number;
+  total: number;
+} {
+  const usage = meta.usage;
+  const nested = usage.token_usage;
+  const cacheRead = usageValue(usage.cache_read ?? nested?.cache_read);
+  const cacheWrite = usageValue(usage.cache_write ?? nested?.cache_write);
+  const inputTokens = usageValue(usage.inputTokens);
+  let input = usageValue(usage.input ?? nested?.input);
+  if (input === 0 && cacheRead === 0 && cacheWrite === 0) {
+    input = inputTokens;
+  }
+  const output = usageValue(
+    usage.output ?? nested?.output ?? usage.outputTokens,
+  );
+  const totalInput = input + cacheRead + cacheWrite;
+  const total =
+    usageValue(usage.total ?? nested?.total ?? usage.totalTokens) ||
+    totalInput + output;
+  return { input, cacheRead, cacheWrite, output, totalInput, total };
 }
 
 function Section({
@@ -1044,6 +1093,8 @@ function DisplayUnitRow({
 function StepDivider({ meta }: { meta: StepMeta }) {
   const label = meta.label;
   const isFinal = meta.toolCalls.length === 0 && !label;
+  const usage = getStepUsage(meta);
+  const hasCache = usage.cacheRead > 0 || usage.cacheWrite > 0;
   return (
     <div
       style={{
@@ -1075,21 +1126,20 @@ function StepDivider({ meta }: { meta: StepMeta }) {
         </span>
       ) : null}
       {!isFinal && (
-        <span style={{ color: "#a3e635" }}>
-          ↑{formatNumber(meta.usage.inputTokens)}
+        <span
+          title={`${formatNumber(usage.input)} base / ${formatNumber(usage.cacheRead)} cache read / ${formatNumber(usage.cacheWrite)} cache write`}
+          style={{ color: "#a3e635" }}
+        >
+          base {formatNumber(usage.input)}
         </span>
       )}
-      {isFinal ? (
-        <span style={{ color: "#a3e635" }}>final answer</span>
-      ) : null}
-      <span style={{ color: "#fb923c" }}>
-        ↓{formatNumber(meta.usage.outputTokens)}
-      </span>
-      {!isFinal && (
-        <span style={{ color: "#71717a" }}>
-          Σ{formatNumber(meta.cumulativeInput)} ctx
+      {hasCache && (
+        <span title="Cache read/write tokens" style={{ color: "#22d3ee" }}>
+          read {formatNumber(usage.cacheRead)} / write {formatNumber(usage.cacheWrite)}
         </span>
       )}
+      {isFinal ? <span style={{ color: "#a3e635" }}>final answer</span> : null}
+      <span style={{ color: "#fb923c" }}>out {formatNumber(usage.output)}</span>
     </div>
   );
 }
@@ -1228,10 +1278,18 @@ function TurnCard({
 }) {
   const units = groupEvents(turn.events);
   const metas = stepMetas ?? [];
-  const totalIn = metas.reduce((s, m) => s + m.usage.inputTokens, 0);
-  const totalOut = metas.reduce((s, m) => s + m.usage.outputTokens, 0);
-  const cumInput =
-    metas.length > 0 ? metas[metas.length - 1].cumulativeInput : null;
+  const usageTotals = metas.reduce(
+    (totals, meta) => {
+      const usage = getStepUsage(meta);
+      return {
+        input: totals.input + usage.totalInput,
+        cacheRead: totals.cacheRead + usage.cacheRead,
+        cacheWrite: totals.cacheWrite + usage.cacheWrite,
+        output: totals.output + usage.output,
+      };
+    },
+    { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 },
+  );
   return (
     <details style={card}>
       <summary
@@ -1305,12 +1363,7 @@ function TurnCard({
                 flexShrink: 0,
               }}
             >
-              {formatNumber(totalIn + totalOut)} tok
-              {cumInput !== null && (
-                <span style={{ color: "#71717a", marginLeft: 4 }}>
-                  ({formatNumber(cumInput)} ctx)
-                </span>
-              )}
+              base {formatNumber(usageTotals.input - usageTotals.cacheRead - usageTotals.cacheWrite)} / read {formatNumber(usageTotals.cacheRead)} / write {formatNumber(usageTotals.cacheWrite)} / out {formatNumber(usageTotals.output)}
             </span>
           )}
         </div>
@@ -1797,6 +1850,15 @@ export function Sessions() {
                   <StatTile
                     label="Input"
                     value={formatNumber(selected.token_usage.input)}
+                    detail={usageSplitDetail(selected.token_usage)}
+                  />
+                  <StatTile
+                    label="Cache Read"
+                    value={formatNumber(selected.token_usage.cache_read)}
+                  />
+                  <StatTile
+                    label="Cache Write"
+                    value={formatNumber(selected.token_usage.cache_write)}
                   />
                   <StatTile
                     label="Output"

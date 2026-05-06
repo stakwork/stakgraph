@@ -165,7 +165,7 @@ export async function log_agent_context(
     );
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);
-    appendSessionEnd(sessionId, {
+    await appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
       provider,

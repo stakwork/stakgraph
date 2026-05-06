@@ -20,9 +20,21 @@ export interface StepMeta {
   turn: number;
   label?: string;
   usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
+    input?: number;
+    cache_read?: number;
+    cache_write?: number;
+    output?: number;
+    total?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+    token_usage?: {
+      input: number;
+      cache_read: number;
+      cache_write: number;
+      output: number;
+      total: number;
+    };
   };
   cumulativeInput: number;
   cumulativeOutput: number;
@@ -60,7 +72,13 @@ export interface ProductionRun {
   cost_usd?: number;
   timestamp: string;
   duration_ms: number;
-  token_usage: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+  token_usage: {
+    input: number;
+    cache_read: number;
+    cache_write: number;
+    output: number;
+    total: number;
+  };
   status?: string;
   error_message?: string;
   tool_sequence: string[];
