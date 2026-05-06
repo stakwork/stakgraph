@@ -6,6 +6,7 @@ import {
   StopCondition,
   ToolSet,
   jsonSchema,
+  stepCountIs,
 } from "ai";
 import {
   ModelName,
@@ -208,6 +209,8 @@ export interface GetContextOptions {
   isolatedContext?: boolean;
   // Abort signal for cancelling in-flight requests
   abortSignal?: AbortSignal;
+  // Maximum number of agent steps (tool-call turns) before stopping
+  maxTurns?: number;
 }
 
 interface PreparedAgent {
@@ -330,18 +333,24 @@ Apply the guidance from each skill throughout your response.`;
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
   const hasAskQuestions = createHasAskQuestionsCondition<typeof tools>();
 
-  let stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
-    hasEndMarker;
+  const stopConditions: StopCondition<ToolSet>[] = [hasEndMarker];
   let finalPrompt: string | ModelMessage[] = prompt;
 
   if (toolsConfig?.ask_clarifying_questions) {
-    stopWhen = [hasEndMarker, hasAskQuestions];
+    stopConditions.push(hasAskQuestions);
 
     finalPrompt = appendTextToPrompt(
       prompt,
       " After exploring a bit, ask clarifying questions if needed."
     );
   }
+
+  if (typeof opts.maxTurns === "number" && opts.maxTurns > 0) {
+    stopConditions.push(stepCountIs(opts.maxTurns));
+  }
+
+  const stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
+    stopConditions.length === 1 ? stopConditions[0] : stopConditions;
 
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
