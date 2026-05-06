@@ -94,7 +94,9 @@ export async function search(
   output: OutputFormat = "snippet",
   skip_node_types: NodeType[] = [],
   language?: string,
-  sortBy: SearchSortBy = "relevance"
+  sortBy: SearchSortBy = "relevance",
+  include_patterns?: string[],
+  exclude_patterns?: string[],
 ) {
   const effective_node_types =
     node_types.length > 0 ? node_types : code_node_types();
@@ -106,7 +108,9 @@ export async function search(
       effective_node_types,
       skip_node_types,
       maxTokens,
-      language
+      language,
+      include_patterns,
+      exclude_patterns,
     );
     if (sortBy === "pagerank") {
       result = sortByPagerank(result);
@@ -114,8 +118,8 @@ export async function search(
     return toNodes(result, concise, output);
   } else if (method === "hybrid") {
     const [fulltextResults, vectorResults] = await Promise.all([
-      db.search(query, limit, effective_node_types, skip_node_types, 0, language),
-      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language),
+      db.search(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
+      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
     ]);
 
     const merged = new Map<string, { node: Neo4jNode; score: number }>();
@@ -166,7 +170,9 @@ export async function search(
       effective_node_types,
       skip_node_types,
       maxTokens,
-      language
+      language,
+      include_patterns,
+      exclude_patterns,
     );
     if (sortBy === "pagerank") {
       result = sortByPagerank(result);
@@ -185,7 +191,9 @@ export async function searchWithProvenance(
   output: OutputFormat = "snippet",
   skip_node_types: NodeType[] = [],
   language?: string,
-  sortBy: SearchSortBy = "relevance"
+  sortBy: SearchSortBy = "relevance",
+  include_patterns?: string[],
+  exclude_patterns?: string[],
 ): Promise<{ results: any; provenance: SearchProvenance }> {
   const effective_node_types =
     node_types.length > 0 ? node_types : code_node_types();
@@ -194,7 +202,7 @@ export async function searchWithProvenance(
 
   if (method === "vector") {
     let result = await db.vectorSearch(
-      query, limit, effective_node_types, skip_node_types, maxTokens, language
+      query, limit, effective_node_types, skip_node_types, maxTokens, language, include_patterns, exclude_patterns,
     );
     if (sortBy === "pagerank") result = sortByPagerank(result);
     provenance.result_meta = result.map((node, i) => ({
@@ -208,8 +216,8 @@ export async function searchWithProvenance(
 
   if (method === "hybrid") {
     const [fulltextResults, vectorResults] = await Promise.all([
-      db.search(query, limit, effective_node_types, skip_node_types, 0, language),
-      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language),
+      db.search(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
+      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
     ]);
 
     const ftIndex = new Map<string, { rank: number; score?: number }>();
@@ -288,7 +296,7 @@ export async function searchWithProvenance(
 
   // fulltext
   let result = await db.search(
-    query, limit, effective_node_types, skip_node_types, maxTokens, language
+    query, limit, effective_node_types, skip_node_types, maxTokens, language, include_patterns, exclude_patterns,
   );
   if (sortBy === "pagerank") result = sortByPagerank(result);
   provenance.result_meta = result.map((node, i) => ({

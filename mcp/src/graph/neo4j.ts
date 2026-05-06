@@ -27,6 +27,15 @@ import { createByModelName } from "@microsoft/tiktokenizer";
 
 export type Direction = "up" | "down" | "both";
 
+// Strip glob wildcards (**/, /**, *) to get a substring usable with Cypher CONTAINS.
+// e.g. "**/*.ts" → ".ts", "stakwork/hive/**" → "stakwork/hive/", "__tests__" → "__tests__"
+function normalizeGlobToContains(pattern: string): string {
+  return pattern
+    .replace(/^\*\*\//, "")
+    .replace(/\/\*\*$/, "/")
+    .replace(/\*/g, "");
+}
+
 export const Data_Bank = Q.Data_Bank;
 
 const no_db = process.env.NO_DB === "true" || process.env.NO_DB === "1";
@@ -361,6 +370,8 @@ class Db {
     skip_node_types: NodeType[],
     maxTokens: number, // Optional parameter for token limit
     language?: string,
+    include_patterns?: string[],
+    exclude_patterns?: string[],
   ): Promise<Neo4jNode[]> {
     const session = this.driver.session();
 
@@ -373,6 +384,8 @@ class Db {
     }
 
     const extensions = language ? getExtensionsForLanguage(language) : [];
+    const normalized_include = (include_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
+    const normalized_exclude = (exclude_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
 
     try {
       const result = await session.run(Q.SEARCH_QUERY_COMPOSITE, {
@@ -381,6 +394,8 @@ class Db {
         node_types,
         skip_node_types,
         extensions,
+        include_patterns: normalized_include,
+        exclude_patterns: normalized_exclude,
       });
       const nodes = result.records.map((record) => {
         const node: Neo4jNode = deser_node(record, "node");
@@ -420,6 +435,8 @@ class Db {
     skip_node_types: NodeType[] = [],
     maxTokens: number = 0,
     language?: string,
+    include_patterns?: string[],
+    exclude_patterns?: string[],
   ): Promise<Neo4jNode[]> {
     let session: Session | null = null;
     try {
@@ -431,6 +448,8 @@ class Db {
       }
 
       const extensions = language ? getExtensionsForLanguage(language) : [];
+      const normalized_include = (include_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
+      const normalized_exclude = (exclude_patterns ?? []).map(normalizeGlobToContains).filter(Boolean);
 
       const result = await session.run(Q.VECTOR_SEARCH_QUERY, {
         embeddings,
@@ -438,6 +457,8 @@ class Db {
         node_types,
         skip_node_types,
         extensions,
+        include_patterns: normalized_include,
+        exclude_patterns: normalized_exclude,
       });
       const nodes = result.records.map((record) => {
         const node: Neo4jNode = deser_node(record, "node");

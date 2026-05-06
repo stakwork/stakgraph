@@ -709,6 +709,12 @@ export async function search(req: Request, res: Response) {
     const tests = isTrue(req.query.tests as string);
     const maxTokens = parseInt(req.query.max_tokens as string);
     const language = req.query.language as string;
+    const include_patterns = req.query.include
+      ? (req.query.include as string).split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    const exclude_patterns = req.query.exclude
+      ? (req.query.exclude as string).split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
     const skip_node_types: NodeType[] = tests
       ? []
       : (["UnitTest", "IntegrationTest", "E2etest"] as NodeType[]);
@@ -726,7 +732,9 @@ export async function search(req: Request, res: Response) {
       output || "snippet",
       skip_node_types,
       language,
-      sort_by === "pagerank" ? "pagerank" : "relevance"
+      sort_by === "pagerank" ? "pagerank" : "relevance",
+      include_patterns,
+      exclude_patterns,
     );
     if (output === "snippet") {
       res.send(result);
