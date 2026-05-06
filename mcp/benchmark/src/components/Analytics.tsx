@@ -35,6 +35,7 @@ type ModelRow = {
   totalInput: number;
   totalCacheRead: number;
   totalCacheWrite: number;
+  totalOutput: number;
   totalCost: number;
   cacheHitRate: number | null;
 };
@@ -216,6 +217,7 @@ export function Analytics() {
         totalInput: 0,
         totalCacheRead: 0,
         totalCacheWrite: 0,
+        totalOutput: 0,
         totalCost: 0,
         cacheHitRate: null,
       };
@@ -224,6 +226,7 @@ export function Analytics() {
       existing.totalInput += run.token_usage.input || 0;
       existing.totalCacheRead += run.token_usage.cache_read || 0;
       existing.totalCacheWrite += run.token_usage.cache_write || 0;
+      existing.totalOutput += run.token_usage.output || 0;
       existing.totalCost += run.cost_usd || 0;
       grouped.set(key, existing);
     }
@@ -317,13 +320,13 @@ export function Analytics() {
                 detail={totals.totalErrors > 0 ? `${totals.totalErrors} failed` : "all sessions succeeded"}
               />
             )}
-            <StatTile label="Total tokens" value={formatNumber(totals.totalTokens)} detail={`${formatNumber(totals.totalInput)} in / ${formatNumber(totals.totalOutput)} out${totals.totalCacheRead ? ` / ${formatNumber(totals.totalCacheRead)} cache read` : ""}${totals.totalCacheWrite ? ` / ${formatNumber(totals.totalCacheWrite)} cache write` : ""}`} />
+            <StatTile label="Total tokens" value={formatNumber(totals.totalTokens)} detail={`base ${formatNumber(totals.totalInput)} / read ${formatNumber(totals.totalCacheRead)} / write ${formatNumber(totals.totalCacheWrite)} / out ${formatNumber(totals.totalOutput)}`} />
             <StatTile label="Total cost" value={`$${totals.totalCost.toFixed(4)}`} />
             {totals.cacheHitRate !== null && (
               <StatTile
                 label="Cache hit rate"
                 value={`${totals.cacheHitRate.toFixed(1)}%`}
-                detail={`${formatNumber(totals.totalCacheRead)} read / ${formatNumber(totals.totalInput)} input`}
+                detail={`${formatNumber(totals.totalCacheRead)} read / ${formatNumber(totals.totalInput + totals.totalCacheRead)} base+read`}
               />
             )}
             <StatTile label="Tool calls" value={formatNumber(totals.totalCalls)} />
@@ -355,15 +358,17 @@ export function Analytics() {
           <TableCard
             title="By model"
             badge={`${modelRows.length} models`}
-            columns={["Model", "Provider", "Sessions", "Tokens", "Cache read", "Cache write", "Cache hit", "Cost"]}
+            columns={["Model", "Provider", "Sessions", "Tokens", "Base", "Cache read", "Cache write", "Output", "Cache hit", "Cost"]}
             rows={modelRows.map((row) => (
               <tr key={`${row.provider}::${row.model}`}>
                 <td style={tdStyle(true)}>{row.model}</td>
                 <td style={tdStyle()}>{row.provider}</td>
                 <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
+                <td style={tdStyle()}>{formatNumber(row.totalInput)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalCacheRead)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalCacheWrite)}</td>
+                <td style={tdStyle()}>{formatNumber(row.totalOutput)}</td>
                 <td style={tdStyle()}>{row.cacheHitRate !== null ? `${row.cacheHitRate.toFixed(1)}%` : "-"}</td>
                 <td style={tdStyle()}>${row.totalCost.toFixed(4)}</td>
               </tr>

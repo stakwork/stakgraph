@@ -2,7 +2,12 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "../api";
-import type { ProductionRun, StepMeta, SearchProvenanceEntry } from "../types";
+import type {
+  ProductionRun,
+  StepMeta,
+  SearchProvenanceEntry,
+  TokenUsage,
+} from "../types";
 import { AnnotationBadge, AnnotationForm } from "./Annotations";
 import type { Annotation, AnnotationMarker } from "./Annotations";
 import {
@@ -42,6 +47,39 @@ function stringify(value: unknown): string {
 function previewStr(value: unknown): string {
   const s = stringify(value).replace(/\s+/g, " ").trim();
   return s.length > 160 ? s.slice(0, 160) + "\u2026" : s || "\u2014";
+}
+
+function usageOf(usage?: Partial<TokenUsage>): TokenUsage {
+  const cacheRead = usage?.cache_read || 0;
+  const cacheWrite = usage?.cache_write || 0;
+  const input =
+    usage?.input ??
+    Math.max((usage?.inputTokens || 0) - cacheRead - cacheWrite, 0);
+  const output = usage?.output ?? usage?.outputTokens ?? 0;
+  const total =
+    usage?.total ??
+    usage?.totalTokens ??
+    input + cacheRead + cacheWrite + output;
+  return {
+    input,
+    cache_read: cacheRead,
+    cache_write: cacheWrite,
+    output,
+    total,
+    inputTokens: usage?.inputTokens ?? input + cacheRead + cacheWrite,
+    outputTokens: usage?.outputTokens ?? output,
+    totalTokens: usage?.totalTokens ?? total,
+  };
+}
+
+function formatUsageParts(usage: Partial<TokenUsage>): string {
+  const normalized = usageOf(usage);
+  return [
+    `base ${formatNumber(normalized.input)}`,
+    `read ${formatNumber(normalized.cache_read)}`,
+    `write ${formatNumber(normalized.cache_write)}`,
+    `out ${formatNumber(normalized.output)}`,
+  ].join(" / ");
 }
 
 function sourceTheme(source: string): {
@@ -1044,6 +1082,7 @@ function DisplayUnitRow({
 function StepDivider({ meta }: { meta: StepMeta }) {
   const label = meta.label;
   const isFinal = meta.toolCalls.length === 0 && !label;
+  const usage = usageOf(meta.usage);
   return (
     <div
       style={{
@@ -1074,22 +1113,11 @@ function StepDivider({ meta }: { meta: StepMeta }) {
           {label}
         </span>
       ) : null}
-      {!isFinal && (
-        <span style={{ color: "#a3e635" }}>
-          ↑{formatNumber(meta.usage.inputTokens)}
-        </span>
-      )}
-      {isFinal ? (
-        <span style={{ color: "#a3e635" }}>final answer</span>
-      ) : null}
-      <span style={{ color: "#fb923c" }}>
-        ↓{formatNumber(meta.usage.outputTokens)}
+      {isFinal ? <span style={{ color: "#a3e635" }}>final answer</span> : null}
+      <span style={{ color: "#a3e635" }}>{formatUsageParts(usage)}</span>
+      <span style={{ color: "#71717a" }}>
+        total {formatNumber(usage.total)}
       </span>
-      {!isFinal && (
-        <span style={{ color: "#71717a" }}>
-          Σ{formatNumber(meta.cumulativeInput)} ctx
-        </span>
-      )}
     </div>
   );
 }
@@ -1228,10 +1256,19 @@ function TurnCard({
 }) {
   const units = groupEvents(turn.events);
   const metas = stepMetas ?? [];
-  const totalIn = metas.reduce((s, m) => s + m.usage.inputTokens, 0);
-  const totalOut = metas.reduce((s, m) => s + m.usage.outputTokens, 0);
-  const cumInput =
-    metas.length > 0 ? metas[metas.length - 1].cumulativeInput : null;
+  const turnUsage = metas.reduce(
+    (sum, meta) => {
+      const usage = usageOf(meta.usage);
+      return {
+        input: sum.input + usage.input,
+        cache_read: sum.cache_read + usage.cache_read,
+        cache_write: sum.cache_write + usage.cache_write,
+        output: sum.output + usage.output,
+        total: sum.total + usage.total,
+      };
+    },
+    { input: 0, cache_read: 0, cache_write: 0, output: 0, total: 0 },
+  );
   return (
     <details style={card}>
       <summary
@@ -1305,12 +1342,7 @@ function TurnCard({
                 flexShrink: 0,
               }}
             >
-              {formatNumber(totalIn + totalOut)} tok
-              {cumInput !== null && (
-                <span style={{ color: "#71717a", marginLeft: 4 }}>
-                  ({formatNumber(cumInput)} ctx)
-                </span>
-              )}
+              {formatUsageParts(turnUsage)}
             </span>
           )}
         </div>
@@ -1397,6 +1429,7 @@ export function Sessions() {
   const parsed = selected
     ? parseTrace(selected.trace)
     : { userPrompt: "", answer: "", calls: [], results: [], events: [], turns: [] };
+  const selectedUsage = selected ? usageOf(selected.token_usage) : null;
   const prompt =
     parsed.userPrompt || selected?.user_prompt_preview || "No prompt preview";
   const answer =
@@ -1792,15 +1825,23 @@ export function Sessions() {
                 >
                   <StatTile
                     label="Total Tokens"
-                    value={formatNumber(selected.token_usage.total)}
+                    value={formatNumber(selectedUsage?.total || 0)}
                   />
                   <StatTile
-                    label="Input"
-                    value={formatNumber(selected.token_usage.input)}
+                    label="Input Base"
+                    value={formatNumber(selectedUsage?.input || 0)}
+                  />
+                  <StatTile
+                    label="Cache Read"
+                    value={formatNumber(selectedUsage?.cache_read || 0)}
+                  />
+                  <StatTile
+                    label="Cache Write"
+                    value={formatNumber(selectedUsage?.cache_write || 0)}
                   />
                   <StatTile
                     label="Output"
-                    value={formatNumber(selected.token_usage.output)}
+                    value={formatNumber(selectedUsage?.output || 0)}
                   />
                   {selected.cost_usd != null && (
                     <StatTile

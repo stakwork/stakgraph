@@ -15,15 +15,22 @@ export interface Annotation {
   note?: string;
 }
 
+export interface TokenUsage {
+  input: number;
+  cache_read: number;
+  cache_write: number;
+  output: number;
+  total: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+}
+
 export interface StepMeta {
   step: number;
   turn: number;
   label?: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  usage: TokenUsage;
   cumulativeInput: number;
   cumulativeOutput: number;
   toolCalls: string[];
@@ -60,7 +67,7 @@ export interface ProductionRun {
   cost_usd?: number;
   timestamp: string;
   duration_ms: number;
-  token_usage: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+  token_usage: TokenUsage;
   status?: string;
   error_message?: string;
   tool_sequence: string[];
