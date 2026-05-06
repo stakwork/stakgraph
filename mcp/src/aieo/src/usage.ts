@@ -13,6 +13,11 @@ export interface AiUsageWithLegacy extends AiUsage {
 }
 
 type RawUsage = {
+  input?: number;
+  cache_read?: number;
+  cache_write?: number;
+  output?: number;
+  total?: number;
   inputTokens?: number;
   inputTokenDetails?: {
     noCacheTokens?: number;
@@ -49,14 +54,29 @@ export function withLegacyUsage(usage: AiUsage): AiUsageWithLegacy {
 
 export function normalizeUsage(raw?: RawUsage | null): AiUsageWithLegacy {
   const inputTokens = tokenCount(raw?.inputTokens);
-  const cache_read = tokenCount(raw?.inputTokenDetails?.cacheReadTokens);
-  const cache_write = tokenCount(raw?.inputTokenDetails?.cacheWriteTokens);
+  const cache_read =
+    raw?.cache_read !== undefined
+      ? tokenCount(raw.cache_read)
+      : tokenCount(raw?.inputTokenDetails?.cacheReadTokens);
+  const cache_write =
+    raw?.cache_write !== undefined
+      ? tokenCount(raw.cache_write)
+      : tokenCount(raw?.inputTokenDetails?.cacheWriteTokens);
   const input =
-    raw?.inputTokenDetails?.noCacheTokens !== undefined
-      ? tokenCount(raw.inputTokenDetails.noCacheTokens)
-      : Math.max(inputTokens - cache_read - cache_write, 0);
-  const output = tokenCount(raw?.outputTokens);
-  const total = tokenCount(raw?.totalTokens) || input + cache_read + cache_write + output;
+    raw?.input !== undefined
+      ? tokenCount(raw.input)
+      : raw?.inputTokenDetails?.noCacheTokens !== undefined
+        ? tokenCount(raw.inputTokenDetails.noCacheTokens)
+        : Math.max(inputTokens - cache_read - cache_write, 0);
+  const output =
+    raw?.output !== undefined
+      ? tokenCount(raw.output)
+      : tokenCount(raw?.outputTokens);
+  const total =
+    raw?.total !== undefined
+      ? tokenCount(raw.total)
+      : tokenCount(raw?.totalTokens) ||
+        input + cache_read + cache_write + output;
 
   return withLegacyUsage({
     input,

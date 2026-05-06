@@ -9,6 +9,7 @@ import {
   stepCountIs,
 } from "ai";
 import {
+  addUsage,
   ModelName,
   getModelDetails,
   getProviderOptions,
@@ -393,17 +394,13 @@ Apply the guidance from each skill throughout your response.`;
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const u = normalizeUsage(sf.usage);
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: u.inputTokens ?? 0,
-          outputTokens: u.outputTokens ?? 0,
-          totalTokens: u.totalTokens ?? 0,
-        },
+        usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -505,6 +502,9 @@ export async function get_context(
   }
 
   const { steps, totalUsage } = result;
+  const usage = stepMetas.length > 0
+    ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+    : normalizeUsage(totalUsage);
 
   const endTime = Date.now();
   const duration = endTime - startTime;
@@ -528,7 +528,7 @@ export async function get_context(
       provider,
       duration_ms: duration,
       status: "success",
-      token_usage: normalizeUsage(totalUsage),
+      token_usage: usage,
     });
   }
 
@@ -556,7 +556,7 @@ export async function get_context(
     tool_use: final.tool_use,
     content: finalAnswer,
     usage: {
-      ...normalizeUsage(totalUsage),
+      ...usage,
       model: modelId,
       provider,
     },
@@ -607,13 +607,16 @@ export async function stream_context(
         if (provenanceCollector.entries.length > 0) {
           appendSearchProvenance(sessionId, provenanceCollector.entries);
         }
+        const stepUsage = stepMetas.length > 0
+          ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+          : normalizeUsage(usage);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
           provider,
           duration_ms: duration,
           status: "success",
-          token_usage: normalizeUsage(usage),
+          token_usage: stepUsage,
         });
       } catch (e) {
         const aborted = isAbortError(e);

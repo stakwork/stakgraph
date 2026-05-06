@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { db } from '../graph/neo4j.js';
 import { generateText } from 'ai';
-import { getProviderOptions, resolveLLMConfig } from '../aieo/src/index.js';
+import { addUsage, emptyUsage, getProviderOptions, normalizeUsage, resolveLLMConfig, withLegacyUsage } from '../aieo/src/index.js';
 import * as asyncReqs from '../graph/reqs.js';
 
 function buildPrompt(workflow_json: string): string {
@@ -38,11 +38,7 @@ export async function document_workflow(req: Request, res: Response) {
       await db.upsert_workflow_documentation(workflow.ref_id, name, result.text);
       asyncReqs.finishReq(request_id, {
         documentation: result.text,
-        usage: {
-          inputTokens: result.usage?.inputTokens || 0,
-          outputTokens: result.usage?.outputTokens || 0,
-          totalTokens: result.usage?.totalTokens || 0,
-        },
+        usage: normalizeUsage(result.usage),
       });
     } catch (e: any) {
       asyncReqs.failReq(request_id, e.message || String(e));
@@ -60,26 +56,21 @@ export async function document_workflows(req: Request, res: Response) {
   (async () => {
     try {
       const workflows = await db.get_all_workflows();
-      let processed = 0, skipped = 0, totalInputTokens = 0, totalOutputTokens = 0;
+      let processed = 0, skipped = 0, totalUsage = emptyUsage();
       for (const workflow of workflows) {
         const existing = await db.get_workflow_documentation(workflow.node_key);
         if (existing) { skipped++; continue; }
         const result = await generateText({ model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)), providerOptions: providerOptions as any });
         const name = `Documentation for ${workflow.workflow_name || workflow.node_key}`;
         await db.upsert_workflow_documentation(workflow.ref_id, name, result.text);
-        totalInputTokens += result.usage?.inputTokens || 0;
-        totalOutputTokens += result.usage?.outputTokens || 0;
+        totalUsage = addUsage(totalUsage, normalizeUsage(result.usage));
         processed++;
         asyncReqs.updateReq(request_id, { processed, skipped, total: workflows.length });
       }
       asyncReqs.finishReq(request_id, {
         processed,
         skipped,
-        usage: {
-          inputTokens: totalInputTokens,
-          outputTokens: totalOutputTokens,
-          totalTokens: totalInputTokens + totalOutputTokens,
-        },
+        usage: withLegacyUsage(totalUsage),
       });
     } catch (e: any) {
       asyncReqs.failReq(request_id, e.message || String(e));

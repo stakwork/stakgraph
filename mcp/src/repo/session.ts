@@ -12,7 +12,7 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { db } from "../graph/neo4j.js";
 import { getProviderForModel } from "../aieo/src/provider.js";
-import { AiUsage } from "../aieo/src/usage.js";
+import { AiUsage, AiUsageWithLegacy } from "../aieo/src/usage.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -33,11 +33,7 @@ export interface StepMeta {
   step: number;
   turn: number;
   label?: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  usage: AiUsageWithLegacy;
   cumulativeInput: number;
   cumulativeOutput: number;
   toolCalls: string[];

@@ -1,4 +1,12 @@
-import { detectLanguagesAndPkgFiles, extractEnvVarsFromRepo } from "../graph/utils.js";
+import {
+  addUsage,
+  AiUsageWithLegacy,
+  withLegacyUsage,
+} from "../aieo/src/index.js";
+import {
+  detectLanguagesAndPkgFiles,
+  extractEnvVarsFromRepo,
+} from "../graph/utils.js";
 import { selectSetupHints } from "../gitsee/agent/prompts/services.js";
 
 export type SetupProfile = {
@@ -38,20 +46,27 @@ export async function buildRepoFacts(repoDir: string): Promise<RepoFacts> {
   }
 
   const envVarNames = Array.from(
-    new Set(Object.values(envVarsByFile).flatMap((vars) => Array.from(vars)))
+    new Set(Object.values(envVarsByFile).flatMap((vars) => Array.from(vars))),
   );
 
   const factsBlock = [
     "REPO FACTS (pre-scanned, do not re-discover these — use them as ground truth):",
-    langLines.length > 0 ? `Languages detected:\n${langLines.join("\n")}` : "Languages detected: none",
-    envLines.length > 0 ? `Env vars by file:\n${envLines.join("\n")}` : "Env vars: none found",
+    langLines.length > 0
+      ? `Languages detected:\n${langLines.join("\n")}`
+      : "Languages detected: none",
+    envLines.length > 0
+      ? `Env vars by file:\n${envLines.join("\n")}`
+      : "Env vars: none found",
   ].join("\n\n");
 
   return { factsBlock, envVarNames };
 }
 
 function normalizeHintKey(value: string): string {
-  return value.toLowerCase().replace(/[.\s-]+/g, "_").replace(/^next_js$/, "nextjs");
+  return value
+    .toLowerCase()
+    .replace(/[.\s-]+/g, "_")
+    .replace(/^next_js$/, "nextjs");
 }
 
 const DEPENDENCY_HINT_KEYS = new Set([
@@ -94,13 +109,11 @@ export function buildSelectedHints(profile: SetupProfile): string {
 }
 
 export function combineUsage(
-  first: { inputTokens: number; outputTokens: number; totalTokens: number; model?: string; provider?: string },
-  second: { inputTokens: number; outputTokens: number; totalTokens: number; model?: string; provider?: string }
+  first: AiUsageWithLegacy & { model?: string; provider?: string },
+  second: AiUsageWithLegacy & { model?: string; provider?: string },
 ) {
   return {
-    inputTokens: first.inputTokens + second.inputTokens,
-    outputTokens: first.outputTokens + second.outputTokens,
-    totalTokens: first.totalTokens + second.totalTokens,
+    ...withLegacyUsage(addUsage(first, second)),
     model: second.model ?? first.model,
     provider: second.provider ?? first.provider,
   };

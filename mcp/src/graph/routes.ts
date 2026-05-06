@@ -334,7 +334,7 @@ export async function ask(req: Request, res: Response) {
       model: modelId,
       provider: resolvedProvider,
       status: "success",
-      token_usage: { input: answer.usage.inputTokens, cache_read: 0, cache_write: 0, output: answer.usage.outputTokens, total: answer.usage.totalTokens },
+      token_usage: normalizeUsage(answer.usage),
     });
     res.json(answer);
   } catch (error) {

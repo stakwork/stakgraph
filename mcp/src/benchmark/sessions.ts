@@ -15,6 +15,7 @@ import {
   computeSessionCost,
   type Provider,
 } from "../aieo/src/provider.js";
+import { addUsage, emptyUsage, normalizeUsage } from "../aieo/src/usage.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -25,14 +26,12 @@ function buildOrphanRun(dir: string, file: string) {
   const { userPromptPreview, answerPreview, toolSequence, toolCallCount } =
     parseSessionMessages(fullPath);
   const steps = loadStepMeta(id);
-  let input = 0;
-  let output = 0;
+  let usage = emptyUsage();
   let duration_ms = 0;
   if (steps.length > 0) {
-    const last = steps[steps.length - 1];
-    input = last.cumulativeInput;
-    output = last.cumulativeOutput;
+    usage = addUsage(...steps.map((step) => normalizeUsage(step.usage)));
     const first = steps[0];
+    const last = steps[steps.length - 1];
     duration_ms =
       new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime();
   }
@@ -45,11 +44,11 @@ function buildOrphanRun(dir: string, file: string) {
     timestamp: steps.length > 0 ? steps[0].timestamp : stat.mtime.toISOString(),
     duration_ms,
     token_usage: {
-      input,
-      cache_read: 0,
-      cache_write: 0,
-      output,
-      total: input + output,
+      input: usage.input,
+      cache_read: usage.cache_read,
+      cache_write: usage.cache_write,
+      output: usage.output,
+      total: usage.total,
     },
     cost_usd: 0,
     status: "success",

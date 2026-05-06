@@ -1,4 +1,5 @@
 import {
+  AiUsageWithLegacy,
   callModel,
   resolveLLMConfig,
 } from "../../aieo/src/index.js";
@@ -46,7 +47,7 @@ export async function filterAnswers(
   llm_apiKey?: string
 ): Promise<{
   answer: FilteredAnswer;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }> {
   console.log(">> filterAnswers!!!!");
   const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });

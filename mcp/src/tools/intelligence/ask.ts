@@ -1,5 +1,12 @@
 import { resolveLLMConfig, Provider } from "../../aieo/src/provider.js";
-import { callGenerateObject, ModelMessage } from "../../aieo/src/index.js";
+import {
+  addUsage,
+  AiUsageWithLegacy,
+  callGenerateObject,
+  emptyUsage,
+  ModelMessage,
+  withLegacyUsage,
+} from "../../aieo/src/index.js";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
 import { get_context_explore } from "../explore/tool.js";
@@ -74,7 +81,7 @@ export interface Answer {
   reused_question?: string;
   edges_added: number;
   linked_ref_ids: string[];
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }
 
 function cached_answer(question: string, e: Neo4jNode): Answer {
@@ -86,7 +93,7 @@ function cached_answer(question: string, e: Neo4jNode): Answer {
     reused_question: e.properties.question,
     edges_added: 0,
     linked_ref_ids: [],
-    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    usage: withLegacyUsage(emptyUsage()),
   };
 }
 
@@ -95,11 +102,7 @@ export const QUESTION_HIGHLY_RELEVANT_THRESHOLD = 0.94;
 interface FilterByRelevanceFromCacheResult {
   cachedAnswer?: Answer;
   reexplore: boolean;
-  filterUsage?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  filterUsage?: AiUsageWithLegacy;
 }
 
 async function filter_by_relevance_from_cache(
@@ -217,18 +220,12 @@ export async function ask_question(
   const created = await db.create_hint(question, answer, embeddings, "PM");
   let edges_added = 0;
   let linked_ref_ids: string[] = [];
-  let totalUsage = {
-    inputTokens: ctx.usage.inputTokens,
-    outputTokens: ctx.usage.outputTokens,
-    totalTokens: ctx.usage.totalTokens,
-  };
+  let totalUsage = addUsage(ctx.usage);
   try {
     const r = await create_hint_edges_llm(created.ref_id, answer, provider, apiKey);
     edges_added = r.edges_added;
     linked_ref_ids = r.linked_ref_ids;
-    totalUsage.inputTokens += r.usage.inputTokens;
-    totalUsage.outputTokens += r.usage.outputTokens;
-    totalUsage.totalTokens += r.usage.totalTokens;
+    totalUsage = addUsage(totalUsage, r.usage);
   } catch (e) {
     console.error("Failed to create edges from hint", e);
   }
@@ -239,7 +236,7 @@ export async function ask_question(
     reused: false,
     edges_added,
     linked_ref_ids,
-    usage: totalUsage,
+    usage: withLegacyUsage(totalUsage),
   };
 }
 
