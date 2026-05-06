@@ -1,7 +1,7 @@
 import { Storage } from "./store/index.js";
-import { callGenerateText } from "../aieo/src/stream.js";
+import { generateTextWithUsage } from "../aieo/src/index.js";
 import { Provider } from "../aieo/src/provider.js";
-import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
+import { addGitreeUsage, emptyGitreeUsage, Feature, PRRecord, CommitRecord, Usage } from "./types.js";
 import {
   appendGitreeLlmExchange,
   DOC_GUIDELINES,
@@ -41,7 +41,7 @@ export class Summarizer {
 
     if (allPRs.length === 0 && allCommits.length === 0) {
       console.log(`   ⚠️  No PRs or commits found for this feature`);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return emptyGitreeUsage();
     }
 
     // Sort PRs and commits chronologically
@@ -84,10 +84,11 @@ export class Summarizer {
 
     // Generate documentation using LLM
     console.log(`   🤖 Generating documentation...`);
-    const result = await callGenerateText({
+    const result = await generateTextWithUsage({
       provider: this.provider,
       apiKey: this.apiKey,
       prompt,
+      thinkingSpeed: "thinking",
     });
 
     if (this.sessionTracker) {
@@ -140,7 +141,7 @@ export class Summarizer {
   ): Promise<Usage> {
     if (featureIds.length === 0) {
       console.log(`\n⏭️  No features to summarize`);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return emptyGitreeUsage();
     }
 
     console.log(
@@ -148,11 +149,7 @@ export class Summarizer {
     );
 
     // Accumulate usage across all features
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = emptyGitreeUsage();
 
     for (let i = 0; i < featureIds.length; i++) {
       const featureId = featureIds[i];
@@ -168,9 +165,7 @@ export class Summarizer {
 
       try {
         const usage = await this.summarizeFeature(feature.id, sessionId);
-        totalUsage.inputTokens += usage.inputTokens;
-        totalUsage.outputTokens += usage.outputTokens;
-        totalUsage.totalTokens += usage.totalTokens;
+        totalUsage = addGitreeUsage(totalUsage, usage);
         console.log(
           `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
         );
@@ -198,11 +193,7 @@ export class Summarizer {
     console.log(`\n📚 Summarizing ${features.length} features...\n`);
 
     // Accumulate usage across all features
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = emptyGitreeUsage();
 
     for (let i = 0; i < features.length; i++) {
       const feature = features[i];
@@ -212,9 +203,7 @@ export class Summarizer {
 
       try {
         const usage = await this.summarizeFeature(feature.id);
-        totalUsage.inputTokens += usage.inputTokens;
-        totalUsage.outputTokens += usage.outputTokens;
-        totalUsage.totalTokens += usage.totalTokens;
+        totalUsage = addGitreeUsage(totalUsage, usage);
         console.log(
           `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
         );

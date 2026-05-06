@@ -5,6 +5,7 @@ import { LEARN_HTML } from "./learn.js";
 import * as G from "../../graph/graph.js";
 import { db } from "../../graph/neo4j.js";
 import { vectorizeQuery } from "../../vector/index.js";
+import { addUsage, emptyUsage } from "../../aieo/src/index.js";
 
 /**
  * Utility function to map connected hints to the expected format
@@ -18,8 +19,12 @@ function mapConnectedHints(connected_hints: any[]) {
     reused_question: hint.properties.question || hint.properties.name,
     edges_added: 0,
     linked_ref_ids: [],
-    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    usage: emptyUsage(),
   }));
+}
+
+function totalHintUsage(hints: ReturnType<typeof mapConnectedHints>) {
+  return hints.reduce((acc, hint) => addUsage(acc, hint.usage), emptyUsage());
 }
 
 /**
@@ -135,14 +140,7 @@ export async function ask_prompt(
             // Fetch connected hints (sub_answers) for this existing prompt
             const connected_hints = await db.get_connected_hints(top.ref_id);
             const hints = mapConnectedHints(connected_hints);
-            const totalUsage = hints.reduce(
-              (acc, h) => ({
-                inputTokens: acc.inputTokens + h.usage.inputTokens,
-                outputTokens: acc.outputTokens + h.usage.outputTokens,
-                totalTokens: acc.totalTokens + h.usage.totalTokens,
-              }),
-              { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
-            );
+            const totalUsage = totalHintUsage(hints);
 
             return {
               answer: top.properties.body,
@@ -158,14 +156,7 @@ export async function ask_prompt(
           // Fetch connected hints (sub_answers) for this existing prompt
           const connected_hints = await db.get_connected_hints(top.ref_id);
           const hints = mapConnectedHints(connected_hints);
-          const totalUsage = hints.reduce(
-            (acc, h) => ({
-              inputTokens: acc.inputTokens + h.usage.inputTokens,
-              outputTokens: acc.outputTokens + h.usage.outputTokens,
-              totalTokens: acc.totalTokens + h.usage.totalTokens,
-            }),
-            { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
-          );
+          const totalUsage = totalHintUsage(hints);
 
           return {
             answer: top.properties.body,
@@ -180,14 +171,7 @@ export async function ask_prompt(
         // Fetch connected hints (sub_answers) for this existing prompt
         const connected_hints = await db.get_connected_hints(top.ref_id);
         const hints = mapConnectedHints(connected_hints);
-        const totalUsage = hints.reduce(
-          (acc, h) => ({
-            inputTokens: acc.inputTokens + h.usage.inputTokens,
-            outputTokens: acc.outputTokens + h.usage.outputTokens,
-            totalTokens: acc.totalTokens + h.usage.totalTokens,
-          }),
-          { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
-        );
+        const totalUsage = totalHintUsage(hints);
 
         return {
           answer: top.properties.body,
@@ -205,7 +189,7 @@ export async function ask_prompt(
     return {
       answer: "",
       hints: [],
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage: emptyUsage(),
     };
   }
 

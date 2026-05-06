@@ -1,5 +1,7 @@
 import {
-  callModel,
+  addUsage,
+  AiUsage,
+  consumeStreamTextWithUsage,
   resolveLLMConfig,
   ModelMessage,
 } from "../../aieo/src/index.js";
@@ -57,7 +59,7 @@ export interface RecomposedAnswer {
   answer: string;
   hints: Answer[];
   ref_id?: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsage;
 }
 
 export async function recomposeAnswer(
@@ -74,20 +76,14 @@ export async function recomposeAnswer(
   const content = RECOMPOSE_PROMPT(user_query, qas);
   const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
   const messages: ModelMessage[] = [{ role: "user", content }];
-  const result = await callModel({
+  const result = await consumeStreamTextWithUsage({
     provider: llm.provider,
     apiKey: llm.apiKey,
     messages,
   });
-  const totalUsage = {
-    inputTokens: result.usage.inputTokens,
-    outputTokens: result.usage.outputTokens,
-    totalTokens: result.usage.totalTokens,
-  };
+  let totalUsage = result.usage;
   for (const answer of answers) {
-    totalUsage.inputTokens += answer.usage.inputTokens;
-    totalUsage.outputTokens += answer.usage.outputTokens;
-    totalUsage.totalTokens += answer.usage.totalTokens;
+    totalUsage = addUsage(totalUsage, answer.usage);
   }
   return {
     answer: result.text,

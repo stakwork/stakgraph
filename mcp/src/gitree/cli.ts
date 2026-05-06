@@ -9,6 +9,7 @@ import { Summarizer } from "./summarizer.js";
 import { FileLinker } from "./fileLinker.js";
 import { ClueAnalyzer } from "./clueAnalyzer.js";
 import { getApiKeyForProvider } from "../aieo/src/provider.js";
+import { addGitreeUsage, emptyGitreeUsage } from "./types.js";
 
 const program = new Command();
 
@@ -543,7 +544,7 @@ program
       );
 
       let totalClues = 0;
-      const totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      let totalUsage = emptyGitreeUsage();
 
       for (let i = 0; i < changesToProcess.length; i++) {
         const change = changesToProcess[i];
@@ -565,9 +566,7 @@ program
 
             const result = await analyzer.analyzeChange(changeContext);
             totalClues += result.clues.length;
-            totalUsage.inputTokens += result.usage.inputTokens;
-            totalUsage.outputTokens += result.usage.outputTokens;
-            totalUsage.totalTokens += result.usage.totalTokens;
+            totalUsage = addGitreeUsage(totalUsage, result.usage);
 
             // Link clues if any were created
             if (result.clues.length > 0) {
@@ -609,9 +608,7 @@ program
 
             const result = await analyzer.analyzeChange(changeContext);
             totalClues += result.clues.length;
-            totalUsage.inputTokens += result.usage.inputTokens;
-            totalUsage.outputTokens += result.usage.outputTokens;
-            totalUsage.totalTokens += result.usage.totalTokens;
+            totalUsage = addGitreeUsage(totalUsage, result.usage);
 
             // Link clues if any were created
             if (result.clues.length > 0) {

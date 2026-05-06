@@ -1,5 +1,9 @@
 import { generateText, tool, hasToolCall, ModelMessage } from "ai";
-import { resolveLLMConfig } from "../../aieo/src/index.js";
+import {
+  AiUsage,
+  getProviderPolicy,
+  resolveLLMConfig,
+} from "../../aieo/src/index.js";
 import * as prompts from "./prompts/index.js";
 import { z } from "zod";
 import { getRepoMap, getFileSummary, fulltextSearch } from "./tools.js";
@@ -70,7 +74,7 @@ export interface Overrides {
 
 export interface GitseeContextResult {
   result: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsage;
 }
 
 export async function gitsee_context(
@@ -91,7 +95,7 @@ export async function gitsee_context(
       repoPath.split("/").pop() || "my-repo"
     );
   }
-  const tools = {
+  let tools = {
     repo_overview: tool({
       description:
         "Get a high-level view of the codebase architecture and structure. Use this to understand the project layout and identify where specific functionality might be located. Call this when you need to: 1) Orient yourself in an unfamiliar codebase, 2) Locate which directories/files might contain relevant code for a user's question, 3) Understand the overall project structure before diving deeper. Don't call this if you already know which specific files you need to examine.",
@@ -147,11 +151,23 @@ export async function gitsee_context(
   if (mode === "first_pass") {
     delete (tools as Record<string, any>).fulltext_search;
   }
+  const policy = getProviderPolicy(llm.provider);
+  tools = policy.applyTools(tools);
+  const system = policy.applySystem(overrides?.system_prompt || CONF.system);
+  const systemMessages = typeof system === "string"
+    ? [{ role: "system" as const, content: system }]
+    : Array.isArray(system) ? system : [system];
+  const promptMessages: ModelMessage[] = typeof prompt === "string"
+    ? [{ role: "user", content: prompt }]
+    : prompt;
   const { steps, totalUsage } = await generateText({
     model,
     tools,
-    prompt,
-    system: overrides?.system_prompt || CONF.system,
+    messages: [
+      ...systemMessages,
+      ...policy.applyMessages(promptMessages),
+    ] as ModelMessage[],
+    providerOptions: policy.providerOptions as any,
     stopWhen: hasToolCall("final_answer"),
     onStepFinish: (sf) => logStep(sf.content),
   });
@@ -191,11 +207,7 @@ export async function gitsee_context(
 
   return {
     result: final,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage: policy.normalizeUsage(totalUsage),
   };
 }
 

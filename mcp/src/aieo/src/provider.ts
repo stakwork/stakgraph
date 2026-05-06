@@ -4,9 +4,23 @@ import {
   GoogleGenerativeAIProviderOptions,
 } from "@ai-sdk/google";
 import { createOpenAI, OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
-import { LanguageModel } from "ai";
+import { LanguageModel, ModelMessage, SystemModelMessage, ToolSet } from "ai";
 import { Logger } from "./logger.js";
 import { createOpenRouter, OpenRouterModelOptions } from "@openrouter/ai-sdk-provider";
+import {
+  addUsage,
+  computeUsageCost,
+  emptyUsage,
+  normalizeUsage,
+  usageForSession,
+} from "./usage.js";
+import type {
+  AiUsage,
+  ModelUsage,
+  SessionTokenUsage,
+  TokenPricing,
+  TokenUsageForCost,
+} from "./usage.js";
 
 export type Provider = "anthropic" | "google" | "openai" | "openrouter";
 
@@ -36,7 +50,7 @@ const MODELS: Record<Provider, Partial<Record<ModelName, ModelId>>> = {
   },
   openrouter: {
     kimi: "moonshotai/kimi-k2.6"
-  }
+  },
 };
 
 const DEFAULT_MODELS: Record<Provider, string> = {
@@ -58,28 +72,24 @@ export function getLightModelForProvider(provider: Provider): string {
   return LIGHT_MODELS[provider];
 }
 
-export interface TokenPricing {
-  inputTokenPrice: number;
-  outputTokenPrice: number;
-  cacheReadPrice?: number;
-  cacheWritePrice?: number;
-}
+export type {
+  AiUsage,
+  ModelUsage,
+  SessionTokenUsage,
+  TokenPricing,
+  TokenUsageForCost,
+};
 
-export interface TokenUsageForCost {
-  input: number;
-  cache_read: number;
-  cache_write: number;
-  output: number;
-}
+export { addUsage, emptyUsage, normalizeUsage, usageForSession };
+
+export const toSessionTokenUsage = usageForSession;
+export const toModelUsage = normalizeUsage;
+export const emptyModelUsage = emptyUsage;
+export const addModelUsage = addUsage;
 
 export function computeSessionCost(provider: Provider, usage: TokenUsageForCost): number {
   const pricing = TOKEN_PRICING[provider];
-  if (!pricing) return 0;
-  const inputCost = (usage.input / 1_000_000) * pricing.inputTokenPrice;
-  const cacheReadCost = (usage.cache_read / 1_000_000) * (pricing.cacheReadPrice ?? pricing.inputTokenPrice);
-  const cacheWriteCost = (usage.cache_write / 1_000_000) * (pricing.cacheWritePrice ?? pricing.inputTokenPrice);
-  const outputCost = (usage.output / 1_000_000) * pricing.outputTokenPrice;
-  return inputCost + cacheReadCost + cacheWriteCost + outputCost;
+  return pricing ? computeUsageCost(pricing, usage) : 0;
 }
 
 export function getProviderForModel(modelName?: ModelName | string): Provider {
@@ -139,9 +149,6 @@ export function getApiKeyForProvider(provider: Provider | string): string {
       break;
     case "openrouter":
       apiKey = process.env.OPENROUTER_API_KEY;
-      break;
-    case "claude_code":
-      apiKey = process.env.CLAUDE_CODE_API_KEY;
       break;
   }
   if (!apiKey) {
@@ -269,27 +276,6 @@ export function getModel(
         apiKey,
       });
       return openrouter(modelId);
-    // case "claude_code":
-    //   try {
-    //     const customProvider = createClaudeCode({
-    //       defaultSettings: {
-    //         pathToClaudeCodeExecutable: executablePath,
-    //         // Skip permission prompts for all operations
-    //         permissionMode: "bypassPermissions",
-    //         // Set working directory for file operations
-    //         cwd: cwd,
-    //       },
-    //     });
-    //     if (cwd) {
-    //       console.log("creating claude code model at", cwd);
-    //     }
-    //     return customProvider(SOTA[provider]);
-    //   } catch (error) {
-    //     console.error("Failed to create Claude Code provider:", error);
-    //     throw new Error(
-    //       "Claude Code CLI not available or not properly installed. Make sure Claude Code is installed and accessible in the environment where this code runs."
-    //     );
-    //   }
     default:
       throw new Error(`Unsupported provider: ${provider}`);
   }
@@ -355,6 +341,103 @@ export function getTokenPricing(provider: Provider): TokenPricing {
 }
 
 export type ThinkingSpeed = "thinking" | "fast";
+
+function getAnthropicCacheOptions() {
+  return {
+    anthropic: {
+      cacheControl: { type: "ephemeral" as const },
+    } satisfies AnthropicProviderOptions,
+  };
+}
+
+function mergeProviderOptions(existing: any, defaults: any) {
+  if (!defaults) return existing;
+  return {
+    ...(existing ?? {}),
+    anthropic: {
+      ...(existing?.anthropic ?? {}),
+      ...(defaults.anthropic ?? {}),
+    },
+  };
+}
+
+export function getProviderCacheOptions(provider: Provider) {
+  return provider === "anthropic" ? getAnthropicCacheOptions() : undefined;
+}
+
+export function applyProviderDefaultsToSystem(
+  provider: Provider,
+  system: string | SystemModelMessage | SystemModelMessage[] | undefined,
+) {
+  const cacheOptions = getProviderCacheOptions(provider);
+  if (!cacheOptions || !system) return system;
+  if (typeof system === "string") {
+    return {
+      role: "system" as const,
+      content: system,
+      providerOptions: cacheOptions,
+    } satisfies SystemModelMessage;
+  }
+  if (Array.isArray(system)) {
+    const lastIndex = system.length - 1;
+    return system.map((message, index) =>
+      index === lastIndex
+        ? {
+            ...message,
+            providerOptions: mergeProviderOptions(
+              message.providerOptions,
+              cacheOptions,
+            ),
+          }
+        : message,
+    );
+  }
+  return {
+    ...system,
+    providerOptions: mergeProviderOptions(system.providerOptions, cacheOptions),
+  };
+}
+
+export function applyProviderDefaultsToMessages(
+  provider: Provider,
+  messages: ModelMessage[],
+): ModelMessage[] {
+  const cacheOptions = getProviderCacheOptions(provider);
+  if (!cacheOptions || messages.length === 0) return messages;
+  const lastIndex = messages.length - 1;
+  return messages.map((message, index) =>
+    index === lastIndex
+      ? ({
+          ...message,
+          providerOptions: mergeProviderOptions(
+            (message as any).providerOptions,
+            cacheOptions,
+          ),
+        } as ModelMessage)
+      : message,
+  );
+}
+
+export function applyProviderDefaultsToTools<T extends ToolSet | undefined>(
+  provider: Provider,
+  tools: T,
+): T {
+  const cacheOptions = getProviderCacheOptions(provider);
+  if (!cacheOptions || !tools) return tools;
+  const names = Object.keys(tools);
+  if (names.length === 0) return tools;
+  const lastName = names[names.length - 1];
+  return {
+    ...tools,
+    [lastName]: {
+      ...tools[lastName],
+      providerOptions: mergeProviderOptions(
+        (tools[lastName] as any).providerOptions,
+        cacheOptions,
+      ),
+    },
+  } as T;
+}
 
 export function getProviderOptions(
   provider: Provider,

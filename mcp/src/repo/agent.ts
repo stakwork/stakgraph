@@ -8,9 +8,14 @@ import {
   jsonSchema,
 } from "ai";
 import {
+  AiUsage,
+  addUsage,
   ModelName,
+  Provider,
   getModelDetails,
-  getProviderOptions,
+  getProviderPolicy,
+  normalizeUsage,
+  usageForSession,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
 import { SKILLS } from "./skills.js";
@@ -146,8 +151,9 @@ async function structureFinalAnswer(
   finalPrompt: string | ModelMessage[],
   finalAnswer: string,
   schema: { [key: string]: any },
-  model: LanguageModel
-): Promise<any> {
+  model: LanguageModel,
+  provider: Provider,
+): Promise<{ answer: any; usage: AiUsage }> {
   const msgs: ModelMessage[] = [];
 
   // Handle finalPrompt - if it's ModelMessage[], push all messages, otherwise create a user message
@@ -169,14 +175,19 @@ async function structureFinalAnswer(
   );
 
   const normalizedSchema = ensureAdditionalPropertiesFalse(schema);
+  const policy = getProviderPolicy(provider, "fast");
 
-  const { output } = await generateText({
+  const { output, usage } = await generateText({
     model,
-    prompt: msgs,
+    messages: policy.applyMessages(msgs),
+    providerOptions: policy.providerOptions as any,
     output: Output.object({ schema: jsonSchema(normalizedSchema) }),
   });
 
-  return deepParseJsonStrings(output ?? {});
+  return {
+    answer: deepParseJsonStrings(output ?? {}),
+    usage: policy.normalizeUsage(usage),
+  };
 }
 
 export interface GetContextOptions {
@@ -214,7 +225,7 @@ interface PreparedAgent {
   agent: ToolLoopAgent<never, ToolSet>;
   model: LanguageModel;
   modelId: string;
-  provider: string;
+  provider: Provider;
   finalPrompt: string | ModelMessage[];
   previousMessages: ModelMessage[];
   userMessage: ModelMessage;
@@ -372,8 +383,9 @@ Apply the guidance from each skill throughout your response.`;
 
   const agent = new ToolLoopAgent({
     model,
-    instructions,
-    tools,
+    instructions: getProviderPolicy(provider).applySystem(instructions),
+    tools: getProviderPolicy(provider).applyTools(tools),
+    providerOptions: getProviderPolicy(provider).providerOptions as any,
     stopWhen,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
@@ -381,17 +393,13 @@ Apply the guidance from each skill throughout your response.`;
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const u = normalizeUsage(sf.usage);
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: u.inputTokens ?? 0,
-          outputTokens: u.outputTokens ?? 0,
-          totalTokens: u.totalTokens ?? 0,
-        },
+        usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -438,19 +446,21 @@ Apply the guidance from each skill throughout your response.`;
 /** Build the generate/stream call params from the prepared agent state. */
 function buildCallParams(prepared: PreparedAgent) {
   const { finalPrompt, previousMessages, userMessage, provider, abortSignal } = prepared;
-  const providerOptions = getProviderOptions(provider as any);
+  const policy = getProviderPolicy(provider);
+  const providerOptions = policy.providerOptions;
   const base = abortSignal ? { providerOptions, abortSignal } : { providerOptions };
   if (previousMessages.length > 0) {
+    const cachedPreviousMessages = policy.applyMessages(previousMessages);
     const messagesToSend =
       typeof finalPrompt === "string"
-        ? [...previousMessages, userMessage]
-        : [...previousMessages, ...finalPrompt];
+        ? [...cachedPreviousMessages, userMessage]
+        : [...cachedPreviousMessages, ...finalPrompt];
     return { messages: messagesToSend, ...base };
   }
   if (typeof finalPrompt === "string") {
     return { prompt: finalPrompt, ...base };
   }
-  return { messages: finalPrompt, ...base };
+  return { messages: policy.applyMessages(finalPrompt), ...base };
 }
 
 export async function get_context(
@@ -497,6 +507,23 @@ export async function get_context(
   const endTime = Date.now();
   const duration = endTime - startTime;
 
+  const final = extractFinalAnswer(steps);
+
+  let finalAnswer = final.answer;
+  let responseUsage = normalizeUsage(totalUsage);
+  if (schema) {
+    console.log("===> structuring final answer with schema", schema);
+    const structured = await structureFinalAnswer(
+      finalPrompt,
+      finalAnswer,
+      schema,
+      model,
+      provider,
+    );
+    finalAnswer = structured.answer;
+    responseUsage = addUsage(responseUsage, structured.usage);
+  }
+
   // Save to session if enabled
   if (sessionId) {
     const newMessages = extractMessagesFromSteps(
@@ -516,27 +543,8 @@ export async function get_context(
       provider,
       duration_ms: duration,
       status: "success",
-      token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens ?? totalUsage.inputTokens ?? 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens ?? 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens ?? 0,
-        output: totalUsage.outputTokens ?? 0,
-        total: totalUsage.totalTokens ?? 0,
-      },
+      token_usage: usageForSession(responseUsage),
     });
-  }
-
-  const final = extractFinalAnswer(steps);
-
-  let finalAnswer = final.answer;
-  if (schema) {
-    console.log("===> structuring final answer with schema", schema);
-    finalAnswer = await structureFinalAnswer(
-      finalPrompt,
-      finalAnswer,
-      schema,
-      model
-    );
   }
   console.log(
     `⏱️ get_context completed in ${duration}ms (${(duration / 1000).toFixed(
@@ -549,9 +557,7 @@ export async function get_context(
     tool_use: final.tool_use,
     content: finalAnswer,
     usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
+      ...responseUsage,
       model: modelId,
       provider,
     },
@@ -589,7 +595,7 @@ export async function stream_context(
       if (!sessionId) return;
       try {
         const steps = await (streamResult as any).steps;
-        const usage = await (streamResult as any).usage;
+        const usage = await (streamResult as any).totalUsage;
         const endTime = Date.now();
         const duration = endTime - startTime;
         const newMessages = extractMessagesFromSteps(
@@ -608,13 +614,7 @@ export async function stream_context(
           provider,
           duration_ms: duration,
           status: "success",
-          token_usage: {
-            input: usage?.inputTokenDetails?.noCacheTokens ?? usage?.inputTokens ?? 0,
-            cache_read: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
-            cache_write: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
-            output: usage?.outputTokens ?? 0,
-            total: usage?.totalTokens ?? 0,
-          },
+          token_usage: usageForSession(usage),
         });
       } catch (e) {
         const aborted = isAbortError(e);

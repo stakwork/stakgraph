@@ -53,6 +53,7 @@ import {
   PROVIDERS,
   getApiKeyForProvider,
   getProviderForModel,
+  usageForSession,
 } from "../aieo/src/index.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import {
@@ -178,7 +179,7 @@ export async function explore(req: Request, res: Response) {
       model: modelId,
       provider: resolvedProvider,
       status: "success",
-      token_usage: { input: result.usage.inputTokens, cache_read: 0, cache_write: 0, output: result.usage.outputTokens, total: result.usage.totalTokens },
+      token_usage: usageForSession(result.usage),
     });
     res.json({ result: result.final, usage: result.usage });
   } catch (error) {
@@ -251,8 +252,7 @@ export async function seed_understanding(req: Request, res: Response) {
 
       budgetTracker = addUsage(
         budgetTracker,
-        answer.usage.inputTokens,
-        answer.usage.outputTokens,
+        answer.usage,
         provider as any
       );
       const info = getBudgetInfo(budgetTracker);
@@ -279,6 +279,8 @@ export async function seed_understanding(req: Request, res: Response) {
         questionsProcessed: answers.length,
         questionsSkipped: QUESTIONS.length - answers.length,
         inputTokens: info.inputTokens,
+        cacheReadTokens: info.cacheReadTokens,
+        cacheWriteTokens: info.cacheWriteTokens,
         outputTokens: info.outputTokens,
         totalTokens: info.totalTokens,
       },
@@ -334,7 +336,7 @@ export async function ask(req: Request, res: Response) {
       model: modelId,
       provider: resolvedProvider,
       status: "success",
-      token_usage: { input: answer.usage.inputTokens, cache_read: 0, cache_write: 0, output: answer.usage.outputTokens, total: answer.usage.totalTokens },
+      token_usage: usageForSession(answer.usage),
     });
     res.json(answer);
   } catch (error) {
@@ -347,7 +349,7 @@ export async function ask(req: Request, res: Response) {
       status: "error",
       error_message: error instanceof Error ? error.message : String(error),
     });
-    res.status(500).send("Internal Server Error");
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
 }
 
@@ -527,8 +529,7 @@ export async function seed_stories(req: Request, res: Response) {
 
     budgetTracker = addUsage(
       budgetTracker,
-      gres.usage.inputTokens,
-      gres.usage.outputTokens,
+      gres.usage,
       provider as any
     );
     const contextInfo = getBudgetInfo(budgetTracker);
@@ -558,8 +559,7 @@ export async function seed_stories(req: Request, res: Response) {
 
       budgetTracker = addUsage(
         budgetTracker,
-        answer.usage.inputTokens,
-        answer.usage.outputTokens,
+        answer.usage,
         provider as any
       );
       const info = getBudgetInfo(budgetTracker);
@@ -586,6 +586,8 @@ export async function seed_stories(req: Request, res: Response) {
         featuresProcessed: answers.length,
         featuresSkipped: stories.features.length - answers.length,
         inputTokens: info.inputTokens,
+        cacheReadTokens: info.cacheReadTokens,
+        cacheWriteTokens: info.cacheWriteTokens,
         outputTokens: info.outputTokens,
         totalTokens: info.totalTokens,
       },

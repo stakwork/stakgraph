@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
-import { generateText } from "ai";
-import { resolveLLMConfig, getTokenPricing } from "../aieo/src/index.js";
+import { computeSessionCost, emptyUsage, generateTextWithUsage, resolveLLMConfig } from "../aieo/src/index.js";
 import { vectorizeBatch } from "../vector/index.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
@@ -95,9 +94,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   try {
     let totalCost = 0;
     let totalProcessed = 0;
-    let totalTokens = { input: 0, output: 0 };
-    const pricing = getTokenPricing(llm.provider);
-    const model = llm.model;
+    let totalTokens = emptyUsage();
 
     // Loop until cost limit reached or no more nodes
     while (true) {
@@ -136,7 +133,10 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         name: string;
         text: string;
         inputTokens: number;
+        cacheReadTokens: number;
+        cacheWriteTokens: number;
         outputTokens: number;
+        totalTokens: number;
         cost: number;
       };
       const results: NodeResult[] = [];
@@ -171,13 +171,12 @@ Docs: ${existingDocs}
 Code:
 ${content.slice(0, 2000)}`;
             try {
-              const { text, usage } = await generateText({ model, prompt });
-              const inputCost =
-                ((usage.inputTokens || 0) / 1000000) * pricing.inputTokenPrice;
-              const outputCost =
-                ((usage.outputTokens || 0) / 1000000) *
-                pricing.outputTokenPrice;
-              const cost = inputCost + outputCost;
+              const { text, usage } = await generateTextWithUsage({
+                provider: llm.provider,
+                apiKey: llm.apiKey,
+                prompt,
+              });
+              const cost = computeSessionCost(llm.provider, usage);
               console.log(
                 `[describe_nodes] LLM done: ${name} ($${cost.toFixed(6)})`,
               );
@@ -186,7 +185,10 @@ ${content.slice(0, 2000)}`;
                 name,
                 text,
                 inputTokens: usage.inputTokens || 0,
+                cacheReadTokens: usage.cache_read,
+                cacheWriteTokens: usage.cache_write,
                 outputTokens: usage.outputTokens || 0,
+                totalTokens: usage.totalTokens || 0,
                 cost,
               });
             } catch (e) {
@@ -199,7 +201,20 @@ ${content.slice(0, 2000)}`;
       for (const r of results) {
         totalCost += r.cost;
         totalTokens.input += r.inputTokens;
+        totalTokens.cache_read += r.cacheReadTokens;
+        totalTokens.cache_write += r.cacheWriteTokens;
         totalTokens.output += r.outputTokens;
+        totalTokens.total += r.totalTokens;
+        totalTokens.inputTokens += r.inputTokens;
+        totalTokens.outputTokens += r.outputTokens;
+        totalTokens.totalTokens += r.totalTokens;
+        totalTokens.token_usage = {
+          input: totalTokens.input,
+          cache_read: totalTokens.cache_read,
+          cache_write: totalTokens.cache_write,
+          output: totalTokens.output,
+          total: totalTokens.total,
+        };
       }
 
       // Bulk write to Neo4j
@@ -232,11 +247,7 @@ ${content.slice(0, 2000)}`;
       processed: totalProcessed,
       total_cost: totalCost,
       total_tokens: totalTokens,
-      usage: {
-        inputTokens: totalTokens.input,
-        outputTokens: totalTokens.output,
-        totalTokens: totalTokens.input + totalTokens.output,
-      },
+      usage: totalTokens,
     };
 
     console.log(`[describe_nodes] Finished. ${JSON.stringify(result)}`);

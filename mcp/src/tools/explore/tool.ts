@@ -1,5 +1,8 @@
 import { generateText, tool, hasToolCall, ModelMessage, ToolSet, StepResult } from "ai";
-import { resolveLLMConfig } from "../../aieo/src/provider.js";
+import {
+  getProviderPolicy,
+  resolveLLMConfig,
+} from "../../aieo/src/index.js";
 import {
   EXPLORER,
   RE_EXPLORER,
@@ -54,7 +57,8 @@ export async function get_context_explore(
   const llm = resolveLLMConfig({ provider, apiKey });
   const model = llm.model;
   // console.log("call claude:");
-  const tools = {
+  const policy = getProviderPolicy(llm.provider);
+  const tools = policy.applyTools({
     repo_overview: tool({
       description:
         "Get a high-level view of the codebase architecture and structure. Use this to understand the project layout and identify where specific functionality might be located. Call this when you need to: 1) Orient yourself in an unfamiliar codebase, 2) Locate which directories/files might contain relevant code for a user's question, 3) Understand the overall project structure before diving deeper. Don't call this if you already know which specific files you need to examine.",
@@ -156,7 +160,7 @@ export async function get_context_explore(
       inputSchema: z.object({ answer: z.string() }),
       execute: async ({ answer }: { answer: string }) => answer,
     }),
-  };
+  });
   const system = general_explore
     ? GENERAL_EXPLORER
     : re_explore
@@ -168,26 +172,34 @@ export async function get_context_explore(
   const stepMetas: StepMeta[] = [];
   let cumInput = 0;
   let cumOutput = 0;
+  const cachedSystem = policy.applySystem(system);
+  const systemMessages = typeof cachedSystem === "string"
+    ? [{ role: "system" as const, content: cachedSystem }]
+    : Array.isArray(cachedSystem)
+    ? cachedSystem
+    : [cachedSystem];
+  const promptMessages: ModelMessage[] = typeof prompt === "string"
+    ? [{ role: "user", content: prompt }]
+    : prompt;
   const { steps, totalUsage } = await generateText({
     model,
     tools,
-    prompt,
-    system,
+    messages: [
+      ...systemMessages,
+      ...policy.applyMessages(promptMessages),
+    ] as ModelMessage[],
+    providerOptions: policy.providerOptions as any,
     stopWhen: hasToolCall("final_answer"),
     onStepFinish: (sf) => {
       // console.log("step", JSON.stringify(sf.content, null, 2));
       logStep(sf.content);
-      const usage = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const usage = policy.normalizeUsage(sf.usage);
       cumInput += usage.inputTokens ?? 0;
       cumOutput += usage.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-          totalTokens: usage.totalTokens ?? 0,
-        },
+        usage,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -232,11 +244,7 @@ export async function get_context_explore(
   return {
     final,
     content: final,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage: policy.normalizeUsage(totalUsage),
   };
 }
 

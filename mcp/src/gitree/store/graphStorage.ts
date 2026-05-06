@@ -8,6 +8,9 @@ import {
   Clue,
   LinkResult,
   ChronologicalCheckpoint,
+  Usage,
+  addGitreeUsage,
+  emptyGitreeUsage,
 } from "../types.js";
 import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl } from "./utils.js";
 
@@ -215,6 +218,7 @@ export class GraphStorage extends Storage {
       const cluesLastAnalyzedAtTimestamp = feature.cluesLastAnalyzedAt
         ? Math.floor(feature.cluesLastAnalyzedAt.getTime() / 1000)
         : null;
+      const usageParams = this.usageToParams(feature.usage);
 
       await session.run(
         `
@@ -228,6 +232,11 @@ export class GraphStorage extends Storage {
             f.docs = $docs,
             f.cluesCount = $cluesCount,
             f.cluesLastAnalyzedAt = $cluesLastAnalyzedAt,
+            f.input = $input,
+            f.cache_read = $cacheRead,
+            f.cache_write = $cacheWrite,
+            f.output = $output,
+            f.token_usage = $tokenUsage,
             f.inputTokens = $inputTokens,
             f.outputTokens = $outputTokens,
             f.totalTokens = $totalTokens,
@@ -248,9 +257,7 @@ export class GraphStorage extends Storage {
           docs: feature.documentation || "",
           cluesCount: feature.cluesCount || null,
           cluesLastAnalyzedAt: cluesLastAnalyzedAtTimestamp,
-          inputTokens: feature.usage?.inputTokens || null,
-          outputTokens: feature.usage?.outputTokens || null,
-          totalTokens: feature.usage?.totalTokens || null,
+          ...usageParams,
           namespace: "default",
           dataBankName: feature.id,
           refId: uuidv4(),
@@ -403,6 +410,7 @@ export class GraphStorage extends Storage {
       
       // Generate repo-prefixed ID for multi-repo support
       const prId = pr.repo ? `${pr.repo}/pr-${pr.number}` : `pr-${pr.number}`;
+      const usageParams = this.usageToParams(pr.usage);
 
       await session.run(
         `
@@ -419,6 +427,11 @@ export class GraphStorage extends Storage {
             p.docs = $docs,
             p.namespace = $namespace,
             p.Data_Bank = $dataBankName,
+            p.input = $input,
+            p.cache_read = $cacheRead,
+            p.cache_write = $cacheWrite,
+            p.output = $output,
+            p.token_usage = $tokenUsage,
             p.inputTokens = $inputTokens,
             p.outputTokens = $outputTokens,
             p.totalTokens = $totalTokens,
@@ -442,12 +455,10 @@ export class GraphStorage extends Storage {
           docs,
           namespace: "default",
           dataBankName: `pull-request-${pr.number}`,
-          inputTokens: pr.usage?.inputTokens || null,
-          outputTokens: pr.usage?.outputTokens || null,
-          totalTokens: pr.usage?.totalTokens || null,
+          ...usageParams,
           refId: uuidv4(),
           dateAddedToGraph: now,
-        }
+        },
       );
 
       // Note: TOUCHES relationships are created in saveFeature()
@@ -514,6 +525,7 @@ export class GraphStorage extends Storage {
       const now = Math.floor(Date.now() / 1000);
       const dateTimestamp = Math.floor(commit.committedAt.getTime() / 1000);
       const docs = await formatCommitMarkdown(commit, this);
+      const usageParams = this.usageToParams(commit.usage);
       
       // Generate repo-prefixed ID for multi-repo support
       const commitId = commit.repo 
@@ -536,6 +548,11 @@ export class GraphStorage extends Storage {
             c.docs = $docs,
             c.namespace = $namespace,
             c.Data_Bank = $dataBankName,
+            c.input = $input,
+            c.cache_read = $cacheRead,
+            c.cache_write = $cacheWrite,
+            c.output = $output,
+            c.token_usage = $tokenUsage,
             c.inputTokens = $inputTokens,
             c.outputTokens = $outputTokens,
             c.totalTokens = $totalTokens,
@@ -560,12 +577,10 @@ export class GraphStorage extends Storage {
           docs,
           namespace: "default",
           dataBankName: `commit-${commit.sha.substring(0, 7)}`,
-          inputTokens: commit.usage?.inputTokens || null,
-          outputTokens: commit.usage?.outputTokens || null,
-          totalTokens: commit.usage?.totalTokens || null,
+          ...usageParams,
           refId: uuidv4(),
           dateAddedToGraph: now,
-        }
+        },
       );
 
       // Note: TOUCHES relationships are created in saveFeature()
@@ -1239,13 +1254,16 @@ export class GraphStorage extends Storage {
 
   // Total Usage - cumulative token usage across all processing runs
 
-  async getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }> {
+  async getTotalUsage(repo: string): Promise<Usage> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
         MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
-        RETURN m.totalInputTokens as inputTokens,
+         RETURN m.totalBaseInputTokens as input,
+           m.totalCacheReadTokens as cacheRead,
+           m.totalCacheWriteTokens as cacheWrite,
+           m.totalInputTokens as inputTokens,
                m.totalOutputTokens as outputTokens,
                m.totalTokens as totalTokens
         `,
@@ -1253,36 +1271,46 @@ export class GraphStorage extends Storage {
       );
 
       if (result.records.length === 0) {
-        return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        return emptyGitreeUsage();
       }
 
       const record = result.records[0];
+      const inputBaseRaw = record.get("input");
+      const cacheReadRaw = record.get("cacheRead");
+      const cacheWriteRaw = record.get("cacheWrite");
       const inputRaw = record.get("inputTokens");
       const outputRaw = record.get("outputTokens");
       const totalRaw = record.get("totalTokens");
 
-      return {
+      return addGitreeUsage(emptyGitreeUsage(), {
+        input: inputBaseRaw?.toNumber ? inputBaseRaw.toNumber() : (inputBaseRaw || 0),
+        cache_read: cacheReadRaw?.toNumber ? cacheReadRaw.toNumber() : (cacheReadRaw || 0),
+        cache_write: cacheWriteRaw?.toNumber ? cacheWriteRaw.toNumber() : (cacheWriteRaw || 0),
         inputTokens: inputRaw?.toNumber ? inputRaw.toNumber() : (inputRaw || 0),
         outputTokens: outputRaw?.toNumber ? outputRaw.toNumber() : (outputRaw || 0),
         totalTokens: totalRaw?.toNumber ? totalRaw.toNumber() : (totalRaw || 0),
-      };
+      });
     } catch (error) {
       console.error("   Error reading totalUsage:", error);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return emptyGitreeUsage();
     } finally {
       await session.close();
     }
   }
 
-  async addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void> {
+  async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
     const session = this.driver.session();
     try {
       const now = Math.floor(Date.now() / 1000);
+      const normalizedUsage = addGitreeUsage(emptyGitreeUsage(), usage);
 
       await session.run(
         `
         MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
-        SET m.totalInputTokens = COALESCE(m.totalInputTokens, 0) + $inputTokens,
+        SET m.totalBaseInputTokens = COALESCE(m.totalBaseInputTokens, 0) + $input,
+          m.totalCacheReadTokens = COALESCE(m.totalCacheReadTokens, 0) + $cacheRead,
+          m.totalCacheWriteTokens = COALESCE(m.totalCacheWriteTokens, 0) + $cacheWrite,
+          m.totalInputTokens = COALESCE(m.totalInputTokens, 0) + $inputTokens,
             m.totalOutputTokens = COALESCE(m.totalOutputTokens, 0) + $outputTokens,
             m.totalTokens = COALESCE(m.totalTokens, 0) + $totalTokens,
             m.ref_id = COALESCE(m.ref_id, $refId),
@@ -1292,9 +1320,12 @@ export class GraphStorage extends Storage {
         {
           namespace: "default",
           repo,
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          totalTokens: usage.totalTokens,
+          input: normalizedUsage.input,
+          cacheRead: normalizedUsage.cache_read,
+          cacheWrite: normalizedUsage.cache_write,
+          inputTokens: normalizedUsage.inputTokens,
+          outputTokens: normalizedUsage.outputTokens,
+          totalTokens: normalizedUsage.totalTokens,
           refId: uuidv4(),
           dateAddedToGraph: now,
         }
@@ -1306,22 +1337,23 @@ export class GraphStorage extends Storage {
 
   async getAggregatedMetadata(): Promise<{
     lastProcessedTimestamp: string | null;
-    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    cumulativeUsage: Usage;
   }> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `MATCH (m:${Data_Bank}:FeaturesMetadata)
          RETURN m.chronologicalCheckpoint as checkpoint,
+            m.totalBaseInputTokens as input,
+            m.totalCacheReadTokens as cacheRead,
+            m.totalCacheWriteTokens as cacheWrite,
                 m.totalInputTokens as inputTokens,
                 m.totalOutputTokens as outputTokens,
                 m.totalTokens as totalTokens`
       );
 
       let latestTimestamp: string | null = null;
-      let totalInput = 0;
-      let totalOutput = 0;
-      let totalTokens = 0;
+      let cumulativeUsage = emptyGitreeUsage();
 
       for (const record of result.records) {
         // Parse checkpoint to get timestamp
@@ -1338,22 +1370,26 @@ export class GraphStorage extends Storage {
         }
 
         // Sum usage
+        const inputBaseRaw = record.get("input");
+        const cacheReadRaw = record.get("cacheRead");
+        const cacheWriteRaw = record.get("cacheWrite");
         const inputRaw = record.get("inputTokens");
         const outputRaw = record.get("outputTokens");
         const tokensRaw = record.get("totalTokens");
-        
-        totalInput += inputRaw?.toNumber ? inputRaw.toNumber() : (inputRaw || 0);
-        totalOutput += outputRaw?.toNumber ? outputRaw.toNumber() : (outputRaw || 0);
-        totalTokens += tokensRaw?.toNumber ? tokensRaw.toNumber() : (tokensRaw || 0);
+
+        cumulativeUsage = addGitreeUsage(cumulativeUsage, {
+          input: inputBaseRaw?.toNumber ? inputBaseRaw.toNumber() : (inputBaseRaw || 0),
+          cache_read: cacheReadRaw?.toNumber ? cacheReadRaw.toNumber() : (cacheReadRaw || 0),
+          cache_write: cacheWriteRaw?.toNumber ? cacheWriteRaw.toNumber() : (cacheWriteRaw || 0),
+          inputTokens: inputRaw?.toNumber ? inputRaw.toNumber() : (inputRaw || 0),
+          outputTokens: outputRaw?.toNumber ? outputRaw.toNumber() : (outputRaw || 0),
+          totalTokens: tokensRaw?.toNumber ? tokensRaw.toNumber() : (tokensRaw || 0),
+        });
       }
 
       return {
         lastProcessedTimestamp: latestTimestamp,
-        cumulativeUsage: {
-          inputTokens: totalInput,
-          outputTokens: totalOutput,
-          totalTokens: totalTokens,
-        },
+        cumulativeUsage,
       };
     } finally {
       await session.close();
@@ -1386,11 +1422,67 @@ export class GraphStorage extends Storage {
 
   // Helper methods
 
+  private toNumber(value: any): number {
+    return value?.toNumber ? value.toNumber() : (value || 0);
+  }
+
+  private usageToParams(usage?: Usage) {
+    if (!usage) {
+      return {
+        input: null,
+        cacheRead: null,
+        cacheWrite: null,
+        output: null,
+        tokenUsage: null,
+        inputTokens: null,
+        outputTokens: null,
+        totalTokens: null,
+      };
+    }
+
+    const normalizedUsage = addGitreeUsage(emptyGitreeUsage(), usage);
+    return {
+      input: normalizedUsage.input,
+      cacheRead: normalizedUsage.cache_read,
+      cacheWrite: normalizedUsage.cache_write,
+      output: normalizedUsage.output,
+      tokenUsage: JSON.stringify(normalizedUsage.token_usage),
+      inputTokens: normalizedUsage.inputTokens,
+      outputTokens: normalizedUsage.outputTokens,
+      totalTokens: normalizedUsage.totalTokens,
+    };
+  }
+
+  private usageFromProps(props: any): Usage | undefined {
+    let tokenUsage = props.token_usage;
+    if (typeof tokenUsage === "string") {
+      try {
+        tokenUsage = JSON.parse(tokenUsage);
+      } catch {
+        tokenUsage = undefined;
+      }
+    }
+
+    const usage = addGitreeUsage(emptyGitreeUsage(), {
+      input: this.toNumber(props.input),
+      cache_read: this.toNumber(props.cache_read),
+      cache_write: this.toNumber(props.cache_write),
+      output: this.toNumber(props.output),
+      total: this.toNumber(props.totalTokens),
+      inputTokens: this.toNumber(props.inputTokens),
+      outputTokens: this.toNumber(props.outputTokens),
+      totalTokens: this.toNumber(props.totalTokens),
+      token_usage: tokenUsage,
+    });
+
+    return usage.inputTokens || usage.outputTokens || usage.totalTokens
+      ? usage
+      : undefined;
+  }
+
   private nodeToFeature(node: any): Feature {
     const props = node.properties;
-    const inputTokens = props.inputTokens?.toNumber ? props.inputTokens.toNumber() : props.inputTokens;
-    const outputTokens = props.outputTokens?.toNumber ? props.outputTokens.toNumber() : props.outputTokens;
-    const totalTokens = props.totalTokens?.toNumber ? props.totalTokens.toNumber() : props.totalTokens;
+    const usage = this.usageFromProps(props);
     
     return {
       id: props.id,
@@ -1407,17 +1499,13 @@ export class GraphStorage extends Storage {
       cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
         ? new Date(props.cluesLastAnalyzedAt * 1000)
         : undefined,
-      usage: inputTokens || outputTokens || totalTokens
-        ? { inputTokens: inputTokens || 0, outputTokens: outputTokens || 0, totalTokens: totalTokens || 0 }
-        : undefined,
+      usage,
     };
   }
 
   private nodeToPR(node: any): PRRecord {
     const props = node.properties;
-    const inputTokens = props.inputTokens?.toNumber ? props.inputTokens.toNumber() : props.inputTokens;
-    const outputTokens = props.outputTokens?.toNumber ? props.outputTokens.toNumber() : props.outputTokens;
-    const totalTokens = props.totalTokens?.toNumber ? props.totalTokens.toNumber() : props.totalTokens;
+    const usage = this.usageFromProps(props);
     
     return {
       number: props.number.toNumber ? props.number.toNumber() : props.number,
@@ -1430,17 +1518,13 @@ export class GraphStorage extends Storage {
       newDeclarations: props.newDeclarations
         ? JSON.parse(props.newDeclarations)
         : undefined,
-      usage: inputTokens || outputTokens || totalTokens
-        ? { inputTokens: inputTokens || 0, outputTokens: outputTokens || 0, totalTokens: totalTokens || 0 }
-        : undefined,
+      usage,
     };
   }
 
   private nodeToCommit(node: any): CommitRecord {
     const props = node.properties;
-    const inputTokens = props.inputTokens?.toNumber ? props.inputTokens.toNumber() : props.inputTokens;
-    const outputTokens = props.outputTokens?.toNumber ? props.outputTokens.toNumber() : props.outputTokens;
-    const totalTokens = props.totalTokens?.toNumber ? props.totalTokens.toNumber() : props.totalTokens;
+    const usage = this.usageFromProps(props);
     
     return {
       sha: props.sha,
@@ -1454,9 +1538,7 @@ export class GraphStorage extends Storage {
       newDeclarations: props.newDeclarations
         ? JSON.parse(props.newDeclarations)
         : undefined,
-      usage: inputTokens || outputTokens || totalTokens
-        ? { inputTokens: inputTokens || 0, outputTokens: outputTokens || 0, totalTokens: totalTokens || 0 }
-        : undefined,
+      usage,
     };
   }
 

@@ -1,8 +1,8 @@
 import { Request, Response } from "express";
 import { db } from "./neo4j.js";
 import { vectorizeQuery } from "../vector/index.js";
-import { generateObject, jsonSchema } from "ai";
-import { resolveLLMConfig } from "../aieo/src/provider.js";
+import { jsonSchema } from "ai";
+import { addUsage, generateObjectWithUsage, resolveLLMConfig } from "../aieo/src/index.js";
 
 // === Learning + Scope routes ===
 
@@ -89,7 +89,6 @@ export async function post_relevant_learnings(req: Request, res: Response) {
 
   try {
     const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey, light: true });
-    const model = llm.model;
 
     // 1. List all scopes
     const allScopes = await db.get_all_scopes();
@@ -117,8 +116,9 @@ Given the user's prompt, pick the most relevant scopes from the list. Return up 
       additionalProperties: false,
     };
 
-    const scopeResult = await generateObject({
-      model,
+    const scopeResult = await generateObjectWithUsage({
+      provider: llm.provider,
+      apiKey: llm.apiKey,
       prompt: scopePrompt,
       schema: jsonSchema(scopeSchema),
     });
@@ -165,11 +165,14 @@ Given the user's prompt, pick the most relevant learnings from the list. Return 
       additionalProperties: false,
     };
 
-    const learningResult = await generateObject({
-      model,
+    const learningResult = await generateObjectWithUsage({
+      provider: llm.provider,
+      apiKey: llm.apiKey,
       prompt: learningPrompt,
       schema: jsonSchema(learningSchema),
     });
+
+    const totalUsage = addUsage(scopeResult.usage, learningResult.usage);
 
     const relevantIds =
       ((learningResult.object as any).relevantLearningIds as string[])?.slice(0, limit) || [];
@@ -183,11 +186,7 @@ Given the user's prompt, pick the most relevant learnings from the list. Return 
       learnings: relevantLearnings,
       prompt,
       scopes: relevantScopes,
-      usage: {
-        inputTokens: (scopeResult.usage?.inputTokens || 0) + (learningResult.usage?.inputTokens || 0),
-        outputTokens: (scopeResult.usage?.outputTokens || 0) + (learningResult.usage?.outputTokens || 0),
-        totalTokens: (scopeResult.usage?.totalTokens || 0) + (learningResult.usage?.totalTokens || 0),
-      },
+      usage: totalUsage,
     });
   } catch (error: any) {
     console.error("POST relevant-learnings error:", error);

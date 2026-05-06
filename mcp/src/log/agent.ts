@@ -1,5 +1,11 @@
 import { ToolLoopAgent, ModelMessage } from "ai";
-import { ModelName, getModelDetails } from "../aieo/src/index.js";
+import {
+  ModelName,
+  getModelDetails,
+  getProviderPolicy,
+  normalizeUsage,
+  usageForSession,
+} from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -59,14 +65,17 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
-  const { model } = getModelDetails(opts.modelName, opts.apiKey);
+  const { model, modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
   console.log("===> log_agent model", model);
 
-  const tools = get_log_tools({
-    logsDir: opts.logsDir,
-    stakworkApiKey: opts.stakworkApiKey,
-    stakworkRuns: opts.stakworkRuns,
-  });
+  const policy = getProviderPolicy(provider);
+  const tools = policy.applyTools(
+    get_log_tools({
+      logsDir: opts.logsDir,
+      stakworkApiKey: opts.stakworkApiKey,
+      stakworkRuns: opts.stakworkRuns,
+    }),
+  );
 
   const hasEndMarker = createHasEndMarkerCondition<typeof tools>();
 
@@ -81,23 +90,20 @@ export async function log_agent_context(
 
   const agent = new ToolLoopAgent({
     model,
-    instructions: SYSTEM,
+    instructions: policy.applySystem(SYSTEM),
     tools,
+    providerOptions: policy.providerOptions as any,
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
       logStepMaybe(sf.content, opts.printAgentProgress);
-      const usage = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const usage = normalizeUsage(sf.usage);
       cumInput += usage.inputTokens ?? 0;
       cumOutput += usage.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-          totalTokens: usage.totalTokens ?? 0,
-        },
+        usage,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -126,14 +132,16 @@ export async function log_agent_context(
   try {
     if (previousMessages.length > 0) {
       result = await agent.generate({
-        messages: [...previousMessages, userMessage],
+        messages: [
+          ...policy.applyMessages(previousMessages),
+          userMessage,
+        ],
       });
     } else {
       result = await agent.generate({ prompt });
     }
   } catch (err) {
     if (sessionId) {
-      const { modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
       await appendSessionEnd(sessionId, {
         end_time: new Date().toISOString(),
         model: modelId,
@@ -157,19 +165,12 @@ export async function log_agent_context(
     );
     appendMessages(sessionId, newMessages);
     appendStepMeta(sessionId, stepMetas);
-    const { modelId, provider } = getModelDetails(opts.modelName, opts.apiKey);
     appendSessionEnd(sessionId, {
       end_time: new Date().toISOString(),
       model: modelId,
       provider,
       status: "success",
-      token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens || 0,
-        output: totalUsage.outputTokens || 0,
-        total: totalUsage.totalTokens || 0,
-      },
+      token_usage: usageForSession(totalUsage),
     });
   }
 
@@ -185,11 +186,7 @@ export async function log_agent_context(
     final: final.answer,
     tool_use: final.tool_use,
     content: final.answer,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage: normalizeUsage(totalUsage),
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
   };

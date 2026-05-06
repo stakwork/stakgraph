@@ -9,11 +9,11 @@ import { ClueAnalyzer } from "./clueAnalyzer.js";
 import { Octokit } from "@octokit/rest";
 import {
   getApiKeyForProvider,
-  getModel,
   getModelDetails,
   Provider,
 } from "../aieo/src/provider.js";
-import { generateObject, jsonSchema } from "ai";
+import { jsonSchema } from "ai";
+import { generateObjectWithUsage, usageForSession } from "../aieo/src/index.js";
 import { formatFeatureWithDetails } from "./utils.js";
 import { listFeatures } from "./service.js";
 import {
@@ -28,7 +28,7 @@ import {
 import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
-import { Feature } from "./types.js";
+import { addGitreeUsage, emptyGitreeUsage, Feature, Usage } from "./types.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
@@ -181,7 +181,7 @@ export async function gitree_process(req: Request, res: Response) {
         }
 
         // Bootstrap: seed initial features by exploring the codebase
-        let bootstrapUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        let bootstrapUsage: Usage = emptyGitreeUsage();
         if (isNewRepo && repoPath) {
           const bootstrapResult = await bootstrapFeatures(owner, repo, repoPath, storage, sessionId);
           bootstrapUsage = bootstrapResult.usage;
@@ -202,7 +202,7 @@ export async function gitree_process(req: Request, res: Response) {
 
         const { usage: processUsage, modifiedFeatureIds } = await builder.processRepo(owner, repo, sessionId);
 
-        let summarizeUsage = null;
+        let summarizeUsage: Usage = emptyGitreeUsage();
         let linkResult = null;
 
         // If summarize flag is set, run summarization after processing (only for modified features)
@@ -233,20 +233,10 @@ export async function gitree_process(req: Request, res: Response) {
         if (shouldLink) messageParts.push("linked files");
         if (shouldAnalyzeClues) messageParts.push("analyzed clues");
 
-        const totalUsage = {
-          inputTokens:
-            bootstrapUsage.inputTokens +
-            processUsage.inputTokens +
-            (summarizeUsage?.inputTokens || 0),
-          outputTokens:
-            bootstrapUsage.outputTokens +
-            processUsage.outputTokens +
-            (summarizeUsage?.outputTokens || 0),
-          totalTokens:
-            bootstrapUsage.totalTokens +
-            processUsage.totalTokens +
-            (summarizeUsage?.totalTokens || 0),
-        };
+        const totalUsage = addGitreeUsage(
+          addGitreeUsage(bootstrapUsage, processUsage),
+          summarizeUsage,
+        );
         await storage.addToTotalUsage(repoId, totalUsage);
         
         // Get the new cumulative total
@@ -271,13 +261,7 @@ export async function gitree_process(req: Request, res: Response) {
           provider,
           duration_ms: Date.now() - startTime,
           status: "success",
-          token_usage: {
-            input: totalUsage.inputTokens,
-            cache_read: 0,
-            cache_write: 0,
-            output: totalUsage.outputTokens,
-            total: totalUsage.totalTokens,
-          },
+          token_usage: usageForSession(totalUsage),
         });
         isProcessing = false;
         endTracking(opId);
@@ -965,7 +949,6 @@ export async function gitree_relevant_features(req: Request, res: Response) {
     // Use AI to determine relevant features
     const provider = process.env.LLM_PROVIDER || "anthropic";
     const apiKey = getApiKeyForProvider(provider);
-    const model = await getModel(provider as Provider, apiKey as string);
 
     const aiPrompt = `<prompt>${prompt}</prompt>
 <features>${JSON.stringify(featuresWithoutDocs, null, 2)}</features>
@@ -985,8 +968,9 @@ Please analyze the user's prompt and the list of available features. Return an a
       required: ["relevantFeatureIds"],
       additionalProperties: false,
     };
-    const result = await generateObject({
-      model,
+    const result = await generateObjectWithUsage({
+      provider: provider as Provider,
+      apiKey,
       prompt: aiPrompt,
       schema: jsonSchema(schema),
     });
@@ -1177,10 +1161,7 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
               const newClueIds = result.clues.map((c: any) => c.id);
               const linkUsage = await linker.linkClues(newClueIds);
 
-              // Combine usage stats
-              result.usage.inputTokens += linkUsage.inputTokens;
-              result.usage.outputTokens += linkUsage.outputTokens;
-              result.usage.totalTokens += linkUsage.totalTokens;
+              result.usage = addGitreeUsage(result.usage, linkUsage);
             } catch (error) {
               console.error(`\n⚠️  Auto-linking failed:`, error instanceof Error ? error.message : error);
             }
@@ -1313,7 +1294,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
             message: "No new changes to analyze",
             totalClues: 0,
             totalChanges: 0,
-            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            usage: emptyGitreeUsage(),
           });
           return;
         }
@@ -1321,7 +1302,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
         console.log(`📊 Analyzing ${changesToProcess.length} change(s) for clues...`);
 
         let totalClues = 0;
-        const totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        let totalUsage = emptyGitreeUsage();
 
         for (let i = 0; i < changesToProcess.length; i++) {
           const change = changesToProcess[i];
@@ -1342,9 +1323,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 
               const result = await analyzer.analyzeChange(changeContext);
               totalClues += result.clues.length;
-              totalUsage.inputTokens += result.usage.inputTokens;
-              totalUsage.outputTokens += result.usage.outputTokens;
-              totalUsage.totalTokens += result.usage.totalTokens;
+              totalUsage = addGitreeUsage(totalUsage, result.usage);
 
               // Link clues if any were created
               if (result.clues.length > 0) {
@@ -1384,9 +1363,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 
               const result = await analyzer.analyzeChange(changeContext);
               totalClues += result.clues.length;
-              totalUsage.inputTokens += result.usage.inputTokens;
-              totalUsage.outputTokens += result.usage.outputTokens;
-              totalUsage.totalTokens += result.usage.totalTokens;
+              totalUsage = addGitreeUsage(totalUsage, result.usage);
 
               // Link clues if any were created
               if (result.clues.length > 0) {

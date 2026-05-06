@@ -1,5 +1,6 @@
 import {
-  callModel,
+  AiUsage,
+  consumeStreamTextWithUsage,
   resolveLLMConfig,
 } from "../../aieo/src/index.js";
 
@@ -46,11 +47,11 @@ export async function filterAnswers(
   llm_apiKey?: string
 ): Promise<{
   answer: FilteredAnswer;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsage;
 }> {
   console.log(">> filterAnswers!!!!");
   const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
-  const result = await callModel({
+  const result = await consumeStreamTextWithUsage({
     provider: llm.provider,
     apiKey: llm.apiKey,
     messages: [{ role: "user", content: FILTER_PROMPT(originalPrompt, qas) }],

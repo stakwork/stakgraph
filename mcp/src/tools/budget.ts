@@ -15,6 +15,8 @@ export interface BudgetInfo {
   budgetExceeded: boolean;
   remainingBudget: number;
   inputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
   totalTokens: number;
 }
@@ -36,15 +38,16 @@ export function createBudgetTracker(
 
 export function addUsage(
   tracker: BudgetTracker,
-  inputTokens: number,
-  outputTokens: number,
+  usage: { input: number; output: number; totalTokens?: number; cache_read?: number; cache_write?: number },
   provider?: Provider
 ): BudgetTracker {
   return {
     ...tracker,
-    inputTokens: tracker.inputTokens + inputTokens,
-    outputTokens: tracker.outputTokens + outputTokens,
-    totalTokens: tracker.totalTokens + inputTokens + outputTokens,
+    inputTokens: tracker.inputTokens + usage.input,
+    cacheReadTokens: tracker.cacheReadTokens + (usage.cache_read ?? 0),
+    cacheWriteTokens: tracker.cacheWriteTokens + (usage.cache_write ?? 0),
+    outputTokens: tracker.outputTokens + usage.output,
+    totalTokens: tracker.totalTokens + (usage.totalTokens ?? usage.input + (usage.cache_read ?? 0) + (usage.cache_write ?? 0) + usage.output),
     provider: provider || tracker.provider,
   };
 }
@@ -73,6 +76,8 @@ export function getBudgetInfo(tracker: BudgetTracker): BudgetInfo {
     budgetExceeded: totalCost >= tracker.budgetLimit,
     remainingBudget: Math.max(0, tracker.budgetLimit - totalCost),
     inputTokens: tracker.inputTokens,
+    cacheReadTokens: tracker.cacheReadTokens,
+    cacheWriteTokens: tracker.cacheWriteTokens,
     outputTokens: tracker.outputTokens,
     totalTokens: tracker.totalTokens,
   };

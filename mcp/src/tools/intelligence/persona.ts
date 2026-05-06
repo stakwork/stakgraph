@@ -1,5 +1,5 @@
 import { resolveLLMConfig } from "../../aieo/src/provider.js";
-import { callGenerateObject } from "../../aieo/src/index.js";
+import { generateObjectWithUsage } from "../../aieo/src/index.js";
 import { z } from "zod";
 import { db } from "../../graph/neo4j.js";
 import { vectorizeQuery } from "../../vector/index.js";
@@ -39,7 +39,7 @@ export async function rephraseHint(
 ): Promise<{ question: string; answer: string }> {
   const llm = resolveLLMConfig({ provider: llm_provider, apiKey: llm_apiKey });
   const schema = z.object({ question: z.string(), answer: z.string() });
-  const result = await callGenerateObject({
+  const result = await generateObjectWithUsage({
     provider: llm.provider,
     apiKey: llm.apiKey,
     prompt: personaPrompt(persona, question, answer),

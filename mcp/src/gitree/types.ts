@@ -1,7 +1,21 @@
-export interface Usage {
+import { addUsage as addAiUsage, emptyUsage as emptyAiUsage } from "../aieo/src/index.js";
+import type { AiUsage } from "../aieo/src/index.js";
+
+export interface Usage extends Partial<AiUsage> {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+}
+
+export function emptyGitreeUsage(): Usage {
+  return emptyAiUsage();
+}
+
+export function addGitreeUsage(
+  first: Partial<Usage>,
+  second: Partial<Usage>,
+): Usage {
+  return addAiUsage(first, second);
 }
 
 export interface LinkResult {

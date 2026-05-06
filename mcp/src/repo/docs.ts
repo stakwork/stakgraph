@@ -1,7 +1,6 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
-import { generateText } from "ai";
-import { resolveLLMConfig } from "../aieo/src/index.js";
+import { addUsage, emptyUsage, generateTextWithUsage, resolveLLMConfig } from "../aieo/src/index.js";
 
 export async function learn_docs_agent(req: Request, res: Response) {
   const repoUrl = req.query.repo_url as string;
@@ -11,7 +10,6 @@ export async function learn_docs_agent(req: Request, res: Response) {
   const reqModel = (req.query.model || req.body?.model) as string | undefined;
   const reqApiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
   const llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey });
-  const model = llm.model;
 
   try {
     const allRepos = await db.get_repositories();
@@ -35,7 +33,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
     console.log(`[learn_docs] Total rules files in graph: ${allRulesFiles.length}`);
 
     const summaries: Record<string, string> = {};
-    let totalInputTokens = 0, totalOutputTokens = 0;
+    let totalUsage = emptyUsage();
 
     for (const repo of reposToProcess) {
       const repoName = repo.properties.name;
@@ -81,12 +79,12 @@ export async function learn_docs_agent(req: Request, res: Response) {
           ${docsContent}
           `;
 
-        const result = await generateText({
-          model,
+        const result = await generateTextWithUsage({
+          provider: llm.provider,
+          apiKey: llm.apiKey,
           prompt,
         });
-        totalInputTokens += result.usage?.inputTokens || 0;
-        totalOutputTokens += result.usage?.outputTokens || 0;
+        totalUsage = addUsage(totalUsage, result.usage);
 
         const summary = result.text;
 
@@ -108,11 +106,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
     res.json({
       message: "Documentation learned",
       summaries,
-      usage: {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        totalTokens: totalInputTokens + totalOutputTokens,
-      },
+      usage: totalUsage,
     });
   } catch (error) {
     console.error(`[learn_docs] Error:`, error);

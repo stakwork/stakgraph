@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage, addGitreeUsage, emptyGitreeUsage } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
 
@@ -492,26 +492,22 @@ export class FileSystemStore extends Storage {
   }
 
   // Total Usage - cumulative token usage across all processing runs
-  async getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }> {
+  async getTotalUsage(repo: string): Promise<Usage> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
       const key = this.getRepoMetadataKey(repo, "totalUsage");
       const usage = metadata[key] || metadata.totalUsage;
       if (usage) {
-        return {
-          inputTokens: usage.inputTokens || 0,
-          outputTokens: usage.outputTokens || 0,
-          totalTokens: usage.totalTokens || 0,
-        };
+        return addGitreeUsage(emptyGitreeUsage(), usage);
       }
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return emptyGitreeUsage();
     } catch {
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return emptyGitreeUsage();
     }
   }
 
-  async addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void> {
+  async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
     let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
@@ -521,29 +517,23 @@ export class FileSystemStore extends Storage {
     }
 
     const key = this.getRepoMetadataKey(repo, "totalUsage");
-    const current = metadata[key] || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-    
-    metadata[key] = {
-      inputTokens: (current.inputTokens || 0) + usage.inputTokens,
-      outputTokens: (current.outputTokens || 0) + usage.outputTokens,
-      totalTokens: (current.totalTokens || 0) + usage.totalTokens,
-    };
+    const current = metadata[key] || emptyGitreeUsage();
+
+    metadata[key] = addGitreeUsage(current, usage);
     
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
   async getAggregatedMetadata(): Promise<{
     lastProcessedTimestamp: string | null;
-    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    cumulativeUsage: Usage;
   }> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
       
       let latestTimestamp: string | null = null;
-      let totalInput = 0;
-      let totalOutput = 0;
-      let totalTokens = 0;
+      let cumulativeUsage = emptyGitreeUsage();
 
       for (const key of Object.keys(metadata)) {
         // Process checkpoint keys
@@ -558,24 +548,18 @@ export class FileSystemStore extends Storage {
         // Process usage keys
         if (key.includes(":totalUsage")) {
           const usage = metadata[key];
-          totalInput += usage?.inputTokens || 0;
-          totalOutput += usage?.outputTokens || 0;
-          totalTokens += usage?.totalTokens || 0;
+          cumulativeUsage = addGitreeUsage(cumulativeUsage, usage || emptyGitreeUsage());
         }
       }
 
       return {
         lastProcessedTimestamp: latestTimestamp,
-        cumulativeUsage: {
-          inputTokens: totalInput,
-          outputTokens: totalOutput,
-          totalTokens: totalTokens,
-        },
+        cumulativeUsage,
       };
     } catch {
       return {
         lastProcessedTimestamp: null,
-        cumulativeUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        cumulativeUsage: emptyGitreeUsage(),
       };
     }
   }

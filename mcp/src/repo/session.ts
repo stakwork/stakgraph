@@ -11,7 +11,8 @@ import {
 import { randomUUID } from "crypto";
 import path from "path";
 import { db } from "../graph/neo4j.js";
-import { getProviderForModel } from "../aieo/src/provider.js";
+import { getProviderForModel, usageForSession } from "../aieo/src/provider.js";
+import type { AiUsage, SessionTokenUsage } from "../aieo/src/provider.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
@@ -32,11 +33,7 @@ export interface StepMeta {
   step: number;
   turn: number;
   label?: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  usage: AiUsage;
   cumulativeInput: number;
   cumulativeOutput: number;
   toolCalls: string[];
@@ -91,7 +88,7 @@ export async function appendSessionEnd(
     model?: string;
     provider?: string;
     duration_ms?: number;
-    token_usage?: { input: number; cache_read: number; cache_write: number; output: number; total: number };
+    token_usage?: Partial<AiUsage> | SessionTokenUsage;
     status?: "success" | "error" | "aborted";
     error_message?: string;
   }
@@ -102,6 +99,7 @@ export async function appendSessionEnd(
   const start_time = new Date(stored.start_time).getTime();
   const end_time = new Date(opts.end_time).getTime();
   const resolvedProvider = opts.provider || getProviderForModel(opts.model);
+  const usage = usageForSession(opts.token_usage);
   await db?.upsert_agent_session({
     session_id: sessionId,
     source: stored.source,
@@ -110,11 +108,11 @@ export async function appendSessionEnd(
     start_time,
     end_time,
     duration_ms: opts.duration_ms ?? (end_time - start_time),
-    input_tokens: opts.token_usage?.input || 0,
-    cache_read_tokens: opts.token_usage?.cache_read || 0,
-    cache_write_tokens: opts.token_usage?.cache_write || 0,
-    output_tokens: opts.token_usage?.output || 0,
-    total_tokens: opts.token_usage?.total || 0,
+    input_tokens: usage.input,
+    cache_read_tokens: usage.cache_read,
+    cache_write_tokens: usage.cache_write,
+    output_tokens: usage.output,
+    total_tokens: usage.total,
     status: opts.status || "success",
     error_message: opts.error_message || "",
   }).catch((e) => console.error("[sessions] Neo4j upsert failed:", e));

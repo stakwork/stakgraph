@@ -1,5 +1,6 @@
 import { detectLanguagesAndPkgFiles, extractEnvVarsFromRepo } from "../graph/utils.js";
 import { selectSetupHints } from "../gitsee/agent/prompts/services.js";
+import { addUsage, AiUsage } from "../aieo/src/index.js";
 
 export type SetupProfile = {
   package_manager: string;
@@ -94,13 +95,12 @@ export function buildSelectedHints(profile: SetupProfile): string {
 }
 
 export function combineUsage(
-  first: { inputTokens: number; outputTokens: number; totalTokens: number; model?: string; provider?: string },
-  second: { inputTokens: number; outputTokens: number; totalTokens: number; model?: string; provider?: string }
+  first: Partial<AiUsage> & { model?: string; provider?: string },
+  second: Partial<AiUsage> & { model?: string; provider?: string }
 ) {
+  const usage = addUsage(first, second);
   return {
-    inputTokens: first.inputTokens + second.inputTokens,
-    outputTokens: first.outputTokens + second.outputTokens,
-    totalTokens: first.totalTokens + second.totalTokens,
+    ...usage,
     model: second.model ?? first.model,
     provider: second.provider ?? first.provider,
   };

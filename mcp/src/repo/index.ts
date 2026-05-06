@@ -240,18 +240,27 @@ export async function repo_agent(req: Request, res: Response) {
       };
       res.on("close", onClientClose);
 
+      let finalized = false;
+      const finalizeOnce = async () => {
+        if (finalized) return;
+        finalized = true;
+        await finalizeSession();
+      };
+
       const pump = async () => {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           res.write(value);
         }
+        await finalizeOnce();
         res.end();
       };
 
       pump()
-        .catch((err) => {
+        .catch(async (err) => {
           console.error("[repo_agent] Stream error:", err);
+          await finalizeOnce();
           if (!res.headersSent) {
             res.status(500).json({ error: "Stream error" });
           } else {
@@ -260,7 +269,7 @@ export async function repo_agent(req: Request, res: Response) {
         })
         .finally(async () => {
           res.off("close", onClientClose);
-          await finalizeSession();
+          await finalizeOnce();
           unregisterAbortController(body.sessionId);
           endTracking(opId);
         });

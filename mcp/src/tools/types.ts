@@ -1,3 +1,5 @@
+import type { AiUsage } from "../aieo/src/index.js";
+
 export type Json = Record<string, unknown> | undefined;
 
 export interface Tool {
@@ -8,13 +10,7 @@ export interface Tool {
 
 export interface ContextResult {
   final: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-    model?: string;
-    provider?: string;
-  };
+  usage: AiUsage & { model?: string; provider?: string };
   tool_use?: string;
   content: any;
   logs?: string;

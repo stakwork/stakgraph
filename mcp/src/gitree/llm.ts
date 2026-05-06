@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { callGenerateObject } from "../aieo/src/stream.js";
+import { generateObjectWithUsage, normalizeUsage } from "../aieo/src/index.js";
 import { Provider } from "../aieo/src/provider.js";
 import { LLMDecision, Usage } from "./types.js";
 import {
@@ -60,22 +60,19 @@ export function appendGitreeLlmExchange(
   usage: Usage,
   label?: string,
 ): void {
+  const normalizedUsage = normalizeUsage(usage);
   appendMessages(tracker.sessionId, [
     { role: "user", content: prompt },
     { role: "assistant", content: response },
   ]);
-  tracker.cumulativeInput += usage.inputTokens || 0;
-  tracker.cumulativeOutput += usage.outputTokens || 0;
+  tracker.cumulativeInput += normalizedUsage.inputTokens || 0;
+  tracker.cumulativeOutput += normalizedUsage.outputTokens || 0;
   appendStepMeta(tracker.sessionId, [
     {
       step: tracker.step,
       turn: tracker.turn,
       ...(label ? { label } : {}),
-      usage: {
-        inputTokens: usage.inputTokens || 0,
-        outputTokens: usage.outputTokens || 0,
-        totalTokens: usage.totalTokens || 0,
-      },
+      usage: normalizedUsage,
       cumulativeInput: tracker.cumulativeInput,
       cumulativeOutput: tracker.cumulativeOutput,
       toolCalls: [],
@@ -145,7 +142,7 @@ export class LLMClient {
 
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const result = await callGenerateObject({
+        const result = await generateObjectWithUsage({
           provider: this.provider,
           apiKey: this.apiKey,
           prompt,

@@ -1,4 +1,7 @@
 export * from "./store.js";
+export * from "./usage.js";
+export * from "./policy.js";
+export * from "./execute.js";
 export * from "./provider.js";
 export * from "./stream.js";
 export * from "./prompt.js";

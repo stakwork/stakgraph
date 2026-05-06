@@ -1,9 +1,8 @@
 import { z } from "zod";
 import * as dotenv from "dotenv";
-import { generateObject } from "ai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
-import { getModel } from "../aieo/src/provider.js";
+import { generateObjectWithUsage, getApiKeyForProvider } from "../aieo/src/index.js";
 
 // Load environment variables
 dotenv.config();
@@ -112,15 +111,6 @@ export class SimpleEvaluator {
       process.env.LLM_PROVIDER === "anthropic" ? "anthropic" : "openai";
   }
 
-  async createModel(provider: "anthropic" | "openai") {
-    // if (provider === "anthropic") {
-    //   return anthropic("claude-3-5-sonnet-20241022");
-    // } else {
-    //   return openai("gpt-5");
-    // }
-    return await getModel("anthropic", process.env.ANTHROPIC_API_KEY as string);
-  }
-
   async initStagehand() {
     if (!this.stagehand) {
       this.stagehand = await getOrCreateStagehand(this.sessionId);
@@ -175,9 +165,9 @@ export class SimpleEvaluator {
           await this.sleep(delay);
         }
 
-        const model = await this.createModel(this.currentProvider);
-        const result = await generateObject({
-          model: model,
+        const result = await generateObjectWithUsage({
+          provider: this.currentProvider,
+          apiKey: getApiKeyForProvider(this.currentProvider),
           system: SYSTEM_PROMPT,
           prompt: userMessage,
           schema: StepGenerationSchema,
@@ -240,9 +230,9 @@ export class SimpleEvaluator {
           await this.sleep(delay);
         }
 
-        const fallbackModel = await this.createModel(fallbackProvider);
-        const fallbackResult = await generateObject({
-          model: fallbackModel,
+        const fallbackResult = await generateObjectWithUsage({
+          provider: fallbackProvider,
+          apiKey: getApiKeyForProvider(fallbackProvider),
           system: SYSTEM_PROMPT,
           prompt: userMessage,
           schema: StepGenerationSchema,
