@@ -1,5 +1,5 @@
 import { ToolLoopAgent, ModelMessage } from "ai";
-import { ModelName, getModelDetails, getProviderOptions } from "../aieo/src/index.js";
+import { ModelName, getModelDetails, getProviderOptions, normalizeUsage } from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -164,13 +164,7 @@ export async function log_agent_context(
       model: modelId,
       provider,
       status: "success",
-      token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens || 0,
-        output: totalUsage.outputTokens || 0,
-        total: totalUsage.totalTokens || 0,
-      },
+      token_usage: normalizeUsage(totalUsage),
     });
   }
 
@@ -186,11 +180,7 @@ export async function log_agent_context(
     final: final.answer,
     tool_use: final.tool_use,
     content: final.answer,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage: normalizeUsage(totalUsage),
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
   };

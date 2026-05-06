@@ -1,3 +1,5 @@
+import { AiUsageWithLegacy } from "../aieo/src/usage.js";
+
 export type Json = Record<string, unknown> | undefined;
 
 export interface Tool {
@@ -8,10 +10,7 @@ export interface Tool {
 
 export interface ContextResult {
   final: string;
-  usage: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
+  usage: AiUsageWithLegacy & {
     model?: string;
     provider?: string;
   };

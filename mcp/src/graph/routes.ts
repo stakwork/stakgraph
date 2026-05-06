@@ -53,6 +53,7 @@ import {
   PROVIDERS,
   getApiKeyForProvider,
   getProviderForModel,
+  normalizeUsage,
 } from "../aieo/src/index.js";
 import { generate_persona_variants } from "../tools/intelligence/persona.js";
 import {
@@ -178,7 +179,7 @@ export async function explore(req: Request, res: Response) {
       model: modelId,
       provider: resolvedProvider,
       status: "success",
-      token_usage: { input: result.usage.inputTokens, cache_read: 0, cache_write: 0, output: result.usage.outputTokens, total: result.usage.totalTokens },
+      token_usage: normalizeUsage(result.usage),
     });
     res.json({ result: result.final, usage: result.usage });
   } catch (error) {
@@ -251,8 +252,7 @@ export async function seed_understanding(req: Request, res: Response) {
 
       budgetTracker = addUsage(
         budgetTracker,
-        answer.usage.inputTokens,
-        answer.usage.outputTokens,
+        normalizeUsage(answer.usage),
         provider as any
       );
       const info = getBudgetInfo(budgetTracker);
@@ -527,8 +527,7 @@ export async function seed_stories(req: Request, res: Response) {
 
     budgetTracker = addUsage(
       budgetTracker,
-      gres.usage.inputTokens,
-      gres.usage.outputTokens,
+      gres.usage,
       provider as any
     );
     const contextInfo = getBudgetInfo(budgetTracker);
@@ -558,8 +557,7 @@ export async function seed_stories(req: Request, res: Response) {
 
       budgetTracker = addUsage(
         budgetTracker,
-        answer.usage.inputTokens,
-        answer.usage.outputTokens,
+        normalizeUsage(answer.usage),
         provider as any
       );
       const info = getBudgetInfo(budgetTracker);
