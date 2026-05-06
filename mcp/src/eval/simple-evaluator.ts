@@ -4,6 +4,8 @@ import { generateObject } from "ai";
 import { getOrCreateStagehand } from "../tools/stagehand/core.js";
 import { Step, TestResult } from "./types.js";
 import { getModel, getProviderOptions } from "../aieo/src/provider.js";
+import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
+import { normalizeUsage } from "../aieo/src/usage.js";
 
 // Load environment variables
 dotenv.config();
@@ -155,7 +157,7 @@ export class SimpleEvaluator {
   ): Promise<{
     steps: Step[];
     testCriteria: string[];
-    usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    usage: AiUsageWithLegacy;
   }> {
     const userMessage = `Please create Stagehand test steps for this prompt:\n\n${prompt}\n\nBase URL: ${baseUrl}`;
 
@@ -202,11 +204,7 @@ export class SimpleEvaluator {
         return {
           steps: (result.object as any).steps as Step[],
           testCriteria: (result.object as any).testCriteria,
-          usage: {
-            inputTokens: result.usage?.inputTokens || 0,
-            outputTokens: result.usage?.outputTokens || 0,
-            totalTokens: result.usage?.totalTokens || 0,
-          },
+          usage: normalizeUsage(result.usage),
         };
       } catch (error: any) {
         lastError = error;
@@ -268,11 +266,7 @@ export class SimpleEvaluator {
         return {
           steps: (fallbackResult.object as any).steps as Step[],
           testCriteria: (fallbackResult.object as any).testCriteria,
-          usage: {
-            inputTokens: fallbackResult.usage?.inputTokens || 0,
-            outputTokens: fallbackResult.usage?.outputTokens || 0,
-            totalTokens: fallbackResult.usage?.totalTokens || 0,
-          },
+          usage: normalizeUsage(fallbackResult.usage),
         };
       } catch (fallbackError: any) {
         console.error(

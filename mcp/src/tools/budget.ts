@@ -1,5 +1,5 @@
 import { computeSessionCost, Provider } from "../aieo/src/provider.js";
-import { AiUsage, emptyUsage } from "../aieo/src/usage.js";
+import { AiUsage, AiUsageWithLegacy, emptyUsage, withLegacyUsage } from "../aieo/src/usage.js";
 
 export interface BudgetTracker {
   budgetLimit: number;
@@ -7,13 +7,10 @@ export interface BudgetTracker {
   provider: Provider;
 }
 
-export interface BudgetInfo {
+export interface BudgetInfo extends AiUsageWithLegacy {
   totalCost: number;
   budgetExceeded: boolean;
   remainingBudget: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
 }
 
 export function createBudgetTracker(
@@ -60,11 +57,9 @@ export function getRemainingBudget(tracker: BudgetTracker): number {
 export function getBudgetInfo(tracker: BudgetTracker): BudgetInfo {
   const totalCost = getTotalCost(tracker);
   return {
+    ...withLegacyUsage(tracker.usage),
     totalCost,
     budgetExceeded: totalCost >= tracker.budgetLimit,
     remainingBudget: Math.max(0, tracker.budgetLimit - totalCost),
-    inputTokens: tracker.usage.input + tracker.usage.cache_read + tracker.usage.cache_write,
-    outputTokens: tracker.usage.output,
-    totalTokens: tracker.usage.total,
   };
 }

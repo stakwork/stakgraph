@@ -19,6 +19,7 @@ import { fetchPullRequestContent } from "./pr.js";
 import { fetchCommitContent } from "./commit.js";
 import {ClueAnalyzer} from "./clueAnalyzer.js";
 import { exploreNewFeature } from "./bootstrap.js";
+import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 
 /**
  * Main class for building the feature knowledge base from PRs and commits
@@ -49,11 +50,7 @@ export class StreamingFeatureBuilder {
     this.repo = `${owner}/${repo}`;
     this.sessionId = sessionId;
 
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = normalizeUsage();
 
     // Track which features were modified during processing
     const modifiedFeatureIds = new Set<string>();
@@ -95,9 +92,7 @@ export class StreamingFeatureBuilder {
             pr,
             modifiedFeatureIds,
           );
-          totalUsage.inputTokens += usage.inputTokens;
-          totalUsage.outputTokens += usage.outputTokens;
-          totalUsage.totalTokens += usage.totalTokens;
+          totalUsage = normalizeUsage(addUsage(totalUsage, usage));
           console.log(
             `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
           );
@@ -142,9 +137,7 @@ export class StreamingFeatureBuilder {
             commit,
             modifiedFeatureIds,
           );
-          totalUsage.inputTokens += usage.inputTokens;
-          totalUsage.outputTokens += usage.outputTokens;
-          totalUsage.totalTokens += usage.totalTokens;
+          totalUsage = normalizeUsage(addUsage(totalUsage, usage));
           console.log(
             `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
           );
@@ -385,7 +378,7 @@ export class StreamingFeatureBuilder {
         url: pr.url,
         files: pr.filesChanged,
       });
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     }
 
     // Get current features for context
@@ -469,9 +462,7 @@ export class StreamingFeatureBuilder {
           },
           featureIds,
         );
-        usage.inputTokens += clueUsage.inputTokens;
-        usage.outputTokens += clueUsage.outputTokens;
-        usage.totalTokens += clueUsage.totalTokens;
+        return normalizeUsage(addUsage(usage, clueUsage));
       } catch (error) {
         console.error(`   ⚠️  Clue analysis failed:`, error);
         // Continue processing
@@ -642,7 +633,7 @@ ${DECISION_GUIDELINES}`;
         url: commit.url,
         files: [],
       });
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     }
 
     // Get current features for context
@@ -717,9 +708,7 @@ ${DECISION_GUIDELINES}`;
           },
           featureIds,
         );
-        usage.inputTokens += clueUsage.inputTokens;
-        usage.outputTokens += clueUsage.outputTokens;
-        usage.totalTokens += clueUsage.totalTokens;
+        return normalizeUsage(addUsage(usage, clueUsage));
       } catch (error) {
         console.error(`   ⚠️  Clue analysis failed:`, error);
         // Continue processing
@@ -1035,11 +1024,7 @@ ${DECISION_GUIDELINES}`;
     checkpoint: { date: Date; id: string },
     featureIds?: string[],
   ): Promise<Usage> {
-    const clueUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let clueUsage: Usage = normalizeUsage();
     console.log(`   💡 Analyzing for clues...`);
 
     // Initialize clue analyzer if needed
@@ -1062,9 +1047,7 @@ ${DECISION_GUIDELINES}`;
       changeContext,
       featureIds,
     );
-    clueUsage.inputTokens += result.usage.inputTokens;
-    clueUsage.outputTokens += result.usage.outputTokens;
-    clueUsage.totalTokens += result.usage.totalTokens;
+    clueUsage = normalizeUsage(addUsage(clueUsage, result.usage));
 
     if (result.clues.length === 0) {
       console.log(`   ℹ️  No new clues found`);
@@ -1084,9 +1067,7 @@ ${DECISION_GUIDELINES}`;
         `   🔗 Linking ${clueIds.length} clue(s) to relevant features...`,
       );
       const linkUsage = await linker.linkClues(clueIds);
-      clueUsage.inputTokens += linkUsage.inputTokens;
-      clueUsage.outputTokens += linkUsage.outputTokens;
-      clueUsage.totalTokens += linkUsage.totalTokens;
+      clueUsage = normalizeUsage(addUsage(clueUsage, linkUsage));
     }
 
     // Save checkpoint after analyzing (regardless of whether clues were found)

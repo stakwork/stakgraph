@@ -1,6 +1,7 @@
 import { Storage } from "./store/index.js";
 import { callGenerateText } from "../aieo/src/stream.js";
 import { Provider } from "../aieo/src/provider.js";
+import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 import { Feature, PRRecord, CommitRecord, Usage } from "./types.js";
 import {
   appendGitreeLlmExchange,
@@ -41,7 +42,7 @@ export class Summarizer {
 
     if (allPRs.length === 0 && allCommits.length === 0) {
       console.log(`   ⚠️  No PRs or commits found for this feature`);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     }
 
     // Sort PRs and commits chronologically
@@ -140,7 +141,7 @@ export class Summarizer {
   ): Promise<Usage> {
     if (featureIds.length === 0) {
       console.log(`\n⏭️  No features to summarize`);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     }
 
     console.log(
@@ -148,11 +149,7 @@ export class Summarizer {
     );
 
     // Accumulate usage across all features
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = normalizeUsage();
 
     for (let i = 0; i < featureIds.length; i++) {
       const featureId = featureIds[i];
@@ -168,9 +165,7 @@ export class Summarizer {
 
       try {
         const usage = await this.summarizeFeature(feature.id, sessionId);
-        totalUsage.inputTokens += usage.inputTokens;
-        totalUsage.outputTokens += usage.outputTokens;
-        totalUsage.totalTokens += usage.totalTokens;
+        totalUsage = normalizeUsage(addUsage(totalUsage, usage));
         console.log(
           `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
         );
@@ -198,11 +193,7 @@ export class Summarizer {
     console.log(`\n📚 Summarizing ${features.length} features...\n`);
 
     // Accumulate usage across all features
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = normalizeUsage();
 
     for (let i = 0; i < features.length; i++) {
       const feature = features[i];
@@ -212,9 +203,7 @@ export class Summarizer {
 
       try {
         const usage = await this.summarizeFeature(feature.id);
-        totalUsage.inputTokens += usage.inputTokens;
-        totalUsage.outputTokens += usage.outputTokens;
-        totalUsage.totalTokens += usage.totalTokens;
+        totalUsage = normalizeUsage(addUsage(totalUsage, usage));
         console.log(
           `   📊 Input Usage: ${totalUsage.inputTokens.toLocaleString()} tokens. Output Usage: ${totalUsage.outputTokens.toLocaleString()} tokens`,
         );

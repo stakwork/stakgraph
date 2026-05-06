@@ -1,5 +1,10 @@
 import { generateText, tool, hasToolCall, ModelMessage } from "ai";
-import { getProviderOptions, resolveLLMConfig } from "../../aieo/src/index.js";
+import {
+  getProviderOptions,
+  normalizeUsage,
+  resolveLLMConfig,
+  type AiUsageWithLegacy,
+} from "../../aieo/src/index.js";
 import * as prompts from "./prompts/index.js";
 import { z } from "zod";
 import { getRepoMap, getFileSummary, fulltextSearch } from "./tools.js";
@@ -70,7 +75,7 @@ export interface Overrides {
 
 export interface GitseeContextResult {
   result: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }
 
 export async function gitsee_context(
@@ -192,11 +197,7 @@ export async function gitsee_context(
 
   return {
     result: final,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage: normalizeUsage(totalUsage),
   };
 }
 

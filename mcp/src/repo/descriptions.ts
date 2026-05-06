@@ -17,6 +17,19 @@ import { startTracking, endTracking } from "../busy.js";
 import PQueueModule from "p-queue";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
 
+function usageTotals(usage: AiUsageWithLegacy) {
+  return {
+    input: usage.input,
+    cache_read: usage.cache_read,
+    cache_write: usage.cache_write,
+    output: usage.output,
+    total: usage.total,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+  };
+}
+
 
 
 function extractRepoPaths(repo_url?: string): string[] | null {
@@ -135,10 +148,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
       asyncReqs.updateReq(request_id, {
         processed: totalProcessed,
         total_cost: totalCost,
-        total_tokens: {
-          input: currentUsage.inputTokens,
-          output: currentUsage.outputTokens,
-        },
+        total_tokens: usageTotals(currentUsage),
         current_batch_size: nodes.length,
       });
 
@@ -238,10 +248,7 @@ ${content.slice(0, 2000)}`;
       success: true,
       processed: totalProcessed,
       total_cost: totalCost,
-      total_tokens: {
-        input: usage.inputTokens,
-        output: usage.outputTokens,
-      },
+      total_tokens: usageTotals(usage),
       usage,
     };
 

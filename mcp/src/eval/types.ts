@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
 
 // Base step type
 interface BaseStep {
@@ -73,11 +74,7 @@ export interface TestResult {
   status: "PASS" | "FAIL";
   description: string;
   failedCriteria?: string[];
-  usage?: {
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  };
+  usage?: AiUsageWithLegacy;
 }
 
 export interface TestSuiteResult {

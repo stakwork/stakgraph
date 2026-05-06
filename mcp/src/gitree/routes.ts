@@ -29,15 +29,23 @@ import {
 import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
 import { cloneOrUpdateRepo } from "../repo/clone.js";
-import { Feature } from "./types.js";
+import { Feature, Usage } from "./types.js";
+import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 import { startTracking, endTracking } from "../busy.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { bootstrapFeatures } from "./bootstrap.js";
 import { randomUUID } from "crypto";
-import { createSession, appendSessionEnd } from "../repo/session.js";
+import { createSession, appendSessionEnd, loadStepMeta } from "../repo/session.js";
 
 // In-memory flag to track if processing is currently running
 let isProcessing = false;
+
+function getDirectGitreeUsage(sessionId: string): Usage {
+  const directUsage = loadStepMeta(sessionId)
+    .filter((step) => step.label?.startsWith("gitree "))
+    .map((step) => step.usage);
+  return normalizeUsage(addUsage(...directUsage));
+}
 
 /**
  * Parse Git repository URL to extract owner and repo
@@ -182,7 +190,7 @@ export async function gitree_process(req: Request, res: Response) {
         }
 
         // Bootstrap: seed initial features by exploring the codebase
-        let bootstrapUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        let bootstrapUsage: Usage = normalizeUsage();
         if (isNewRepo && repoPath) {
           const bootstrapResult = await bootstrapFeatures(owner, repo, repoPath, storage, sessionId);
           bootstrapUsage = bootstrapResult.usage;
@@ -234,20 +242,7 @@ export async function gitree_process(req: Request, res: Response) {
         if (shouldLink) messageParts.push("linked files");
         if (shouldAnalyzeClues) messageParts.push("analyzed clues");
 
-        const totalUsage = {
-          inputTokens:
-            bootstrapUsage.inputTokens +
-            processUsage.inputTokens +
-            (summarizeUsage?.inputTokens || 0),
-          outputTokens:
-            bootstrapUsage.outputTokens +
-            processUsage.outputTokens +
-            (summarizeUsage?.outputTokens || 0),
-          totalTokens:
-            bootstrapUsage.totalTokens +
-            processUsage.totalTokens +
-            (summarizeUsage?.totalTokens || 0),
-        };
+        const totalUsage = normalizeUsage(addUsage(bootstrapUsage, processUsage, summarizeUsage));
         await storage.addToTotalUsage(repoId, totalUsage);
         
         // Get the new cumulative total
@@ -272,13 +267,7 @@ export async function gitree_process(req: Request, res: Response) {
           provider,
           duration_ms: Date.now() - startTime,
           status: "success",
-          token_usage: {
-            input: totalUsage.inputTokens,
-            cache_read: 0,
-            cache_write: 0,
-            output: totalUsage.outputTokens,
-            total: totalUsage.totalTokens,
-          },
+          token_usage: getDirectGitreeUsage(sessionId),
         });
         isProcessing = false;
         endTracking(opId);
@@ -1180,10 +1169,7 @@ export async function gitree_analyze_clues(req: Request, res: Response) {
               const newClueIds = result.clues.map((c: any) => c.id);
               const linkUsage = await linker.linkClues(newClueIds);
 
-              // Combine usage stats
-              result.usage.inputTokens += linkUsage.inputTokens;
-              result.usage.outputTokens += linkUsage.outputTokens;
-              result.usage.totalTokens += linkUsage.totalTokens;
+              result.usage = normalizeUsage(addUsage(result.usage, linkUsage));
             } catch (error) {
               console.error(`\n⚠️  Auto-linking failed:`, error instanceof Error ? error.message : error);
             }
@@ -1316,7 +1302,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
             message: "No new changes to analyze",
             totalClues: 0,
             totalChanges: 0,
-            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            usage: normalizeUsage(),
           });
           return;
         }
@@ -1324,7 +1310,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
         console.log(`📊 Analyzing ${changesToProcess.length} change(s) for clues...`);
 
         let totalClues = 0;
-        const totalUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        let totalUsage: Usage = normalizeUsage();
 
         for (let i = 0; i < changesToProcess.length; i++) {
           const change = changesToProcess[i];
@@ -1345,9 +1331,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 
               const result = await analyzer.analyzeChange(changeContext);
               totalClues += result.clues.length;
-              totalUsage.inputTokens += result.usage.inputTokens;
-              totalUsage.outputTokens += result.usage.outputTokens;
-              totalUsage.totalTokens += result.usage.totalTokens;
+              totalUsage = normalizeUsage(addUsage(totalUsage, result.usage));
 
               // Link clues if any were created
               if (result.clues.length > 0) {
@@ -1387,9 +1371,7 @@ export async function gitree_analyze_changes(req: Request, res: Response) {
 
               const result = await analyzer.analyzeChange(changeContext);
               totalClues += result.clues.length;
-              totalUsage.inputTokens += result.usage.inputTokens;
-              totalUsage.outputTokens += result.usage.outputTokens;
-              totalUsage.totalTokens += result.usage.totalTokens;
+              totalUsage = normalizeUsage(addUsage(totalUsage, result.usage));
 
               // Link clues if any were created
               if (result.clues.length > 0) {
