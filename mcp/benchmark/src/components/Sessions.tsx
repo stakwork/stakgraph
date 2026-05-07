@@ -133,6 +133,7 @@ type TraceEventKind =
   | "system"
   | "user"
   | "assistant-text"
+  | "reasoning"
   | "assistant"
   | "tool-call"
   | "tool-result"
@@ -437,6 +438,11 @@ function parseTrace(trace: unknown): {
         const text = String(e.text ?? "");
         ei += 1;
         events.push(createTraceEvent(ei, role, "assistant-text", text, text));
+      }
+      if (role === "assistant" && e.type === "reasoning") {
+        const text = String(e.text ?? e.reasoning ?? e.content ?? "");
+        ei += 1;
+        events.push(createTraceEvent(ei, role, "reasoning", text, text));
       }
       if (e.type === "tool-call") {
         ci++;
@@ -811,6 +817,8 @@ function EventBadge({ event }: { event: TraceEvent }) {
       ? { fg: "#d4d4d8", bg: "#18181b", border: "#3f3f46" }
       : event.kind === "user"
         ? { fg: "#86efac", bg: "rgba(21,128,61,0.18)", border: "#166534" }
+        : event.kind === "reasoning"
+          ? { fg: "#fbbf24", bg: "rgba(146,64,14,0.16)", border: "#92400e" }
         : event.kind === "assistant-text" || event.kind === "assistant"
           ? { fg: "#c4b5fd", bg: "rgba(76,29,149,0.18)", border: "#4c1d95" }
           : { fg: "#93c5fd", bg: "rgba(30,64,175,0.18)", border: "#1e40af" };
@@ -1030,7 +1038,8 @@ function DisplayUnitRow({
   }
 
   const { event } = unit;
-  const name = event.toolName || event.role;
+  const name =
+    event.kind === "reasoning" ? "reasoning" : event.toolName || event.role;
 
   return (
     <details style={{ borderTop: "1px solid #1f1f22" }}>
