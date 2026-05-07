@@ -1,22 +1,16 @@
 import { computeSessionCost, Provider } from "../aieo/src/provider.js";
+import { AiUsage, AiUsageWithLegacy, emptyUsage, withLegacyUsage } from "../aieo/src/usage.js";
 
 export interface BudgetTracker {
   budgetLimit: number;
-  inputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-  outputTokens: number;
-  totalTokens: number;
+  usage: AiUsage;
   provider: Provider;
 }
 
-export interface BudgetInfo {
+export interface BudgetInfo extends AiUsageWithLegacy {
   totalCost: number;
   budgetExceeded: boolean;
   remainingBudget: number;
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
 }
 
 export function createBudgetTracker(
@@ -25,37 +19,31 @@ export function createBudgetTracker(
 ): BudgetTracker {
   return {
     budgetLimit: budgetDollars,
-    inputTokens: 0,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
-    outputTokens: 0,
-    totalTokens: 0,
+    usage: emptyUsage(),
     provider,
   };
 }
 
 export function addUsage(
   tracker: BudgetTracker,
-  inputTokens: number,
-  outputTokens: number,
+  usage: AiUsage,
   provider?: Provider
 ): BudgetTracker {
   return {
     ...tracker,
-    inputTokens: tracker.inputTokens + inputTokens,
-    outputTokens: tracker.outputTokens + outputTokens,
-    totalTokens: tracker.totalTokens + inputTokens + outputTokens,
+    usage: {
+      input: tracker.usage.input + usage.input,
+      cache_read: tracker.usage.cache_read + usage.cache_read,
+      cache_write: tracker.usage.cache_write + usage.cache_write,
+      output: tracker.usage.output + usage.output,
+      total: tracker.usage.total + usage.total,
+    },
     provider: provider || tracker.provider,
   };
 }
 
 export function getTotalCost(tracker: BudgetTracker): number {
-  return computeSessionCost(tracker.provider, {
-    input: tracker.inputTokens,
-    cache_read: tracker.cacheReadTokens,
-    cache_write: tracker.cacheWriteTokens,
-    output: tracker.outputTokens,
-  });
+  return computeSessionCost(tracker.provider, tracker.usage);
 }
 
 export function isBudgetExceeded(tracker: BudgetTracker): boolean {
@@ -69,11 +57,9 @@ export function getRemainingBudget(tracker: BudgetTracker): number {
 export function getBudgetInfo(tracker: BudgetTracker): BudgetInfo {
   const totalCost = getTotalCost(tracker);
   return {
+    ...withLegacyUsage(tracker.usage),
     totalCost,
     budgetExceeded: totalCost >= tracker.budgetLimit,
     remainingBudget: Math.max(0, tracker.budgetLimit - totalCost),
-    inputTokens: tracker.inputTokens,
-    outputTokens: tracker.outputTokens,
-    totalTokens: tracker.totalTokens,
   };
 }

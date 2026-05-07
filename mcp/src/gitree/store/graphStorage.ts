@@ -8,10 +8,58 @@ import {
   Clue,
   LinkResult,
   ChronologicalCheckpoint,
+  Usage,
 } from "../types.js";
 import { formatPRMarkdown, formatCommitMarkdown, parseRepoFromUrl } from "./utils.js";
+import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
 
 const Data_Bank = "Data_Bank";
+
+function numberOrUndefined(value: any): number | undefined {
+  if (value == null) return undefined;
+  return value?.toNumber ? value.toNumber() : value;
+}
+
+function usageParams(usage?: Usage) {
+  const normalized = usage ? normalizeUsage(usage) : undefined;
+  return {
+    input: normalized?.input ?? null,
+    cacheRead: normalized?.cache_read ?? null,
+    cacheWrite: normalized?.cache_write ?? null,
+    inputTokens: normalized?.inputTokens ?? null,
+    outputTokens: normalized?.outputTokens ?? null,
+    totalTokens: normalized?.totalTokens ?? null,
+  };
+}
+
+function usageFromProps(props: any): Usage | undefined {
+  const input = numberOrUndefined(props.inputNoCacheTokens);
+  const cacheRead = numberOrUndefined(props.cacheReadTokens);
+  const cacheWrite = numberOrUndefined(props.cacheWriteTokens);
+  const inputTokens = numberOrUndefined(props.inputTokens);
+  const outputTokens = numberOrUndefined(props.outputTokens);
+  const totalTokens = numberOrUndefined(props.totalTokens);
+
+  if (
+    input === undefined &&
+    cacheRead === undefined &&
+    cacheWrite === undefined &&
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return normalizeUsage({
+    input,
+    cache_read: cacheRead,
+    cache_write: cacheWrite,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  });
+}
 
 /**
  * Neo4j graph-based storage implementation for features and PRs
@@ -228,6 +276,9 @@ export class GraphStorage extends Storage {
             f.docs = $docs,
             f.cluesCount = $cluesCount,
             f.cluesLastAnalyzedAt = $cluesLastAnalyzedAt,
+            f.inputNoCacheTokens = $input,
+            f.cacheReadTokens = $cacheRead,
+            f.cacheWriteTokens = $cacheWrite,
             f.inputTokens = $inputTokens,
             f.outputTokens = $outputTokens,
             f.totalTokens = $totalTokens,
@@ -248,9 +299,7 @@ export class GraphStorage extends Storage {
           docs: feature.documentation || "",
           cluesCount: feature.cluesCount || null,
           cluesLastAnalyzedAt: cluesLastAnalyzedAtTimestamp,
-          inputTokens: feature.usage?.inputTokens || null,
-          outputTokens: feature.usage?.outputTokens || null,
-          totalTokens: feature.usage?.totalTokens || null,
+          ...usageParams(feature.usage),
           namespace: "default",
           dataBankName: feature.id,
           refId: uuidv4(),
@@ -419,6 +468,9 @@ export class GraphStorage extends Storage {
             p.docs = $docs,
             p.namespace = $namespace,
             p.Data_Bank = $dataBankName,
+            p.inputNoCacheTokens = $input,
+            p.cacheReadTokens = $cacheRead,
+            p.cacheWriteTokens = $cacheWrite,
             p.inputTokens = $inputTokens,
             p.outputTokens = $outputTokens,
             p.totalTokens = $totalTokens,
@@ -442,9 +494,7 @@ export class GraphStorage extends Storage {
           docs,
           namespace: "default",
           dataBankName: `pull-request-${pr.number}`,
-          inputTokens: pr.usage?.inputTokens || null,
-          outputTokens: pr.usage?.outputTokens || null,
-          totalTokens: pr.usage?.totalTokens || null,
+          ...usageParams(pr.usage),
           refId: uuidv4(),
           dateAddedToGraph: now,
         }
@@ -536,6 +586,9 @@ export class GraphStorage extends Storage {
             c.docs = $docs,
             c.namespace = $namespace,
             c.Data_Bank = $dataBankName,
+            c.inputNoCacheTokens = $input,
+            c.cacheReadTokens = $cacheRead,
+            c.cacheWriteTokens = $cacheWrite,
             c.inputTokens = $inputTokens,
             c.outputTokens = $outputTokens,
             c.totalTokens = $totalTokens,
@@ -560,9 +613,7 @@ export class GraphStorage extends Storage {
           docs,
           namespace: "default",
           dataBankName: `commit-${commit.sha.substring(0, 7)}`,
-          inputTokens: commit.usage?.inputTokens || null,
-          outputTokens: commit.usage?.outputTokens || null,
-          totalTokens: commit.usage?.totalTokens || null,
+          ...usageParams(commit.usage),
           refId: uuidv4(),
           dateAddedToGraph: now,
         }
@@ -1239,13 +1290,16 @@ export class GraphStorage extends Storage {
 
   // Total Usage - cumulative token usage across all processing runs
 
-  async getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }> {
+  async getTotalUsage(repo: string): Promise<Usage> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
         MATCH (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
-        RETURN m.totalInputTokens as inputTokens,
+         RETURN m.totalInputNoCacheTokens as input,
+           m.totalCacheReadTokens as cacheRead,
+           m.totalCacheWriteTokens as cacheWrite,
+           m.totalInputTokens as inputTokens,
                m.totalOutputTokens as outputTokens,
                m.totalTokens as totalTokens
         `,
@@ -1253,28 +1307,34 @@ export class GraphStorage extends Storage {
       );
 
       if (result.records.length === 0) {
-        return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+        return normalizeUsage();
       }
 
       const record = result.records[0];
+      const inputNoCacheRaw = record.get("input");
+      const cacheReadRaw = record.get("cacheRead");
+      const cacheWriteRaw = record.get("cacheWrite");
       const inputRaw = record.get("inputTokens");
       const outputRaw = record.get("outputTokens");
       const totalRaw = record.get("totalTokens");
 
-      return {
-        inputTokens: inputRaw?.toNumber ? inputRaw.toNumber() : (inputRaw || 0),
-        outputTokens: outputRaw?.toNumber ? outputRaw.toNumber() : (outputRaw || 0),
-        totalTokens: totalRaw?.toNumber ? totalRaw.toNumber() : (totalRaw || 0),
-      };
+      return normalizeUsage({
+        input: numberOrUndefined(inputNoCacheRaw),
+        cache_read: numberOrUndefined(cacheReadRaw),
+        cache_write: numberOrUndefined(cacheWriteRaw),
+        inputTokens: numberOrUndefined(inputRaw),
+        outputTokens: numberOrUndefined(outputRaw),
+        totalTokens: numberOrUndefined(totalRaw),
+      });
     } catch (error) {
       console.error("   Error reading totalUsage:", error);
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     } finally {
       await session.close();
     }
   }
 
-  async addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void> {
+  async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
     const session = this.driver.session();
     try {
       const now = Math.floor(Date.now() / 1000);
@@ -1282,7 +1342,10 @@ export class GraphStorage extends Storage {
       await session.run(
         `
         MERGE (m:${Data_Bank}:FeaturesMetadata {namespace: $namespace, repo: $repo})
-        SET m.totalInputTokens = COALESCE(m.totalInputTokens, 0) + $inputTokens,
+        SET m.totalInputNoCacheTokens = COALESCE(m.totalInputNoCacheTokens, COALESCE(m.totalInputTokens, 0)) + $input,
+          m.totalCacheReadTokens = COALESCE(m.totalCacheReadTokens, 0) + $cacheRead,
+          m.totalCacheWriteTokens = COALESCE(m.totalCacheWriteTokens, 0) + $cacheWrite,
+          m.totalInputTokens = COALESCE(m.totalInputTokens, 0) + $inputTokens,
             m.totalOutputTokens = COALESCE(m.totalOutputTokens, 0) + $outputTokens,
             m.totalTokens = COALESCE(m.totalTokens, 0) + $totalTokens,
             m.ref_id = COALESCE(m.ref_id, $refId),
@@ -1292,6 +1355,9 @@ export class GraphStorage extends Storage {
         {
           namespace: "default",
           repo,
+          input: usage.input,
+          cacheRead: usage.cache_read,
+          cacheWrite: usage.cache_write,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           totalTokens: usage.totalTokens,
@@ -1306,22 +1372,23 @@ export class GraphStorage extends Storage {
 
   async getAggregatedMetadata(): Promise<{
     lastProcessedTimestamp: string | null;
-    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    cumulativeUsage: Usage;
   }> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `MATCH (m:${Data_Bank}:FeaturesMetadata)
          RETURN m.chronologicalCheckpoint as checkpoint,
+              m.totalInputNoCacheTokens as input,
+              m.totalCacheReadTokens as cacheRead,
+              m.totalCacheWriteTokens as cacheWrite,
                 m.totalInputTokens as inputTokens,
                 m.totalOutputTokens as outputTokens,
                 m.totalTokens as totalTokens`
       );
 
       let latestTimestamp: string | null = null;
-      let totalInput = 0;
-      let totalOutput = 0;
-      let totalTokens = 0;
+    let cumulativeUsage = normalizeUsage();
 
       for (const record of result.records) {
         // Parse checkpoint to get timestamp
@@ -1338,22 +1405,26 @@ export class GraphStorage extends Storage {
         }
 
         // Sum usage
+        const inputNoCacheRaw = record.get("input");
+        const cacheReadRaw = record.get("cacheRead");
+        const cacheWriteRaw = record.get("cacheWrite");
         const inputRaw = record.get("inputTokens");
         const outputRaw = record.get("outputTokens");
         const tokensRaw = record.get("totalTokens");
-        
-        totalInput += inputRaw?.toNumber ? inputRaw.toNumber() : (inputRaw || 0);
-        totalOutput += outputRaw?.toNumber ? outputRaw.toNumber() : (outputRaw || 0);
-        totalTokens += tokensRaw?.toNumber ? tokensRaw.toNumber() : (tokensRaw || 0);
+
+        cumulativeUsage = normalizeUsage(addUsage(cumulativeUsage, normalizeUsage({
+          input: numberOrUndefined(inputNoCacheRaw),
+          cache_read: numberOrUndefined(cacheReadRaw),
+          cache_write: numberOrUndefined(cacheWriteRaw),
+          inputTokens: numberOrUndefined(inputRaw),
+          outputTokens: numberOrUndefined(outputRaw),
+          totalTokens: numberOrUndefined(tokensRaw),
+        })));
       }
 
       return {
         lastProcessedTimestamp: latestTimestamp,
-        cumulativeUsage: {
-          inputTokens: totalInput,
-          outputTokens: totalOutput,
-          totalTokens: totalTokens,
-        },
+        cumulativeUsage,
       };
     } finally {
       await session.close();
@@ -1388,9 +1459,6 @@ export class GraphStorage extends Storage {
 
   private nodeToFeature(node: any): Feature {
     const props = node.properties;
-    const inputTokens = props.inputTokens?.toNumber ? props.inputTokens.toNumber() : props.inputTokens;
-    const outputTokens = props.outputTokens?.toNumber ? props.outputTokens.toNumber() : props.outputTokens;
-    const totalTokens = props.totalTokens?.toNumber ? props.totalTokens.toNumber() : props.totalTokens;
     
     return {
       id: props.id,
@@ -1407,17 +1475,12 @@ export class GraphStorage extends Storage {
       cluesLastAnalyzedAt: props.cluesLastAnalyzedAt
         ? new Date(props.cluesLastAnalyzedAt * 1000)
         : undefined,
-      usage: inputTokens || outputTokens || totalTokens
-        ? { inputTokens: inputTokens || 0, outputTokens: outputTokens || 0, totalTokens: totalTokens || 0 }
-        : undefined,
+      usage: usageFromProps(props),
     };
   }
 
   private nodeToPR(node: any): PRRecord {
     const props = node.properties;
-    const inputTokens = props.inputTokens?.toNumber ? props.inputTokens.toNumber() : props.inputTokens;
-    const outputTokens = props.outputTokens?.toNumber ? props.outputTokens.toNumber() : props.outputTokens;
-    const totalTokens = props.totalTokens?.toNumber ? props.totalTokens.toNumber() : props.totalTokens;
     
     return {
       number: props.number.toNumber ? props.number.toNumber() : props.number,
@@ -1430,17 +1493,12 @@ export class GraphStorage extends Storage {
       newDeclarations: props.newDeclarations
         ? JSON.parse(props.newDeclarations)
         : undefined,
-      usage: inputTokens || outputTokens || totalTokens
-        ? { inputTokens: inputTokens || 0, outputTokens: outputTokens || 0, totalTokens: totalTokens || 0 }
-        : undefined,
+      usage: usageFromProps(props),
     };
   }
 
   private nodeToCommit(node: any): CommitRecord {
     const props = node.properties;
-    const inputTokens = props.inputTokens?.toNumber ? props.inputTokens.toNumber() : props.inputTokens;
-    const outputTokens = props.outputTokens?.toNumber ? props.outputTokens.toNumber() : props.outputTokens;
-    const totalTokens = props.totalTokens?.toNumber ? props.totalTokens.toNumber() : props.totalTokens;
     
     return {
       sha: props.sha,
@@ -1454,9 +1512,7 @@ export class GraphStorage extends Storage {
       newDeclarations: props.newDeclarations
         ? JSON.parse(props.newDeclarations)
         : undefined,
-      usage: inputTokens || outputTokens || totalTokens
-        ? { inputTokens: inputTokens || 0, outputTokens: outputTokens || 0, totalTokens: totalTokens || 0 }
-        : undefined,
+      usage: usageFromProps(props),
     };
   }
 

@@ -1,4 +1,4 @@
-import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
 
 /**
  * Abstract storage interface for features, PRs, and commits
@@ -61,13 +61,13 @@ export abstract class Storage {
   abstract getRecentThemes(repo: string): Promise<string[]>;
 
   // Total Usage - cumulative token usage across all processing runs, per-repo
-  abstract getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }>;
-  abstract addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void>;
+  abstract getTotalUsage(repo: string): Promise<Usage>;
+  abstract addToTotalUsage(repo: string, usage: Usage): Promise<void>;
 
   // Get aggregated metadata across all repos (latest timestamp, summed usage)
   abstract getAggregatedMetadata(): Promise<{
     lastProcessedTimestamp: string | null;
-    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    cumulativeUsage: Usage;
   }>;
 
   // Documentation

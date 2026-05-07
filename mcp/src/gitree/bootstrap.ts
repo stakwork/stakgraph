@@ -2,6 +2,7 @@ import { Storage } from "./store/index.js";
 import { Feature, Usage } from "./types.js";
 import { generateSlug, makeRepoId } from "./store/utils.js";
 import { get_context } from "../repo/agent.js";
+import { normalizeUsage } from "../aieo/src/usage.js";
 import { DOC_GUIDELINES } from "./llm.js";
 import * as fs from "fs";
 import * as path from "path";
@@ -287,7 +288,7 @@ export async function exploreNewFeature(
   sessionId?: string
 ): Promise<Usage> {
   if (feature.documentation && feature.documentation.trim().length > 0) {
-    return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    return normalizeUsage();
   }
 
   console.log(`   🔍 Exploring codebase for new feature: ${feature.name}...`);

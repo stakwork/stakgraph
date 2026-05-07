@@ -1,5 +1,6 @@
 import { generateText, tool, hasToolCall, ModelMessage, ToolSet, StepResult } from "ai";
 import { getProviderOptions, resolveLLMConfig } from "../../aieo/src/provider.js";
+import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
 import {
   EXPLORER,
   RE_EXPLORER,
@@ -178,17 +179,13 @@ export async function get_context_explore(
     onStepFinish: (sf) => {
       // console.log("step", JSON.stringify(sf.content, null, 2));
       logStep(sf.content);
-      const usage = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const usage = normalizeUsage(sf.usage);
       cumInput += usage.inputTokens ?? 0;
       cumOutput += usage.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-          totalTokens: usage.totalTokens ?? 0,
-        },
+        usage,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -230,14 +227,13 @@ export async function get_context_explore(
     final = `${lastText}\n\n(Note: Model did not invoke final_answer tool; using last reasoning text as answer.)`;
   }
   // console.log("FINAL", final);
+  const usage = stepMetas.length > 0
+    ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+    : normalizeUsage(totalUsage);
   return {
     final,
     content: final,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage,
   };
 }
 

@@ -1,7 +1,10 @@
 import {
+  addUsage,
+  AiUsageWithLegacy,
   callModel,
   resolveLLMConfig,
   ModelMessage,
+  withLegacyUsage,
 } from "../../aieo/src/index.js";
 import { Answer } from "./ask.js";
 
@@ -57,7 +60,7 @@ export interface RecomposedAnswer {
   answer: string;
   hints: Answer[];
   ref_id?: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }
 
 export async function recomposeAnswer(
@@ -79,19 +82,9 @@ export async function recomposeAnswer(
     apiKey: llm.apiKey,
     messages,
   });
-  const totalUsage = {
-    inputTokens: result.usage.inputTokens,
-    outputTokens: result.usage.outputTokens,
-    totalTokens: result.usage.totalTokens,
-  };
-  for (const answer of answers) {
-    totalUsage.inputTokens += answer.usage.inputTokens;
-    totalUsage.outputTokens += answer.usage.outputTokens;
-    totalUsage.totalTokens += answer.usage.totalTokens;
-  }
   return {
     answer: result.text,
     hints: answers,
-    usage: totalUsage,
+    usage: withLegacyUsage(addUsage(result.usage, ...answers.map((answer) => answer.usage))),
   };
 }

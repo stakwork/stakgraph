@@ -2,7 +2,12 @@ import { db } from "../../graph/neo4j.js";
 import { resolveLLMConfig, Provider } from "../../aieo/src/provider.js";
 import { HintExtraction, Neo4jNode } from "../../graph/types.js";
 import { z } from "zod";
-import { callGenerateObject } from "../../aieo/src/index.js";
+import {
+  AiUsageWithLegacy,
+  callGenerateObject,
+  emptyUsage,
+  withLegacyUsage,
+} from "../../aieo/src/index.js";
 
 async function findNodesFromExtraction(
   extracted: HintExtraction
@@ -42,20 +47,20 @@ export async function create_hint_edges_llm(
 ): Promise<{
   edges_added: number;
   linked_ref_ids: string[];
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }> {
   if (!answer)
     return {
       edges_added: 0,
       linked_ref_ids: [],
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage: withLegacyUsage(emptyUsage()),
     };
   const llm = resolveLLMConfig({ provider: llm_provider as string | undefined, apiKey: llm_apiKey });
   if (!llm.apiKey)
     return {
       edges_added: 0,
       linked_ref_ids: [],
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage: withLegacyUsage(emptyUsage()),
     };
 
   const result = await extractHintReferences(
@@ -92,7 +97,7 @@ export async function extractHintReferences(
   apiKey: string
 ): Promise<{
   extraction: HintExtraction;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }> {
   const truncated = answer.slice(0, 8000);
   const item = z.object({
@@ -146,7 +151,7 @@ export async function extractHintReferences(
         endpoint_names: [],
         page_names: [],
       },
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage: withLegacyUsage(emptyUsage()),
     };
   }
 }

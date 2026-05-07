@@ -9,9 +9,11 @@ import {
   stepCountIs,
 } from "ai";
 import {
+  addUsage,
   ModelName,
   getModelDetails,
   getProviderOptions,
+  normalizeUsage,
 } from "../aieo/src/index.js";
 import { get_tools, ToolsConfig, SkillsConfig, GgnnConfig, MessagesRef, ProvenanceCollector } from "./tools.js";
 import { SKILLS } from "./skills.js";
@@ -392,17 +394,13 @@ Apply the guidance from each skill throughout your response.`;
       if (onStepEvent) {
         try { onStepEvent(sf.content); } catch (_) {}
       }
-      const u = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const u = normalizeUsage(sf.usage);
       cumInput += u.inputTokens ?? 0;
       cumOutput += u.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: u.inputTokens ?? 0,
-          outputTokens: u.outputTokens ?? 0,
-          totalTokens: u.totalTokens ?? 0,
-        },
+        usage: u,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -504,6 +502,9 @@ export async function get_context(
   }
 
   const { steps, totalUsage } = result;
+  const usage = stepMetas.length > 0
+    ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+    : normalizeUsage(totalUsage);
 
   const endTime = Date.now();
   const duration = endTime - startTime;
@@ -527,13 +528,7 @@ export async function get_context(
       provider,
       duration_ms: duration,
       status: "success",
-      token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens ?? totalUsage.inputTokens ?? 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens ?? 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens ?? 0,
-        output: totalUsage.outputTokens ?? 0,
-        total: totalUsage.totalTokens ?? 0,
-      },
+      token_usage: usage,
     });
   }
 
@@ -561,9 +556,7 @@ export async function get_context(
     tool_use: final.tool_use,
     content: finalAnswer,
     usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
+      ...usage,
       model: modelId,
       provider,
     },
@@ -614,19 +607,16 @@ export async function stream_context(
         if (provenanceCollector.entries.length > 0) {
           appendSearchProvenance(sessionId, provenanceCollector.entries);
         }
+        const stepUsage = stepMetas.length > 0
+          ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+          : normalizeUsage(usage);
         await appendSessionEnd(sessionId, {
           end_time: new Date().toISOString(),
           model: modelId,
           provider,
           duration_ms: duration,
           status: "success",
-          token_usage: {
-            input: usage?.inputTokenDetails?.noCacheTokens ?? usage?.inputTokens ?? 0,
-            cache_read: usage?.inputTokenDetails?.cacheReadTokens ?? 0,
-            cache_write: usage?.inputTokenDetails?.cacheWriteTokens ?? 0,
-            output: usage?.outputTokens ?? 0,
-            total: usage?.totalTokens ?? 0,
-          },
+          token_usage: stepUsage,
         });
       } catch (e) {
         const aborted = isAbortError(e);

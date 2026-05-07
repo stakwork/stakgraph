@@ -1,12 +1,34 @@
 import { Request, Response } from "express";
 import { db } from "../graph/neo4j.js";
 import { generateText } from "ai";
-import { resolveLLMConfig, getTokenPricing, getProviderOptions } from "../aieo/src/index.js";
+import {
+  addUsage,
+  AiUsageWithLegacy,
+  computeSessionCost,
+  emptyUsage,
+  getProviderOptions,
+  normalizeUsage,
+  resolveLLMConfig,
+  withLegacyUsage,
+} from "../aieo/src/index.js";
 import { vectorizeBatch } from "../vector/index.js";
 import * as asyncReqs from "../graph/reqs.js";
 import { startTracking, endTracking } from "../busy.js";
 import PQueueModule from "p-queue";
 const PQueue = (PQueueModule as any).default ?? PQueueModule;
+
+function usageTotals(usage: AiUsageWithLegacy) {
+  return {
+    input: usage.input,
+    cache_read: usage.cache_read,
+    cache_write: usage.cache_write,
+    output: usage.output,
+    total: usage.total,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    totalTokens: usage.totalTokens,
+  };
+}
 
 
 
@@ -95,8 +117,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
   try {
     let totalCost = 0;
     let totalProcessed = 0;
-    let totalTokens = { input: 0, output: 0 };
-    const pricing = getTokenPricing(llm.provider);
+    let totalUsage = emptyUsage();
     const model = llm.model;
     const providerOptions = getProviderOptions(llm.provider);
 
@@ -123,10 +144,11 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         `[describe_nodes] Processing batch of ${nodes.length} nodes...`,
       );
 
+      const currentUsage = withLegacyUsage(totalUsage);
       asyncReqs.updateReq(request_id, {
         processed: totalProcessed,
         total_cost: totalCost,
-        total_tokens: totalTokens,
+        total_tokens: usageTotals(currentUsage),
         current_batch_size: nodes.length,
       });
 
@@ -136,8 +158,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
         ref_id: string;
         name: string;
         text: string;
-        inputTokens: number;
-        outputTokens: number;
+        usage: AiUsageWithLegacy;
         cost: number;
       };
       const results: NodeResult[] = [];
@@ -172,13 +193,9 @@ Docs: ${existingDocs}
 Code:
 ${content.slice(0, 2000)}`;
             try {
-              const { text, usage } = await generateText({ model, prompt, providerOptions: providerOptions as any });
-              const inputCost =
-                ((usage.inputTokens || 0) / 1000000) * pricing.inputTokenPrice;
-              const outputCost =
-                ((usage.outputTokens || 0) / 1000000) *
-                pricing.outputTokenPrice;
-              const cost = inputCost + outputCost;
+              const { text, usage: rawUsage } = await generateText({ model, prompt, providerOptions: providerOptions as any });
+              const usage = normalizeUsage(rawUsage);
+              const cost = computeSessionCost(llm.provider, usage);
               console.log(
                 `[describe_nodes] LLM done: ${name} ($${cost.toFixed(6)})`,
               );
@@ -186,8 +203,7 @@ ${content.slice(0, 2000)}`;
                 ref_id: node.ref_id!,
                 name,
                 text,
-                inputTokens: usage.inputTokens || 0,
-                outputTokens: usage.outputTokens || 0,
+                usage,
                 cost,
               });
             } catch (e) {
@@ -199,8 +215,7 @@ ${content.slice(0, 2000)}`;
       // Accumulate costs
       for (const r of results) {
         totalCost += r.cost;
-        totalTokens.input += r.inputTokens;
-        totalTokens.output += r.outputTokens;
+        totalUsage = addUsage(totalUsage, r.usage);
       }
 
       // Bulk write to Neo4j
@@ -228,16 +243,13 @@ ${content.slice(0, 2000)}`;
       );
     }
 
+    const usage = withLegacyUsage(totalUsage);
     const result = {
       success: true,
       processed: totalProcessed,
       total_cost: totalCost,
-      total_tokens: totalTokens,
-      usage: {
-        inputTokens: totalTokens.input,
-        outputTokens: totalTokens.output,
-        totalTokens: totalTokens.input + totalTokens.output,
-      },
+      total_tokens: usageTotals(usage),
+      usage,
     };
 
     console.log(`[describe_nodes] Finished. ${JSON.stringify(result)}`);

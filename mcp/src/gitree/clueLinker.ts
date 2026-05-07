@@ -2,6 +2,7 @@ import { Storage } from "./store/index.js";
 import { Clue, Usage } from "./types.js";
 import { generateObject, jsonSchema } from "ai";
 import { getApiKeyForProvider, getModel, getProviderOptions, Provider } from "../aieo/src/provider.js";
+import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 import { appendMessages } from "../repo/session.js";
 import { appendGitreeLlmExchange, GitreeSessionTracker } from "./llm.js";
 
@@ -22,7 +23,7 @@ export class ClueLinker {
    */
   async linkClues(clueIds: string[], repo?: string): Promise<Usage> {
     if (clueIds.length === 0) {
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     }
 
     const features = await this.storage.getAllFeatures(repo);
@@ -61,11 +62,7 @@ export class ClueLinker {
       `\n🔗 Linking ${allClues.length} clues to ${features.length} features...\n`,
     );
 
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = normalizeUsage();
 
     // Process in batches of 20 clues
     const batchSize = 20;
@@ -82,9 +79,7 @@ export class ClueLinker {
           force,
           this.sessionId,
         );
-        totalUsage.inputTokens += result.usage.inputTokens;
-        totalUsage.outputTokens += result.usage.outputTokens;
-        totalUsage.totalTokens += result.usage.totalTokens;
+        totalUsage = normalizeUsage(addUsage(totalUsage, result.usage));
       } catch (error) {
         console.error(
           `   ❌ Error:`,
@@ -119,7 +114,7 @@ export class ClueLinker {
     if (cluesToLink.length === 0) {
       console.log(`   ⏭️  All clues already linked, skipping...`);
       return {
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        usage: normalizeUsage(),
       };
     }
 
@@ -145,11 +140,7 @@ export class ClueLinker {
     const decision = result.object as any;
 
     const response = JSON.stringify(decision);
-    const usage = {
-      inputTokens: result.usage?.inputTokens || 0,
-      outputTokens: result.usage?.outputTokens || 0,
-      totalTokens: result.usage?.totalTokens || 0,
-    };
+    const usage = normalizeUsage(result.usage);
 
     if (this.sessionTracker) {
       appendGitreeLlmExchange(

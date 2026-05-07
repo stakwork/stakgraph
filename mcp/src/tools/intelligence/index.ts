@@ -1,4 +1,6 @@
+import { addUsage, emptyUsage, withLegacyUsage } from "../../aieo/src/index.js";
 import { ask_question } from "./ask.js";
+import type { Answer } from "./ask.js";
 import { decomposeAndAsk, QUESTIONS } from "./questions.js";
 import { recomposeAnswer, RecomposedAnswer } from "./answer.js";
 import { LEARN_HTML } from "./learn.js";
@@ -9,7 +11,15 @@ import { vectorizeQuery } from "../../vector/index.js";
 /**
  * Utility function to map connected hints to the expected format
  */
-function mapConnectedHints(connected_hints: any[]) {
+function zeroUsage() {
+  return withLegacyUsage(emptyUsage());
+}
+
+function totalHintUsage(hints: Answer[]) {
+  return withLegacyUsage(addUsage(...hints.map((hint) => hint.usage)));
+}
+
+function mapConnectedHints(connected_hints: any[]): Answer[] {
   return connected_hints.map((hint: any) => ({
     question: hint.properties.question || hint.properties.name,
     answer: hint.properties.body || "",
@@ -18,7 +28,7 @@ function mapConnectedHints(connected_hints: any[]) {
     reused_question: hint.properties.question || hint.properties.name,
     edges_added: 0,
     linked_ref_ids: [],
-    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    usage: zeroUsage(),
   }));
 }
 
@@ -76,7 +86,7 @@ export async function ask_prompt(
   similarityThreshold: number = QUESTION_SIMILARITY_THRESHOLD,
   cacheControl?: CacheControlOptions,
   apiKey?: string,
-  sessionId?: string
+  sessionId?: string,
 ): Promise<RecomposedAnswer> {
   // first get a 0.95 match
   const existing = await G.search(
@@ -86,12 +96,12 @@ export async function ask_prompt(
     false,
     100000,
     "vector",
-    "json"
+    "json",
   );
   if (Array.isArray(existing)) {
     console.log(">> existing prompts and hints::");
     existing.forEach((e: any) =>
-      console.log(e.properties.question, e.properties.score, e.node_type)
+      console.log(e.properties.question, e.properties.score, e.node_type),
     );
   }
   let existingRefIdToReplace: string | null = null;
@@ -106,7 +116,7 @@ export async function ask_prompt(
       // Check cache control options
       if (cacheControl?.forceRefresh) {
         console.log(
-          ">> Cache control: forceRefresh=true, replacing existing answer"
+          ">> Cache control: forceRefresh=true, replacing existing answer",
         );
         existingRefIdToReplace = top.ref_id;
       } else if (cacheControl?.maxAgeHours) {
@@ -118,60 +128,44 @@ export async function ask_prompt(
           if (ageInHours > cacheControl.maxAgeHours) {
             console.log(
               `>> Cache control: node age ${ageInHours.toFixed(
-                2
+                2,
               )}h exceeds maxAge ${
                 cacheControl.maxAgeHours
-              }h, replacing existing answer`
+              }h, replacing existing answer`,
             );
             existingRefIdToReplace = top.ref_id;
           } else {
             console.log(
               `>> Cache control: node age ${ageInHours.toFixed(
-                2
+                2,
               )}h within maxAge ${
                 cacheControl.maxAgeHours
-              }h, using cached answer`
+              }h, using cached answer`,
             );
             // Fetch connected hints (sub_answers) for this existing prompt
             const connected_hints = await db.get_connected_hints(top.ref_id);
             const hints = mapConnectedHints(connected_hints);
-            const totalUsage = hints.reduce(
-              (acc, h) => ({
-                inputTokens: acc.inputTokens + h.usage.inputTokens,
-                outputTokens: acc.outputTokens + h.usage.outputTokens,
-                totalTokens: acc.totalTokens + h.usage.totalTokens,
-              }),
-              { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
-            );
 
             return {
               answer: top.properties.body,
               hints,
               ref_id: top.ref_id,
-              usage: totalUsage,
+              usage: totalHintUsage(hints),
             };
           }
         } else {
           console.log(
-            ">> Cache control: no date_added_to_graph property found, using cached answer"
+            ">> Cache control: no date_added_to_graph property found, using cached answer",
           );
           // Fetch connected hints (sub_answers) for this existing prompt
           const connected_hints = await db.get_connected_hints(top.ref_id);
           const hints = mapConnectedHints(connected_hints);
-          const totalUsage = hints.reduce(
-            (acc, h) => ({
-              inputTokens: acc.inputTokens + h.usage.inputTokens,
-              outputTokens: acc.outputTokens + h.usage.outputTokens,
-              totalTokens: acc.totalTokens + h.usage.totalTokens,
-            }),
-            { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
-          );
 
           return {
             answer: top.properties.body,
             hints,
             ref_id: top.ref_id,
-            usage: totalUsage,
+            usage: totalHintUsage(hints),
           };
         }
       } else {
@@ -180,20 +174,12 @@ export async function ask_prompt(
         // Fetch connected hints (sub_answers) for this existing prompt
         const connected_hints = await db.get_connected_hints(top.ref_id);
         const hints = mapConnectedHints(connected_hints);
-        const totalUsage = hints.reduce(
-          (acc, h) => ({
-            inputTokens: acc.inputTokens + h.usage.inputTokens,
-            outputTokens: acc.outputTokens + h.usage.outputTokens,
-            totalTokens: acc.totalTokens + h.usage.totalTokens,
-          }),
-          { inputTokens: 0, outputTokens: 0, totalTokens: 0 }
-        );
 
         return {
           answer: top.properties.body,
           hints,
           ref_id: top.ref_id,
-          usage: totalUsage,
+          usage: totalHintUsage(hints),
         };
       }
     }
@@ -201,11 +187,13 @@ export async function ask_prompt(
 
   // If forceCache is true and no cached result was found, return empty result
   if (cacheControl?.forceCache) {
-    console.log(">> Cache control: forceCache=true, no cached result found, returning empty result");
+    console.log(
+      ">> Cache control: forceCache=true, no cached result found, returning empty result",
+    );
     return {
       answer: "",
       hints: [],
-      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      usage: zeroUsage(),
     };
   }
 
@@ -216,17 +204,17 @@ export async function ask_prompt(
       similarityThreshold,
       provider,
       apiKey,
-      sessionId
+      sessionId,
     );
     const answer = await recomposeAnswer(prompt, answers, provider, apiKey);
 
     // If we need to replace an existing node, delete it just before creating the new one
     if (existingRefIdToReplace) {
       console.log(
-        `>> Deleting existing node with ref_id: ${existingRefIdToReplace}`
+        `>> Deleting existing node with ref_id: ${existingRefIdToReplace}`,
       );
       const deletedCount = await db.delete_node_by_ref_id(
-        existingRefIdToReplace
+        existingRefIdToReplace,
       );
       console.log(`>> Deleted ${deletedCount} node(s)`);
     }
@@ -239,7 +227,7 @@ export async function ask_prompt(
       console.log(
         ">> creating edge from main prompt to hint",
         created.ref_id,
-        hint.hint_ref_id
+        hint.hint_ref_id,
       );
       await db.createEdgesDirectly(created.ref_id, [
         {
@@ -267,7 +255,7 @@ export async function learnings(question: string) {
     false,
     100000,
     "vector",
-    "json"
+    "json",
   );
   const hints = await G.search(
     question,
@@ -276,7 +264,7 @@ export async function learnings(question: string) {
     false,
     100000,
     "vector",
-    "json"
+    "json",
   );
 
   // Extract only the question field (or name if no question) from node properties

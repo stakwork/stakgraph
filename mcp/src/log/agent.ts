@@ -1,5 +1,5 @@
 import { ToolLoopAgent, ModelMessage } from "ai";
-import { ModelName, getModelDetails, getProviderOptions } from "../aieo/src/index.js";
+import { addUsage, ModelName, getModelDetails, getProviderOptions, normalizeUsage } from "../aieo/src/index.js";
 import { get_log_tools } from "./tools.js";
 import { ContextResult } from "../tools/types.js";
 import {
@@ -88,17 +88,13 @@ export async function log_agent_context(
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
       logStepMaybe(sf.content, opts.printAgentProgress);
-      const usage = sf.usage ?? { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      const usage = normalizeUsage(sf.usage);
       cumInput += usage.inputTokens ?? 0;
       cumOutput += usage.outputTokens ?? 0;
       stepMetas.push({
         step: stepMetas.length,
         turn: turnIndex,
-        usage: {
-          inputTokens: usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-          totalTokens: usage.totalTokens ?? 0,
-        },
+        usage,
         cumulativeInput: cumInput,
         cumulativeOutput: cumOutput,
         toolCalls: (sf.toolCalls ?? []).map((tc: { toolName: string }) => tc.toolName),
@@ -148,6 +144,9 @@ export async function log_agent_context(
   }
 
   const { steps, totalUsage } = result;
+  const usage = stepMetas.length > 0
+    ? normalizeUsage(addUsage(...stepMetas.map((step) => step.usage)))
+    : normalizeUsage(totalUsage);
 
   // Save to session if enabled
   if (sessionId) {
@@ -164,13 +163,7 @@ export async function log_agent_context(
       model: modelId,
       provider,
       status: "success",
-      token_usage: {
-        input: totalUsage.inputTokenDetails?.noCacheTokens || totalUsage.inputTokens || 0,
-        cache_read: totalUsage.inputTokenDetails?.cacheReadTokens || 0,
-        cache_write: totalUsage.inputTokenDetails?.cacheWriteTokens || 0,
-        output: totalUsage.outputTokens || 0,
-        total: totalUsage.totalTokens || 0,
-      },
+      token_usage: usage,
     });
   }
 
@@ -186,11 +179,7 @@ export async function log_agent_context(
     final: final.answer,
     tool_use: final.tool_use,
     content: final.answer,
-    usage: {
-      inputTokens: totalUsage.inputTokens || 0,
-      outputTokens: totalUsage.outputTokens || 0,
-      totalTokens: totalUsage.totalTokens || 0,
-    },
+    usage,
     logs: opts.logs ? JSON.stringify(steps, null, 2) : undefined,
     sessionId,
   };

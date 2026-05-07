@@ -3,6 +3,7 @@ import { db } from "./neo4j.js";
 import { vectorizeQuery } from "../vector/index.js";
 import { generateObject, jsonSchema } from "ai";
 import { getProviderOptions, resolveLLMConfig } from "../aieo/src/provider.js";
+import { addUsage, normalizeUsage, withLegacyUsage } from "../aieo/src/index.js";
 
 // === Learning + Scope routes ===
 
@@ -186,11 +187,7 @@ Given the user's prompt, pick the most relevant learnings from the list. Return 
       learnings: relevantLearnings,
       prompt,
       scopes: relevantScopes,
-      usage: {
-        inputTokens: (scopeResult.usage?.inputTokens || 0) + (learningResult.usage?.inputTokens || 0),
-        outputTokens: (scopeResult.usage?.outputTokens || 0) + (learningResult.usage?.outputTokens || 0),
-        totalTokens: (scopeResult.usage?.totalTokens || 0) + (learningResult.usage?.totalTokens || 0),
-      },
+      usage: withLegacyUsage(addUsage(normalizeUsage(scopeResult.usage), normalizeUsage(learningResult.usage))),
     });
   } catch (error: any) {
     console.error("POST relevant-learnings error:", error);

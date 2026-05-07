@@ -1,8 +1,6 @@
-export interface Usage {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-}
+import type { AiUsageWithLegacy } from "../aieo/src/usage.js";
+
+export type Usage = AiUsageWithLegacy;
 
 export interface LinkResult {
   featuresProcessed: number;

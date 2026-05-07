@@ -1,8 +1,21 @@
 import fs from "fs/promises";
 import path from "path";
-import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint } from "../types.js";
+import { Feature, PRRecord, CommitRecord, Clue, LinkResult, ChronologicalCheckpoint, Usage } from "../types.js";
 import { Storage } from "./storage.js";
 import { formatPRMarkdown, parsePRMarkdown, formatCommitMarkdown, parseCommitMarkdown } from "./utils.js";
+import { addUsage, normalizeUsage } from "../../aieo/src/usage.js";
+
+function normalizeFeature(feature: any): Feature {
+  return {
+    ...feature,
+    createdAt: new Date(feature.createdAt),
+    lastUpdated: new Date(feature.lastUpdated),
+    cluesLastAnalyzedAt: feature.cluesLastAnalyzedAt
+      ? new Date(feature.cluesLastAnalyzedAt)
+      : undefined,
+    usage: feature.usage ? normalizeUsage(feature.usage) : undefined,
+  };
+}
 
 /**
  * File system based storage implementation
@@ -76,6 +89,7 @@ export class FileSystemStore extends Storage {
       createdAt: feature.createdAt.toISOString(),
       lastUpdated: feature.lastUpdated.toISOString(),
       cluesLastAnalyzedAt: feature.cluesLastAnalyzedAt?.toISOString(),
+      usage: feature.usage ? normalizeUsage(feature.usage) : undefined,
     };
     await fs.writeFile(filePath, JSON.stringify(serialized, null, 2));
   }
@@ -87,14 +101,7 @@ export class FileSystemStore extends Storage {
     try {
       const content = await fs.readFile(filePath, "utf-8");
       const parsed = JSON.parse(content);
-      return {
-        ...parsed,
-        createdAt: new Date(parsed.createdAt),
-        lastUpdated: new Date(parsed.lastUpdated),
-        cluesLastAnalyzedAt: parsed.cluesLastAnalyzedAt
-          ? new Date(parsed.cluesLastAnalyzedAt)
-          : undefined,
-      };
+      return normalizeFeature(parsed);
     } catch {
       return null;
     }
@@ -112,14 +119,7 @@ export class FileSystemStore extends Storage {
             "utf-8"
           );
           const parsed = JSON.parse(content);
-          features.push({
-            ...parsed,
-            createdAt: new Date(parsed.createdAt),
-            lastUpdated: new Date(parsed.lastUpdated),
-            cluesLastAnalyzedAt: parsed.cluesLastAnalyzedAt
-              ? new Date(parsed.cluesLastAnalyzedAt)
-              : undefined,
-          });
+          features.push(normalizeFeature(parsed));
         }
       }
 
@@ -492,26 +492,22 @@ export class FileSystemStore extends Storage {
   }
 
   // Total Usage - cumulative token usage across all processing runs
-  async getTotalUsage(repo: string): Promise<{ inputTokens: number; outputTokens: number; totalTokens: number }> {
+  async getTotalUsage(repo: string): Promise<Usage> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
       const key = this.getRepoMetadataKey(repo, "totalUsage");
       const usage = metadata[key] || metadata.totalUsage;
       if (usage) {
-        return {
-          inputTokens: usage.inputTokens || 0,
-          outputTokens: usage.outputTokens || 0,
-          totalTokens: usage.totalTokens || 0,
-        };
+        return normalizeUsage(usage);
       }
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     } catch {
-      return { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+      return normalizeUsage();
     }
   }
 
-  async addToTotalUsage(repo: string, usage: { inputTokens: number; outputTokens: number; totalTokens: number }): Promise<void> {
+  async addToTotalUsage(repo: string, usage: Usage): Promise<void> {
     let metadata: any = {};
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
@@ -521,29 +517,22 @@ export class FileSystemStore extends Storage {
     }
 
     const key = this.getRepoMetadataKey(repo, "totalUsage");
-    const current = metadata[key] || { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-    
-    metadata[key] = {
-      inputTokens: (current.inputTokens || 0) + usage.inputTokens,
-      outputTokens: (current.outputTokens || 0) + usage.outputTokens,
-      totalTokens: (current.totalTokens || 0) + usage.totalTokens,
-    };
+    const current = normalizeUsage(metadata[key]);
+    metadata[key] = normalizeUsage(addUsage(current, usage));
     
     await fs.writeFile(this.metadataPath, JSON.stringify(metadata, null, 2));
   }
 
   async getAggregatedMetadata(): Promise<{
     lastProcessedTimestamp: string | null;
-    cumulativeUsage: { inputTokens: number; outputTokens: number; totalTokens: number };
+    cumulativeUsage: Usage;
   }> {
     try {
       const content = await fs.readFile(this.metadataPath, "utf-8");
       const metadata = JSON.parse(content);
       
       let latestTimestamp: string | null = null;
-      let totalInput = 0;
-      let totalOutput = 0;
-      let totalTokens = 0;
+      let cumulativeUsage = normalizeUsage();
 
       for (const key of Object.keys(metadata)) {
         // Process checkpoint keys
@@ -558,24 +547,18 @@ export class FileSystemStore extends Storage {
         // Process usage keys
         if (key.includes(":totalUsage")) {
           const usage = metadata[key];
-          totalInput += usage?.inputTokens || 0;
-          totalOutput += usage?.outputTokens || 0;
-          totalTokens += usage?.totalTokens || 0;
+          cumulativeUsage = normalizeUsage(addUsage(cumulativeUsage, normalizeUsage(usage)));
         }
       }
 
       return {
         lastProcessedTimestamp: latestTimestamp,
-        cumulativeUsage: {
-          inputTokens: totalInput,
-          outputTokens: totalOutput,
-          totalTokens: totalTokens,
-        },
+        cumulativeUsage,
       };
     } catch {
       return {
         lastProcessedTimestamp: null,
-        cumulativeUsage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        cumulativeUsage: normalizeUsage(),
       };
     }
   }

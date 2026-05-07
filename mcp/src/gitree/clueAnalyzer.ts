@@ -1,5 +1,6 @@
 import { Storage } from "./store/index.js";
 import { Clue, ClueAnalysisResult, Usage } from "./types.js";
+import { addUsage, normalizeUsage } from "../aieo/src/usage.js";
 import { get_context } from "../repo/agent.js";
 import { vectorizeQuery } from "../vector/index.js";
 
@@ -47,7 +48,7 @@ export class ClueAnalyzer {
         clues: [],
         complete: true,
         reasoning: "Maximum clue limit (40) reached",
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        usage: normalizeUsage(),
       };
     }
 
@@ -64,7 +65,7 @@ export class ClueAnalyzer {
         clues: [],
         complete: true,
         reasoning: "No files associated with this feature",
-        usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+        usage: normalizeUsage(),
       };
     }
 
@@ -215,11 +216,7 @@ export class ClueAnalyzer {
     const features = await this.storage.getAllFeatures(repo || this.repo);
     console.log(`\n📚 Analyzing clues for ${features.length} features...\n`);
 
-    const totalUsage: Usage = {
-      inputTokens: 0,
-      outputTokens: 0,
-      totalTokens: 0,
-    };
+    let totalUsage: Usage = normalizeUsage();
 
     for (let i = 0; i < features.length; i++) {
       const feature = features[i];
@@ -241,9 +238,7 @@ export class ClueAnalyzer {
 
       try {
         const result = await this.analyzeFeature(feature.id);
-        totalUsage.inputTokens += result.usage.inputTokens;
-        totalUsage.outputTokens += result.usage.outputTokens;
-        totalUsage.totalTokens += result.usage.totalTokens;
+        totalUsage = normalizeUsage(addUsage(totalUsage, result.usage));
       } catch (error) {
         console.error(
           `   ❌ Error:`,
@@ -266,9 +261,7 @@ export class ClueAnalyzer {
         const linker = new ClueLinker(this.storage);
         const linkUsage = await linker.linkAllClues(false);
 
-        totalUsage.inputTokens += linkUsage.inputTokens;
-        totalUsage.outputTokens += linkUsage.outputTokens;
-        totalUsage.totalTokens += linkUsage.totalTokens;
+        totalUsage = normalizeUsage(addUsage(totalUsage, linkUsage));
 
         console.log(
           `\n✅ Total usage (analysis + linking): ${totalUsage.totalTokens.toLocaleString()}\n`

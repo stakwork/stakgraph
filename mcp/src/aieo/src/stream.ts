@@ -12,6 +12,7 @@ import {
   ThinkingSpeed,
   ModelName,
 } from "./provider.js";
+import { AiUsageWithLegacy, normalizeUsage } from "./usage.js";
 
 interface CallModelOptions {
   provider: Provider;
@@ -27,7 +28,7 @@ interface CallModelOptions {
 
 export async function callModel(opts: CallModelOptions): Promise<{
   text: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }> {
   const {
     provider,
@@ -72,11 +73,7 @@ export async function callModel(opts: CallModelOptions): Promise<{
   const usage = await result.usage;
   return {
     text: fullResponse,
-    usage: {
-      inputTokens: usage.inputTokens || 0,
-      outputTokens: usage.outputTokens || 0,
-      totalTokens: usage.totalTokens || 0,
-    },
+    usage: normalizeUsage(usage),
   };
 }
 
@@ -89,7 +86,7 @@ interface GenerateObjectArgs {
 
 export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
   object: any;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }> {
   const model = await getModel(args.provider, args.apiKey);
   const providerOptions = getProviderOptions(args.provider, "fast");
@@ -101,11 +98,7 @@ export async function callGenerateObject(args: GenerateObjectArgs): Promise<{
   });
   return {
     object,
-    usage: {
-      inputTokens: usage.inputTokens || 0,
-      outputTokens: usage.outputTokens || 0,
-      totalTokens: usage.totalTokens || 0,
-    },
+    usage: normalizeUsage(usage),
   };
 }
 
@@ -118,7 +111,7 @@ interface GenerateTextArgs {
 
 export async function callGenerateText(args: GenerateTextArgs): Promise<{
   text: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number };
+  usage: AiUsageWithLegacy;
 }> {
   // Convert prompt to messages format
   const messages: ModelMessage[] = [
@@ -137,10 +130,6 @@ export async function callGenerateText(args: GenerateTextArgs): Promise<{
   });
   return {
     text,
-    usage: {
-      inputTokens: usage.inputTokens || 0,
-      outputTokens: usage.outputTokens || 0,
-      totalTokens: usage.totalTokens || 0,
-    },
+    usage: normalizeUsage(usage),
   };
 }
