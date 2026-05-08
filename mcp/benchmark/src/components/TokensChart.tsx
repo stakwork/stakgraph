@@ -11,7 +11,7 @@ import {
 import { type DayRow, type RangeKey, formatK, formatXAxisTick } from "../utils";
 import { card } from "./ui";
 
-export function TokensChart({ data, range }: { data: DayRow[]; range: RangeKey }) {
+export function TokensChart({ data, range, onDayClick }: { data: DayRow[]; range: RangeKey; onDayClick?: (day: string) => void }) {
   if (data.length === 0) return null;
 
   const tickInterval =
@@ -27,7 +27,15 @@ export function TokensChart({ data, range }: { data: DayRow[]; range: RangeKey }
         Tokens per day
       </p>
       <ResponsiveContainer width="100%" height={320}>
-        <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+        <ComposedChart
+          data={data}
+          margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+          onClick={onDayClick ? (chartData: any) => {
+            const day = chartData?.activePayload?.[0]?.payload?.day;
+            if (day) onDayClick(day);
+          } : undefined}
+          style={onDayClick ? { cursor: "pointer" } : undefined}
+        >
           <defs>
             <linearGradient id="tokensGradient" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />

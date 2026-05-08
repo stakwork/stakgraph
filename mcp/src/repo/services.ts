@@ -36,7 +36,7 @@ export async function services_agent(req: Request, res: Response) {
   const sessionId = randomUUID();
   const startTime = Date.now();
   const { modelId, provider } = getModelDetails();
-  createSession(sessionId, undefined, "services_agent");
+  createSession(sessionId, undefined, "services_agent", `${owner}/${repoName}`);
   const opId = startTracking("services_agent");
   try {
     cloneOrUpdateRepo(`https://github.com/${owner}/${repoName}`, username, pat)

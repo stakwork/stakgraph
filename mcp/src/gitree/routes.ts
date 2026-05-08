@@ -169,7 +169,7 @@ export async function gitree_process(req: Request, res: Response) {
       const startTime = Date.now();
       const { modelId, provider } = getModelDetails();
       try {
-        createSession(sessionId, undefined, "gitree_process");
+        createSession(sessionId, undefined, "gitree_process", `${owner}/${repo}`);
         const anthropicKey = getApiKeyForProvider("anthropic");
         const storage = new GraphStorage();
         await storage.initialize();

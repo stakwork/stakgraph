@@ -1,3 +1,4 @@
+import { useNavigate, useLocation } from "react-router-dom";
 import { shortId } from "../ui";
 import { SourceBadge } from "./SessionBadges";
 import { card, muted } from "./styles";
@@ -43,6 +44,10 @@ export function SessionSidebar({
   setDayFilter,
   clearFilters,
 }: SessionSidebarProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const fromAnalytics = (location.state as any)?.from === "analytics";
+
   const inputStyle: React.CSSProperties = {
     fontSize: "12px",
     borderRadius: "6px",
@@ -69,6 +74,16 @@ export function SessionSidebar({
     padding: "6px 8px",
   };
 
+  const chipStyle: React.CSSProperties = {
+    fontSize: "11px",
+    padding: "2px 8px",
+    borderRadius: "10px",
+    backgroundColor: "#1c1007",
+    color: "#fbbf24",
+    border: "1px solid #78350f",
+    whiteSpace: "nowrap" as const,
+  };
+
   return (
     <div
       style={{
@@ -80,6 +95,42 @@ export function SessionSidebar({
         minHeight: 0,
       }}
     >
+      {fromAnalytics && (
+        <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+          <button
+            onClick={() => navigate("/analytics")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "5px",
+              fontSize: "11px",
+              padding: "5px 8px",
+              borderRadius: "6px",
+              border: "1px solid #78350f",
+              backgroundColor: "#1c1007",
+              color: "#fbbf24",
+              cursor: "pointer",
+              width: "100%",
+              textAlign: "left",
+            }}
+          >
+            ← Back to Analytics
+          </button>
+          {(sourceFilter !== "all" || repoSearch || dayFilter) && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+              {sourceFilter !== "all" && (
+                <span style={chipStyle}>source: {formatSourceLabel(sourceFilter)}</span>
+              )}
+              {repoSearch && (
+                <span style={chipStyle}>repo: {repoSearch}</span>
+              )}
+              {dayFilter && (
+                <span style={chipStyle}>day: {dayFilter}</span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <button onClick={load} style={btnStyle}>
         Refresh
       </button>
