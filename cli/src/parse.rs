@@ -18,7 +18,7 @@ use super::render::{
     print_single_file_nodes, print_single_file_nodes_filtered, resolve_call_ref, CallRef,
 };
 use super::summarize::run_summarize;
-use super::utils::{common_ancestor, parse_node_types, read_text_preview};
+use super::utils::{apply_glob_filters, common_ancestor, parse_node_types, read_text_preview};
 
 #[derive(Serialize)]
 struct UnsupportedFileSummary {
@@ -198,14 +198,21 @@ fn collect_nodes_for_file(
 pub async fn run(cli: &CliArgs, out: &mut Output, output_mode: OutputMode) -> Result<()> {
     let first = cli.files.first().map(|s| s.as_str()).unwrap_or(".");
     let is_dir_input = Path::new(first).is_dir();
-    let has_filters = !cli.r#type.is_empty() || cli.name.is_some() || cli.stats;
+    let has_filters = !cli.r#type.is_empty()
+        || cli.name.is_some()
+        || cli.stats
+        || !cli.include.is_empty()
+        || !cli.exclude.is_empty();
 
     if (cli.max_tokens.is_some() || (is_dir_input && !has_filters)) && !output_mode.is_json() {
         let max_tokens = cli.max_tokens.unwrap_or(8000);
         return run_summarize(first, max_tokens, cli.depth, out, cli.verbose || cli.perf).await;
     }
 
-    let (files, dir_files) = expand_dirs(&cli.files)?;
+    let (files, mut dir_files) = expand_dirs(&cli.files)?;
+    let files = apply_glob_filters(files, &cli.include, &cli.exclude)?;
+    let filtered_set: HashSet<String> = files.iter().cloned().collect();
+    dir_files.retain(|f| filtered_set.contains(f));
     let allow_unverified_calls = cli.allow;
     let skip_calls = cli.skip_calls;
     let no_nested = cli.no_nested;

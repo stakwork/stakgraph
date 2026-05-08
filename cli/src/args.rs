@@ -58,6 +58,14 @@ pub struct CliArgs {
     #[arg(long)]
     pub depth: Option<usize>,
 
+    /// Include only files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Exclude files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
     /// Input files or directories (comma-separated or multiple args)
     #[arg(value_name = "FILE_OR_DIR", num_args = 0..)]
     pub files: Vec<String>,
@@ -156,6 +164,14 @@ pub struct DepsArgs {
     #[arg(long, default_value_t = true, action = ArgAction::Set)]
     pub allow: bool,
 
+    /// Include only files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Exclude files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub exclude: Vec<String>,
+
     /// Files or directories to parse
     #[arg(value_name = "FILE_OR_DIR", num_args = 1..)]
     pub files: Vec<String>,
@@ -194,6 +210,14 @@ pub struct ImpactArgs {
     /// Include unverified (cross-file unresolved) calls (default: true)
     #[arg(long, default_value_t = true, action = ArgAction::Set)]
     pub allow: bool,
+
+    /// Include only files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Exclude files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub exclude: Vec<String>,
 
     /// Files or directories to parse
     #[arg(value_name = "FILE_OR_DIR", num_args = 0..)]
@@ -240,6 +264,14 @@ pub struct SearchArgs {
     /// Only search within files whose path contains this fragment
     #[arg(long)]
     pub file: Option<String>,
+
+    /// Include only files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub include: Vec<String>,
+
+    /// Exclude files matching these glob patterns (VS Code-style, repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub exclude: Vec<String>,
 
     /// Maximum number of results (default: 20)
     #[arg(long, default_value = "20")]

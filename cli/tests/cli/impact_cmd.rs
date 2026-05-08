@@ -74,6 +74,42 @@ fn impact_depth_zero_does_not_crash() {
 }
 
 #[test]
+fn impact_include_glob_scopes_parse_files() {
+    let dir = fixture_path("src/testing/nextjs");
+    let out = run_stakgraph(&[
+        "impact",
+        "--name",
+        "cn",
+        "--include",
+        "**/lib/**",
+        &dir,
+    ]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("cn"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn impact_include_glob_no_matches_fails_validation() {
+    let dir = fixture_path("src/testing/nextjs");
+    let out = run_stakgraph(&[
+        "impact",
+        "--name",
+        "cn",
+        "--include",
+        "**/does-not-exist/**",
+        &dir,
+    ]);
+
+    assert_ne!(out.exit_code, 0);
+    assert!(
+        out.stderr.contains("no parseable files"),
+        "stderr: {}",
+        out.stderr
+    );
+}
+
+#[test]
 fn impact_no_dependents_exits_cleanly() {
     // convertUSDToSats is defined in currency.ts but nothing in the fixture calls it
     let dir = fixture_path("src/testing/nextjs/lib");

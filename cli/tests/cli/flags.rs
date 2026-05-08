@@ -141,3 +141,34 @@ fn json_parse_mode_returns_machine_readable_payload() {
     assert_eq!(payload["data"]["mode"], "parse");
     assert!(payload["data"]["files"].is_array());
 }
+
+#[test]
+fn parse_include_exclude_globs_scope_files() {
+    let dir = fixture_path("src/testing/nextjs");
+    let out = run_stakgraph(&[
+        "--type",
+        "Endpoint",
+        "--include",
+        "**/api/**",
+        "--exclude",
+        "**/users/**",
+        &dir,
+    ]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("Endpoint:"), "stdout: {}", out.stdout);
+    assert!(!out.stdout.contains("/api/users"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn parse_invalid_include_glob_fails() {
+    let dir = fixture_path("src/testing/nextjs");
+    let out = run_stakgraph(&["--include", "[", &dir]);
+
+    assert_ne!(out.exit_code, 0);
+    assert!(
+        out.stderr.contains("invalid include glob pattern"),
+        "stderr: {}",
+        out.stderr
+    );
+}
