@@ -5,7 +5,57 @@ use crate::lang::{
 };
 use neo4rs::{query, BoltMap, BoltType, Graph as Neo4jConnection, Query};
 use shared::Result;
+use std::future::Future;
 use std::str::FromStr;
+use std::time::Duration;
+use tracing::warn;
+
+/// Returns true if the error string indicates a Neo4j transient error
+/// (deadlock, leader switch, lock client stopped, etc.) — Neo4j explicitly
+/// marks these as safe-to-retry.
+///
+/// We match on the formatted error string because `neo4rs::Error` does not
+/// expose a structured error code in a stable way across versions.
+fn is_transient_neo4j_error(err: &shared::Error) -> bool {
+    let s = err.to_string();
+    s.contains("TransientError")
+        || s.contains("DeadlockDetected")
+        || s.contains("LeaderSwitch")
+        || s.contains("LockClientStopped")
+}
+
+/// Retry an async operation while it returns a transient Neo4j error.
+/// Uses exponential backoff with jitter (50ms, 100ms, 200ms, ...).
+///
+/// Defaults: 5 attempts, ~1.5s total worst-case backoff. Tunable via
+/// `NEO4J_RETRY_ATTEMPTS` env var.
+pub async fn with_transient_retry<F, Fut, T>(label: &str, mut op: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T>>,
+{
+    let max_attempts: u32 = std::env::var("NEO4J_RETRY_ATTEMPTS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    let mut attempt: u32 = 0;
+    loop {
+        match op().await {
+            Ok(v) => return Ok(v),
+            Err(e) if is_transient_neo4j_error(&e) && attempt + 1 < max_attempts => {
+                attempt += 1;
+                let backoff_ms = 50u64.saturating_mul(1u64 << (attempt - 1).min(6));
+                warn!(
+                    "[neo4j-retry] transient error on '{}' (attempt {}/{}), retrying in {}ms: {}",
+                    label, attempt, max_attempts, backoff_ms, e
+                );
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
 
 fn bind_parameters(query_str: &str, params: BoltMap) -> Query {
     let mut query_obj = query(query_str);
@@ -133,32 +183,45 @@ impl<'a> TransactionManager<'a> {
     }
 
     pub async fn execute(self) -> Result<()> {
-        let mut txn = self.conn.start_txn().await?;
-        for (query_str, bolt_map) in self.queries {
-            let mut query_obj = query(&query_str);
-            if query_str.contains("$properties") {
-                if let Some(BoltType::String(node_key)) = bolt_map.value.get("node_key") {
-                    query_obj = query_obj.param("node_key", node_key.value.as_str());
-                }
-                let properties = boltmap_to_bolttype_map(bolt_map);
-                query_obj = query_obj.param("properties", properties);
-                if query_str.contains("$now") {
-                    use std::time::{SystemTime, UNIX_EPOCH};
-                    if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
-                        let ts = dur.as_secs_f64();
-                        query_obj = query_obj
-                            .param("now", neo4rs::BoltType::String(format!("{:.7}", ts).into()));
+        let conn = self.conn;
+        let queries = self.queries;
+        // Retry the entire transaction on Neo4j transient errors (e.g. deadlocks).
+        // Neo4j explicitly marks these as safe-to-retry — see
+        // https://neo4j.com/docs/operations-manual/current/clustering/disaster-recovery/
+        with_transient_retry("TransactionManager::execute", || {
+            let queries = queries.clone();
+            async move {
+                let mut txn = conn.start_txn().await?;
+                for (query_str, bolt_map) in queries {
+                    let mut query_obj = query(&query_str);
+                    if query_str.contains("$properties") {
+                        if let Some(BoltType::String(node_key)) = bolt_map.value.get("node_key") {
+                            query_obj = query_obj.param("node_key", node_key.value.as_str());
+                        }
+                        let properties = boltmap_to_bolttype_map(bolt_map);
+                        query_obj = query_obj.param("properties", properties);
+                        if query_str.contains("$now") {
+                            use std::time::{SystemTime, UNIX_EPOCH};
+                            if let Ok(dur) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                                let ts = dur.as_secs_f64();
+                                query_obj = query_obj.param(
+                                    "now",
+                                    neo4rs::BoltType::String(format!("{:.7}", ts).into()),
+                                );
+                            }
+                        }
+                    } else {
+                        for (key, value) in bolt_map.value.iter() {
+                            query_obj = query_obj.param(key.value.as_str(), value.clone());
+                        }
                     }
+                    txn.run(query_obj).await?;
                 }
-            } else {
-                for (key, value) in bolt_map.value.iter() {
-                    query_obj = query_obj.param(key.value.as_str(), value.clone());
-                }
+                txn.commit().await?;
+                Ok(())
             }
-            txn.run(query_obj).await?;
-        }
-        txn.commit().await?;
-        Ok(())
+        })
+        .await
     }
 }
 

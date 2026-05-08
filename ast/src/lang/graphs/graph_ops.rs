@@ -134,9 +134,15 @@ impl GraphOps {
 
                 let muted_nodes = self.collect_muted_nodes_for_files(&modified_files).await?;
 
+                info!(
+                    "[incremental] removing existing nodes for {} modified file(s)",
+                    modified_files.len()
+                );
                 for file in &modified_files {
+                    info!("[incremental] remove_nodes_by_file: {}", file);
                     self.graph.remove_nodes_by_file(file).await?;
                 }
+                info!("[incremental] finished removing nodes; re-detecting languages");
 
                 let mut subgraph_repos = Repo::new_multi_detect(
                     &repo_path,
@@ -146,12 +152,14 @@ impl GraphOps {
                     use_lsp,
                 )
                 .await?;
+                info!("[incremental] re-detect complete; building incremental graph");
 
                 if let Some(tx) = status_tx {
                     subgraph_repos.set_status_tx(tx).await;
                 }
 
                 subgraph_repos.build_graphs_neo4j_incremental().await?;
+                info!("[incremental] build_graphs_neo4j_incremental complete");
 
                 if !all_dynamic_edges.is_empty() {
                     let restored_count =
@@ -160,6 +168,7 @@ impl GraphOps {
                 }
 
                 if !muted_nodes.is_empty() {
+                    info!("[incremental] restoring {} muted nodes", muted_nodes.len());
                     self.restore_muted_nodes(muted_nodes).await?;
                 }
             }
