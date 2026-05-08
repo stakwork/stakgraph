@@ -1,6 +1,8 @@
 use crate::lang::graphs::{
-    executor::TransactionManager, helpers::boltmap_insert_str, queries::*, Edge, EdgeType,
-    Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
+    executor::{with_transient_retry, TransactionManager},
+    helpers::boltmap_insert_str,
+    queries::*,
+    Edge, EdgeType, Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
 };
 use neo4rs::{query, BoltMap};
 use shared::{Error, Result};
@@ -28,16 +30,26 @@ impl Neo4jGraph {
     pub async fn remove_nodes_by_file(&self, file_path: &str) -> Result<u32> {
         let connection = self.ensure_connected().await?;
         let (query_str, params) = remove_nodes_by_file_query(file_path, &self.root);
-        let mut query_obj = query(&query_str);
-        for (k, v) in params.value.iter() {
-            query_obj = query_obj.param(k.value.as_str(), v.clone());
-        }
-        let mut result = connection.execute(query_obj).await?;
-        if let Some(row) = result.next().await? {
-            Ok(row.get::<u32>("count").unwrap_or(0))
-        } else {
-            Ok(0)
-        }
+        // DETACH DELETE on heavily-connected nodes can deadlock against concurrent
+        // writers; Neo4j flags this as TransientError and expects the client to retry.
+        with_transient_retry("remove_nodes_by_file", || {
+            let query_str = query_str.clone();
+            let params = params.clone();
+            let connection = connection.clone();
+            async move {
+                let mut query_obj = query(&query_str);
+                for (k, v) in params.value.iter() {
+                    query_obj = query_obj.param(k.value.as_str(), v.clone());
+                }
+                let mut result = connection.execute(query_obj).await?;
+                if let Some(row) = result.next().await? {
+                    Ok(row.get::<u32>("count").unwrap_or(0))
+                } else {
+                    Ok(0)
+                }
+            }
+        })
+        .await
     }
 
     pub async fn update_repository_hash(&self, repo_url: &str, new_hash: &str) -> Result<()> {

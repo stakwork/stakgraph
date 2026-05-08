@@ -51,6 +51,10 @@ pub async fn sync_async(
     let guard = match BusyGuard::try_new(state.clone()) {
         Some(g) => g,
         None => {
+            tracing::warn!(
+                "[sync_async] System busy, rejecting request for repo_url={}",
+                repo_url
+            );
             return Json(serde_json::json!({
                 "error": "System is busy processing another request. Please try again later."
             }))
@@ -142,7 +146,23 @@ pub async fn sync_async(
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
         let _guard = guard;
-        let result = sync(State(state_for_process.clone()), body_clone).await;
+        // Hard upper bound so a stuck Neo4j/LSP/IO call surfaces as Err instead of
+        // hanging indefinitely waiting on TCP keepalives.
+        let timeout_secs: u64 = std::env::var("SYNC_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(30 * 60); // 30 minutes default
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            sync(State(state_for_process.clone()), body_clone),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => Err(crate::types::WebError(shared::Error::internal(
+                format!("sync() timed out after {}s", timeout_secs),
+            ))),
+        };
 
         let mut map = status_map.lock().await;
 
@@ -207,13 +227,19 @@ pub async fn sync_async(
                 }
             }
             Err(e) => {
+                let err_msg = format!("{}", e);
+                tracing::error!(
+                    "[sync_async] sync() failed for request {}: {}",
+                    request_id_for_work,
+                    err_msg
+                );
                 let entry = AsyncRequestStatus {
                     status: AsyncStatus::Failed,
                     result: None,
                     progress: 0,
                     update: Some(ast::repo::StatusUpdate {
                         status: "Failed".to_string(),
-                        message: format!("{}", e),
+                        message: err_msg.clone(),
                         step: 0,
                         total_steps: 16,
                         progress: 0,
@@ -229,7 +255,7 @@ pub async fn sync_async(
                             status: "Failed".to_string(),
                             progress: 0,
                             result: None,
-                            error: Some("Request processing failed".to_string()),
+                            error: Some(err_msg.clone()),
                             started_at: started_at.to_rfc3339(),
                             completed_at: Utc::now().to_rfc3339(),
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
@@ -302,6 +328,10 @@ pub async fn ingest_async(
     let guard = match crate::busy::BusyGuard::try_new(state.clone()) {
         Some(g) => g,
         None => {
+            tracing::warn!(
+                "[ingest_async] System busy, rejecting request for repo_urls={:?}",
+                repo_urls
+            );
             return Json(serde_json::json!({
                 "error": "System is busy processing another request. Please try again later."
             }))
@@ -387,7 +417,24 @@ pub async fn ingest_async(
     tokio::spawn(async move {
         // Move guard into task - it will automatically clear busy flag on drop
         let _guard = guard;
-        let result = ingest(State(state_clone.clone()), body_clone).await;
+        // Hard upper bound so a stuck Neo4j/LSP/IO call surfaces as Err instead of
+        // hanging indefinitely waiting on TCP keepalives.
+        let timeout_secs: u64 = std::env::var("INGEST_TIMEOUT_SECS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(60 * 60); // 60 minutes default
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            ingest(State(state_clone.clone()), body_clone),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => Err(crate::types::WebError(shared::Error::internal(format!(
+                "ingest() timed out after {}s",
+                timeout_secs
+            )))),
+        };
 
         let mut map = status_map.lock().await;
 
@@ -446,6 +493,11 @@ pub async fn ingest_async(
             }
             Err(e) => {
                 let err_msg = format!("{}", e);
+                tracing::error!(
+                    "[ingest_async] ingest() failed for request {}: {}",
+                    request_id_clone,
+                    err_msg
+                );
                 let _ = state_clone.tx.send(ast::repo::StatusUpdate {
                     status: "Failed".to_string(),
                     message: err_msg.clone(),
@@ -461,7 +513,7 @@ pub async fn ingest_async(
                     progress: 0,
                     update: Some(ast::repo::StatusUpdate {
                         status: "Failed".to_string(),
-                        message: err_msg,
+                        message: err_msg.clone(),
                         step: 0,
                         total_steps: 16,
                         progress: 0,
@@ -477,7 +529,7 @@ pub async fn ingest_async(
                             status: "Failed".to_string(),
                             progress: 0,
                             result: None,
-                            error: Some("Request processing failed".to_string()),
+                            error: Some(err_msg.clone()),
                             started_at: started_at.to_rfc3339(),
                             completed_at: Utc::now().to_rfc3339(),
                             duration_ms: (Utc::now() - started_at).num_milliseconds().max(0) as u64,
