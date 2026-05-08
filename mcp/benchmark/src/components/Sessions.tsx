@@ -895,6 +895,15 @@ const subLabelStyle: React.CSSProperties = {
   padding: "8px 14px 4px 14px",
 };
 
+const chunkInputMaxHeight = "14rem";
+const chunkOutputMaxHeight = "20rem";
+const chunkEventMaxHeight = "16rem";
+const chunkSummaryMaxHeight = "18rem";
+const chunkScrollStyle: React.CSSProperties = {
+  maxHeight: chunkOutputMaxHeight,
+  overflowY: "auto",
+  minHeight: 0,
+};
 
 function DisplayUnitRow({
   unit,
@@ -1000,24 +1009,32 @@ function DisplayUnitRow({
           </summary>
           <div style={{ borderTop: "1px solid #1f1f22" }}>
             <p style={subLabelStyle}>Input</p>
-            <CopyableBlock value={unit.call.payload} />
+            <CopyableBlock
+              value={unit.call.payload}
+              maxHeight={chunkInputMaxHeight}
+            />
             {unit.result && (
               <>
                 <p style={{ ...subLabelStyle, borderTop: "1px solid #1f1f22" }}>
                   Output
                 </p>
                 {formattedResults ? (
-                  <FormattedSearchResults
-                    results={formattedResults}
-                    provenance={provenance}
-                    rawValue={unit.result.payload}
-                  />
+                  <div style={chunkScrollStyle}>
+                    <FormattedSearchResults
+                      results={formattedResults}
+                      provenance={provenance}
+                      rawValue={unit.result.payload}
+                    />
+                  </div>
                 ) : (
                   <>
                     {provenance && (
                       <SearchProvenancePanel provenance={provenance} />
                     )}
-                    <CopyableBlock value={unit.result.payload} />
+                    <CopyableBlock
+                      value={unit.result.payload}
+                      maxHeight={chunkOutputMaxHeight}
+                    />
                   </>
                 )}
               </>
@@ -1083,7 +1100,7 @@ function DisplayUnitRow({
           {previewStr(event.text || event.payload)}
         </span>
       </summary>
-      <CopyableBlock value={event.payload} />
+      <CopyableBlock value={event.payload} maxHeight={chunkEventMaxHeight} />
     </details>
   );
 }
@@ -1252,6 +1269,8 @@ function TurnCard({
   provenanceEntries,
   annotations,
   onAnnotate,
+  isOpen,
+  onToggle,
 }: {
   turn: TraceTurn;
   stepMetas?: StepMeta[];
@@ -1262,6 +1281,8 @@ function TurnCard({
     note: string,
     toolCallId?: string,
   ) => void;
+  isOpen: boolean;
+  onToggle: (turnId: string) => void;
 }) {
   const units = groupEvents(turn.events);
   const metas = stepMetas ?? [];
@@ -1279,8 +1300,12 @@ function TurnCard({
     { input: 0, cache_read: 0, cache_write: 0, output: 0, total: 0 },
   );
   return (
-    <details style={card}>
+    <details open={isOpen} style={{ ...card, flexShrink: 0 }}>
       <summary
+        onClick={(e) => {
+          e.preventDefault();
+          onToggle(turn.id);
+        }}
         style={{
           listStyle: "none",
           display: "flex",
@@ -1385,6 +1410,7 @@ export function Sessions() {
     (searchParams.get("range") as "24h" | "7d" | "30d" | "all") || "all",
   );
   const [dayFilter, setDayFilter] = useState(searchParams.get("day") || "");
+  const [openTurnId, setOpenTurnId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1434,10 +1460,25 @@ export function Sessions() {
     [selected],
   );
 
+  const handleTurnToggle = useCallback((turnId: string) => {
+    setOpenTurnId((prev) => (prev === turnId ? null : turnId));
+  }, []);
+
   const freq = selected ? buildToolFrequency(selected.tool_sequence) : [];
-  const parsed = selected
-    ? parseTrace(selected.trace)
-    : { userPrompt: "", answer: "", calls: [], results: [], events: [], turns: [] };
+  const parsed = useMemo(
+    () =>
+      selected
+        ? parseTrace(selected.trace)
+        : {
+            userPrompt: "",
+            answer: "",
+            calls: [],
+            results: [],
+            events: [],
+            turns: [],
+          },
+    [selected],
+  );
   const selectedUsage = selected ? usageOf(selected.token_usage) : null;
   const prompt =
     parsed.userPrompt || selected?.user_prompt_preview || "No prompt preview";
@@ -1479,6 +1520,17 @@ export function Sessions() {
     if (dayFilter) nextParams.set("day", dayFilter);
     setSearchParams(nextParams, { replace: true });
   }, [dayFilter, repoSearch, rangeFilter, setSearchParams, sourceFilter]);
+
+  useEffect(() => {
+    if (parsed.turns.length === 0) {
+      setOpenTurnId(null);
+      return;
+    }
+
+    const preferredTurn =
+      parsed.turns.find((turn) => turn.kind !== "setup") ?? parsed.turns[0];
+    setOpenTurnId(preferredTurn.id);
+  }, [selected?.id, parsed.turns]);
 
   const filteredRuns = useMemo(
     () =>
@@ -1974,6 +2026,9 @@ export function Sessions() {
                   flexDirection: "column",
                   gap: "8px",
                   padding: "10px",
+                  maxHeight: "min(62vh, 52rem)",
+                  overflowY: "auto",
+                  minHeight: 0,
                 }}
               >
                 {parsed.turns.length === 0 ? (
@@ -1991,6 +2046,8 @@ export function Sessions() {
                       provenanceEntries={selected?.search_provenance}
                       annotations={annotations}
                       onAnnotate={handleAnnotate}
+                      isOpen={openTurnId === turn.id}
+                      onToggle={handleTurnToggle}
                     />
                   ))
                 )}
@@ -2014,13 +2071,19 @@ export function Sessions() {
                   <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
                     Prompt
                   </p>
-                  <CopyableBlock value={prompt} />
+                  <CopyableBlock
+                    value={prompt}
+                    maxHeight={chunkSummaryMaxHeight}
+                  />
                 </div>
                 <div>
                   <p style={{ ...labelStyle, margin: "10px 14px 0 14px" }}>
                     Final answer
                   </p>
-                  <CopyableBlock value={answer} />
+                  <CopyableBlock
+                    value={answer}
+                    maxHeight={chunkSummaryMaxHeight}
+                  />
                 </div>
               </div>
             </Section>
