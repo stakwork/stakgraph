@@ -12,7 +12,7 @@ export async function learn_docs_agent(req: Request, res: Response) {
   const reqApiKey = (req.query.apiKey || req.body?.apiKey) as string | undefined;
   const llm = resolveLLMConfig({ model: reqModel, apiKey: reqApiKey });
   const model = llm.model;
-  const providerOptions = getProviderOptions(llm.provider);
+  const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
   try {
     const allRepos = await db.get_repositories();

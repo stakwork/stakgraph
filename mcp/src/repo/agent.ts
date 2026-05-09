@@ -446,8 +446,8 @@ Apply the guidance from each skill throughout your response.`;
 
 /** Build the generate/stream call params from the prepared agent state. */
 function buildCallParams(prepared: PreparedAgent) {
-  const { finalPrompt, previousMessages, userMessage, provider, abortSignal } = prepared;
-  const providerOptions = getProviderOptions(provider as any);
+  const { finalPrompt, previousMessages, userMessage, provider, modelId, abortSignal } = prepared;
+  const providerOptions = getProviderOptions(provider as any, undefined, modelId);
   const base = abortSignal ? { providerOptions, abortSignal } : { providerOptions };
   if (previousMessages.length > 0) {
     const messagesToSend =

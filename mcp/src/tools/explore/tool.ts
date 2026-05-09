@@ -174,7 +174,7 @@ export async function get_context_explore(
     tools,
     prompt,
     system,
-    providerOptions: getProviderOptions(llm.provider) as any,
+    providerOptions: getProviderOptions(llm.provider, undefined, llm.modelName) as any,
     stopWhen: hasToolCall("final_answer"),
     onStepFinish: (sf) => {
       // console.log("step", JSON.stringify(sf.content, null, 2));

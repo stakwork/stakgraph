@@ -30,7 +30,7 @@ export async function document_workflow(req: Request, res: Response) {
   res.json({ request_id, status: 'pending' });
 
   const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey });
-  const providerOptions = getProviderOptions(llm.provider);
+  const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
   (async () => {
     try {
       const result = await generateText({ model: llm.model, prompt: buildPrompt(workflow.workflow_json || JSON.stringify(workflow)), providerOptions: providerOptions as any });
@@ -52,7 +52,7 @@ export async function document_workflows(req: Request, res: Response) {
 
   const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey });
   const model = llm.model;
-  const providerOptions = getProviderOptions(llm.provider);
+  const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
   (async () => {
     try {
       const workflows = await db.get_all_workflows();

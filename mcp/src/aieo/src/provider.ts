@@ -356,9 +356,23 @@ export function getTokenPricing(provider: Provider): TokenPricing {
 
 export type ThinkingSpeed = "thinking" | "fast";
 
+// Anthropic models that do NOT support `adaptive` thinking. Adaptive is only
+// available on certain Sonnet/Opus tiers; Haiku and older models reject it
+// with `invalid_request_error: adaptive thinking is not supported on this model`.
+function anthropicSupportsAdaptiveThinking(modelName?: string): boolean {
+  if (!modelName) return false;
+  const m = modelName.toLowerCase();
+  // Haiku family does not support adaptive thinking.
+  if (m.includes("haiku")) return false;
+  // Conservatively only enable adaptive thinking for known-supported families.
+  // Sonnet 4.5+ and Opus 4.5+ support it.
+  return m.includes("sonnet") || m.includes("opus");
+}
+
 export function getProviderOptions(
   provider: Provider,
-  thinkingSpeed?: ThinkingSpeed
+  thinkingSpeed?: ThinkingSpeed,
+  modelName?: string
 ) {
   const fast = thinkingSpeed === "fast";
   const explicitThinking = thinkingSpeed === "thinking";
@@ -372,9 +386,12 @@ export function getProviderOptions(
         thinking = { type: "disabled" };
       } else if (explicitThinking) {
         thinking = { type: "enabled", budgetTokens: 24000 };
-      } else {
-        // Default: let the model decide, with summarized thinking output.
+      } else if (anthropicSupportsAdaptiveThinking(modelName)) {
+        // Default for capable models: let the model decide, with summarized thinking output.
         thinking = { type: "adaptive", display: "summarized" };
+      } else {
+        // Models that don't support adaptive thinking (e.g. Haiku): disable it.
+        thinking = { type: "disabled" };
       }
       return {
         anthropic: {

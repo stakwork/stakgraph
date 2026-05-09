@@ -47,7 +47,7 @@ export async function callModel(opts: CallModelOptions): Promise<{
     executablePath,
     modelName,
   });
-  const providerOptions = getProviderOptions(provider, thinkingSpeed);
+  const providerOptions = getProviderOptions(provider, thinkingSpeed, modelName);
   console.log(`Calling ${provider} with options:`, providerOptions);
   const result = streamText({
     model,

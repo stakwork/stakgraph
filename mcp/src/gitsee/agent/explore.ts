@@ -157,7 +157,7 @@ export async function gitsee_context(
     tools,
     prompt,
     system: overrides?.system_prompt || CONF.system,
-    providerOptions: getProviderOptions(llm.provider) as any,
+    providerOptions: getProviderOptions(llm.provider, undefined, llm.modelName) as any,
     stopWhen: hasToolCall("final_answer"),
     onStepFinish: (sf) => logStep(sf.content),
   });
