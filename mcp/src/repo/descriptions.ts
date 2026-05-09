@@ -119,7 +119,7 @@ export const describe_nodes_agent = async (req: Request, res: Response) => {
     let totalProcessed = 0;
     let totalUsage = emptyUsage();
     const model = llm.model;
-    const providerOptions = getProviderOptions(llm.provider);
+    const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
     // Loop until cost limit reached or no more nodes
     while (true) {

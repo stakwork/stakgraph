@@ -91,7 +91,7 @@ export async function post_relevant_learnings(req: Request, res: Response) {
   try {
     const llm = resolveLLMConfig({ model: req.body.model, apiKey: req.body.apiKey, light: true });
     const model = llm.model;
-    const providerOptions = getProviderOptions(llm.provider);
+    const providerOptions = getProviderOptions(llm.provider, undefined, llm.modelName);
 
     // 1. List all scopes
     const allScopes = await db.get_all_scopes();

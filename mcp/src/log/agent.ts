@@ -59,7 +59,7 @@ export async function log_agent_context(
   opts: LogAgentOptions
 ): Promise<ContextResult> {
   const startTime = Date.now();
-  const { model, provider } = getModelDetails(opts.modelName, opts.apiKey);
+  const { model, provider, modelId } = getModelDetails(opts.modelName, opts.apiKey);
   console.log("===> log_agent model", model);
 
   const tools = get_log_tools({
@@ -83,7 +83,7 @@ export async function log_agent_context(
     model,
     instructions: SYSTEM,
     tools,
-    providerOptions: getProviderOptions(provider) as any,
+    providerOptions: getProviderOptions(provider, undefined, modelId) as any,
     stopWhen: hasEndMarker,
     stopSequences: ["[END_OF_ANSWER]"],
     onStepFinish: (sf) => {
