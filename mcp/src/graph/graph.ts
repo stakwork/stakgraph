@@ -119,22 +119,26 @@ export async function search(
   } else if (method === "hybrid") {
     const [fulltextResults, vectorResults] = await Promise.all([
       db.search(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
-      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
+      db.vectorSearch(query, limit * 3, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
     ]);
 
     const merged = new Map<string, { node: Neo4jNode; score: number }>();
+    const ftMaxScore = fulltextResults.length > 0 ? Math.max(...fulltextResults.map(n => n.score || 1)) : 1;
+    const vecMaxScore = vectorResults.length > 0 ? Math.max(...vectorResults.map(n => n.score || 1)) : 1;
 
     fulltextResults.forEach((node, i) => {
       const key = node.properties.ref_id || node.properties.node_key;
-      merged.set(key, { node, score: 1 / (RRF_K + i + 1) });
+      const norm = (node.score || 0) / ftMaxScore;
+      merged.set(key, { node, score: (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm) });
     });
 
     vectorResults.forEach((node, i) => {
       const key = node.properties.ref_id || node.properties.node_key;
-      const rrfScore = 1 / (RRF_K + i + 1);
+      const norm = (node.score || 0) / vecMaxScore;
+      const rrfScore = (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm);
       const existing = merged.get(key);
       if (existing) {
-        existing.score += rrfScore;
+        existing.score += rrfScore * 1.5;
       } else {
         merged.set(key, { node, score: rrfScore });
       }
@@ -217,7 +221,7 @@ export async function searchWithProvenance(
   if (method === "hybrid") {
     const [fulltextResults, vectorResults] = await Promise.all([
       db.search(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
-      db.vectorSearch(query, limit, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
+      db.vectorSearch(query, limit * 3, effective_node_types, skip_node_types, 0, language, include_patterns, exclude_patterns),
     ]);
 
     const ftIndex = new Map<string, { rank: number; score?: number }>();
@@ -232,16 +236,21 @@ export async function searchWithProvenance(
     });
 
     const merged = new Map<string, { node: Neo4jNode; score: number }>();
+    const ftMaxScore = fulltextResults.length > 0 ? Math.max(...fulltextResults.map(n => n.score || 1)) : 1;
+    const vecMaxScore = vectorResults.length > 0 ? Math.max(...vectorResults.map(n => n.score || 1)) : 1;
+
     fulltextResults.forEach((node, i) => {
       const key = node.properties.ref_id || node.properties.node_key;
-      merged.set(key, { node, score: 1 / (RRF_K + i + 1) });
+      const norm = (node.score || 0) / ftMaxScore;
+      merged.set(key, { node, score: (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm) });
     });
     vectorResults.forEach((node, i) => {
       const key = node.properties.ref_id || node.properties.node_key;
-      const rrfScore = 1 / (RRF_K + i + 1);
+      const norm = (node.score || 0) / vecMaxScore;
+      const rrfScore = (1 / (RRF_K + i + 1)) * (0.5 + 0.5 * norm);
       const existing = merged.get(key);
       if (existing) {
-        existing.score += rrfScore;
+        existing.score += rrfScore * 1.5;
       } else {
         merged.set(key, { node, score: rrfScore });
       }
