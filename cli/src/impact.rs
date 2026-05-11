@@ -12,7 +12,8 @@ use super::git::{get_changed_files, get_repo_root, get_staged_changes, get_worki
 use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::utils::{
-    build_graph_for_files_with_options, expand_dirs_for_parse, parse_node_types,
+    apply_glob_filters, build_graph_for_files_with_options, expand_dirs_for_parse_with_globs,
+    parse_node_types,
     rel_path_from_cwd,
 };
 
@@ -158,7 +159,8 @@ pub async fn run(
         // (wider graph) but still seed only from the git-changed files.
         // Without positional args, parse only the changed files themselves.
         let parse_scope = if !args.files.is_empty() {
-            let scope = expand_dirs_for_parse(&args.files);
+            let scope =
+                expand_dirs_for_parse_with_globs(&args.files, &args.include, &args.exclude)?;
             if scope.is_empty() {
                 return Err(Error::validation(
                     "no parseable files found in the given paths",
@@ -166,12 +168,18 @@ pub async fn run(
             }
             scope
         } else {
-            abs_files
+            let filtered = apply_glob_filters(abs_files, &args.include, &args.exclude)?;
+            if filtered.is_empty() {
+                return Err(Error::validation(
+                    "no parseable files found in the given paths",
+                ));
+            }
+            filtered
         };
 
         (parse_scope, Some(changed_rel), Some(mode_desc))
     } else {
-        let files = expand_dirs_for_parse(&args.files);
+        let files = expand_dirs_for_parse_with_globs(&args.files, &args.include, &args.exclude)?;
         if files.is_empty() {
             return Err(Error::validation(
                 "no parseable files found in the given paths",

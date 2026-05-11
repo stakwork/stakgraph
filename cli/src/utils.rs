@@ -6,9 +6,144 @@ use std::str::FromStr;
 use ast::lang::graphs::{ArrayGraph, NodeType};
 use ast::lang::Lang;
 use ast::repo::{Repo, Repos};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use lsp::Language;
 use shared::{Error, Result};
 use walkdir::WalkDir;
+
+fn has_glob_chars(pattern: &str) -> bool {
+    pattern
+        .chars()
+        .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}'))
+}
+
+fn expand_glob_pattern(raw_pattern: &str) -> Vec<String> {
+    let mut pattern = raw_pattern.trim().replace('\\', "/");
+    while pattern.starts_with("./") {
+        pattern = pattern.trim_start_matches("./").to_string();
+    }
+    pattern = pattern.trim_start_matches('/').to_string();
+
+    if pattern.is_empty() {
+        return Vec::new();
+    }
+
+    if pattern.ends_with('/') {
+        pattern.push_str("**");
+    }
+
+    let has_glob = has_glob_chars(&pattern);
+
+    if !pattern.contains('/') {
+        if has_glob {
+            return vec![format!("**/{}", pattern)];
+        }
+        return vec![format!("**/{}", pattern), format!("**/{}/**", pattern)];
+    }
+
+    if !has_glob {
+        let base = pattern.trim_end_matches('/');
+        return vec![base.to_string(), format!("{}/**", base)];
+    }
+
+    vec![pattern]
+}
+
+fn compile_globset(patterns: &[String], kind: &str) -> Result<Option<GlobSet>> {
+    let mut builder = GlobSetBuilder::new();
+    let mut count = 0usize;
+
+    for raw in patterns {
+        for expanded in expand_glob_pattern(raw) {
+            let glob = Glob::new(&expanded).map_err(|e| {
+                Error::validation(format!("invalid {} glob pattern '{}': {}", kind, raw, e))
+            })?;
+            builder.add(glob);
+            count += 1;
+        }
+    }
+
+    if count == 0 {
+        return Ok(None);
+    }
+
+    let built = builder
+        .build()
+        .map_err(|e| Error::validation(format!("invalid {} glob patterns: {}", kind, e)))?;
+    Ok(Some(built))
+}
+
+fn normalize_path_for_match(path: &str, cwd: &Path) -> String {
+    let input_path = Path::new(path);
+    let absolute = std::fs::canonicalize(input_path).unwrap_or_else(|_| {
+        if input_path.is_absolute() {
+            input_path.to_path_buf()
+        } else {
+            cwd.join(input_path)
+        }
+    });
+
+    let rel = absolute.strip_prefix(cwd).unwrap_or(&absolute);
+    rel.to_string_lossy()
+        .replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_string()
+}
+
+fn matches_any(set: &GlobSet, normalized_path: &str) -> bool {
+    if set.is_match(normalized_path) {
+        return true;
+    }
+    let basename = Path::new(normalized_path)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_default();
+    !basename.is_empty() && set.is_match(&basename)
+}
+
+pub fn apply_glob_filters(
+    files: Vec<String>,
+    include_patterns: &[String],
+    exclude_patterns: &[String],
+) -> Result<Vec<String>> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| Error::internal(format!("Failed to get current directory: {}", e)))?;
+    apply_glob_filters_with_base(files, include_patterns, exclude_patterns, &cwd)
+}
+
+fn apply_glob_filters_with_base(
+    files: Vec<String>,
+    include_patterns: &[String],
+    exclude_patterns: &[String],
+    base_dir: &Path,
+) -> Result<Vec<String>> {
+    if files.is_empty() {
+        return Ok(files);
+    }
+
+    let include_set = compile_globset(include_patterns, "include")?;
+    let exclude_set = compile_globset(exclude_patterns, "exclude")?;
+
+    Ok(files
+        .into_iter()
+        .filter(|file| {
+            let normalized = normalize_path_for_match(file, base_dir);
+            let included = include_set
+                .as_ref()
+                .map(|set| matches_any(set, &normalized))
+                .unwrap_or(true);
+            if !included {
+                return false;
+            }
+            let excluded = exclude_set
+                .as_ref()
+                .map(|set| matches_any(set, &normalized))
+                .unwrap_or(false);
+            !excluded
+        })
+        .collect())
+}
 
 pub fn parse_node_types(raw: &[String]) -> Result<Vec<NodeType>> {
     let mut types = Vec::new();
@@ -73,6 +208,15 @@ pub fn expand_dirs_for_parse(inputs: &[String]) -> Vec<String> {
     }
 
     expanded
+}
+
+pub fn expand_dirs_for_parse_with_globs(
+    inputs: &[String],
+    include_patterns: &[String],
+    exclude_patterns: &[String],
+) -> Result<Vec<String>> {
+    let expanded = expand_dirs_for_parse(inputs);
+    apply_glob_filters(expanded, include_patterns, exclude_patterns)
 }
 
 pub async fn build_graph_for_files(files: &[String]) -> Result<ArrayGraph> {
@@ -229,4 +373,86 @@ pub fn first_lines(text: &str, n: usize, max_line_len: usize) -> String {
         .map(|line| line.chars().take(max_line_len).collect::<String>())
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{apply_glob_filters, apply_glob_filters_with_base};
+    use std::fs;
+
+    fn mk_file(path: &std::path::Path, body: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("failed to create dir");
+        }
+        fs::write(path, body).expect("failed to write file");
+    }
+
+    #[test]
+    fn include_glob_matches_nested_paths() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("src/api/users.ts"), "export const users = 1;");
+        mk_file(&root.join("src/lib/math.ts"), "export const sum = 1;");
+
+        let files = vec![
+            root.join("src/api/users.ts").to_string_lossy().to_string(),
+            root.join("src/lib/math.ts").to_string_lossy().to_string(),
+        ];
+        let filtered = apply_glob_filters_with_base(files, &["**/api/**".to_string()], &[], root)
+            .expect("filter");
+
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered[0].ends_with("users.ts"));
+    }
+
+    #[test]
+    fn exclude_wins_over_include() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("src/api/users.ts"), "u");
+        mk_file(&root.join("src/api/comments.ts"), "c");
+
+        let files = vec![
+            root.join("src/api/users.ts").to_string_lossy().to_string(),
+            root.join("src/api/comments.ts").to_string_lossy().to_string(),
+        ];
+        let filtered = apply_glob_filters_with_base(
+            files,
+            &["**/api/**".to_string()],
+            &["**/users/**".to_string(), "**/users.ts".to_string()],
+            root,
+        )
+        .expect("filter");
+
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered[0].ends_with("comments.ts"));
+    }
+
+    #[test]
+    fn plain_segment_pattern_matches_like_vscode() {
+        let td = tempfile::tempdir().expect("tempdir");
+        let root = td.path();
+        mk_file(&root.join("src/tests/sample.ts"), "s");
+        mk_file(&root.join("src/lib/sample.ts"), "s");
+
+        let files = vec![
+            root.join("src/tests/sample.ts").to_string_lossy().to_string(),
+            root.join("src/lib/sample.ts").to_string_lossy().to_string(),
+        ];
+        let filtered =
+            apply_glob_filters_with_base(files, &[], &["tests".to_string()], root).expect("filter");
+
+        assert_eq!(filtered.len(), 1);
+        assert!(filtered[0].ends_with("src/lib/sample.ts"));
+    }
+
+    #[test]
+    fn invalid_pattern_returns_validation_error() {
+        let res = apply_glob_filters(
+            vec!["src/lib/file.ts".to_string()],
+            &["[".to_string()],
+            &[],
+        );
+        assert!(res.is_err());
+    }
 }

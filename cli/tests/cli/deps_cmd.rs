@@ -54,6 +54,40 @@ fn deps_smoke_directory() {
 }
 
 #[test]
+fn deps_include_glob_scopes_parse_files() {
+    let dir = fixture_path("src/testing/rust/src");
+    let out = run_stakgraph(&[
+        "deps",
+        "batch_process",
+        "--include",
+        "**/traits.rs",
+        &dir,
+    ]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("batch_process"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn deps_exclude_glob_can_remove_target() {
+    let dir = fixture_path("src/testing/rust/src");
+    let out = run_stakgraph(&[
+        "deps",
+        "batch_process",
+        "--exclude",
+        "**/traits.rs",
+        &dir,
+    ]);
+
+    assert_ne!(out.exit_code, 0);
+    assert!(
+        out.stderr.contains("no node") || out.stderr.contains("no Function"),
+        "stderr: {}",
+        out.stderr
+    );
+}
+
+#[test]
 fn deps_depth_zero_unlimited() {
     let traits = fixture_path("src/testing/rust/src/traits.rs");
     let out = run_stakgraph(&["deps", "batch_process", "--depth", "0", &traits]);

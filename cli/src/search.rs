@@ -12,7 +12,8 @@ use super::output::{write_json_success, JsonWarning, Output, OutputMode};
 use super::progress::CliSpinner;
 use super::render::{node_display_name, style_for_node_type};
 use super::utils::{
-    build_graph_for_files_with_options, expand_dirs_for_parse, parse_node_types, rel_path_from_cwd,
+    build_graph_for_files_with_options, expand_dirs_for_parse_with_globs, parse_node_types,
+    rel_path_from_cwd,
 };
 
 const SEARCHABLE_TYPES: &[NodeType] = &[
@@ -297,7 +298,7 @@ pub async fn run(
         Some(parse_node_types(&args.r#type)?)
     };
 
-    let files = expand_dirs_for_parse(&args.files);
+    let files = expand_dirs_for_parse_with_globs(&args.files, &args.include, &args.exclude)?;
     if files.is_empty() {
         return Err(Error::validation(
             "no parseable files found in the given paths",

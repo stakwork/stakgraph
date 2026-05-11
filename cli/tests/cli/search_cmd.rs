@@ -118,6 +118,55 @@ fn search_file_filter_scopes_to_matching_paths() {
 }
 
 #[test]
+fn search_include_glob_scopes_results() {
+    let api = fixture_path("src/testing/nextjs/app/api");
+    let out = run_stakgraph(&[
+        "search",
+         "POST",
+        "--type",
+        "Endpoint",
+        "--include",
+        "**/users/**",
+        &api,
+    ]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(out.stdout.contains("/api/users"), "stdout: {}", out.stdout);
+    assert!(!out.stdout.contains("/api/comments"), "stdout: {}", out.stdout);
+    assert!(!out.stdout.contains("/api/products"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn search_exclude_glob_filters_out_matches() {
+    let api = fixture_path("src/testing/nextjs/app/api");
+    let out = run_stakgraph(&[
+        "search",
+        "GET",
+        "--type",
+        "Endpoint",
+        "--exclude",
+        "**/users/**",
+        &api,
+    ]);
+
+    assert_eq!(out.exit_code, 0, "stderr: {}", out.stderr);
+    assert!(!out.stdout.contains("/api/users"), "stdout: {}", out.stdout);
+}
+
+#[test]
+fn search_invalid_include_glob_fails() {
+    let api = fixture_path("src/testing/nextjs/app/api");
+    let out = run_stakgraph(&["search", "GET", "--include", "[", &api]);
+
+    assert_ne!(out.exit_code, 0);
+    assert!(
+        out.stderr.contains("invalid include glob pattern"),
+        "stderr: {}",
+        out.stderr
+    );
+}
+
+#[test]
 fn search_limit_caps_result_count() {
     let api = fixture_path("src/testing/nextjs/app/api");
     let out = run_stakgraph(&["search", "GET", "--type", "Endpoint", "--limit", "2", &api]);
