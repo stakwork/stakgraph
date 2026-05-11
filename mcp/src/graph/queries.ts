@@ -312,12 +312,13 @@ export const UPSERT_AGENT_SESSION_QUERY = `
 MERGE (n:AgentSession:${Data_Bank} {node_key: $session_id})
 ON CREATE SET n.ref_id = randomUUID(), n.date_added_to_graph = $ts, n.namespace = 'default',
   n.name = $session_id, n.file = 'session://generated', n.start = 0, n.end = 0, n.body = $source,
-  n.source = $source, n.model = $model, n.provider = $provider,
+  n.source = $source, n.repo = $repo, n.model = $model, n.provider = $provider,
   n.start_time = toInteger($start_time),
   n.input_tokens = 0, n.cache_read_tokens = 0, n.cache_write_tokens = 0,
   n.output_tokens = 0, n.total_tokens = 0, n.duration_ms = 0,
   n.status = 'success', n.error_message = ''
 SET n.end_time = toInteger($end_time),
+    n.repo = $repo,
     n.input_tokens = coalesce(n.input_tokens, 0) + toInteger($input_tokens),
     n.cache_read_tokens = coalesce(n.cache_read_tokens, 0) + toInteger($cache_read_tokens),
     n.cache_write_tokens = coalesce(n.cache_write_tokens, 0) + toInteger($cache_write_tokens),

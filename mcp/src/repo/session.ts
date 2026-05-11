@@ -16,7 +16,7 @@ import { AiUsage, AiUsageWithLegacy } from "../aieo/src/usage.js";
 
 const SESSIONS_DIR = process.env.SESSIONS_DIR || ".sessions";
 
-const sessionMeta = new Map<string, { source: string; start_time: string }>();
+const sessionMeta = new Map<string, { source: string; start_time: string; repo?: string }>();
 
 export interface Session {
   id: string;
@@ -62,11 +62,13 @@ export function createSession(
   id?: string,
   system?: string,
   source?: string,
+  repo?: string,
 ): string {
   const sessionId = id || randomUUID();
   sessionMeta.set(sessionId, {
     source: source || "unknown",
     start_time: new Date().toISOString(),
+    repo,
   });
   const filePath = getSessionFile(sessionId);
   if (system) {
@@ -106,6 +108,7 @@ export async function appendSessionEnd(
     ?.upsert_agent_session({
       session_id: sessionId,
       source: stored.source,
+      repo: stored.repo || "",
       model: opts.model || "",
       provider: resolvedProvider,
       start_time,

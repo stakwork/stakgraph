@@ -104,7 +104,10 @@ export function Analytics() {
       if (targetRepo !== "all") params.set("repo", targetRepo);
       if (overrides?.day) params.set("day", overrides.day);
 
-      navigate({ pathname: "/", search: `?${params.toString()}` });
+      navigate(
+        { pathname: "/", search: `?${params.toString()}` },
+        { state: { from: "analytics" } },
+      );
     },
     [navigate, range, repo, source],
   );
@@ -255,11 +258,39 @@ export function Analytics() {
   }, [filteredRuns]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "14px", flex: 1, minHeight: 0, overflowY: "auto" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", flexWrap: "wrap" }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "14px",
+        flex: 1,
+        minHeight: 0,
+        overflowY: "auto",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <p style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#ededed" }}>Session analytics</p>
-          <p style={{ ...muted, margin: "4px 0 0 0" }}>Macro view across all saved session metadata.</p>
+          <p
+            style={{
+              margin: 0,
+              fontSize: "18px",
+              fontWeight: 700,
+              color: "#ededed",
+            }}
+          >
+            Session analytics
+          </p>
+          <p style={{ ...muted, margin: "4px 0 0 0" }}>
+            Macro view across all saved session metadata.
+          </p>
         </div>
         <button
           onClick={load}
@@ -277,7 +308,15 @@ export function Analytics() {
         </button>
       </div>
 
-      <div style={{ ...card, padding: "12px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+      <div
+        style={{
+          ...card,
+          padding: "12px",
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+        }}
+      >
         <FilterSelect
           value={range}
           onChange={(value) => setRange(value as RangeKey)}
@@ -290,10 +329,18 @@ export function Analytics() {
             { value: "all", label: "All time" },
           ]}
         />
-        <FilterSelect value={source} onChange={setSource} options={sourceOptions} />
+        <FilterSelect
+          value={source}
+          onChange={setSource}
+          options={sourceOptions}
+        />
         <FilterSelect value={repo} onChange={setRepo} options={repoOptions} />
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}>
-          <span style={muted}>{filteredRuns.length} / {runs.length} sessions</span>
+        <div
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center" }}
+        >
+          <span style={muted}>
+            {filteredRuns.length} / {runs.length} sessions
+          </span>
         </div>
       </div>
 
@@ -312,16 +359,35 @@ export function Analytics() {
               gap: "10px",
             }}
           >
-            <StatTile label="Sessions" value={formatNumber(totals.totalSessions)} detail={totals.totalErrors > 0 ? `${totals.totalErrors} error${totals.totalErrors > 1 ? "s" : ""}` : undefined} />
+            <StatTile
+              label="Sessions"
+              value={formatNumber(totals.totalSessions)}
+              detail={
+                totals.totalErrors > 0
+                  ? `${totals.totalErrors} error${totals.totalErrors > 1 ? "s" : ""}`
+                  : undefined
+              }
+            />
             {totals.successRate !== null && (
               <StatTile
                 label="Success rate"
                 value={`${totals.successRate.toFixed(1)}%`}
-                detail={totals.totalErrors > 0 ? `${totals.totalErrors} failed` : "all sessions succeeded"}
+                detail={
+                  totals.totalErrors > 0
+                    ? `${totals.totalErrors} failed`
+                    : "all sessions succeeded"
+                }
               />
             )}
-            <StatTile label="Total tokens" value={formatNumber(totals.totalTokens)} detail={`base ${formatNumber(totals.totalInput)} / read ${formatNumber(totals.totalCacheRead)} / write ${formatNumber(totals.totalCacheWrite)} / out ${formatNumber(totals.totalOutput)}`} />
-            <StatTile label="Total cost" value={`$${totals.totalCost.toFixed(4)}`} />
+            <StatTile
+              label="Total tokens"
+              value={formatNumber(totals.totalTokens)}
+              detail={`base ${formatNumber(totals.totalInput)} / read ${formatNumber(totals.totalCacheRead)} / write ${formatNumber(totals.totalCacheWrite)} / out ${formatNumber(totals.totalOutput)}`}
+            />
+            <StatTile
+              label="Total cost"
+              value={`$${totals.totalCost.toFixed(4)}`}
+            />
             {totals.cacheHitRate !== null && (
               <StatTile
                 label="Cache hit rate"
@@ -329,28 +395,52 @@ export function Analytics() {
                 detail={`${formatNumber(totals.totalCacheRead)} read / ${formatNumber(totals.totalInput + totals.totalCacheRead)} base+read`}
               />
             )}
-            <StatTile label="Tool calls" value={formatNumber(totals.totalCalls)} />
-            <StatTile label="Avg duration" value={formatDuration(Math.round(totals.avgDuration))} />
+            <StatTile
+              label="Tool calls"
+              value={formatNumber(totals.totalCalls)}
+            />
+            <StatTile
+              label="Avg duration"
+              value={formatDuration(Math.round(totals.avgDuration))}
+            />
           </div>
 
           <TableCard
             title="By source"
             badge={`${sourceRows.length} groups`}
-            columns={["Source", "Sessions", "Tokens", "Avg tokens", "Cost", "Calls", "Avg duration", "Last seen"]}
+            columns={[
+              "Source",
+              "Sessions",
+              "Tokens",
+              "Avg tokens",
+              "Cost",
+              "Calls",
+              "Avg duration",
+              "Last seen",
+            ]}
             rows={sourceRows.map((row) => (
               <tr key={row.key}>
                 <td style={tdStyle(true)}>
-                  <button style={linkButtonStyle} onClick={() => openSessions({ source: row.key })}>
+                  <button
+                    style={linkButtonStyle}
+                    onClick={() => openSessions({ source: row.key })}
+                  >
                     {row.label}
                   </button>
                 </td>
                 <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
-                <td style={tdStyle()}>{formatNumber(Math.round(row.avgTokens))}</td>
+                <td style={tdStyle()}>
+                  {formatNumber(Math.round(row.avgTokens))}
+                </td>
                 <td style={tdStyle()}>${row.totalCost.toFixed(4)}</td>
                 <td style={tdStyle()}>{formatNumber(row.toolCalls)}</td>
-                <td style={tdStyle()}>{formatDuration(Math.round(row.avgDurationMs))}</td>
-                <td style={tdStyle()}>{row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}</td>
+                <td style={tdStyle()}>
+                  {formatDuration(Math.round(row.avgDurationMs))}
+                </td>
+                <td style={tdStyle()}>
+                  {row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}
+                </td>
               </tr>
             ))}
           />
@@ -358,7 +448,18 @@ export function Analytics() {
           <TableCard
             title="By model"
             badge={`${modelRows.length} models`}
-            columns={["Model", "Provider", "Sessions", "Tokens", "Base", "Cache read", "Cache write", "Output", "Cache hit", "Cost"]}
+            columns={[
+              "Model",
+              "Provider",
+              "Sessions",
+              "Tokens",
+              "Base",
+              "Cache read",
+              "Cache write",
+              "Output",
+              "Cache hit",
+              "Cost",
+            ]}
             rows={modelRows.map((row) => (
               <tr key={`${row.provider}::${row.model}`}>
                 <td style={tdStyle(true)}>{row.model}</td>
@@ -369,15 +470,26 @@ export function Analytics() {
                 <td style={tdStyle()}>{formatNumber(row.totalCacheRead)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalCacheWrite)}</td>
                 <td style={tdStyle()}>{formatNumber(row.totalOutput)}</td>
-                <td style={tdStyle()}>{row.cacheHitRate !== null ? `${row.cacheHitRate.toFixed(1)}%` : "-"}</td>
+                <td style={tdStyle()}>
+                  {row.cacheHitRate !== null
+                    ? `${row.cacheHitRate.toFixed(1)}%`
+                    : "-"}
+                </td>
                 <td style={tdStyle()}>${row.totalCost.toFixed(4)}</td>
               </tr>
             ))}
           />
 
-          <TokensChart data={dailyRows} range={range} />
+          <TokensChart
+            data={dailyRows}
+            range={range}
+            onDayClick={(day) => openSessions({ day })}
+          />
 
-          <ActivityHeatmap data={dailyRows} onDayClick={(day) => openSessions({ day })} />
+          <ActivityHeatmap
+            data={dailyRows}
+            onDayClick={(day) => openSessions({ day })}
+          />
 
           <div
             style={{
@@ -393,14 +505,21 @@ export function Analytics() {
               rows={repoRows.slice(0, 20).map((row) => (
                 <tr key={row.key}>
                   <td style={tdStyle(true)}>
-                    <button style={linkButtonStyle} onClick={() => openSessions({ repo: row.key })}>
+                    <button
+                      style={linkButtonStyle}
+                      onClick={() => openSessions({ repo: row.key })}
+                    >
                       {row.label}
                     </button>
                   </td>
                   <td style={tdStyle()}>{formatNumber(row.sessions)}</td>
                   <td style={tdStyle()}>{formatNumber(row.totalTokens)}</td>
                   <td style={tdStyle()}>{formatNumber(row.toolCalls)}</td>
-                  <td style={tdStyle()}>{row.lastSeen ? new Date(row.lastSeen).toLocaleString() : "-"}</td>
+                  <td style={tdStyle()}>
+                    {row.lastSeen
+                      ? new Date(row.lastSeen).toLocaleString()
+                      : "-"}
+                  </td>
                 </tr>
               ))}
             />
@@ -412,7 +531,10 @@ export function Analytics() {
               rows={[...dailyRows].reverse().map((row) => (
                 <tr key={row.day}>
                   <td style={tdStyle(true)}>
-                    <button style={linkButtonStyle} onClick={() => openSessions({ day: row.day })}>
+                    <button
+                      style={linkButtonStyle}
+                      onClick={() => openSessions({ day: row.day })}
+                    >
                       {row.day}
                     </button>
                   </td>

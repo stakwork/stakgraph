@@ -199,6 +199,7 @@ export async function list_sessions(_req: Request, res: Response) {
         return {
           id,
           source: String(s.source ?? "unknown"),
+          repo: String(s.repo ?? ""),
           provider: prov,
           model: mod,
           timestamp: startTimeMs
