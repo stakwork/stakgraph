@@ -49,10 +49,16 @@ export async function callModel(opts: CallModelOptions): Promise<{
   });
   const providerOptions = getProviderOptions(provider, thinkingSpeed, modelName);
   console.log(`Calling ${provider} with options:`, providerOptions);
+  const systemMessages = messages.filter((m) => m.role === "system");
+  const nonSystemMessages = messages.filter((m) => m.role !== "system");
+  const system = systemMessages.length > 0
+    ? systemMessages.map((m) => m.content as string).join("\n")
+    : undefined;
   const result = streamText({
     model,
     tools,
-    messages,
+    system,
+    messages: nonSystemMessages,
     temperature: 0,
     providerOptions: providerOptions as any,
   });
