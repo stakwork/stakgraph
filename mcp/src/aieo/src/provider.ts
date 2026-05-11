@@ -10,6 +10,25 @@ import { createOpenRouter, OpenRouterModelOptions } from "@openrouter/ai-sdk-pro
 
 export type Provider = "anthropic" | "google" | "openai" | "openrouter";
 
+/**
+ * Optional LLM gateway URL (e.g. Bifrost: https://github.com/maximhq/bifrost,
+ * LiteLLM, Portkey, etc.). When set, all provider SDKs are routed through this
+ * gateway using each provider's drop-in path. Leave unset to call providers directly.
+ */
+const LLM_GATEWAY_URL = process.env.LLM_GATEWAY_URL?.replace(/\/$/, "");
+
+const GATEWAY_PATHS: Record<Provider, string> = {
+  anthropic: "/anthropic/v1",
+  google: "/genai/v1beta",
+  openai: "/openai/v1",
+  // OpenRouter has no dedicated Bifrost route; pass it through the OpenAI path.
+  openrouter: "/openai/v1",
+};
+
+export function getGatewayBaseURL(provider: Provider): string | undefined {
+  return LLM_GATEWAY_URL ? `${LLM_GATEWAY_URL}${GATEWAY_PATHS[provider]}` : undefined;
+}
+
 export const PROVIDERS: Provider[] = [
   "anthropic",
   "google",
@@ -248,25 +267,33 @@ export function getModel(
       `Getting model for provider: ${provider}, model: ${modelId}`
     );
   }
+  const baseURL = getGatewayBaseURL(provider);
+  if (baseURL) {
+    console.log(`[LLM_GATEWAY] routing ${provider} via ${baseURL}`);
+  }
   switch (provider) {
     case "anthropic":
       const anthropic = createAnthropic({
         apiKey,
+        ...(baseURL && { baseURL }),
       });
       return anthropic(modelId);
     case "google":
       const google = createGoogleGenerativeAI({
         apiKey,
+        ...(baseURL && { baseURL }),
       });
       return google(modelId);
     case "openai":
       const openai = createOpenAI({
         apiKey,
+        ...(baseURL && { baseURL }),
       });
       return openai(modelId);
     case "openrouter":
       const openrouter = createOpenRouter({
         apiKey,
+        ...(baseURL && { baseURL }),
       });
       return openrouter(modelId);
     // case "claude_code":
