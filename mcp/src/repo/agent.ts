@@ -645,6 +645,14 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "repo_url": "https://github.com/stakwork/hive",
+    "prompt": "hi, how are you?"
+  }' \
+  "http://localhost:3355/repo/agent"
+
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/stakwork/hive",
     "prompt": "please call the bash tool to make sure it works. List my docker containers currently running."
   }' \
   "http://localhost:3355/repo/agent"

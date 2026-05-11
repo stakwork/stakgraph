@@ -1,0 +1,23 @@
+services:
+  bifrost:
+    image: maximhq/bifrost:latest
+    container_name: bifrost
+    restart: unless-stopped
+    environment:
+      # Bind to all interfaces inside the container; map to localhost:8181 below.
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8080
+      LOG_LEVEL: info
+      LOG_STYLE: pretty
+      # Provider keys referenced via env.* in config.json.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    ports:
+      # Host 8181 -> container 8080. MCP server uses LLM_GATEWAY_URL=http://localhost:8181.
+      - "8181:8080"
+    volumes:
+      # Persists config.db (provider configs, VKs) + logs.db across restarts.
+      # config.json is read once on first boot to seed the config store.
+      - ./data:/app/data

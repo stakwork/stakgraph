@@ -1,0 +1,6 @@
+.env
+data/config.db
+data/config.db-*
+data/logs.db
+data/logs.db-*
+node_modules/
