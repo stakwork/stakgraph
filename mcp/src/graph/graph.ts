@@ -74,7 +74,7 @@ export async function get_edges(
 
 export type OutputFormat = "snippet" | "json";
 
-const RRF_K = 60;
+const RRF_K = 5;
 
 function sortByPagerank(nodes: Neo4jNode[]): Neo4jNode[] {
   return [...nodes].sort((a, b) => {

@@ -1797,8 +1797,9 @@ export function prepareFulltextSearchQuery(searchTerm: string): string {
     const fieldMatches = [
       `name:${word}^10`,
       `body:${word}^3`,
+      `description:${word}^2`,
       ...(simple
-        ? [`file:*${word}*^4`, `name:${word}*^2`, `body:${word}*^1`]
+        ? [`file:*${word}*^4`, `name:${word}*^2`, `body:${word}*^1`, `description:${word}*^1`]
         : []),
     ];
     return fieldMatches.join(" OR ");
@@ -1809,12 +1810,12 @@ export function prepareFulltextSearchQuery(searchTerm: string): string {
     const word = escapeSearchTerm(w);
     const simple = isSimpleTerm(w);
     return simple
-      ? `(name:${word}^10 OR body:${word}^3 OR name:${word}*^2 OR body:${word}*^1)`
-      : `(name:${word}^10 OR body:${word}^3)`;
+      ? `(name:${word}^10 OR body:${word}^3 OR description:${word}^2 OR name:${word}*^2 OR body:${word}*^1 OR description:${word}*^1)`
+      : `(name:${word}^10 OR body:${word}^3 OR description:${word}^2)`;
   });
 
   const quotedPhrase = `"${searchTerm.replace(/"/g, '\\"')}"`;
-  const exactPhraseMatch = `(name:${quotedPhrase}^5 OR body:${quotedPhrase}^2)`;
+  const exactPhraseMatch = `(name:${quotedPhrase}^5 OR body:${quotedPhrase}^2 OR description:${quotedPhrase}^1)`;
 
   return `(${wordMatches.join(" OR ")}) OR ${exactPhraseMatch}`;
 }
