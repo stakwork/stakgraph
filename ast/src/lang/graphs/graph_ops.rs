@@ -138,11 +138,20 @@ impl GraphOps {
                     "[incremental] removing existing nodes for {} modified file(s)",
                     modified_files.len()
                 );
-                for file in &modified_files {
-                    info!("[incremental] remove_nodes_by_file: {}", file);
-                    self.graph.remove_nodes_by_file(file).await?;
-                }
-                info!("[incremental] finished removing nodes; re-detecting languages");
+                // Single batched delete instead of N round-trips. The previous
+                // per-file loop did an unindexed full-graph match per file and
+                // could deadlock on a heavily-connected file (e.g. a test file
+                // referenced by many other nodes), hanging the bolt connection
+                // until the outer sync() timeout fired.
+                let deleted = self
+                    .graph
+                    .remove_nodes_by_files(&modified_files)
+                    .await?;
+                info!(
+                    "[incremental] finished removing {} node(s) across {} file(s); re-detecting languages",
+                    deleted,
+                    modified_files.len()
+                );
 
                 let mut subgraph_repos = Repo::new_multi_detect(
                     &repo_path,

@@ -1,6 +1,6 @@
 use crate::lang::graphs::{
     executor::{with_transient_retry, TransactionManager},
-    helpers::boltmap_insert_str,
+    helpers::{boltmap_insert_list, boltmap_insert_str},
     queries::*,
     Edge, EdgeType, Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
 };
@@ -28,11 +28,43 @@ impl Neo4jGraph {
     }
 
     pub async fn remove_nodes_by_file(&self, file_path: &str) -> Result<u32> {
+        let files = [file_path.to_string()];
+        self.remove_nodes_by_files(&files).await
+    }
+
+    /// Delete every `:Data_Bank` node whose `file` property matches any of the
+    /// provided repo-relative paths, in a single round-trip.
+    ///
+    /// The previous implementation issued one Cypher query per file, each
+    /// doing an unindexed full-graph `MATCH (n) WHERE n.file ENDS WITH $f`
+    /// followed by `OPTIONAL MATCH (n)-[r]-() DELETE r` and then
+    /// `DETACH DELETE n`. On a moderately large graph that translates to:
+    ///   * O(modified_files * total_nodes) node visits
+    ///   * Two delete passes per node (relationships then node)
+    ///   * Heavy lock contention that Neo4j surfaces as TransientError /
+    ///     LockClientStopped — which used to deadlock the bolt connection
+    ///     because the retry helper had no per-attempt timeout.
+    ///
+    /// This batched form:
+    ///   * scopes the scan to the `:Data_Bank` label (every stakgraph node
+    ///     carries it — see `NodeQueryBuilder::build`)
+    ///   * matches all files in one statement, so the label scan happens once
+    ///   * uses `DETACH DELETE` directly (it already removes incident
+    ///     relationships — the previous explicit `DELETE r` step only added
+    ///     lock pressure)
+    ///   * returns the total deleted count
+    pub async fn remove_nodes_by_files(&self, file_paths: &[String]) -> Result<u32> {
+        if file_paths.is_empty() {
+            return Ok(0);
+        }
         let connection = self.ensure_connected().await?;
-        let (query_str, params) = remove_nodes_by_file_query(file_path, &self.root);
-        // DETACH DELETE on heavily-connected nodes can deadlock against concurrent
-        // writers; Neo4j flags this as TransientError and expects the client to retry.
-        with_transient_retry("remove_nodes_by_file", || {
+        let (query_str, params) = remove_nodes_by_files_query(file_paths);
+        // DETACH DELETE on heavily-connected nodes can still deadlock against
+        // concurrent writers; Neo4j flags those as TransientError and expects
+        // the client to retry. `with_transient_retry` now also enforces a
+        // per-attempt timeout so a server-side stall surfaces as a retryable
+        // error instead of hanging the bolt connection indefinitely.
+        with_transient_retry("remove_nodes_by_files", || {
             let query_str = query_str.clone();
             let params = params.clone();
             let connection = connection.clone();
@@ -43,7 +75,7 @@ impl Neo4jGraph {
                 }
                 let mut result = connection.execute(query_obj).await?;
                 if let Some(row) = result.next().await? {
-                    Ok(row.get::<u32>("count").unwrap_or(0))
+                    Ok(row.get::<u32>("deleted").unwrap_or(0))
                 } else {
                     Ok(0)
                 }
@@ -260,26 +292,56 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
-pub fn remove_nodes_by_file_query(file_path: &str, root: &str) -> (String, BoltMap) {
+/// Backwards-compatible single-file query builder; delegates to the batched
+/// form so callers in tests or external crates keep working.
+pub fn remove_nodes_by_file_query(file_path: &str, _root: &str) -> (String, BoltMap) {
+    let files = [file_path.to_string()];
+    remove_nodes_by_files_query(&files)
+}
+
+/// Batched deletion of all `:Data_Bank` nodes whose `file` property matches
+/// any of the supplied paths.
+///
+/// Why scope to `:Data_Bank`:
+///   * Every node created by stakgraph carries the `:Data_Bank` label (see
+///     `NodeQueryBuilder` and the `data_bank_node_key_index` we create at
+///     startup), so the label scan is tight and well-bounded.
+///   * `MATCH (n)` without a label scans the entire Neo4j store including
+///     things stakgraph does not own, which is what made the previous
+///     implementation O(total_nodes) per file.
+///
+/// Why use `IN $files` plus `ANY ... ENDS WITH`:
+///   * Node `file` values are stored as absolute paths (root-prefixed by
+///     `crate::lang::graphs::form`), while the incremental sync supplies
+///     repo-relative paths (from `git diff`). Until the producer is unified
+///     we have to support both shapes.
+///   * `n.file IN $files` allows Neo4j 5 to use a range index on
+///     `:Data_Bank(file)` (created in `create_indexes`) when the caller can
+///     supply the full path; otherwise the `ANY` predicate falls back to a
+///     label scan with the suffix check, which is still much cheaper than
+///     the previous full-database scan.
+pub fn remove_nodes_by_files_query(file_paths: &[String]) -> (String, BoltMap) {
     let mut params = BoltMap::new();
-    // let file_name = file_path.split('/').last().unwrap_or(file_path);
-    boltmap_insert_str(&mut params, "file_name", file_path);
-    boltmap_insert_str(&mut params, "root", root);
+    let files: Vec<neo4rs::BoltType> = file_paths
+        .iter()
+        .map(|p| neo4rs::BoltType::String(p.clone().into()))
+        .collect();
+    boltmap_insert_list(&mut params, "files", files);
 
     let query = "
-        MATCH (n)
-        WHERE (n.file = $file_name OR n.file ENDS WITH $file_name)
-        AND n.file STARTS WITH $root
-        WITH DISTINCT n
-        OPTIONAL MATCH (n)-[r]-() 
-        DELETE r
-        WITH n
+        MATCH (n:Data_Bank)
+        WHERE n.file IS NOT NULL
+          AND (
+            n.file IN $files
+            OR ANY(f IN $files WHERE n.file ENDS WITH f)
+          )
         DETACH DELETE n
-        RETURN count(n) as deleted
+        RETURN count(n) AS deleted
     ";
 
     (query.to_string(), params)
 }
+
 pub fn update_repository_hash_query(repo_url: &str, new_hash: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
 

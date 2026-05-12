@@ -40,6 +40,12 @@ impl Neo4jGraph {
         let connection: Neo4jConnection = self.ensure_connected().await?;
         let queries = vec![
             "CREATE INDEX data_bank_node_key_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.node_key)",
+            // Range index on `file` so incremental sync deletions
+            // (`remove_nodes_by_files_query` -> `n.file IN $files`) and other
+            // file-scoped lookups can do an index seek instead of a full
+            // `:Data_Bank` label scan. Without this an incremental sync had
+            // to walk every project node for every modified file.
+            "CREATE INDEX data_bank_file_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.file)",
             "CREATE FULLTEXT INDEX bodyIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.body]",
             "CREATE FULLTEXT INDEX nameIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name]",
             "CREATE FULLTEXT INDEX nameBodyFileIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name, n.body, n.file]",

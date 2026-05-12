@@ -27,8 +27,17 @@ fn is_transient_neo4j_error(err: &shared::Error) -> bool {
 /// Retry an async operation while it returns a transient Neo4j error.
 /// Uses exponential backoff with jitter (50ms, 100ms, 200ms, ...).
 ///
-/// Defaults: 5 attempts, ~1.5s total worst-case backoff. Tunable via
-/// `NEO4J_RETRY_ATTEMPTS` env var.
+/// Each attempt is bounded by a per-attempt timeout so that a server-side
+/// operation that is stuck on locks (e.g. waiting for a held write lock that
+/// will never be released within a reasonable window) is surfaced as a
+/// retry-eligible failure instead of hanging on a live bolt connection
+/// indefinitely. This is what kept incremental syncs hanging until the outer
+/// 1800s `sync()` timeout fired without ever exercising the retry path.
+///
+/// Defaults: 5 attempts, ~1.5s total worst-case backoff, 120s per-attempt
+/// timeout. Tunable via `NEO4J_RETRY_ATTEMPTS` and `NEO4J_ATTEMPT_TIMEOUT_SECS`
+/// env vars. Set `NEO4J_ATTEMPT_TIMEOUT_SECS=0` to disable the per-attempt
+/// timeout.
 pub async fn with_transient_retry<F, Fut, T>(label: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> Fut,
@@ -38,11 +47,21 @@ where
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(5);
+    let attempt_timeout_secs: u64 = std::env::var("NEO4J_ATTEMPT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120);
     let mut attempt: u32 = 0;
     loop {
-        match op().await {
-            Ok(v) => return Ok(v),
-            Err(e) if is_transient_neo4j_error(&e) && attempt + 1 < max_attempts => {
+        let result = if attempt_timeout_secs == 0 {
+            // Per-attempt timeout disabled — preserve original behavior.
+            Ok(op().await)
+        } else {
+            tokio::time::timeout(Duration::from_secs(attempt_timeout_secs), op()).await
+        };
+        match result {
+            Ok(Ok(v)) => return Ok(v),
+            Ok(Err(e)) if is_transient_neo4j_error(&e) && attempt + 1 < max_attempts => {
                 attempt += 1;
                 let backoff_ms = 50u64.saturating_mul(1u64 << (attempt - 1).min(6));
                 warn!(
@@ -52,7 +71,23 @@ where
                 tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
                 continue;
             }
-            Err(e) => return Err(e),
+            Ok(Err(e)) => return Err(e),
+            Err(_elapsed) if attempt + 1 < max_attempts => {
+                attempt += 1;
+                let backoff_ms = 50u64.saturating_mul(1u64 << (attempt - 1).min(6));
+                warn!(
+                    "[neo4j-retry] attempt timed out after {}s on '{}' (attempt {}/{}), retrying in {}ms",
+                    attempt_timeout_secs, label, attempt, max_attempts, backoff_ms
+                );
+                tokio::time::sleep(Duration::from_millis(backoff_ms)).await;
+                continue;
+            }
+            Err(_elapsed) => {
+                return Err(shared::Error::dependency(format!(
+                    "Neo4j operation '{}' timed out after {}s (all {} attempts)",
+                    label, attempt_timeout_secs, max_attempts
+                )));
+            }
         }
     }
 }
