@@ -1,6 +1,6 @@
 use crate::lang::graphs::{
     executor::{with_transient_retry, TransactionManager},
-    helpers::boltmap_insert_str,
+    helpers::{boltmap_insert_list, boltmap_insert_str},
     queries::*,
     Edge, EdgeType, Neo4jGraph, NodeData, NodeKeys, NodeRef, NodeType,
 };
@@ -27,12 +27,13 @@ impl Neo4jGraph {
         }
     }
 
-    pub async fn remove_nodes_by_file(&self, file_path: &str) -> Result<u32> {
+    pub async fn remove_nodes_by_files(&self, file_paths: &[String]) -> Result<u32> {
+        if file_paths.is_empty() {
+            return Ok(0);
+        }
         let connection = self.ensure_connected().await?;
-        let (query_str, params) = remove_nodes_by_file_query(file_path, &self.root);
-        // DETACH DELETE on heavily-connected nodes can deadlock against concurrent
-        // writers; Neo4j flags this as TransientError and expects the client to retry.
-        with_transient_retry("remove_nodes_by_file", || {
+        let (query_str, params) = remove_nodes_by_files_query(file_paths);
+        with_transient_retry("remove_nodes_by_files", || {
             let query_str = query_str.clone();
             let params = params.clone();
             let connection = connection.clone();
@@ -43,7 +44,7 @@ impl Neo4jGraph {
                 }
                 let mut result = connection.execute(query_obj).await?;
                 if let Some(row) = result.next().await? {
-                    Ok(row.get::<u32>("count").unwrap_or(0))
+                    Ok(row.get::<u32>("deleted").unwrap_or(0))
                 } else {
                     Ok(0)
                 }
@@ -260,26 +261,24 @@ pub fn get_repository_hash_query(repo_url: &str) -> (String, BoltMap) {
     (query.to_string(), params)
 }
 
-pub fn remove_nodes_by_file_query(file_path: &str, root: &str) -> (String, BoltMap) {
+pub fn remove_nodes_by_files_query(file_paths: &[String]) -> (String, BoltMap) {
     let mut params = BoltMap::new();
-    // let file_name = file_path.split('/').last().unwrap_or(file_path);
-    boltmap_insert_str(&mut params, "file_name", file_path);
-    boltmap_insert_str(&mut params, "root", root);
+    let files: Vec<neo4rs::BoltType> = file_paths
+        .iter()
+        .map(|p| neo4rs::BoltType::String(p.clone().into()))
+        .collect();
+    boltmap_insert_list(&mut params, "files", files);
 
     let query = "
-        MATCH (n)
-        WHERE (n.file = $file_name OR n.file ENDS WITH $file_name)
-        AND n.file STARTS WITH $root
-        WITH DISTINCT n
-        OPTIONAL MATCH (n)-[r]-() 
-        DELETE r
-        WITH n
+        MATCH (n:Data_Bank)
+        WHERE n.file IN $files
         DETACH DELETE n
-        RETURN count(n) as deleted
+        RETURN count(n) AS deleted
     ";
 
     (query.to_string(), params)
 }
+
 pub fn update_repository_hash_query(repo_url: &str, new_hash: &str) -> (String, BoltMap) {
     let mut params = BoltMap::new();
 

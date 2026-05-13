@@ -1,5 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { Provider } from "./provider.js";
+import { Provider, getGatewayBaseURL } from "./provider.js";
 
 export type ProviderTool = "webSearch" | "bash";
 
@@ -17,8 +17,10 @@ export function getProviderTool(
 }
 
 function getAnthropicTool(apiKey: string, toolName: ProviderTool) {
+  const baseURL = getGatewayBaseURL("anthropic");
   const anthropic = createAnthropic({
     apiKey,
+    ...(baseURL && { baseURL }),
   });
   switch (toolName) {
     case "webSearch":

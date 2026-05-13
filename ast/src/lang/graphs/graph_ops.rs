@@ -10,6 +10,8 @@ use crate::lang::graphs::{graph::Graph, helpers::MutedNodeIdentifier};
 use crate::lang::graphs::{BTreeMapGraph, Neo4jGraph};
 use crate::lang::{EdgeType, NodeData, NodeType};
 use crate::repo::{check_revs_files, Repo, StatusUpdate};
+use lsp::strip_tmp;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct GraphOps {
@@ -132,17 +134,27 @@ impl GraphOps {
                     info!("Total dynamic edges collected: {}", all_dynamic_edges.len());
                 }
 
-                let muted_nodes = self.collect_muted_nodes_for_files(&modified_files).await?;
+                let graph_root = strip_tmp(&PathBuf::from(&repo_path)).display().to_string();
+                let absolute_files: Vec<String> = modified_files
+                    .iter()
+                    .map(|f| format!("{}/{}", graph_root, f))
+                    .collect();
+
+                let muted_nodes = self.collect_muted_nodes_for_files(&absolute_files).await?;
 
                 info!(
                     "[incremental] removing existing nodes for {} modified file(s)",
                     modified_files.len()
                 );
-                for file in &modified_files {
-                    info!("[incremental] remove_nodes_by_file: {}", file);
-                    self.graph.remove_nodes_by_file(file).await?;
-                }
-                info!("[incremental] finished removing nodes; re-detecting languages");
+                let deleted = self
+                    .graph
+                    .remove_nodes_by_files(&absolute_files)
+                    .await?;
+                info!(
+                    "[incremental] finished removing {} node(s) across {} file(s); re-detecting languages",
+                    deleted,
+                    modified_files.len()
+                );
 
                 let mut subgraph_repos = Repo::new_multi_detect(
                     &repo_path,
