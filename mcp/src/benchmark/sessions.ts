@@ -309,6 +309,7 @@ export async function get_session(req: Request, res: Response) {
         res.json({
           id,
           source: String(s.source ?? "unknown"),
+            repo: String(s.repo ?? ""),
           provider: prov,
           model: mod,
           timestamp: startTimeMs
@@ -339,6 +340,7 @@ export async function get_session(req: Request, res: Response) {
   res.json({
     id,
     source: "unknown",
+      repo: "",
     provider: "",
     model: "",
     timestamp: stat.mtime.toISOString(),

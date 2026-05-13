@@ -357,6 +357,11 @@ Apply the guidance from each skill throughout your response.`;
   const stopWhen: StopCondition<ToolSet> | StopCondition<ToolSet>[] =
     stopConditions.length === 1 ? stopConditions[0] : stopConditions;
 
+  // Derive repo label from opts.repos or repoPath
+  const repoLabel = opts.repos && opts.repos.length > 0
+    ? opts.repos.join(", ")
+    : repoPath.replace(/\/+$/, "").split("/").slice(-2).join("/");
+
   // Session handling (after instructions are fully assembled so we can persist them)
   let sessionId: string | undefined;
   let previousMessages: ModelMessage[] = [];
@@ -368,7 +373,7 @@ Apply the guidance from each skill throughout your response.`;
       hasSystemTurn = loadSession(sessionId)[0]?.role === "system";
       previousMessages = opts.isolatedContext ? [] : loadSessionMessages(sessionId);
     } else {
-      sessionId = createNewSession(inputSessionId, instructions, opts.source);
+      sessionId = createNewSession(inputSessionId, instructions, opts.source, repoLabel);
       hasSystemTurn = true;
     }
   }
