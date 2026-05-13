@@ -26,18 +26,10 @@ fn is_transient_neo4j_error(err: &shared::Error) -> bool {
 
 /// Retry an async operation while it returns a transient Neo4j error.
 /// Uses exponential backoff with jitter (50ms, 100ms, 200ms, ...).
-///
-/// Each attempt is bounded by a per-attempt timeout so that a server-side
-/// operation that is stuck on locks (e.g. waiting for a held write lock that
-/// will never be released within a reasonable window) is surfaced as a
-/// retry-eligible failure instead of hanging on a live bolt connection
-/// indefinitely. This is what kept incremental syncs hanging until the outer
-/// 1800s `sync()` timeout fired without ever exercising the retry path.
-///
-/// Defaults: 5 attempts, ~1.5s total worst-case backoff, 120s per-attempt
-/// timeout. Tunable via `NEO4J_RETRY_ATTEMPTS` and `NEO4J_ATTEMPT_TIMEOUT_SECS`
-/// env vars. Set `NEO4J_ATTEMPT_TIMEOUT_SECS=0` to disable the per-attempt
-/// timeout.
+/// Each attempt is bounded by a per-attempt timeout so stuck lock operations
+/// surface as retryable failures instead of hanging the bolt connection.
+/// Defaults: 5 attempts, 120s per-attempt timeout. Tunable via
+/// `NEO4J_RETRY_ATTEMPTS` and `NEO4J_ATTEMPT_TIMEOUT_SECS` env vars.
 pub async fn with_transient_retry<F, Fut, T>(label: &str, mut op: F) -> Result<T>
 where
     F: FnMut() -> Fut,
