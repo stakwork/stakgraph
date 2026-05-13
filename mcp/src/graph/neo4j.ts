@@ -1780,75 +1780,52 @@ async function execute_batch(session: Session, batch: MergeQuery[]) {
 /**
  * Prepares a fulltext search query for Neo4j by properly handling special characters
  */
+// Returns true if a raw (unescaped) term is safe to use in Lucene wildcard queries.
+// Wildcard queries do not honour escape sequences, so terms containing special
+// Lucene characters must never be used in wildcard position.
+function isSimpleTerm(raw: string): boolean {
+  return /^[\w\-.]+$/.test(raw);
+}
+
 export function prepareFulltextSearchQuery(searchTerm: string): string {
   const words = searchTerm.trim().split(/\s+/).filter(Boolean);
 
   if (words.length === 1) {
-    const word = escapeSearchTerm(words[0]);
+    const raw = words[0];
+    const word = escapeSearchTerm(raw);
+    const simple = isSimpleTerm(raw);
     const fieldMatches = [
       `name:${word}^10`,
-      `file:*${word}*^4`,
       `body:${word}^3`,
-      `name:${word}*^2`,
-      `body:${word}*^1`,
+      `description:${word}^2`,
+      ...(simple
+        ? [`file:*${word}*^4`, `name:${word}*^2`, `body:${word}*^1`, `description:${word}*^1`]
+        : []),
     ];
     return fieldMatches.join(" OR ");
   }
 
-  // Multi-word: all words must appear somewhere in the document (AND),
-  // then boost exact phrase as a tiebreaker
+  // Multi-word: OR individual words for recall, boost exact phrase for precision
   const wordMatches = words.map((w) => {
     const word = escapeSearchTerm(w);
-    return `(name:${word}^10 OR body:${word}^3 OR name:${word}*^2 OR body:${word}*^1)`;
+    const simple = isSimpleTerm(w);
+    return simple
+      ? `(name:${word}^10 OR body:${word}^3 OR description:${word}^2 OR name:${word}*^2 OR body:${word}*^1 OR description:${word}*^1)`
+      : `(name:${word}^10 OR body:${word}^3 OR description:${word}^2)`;
   });
 
   const quotedPhrase = `"${searchTerm.replace(/"/g, '\\"')}"`;
-  const exactPhraseMatch = `(name:${quotedPhrase}^5 OR body:${quotedPhrase}^2)`;
+  const exactPhraseMatch = `(name:${quotedPhrase}^5 OR body:${quotedPhrase}^2 OR description:${quotedPhrase}^1)`;
 
-  return `(${wordMatches.join(" AND ")}) OR ${exactPhraseMatch}`;
+  return `(${wordMatches.join(" OR ")}) OR ${exactPhraseMatch}`;
 }
 
-/**
- * Escapes special characters in search terms
- */
 function escapeSearchTerm(term: string): string {
-  // Handle phrases with spaces by wrapping in quotes
   if (term.includes(" ")) {
-    // Escape quotes within the term and wrap the whole thing in quotes
-    const escapedTerm = term.replace(/"/g, '\\"');
-    return `"${escapedTerm}"`;
+    return `"${term.replace(/"/g, '\\"')}"`;
   }
-
-  // For single terms, escape special characters
-  const charsToEscape = [
-    "+",
-    "-",
-    "&",
-    "|",
-    "!",
-    "(",
-    ")",
-    "{",
-    "}",
-    "[",
-    "]",
-    "^",
-    '"',
-    "~",
-    "?",
-    ":",
-    "\\",
-    "/",
-    "*",
-  ];
-
-  let result = term;
-  for (const char of charsToEscape) {
-    const regex = new RegExp(
-      char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), // Removed the extra \\
-      "g",
-    );
-    result = result.replace(regex, `\\${char}`);
-  }
-  return result;
+  // Escape backslash first, then remaining Lucene special characters.
+  return term
+    .replace(/\\/g, "\\\\")
+    .replace(/([+\-&|!(){}[\]^"~*?:/])/g, "\\$1");
 }

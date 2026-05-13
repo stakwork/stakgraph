@@ -42,7 +42,7 @@ ${STANDARD_ANALYZER}`;
 export const FULLTEXT_COMPOSITE_INDEX_QUERY = `
 CREATE FULLTEXT INDEX ${FULLTEXT_COMPOSITE_INDEX}
   IF NOT EXISTS FOR (f:${Data_Bank})
-  ON EACH [f.name, f.body, f.file]
+  ON EACH [f.name, f.body, f.file, f.description]
 ${STANDARD_ANALYZER}`;
 
 export const VECTOR_INDEX_QUERY = `CREATE VECTOR INDEX ${VECTOR_INDEX}
@@ -565,7 +565,8 @@ export const VECTOR_SEARCH_QUERY = `
 CALL db.index.vector.queryNodes('${VECTOR_INDEX}', toInteger($limit), $embeddings)
 YIELD node, score
 WITH node, score
-WHERE
+WHERE score >= 0.4
+  AND
   CASE
     WHEN $node_types IS NULL OR size($node_types) = 0 THEN true
     ELSE ANY(label IN labels(node) WHERE label IN $node_types)

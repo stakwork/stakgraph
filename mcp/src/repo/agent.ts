@@ -86,7 +86,7 @@ ${learn_concepts ? "Use list_concepts and learn_concept tools first, to learn ab
 
 ### Graph Tools
 - \`repo_overview\` — Use only for broad orientation or architecture questions; it returns a compact, de-noised repo tree.
-- \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["Datamodel"]\`, \`["UnitTest"]\`) and \`include_patterns\` / \`exclude_patterns\` for path filters (e.g. \`["**/*.ts"]\`, \`["__tests__", "dist"]\`).
+- \`stakgraph_search\` — Search by keyword/semantic/hybrid. Returns compact results (name, file, ref_id, description). Use \`node_types\` to filter (e.g. \`["Endpoint"]\`, \`["Function"]\`, \`["Datamodel"]\`, \`["UnitTest"]\`). Use \`include_patterns\` to scope results — by file type (\`["**/*.ts"]\`), directory (\`["src/auth/**"]\`), or repo (\`["owner/repo/**"]\`). Use \`exclude_patterns\` to remove noise (\`["__tests__", "dist"]\`). Always scope to the target repo when multiple repos are in the graph.
 - \`stakgraph_map\` — Trace relationships from a node. Use \`direction: "up"\` for callers, \`"down"\` for callees.
 - \`stakgraph_code\` — Read source code of a specific node. Pass \`ref_id\` from search results or \`name\` + \`node_type\`.
 
@@ -129,7 +129,7 @@ The prompt prepended to your instructions tells you which repos are graph-backed
 ## Workflow
 1. Check the repo context prepended to your prompt — identify which repos are graph-backed.
 2. For broad architecture questions only, \`repo_overview\` can help you orient on the repo tree.
-3. \`stakgraph_search\` → find relevant nodes (returns names, ref_ids, descriptions — NOT full code).
+3. \`stakgraph_search\` → find relevant nodes (returns names, ref_ids, descriptions — NOT full code). Scope to the target repo with \`include_patterns: ["owner/repo/**"]\` when multiple repos are available.
 4. \`stakgraph_code\` → read source of each relevant node using its ref_id.
 5. \`stakgraph_map\` → trace callers/callees when you need to follow a chain.
 6. \`bash\` → only for config/env files, directory listings, or bash-only repos.
@@ -140,6 +140,7 @@ The prompt prepended to your instructions tells you which repos are graph-backed
 - **What calls Y?** → \`stakgraph_map({ name: "Y", node_type: "Function", direction: "up" })\`
 - **List data models** → \`stakgraph_search({ query: "model", node_types: ["Datamodel"] })\`
 - **Find tests** → \`stakgraph_search({ query: "X", node_types: ["UnitTest", "IntegrationTest"] })\`
+- **Multi-repo: scope to one repo** → \`stakgraph_search({ query: "auth", include_patterns: ["stakwork/hive/**"] })\`
 
 ${SYSTEM_PROMPT_END(qs)}
 `;
