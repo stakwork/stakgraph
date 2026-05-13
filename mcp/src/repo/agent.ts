@@ -287,13 +287,44 @@ async function prepareAgent(
   );
 
   // Load and merge MCP server tools if configured
+  let orgAgentToolNames: string[] = [];
   if (mcpServers && mcpServers.length > 0) {
     const mcpTools = await getMcpTools(mcpServers);
     tools = { ...tools, ...mcpTools };
     console.log(`[MCP] Merged ${Object.keys(mcpTools).length} MCP tools`);
+    // Detect any "*_org_agent" tools (e.g. stakwork_org_agent, evanfeenstra_org_agent)
+    orgAgentToolNames = Object.keys(mcpTools).filter(name => /_org_agent$/i.test(name));
   }
 
   let instructions = systemOverride || DEFAULT_SYSTEM(toolsConfig);
+
+  // If an org_agent tool is available from MCP, inject a strong hint to use it for unclear/high-level questions.
+  if (orgAgentToolNames.length > 0) {
+    const toolList = orgAgentToolNames.map(n => `\`${n}\``).join(", ");
+    const single = orgAgentToolNames.length === 1;
+    const primary = orgAgentToolNames[0];
+    const orgAgentBlock = `\n\nORG AGENT TOOL${single ? "" : "S"}:
+You have access to ${single ? "an org agent tool" : "org agent tools"}: ${toolList}.
+
+**Purpose:** ${single ? "This tool provides" : "These tools provide"} HIGH-LEVEL, ORG-WIDE context that is NOT available in this swarm (e.g. product goals, business context, R+D, organizational priorities, related projects, external systems). The specific source code of the repos you are exploring already lives here — do NOT ask the org agent about it.
+
+**When to call ${single ? `\`${primary}\`` : "one of these tools"}:**
+- The user's question is ambiguous, vague, or high-level and you need broader context to interpret it.
+- You need org-wide / product-level / business background that isn't in the code.
+- Call it FIRST in these cases, before graph or bash tools.
+
+**How to phrase the query — CRITICAL:**
+- Ask ONLY for the high-level/general context you are missing.
+- Do NOT mention specific repos, files, functions, classes, endpoints, models, or code symbols from the user's question.
+- Do NOT ask it to look up implementation details — those live HERE in the swarm and you'll find them with graph/bash tools.
+- Frame the query generically — as if the org agent has no access to this codebase (because it shouldn't be looking at code at all).
+- Do NOT ask it to do a deep dive - ask it to be brief and concise.
+
+After getting high-level context back, use graph/bash tools on the actual codebase to answer the specific question.`;
+    instructions += orgAgentBlock;
+  }
+
+  // console.log("INSTRUCTIONS", instructions);
 
   // Append sub-agent instructions if any sub-agents are registered
   if (subAgents && subAgents.length > 0) {
