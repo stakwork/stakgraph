@@ -139,6 +139,22 @@ implementing step 3 of the rollout.
 | **C. Per (deployment × environment)** *(original plan)* | `sk-bf-mcp-prod`, `sk-bf-mcp-staging`, `sk-bf-goose-prod`, `sk-bf-chat-prod`, … | Surgical: each deployment has its own budget, RPM cap, model allowlist, and on/off switch; `virtual_key_id` directly answers "what did goose-prod cost today" | N env vars to provision and rotate; mostly redundant once macaroons enforce per-run caps and the kill-switch table catches runaways |
 | **D. Per env, with deployment as a dim** | `sk-bf-prod` + `x-bf-dim-deployment=mcp` | Same VK count as B; preserves per-deployment attribution in logs | Attribution is self-reported (buggy deployment can mis-tag itself); no per-deployment enforcement |
 
+> **Note on Option C and `agent-name`.** A tempting variant of Option C
+> is "VK per (agent-name × environment)" — minting one VK per agent
+> type (`browser`, `coder`, `chat`, `reviewer`, …) so the agent name
+> ends up in Bifrost's first-class `team_id` column and `GET
+> /api/logs/histogram/cost/by-dimension=team_id` answers "spend per
+> agent" via HTTP for free. **Don't.** `deployment` is a small, mostly
+> static set (`mcp`, `goose`, `chat-bff`, `workflow-engine` —
+> single-digit count, changes rarely). `agent-name` is open-ended and
+> grows with the product (every new agent type adds a row). Encoding
+> it in the VK structure means every new agent ships with a
+> provisioning task and a new env var, instead of just setting a
+> header. Keep `agent-name` in `x-bf-dim-agent-name` →
+> `metadata.agent-name` and answer per-agent rollups with SQL against
+> `logs.db` or a small custom endpoint in our plugin. See
+> `smoke-test-results.md` §"Next steps" for the reasoning.
+
 **Recommendation: start with Option B (per environment), upgrade to C only when an incident or workflow demands surgical per-deployment control.** Rationale:
 
 1. Steps 5–7 of the rollout don't depend on VK count — observability is by dims, enforcement is by macaroons.
