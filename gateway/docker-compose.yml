@@ -1,0 +1,30 @@
+services:
+  bifrost:
+    # Built by `make docker-build` (see ../gateway/Dockerfile). This image
+    # bundles a dynamically-linked bifrost-http + our governance plugin .so
+    # at /app/plugins/stakgraph-gateway.so. The upstream maximhq/bifrost
+    # image is statically linked and cannot load Go plugins.
+    image: stakgraph-gateway:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stakgraph-gateway
+    restart: unless-stopped
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8080
+      LOG_LEVEL: info
+      LOG_STYLE: pretty
+      # Provider keys are referenced by env.* in data/config.json.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+    ports:
+      # Host 8181 -> container 8080, same as mcp/docs/gateway/docker-compose.yml
+      # so existing MCP tests (LLM_GATEWAY_URL=http://localhost:8181) just work.
+      - "8181:8080"
+    volumes:
+      # config.json is read once on first boot to seed config.db. To re-seed
+      # after editing it, `docker compose down && rm -f data/config.db*`.
+      - ./data:/app/data
