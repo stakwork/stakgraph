@@ -18,42 +18,63 @@
 # We pin the transports tag because that's what produces bifrost-http; the
 # core version comes along via go.work / replace directives in the tree.
 ARG GO_VERSION=1.26.2
+ARG NODE_VERSION=25
 ARG BIFROST_VERSION=transports/v1.5.2
 
 # ---------------------------------------------------------------------------
-# Stage 1: build bifrost-http (dynamic) + our plugin from upstream sources.
+# Stage 0: clone bifrost source once and share via subsequent stages.
+# A separate small stage keeps the `git clone` layer cache stable across
+# UI- and Go-build edits.
+# ---------------------------------------------------------------------------
+FROM alpine:3.23 AS source
+ARG BIFROST_VERSION
+RUN apk add --no-cache git
+WORKDIR /src
+RUN git clone --depth=1 --branch ${BIFROST_VERSION} \
+        https://github.com/maximhq/bifrost.git . \
+ && git rev-parse HEAD > /src/BIFROST_COMMIT
+
+# ---------------------------------------------------------------------------
+# Stage 1: build the React/Vite UI exactly the way upstream does.
+# bifrost-http has `//go:embed all:ui` against transports/bifrost-http/ui,
+# so we drop the compiled assets in there before compiling Go.
+# ---------------------------------------------------------------------------
+FROM node:${NODE_VERSION}-alpine3.23 AS ui-builder
+WORKDIR /ui
+COPY --from=source /src/ui/package.json /src/ui/package-lock.json ./
+RUN npm ci
+COPY --from=source /src/ui/ ./
+# `build-enterprise` is upstream's prod build script — it outputs to ./out
+# (Next.js static export). We then move ./out into the place bifrost-http
+# expects to embed.
+RUN npm run build-enterprise
+
+# ---------------------------------------------------------------------------
+# Stage 2: build bifrost-http (dynamic) + our plugin from upstream sources.
 # ---------------------------------------------------------------------------
 FROM golang:${GO_VERSION}-alpine3.23 AS builder
 
 ARG BIFROST_VERSION
 ARG TARGETARCH
 
-# git:            clone bifrost source.
+# git:            present in source stage already; kept for parity / safety.
 # gcc, musl-dev:  CGO toolchain for bifrost-http + plugin.
 # binutils-gold:  the linker gcc invokes via -fuse-ld=gold (Bifrost build).
 # sqlite-dev:     headers for the embedded SQLite store.
 # bash, make:     used by upstream Makefiles (kept for parity / future use).
 RUN apk add --no-cache git gcc musl-dev binutils-gold sqlite-dev bash make
 
-WORKDIR /src
+# Pull source from the dedicated clone stage and the built UI from the UI stage.
+COPY --from=source    /src /src
+COPY --from=ui-builder /ui/out /src/transports/bifrost-http/ui
 
-# Clone bifrost at the exact tag we're targeting. Shallow clone keeps the
-# image cache cheap.
-RUN git clone --depth=1 --branch ${BIFROST_VERSION} \
-        https://github.com/maximhq/bifrost.git . \
- && git rev-parse HEAD > /src/BIFROST_COMMIT
-
-# --- 1a. Build bifrost-http dynamically linked. ---
+# --- 2a. Build bifrost-http dynamically linked. ---
 #
-# We deliberately do NOT use upstream's Makefile here because it pulls a
-# whole UI build (Node) we don't need for an API-only governance gateway.
-# bifrost-http has `//go:embed all:ui` so we stub the directory with a
-# placeholder before compiling — the embed succeeds, the UI just serves
-# a stub page (we hit Bifrost's JSON endpoints, not the UI).
+# bifrost-http has `//go:embed all:ui`; the UI assets were placed at
+# /src/transports/bifrost-http/ui above. We intentionally do NOT use
+# upstream's `-extldflags '-static'` flag because we need a dynamically
+# linked binary that can load Go plugins (.so).
 WORKDIR /src/transports
-RUN mkdir -p bifrost-http/ui \
- && printf 'Bifrost UI not bundled in this build (API-only).\n' \
-        > bifrost-http/ui/index.html
 RUN CGO_ENABLED=1 GOOS=linux \
     go build \
         -ldflags="-w -s -X main.Version=${BIFROST_VERSION}" \
@@ -65,7 +86,7 @@ RUN CGO_ENABLED=1 GOOS=linux \
 RUN ldd /out/bifrost-http | grep -q 'musl' && echo "OK: dynamic" \
  || (echo "FAIL: bifrost-http is statically linked"; ldd /out/bifrost-http; exit 1)
 
-# --- 1b. Build our plugin against this same source tree. ---
+# --- 2b. Build our plugin against this same source tree. ---
 #
 # By replacing the plugin's `github.com/maximhq/bifrost/core` with the
 # local checkout, the plugin and bifrost-http compile against byte-identical
@@ -82,7 +103,7 @@ RUN go mod edit -replace github.com/maximhq/bifrost/core=/src/core \
         -o /out/stakgraph-gateway.so .
 
 # ---------------------------------------------------------------------------
-# Stage 2: minimal runtime — Alpine + dynamic libc + ca-certs.
+# Stage 3: minimal runtime — Alpine + dynamic libc + ca-certs.
 # ---------------------------------------------------------------------------
 FROM alpine:3.23
 
