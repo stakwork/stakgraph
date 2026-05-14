@@ -6,7 +6,24 @@ Reproducer: `bash gateway/scripts/smoke-test.sh`
 
 ---
 
-## Verdict
+## ⚠️ Resolution (added later that day)
+
+The "drops a fraction of requests" finding documented below was traced to
+**macOS Docker Desktop's virtiofs bind mount silently dropping SQLite WAL
+writes**, not anything in Bifrost or our plugin. Switching `/app/data`
+from a bind mount to a docker-managed named volume eliminates the issue
+entirely (12 of 12 requests land, every time, on the same image).
+
+Full investigation: [bifrost-log-drop-debug.md](./bifrost-log-drop-debug.md).
+Fix landed in `gateway/docker-compose.yml` + `gateway/Dockerfile`.
+
+The dimension-extraction and per-call cost/latency findings in the rest
+of this document still hold — they were never the problem. Only the
+"some rows don't land" surprise was filesystem-mediated.
+
+---
+
+## Verdict (original — kept for the historical record)
 
 **⚠️ Mostly works — observability via `x-bf-dim-*` is real, but Bifrost's
 built-in logging plugin in our build silently drops a meaningful subset

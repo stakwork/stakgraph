@@ -119,8 +119,15 @@ COPY --from=builder /out/bifrost-http        /app/bifrost-http
 COPY --from=builder /out/stakgraph-gateway.so /app/plugins/stakgraph-gateway.so
 COPY --from=builder /src/BIFROST_COMMIT       /app/BIFROST_COMMIT
 
+# Seed config.json into the image. Bifrost reads it on first boot to populate
+# config.db; subsequent boots ignore it. Baking it into the image (rather than
+# bind-mounting from the host) lets us use a docker-managed named volume for
+# /app/data, which avoids macOS virtiofs + SQLite WAL flush issues that
+# silently drop log rows. See plans/bifrost-log-drop-debug.md.
+COPY data/config.json                         /app/data/config.json
+
 # Data dir is where bifrost reads config.json and writes config.db / logs.db.
-# Mount it as a volume in docker-compose to persist across restarts.
+# Mount it as a named volume in docker-compose to persist across restarts.
 RUN mkdir -p /app/data/logs && chown -R app:app /app
 
 USER app

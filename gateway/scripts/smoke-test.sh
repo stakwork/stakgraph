@@ -25,13 +25,17 @@
 #   bash gateway/scripts/smoke-test.sh
 #
 # After the script completes, inspect rows with:
-#   sqlite3 gateway/data/logs.db \
-#     "SELECT json_extract(metadata,'\$.agent-name') AS agent,
-#             ROUND(SUM(cost),6) AS spend
-#      FROM logs
-#      WHERE created_at >= datetime('now','-15 minutes')
-#        AND json_extract(metadata,'\$.agent-name') IS NOT NULL
-#      GROUP BY agent ORDER BY spend DESC;"
+#   docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \
+#     sh -c "apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \
+#       \"SELECT json_extract(metadata,'\$.agent-name') AS agent,
+#                ROUND(SUM(cost),6) AS spend
+#         FROM logs
+#         WHERE created_at >= datetime('now','-15 minutes')
+#           AND json_extract(metadata,'\$.agent-name') IS NOT NULL
+#         GROUP BY agent ORDER BY spend DESC;\""
+#
+# The DB lives in the `stakgraph-gateway-data` docker volume (named volume
+# instead of bind mount — see plans/bifrost-log-drop-debug.md for why).
 
 set -u  # don't use -e: we expect at least one request to fail (the error row)
         # and want to keep going
@@ -174,12 +178,13 @@ echo "# request with NO dim headers (absence-of-dims must be graceful)"
 call_llm_no_dims "$M_HAIKU" 'reply in 3 words'
 
 echo
-echo "Done. Wait ~5s for streaming flush, then query gateway/data/logs.db."
+echo "Done. Wait ~5s for streaming flush, then query the logs volume."
 echo
-echo "Headline query:"
-echo "  sqlite3 gateway/data/logs.db \\"
-echo "    \"SELECT json_extract(metadata,'\\\$.agent-name') AS agent,"
-echo "            ROUND(SUM(cost),6) AS spend"
-echo "     FROM logs WHERE created_at >= datetime('now','-15 minutes')"
-echo "       AND json_extract(metadata,'\\\$.agent-name') IS NOT NULL"
-echo "     GROUP BY agent ORDER BY spend DESC;\""
+echo "Headline query (DB lives in the stakgraph-gateway-data docker volume):"
+echo "  docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \\"
+echo "    sh -c \"apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \\"
+echo "      \\\"SELECT json_extract(metadata,'\\\$.agent-name') AS agent,"
+echo "              ROUND(SUM(cost),6) AS spend"
+echo "       FROM logs WHERE created_at >= datetime('now','-15 minutes')"
+echo "         AND json_extract(metadata,'\\\$.agent-name') IS NOT NULL"
+echo "       GROUP BY agent ORDER BY spend DESC;\\\"\""

@@ -22,13 +22,21 @@ expects.
 ```
 gateway/
 ├── main.go            # plugin implementation (Init/GetName/*Hook/Cleanup)
-├── go.mod             # pinned: bifrost/core v1.5.8, Go 1.26.2
+├── go.mod             # pinned: bifrost/core v1.5.10, Go 1.26.2
 ├── Makefile           # local + docker build targets
-├── Dockerfile         # dynamic bifrost-http + plugin, one image
-├── docker-compose.yml # host 8181 -> container 8080, mounts ./data
+├── Dockerfile         # dynamic bifrost-http + plugin, COPYs data/config.json
+├── docker-compose.yml # host 8181 -> container 8080, named volume for /app/data
 └── data/
-    └── config.json    # seed config: providers + plugin entry
+    └── config.json    # seed config: providers + plugin entry (baked into image)
 ```
+
+> **Why a named volume instead of `./data:/app/data`?** macOS Docker
+> Desktop's virtiofs bind mount silently drops a fraction of SQLite WAL
+> writes, so log rows that gorm reported as successfully inserted never
+> reach disk. Named volumes use the Linux VM's native filesystem and
+> don't have this problem. `data/config.json` is `COPY`'d into the
+> image at build time so first-boot seeding still works.
+> Full investigation: [plans/bifrost-log-drop-debug.md](./plans/bifrost-log-drop-debug.md).
 
 ## Why a custom Dockerfile?
 
@@ -67,9 +75,11 @@ curl -s http://localhost:8181/v1/chat/completions \
     "messages": [{"role":"user","content":"say hi in 3 words"}]
   }'
 
-# Then confirm the dims landed in the SQLite logs table:
-sqlite3 data/logs.db \
-  "SELECT model, cost, metadata FROM logs ORDER BY created_at DESC LIMIT 1;"
+# Then confirm the dims landed in the SQLite logs table. The DB lives
+# in the `stakgraph-gateway-data` docker volume now, not the host path:
+docker run --rm -v stakgraph-gateway-data:/data alpine:3.23 \
+  sh -c 'apk add -q sqlite >/dev/null && sqlite3 /data/logs.db \
+    "SELECT model, cost, metadata FROM logs ORDER BY created_at DESC LIMIT 1;"'
 # → claude-3-5-haiku-latest|0.000043|{"run-id":"r_test_001","agent-name":"smoke-test","workspace-id":"w1","user-id":"u1","session-id":"s_test_42"}
 
 # 5. (optional) end-to-end against the existing MCP harness — same port,

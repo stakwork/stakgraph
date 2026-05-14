@@ -25,6 +25,19 @@ services:
       # so existing MCP tests (LLM_GATEWAY_URL=http://localhost:8181) just work.
       - "8181:8080"
     volumes:
-      # config.json is read once on first boot to seed config.db. To re-seed
-      # after editing it, `docker compose down && rm -f data/config.db*`.
-      - ./data:/app/data
+      # Named volume (NOT bind mount). On macOS Docker Desktop, virtiofs
+      # bind mounts silently drop a fraction of SQLite WAL writes, leaving
+      # logs.db missing rows that gorm reported as successfully inserted.
+      # Named volumes use the Linux VM's native filesystem and avoid this.
+      # See plans/bifrost-log-drop-debug.md for the full investigation.
+      #
+      # config.json is baked into the image (see Dockerfile) and seeded into
+      # /app/data on first boot. To re-seed after editing data/config.json:
+      #   make docker-build && docker compose down -v && docker compose up -d
+      # (Note: -v removes the volume, including logs.db. Omit if you need to
+      # preserve historical logs across a config change.)
+      - bifrost-data:/app/data
+
+volumes:
+  bifrost-data:
+    name: stakgraph-gateway-data
