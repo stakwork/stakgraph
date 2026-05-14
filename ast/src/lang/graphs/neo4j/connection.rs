@@ -3,7 +3,7 @@ use shared::{Error, Result};
 
 use crate::lang::graphs::{
     executor::{execute_batch, execute_queries_simple},
-    migration::clear_graph_query,
+    migration::{clear_graph_query, migrate_code_labels_query},
     Neo4jConfig,
 };
 
@@ -58,6 +58,8 @@ impl Neo4jGraph {
             // `:Data_Bank` label scan. Without this an incremental sync had
             // to walk every project node for every modified file.
             "CREATE INDEX data_bank_file_index IF NOT EXISTS FOR (n:Data_Bank) ON (n.file)",
+            "CREATE INDEX code_node_key_index IF NOT EXISTS FOR (n:Code) ON (n.node_key)",
+            "CREATE INDEX code_file_index IF NOT EXISTS FOR (n:Code) ON (n.file)",
             "CREATE FULLTEXT INDEX bodyIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.body]",
             "CREATE FULLTEXT INDEX nameIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name]",
             "CREATE FULLTEXT INDEX nameBodyFileIndex IF NOT EXISTS FOR (n:Data_Bank) ON EACH [n.name, n.body, n.file]",
@@ -69,6 +71,12 @@ impl Neo4jGraph {
                 tracing::warn!("Error creating index: {:?}", e);
             }
         }
+
+        let code_label_migration = migrate_code_labels_query();
+        if let Err(e) = connection.run(neo4rs::query(&code_label_migration)).await {
+            tracing::warn!("Error migrating Code labels: {:?}", e);
+        }
+
         Ok(())
     }
 

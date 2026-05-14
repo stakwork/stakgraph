@@ -5,6 +5,7 @@ use shared::Result;
 use tiktoken_rs::{get_bpe_from_model, CoreBPE};
 
 pub const DATA_BANK: &str = "Data_Bank";
+pub const CODE: &str = "Code";
 pub const BATCH_SIZE: usize = 4096;
 
 lazy_static! {
@@ -64,6 +65,39 @@ pub fn calculate_token_count(body: &str) -> Result<i64> {
         .map_err(|e| shared::Error::dependency(format!("failed to initialize tokenizer: {e}")))?;
     let token_count = bpe.encode_with_special_tokens(body).len() as i64;
     Ok(token_count)
+}
+
+pub fn is_code_node_type(node_type: &NodeType) -> bool {
+    matches!(
+        node_type,
+        NodeType::Repository
+            | NodeType::Package
+            | NodeType::Language
+            | NodeType::Directory
+            | NodeType::File
+            | NodeType::Import
+            | NodeType::Library
+            | NodeType::Class
+            | NodeType::Trait
+            | NodeType::Instance
+            | NodeType::Function
+            | NodeType::Endpoint
+            | NodeType::Request
+            | NodeType::DataModel
+            | NodeType::Page
+            | NodeType::Var
+            | NodeType::UnitTest
+            | NodeType::IntegrationTest
+            | NodeType::E2eTest
+    )
+}
+
+pub fn neo4j_node_labels(node_type: &NodeType) -> String {
+    if is_code_node_type(node_type) {
+        format!("{}:{}:{}", node_type, DATA_BANK, CODE)
+    } else {
+        format!("{}:{}", node_type, DATA_BANK)
+    }
 }
 
 pub fn unique_functions_filters() -> Vec<String> {

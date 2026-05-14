@@ -25,6 +25,7 @@ import {
   buildGraphMeta,
   isTrue,
   IS_TEST,
+  semanticLabel,
 } from "../graph/utils.js";
 import { NodeType, Neo4jNode } from "../graph/types.js";
 import { get_context } from "../repo/agent.js";
@@ -766,7 +767,7 @@ function toConciseNode(node: Neo4jNode): {
   node_type: string;
 } {
   const ref_id = IS_TEST ? "test_ref_id" : node.properties.ref_id || "";
-  const node_type = node.labels.find((l: string) => l !== "Data_Bank") || "";
+  const node_type = semanticLabel(node.labels);
   return {
     name: node.properties.name || "",
     file: node.properties.file || "",
@@ -817,7 +818,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
     // Filter by node types if specified
     if (requestedNodeTypes.length > 0) {
       allNodes = allNodes.filter((node) => {
-        const nodeType = node.labels.find((l: string) => l !== "Data_Bank");
+        const nodeType = semanticLabel(node.labels) as NodeType;
         return (
           nodeType === "Feature" ||
           nodeType === "File" ||
@@ -833,7 +834,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
       // Group nodes by type
       allNodes.forEach((node) => {
         const nodeType =
-          node.labels.find((l: string) => l !== "Data_Bank") || "Unknown";
+          semanticLabel(node.labels) || "Unknown";
         if (!nodesByType[nodeType]) {
           nodesByType[nodeType] = [];
         }
@@ -891,7 +892,7 @@ export async function gitree_all_features_graph(req: Request, res: Response) {
       new Set(
         allNodes
           .map((n) => {
-            const label = n.labels.find((l: string) => l !== "Data_Bank");
+            const label = semanticLabel(n.labels);
             return label;
           })
           .filter(Boolean)

@@ -11,6 +11,7 @@ import {
   Node,
   Edge,
   toNum,
+  code_node_types,
 } from "./types.js";
 import {
   create_node_key,
@@ -37,6 +38,8 @@ function normalizeGlobToContains(pattern: string): string {
 }
 
 export const Data_Bank = Q.Data_Bank;
+const Code = "Code";
+const codeNodeTypes = new Set<NodeType>(code_node_types());
 
 const no_db = process.env.NO_DB === "true" || process.env.NO_DB === "1";
 if (!no_db) {
@@ -1691,8 +1694,11 @@ interface MergeQuery {
 function construct_merge_node_query(node: Node): MergeQuery {
   const { node_type, node_data } = node;
   const node_key = create_node_key(node);
+  const labels = codeNodeTypes.has(node_type)
+    ? `${node_type}:${Data_Bank}:${Code}`
+    : `${node_type}:${Data_Bank}`;
   const query = `
-      MERGE (node:${node_type}:${Data_Bank} {node_key: $node_key})
+      MERGE (node:${labels} {node_key: $node_key})
       ON CREATE SET node += $properties
       ON MATCH SET node += $properties
       RETURN node

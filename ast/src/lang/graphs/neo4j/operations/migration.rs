@@ -327,7 +327,7 @@ pub fn remove_nodes_by_files_query(file_paths: &[String]) -> (String, BoltMap) {
     boltmap_insert_list(&mut params, "files", files);
 
     let query = "
-        MATCH (n:Data_Bank)
+        MATCH (n:Code)
         WHERE n.file IN $files
         DETACH DELETE n
         RETURN count(n) AS deleted
@@ -386,6 +386,20 @@ pub fn remove_nodes_by_files_chunked_query(
     );
 
     (query, params)
+}
+pub fn migrate_code_labels_query() -> String {
+        "
+                MATCH (n:Data_Bank)
+                WHERE NOT 'Code' IN labels(n)
+                    AND any(label IN labels(n) WHERE label IN [
+                        'Repository', 'Package', 'Language', 'Directory', 'File', 'Import',
+                        'Library', 'Class', 'Trait', 'Instance', 'Function', 'Endpoint',
+                        'Request', 'DataModel', 'Page', 'Var', 'UnitTest',
+                        'IntegrationTest', 'E2eTest'
+                    ])
+                CALL { WITH n SET n:Code } IN TRANSACTIONS OF 1000 ROWS
+        "
+        .to_string()
 }
 
 pub fn update_repository_hash_query(repo_url: &str, new_hash: &str) -> (String, BoltMap) {
