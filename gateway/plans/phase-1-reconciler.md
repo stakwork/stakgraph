@@ -532,23 +532,91 @@ need to look them up at spawn time.
 
 ---
 
+## Trigger model: lazy-only for phase 1
+
+The reconciler runs **only when the VK is actually needed**, not
+proactively. Specifically, it's called from the agent-spawn / chat-LLM
+code path that already does a `secret_store.get(workspace_id, user_id)`
+lookup:
+
+```
+on agent spawn / chat LLM call for (workspace W, user U):
+    vk = secret_store.get(W, U)
+    if vk is None:
+        # First-use for this pair — reconcile against W's Bifrost
+        result, err = Reconcile(ctx, W, U)
+        if err != nil:
+            log.Error("VK provisioning failed: %v", err)
+            return user_facing_error("LLM unavailable in this workspace right now")
+        secret_store.put(W, U, result.VKValue)
+        vk = result.VKValue
+    proceed with LLM call using vk
+```
+
+**Why lazy-only for phase 1:**
+
+- One trigger point in code; nothing to wire into workspace-create or
+  grant-access handlers.
+- If a workspace's Bifrost isn't deployed yet, nothing tries to
+  reconcile against it. No log spam, no error queue. The first attempt
+  happens when a user actually uses LLM in that workspace.
+- Failure is immediately visible to the user, which makes ops issues
+  obvious instead of buried in a background-job log.
+- Bifrost outages don't block workspace-create or grant-access flows;
+  they only block first-use of LLM in a workspace whose Bifrost is
+  unreachable — which is the *correct* behavior, since LLM is
+  unavailable in that workspace anyway.
+- Subsequent LLM calls hit the cached VK in the secret store; no
+  Bifrost round-trip after the first success.
+
+**Concurrency:** if multiple agent processes are spawned for the same
+`(W, U)` at the very first use, the per-pair mutex (see "Concurrency
+safety" above) ensures only the first caller actually creates the
+Customer + VK; the rest wait, then read the cached value.
+
+**Failure handling:** if Bifrost is unreachable (connection refused,
+timeout, 5xx), the reconciler returns an error. Hive logs it (loudly,
+so ops sees it) and returns "LLM unavailable in this workspace right
+now" to the user. **No retry queue, no background sweep, no
+pending-reconciliation table in phase 1.** The next user attempt is
+itself the retry. If a workspace's Bifrost stays down, every LLM call
+in that workspace fails — which is correct: LLM *is* unavailable in
+that workspace until ops fixes it.
+
+**Out of scope for phase 1, planned for phase 2:**
+
+- Eager reconciliation on workspace-create (for owner)
+- Eager reconciliation on user-grant-access (for newly-granted user)
+- Background sweep job (every N minutes; idempotent walk)
+- Retry queue for transient Bifrost outages
+- Drift repair (e.g. budget changed in Hive config; sync to existing
+  Customers)
+- Offboarding fan-out (`PUT virtual-keys/<id> {is_active: false}`
+  across all workspaces a user had access to)
+
+When phase 2 adds these, the lazy-only path stays as the safety net —
+nothing about its design changes.
+
+---
+
 ## Wire-up checklist for phase 1
 
 - [ ] Hive has a registry: `workspace_id → (bifrost_url, admin_basic_creds)`
 - [ ] Hive's secret store schema accepts `(workspace_id, user_id) → vk_value`
 - [ ] `Reconcile()` function implemented per algorithm above
-- [ ] `Reconcile()` called from:
-  - [ ] Workspace creation handler (for workspace owner)
-  - [ ] User-grant-access handler (for the newly-granted user)
-  - [ ] Background sweep job (every N minutes; idempotent walk)
-- [ ] Pilot agent's spawn path looks up `vks[workspace_id][user_id]` and
-  injects `BIFROST_VK` + `LLM_GATEWAY_URL` into its environment
+- [ ] **Per-pair mutex** wrapping `Reconcile()` calls, keyed by
+  `(workspace_id, user_id)` — prevents racing dup creation on
+  first-use
+- [ ] Pilot agent's spawn path / chat-LLM path performs the
+  lazy lookup-or-reconcile-then-cache sequence above
 - [ ] Pilot agent's LLM client attaches the dim headers:
   `x-bf-dim-{run-id, workspace-id, agent-name, session-id, deployment}`
+- [ ] Pilot agent's LLM client uses
+  `Authorization: Bearer <vk_value>` (or the SDK's provider-specific
+  equivalent — `x-api-key` for Anthropic, etc.)
 - [ ] Verification SQL queries (from `llm-governance-v2.md` §"Observability")
-  return non-empty results within ~1h of deploy
-- [ ] `enforce_auth_on_inference` stays `false` until phase 1 is
-  considered stable
+  return non-empty results within ~1h of pilot deploy
+- [ ] `enforce_auth_on_inference` stays `false` throughout phase 1
 
 ---
 
