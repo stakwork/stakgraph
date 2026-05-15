@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,10 +40,29 @@ const defaultPluginPort = "8189"
 
 // Context keys used to pass values between hooks for a single request.
 // Keys live in the BifrostContext for the lifetime of one request.
+//
+// ctxKeyDimensions holds the x-bf-dim-* map we extract in
+// HTTPTransportPreHook. We do this ourselves because Bifrost populates
+// its own schemas.BifrostContextKeyDimensions LATER (inside
+// ConvertToBifrostContext, which runs inside each handler — after our
+// PreHook fires). Stashing the map here means PreLLMHook /
+// PostLLMHook / future cryptographic-auth code can read agent-name,
+// run-id, session-id, etc. without re-parsing headers.
+//
+// Header prefix:        x-bf-dim-<key>
+// Map key (this var):   <key>          (prefix stripped, lower-cased)
+// Map value:            the header value verbatim
 const (
-	ctxKeyRequestID schemas.BifrostContextKey = "stakgraph-gateway/request-id"
-	ctxKeyStartTime schemas.BifrostContextKey = "stakgraph-gateway/start-time"
+	ctxKeyRequestID  schemas.BifrostContextKey = "stakgraph-gateway/request-id"
+	ctxKeyStartTime  schemas.BifrostContextKey = "stakgraph-gateway/start-time"
+	ctxKeyDimensions schemas.BifrostContextKey = "stakgraph-gateway/dimensions"
 )
+
+// dimHeaderPrefix matches Bifrost's own extraction logic in
+// transports/bifrost-http/lib/ctx.go:266 — anything case-insensitively
+// starting with "x-bf-dim-" becomes a dimension whose key is the
+// suffix.
+const dimHeaderPrefix = "x-bf-dim-"
 
 // pluginConfig is what Init() receives from the `config` block in
 // bifrost's config.json. Nothing required yet; logged at startup so we
@@ -121,8 +141,23 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 
 	macaroon := req.CaseInsensitiveHeaderLookup("x-macaroon")
 
-	// Bifrost's transport already extracted x-bf-dim-* into this map.
-	dims, _ := ctx.Value(schemas.BifrostContextKeyDimensions).(map[string]string)
+	// IMPORTANT: at HTTPTransportPreHook time, Bifrost has NOT yet
+	// populated schemas.BifrostContextKeyDimensions. That extraction
+	// happens inside ConvertToBifrostContext, which is called by each
+	// handler AFTER the transport-interceptor middleware (where this
+	// hook runs). See bifrost/transports/bifrost-http/handlers/
+	// middlewares.go:1002 which calls this out: "Root HTTP span starts
+	// before ConvertToBifrostContext, so read x-bf-dim-* directly."
+	//
+	// So we read x-bf-dim-* off req.Headers ourselves and stash the
+	// resulting map on the context for downstream hooks (PreLLMHook,
+	// PostLLMHook, StreamChunkHook) to use without re-parsing. This
+	// is the foundation of the per-request auth path the gateway plugin
+	// will grow into — agent-name, session-id, run-id, etc. all flow
+	// through here BEFORE any provider call is made.
+	dims := extractDims(req.Headers)
+	ctx.SetValue(ctxKeyDimensions, dims)
+
 	runID := dims["run-id"]
 	sessionID := dims["session-id"]
 	agentName := dims["agent-name"]
@@ -131,7 +166,7 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 
 	ctx.SetValue(ctxKeyRequestID, runID)
 
-	logf("HTTPTransportPreHook method=%s path=%s body_bytes=%d macaroon=%s run_id=%s session_id=%s agent=%s workspace=%s user=%s",
+	logf("HTTPTransportPreHook method=%s path=%s body_bytes=%d macaroon=%s run_id=%s session_id=%s agent=%s workspace=%s user=%s dims_count=%d",
 		req.Method,
 		req.Path,
 		len(req.Body),
@@ -141,6 +176,7 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 		agentName,
 		workspaceID,
 		userID,
+		len(dims),
 	)
 	ctx.Log(schemas.LogLevelInfo, fmt.Sprintf("PreHook %s %s", req.Method, req.Path))
 
@@ -153,13 +189,14 @@ func HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest)
 // cost and increment Redis counters.
 func HTTPTransportPostHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest, resp *schemas.HTTPResponse) error {
 	elapsed := elapsedSince(ctx)
-	runID, _ := ctx.Value(ctxKeyRequestID).(string)
+	dims := dimsFromContext(ctx)
 
-	logf("HTTPTransportPostHook path=%s status=%d body_bytes=%d run_id=%s elapsed_ms=%d",
+	logf("HTTPTransportPostHook path=%s status=%d body_bytes=%d run_id=%s agent=%s elapsed_ms=%d",
 		req.Path,
 		resp.StatusCode,
 		len(resp.Body),
-		runID,
+		dims["run-id"],
+		dims["agent-name"],
 		elapsed.Milliseconds(),
 	)
 	return nil
@@ -176,7 +213,9 @@ func HTTPTransportStreamChunkHook(ctx *schemas.BifrostContext, req *schemas.HTTP
 	// We only log when the chunk has usage data or is an error, which
 	// roughly corresponds to "interesting boundary" chunks.
 	if chunk.BifrostError != nil {
-		logf("StreamChunk error path=%s err=%v", req.Path, chunk.BifrostError.Error)
+		dims := dimsFromContext(ctx)
+		logf("StreamChunk error path=%s run_id=%s agent=%s err=%v",
+			req.Path, dims["run-id"], dims["agent-name"], chunk.BifrostError.Error)
 	}
 	return chunk, nil
 }
@@ -184,15 +223,23 @@ func HTTPTransportStreamChunkHook(ctx *schemas.BifrostContext, req *schemas.HTTP
 // PreLLMHook fires after bifrost has parsed the request into its
 // internal BifrostRequest type. We see the provider, model, and
 // (eventually) message content here.
+//
+// Dimensions stashed in HTTPTransportPreHook are read back via
+// dimsFromContext — at this point Bifrost has also populated its own
+// BifrostContextKeyDimensions, but using OUR copy keeps the plugin's
+// auth path independent of Bifrost's internal context lifecycle (so
+// the same logic works for SDK-mode users too, when we get there).
 func PreLLMHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
 	provider, model, _ := req.GetRequestFields()
-	runID, _ := ctx.Value(ctxKeyRequestID).(string)
+	dims := dimsFromContext(ctx)
 
-	logf("PreLLMHook provider=%s model=%s request_type=%s run_id=%s",
+	logf("PreLLMHook provider=%s model=%s request_type=%s run_id=%s agent=%s session_id=%s",
 		provider,
 		model,
 		req.RequestType,
-		runID,
+		dims["run-id"],
+		dims["agent-name"],
+		dims["session-id"],
 	)
 	return req, nil, nil
 }
@@ -202,7 +249,7 @@ func PreLLMHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) (*sche
 // response is set up; the actual chunks go through StreamChunkHook.
 func PostLLMHook(ctx *schemas.BifrostContext, resp *schemas.BifrostResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError, error) {
 	elapsed := elapsedSince(ctx)
-	runID, _ := ctx.Value(ctxKeyRequestID).(string)
+	dims := dimsFromContext(ctx)
 
 	var (
 		hadResp = resp != nil
@@ -220,8 +267,9 @@ func PostLLMHook(ctx *schemas.BifrostContext, resp *schemas.BifrostResponse, bif
 		totalTokens = u.TotalTokens
 	}
 
-	logf("PostLLMHook run_id=%s had_resp=%t had_err=%t prompt_tokens=%d completion_tokens=%d total_tokens=%d elapsed_ms=%d",
-		runID,
+	logf("PostLLMHook run_id=%s agent=%s had_resp=%t had_err=%t prompt_tokens=%d completion_tokens=%d total_tokens=%d elapsed_ms=%d",
+		dims["run-id"],
+		dims["agent-name"],
 		hadResp,
 		hadErr,
 		promptTokens,
@@ -373,6 +421,54 @@ func startPluginServer() {
 }
 
 // --- helpers -----------------------------------------------------------
+
+// extractDims walks the request headers and pulls every `x-bf-dim-*`
+// into a map keyed by the suffix (lower-cased, prefix stripped). Two
+// names are reserved by Bifrost and explicitly skipped: "path" and
+// "method", which Bifrost itself derives from the request line. This
+// matches Bifrost's own extraction in bifrost/transports/bifrost-
+// http/lib/ctx.go:266 — keeping the two implementations in sync means
+// downstream code (Bifrost's logging plugin, telemetry, our plugin)
+// sees identical dim shapes.
+//
+// Returns a non-nil map even when there are zero matching headers,
+// so callers can index it without nil-checks.
+//
+// Header keys in req.Headers arrive lower-cased from bifrost's HTTP
+// adapter (see schemas.HTTPRequest.CaseInsensitiveHeaderLookup which
+// also normalises to lower), but defensive iteration with
+// strings.ToLower keeps us safe against future changes.
+func extractDims(headers map[string]string) map[string]string {
+	dims := make(map[string]string, len(headers))
+	for k, v := range headers {
+		lk := strings.ToLower(k)
+		suffix, ok := strings.CutPrefix(lk, dimHeaderPrefix)
+		if !ok || suffix == "" {
+			continue
+		}
+		// Match Bifrost's reservation list — these names are derived
+		// from the request itself and never user-controllable.
+		if suffix == "path" || suffix == "method" {
+			continue
+		}
+		dims[suffix] = v
+	}
+	return dims
+}
+
+// dimsFromContext returns the dim map stashed by HTTPTransportPreHook,
+// or an empty (non-nil) map if it wasn't (e.g. SDK-mode usage where
+// the transport hooks never fire, or a request type Bifrost routes
+// without going through TransportInterceptorMiddleware).
+//
+// This is the function the auth path will call from PreLLMHook etc.
+// once macaroon verification lands — keep it ergonomic.
+func dimsFromContext(ctx *schemas.BifrostContext) map[string]string {
+	if dims, ok := ctx.Value(ctxKeyDimensions).(map[string]string); ok && dims != nil {
+		return dims
+	}
+	return map[string]string{}
+}
 
 // logf writes a single line to stderr prefixed with the plugin name and
 // a wallclock timestamp, so plugin output is greppable in bifrost logs.
